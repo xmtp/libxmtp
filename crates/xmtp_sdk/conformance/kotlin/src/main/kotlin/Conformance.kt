@@ -63,6 +63,14 @@ private class SampleCodec : SDKContentCodec {
     override fun decode(encoded: EncodedContent): Any = encoded.content.decodeToString()
 }
 
+private class FailingCodec : SDKContentCodec {
+    override val type = SampleCodec().type
+
+    override fun encode(value: Any) = SampleCodec().encode(value)
+
+    override fun decode(encoded: EncodedContent): Any = throw AssertionError("codec decode failed")
+}
+
 private suspend fun releasedMessage(
     identity: PublicIdentity,
     options: ClientOptions,
@@ -79,6 +87,7 @@ fun main() =
     runBlocking {
         check(sdkVersion().startsWith("1.12.0"))
         check(MessageID.fromString("a".repeat(64)).toString().length == 64)
+        check(runCatching { MessageID.fromString("bad") }.exceptionOrNull() is XmtpException.InvalidArgument)
         for (id in listOf(InboxID::class, InstallationID::class, ConversationID::class, MessageID::class)) {
             // Kotlin adds a synthetic constructor so the companion can call the private one.
             val callable = id.java.constructors.filterNot { it.isSynthetic }
@@ -87,6 +96,52 @@ fun main() =
             }
         }
         println("Kotlin scenario 1: load, checksums, version passed")
+
+        val failingSigner =
+            SDKForeign.signer(
+                object : Signer {
+                    override suspend fun identity(): PublicIdentity = throw AssertionError("host failure")
+
+                    override suspend fun kind(): SignerKind = throw AssertionError("host failure")
+
+                    override suspend fun sign(request: SigningRequest): Signature = throw AssertionError("host failure")
+                },
+            )
+        check(runCatching { withTimeout(5_000) { failingSigner.kind() } }.exceptionOrNull() is SignerException.Failed)
+        val failingCredentials =
+            SDKForeign.credentials(
+                object : CredentialSource {
+                    override suspend fun credential(): Credential = throw AssertionError("host failure")
+                },
+            )
+        check(
+            runCatching { withTimeout(5_000) { failingCredentials.credential() } }.exceptionOrNull()
+                is CredentialException.Failed,
+        )
+        val cancelled = CancellationException("real cancellation")
+        val cancelledSigner =
+            SDKForeign.signer(
+                object : Signer {
+                    override suspend fun identity(): PublicIdentity = throw cancelled
+
+                    override suspend fun kind(): SignerKind = throw cancelled
+
+                    override suspend fun sign(request: SigningRequest): Signature = throw cancelled
+                },
+            )
+        check(runCatching { cancelledSigner.kind() }.exceptionOrNull() === cancelled)
+        val failingSink =
+            SDKForeign.logSink(
+                object : LogSink {
+                    override fun log(record: LogRecord): Unit = throw AssertionError("host failure")
+                },
+            )
+        check(
+            runCatching {
+                failingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), 0, 0uL))
+            }.exceptionOrNull() is LogSinkException.Failed,
+        )
+        println("Kotlin P37 foreign trait wrappers passed")
 
         val signer = TestSigner()
         val directory = Files.createTempDirectory("xmtp-sdk-conformance-")
@@ -109,6 +164,7 @@ fun main() =
         check(sent.client() === host)
         host.end()
         check(runCatching { sent.client() }.exceptionOrNull() is XmtpException.ClientClosed)
+        check(runCatching { sent.refresh() }.exceptionOrNull() is XmtpException.ClientClosed)
         check(Message(sent.data.copy(clientKey = sent.data.clientKey + 1uL)) != sent)
         val reopenedHost = SDKClient.build(signer.identity(), options, inboxID)
         val reopened = reopenedHost.raw
@@ -131,6 +187,8 @@ fun main() =
         }
         check(weak.get() == null) { "the registry kept the host client alive" }
         check(runCatching { orphan.client() }.exceptionOrNull() is XmtpException.ClientClosed)
+        check(runCatching { orphan.refresh() }.exceptionOrNull() is XmtpException.ClientClosed)
+        println("Kotlin client_closed_after_end_and_release passed")
         println("Kotlin scenario 2: create, reopen, end passed")
 
         val liveGroup = reopened.conversations().createGroup(emptyList(), null)
@@ -377,6 +435,28 @@ fun main() =
         val copiedBytes =
             Message(parent.data.copy(encoded = parent.encoded.copy(content = parent.encoded.content.copyOf())))
         check(parent == copiedBytes && parent.hashCode() == copiedBytes.hashCode())
+        val sameParent = checkNotNull(reopened.conversations().getMessageByID(parentID))
+        check(parent == sameParent) { "message_copies_compare_equal failed" }
+        val changedStatus =
+            parent.data.copy(
+                deliveryStatus =
+                    if (parent.deliveryStatus ==
+                        DeliveryStatus.FAILED
+                    ) {
+                        DeliveryStatus.PUBLISHED
+                    } else {
+                        DeliveryStatus.FAILED
+                    },
+            )
+        check(parent != Message(changedStatus)) { "status_change_compares_unequal failed" }
+        val encodedCopyA = encodeText("value equality")
+        val encodedCopyB = encodeText("value equality")
+        check(encodedCopyA == encodedCopyB && encodedCopyA.hashCode() == encodedCopyB.hashCode()) {
+            "generated byte record equality failed"
+        }
+        val forwarded: Conversation = Conversation.Group(family)
+        check(forwarded.id() == family.id() && forwarded.lastMessage()?.id == family.lastMessage()?.id)
+        println("Kotlin message_copies_compare_equal and status_change_compares_unequal passed")
         println("Kotlin scenario 5: message records, reaction, and reply passed")
 
         val codec = SampleCodec()
@@ -387,6 +467,11 @@ fun main() =
         val undecoded = checkNotNull(withoutCodec.raw.conversations().getMessageByID(customID))
         check((decoded.content as? SDKMessageContent.Custom)?.value == "codec value")
         check(undecoded.content is SDKMessageContent.Unknown)
+        val failingHost = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(FailingCodec()))
+        val failed = checkNotNull(failingHost.raw.conversations().getMessageByID(customID))
+        check((failed.content as? SDKMessageContent.Custom)?.error is AssertionError)
+        failingHost.end()
+        println("Kotlin codec_scoped_to_client passed")
         withCodec.end()
         withoutCodec.end()
         println("Kotlin scenario 6: custom codec stayed with its client")

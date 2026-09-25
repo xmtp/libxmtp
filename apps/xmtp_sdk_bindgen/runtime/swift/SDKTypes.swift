@@ -22,9 +22,18 @@ public enum SDKMessageContent {
     case unknown(EncodedContent)
 }
 
-public enum SDKValueError: Error {
-    case invalidID
-    case clientClosed
+public enum SDKReplyContent {
+    case standard(MessageBody)
+    case custom(encoded: EncodedContent, value: Any?, error: Error?)
+    case unknown(EncodedContent)
+}
+
+private func invalidID(_ message: String) -> XmtpError {
+    .InvalidArgument(ErrorDetails(code: "InvalidArgument", category: .input, retryable: false, message: message))
+}
+
+private func clientClosedError() -> XmtpError {
+    .ClientClosed(ErrorDetails(code: "ClientClosed", category: .lifecycle, retryable: false, message: "client is closed"))
 }
 
 private func validHex(_ value: String, bytes: Int) -> Bool {
@@ -40,7 +49,7 @@ public struct InboxID: Hashable, Sendable, CustomStringConvertible {
     }
 
     public static func fromString(_ value: String) throws -> Self {
-        guard !value.isEmpty else { throw SDKValueError.invalidID }
+        guard !value.isEmpty else { throw invalidID("inbox ID is empty") }
         return unchecked(value)
     }
 
@@ -56,7 +65,7 @@ public struct InstallationID: Hashable, Sendable, CustomStringConvertible {
     }
 
     public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 32) else { throw SDKValueError.invalidID }
+        guard validHex(value, bytes: 32) else { throw invalidID("invalid lowercase hex ID") }
         return unchecked(value)
     }
 
@@ -72,7 +81,7 @@ public struct ConversationID: Hashable, Sendable, CustomStringConvertible {
     }
 
     public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 16) else { throw SDKValueError.invalidID }
+        guard validHex(value, bytes: 16) else { throw invalidID("invalid lowercase hex ID") }
         return unchecked(value)
     }
 
@@ -88,7 +97,7 @@ public struct MessageID: Hashable, Sendable, CustomStringConvertible {
     }
 
     public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 32) else { throw SDKValueError.invalidID }
+        guard validHex(value, bytes: 32) else { throw invalidID("invalid lowercase hex ID") }
         return unchecked(value)
     }
 
@@ -104,16 +113,32 @@ public struct Timestamp: Hashable, Sendable {
     }
 }
 
-public final class Message: Identifiable, Hashable {
+public final class Message: Identifiable, Hashable, @unchecked Sendable {
     public let data: MessageData
     public let content: SDKMessageContent
+    public let inReplyToContent: SDKReplyContent?
     public init(data: MessageData) {
         self.data = data
         if case let .custom(encoded) = data.content {
             content = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded)
-                ?? .custom(encoded: encoded, value: nil, error: SDKValueError.clientClosed)
+                ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
         } else {
             content = .standard(data.content)
+        }
+        if let parent = data.inReplyTo {
+            switch parent.content {
+            case let .custom(encoded):
+                let decoded = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded)
+                    ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
+                switch decoded {
+                case let .custom(_, value, error): inReplyToContent = .custom(encoded: encoded, value: value, error: error)
+                case .unknown: inReplyToContent = .unknown(encoded)
+                case .standard: inReplyToContent = .standard(parent.content)
+                }
+            default: inReplyToContent = .standard(parent.content)
+            }
+        } else {
+            inReplyToContent = nil
         }
     }
 
@@ -201,6 +226,10 @@ public final class Message: Identifiable, Hashable {
         try await client().raw.conversations().replyToMessage(id: id, content: content, options: options)
     }
 
+    public func reply(_ codec: any SDKContentCodec, value: Any, options: SendOptions? = nil) async throws -> MessageID {
+        try await reply(codec.encode(value), options: options)
+    }
+
     public func parent() async throws -> Message? {
         guard let id = data.inReplyTo?.id else { return nil }
         return try await client().raw.conversations().getMessageByID(id: id)
@@ -212,10 +241,7 @@ public final class Message: Identifiable, Hashable {
 
     public func client() throws -> SDKClient {
         guard let client = ClientRegistry.get(data.clientKey) else {
-            throw XmtpError.ClientClosed(ErrorDetails(
-                code: "ClientClosed", category: .lifecycle,
-                retryable: false, message: "client is closed"
-            ))
+            throw clientClosedError()
         }
         return client
     }
