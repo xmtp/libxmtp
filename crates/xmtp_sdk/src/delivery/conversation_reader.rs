@@ -166,6 +166,7 @@ impl ConversationReader {
     ) -> Result<ConnectionState, XmtpError> {
         let lease = self.lease.clone();
         let cancel = self.cancel.clone();
+        let mut changes = lease.subscribe_changes();
         on_sdk_worker(self.context.clone(), async move {
             loop {
                 let current = lease.snapshot().connection.into();
@@ -174,7 +175,7 @@ impl ConversationReader {
                 }
                 tokio::select! {
                     _ = cancel.cancelled() => return Ok(ConnectionState::Closed),
-                    _ = lease.changed() => {},
+                    _ = changes.changed() => {},
                 }
             }
         })
