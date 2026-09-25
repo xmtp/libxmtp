@@ -73,6 +73,13 @@ fn deletion_group(
     group: MlsGroup<MlsContext>,
     stored: &StoredGroupMessage,
 ) -> Result<MlsGroup<MlsContext>, XmtpError> {
+    if group.conversation_type == ConversationType::Dm
+        && stored.sender_inbox_id != group.context.inbox_id()
+    {
+        return Err(XmtpError::conversation_permission_denied(
+            "not your message",
+        ));
+    }
     if stored.group_id == group.group_id {
         return Ok(group);
     }
@@ -84,11 +91,6 @@ fn deletion_group(
     if stitched.is_none_or(|winner| winner.id != group.group_id) {
         return Err(XmtpError::conversation_permission_denied(
             "message belongs to another conversation",
-        ));
-    }
-    if stored.sender_inbox_id != group.context.inbox_id() {
-        return Err(XmtpError::conversation_permission_denied(
-            "not your message",
         ));
     }
     MlsStore::new(group.context.clone())
@@ -249,7 +251,7 @@ impl Conversations {
             {
                 return Ok(None);
             }
-            let group = client.group(&id).map_err(XmtpError::unknown)?;
+            let group = client.stitched_group(&id).map_err(XmtpError::unknown)?;
             Conversation::from_core(group, client_key).await
         })
         .await
