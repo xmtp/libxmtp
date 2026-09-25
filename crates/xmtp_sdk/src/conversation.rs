@@ -18,6 +18,7 @@ use xmtp_mls::MlsContext;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
 use xmtp_mls::messages::decoded_message::{DecodedMessage, MessageBody as CoreMessageBody};
+use xmtp_mls::mls_store::MlsStore;
 use xmtp_proto::types::{ConversationType, GroupId};
 
 use crate::{
@@ -66,6 +67,33 @@ where
             error
         }
     })
+}
+
+fn deletion_group(
+    group: MlsGroup<MlsContext>,
+    stored: &StoredGroupMessage,
+) -> Result<MlsGroup<MlsContext>, XmtpError> {
+    if stored.group_id == group.group_id {
+        return Ok(group);
+    }
+    let stitched = group
+        .context
+        .db()
+        .fetch_stitched(&stored.group_id)
+        .map_err(XmtpError::unknown)?;
+    if stitched.is_none_or(|winner| winner.id != group.group_id) {
+        return Err(XmtpError::conversation_permission_denied(
+            "message belongs to another conversation",
+        ));
+    }
+    if stored.sender_inbox_id != group.context.inbox_id() {
+        return Err(XmtpError::conversation_permission_denied(
+            "not your message",
+        ));
+    }
+    MlsStore::new(group.context.clone())
+        .group(&stored.group_id)
+        .map_err(XmtpError::unknown)
 }
 
 #[derive(uniffi::Object)]
@@ -324,14 +352,11 @@ impl Conversations {
 
     pub async fn delete_message(&self, id: MessageID) -> Result<MessageID, XmtpError> {
         let (stored, group) = self.message_group(&id).await?;
-        if stored.group_id != group.group_id {
-            return Err(XmtpError::conversation_permission_denied(
-                "message belongs to an inactive duplicate DM",
-            ));
-        }
-        let bytes = stored.id;
         on_sdk_worker(self.client.context.clone(), async move {
-            let deletion_id = group.delete_message(bytes).map_err(XmtpError::unknown)?;
+            let group = deletion_group(group, &stored)?;
+            let deletion_id = group
+                .delete_message(stored.id)
+                .map_err(XmtpError::unknown)?;
             MessageID::from_bytes(&deletion_id)
         })
         .await
@@ -951,11 +976,7 @@ macro_rules! common_conversation {
                         .get_group_message(&bytes)
                         .map_err(XmtpError::unknown)?
                         .ok_or_else(|| XmtpError::invalid("message not found"))?;
-                    if stored.group_id != group.group_id {
-                        return Err(XmtpError::conversation_permission_denied(
-                            "message belongs to an inactive duplicate DM",
-                        ));
-                    }
+                    let group = deletion_group(group, &stored)?;
                     let deletion_id = group.delete_message(bytes).map_err(XmtpError::unknown)?;
                     MessageID::from_bytes(&deletion_id)
                 })

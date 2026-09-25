@@ -3,6 +3,13 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
+nix build --no-link .#ubjs-core .#ubjs-node
+core="$(nix path-info .#ubjs-core)"
+node="$(nix path-info .#ubjs-node)"
+package_dir=target/sdk-generated/typescript-napi/node_modules/@ubjs
+mkdir -p "$package_dir"
+ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
+ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
 args=(--noEmit --module esnext --moduleResolution bundler --target es2022 --allowImportingTsExtensions --skipLibCheck)
 node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/consumers/positive.ts
 log="$(mktemp)"
