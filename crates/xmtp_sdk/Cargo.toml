@@ -42,6 +42,7 @@ uniffi = { version = "=0.32.2", default-features = false, features = ["tokio"] }
 uniffi = { version = "=0.32.2", default-features = false, features = [
   "wasm-unstable-single-threaded",
 ] }
+uniffi-runtime-wasm = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "330f9edbc3c4d6e6e948f6d2eb2724358668b79a" }
 wasm-bindgen-futures.workspace = true
 
 [dev-dependencies]

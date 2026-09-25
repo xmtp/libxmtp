@@ -1,20 +1,40 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [ "$#" -ne 2 ]; then
-  echo "usage: check-id-spelling <swift-output-dir> <kotlin-output-dir>" >&2
+if [ "$#" -ne 2 ] && [ "$#" -ne 4 ]; then
+  echo "usage: check-id-spelling <swift-dir> <kotlin-dir> [<node-ts-dir> <wasm-ts-dir>]" >&2
   exit 2
 fi
+
+has_match() {
+  local directory="$1"
+  local glob="$2"
+  local pattern="$3"
+  local skip_comments="${4:-false}"
+  local file
+  while IFS= read -r -d '' file; do
+    if [ "$skip_comments" = true ]; then
+      if grep -Ev '^[[:space:]]*(//|/\*|\*)' "$file" | grep -E "$pattern" >/dev/null; then
+        return 0
+      fi
+    elif grep -Eq "$pattern" "$file"; then
+      return 0
+    fi
+  done < <(find "$directory" -type f -name "$glob" -print0)
+  return 1
+}
 
 check_dir() {
   local directory="$1"
   local glob="$2"
+  local reject_all_id_suffixes="${3:-true}"
+  local skip_comments="${4:-false}"
   local spelling
   for spelling in \
     InboxID InstallationID ConversationID MessageID ContentTypeID \
     inboxID installationID conversationID senderInboxID \
     authorityID typeID chainID; do
-    if ! rg -q --glob "$glob" "\\b${spelling}\\b" "$directory"; then
+    if ! has_match "$directory" "$glob" "(^|[^[:alnum:]_])${spelling}([^[:alnum:]_]|$)" "$skip_comments"; then
       echo "missing $spelling in $directory" >&2
       return 1
     fi
@@ -23,12 +43,12 @@ check_dir() {
     InboxId InstallationId ConversationId MessageId ContentTypeId \
     inboxId installationId conversationId senderInboxId \
     authorityId typeId chainId; do
-    if rg -q --glob "$glob" "\\b${spelling}\\b" "$directory"; then
+    if has_match "$directory" "$glob" "(^|[^[:alnum:]_])${spelling}([^[:alnum:]_]|$)" "$skip_comments"; then
       echo "wrong ID spelling $spelling in $directory" >&2
       return 1
     fi
   done
-  if rg -q --glob "$glob" '\b[A-Za-z][A-Za-z0-9_]*Ids?\b' "$directory"; then
+  if [ "$reject_all_id_suffixes" = true ] && has_match "$directory" "$glob" '(^|[^[:alnum:]_])[A-Za-z][A-Za-z0-9_]*Ids?([^[:alnum:]_]|$)' "$skip_comments"; then
     echo "a generated name still ends in Id or Ids in $directory" >&2
     return 1
   fi
@@ -36,4 +56,10 @@ check_dir() {
 
 check_dir "$1" '*.swift'
 check_dir "$2" '*.kt'
-echo "Swift and Kotlin ID spellings are correct"
+if [ "$#" -eq 4 ]; then
+  # The fork's TypeScript runtime also has names such as shapeId. Only the
+  # façade names above must follow the SDK's ID spelling rule.
+  check_dir "$3" '*.ts' false true
+  check_dir "$4" '*.ts' false true
+fi
+echo "Generated ID spellings are correct"

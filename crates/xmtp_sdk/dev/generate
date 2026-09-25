@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
+
+dev/agent-run cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen
+dev/agent-run cargo build --locked -p xmtp_sdk --target wasm32-unknown-unknown
+
+case "$(uname -s)" in
+  Darwin) native=target/debug/libxmtp_sdk.dylib ;;
+  Linux) native=target/debug/libxmtp_sdk.so ;;
+  *) echo "unsupported host for SDK generation" >&2; exit 1 ;;
+esac
+
+generated=target/sdk-generated
+config=apps/xmtp_sdk_bindgen/uniffi-global.toml
+raw_wasm=target/wasm32-unknown-unknown/debug/xmtp_sdk.wasm
+rm -rf -- "$generated"
+mkdir -p "$generated"
+for language in swift kotlin typescript-napi; do
+  target/debug/xmtp-sdk-bindgen generate \
+    --lib "$native" --language "$language" \
+    --out "$generated/$language" --config "$config"
+done
+cp "$native" "$generated/typescript-napi/"
+target/debug/xmtp-sdk-bindgen generate \
+  --lib "$raw_wasm" --language typescript-wasm \
+  --out "$generated/typescript-wasm" --config "$config"
+target/debug/xmtp-sdk-bindgen stage-wasm \
+  --lib "$raw_wasm" --out "$generated/typescript-wasm"

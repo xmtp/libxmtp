@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+base=$(git merge-base HEAD origin/self-hosted)
+if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
+  exit 0
+fi
+
+changed=$(git diff --name-only "$base"...HEAD -- sdks/ bindings/)
+if [ -n "$changed" ]; then
+  echo "SDK facade changes cannot alter sdks/ or bindings/:" >&2
+  echo "$changed" >&2
+  exit 1
+fi

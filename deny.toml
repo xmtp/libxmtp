@@ -42,3 +42,16 @@ expression = "MIT AND ISC AND OpenSSL"
 license-files = [{ path = "LICENSE", hash = 0xbd0eed23 }]
 name = "ring"
 version = "*"
+
+# uniffi-bindgen-react-native (the owner's fork, pinned by rev) is MPL-2.0
+# (repository LICENSE), but these two crates' manifests have no `license`
+# field. Remove when the fork declares it.
+[[licenses.clarify]]
+crate = "ubrn_bindgen"
+expression = "MPL-2.0"
+license-files = []
+
+[[licenses.clarify]]
+crate = "ubrn_common"
+expression = "MPL-2.0"
+license-files = []

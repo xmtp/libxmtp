@@ -1,0 +1,4 @@
+# The fork's TypeScript configuration has no rename table yet.
+# The Swift and Kotlin generators use crates/xmtp_sdk/uniffi.toml.
+[bindings.typescript]
+strictTypeChecking = true

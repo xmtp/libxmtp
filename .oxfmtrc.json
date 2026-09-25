@@ -26,7 +26,9 @@
     "bindings/wasm/dist/**",
     "bindings/wasm/target/**",
     "dev/release-tools/dist/**",
-    "sdks/*/dist/**"
+    "sdks/*/dist/**",
+    // Stock ubrn output has any and as casts; see apps/xmtp_sdk_bindgen/GENERATED_LINT.md.
+    "target/sdk-generated/**"
   ],
   "printWidth": 80,
   "proseWrap": "preserve",

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+stale=target/sdk-generated/swift/runtime/Stale.swift
+mkdir -p "$(dirname "$stale")"
+printf '%s\n' '// stale generated file' > "$stale"
+trap 'rm -f "$stale"' EXIT
+
+bash crates/xmtp_sdk/dev/generate
+if [ -e "$stale" ]; then
+  echo "SDK generation kept $stale" >&2
+  exit 1
+fi

@@ -73,6 +73,14 @@
             inherit (pkgs.xmtp)
               ffi-uniffi-bindgen
               ;
+            xmtp-sdk-libs = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).libs;
+            xmtp-sdk-wasm = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).wasm;
+            xmtp-sdk-bindgen = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).bindgen;
+            xmtp-sdk-generated = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generated;
+            ubrn = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).cli;
+            ubjs-core = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).core;
+            ubjs-node = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).node;
+            ubjs-wasm = (pkgs.callPackage ./nix/lib/packages/ubrn.nix { }).wasm;
             inherit (pkgs)
               napi-rs-cli
               wasm-bindgen-cli

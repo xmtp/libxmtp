@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+nix build --no-link .#ubjs-core .#ubjs-wasm
+core="$(nix path-info .#ubjs-core)"
+wasm="$(nix path-info .#ubjs-wasm)"
+
+package_dir=target/sdk-generated/typescript-wasm/node_modules/@ubjs
+mkdir -p "$package_dir"
+ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
+ln -sfn "$wasm/lib/node_modules/@ubjs/wasm" "$package_dir/wasm"
+
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--preserve-symlinks"
+sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/dev/check-wasm-init.mts
