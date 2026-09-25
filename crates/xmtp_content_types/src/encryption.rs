@@ -176,7 +176,7 @@ pub fn sha256(bytes: &[u8]) -> Vec<u8> {
 }
 
 /// Derives an AES-256 key from a secret and salt using HKDF-SHA256.
-pub(crate) fn derive_key(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
+pub fn derive_key(secret: &[u8], salt: &[u8]) -> Result<[u8; 32], String> {
     let hkdf = Hkdf::<Sha256>::new(Some(salt), secret);
 
     let mut key = [0u8; 32];
