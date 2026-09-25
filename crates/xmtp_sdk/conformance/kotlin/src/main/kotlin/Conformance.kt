@@ -3,6 +3,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.first
@@ -502,6 +504,34 @@ fun main() =
         reopened.conversations().createGroup(emptyList(), null)
         check(withTimeout(15_000) { conversationValues.await() }.size == 1)
         check(conversationClose == SDKStreamCloseReason.Closed)
+        val monitorCalls = AtomicInteger()
+        val monitorClosed = CompletableDeferred<Unit>()
+        val fakeMonitor =
+            async {
+                readerFlow<Unit, Unit>(
+                    owner = reopenedHost,
+                    open = { Unit },
+                    next = { awaitCancellation() },
+                    end = {},
+                    connectionState = { ConnectionState.CONNECTING },
+                    connectionStateChanged = { _, _ ->
+                        monitorCalls.incrementAndGet()
+                        ConnectionState.CLOSED
+                    },
+                    onClose = null,
+                    onConnectionStateChange = { _, current ->
+                        if (current == ConnectionState.CLOSED) monitorClosed.complete(Unit)
+                    },
+                ).collect {}
+            }
+        try {
+            withTimeout(5_000) { monitorClosed.await() }
+            val callsAtClosed = monitorCalls.get()
+            delay(100)
+            check(monitorCalls.get() == callsAtClosed) { "state monitor kept reading after Closed" }
+        } finally {
+            fakeMonitor.cancelAndJoin()
+        }
         println("Kotlin scenario 7: durable stream and idle cancellation passed")
 
         val largeExpiry = 9_007_199_254_740_993L
