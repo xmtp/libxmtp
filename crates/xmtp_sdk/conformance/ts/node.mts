@@ -284,6 +284,30 @@ assert.equal(
   "first item was not acknowledged on next request",
 );
 await afterAck.end();
+const breakGroup = await reopened.conversations().createGroup([], undefined);
+const breakID = await breakGroup.sendText("close after break");
+const breakReasons: sdk.StreamCloseReason[] = [];
+const retainedStream = new sdk.MessageStream(
+  (signal) => breakGroup.messageReader({ signal }),
+  reopened,
+  { onClose: (reason) => breakReasons.push(reason) },
+);
+for await (const value of retainedStream) {
+  assert.equal(value.id.toString(), breakID.toString());
+  break;
+}
+assert.deepEqual(
+  breakReasons.map((reason) => reason.kind),
+  ["closed"],
+  "break did not close the stored stream",
+);
+const breakReplay = await breakGroup.messageReader();
+assert.equal(
+  (await breakReplay.next())?.id.toString(),
+  breakID.toString(),
+  "break acknowledged the last message",
+);
+await breakReplay.end();
 
 let resolveCreation!: (reader: {
   next: () => Promise<undefined>;

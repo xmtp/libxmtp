@@ -257,7 +257,7 @@ struct Conformance {
         _ = try? await pending.value
         let stream = try await reopenedHost.messages(in: reopenedGroup)
         let adapterID = try await reopenedGroup.sendText(text: "adapter stream", options: nil)
-        var iterator = stream.makeAsyncIterator()
+        let iterator = stream.makeAsyncIterator()
         let fromAdapter = try await iterator.next()
         precondition(fromAdapter?.id == adapterID)
         let idle = Task { try await iterator.next() }
@@ -298,6 +298,33 @@ struct Conformance {
         let remaining = try await afterAck.next()
         precondition(remaining?.id == secondID, "adapter did not acknowledge on next request")
         try await afterAck.end()
+        let breakGroup = try await reopened.conversations().createGroup(members: [], options: nil)
+        let breakID = try await breakGroup.sendText(text: "close after break")
+        let (breakClose, breakCloseSignal) = AsyncStream<SDKStreamCloseReason>.makeStream()
+        let retainedStream = try await reopenedHost.messages(
+            in: breakGroup, onClose: { _ = breakCloseSignal.yield($0) }
+        )
+        for try await value in retainedStream {
+            precondition(value.id == breakID)
+            break
+        }
+        var breakCloseIterator = breakClose.makeAsyncIterator()
+        let breakTimer = Task {
+            try? await Task.sleep(for: .seconds(2))
+            breakCloseSignal.finish()
+        }
+        guard let breakReason = await breakCloseIterator.next() else {
+            throw ConformanceFailure("break did not close the stored message stream")
+        }
+        breakTimer.cancel()
+        guard case .closed = breakReason else {
+            throw ConformanceFailure("break reported a failed stream")
+        }
+        let breakReplay = try await breakGroup.messageReader()
+        guard try await breakReplay.next()?.id == breakID else {
+            throw ConformanceFailure("break acknowledged the last message")
+        }
+        try await breakReplay.end()
         let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
         let (release, releaseSignal) = AsyncStream<Void>.makeStream()
         SDKClient.readerOpenedForTest = { reader in
@@ -305,7 +332,11 @@ struct Conformance {
             var iterator = release.makeAsyncIterator()
             _ = await iterator.next()
         }
-        let cancelledOpening = Task { try await reopenedHost.messages(in: protocolGroup) }
+        let cancelledOpening = Task {
+            let openingStream = try await reopenedHost.messages(in: protocolGroup)
+            let openingIterator = openingStream.makeAsyncIterator()
+            return try await openingIterator.next()
+        }
         var openedIterator = opened.makeAsyncIterator()
         guard let lateReader = await openedIterator.next() else {
             throw ConformanceFailure("reader did not open before cancellation")
@@ -314,9 +345,15 @@ struct Conformance {
         releaseSignal.yield(())
         do {
             _ = try await cancelledOpening.value
-            throw ConformanceFailure("cancelled reader creation returned a stream")
+            throw ConformanceFailure("cancelled reader creation delivered a message")
         } catch is CancellationError {}
         SDKClient.readerOpenedForTest = nil
+        for _ in 0..<1_000 where lateReader.connectionState() != .closed {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard lateReader.connectionState() == .closed else {
+            throw ConformanceFailure("late reader was not closed")
+        }
         guard try await lateReader.next() == nil else {
             throw ConformanceFailure("late reader was not closed")
         }
@@ -324,9 +361,11 @@ struct Conformance {
         try await reopenedReader.end()
         do {
             let conversationStream = try await reopenedHost.conversationStream()
-            var conversationIterator = conversationStream.makeAsyncIterator()
+            let conversationIterator = conversationStream.makeAsyncIterator()
+            let conversationPending = Task { try await conversationIterator.next() }
+            try await Task.sleep(for: .milliseconds(100))
             _ = try await reopened.conversations().createGroup(members: [], options: nil)
-            guard try await conversationIterator.next() != nil else {
+            guard try await conversationPending.value != nil else {
                 throw ConformanceFailure("conversation stream missed a stored group")
             }
         }

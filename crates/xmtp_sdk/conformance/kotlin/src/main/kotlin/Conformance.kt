@@ -5,6 +5,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -351,6 +352,37 @@ fun main() =
         val afterAck = protocolGroup.messageReader()
         check(afterAck.next()?.id == secondID) { "adapter did not acknowledge on next request" }
         afterAck.end()
+        val breakGroup = reopened.conversations().createGroup(emptyList(), null)
+        val breakID = breakGroup.sendText("close after take")
+        val breakReasons = mutableListOf<SDKStreamCloseReason>()
+        val retainedFlow = reopenedHost.messages(breakGroup, onClose = { breakReasons.add(it) })
+        check(retainedFlow.take(1).toList().single().id == breakID)
+        check(breakReasons == listOf(SDKStreamCloseReason.Closed)) { "take did not close the stored flow" }
+        val breakReplay = breakGroup.messageReader()
+        check(withTimeout(3_000) { breakReplay.next() }?.id == breakID) {
+            "take acknowledged the last message"
+        }
+        breakReplay.end()
+        val firstReasons = mutableListOf<SDKStreamCloseReason>()
+        val retainedFirst = reopenedHost.messages(breakGroup, onClose = { firstReasons.add(it) })
+        check(retainedFirst.first().id == breakID)
+        check(firstReasons == listOf(SDKStreamCloseReason.Closed)) { "first did not close the stored flow" }
+        val thrownReasons = mutableListOf<SDKStreamCloseReason>()
+        val retainedThrown = reopenedHost.messages(breakGroup, onClose = { thrownReasons.add(it) })
+        try {
+            retainedThrown.collect { throw IllegalStateException("collector stopped") }
+            error("collector exception did not leave the flow")
+        } catch (error: IllegalStateException) {
+            check(error.message == "collector stopped")
+        }
+        check(thrownReasons == listOf(SDKStreamCloseReason.Closed)) {
+            "collector exception did not close the stored flow"
+        }
+        val thrownReplay = breakGroup.messageReader()
+        check(withTimeout(3_000) { thrownReplay.next() }?.id == breakID) {
+            "collector exception acknowledged the last message"
+        }
+        thrownReplay.end()
         val openedReader = CompletableDeferred<MessageReader>()
         val releaseOpening = CompletableDeferred<Unit>()
         SDKClient.readerOpenedForTest = { opened ->

@@ -110,13 +110,9 @@ public final class SDKClient: @unchecked Sendable {
         onClose: (@Sendable (SDKStreamCloseReason) -> Void)? = nil,
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
     ) async throws -> SDKMessageStream {
-        let reader = try await group.messageReader()
-        if Task.isCancelled {
-            try? await reader.end()
-            throw CancellationError()
-        }
+        try Task.checkCancellation()
         return makeSDKMessageStream(
-            reader: reader, owner: self, onClose: onClose,
+            group: group, owner: self, onClose: onClose,
             onConnectionStateChange: onConnectionStateChange
         )
     }
@@ -126,13 +122,9 @@ public final class SDKClient: @unchecked Sendable {
         onClose: (@Sendable (SDKStreamCloseReason) -> Void)? = nil,
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
     ) async throws -> SDKConversationStream {
-        let reader = try await raw.conversations().conversationReader(kind: kind)
-        if Task.isCancelled {
-            try? await reader.end()
-            throw CancellationError()
-        }
+        try Task.checkCancellation()
         return makeSDKConversationStream(
-            reader: reader, owner: self, onClose: onClose,
+            kind: kind, owner: self, onClose: onClose,
             onConnectionStateChange: onConnectionStateChange
         )
     }
