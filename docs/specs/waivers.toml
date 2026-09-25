@@ -1007,12 +1007,6 @@ owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "The explicit storage layout is not implemented and tested yet."
 [[waiver]]
-id = "ATCH-027"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Task 10 must prove that full upload and download flows send no backend credential or client identifier."
-[[waiver]]
 id = "ATCH-039"
 kind = "gap"
 owner = "attachments"

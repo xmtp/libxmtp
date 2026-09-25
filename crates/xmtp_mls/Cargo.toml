@@ -185,6 +185,10 @@ tokio = { workspace = true, features = ["rt-multi-thread"] }
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 wasm-bindgen-test.workspace = true
 
+[[test]]
+name = "attachment_memory"
+required-features = ["test-utils"]
+
 [[bench]]
 harness = false
 name = "group_limit"
