@@ -32,7 +32,8 @@ elif language == "swift":
         source,
         "    public let raw: Client\n",
         "    public let raw: Client\n\n"
-        "    nonisolated(unsafe) static var readerOpenedForTest: (@Sendable (MessageReader) async -> Void)?\n",
+        "    nonisolated(unsafe) static var readerOpenedForTest: (@Sendable (MessageReader) async -> Void)?\n"
+        "    nonisolated(unsafe) static var conversationReaderOpenedForTest: (@Sendable (ConversationReader) async -> Void)?\n",
     )
     path.write_text(source)
     readers = path.parent / "streams" / "Readers.swift"
@@ -41,6 +42,12 @@ elif language == "swift":
         "        let reader = try await group.messageReader()\n",
         "        let reader = try await group.messageReader()\n"
         "        await SDKClient.readerOpenedForTest?(reader)\n",
+    )
+    readers_source = replace_once(
+        readers_source,
+        "        let reader = try await owner.raw.conversations().conversationReader(kind: kind)\n",
+        "        let reader = try await owner.raw.conversations().conversationReader(kind: kind)\n"
+        "        await SDKClient.conversationReaderOpenedForTest?(reader)\n",
     )
     readers.write_text(readers_source)
 else:

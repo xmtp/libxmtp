@@ -19,6 +19,23 @@ private func sameEncoded(_ lhs: EncodedContent, _ rhs: EncodedContent) -> Bool {
         lhs.content == rhs.content
 }
 
+final class TestFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var open = false
+
+    func set() {
+        lock.lock()
+        open = true
+        lock.unlock()
+    }
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return open
+}
+}
+
 final class TestSigner: Signer, @unchecked Sendable {
     private func run(_ action: String, _ text: String? = nil) throws -> String {
         let environment = ProcessInfo.processInfo.environment
@@ -360,6 +377,14 @@ struct Conformance {
         let reopenedReader = try await protocolGroup.messageReader()
         try await reopenedReader.end()
         do {
+            let conversationOpen = TestFlag()
+            SDKClient.conversationReaderOpenedForTest = { _ in
+                try? await Task.sleep(for: .milliseconds(300))
+                conversationOpen.set()
+            }
+            defer {
+                SDKClient.conversationReaderOpenedForTest = nil
+            }
             let conversationStream = try await reopenedHost.conversationStream()
             let conversationIterator = conversationStream.makeAsyncIterator()
             let conversationPending = Task { try await conversationIterator.next() }
@@ -369,7 +394,14 @@ struct Conformance {
                 conversationPending.cancel()
             }
             defer { conversationDeadline.cancel() }
-            try await Task.sleep(for: .milliseconds(100))
+            for _ in 0 ..< 1_000 {
+                if conversationOpen.value { break }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            guard conversationOpen.value else {
+                conversationPending.cancel()
+                throw ConformanceFailure("conversation reader was not open before group creation")
+            }
             _ = try await reopened.conversations().createGroup(members: [], options: nil)
             do {
                 guard try await conversationPending.value != nil else {
