@@ -8,5 +8,6 @@ if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
 fi
 export VITE_XMTP_BACKEND_URL="${XMTP_BACKEND_URL:?load the worktree backend URL}"
 bash crates/xmtp_sdk/dev/check-wasm-init
+bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture
 sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/storage.chromium.mts
 sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/bridge.chromium.mts
