@@ -255,7 +255,7 @@ message RemoteAttachmentInfo {
   bytes nonce = 3;
   // A byte array for the salt used to encrypt the remote content payload
   bytes salt = 4;
-  // The scheme of the URL. Must be "https://"
+  // The scheme of the URL: "https://", or "http://" for a loopback host
   string scheme = 5;
   // The URL of the remote content
   string url = 6;
