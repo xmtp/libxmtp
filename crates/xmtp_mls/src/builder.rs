@@ -499,7 +499,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         });
 
         // register workers
-        context.attachments.sweep(&context).await?;
+        if let Err(error) = context.attachments.sweep(&context).await {
+            tracing::warn!(%error, "attachment cleanup failed during client build");
+        }
         if !disable_workers {
             use crate::worker::WorkerKind;
             // One source of truth for enablement: the folded WorkerConfig map.
