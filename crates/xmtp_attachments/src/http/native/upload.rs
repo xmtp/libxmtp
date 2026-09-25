@@ -348,7 +348,7 @@ pub(super) async fn put(
     }
     let url = Url::parse(&upload.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
     secure_upload_url(&url)?;
-    let file = tokio::fs::File::open(&body.path)
+    let file = tokio::fs::File::open(body.path)
         .await
         .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
     let body_len = file
@@ -379,9 +379,9 @@ pub(super) async fn put(
         .uri(path)
         .body(StreamBody::new(stream))
         .map_err(|_| AttachmentError::new(Cause::Malformed))?;
-    let (mut parts, request_body) = request.into_parts();
+    let (mut parts, body) = request.into_parts();
     parts.headers = headers;
-    let request = Request::from_parts(parts, request_body);
+    let request = Request::from_parts(parts, body);
     let (mut sender, connection) = http1::handshake(TokioIo::new(io))
         .await
         .map_err(|_| network())?;
@@ -443,15 +443,5 @@ pub(super) async fn put(
         outcome
     };
     driver.abort();
-    // Hyper stops polling the body at Content-Length. Check for bytes added later.
-    if matches!(outcome, Ok(PutOutcome::Stored)) {
-        let current_len = tokio::fs::metadata(&body.path)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
-            .len();
-        if current_len != body_len {
-            return Err(AttachmentError::new(Cause::LocalStorage));
-        }
-    }
     outcome
 }

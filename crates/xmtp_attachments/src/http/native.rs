@@ -1108,7 +1108,7 @@ mod tests {
 
     async fn changed_file_during_put(
         truncate: bool,
-    ) -> Result<AttachmentError, Box<dyn Error + Send + Sync>> {
+    ) -> Result<(Result<PutOutcome, AttachmentError>, usize), Box<dyn Error + Send + Sync>> {
         use std::io::Write;
         use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
@@ -1124,13 +1124,18 @@ mod tests {
             let (socket, _) = listener.accept().await.unwrap();
             let mut reader = BufReader::new(socket);
             let mut line = String::new();
+            let mut content_length = None;
             loop {
                 line.clear();
                 assert!(reader.read_line(&mut line).await.unwrap() > 0);
                 if line == "\r\n" {
                     break;
                 }
+                if let Some(length) = line.to_ascii_lowercase().strip_prefix("content-length: ") {
+                    content_length = Some(length.trim().parse::<usize>().unwrap());
+                }
             }
+            assert_eq!(content_length, Some(BODY_SIZE));
             reader
                 .get_mut()
                 .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
@@ -1139,7 +1144,16 @@ mod tests {
             headers_tx.send(()).unwrap();
             resume_rx.await.unwrap();
             let mut buffer = [0_u8; 8192];
-            while reader.read(&mut buffer).await.unwrap() != 0 {}
+            let mut received = 0;
+            loop {
+                let size = reader.read(&mut buffer).await.unwrap();
+                if size == 0 {
+                    break;
+                }
+                assert!(buffer[..size].iter().all(|byte| *byte == 0x5a));
+                received += size;
+            }
+            received
         });
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("body");
@@ -1161,28 +1175,22 @@ mod tests {
                 .write_all(b"extra")?;
         }
         resume_tx.send(()).unwrap();
-        let result = tokio::time::timeout(Duration::from_secs(5), upload_task)
-            .await??
-            .unwrap_err();
-        server.abort();
-        let _ = server.await;
-        Ok(result)
+        let result = tokio::time::timeout(Duration::from_secs(5), upload_task).await??;
+        let received = tokio::time::timeout(Duration::from_secs(5), server).await??;
+        Ok((result, received))
     }
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn staged_file_change_during_put_is_local_storage() {
-        assert_eq!(
-            changed_file_during_put(false).await?.cause,
-            Cause::LocalStorage
-        );
+    async fn staged_file_growth_during_put_sends_declared_length() {
+        let (result, received) = changed_file_during_put(false).await?;
+        assert_eq!(received, 8 * 1024 * 1024);
+        assert_eq!(result?, PutOutcome::Stored);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn staged_file_truncation_during_put_is_local_storage() {
-        assert_eq!(
-            changed_file_during_put(true).await?.cause,
-            Cause::LocalStorage
-        );
+        let (result, _) = changed_file_during_put(true).await?;
+        assert_eq!(result.unwrap_err().cause, Cause::LocalStorage);
     }
 
     // verifies: ATCH-054
