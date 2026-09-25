@@ -52,6 +52,8 @@ pub enum XmtpError {
     CredentialRejected(ErrorDetails),
     #[error("credential callback failed: {0:?}")]
     CredentialCallbackFailed(ErrorDetails),
+    #[error("callback failed: {0:?}")]
+    CallbackFailed(ErrorDetails),
     #[error("credential attempts exhausted: {0:?}")]
     CredentialExhausted(ErrorDetails),
     #[error("credential missing: {0:?}")]
@@ -161,6 +163,15 @@ impl XmtpError {
             retryable: false,
             message: "signer callback failed".into(),
         })
+    }
+
+    pub(crate) fn callback_failed() -> Self {
+        Self::CallbackFailed(Self::details(
+            "CallbackFailed",
+            ErrorCategory::Callback,
+            false,
+            "pre-authenticate callback failed",
+        ))
     }
 
     pub(crate) fn from_signature_request(

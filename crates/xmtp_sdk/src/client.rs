@@ -15,6 +15,7 @@ use crate::{
     Archives, BackendSource, Conversations, Diagnostics, InboxID, InstallationID, Preferences,
     PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError, signer,
 };
+use xmtp_common::{MaybeSend, MaybeSync};
 
 pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 
@@ -164,6 +165,32 @@ impl From<WorkerOptions> for xmtp_mls::worker::WorkerConfig {
     }
 }
 
+#[xmtp_macro::callback_error]
+#[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
+pub enum PreAuthenticateError {
+    #[error("pre-authenticate callback failed")]
+    Failed,
+}
+
+impl From<uniffi::UnexpectedUniFFICallbackError> for PreAuthenticateError {
+    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Failed
+    }
+}
+
+// Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
+#[uniffi::export(with_foreign)]
+#[xmtp_common::async_trait]
+pub trait PreAuthenticate: MaybeSend + MaybeSync + 'static {
+    async fn run(&self) -> Result<(), PreAuthenticateError>;
+}
+
+#[derive(Clone, Default, uniffi::Record)]
+pub struct ClientHandlers {
+    #[uniffi(default = None)]
+    pub pre_authenticate: Option<Arc<dyn PreAuthenticate>>,
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct ClientOptions {
     /// Omission uses empty connection options, as the old field default did.
@@ -178,6 +205,8 @@ pub struct ClientOptions {
     pub fork_recovery: Option<ForkRecoveryOptions>,
     #[uniffi(default = None)]
     pub workers: Option<WorkerOptions>,
+    #[uniffi(default = None)]
+    pub handlers: Option<ClientHandlers>,
 }
 
 impl Default for ClientOptions {
@@ -189,6 +218,7 @@ impl Default for ClientOptions {
             registration: RegistrationOptions::default(),
             fork_recovery: None,
             workers: None,
+            handlers: None,
         }
     }
 }
@@ -288,6 +318,17 @@ impl Client {
         let Some(mut request) = self.inner.identity().signature_request() else {
             return Ok(());
         };
+        if let Some(handler) = self
+            .options
+            .handlers
+            .as_ref()
+            .and_then(|handlers| handlers.pre_authenticate.clone())
+        {
+            crate::foreign::call(async move { handler.run().await })
+                .await
+                .map_err(|_| XmtpError::callback_failed())?
+                .map_err(|_| XmtpError::callback_failed())?;
+        }
         let signature = signer::sign(
             signer,
             SigningRequest {
