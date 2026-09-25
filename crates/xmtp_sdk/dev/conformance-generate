@@ -14,6 +14,8 @@ esac
 
 generated=target/sdk-conformance
 config=apps/xmtp_sdk_bindgen/uniffi-global.toml
+rm -rf -- "$generated"
+mkdir -p "$generated"
 for language in swift kotlin typescript-napi; do
   target/debug/xmtp-sdk-bindgen generate \
     --lib "$native" --language "$language" \

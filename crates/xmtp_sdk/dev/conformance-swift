@@ -4,11 +4,5 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 bash crates/xmtp_sdk/dev/conformance-generate
-swift_dir=crates/xmtp_sdk/conformance/swift
-mkdir -p "$swift_dir/Sources/XmtpSdk" "$swift_dir/Sources/xmtp_sdkFFI"
-cp target/sdk-conformance/swift/xmtp_sdk.swift "$swift_dir/Sources/XmtpSdk/"
-cp target/sdk-conformance/swift/runtime/*.swift "$swift_dir/Sources/XmtpSdk/"
-python3 crates/xmtp_sdk/conformance/inject_reader_gate.py swift "$swift_dir/Sources/XmtpSdk/SDKClient.swift"
-cp target/sdk-conformance/swift/xmtp_sdkFFI.h "$swift_dir/Sources/xmtp_sdkFFI/"
-cp target/sdk-conformance/swift/xmtp_sdkFFI.modulemap "$swift_dir/Sources/xmtp_sdkFFI/module.modulemap"
+bash crates/xmtp_sdk/dev/stage-conformance-swift
 NIX_DEVSHELL=ios dev/nix-shell 'export RUST_MIN_STACK=8388608; export SDK_SIGN_KEY="$(openssl rand -hex 32)"; export SDK_NODE_BIN="$(command -v node)"; export SDK_SIGN_SCRIPT="$PWD/crates/xmtp_sdk/conformance/ts/sign.mjs"; export SDK_OPENSSL_LIB_DIR="$(pkg-config --variable=libdir openssl)"; swift run --package-path crates/xmtp_sdk/conformance/swift XmtpSdkConformance'

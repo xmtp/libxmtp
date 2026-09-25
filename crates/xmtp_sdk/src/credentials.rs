@@ -146,8 +146,14 @@ impl Backend {
             builder.app_version(version);
         }
         // Keep a handle for a credential that the app sets after creation.
-        // The core builder counts only a held credential or callback as a source.
-        let auth_handle = Some(xmtp_api_backend::AuthHandle::new());
+        // An empty SDK handle does not satisfy a required-credential deployment.
+        let auth_handle = Some(
+            if options.credential.is_some() || options.credentials.is_some() {
+                xmtp_api_backend::AuthHandle::new()
+            } else {
+                xmtp_api_backend::AuthHandle::sdk_placeholder()
+            },
+        );
         builder.maybe_auth_handle(auth_handle.clone());
         builder.maybe_auth_callback(options.credentials.map(|source| {
             Arc::new(AuthBridge::new(source)) as Arc<dyn xmtp_api_backend::AuthCallback>

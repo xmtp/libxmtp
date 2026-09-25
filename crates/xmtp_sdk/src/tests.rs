@@ -77,6 +77,7 @@ async fn encryption_round_trips_and_rejects_changed_bytes() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn encoded_content_encryption_rejects_missing_content_type() {
     use prost::Message as _;
+    use xmtp_content_types::ContentCodec;
     use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
     assert!(matches!(
@@ -89,6 +90,28 @@ async fn encoded_content_encryption_rejects_missing_content_type() {
     };
     assert!(matches!(
         crate::crypto::encrypt_encoded_content(without_type.encode_to_vec()).await,
+        Err(XmtpError::InvalidInput(_))
+    ));
+    let mut empty_authority = xmtp_content_types::text::TextCodec::encode("content".into())?;
+    empty_authority
+        .r#type
+        .as_mut()
+        .expect("content type")
+        .authority_id
+        .clear();
+    assert!(matches!(
+        crate::crypto::encrypt_encoded_content(empty_authority.encode_to_vec()).await,
+        Err(XmtpError::InvalidInput(_))
+    ));
+    let mut empty_type = xmtp_content_types::text::TextCodec::encode("content".into())?;
+    empty_type
+        .r#type
+        .as_mut()
+        .expect("content type")
+        .type_id
+        .clear();
+    assert!(matches!(
+        crate::crypto::encrypt_encoded_content(empty_type.encode_to_vec()).await,
         Err(XmtpError::InvalidInput(_))
     ));
 }
@@ -149,6 +172,51 @@ async fn client_configuration_and_credential_update() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn credential_can_be_set_after_build_without_initial_source() {
+    use prost::bytes::Bytes;
+    use xmtp_proto::api::{ApiClientError, BytesStream, Client as TransportClient};
+    use xmtp_proto::api_client::XmtpBackendClient;
+
+    struct CredentialProbe(Arc<AtomicBool>);
+
+    #[xmtp_common::async_trait]
+    impl TransportClient for CredentialProbe {
+        fn host(&self) -> &str {
+            "mock://credential-probe"
+        }
+
+        async fn request(
+            &self,
+            request: http::request::Builder,
+            _path: http::uri::PathAndQuery,
+            body: Bytes,
+        ) -> Result<http::Response<Bytes>, ApiClientError> {
+            assert_eq!(
+                request
+                    .headers_ref()
+                    .and_then(|headers| headers.get(http::header::AUTHORIZATION)),
+                Some(&http::header::HeaderValue::from_static(
+                    "Bearer added-later"
+                ))
+            );
+            self.0.store(true, Ordering::SeqCst);
+            Ok(http::Response::new(body))
+        }
+
+        async fn stream(
+            &self,
+            _request: http::request::Builder,
+            _path: http::uri::PathAndQuery,
+            _body: Bytes,
+        ) -> Result<http::Response<BytesStream>, ApiClientError> {
+            unreachable!("credential proof uses a unary request")
+        }
+    }
+
+    let backend = crate::Backend::from_options(BackendOptions {
+        url: xmtp_configuration::backend_test_url(),
+        ..Default::default()
+    })?;
+    assert!(!backend.api.has_credential_source());
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     client
         .set_credential(Credential {
@@ -157,7 +225,20 @@ async fn credential_can_be_set_after_build_without_initial_source() {
             expires_at_seconds: i64::MAX,
         })
         .await?;
-    client.refresh_server_configuration().await?;
+    let sent = Arc::new(AtomicBool::new(false));
+    let middleware = xmtp_api_backend::AuthMiddleware::new(
+        CredentialProbe(sent.clone()),
+        None,
+        client.auth_handle.clone(),
+    );
+    middleware
+        .request(
+            http::Request::builder(),
+            http::uri::PathAndQuery::from_static("/credential-proof"),
+            Bytes::new(),
+        )
+        .await?;
+    assert!(sent.load(Ordering::SeqCst));
     client.end().await?;
 }
 

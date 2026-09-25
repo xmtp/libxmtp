@@ -37,6 +37,8 @@ jobs:
         run: just sdk generate
       - name: Lint generated SDK bindings
         run: just sdk lint
+      - name: Check clean SDK generation
+        run: just sdk check-clean-generate
       - name: Initialize generated SDK WASM
         run: just sdk wasm-init
       - name: Test SDK crate

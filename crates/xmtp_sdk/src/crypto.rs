@@ -76,8 +76,16 @@ pub async fn encrypt_encoded_content(
     }
     let content = EncodedContent::decode(content.as_slice())
         .map_err(|_| XmtpError::invalid("invalid encoded content"))?;
-    if content.r#type.is_none() {
-        return Err(XmtpError::invalid("encoded content has no content type"));
+    match content.r#type.as_ref() {
+        None => return Err(XmtpError::invalid("encoded content has no content type")),
+        Some(content_type)
+            if content_type.authority_id.is_empty() || content_type.type_id.is_empty() =>
+        {
+            return Err(XmtpError::invalid(
+                "encoded content type has an empty identifier",
+            ));
+        }
+        Some(_) => {}
     }
     core::encrypt_encoded_content(content)
         .map(Into::into)

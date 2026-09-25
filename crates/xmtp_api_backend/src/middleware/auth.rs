@@ -1,7 +1,10 @@
 use crate::endpoints::backend::GET_CONFIGURATION_PATH;
 use arc_swap::ArcSwap;
 use prost::bytes::Bytes;
-use std::sync::{Arc, Weak};
+use std::sync::{
+    Arc, Weak,
+    atomic::{AtomicBool, Ordering},
+};
 use tokio::sync::OnceCell;
 use xmtp_common::{BoxDynError, MaybeSend, MaybeSync, time::Instant};
 #[cfg(not(test))]
@@ -69,6 +72,7 @@ impl AuthState {
 #[derive(Default)]
 struct AuthInner {
     current: OnceCell<ArcSwap<Credential>>,
+    source_supplied: AtomicBool,
     state: tokio::sync::Mutex<AuthState>,
     /// Held across the callback so only one runs at a time. It is separate from
     /// `state` because `AuthHandle::set` takes `state`, and a callback that
@@ -103,9 +107,17 @@ impl AuthInner {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub struct AuthHandle {
     inner: Arc<AuthInner>,
+}
+
+impl Default for AuthHandle {
+    fn default() -> Self {
+        let inner = Arc::new(AuthInner::default());
+        inner.source_supplied.store(true, Ordering::Release);
+        Self { inner }
+    }
 }
 
 impl std::fmt::Debug for AuthHandle {
@@ -119,11 +131,20 @@ impl AuthHandle {
         Self::default()
     }
 
+    /// Reserve a handle for an SDK credential set after client creation.
+    /// This empty handle does not satisfy CONF-051 by itself.
+    pub fn sdk_placeholder() -> Self {
+        Self {
+            inner: Arc::new(AuthInner::default()),
+        }
+    }
+
     // implements: AUTH-024
     pub async fn set(&self, credential: Credential) {
         let mut state = self.inner.state.lock().await;
         let was_locked = state.locked_until.is_some();
         self.inner.store(credential);
+        self.inner.source_supplied.store(true, Ordering::Release);
         *state = AuthState {
             generation: state.generation + 1,
             ..AuthState::default()
@@ -167,6 +188,12 @@ pub struct AuthMiddleware<C> {
 }
 
 impl<C> AuthMiddleware<C> {
+    fn bypass_empty_sdk_placeholder(&self) -> bool {
+        !self.handle.inner.source_supplied.load(Ordering::Acquire)
+            && self.callback.is_none()
+            && self.handle.inner.current.get().is_none()
+    }
+
     #[track_caller]
     pub fn new(
         inner: C,
@@ -327,10 +354,10 @@ impl<C> AuthMiddleware<C> {
 
 #[xmtp_common::async_trait]
 impl<C: Client> Client for AuthMiddleware<C> {
-    /// An empty handle can receive a credential later. It is not a source
-    /// for a deployment that requires auth at client creation.
+    /// An app-supplied handle is a source even before it holds a credential.
+    /// Only an empty handle reserved by the SDK is excluded from CONF-051.
     fn has_credential_source(&self) -> bool {
-        self.callback.is_some() || self.handle.inner.current.get().is_some()
+        self.callback.is_some() || self.handle.inner.source_supplied.load(Ordering::Acquire)
     }
 
     fn host(&self) -> &str {
@@ -351,7 +378,7 @@ impl<C: Client> Client for AuthMiddleware<C> {
         if path.path() == GET_CONFIGURATION_PATH {
             return self.inner.request(request, path, body).await;
         }
-        if !self.has_credential_source() {
+        if self.bypass_empty_sdk_placeholder() {
             return self.inner.request(request, path, body).await;
         }
         let (parts, ()) = request.body(())?.into_parts();
@@ -383,7 +410,7 @@ impl<C: Client> Client for AuthMiddleware<C> {
         path: http::uri::PathAndQuery,
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
-        if !self.has_credential_source() {
+        if self.bypass_empty_sdk_placeholder() {
             return self.inner.stream(request, path, body).await;
         }
         let (parts, ()) = request.body(())?.into_parts();
@@ -414,7 +441,7 @@ impl<C: Client> Client for AuthMiddleware<C> {
         path: http::uri::PathAndQuery,
         body: xmtp_common::BoxDynStream<'static, Bytes>,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
-        if !self.has_credential_source() {
+        if self.bypass_empty_sdk_placeholder() {
             return self.inner.bidi_stream(request, path, body).await;
         }
         let (parts, ()) = request.body(())?.into_parts();
