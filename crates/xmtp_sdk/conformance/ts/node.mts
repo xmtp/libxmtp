@@ -50,6 +50,12 @@ const standardCodecs = new Map([
 ]);
 const codecSamples = sdk.sdkConformanceStandardSamples();
 assert.equal(codecSamples.length, 15);
+function assertEncodedEqual(actual: sdk.EncodedContent, expected: sdk.EncodedContent): void {
+  assert.deepEqual(actual.type, expected.type);
+  assert.deepEqual(actual.parameters, expected.parameters);
+  assert.equal(actual.fallback, expected.fallback);
+  assert.deepEqual(Buffer.from(actual.content), Buffer.from(expected.content));
+}
 for (const sample of codecSamples) {
   const codec = standardCodecs.get(sample.value.tag);
   assert.ok(codec, `missing codec for ${sample.value.tag}`);
@@ -62,12 +68,8 @@ for (const sample of codecSamples) {
         ? sample.value
         : sample.value.inner[0];
   const encoded = codec.encode(value);
-  assert.deepEqual(Buffer.from(encoded.content), Buffer.from(sample.expected.content));
-  assert.deepEqual(encoded.parameters, sample.expected.parameters);
-  assert.deepEqual(
-    Buffer.from(codec.encode(codec.decode(encoded)).content),
-    Buffer.from(sample.expected.content),
-  );
+  assertEncodedEqual(encoded, sample.expected);
+  assertEncodedEqual(codec.encode(codec.decode(encoded)), sample.expected);
 }
 console.log("Node P69: all 15 standard codecs match Rust bytes");
 
@@ -143,8 +145,7 @@ for (const sample of codecSamples) {
   }
   const wire = await client.conversations().getMessageByID(id);
   assert.ok(wire);
-  assert.equal(wire.encoded.type.typeID, sample.expected.type.typeID);
-  assert.deepEqual(Buffer.from(wire.encoded.content), Buffer.from(sample.expected.content));
+  assertEncodedEqual(wire.encoded, sample.expected);
   typedSends++;
 }
 assert.equal(typedSends, 12);
