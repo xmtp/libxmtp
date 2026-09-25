@@ -226,6 +226,18 @@ impl Message {
         client_key: u64,
     ) -> Result<Self, XmtpError> {
         let encoded = EncodedContent::decode(value.decrypted_message_bytes.as_slice()).ok();
+        let raw_fallback = encoded.is_none().then(|| SdkEncodedContent {
+            r#type: ContentTypeId {
+                authority_id: String::new(),
+                type_id: String::new(),
+                version_major: 0,
+                version_minor: 0,
+            },
+            parameters: Default::default(),
+            fallback: None,
+            compression: None,
+            content: value.decrypted_message_bytes.clone(),
+        });
         let content_type = encoded
             .as_ref()
             .and_then(|content| content.r#type.clone())
@@ -238,8 +250,12 @@ impl Message {
             .map(MessageContent::decode_proto)
             .transpose()
             .unwrap_or(None)
-            .unwrap_or(MessageContent::Unknown {
-                encoded: encoded.clone().unwrap_or_default().into(),
+            .unwrap_or_else(|| MessageContent::Unknown {
+                encoded: encoded
+                    .clone()
+                    .map(Into::into)
+                    .or_else(|| raw_fallback.clone())
+                    .expect("parsed or raw content"),
             });
         let kind = match value.kind {
             GroupMessageKind::Application => MessageKind::Application,
@@ -272,8 +288,9 @@ impl Message {
                 .map(|value| {
                     xmtp_content_types::compression::decompress(value.clone()).unwrap_or(value)
                 })
-                .unwrap_or_default()
-                .into(),
+                .map(Into::into)
+                .or(raw_fallback)
+                .expect("parsed or raw content"),
             content,
             reply_count: 0,
             reactions: Vec::new(),
