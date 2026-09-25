@@ -507,7 +507,7 @@ id = "CTYPE-014"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Remote-attachment decoding accepts a missing required parameter as an empty value."
+reason = "Remote-attachment decoding accepts a missing required parameter as an empty value. The Android and iOS remote attachment codecs reject an http:// URL to localhost or a loopback address, which the parameters table admits."
 
 [[waiver]]
 id = "CTYPE-018"
@@ -886,6 +886,13 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Pending attachment creation and upload are not implemented yet."
+
+[[waiver]]
+id = "ATCH-072"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
 
 [[waiver]]
 id = "ATCH-034"
