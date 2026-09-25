@@ -1,7 +1,8 @@
 use prost::Message as _;
 use xmtp_content_types::{ContentCodec, reply::ReplyCodec};
 use xmtp_db::group_message::{
-    DeliveryStatus as StoredDeliveryStatus, GroupMessageKind, StoredGroupMessage,
+    ContentType as StoredContentType, DeliveryStatus as StoredDeliveryStatus, GroupMessageKind,
+    StoredGroupMessage,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -76,6 +77,18 @@ pub enum MessageBody {
     DeletedMessage(crate::DeletedMessage),
     Custom { encoded: SdkEncodedContent },
     Unknown { encoded: SdkEncodedContent },
+}
+
+fn core_decodes_standard(content: &EncodedContent) -> bool {
+    let Some(kind) = content.r#type.as_ref() else {
+        return false;
+    };
+    !matches!(
+        StoredContentType::from_identifier(&kind.authority_id, &kind.type_id, kind.version_major,),
+        StoredContentType::Unknown
+            | StoredContentType::GroupMembershipChange
+            | StoredContentType::DeleteMessage
+    )
 }
 
 impl MessageContent {
@@ -275,6 +288,15 @@ impl Message {
         let content = encoded
             .clone()
             .map(|content| match decoded {
+                Some(xmtp_mls::messages::decoded_message::MessageBody::Custom(
+                    ref core_content,
+                )) if content.r#type.is_none()
+                    || core_decodes_standard(&content)
+                    || core_content.compression.is_some() =>
+                {
+                    // Core also uses Custom when a standard decode fails.
+                    MessageContent::decode_proto(content, &value.decrypted_message_bytes)
+                }
                 Some(body) => {
                     MessageContent::from_core(body, content, &value.decrypted_message_bytes)
                 }
