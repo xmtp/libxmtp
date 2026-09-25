@@ -30,10 +30,10 @@ use tokio::{
 };
 use tokio_util::io::ReaderStream;
 
-use super::{Transfer, validate_upload_url};
+use super::{AbortOnDrop, Transfer};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
-    http::{PutOutcome, UploadRequest, put_outcome, sensitive_header},
+    http::{PutOutcome, UploadRequest, put_outcome, secure_upload_url},
     store::{CHUNK_SIZE, StagedFile},
 };
 
@@ -283,9 +283,6 @@ fn request_headers(
         }
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|_| AttachmentError::new(Cause::Malformed))?;
-        if sensitive_header(name.as_str()) {
-            return Err(AttachmentError::new(Cause::Credential));
-        }
         let value =
             HeaderValue::from_str(value).map_err(|_| AttachmentError::new(Cause::Malformed))?;
         if name == CONTENT_LENGTH {
@@ -330,7 +327,7 @@ pub(super) async fn put(
         return Err(AttachmentError::new(Cause::TargetRejected));
     }
     let url = Url::parse(&upload.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
-    validate_upload_url(&url)?;
+    secure_upload_url(&url)?;
     let file = tokio::fs::File::open(body.path)
         .await
         .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
@@ -369,6 +366,7 @@ pub(super) async fn put(
         .await
         .map_err(|_| network())?;
     let mut driver = tokio::spawn(connection);
+    let _driver_guard = AbortOnDrop::new(&driver);
     let outcome = {
         let upload = async {
             let mut response = sender.send_request(request).await.map_err(|_| network())?;

@@ -13,7 +13,7 @@ use bytes::Bytes;
 use reqwest::{
     Client, StatusCode, Url,
     dns::{Addrs, Name, Resolve, Resolving},
-    header::{ACCEPT_ENCODING, CONTENT_ENCODING, LOCATION},
+    header::{ACCEPT_ENCODING, CONTENT_ENCODING, HeaderMap, LOCATION},
     redirect::Policy,
 };
 use tokio::sync::mpsc;
@@ -118,17 +118,41 @@ fn validate_url(url: &Url, options: &AttachmentOptions) -> Result<(), Attachment
     Ok(())
 }
 
-fn validate_upload_url(url: &Url) -> Result<(), AttachmentError> {
-    let host = url.host().ok_or(AttachmentError::new(Cause::InsecureUrl))?;
-    let loopback = match host {
-        url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
-        url::Host::Ipv4(address) => address.is_loopback(),
-        url::Host::Ipv6(address) => address.is_loopback(),
-    };
-    if url.scheme() == "https" || (url.scheme() == "http" && loopback) {
-        Ok(())
-    } else {
-        Err(AttachmentError::new(Cause::InsecureUrl))
+fn content_encoding(headers: &HeaderMap) -> Result<Option<&'static str>, AttachmentError> {
+    let mut coding = None;
+    for value in headers.get_all(CONTENT_ENCODING) {
+        let value = value
+            .to_str()
+            .map_err(|_| AttachmentError::new(Cause::HttpStatus))?;
+        for part in value.split(',') {
+            let part = part.trim().to_ascii_lowercase();
+            if part == "identity" {
+                continue;
+            }
+            if coding.is_some() {
+                return Err(AttachmentError::new(Cause::HttpStatus));
+            }
+            coding = Some(match part.as_str() {
+                "gzip" | "x-gzip" => "gzip",
+                "deflate" => "deflate",
+                _ => return Err(AttachmentError::new(Cause::HttpStatus)),
+            });
+        }
+    }
+    Ok(coding)
+}
+
+struct AbortOnDrop(tokio::task::AbortHandle);
+
+impl AbortOnDrop {
+    fn new<T>(task: &tokio::task::JoinHandle<T>) -> Self {
+        Self(task.abort_handle())
+    }
+}
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
     }
 }
 
@@ -255,24 +279,13 @@ impl Transfer {
             }
             _ => return Err(AttachmentError::new(Cause::HttpStatus)),
         }
-        let encoding = response
-            .headers()
-            .get(CONTENT_ENCODING)
-            .map(|value| value.to_str().unwrap_or("invalid").to_ascii_lowercase());
+        let encoding = content_encoding(response.headers())?;
         let cap = cap.min(self.options.max_download_bytes.unwrap_or(u64::MAX));
-        match encoding.as_deref() {
-            None | Some("identity") => read_identity(response, cap, sink, self.idle_timeout).await,
-            Some("gzip" | "deflate") => {
-                read_compressed(
-                    response,
-                    encoding.as_deref().unwrap(),
-                    cap,
-                    sink,
-                    self.idle_timeout,
-                )
-                .await
+        match encoding {
+            None => read_identity(response, cap, sink, self.idle_timeout).await,
+            Some(encoding) => {
+                read_compressed(response, encoding, cap, sink, self.idle_timeout).await
             }
-            _ => Err(AttachmentError::new(Cause::HttpStatus)),
         }
     }
 }
@@ -370,6 +383,9 @@ async fn read_compressed(
             }
         }
     });
+    // Aborting the producer drops input_tx and consumed_rx. This lets the
+    // blocking decoder stop when the caller drops the download future.
+    let _producer_guard = AbortOnDrop::new(&producer);
     let decoder = tokio::task::spawn_blocking(move || {
         let reader = ChannelReader {
             rx: input_rx,
@@ -378,7 +394,7 @@ async fn read_compressed(
             position: 0,
         };
         let mut reader: Box<dyn Read> = if gzip {
-            Box::new(flate2::read::GzDecoder::new(reader))
+            Box::new(flate2::read::MultiGzDecoder::new(reader))
         } else {
             Box::new(flate2::read::ZlibDecoder::new(reader))
         };
@@ -798,7 +814,7 @@ mod tests {
     // verifies: ATCH-071
     #[xmtp_common::test(unwrap_try = true)]
     async fn private_https_put_is_not_dns_blocked() {
-        validate_upload_url(&Url::parse("https://10.1.2.3/object")?)?;
+        crate::http::secure_upload_url(&Url::parse("https://10.1.2.3/object")?)?;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
         let address = listener.local_addr()?;
         let transfer = Transfer::with_resolver_and_timeouts(
@@ -1342,6 +1358,183 @@ mod tests {
         }
     }
 
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn gzip_multi_member_body_decodes() {
+        use std::io::Write;
+        let mut compressed = Vec::new();
+        for part in [b"first".as_slice(), b"second".as_slice()] {
+            let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+            gzip.write_all(part)?;
+            compressed.extend(gzip.finish()?);
+        }
+        let compressed = Bytes::from(compressed);
+        let server = server(move |_| {
+            Response::builder()
+                .header(CONTENT_ENCODING, "gzip")
+                .body(Full::new(compressed.clone()))
+                .unwrap()
+        })
+        .await;
+        let mut sink = MemorySink::default();
+        allowed().get(&server.url, 11, &mut sink).await?;
+        assert_eq!(sink.0, b"firstsecond");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn dropped_gzip_download_closes_connection() {
+        use std::io::Write;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        struct SignalSink(Option<tokio::sync::oneshot::Sender<()>>);
+        #[async_trait::async_trait]
+        impl DownloadSink for SignalSink {
+            async fn write(&mut self, _bytes: &[u8]) -> Result<(), AttachmentError> {
+                if let Some(signal) = self.0.take() {
+                    let _ = signal.send(());
+                }
+                Ok(())
+            }
+        }
+
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gzip.write_all(b"decoded")?;
+        gzip.flush()?;
+        let incomplete = gzip.get_ref().clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\n\r\n")
+                .await
+                .unwrap();
+            socket.write_all(&incomplete).await.unwrap();
+            let mut discarded = Vec::new();
+            socket.read_to_end(&mut discarded).await.unwrap();
+        });
+        let (written_tx, written_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            allowed()
+                .get(&url, 100, &mut SignalSink(Some(written_tx)))
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(3), written_rx).await??;
+        task.abort();
+        let _ = task.await;
+        tokio::time::timeout(Duration::from_secs(2), server).await??;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn cancelled_put_after_early_2xx_closes_connection() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        const BODY_SIZE: usize = 8 * 1024 * 1024;
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.set_recv_buffer_size(8192)?;
+        socket.bind("127.0.0.1:0".parse()?)?;
+        let listener = socket.listen(1)?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let (answered_tx, answered_rx) = tokio::sync::oneshot::channel();
+        let (read_tx, read_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut head = Vec::new();
+            let mut buf = [0_u8; 1024];
+            while !head.windows(4).any(|bytes| bytes == b"\r\n\r\n") {
+                let count = socket.read(&mut buf).await.unwrap();
+                assert!(count > 0);
+                head.extend_from_slice(&buf[..count]);
+            }
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            answered_tx.send(()).unwrap();
+            read_rx.await.unwrap();
+            let mut discarded = Vec::new();
+            socket.read_to_end(&mut discarded).await.unwrap();
+            assert!(head.len() + discarded.len() < BODY_SIZE);
+        });
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("body");
+        std::fs::write(&path, vec![0x5a; BODY_SIZE])?;
+        let task =
+            tokio::spawn(async move { allowed().put(&upload(url), StagedFile { path }).await });
+        tokio::time::timeout(Duration::from_secs(3), answered_rx).await??;
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        task.abort();
+        let _ = task.await;
+        read_tx.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(2), server).await??;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn content_encoding_field_lines_are_combined() {
+        use std::io::Write;
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gzip.write_all(b"decoded")?;
+        let compressed = Bytes::from(gzip.finish()?);
+        let first = compressed.clone();
+        let first_server = server(move |_| {
+            Response::builder()
+                .header(CONTENT_ENCODING, "identity")
+                .header(CONTENT_ENCODING, "gzip")
+                .body(Full::new(first.clone()))
+                .unwrap()
+        })
+        .await;
+        let mut sink = MemorySink::default();
+        allowed().get(&first_server.url, 7, &mut sink).await?;
+        assert_eq!(sink.0, b"decoded");
+
+        let second_server = server(move |_| {
+            Response::builder()
+                .header(CONTENT_ENCODING, "identity, gzip")
+                .body(Full::new(compressed.clone()))
+                .unwrap()
+        })
+        .await;
+        let mut sink = MemorySink::default();
+        allowed().get(&second_server.url, 7, &mut sink).await?;
+        assert_eq!(sink.0, b"decoded");
+
+        let invalid_server = server(|_| {
+            Response::builder()
+                .header(CONTENT_ENCODING, "gzip, deflate")
+                .body(Full::new(Bytes::new()))
+                .unwrap()
+        })
+        .await;
+        assert_eq!(
+            allowed()
+                .get(&invalid_server.url, 7, &mut MemorySink::default())
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::HttpStatus
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn x_gzip_is_gzip() {
+        use std::io::Write;
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gzip.write_all(b"decoded")?;
+        let compressed = Bytes::from(gzip.finish()?);
+        let server = server(move |_| {
+            Response::builder()
+                .header(CONTENT_ENCODING, "X-GZip")
+                .body(Full::new(compressed.clone()))
+                .unwrap()
+        })
+        .await;
+        let mut sink = MemorySink::default();
+        allowed().get(&server.url, 7, &mut sink).await?;
+        assert_eq!(sink.0, b"decoded");
+    }
+
     // verifies: ATCH-056
     #[xmtp_common::test(unwrap_try = true)]
     async fn unknown_encoding_rejected() {
@@ -1441,15 +1634,39 @@ mod tests {
             PutOutcome::Stored
         );
         assert!(seen_put.load(Ordering::Relaxed));
-        let upload = UploadRequest {
-            headers: vec![("authorization".into(), "secret".into())],
-            ..upload
-        };
-        let error = allowed()
-            .put(&upload, store.open_read(&staged).await?)
-            .await
-            .unwrap_err();
-        assert_eq!(error.cause, Cause::Credential);
+    }
+
+    // verifies: ATCH-024
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn signed_authorization_header_is_sent() {
+        use http_body_util::BodyExt;
+        let signed = "AWS4-HMAC-SHA256 Credential=example";
+        let (seen_tx, seen_rx) = tokio::sync::oneshot::channel();
+        let seen_tx = Arc::new(std::sync::Mutex::new(Some(seen_tx)));
+        let server = server_async(move |request| {
+            let seen_tx = seen_tx.clone();
+            async move {
+                let header = request.headers().get("authorization").unwrap().clone();
+                let body = request.into_body().collect().await.unwrap().to_bytes();
+                assert_eq!(body.as_ref(), b"body");
+                seen_tx
+                    .lock()
+                    .unwrap()
+                    .take()
+                    .unwrap()
+                    .send(header)
+                    .unwrap();
+                answer(StatusCode::CREATED, "")
+            }
+        })
+        .await;
+        let (_directory, body) = staged_body()?;
+        let mut request = upload(server.url.clone());
+        request
+            .headers
+            .push(("authorization".into(), signed.into()));
+        assert_eq!(allowed().put(&request, body).await?, PutOutcome::Stored);
+        assert_eq!(seen_rx.await?.to_str()?, signed);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

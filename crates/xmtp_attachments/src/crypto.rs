@@ -14,11 +14,17 @@ const BLOCK_LEN: usize = 16;
 const MAX_GCM_INPUT_BYTES: u64 = (u32::MAX as u64 - 1) * BLOCK_LEN as u64;
 
 /// The random values used by the attachment encryption scheme.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct KeyMaterial {
     pub secret: [u8; 32],
     pub salt: [u8; 32],
     pub nonce: [u8; 12],
+}
+
+impl std::fmt::Debug for KeyMaterial {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("KeyMaterial { .. }")
+    }
 }
 
 impl KeyMaterial {
@@ -222,6 +228,18 @@ mod tests {
     use aes_gcm::{Aes256Gcm, KeyInit as _, aead::Aead as _};
 
     use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn key_material_debug_hides_secrets() {
+        let material = KeyMaterial {
+            secret: [0xab; 32],
+            salt: [0xcd; 32],
+            nonce: [0xef; 12],
+        };
+        let debug = format!("{material:?}");
+        assert_eq!(debug, "KeyMaterial { .. }");
+        assert!(!debug.contains(&hex::encode(material.secret)));
+    }
 
     fn check_lengths(material: &KeyMaterial, plaintext: &[u8], start: usize, end: usize) {
         let key =

@@ -22,12 +22,27 @@ pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Values from the backend's signed upload response.
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct UploadRequest {
     pub method: String,
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub expires_in_seconds: u32,
+}
+
+impl std::fmt::Debug for UploadRequest {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let origin = url::Url::parse(&self.url)
+            .map(|url| url.origin().ascii_serialization())
+            .unwrap_or_else(|_| "<invalid>".to_owned());
+        let header_names: Vec<&str> = self.headers.iter().map(|(name, _)| name.as_str()).collect();
+        formatter
+            .debug_struct("UploadRequest")
+            .field("method", &self.method)
+            .field("url", &origin)
+            .field("headers", &header_names)
+            .finish()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -72,19 +87,41 @@ pub(crate) fn checked_count(current: u64, added: usize, cap: u64) -> Result<u64,
     Ok(next)
 }
 
-pub(crate) fn sensitive_header(name: &str) -> bool {
-    let name = name.to_ascii_lowercase();
-    matches!(
-        name.as_str(),
-        "authorization" | "cookie" | "proxy-authorization"
-    ) || name.starts_with("x-xmtp-")
-        || name.starts_with("x-inbox-")
-        || name.starts_with("x-installation-")
+/// Apply the backend upload URL policy on both targets.
+pub(crate) fn secure_upload_url(url: &url::Url) -> Result<(), AttachmentError> {
+    let host = url.host().ok_or(AttachmentError::new(Cause::InsecureUrl))?;
+    let loopback = match host {
+        url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+        url::Host::Ipv4(address) => address.is_loopback(),
+        url::Host::Ipv6(address) => address.is_loopback(),
+    };
+    if url.scheme() == "https" || (url.scheme() == "http" && loopback) {
+        Ok(())
+    } else {
+        Err(AttachmentError::new(Cause::InsecureUrl))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn upload_request_debug_hides_signed_values() {
+        let request = UploadRequest {
+            method: "PUT".into(),
+            url: "https://storage.example/path?X-Amz-Signature=query-secret".into(),
+            headers: vec![("authorization".into(), "header-secret".into())],
+            expires_in_seconds: 60,
+        };
+        let debug = format!("{request:?}");
+        assert!(debug.contains("PUT"));
+        assert!(debug.contains("https://storage.example"));
+        assert!(debug.contains("authorization"));
+        assert!(!debug.contains("query-secret"));
+        assert!(!debug.contains("header-secret"));
+        assert!(!debug.contains("/path"));
+    }
 
     // verifies: ATCH-070
     #[xmtp_common::test(unwrap_try = true)]
@@ -105,21 +142,6 @@ mod tests {
         options.max_download_bytes = Some(u64::MAX);
         assert_eq!(download_cap(None, u64::MAX, &options), u32::MAX as u64);
         assert!(checked_count(9, 2, 10).is_err());
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn credential_header_filter() {
-        for name in [
-            "Authorization",
-            "Cookie",
-            "Proxy-Authorization",
-            "X-XMTP-Inbox-ID",
-            "X-Inbox-Id",
-            "X-Installation-Id",
-        ] {
-            assert!(sensitive_header(name));
-        }
-        assert!(!sensitive_header("Content-Type"));
     }
 
     #[xmtp_common::test(unwrap_try = true)]
