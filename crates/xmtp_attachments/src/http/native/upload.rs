@@ -8,17 +8,23 @@ use std::{
     task::{Context, Poll},
 };
 
-use reqwest::{
-    Url,
-    dns::Name,
-    header::{CONTENT_LENGTH, HOST, HeaderName, HeaderValue},
+use futures_util::StreamExt;
+use http_body_util::StreamBody;
+use hyper::{
+    Request,
+    body::Frame,
+    client::conn::http1,
+    header::{CONTENT_LENGTH, HOST, HeaderMap, HeaderName, HeaderValue},
 };
+use hyper_util::rt::TokioIo;
+use reqwest::{Url, dns::Name};
 use rustls::pki_types::ServerName;
 use tokio::{
-    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, ReadBuf},
+    io::{AsyncRead, AsyncWrite, ReadBuf},
     net::{TcpSocket, TcpStream},
     time::{Instant, timeout},
 };
+use tokio_util::io::ReaderStream;
 
 use super::{Transfer, validate_upload_url};
 use crate::{
@@ -167,7 +173,7 @@ fn request_headers(
     url: &Url,
     upload: &UploadRequest,
     body_len: u64,
-) -> Result<Vec<u8>, AttachmentError> {
+) -> Result<(String, HeaderMap), AttachmentError> {
     let mut path = url.path().to_owned();
     if let Some(query) = url.query() {
         path.push('?');
@@ -183,10 +189,18 @@ fn request_headers(
         Some(port) if port != default_port => format!("{host}:{port}"),
         _ => host,
     };
-    let mut headers = format!("PUT {path} HTTP/1.1\r\n").into_bytes();
+    let mut headers = HeaderMap::new();
+    let mut header_bytes = path
+        .len()
+        .saturating_add(authority.len())
+        .saturating_add(64);
     let mut has_host = false;
     let mut has_length = false;
     for (name, value) in &upload.headers {
+        header_bytes = header_bytes.saturating_add(name.len() + value.len() + 4);
+        if header_bytes > CHUNK_SIZE {
+            return Err(AttachmentError::new(Cause::Malformed));
+        }
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|_| AttachmentError::new(Cause::Malformed))?;
         if sensitive_header(name.as_str()) {
@@ -208,60 +222,23 @@ fn request_headers(
         if name == HOST {
             has_host = true;
         }
-        headers.extend_from_slice(name.as_str().as_bytes());
-        headers.extend_from_slice(b": ");
-        headers.extend_from_slice(value.as_bytes());
-        headers.extend_from_slice(b"\r\n");
-        if headers.len() > CHUNK_SIZE {
-            return Err(AttachmentError::new(Cause::Malformed));
-        }
+        headers.append(name, value);
     }
     if !has_host {
-        headers.extend_from_slice(format!("host: {authority}\r\n").as_bytes());
+        headers.insert(
+            HOST,
+            HeaderValue::from_str(&authority)
+                .map_err(|_| AttachmentError::new(Cause::Malformed))?,
+        );
     }
     if !has_length {
-        headers.extend_from_slice(format!("content-length: {body_len}\r\n").as_bytes());
+        headers.insert(
+            CONTENT_LENGTH,
+            HeaderValue::from_str(&body_len.to_string())
+                .map_err(|_| AttachmentError::new(Cause::Malformed))?,
+        );
     }
-    headers.extend_from_slice(b"\r\n");
-    Ok(headers)
-}
-
-async fn status(io: Box<dyn SocketIo>) -> Result<u16, AttachmentError> {
-    let mut io = BufReader::with_capacity(4096, io);
-    let mut response = [0_u8; 16 * 1024];
-    let mut used = 0;
-    loop {
-        io.read_exact(&mut response[used..used + 1])
-            .await
-            .map_err(|_| network())?;
-        used += 1;
-        if used >= 4 && &response[used - 4..used] == b"\r\n\r\n" {
-            let first = response[..used]
-                .windows(2)
-                .position(|bytes| bytes == b"\r\n")
-                .ok_or_else(network)?;
-            let line = std::str::from_utf8(&response[..first]).map_err(|_| network())?;
-            let mut parts = line.split_ascii_whitespace();
-            if !parts
-                .next()
-                .is_some_and(|version| version.starts_with("HTTP/1."))
-            {
-                return Err(network());
-            }
-            let code = parts
-                .next()
-                .and_then(|code| code.parse::<u16>().ok())
-                .ok_or_else(network)?;
-            if (100..200).contains(&code) {
-                used = 0;
-                continue;
-            }
-            return Ok(code);
-        }
-        if used == response.len() {
-            return Err(network());
-        }
-    }
+    Ok((path, headers))
 }
 
 pub(super) async fn put(
@@ -274,7 +251,7 @@ pub(super) async fn put(
     }
     let url = Url::parse(&upload.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
     validate_upload_url(&url)?;
-    let mut file = tokio::fs::File::open(body.path)
+    let file = tokio::fs::File::open(body.path)
         .await
         .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
     let body_len = file
@@ -282,41 +259,44 @@ pub(super) async fn put(
         .await
         .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?
         .len();
-    let headers = request_headers(&url, upload, body_len)?;
+    let (path, headers) = request_headers(&url, upload, body_len)?;
     let last = Arc::new(Mutex::new(Instant::now()));
-    let mut io = timeout(
+    let io = timeout(
         transfer.connect_timeout,
         connect(transfer, &url, last.clone()),
     )
     .await
     .map_err(|_| network())??;
     *last.lock().unwrap() = Instant::now();
+    let stream = ReaderStream::with_capacity(file, CHUNK_SIZE).map(|chunk| chunk.map(Frame::data));
+    let request = Request::builder()
+        .method("PUT")
+        .uri(path)
+        .body(StreamBody::new(stream))
+        .map_err(|_| AttachmentError::new(Cause::Malformed))?;
+    let (mut parts, body) = request.into_parts();
+    parts.headers = headers;
+    let request = Request::from_parts(parts, body);
+    let (mut sender, connection) = http1::handshake(TokioIo::new(io))
+        .await
+        .map_err(|_| network())?;
+    let driver = tokio::spawn(connection);
     let upload = async {
-        io.write_all(&headers).await.map_err(|_| network())?;
-        let mut buffer = [0_u8; CHUNK_SIZE];
-        loop {
-            let size = file
-                .read(&mut buffer)
-                .await
-                .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
-            if size == 0 {
-                break;
-            }
-            io.write_all(&buffer[..size]).await.map_err(|_| network())?;
-        }
-        io.flush().await.map_err(|_| network())?;
-        status(io).await
+        let response = sender.send_request(request).await.map_err(|_| network())?;
+        put_outcome(response.status().as_u16())
     };
     tokio::pin!(upload);
-    loop {
+    let outcome = loop {
         let deadline = *last.lock().unwrap() + transfer.idle_timeout;
         tokio::select! {
-            result = &mut upload => return put_outcome(result?),
+            result = &mut upload => break result,
             () = tokio::time::sleep_until(deadline) => {
                 if Instant::now().duration_since(*last.lock().unwrap()) >= transfer.idle_timeout {
-                    return Err(network());
+                    break Err(network());
                 }
             }
         }
-    }
+    };
+    driver.abort();
+    outcome
 }
