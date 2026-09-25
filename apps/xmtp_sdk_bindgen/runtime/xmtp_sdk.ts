@@ -189,18 +189,36 @@ export type MessageBody = {
   tag: MessageBody_Tags;
   inner: { encoded: EncodedContent };
 };
+export const MessageBody = {
+  Unknown: {
+    new(inner: { encoded: EncodedContent }): MessageBody {
+      return { tag: MessageBody_Tags.Unknown, inner };
+    },
+  },
+};
 export type MessageContent =
   | {
       tag: MessageContent_Tags.Reply;
       inner: { referenceID: MessageID; body: MessageBody };
     }
   | {
-      tag:
-        | MessageContent_Tags.Text
-        | MessageContent_Tags.Custom
-        | MessageContent_Tags.Unknown;
+      tag: MessageContent_Tags.Text | MessageContent_Tags.Custom;
       inner: { encoded: EncodedContent };
+    }
+  | {
+      tag: MessageContent_Tags.Unknown;
+      inner: { encoded: EncodedContent; rawBytes: ArrayBuffer };
     };
+export const MessageContent = {
+  Unknown: {
+    new(inner: {
+      encoded: EncodedContent;
+      rawBytes: ArrayBuffer;
+    }): MessageContent {
+      return { tag: MessageContent_Tags.Unknown, inner };
+    },
+  },
+};
 export type Reaction = object;
 export type SendOptions = object;
 

@@ -1,13 +1,13 @@
 import {
   ErrorCategory,
+  MessageBody,
   MessageBody_Tags,
+  MessageContent,
   MessageContent_Tags,
   XmtpError,
   encodeText,
   type EncodedContent,
   type Conversation,
-  type MessageContent,
-  type MessageBody,
   type MessageData,
   type Reaction,
   type SendOptions,
@@ -30,7 +30,8 @@ function decodeReplyBody(
   const encoded = body.inner.encoded;
   const owner = ClientRegistry.get(clientKey);
   const decoded = owner?.decodeCustom(encoded);
-  if (decoded === undefined && owner !== undefined) return body;
+  if (decoded === undefined && owner !== undefined)
+    return MessageBody.Unknown.new({ encoded });
   return {
     tag: MessageBody_Tags.Custom,
     inner: { encoded, ...(decoded ?? { error: "clientClosed" }) },
@@ -67,7 +68,7 @@ export class Message {
     const decoded = owner?.decodeCustom(encoded);
     this.content =
       decoded === undefined && owner !== undefined
-        ? content
+        ? MessageContent.Unknown.new({ encoded, rawBytes: encoded.content })
         : {
             tag: MessageContent_Tags.Custom,
             inner: { encoded, ...(decoded ?? { error: "clientClosed" }) },
