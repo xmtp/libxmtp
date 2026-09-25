@@ -1,4 +1,5 @@
 import {
+  ErrorCategory,
   StandardContent,
   StandardContentKind,
   StandardContent_Tags,
@@ -16,11 +17,17 @@ import {
   type Intent,
   type GroupUpdated,
   type LeaveRequest,
+  XmtpError,
 } from "../xmtp_sdk";
 import type { ContentCodec } from "./client";
 
 function wrongValue(): never {
-  throw new TypeError("wrong standard codec value");
+  throw new XmtpError.InvalidArgument({
+    code: "InvalidArgument",
+    category: ErrorCategory.Input,
+    retryable: false,
+    message: "wrong standard codec value",
+  });
 }
 
 function tupleValue<T>(value: StandardContent, tag: StandardContent_Tags): T {

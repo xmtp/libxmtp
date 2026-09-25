@@ -24,6 +24,10 @@ assert.equal(typeof sdk.Client.create, "function");
 assert.equal(typeof sdk.Message, "function");
 assert.equal(typeof sdk.Timestamp, "function");
 assert.throws(
+  () => new sdk.MarkdownCodec().decode(sdk.encodeText("wrong codec")),
+  sdk.XmtpError.InvalidArgument,
+);
+assert.throws(
   () => sdk.MessageID.fromString("bad"),
   sdk.XmtpError.InvalidArgument,
 );
