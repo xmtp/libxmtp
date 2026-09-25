@@ -218,6 +218,12 @@ fn unusable_attachments_is_none() {
         ("https://example.com/attachments?key=value", 1),
         ("https://example.com/attachments#section", 1),
         ("https://example.com/attachments/", 1),
+        ("https://example.com/attachments/ ", 1),
+        ("https://example.com/attachments/\n", 1),
+        ("https://example.com/a/..", 1),
+        (" https://example.com/a", 1),
+        (r"https:\\example.com\a", 1),
+        ("https:example.com/a", 1),
         ("https://example.com/attachments", 4_294_967_296),
     ] {
         let mut response = populated();
@@ -236,6 +242,8 @@ fn unusable_attachments_is_none() {
 fn usable_attachments_keep_the_offer() {
     for base_url in [
         "https://example.com/attachments",
+        "https://example.com",
+        "http://127.0.0.1:9000",
         "http://127.0.0.1/attachments",
         "http://[::1]/attachments",
     ] {
@@ -247,7 +255,7 @@ fn usable_attachments_keep_the_offer() {
         });
         let configuration = ServerConfiguration::from(response);
         let attachments = configuration.attachments.as_ref()?;
-        assert_eq!(attachments.base_url.as_str(), base_url);
+        assert_eq!(attachments.base_url, base_url);
         assert_eq!(attachments.max_upload_bytes, u32::MAX as u64);
         configuration.validate()?;
     }
