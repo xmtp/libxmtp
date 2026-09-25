@@ -448,15 +448,15 @@ mod lease_observer_tests {
         });
         let lease = coordinator.acquire(IncomingScope::AllGroups);
         let mut first_changes = lease.subscribe_changes();
-        let first = tokio::spawn(async move { first_changes.changed().await });
         let mut second_changes = lease.subscribe_changes();
-        let second = tokio::spawn(async move { second_changes.changed().await });
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let _status = lease.snapshot();
         coordinator.state.notify();
-        xmtp_common::time::timeout(std::time::Duration::from_secs(1), async {
-            first.await.unwrap().unwrap();
-            second.await.unwrap().unwrap();
-        })
-        .await?;
+        let (first, second) =
+            xmtp_common::time::timeout(std::time::Duration::from_secs(1), async {
+                futures::join!(first_changes.changed(), second_changes.changed())
+            })
+            .await?;
+        first?;
+        second?;
     }
 }
