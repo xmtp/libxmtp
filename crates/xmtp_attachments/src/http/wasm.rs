@@ -195,6 +195,12 @@ impl AbortDeadline {
     }
 }
 
+impl Drop for AbortDeadline {
+    fn drop(&mut self) {
+        self.controller.abort();
+    }
+}
+
 fn response_headers_received(deadline: &AbortDeadline, idle_timeout: Duration) {
     deadline.arm(idle_timeout);
 }
@@ -525,6 +531,17 @@ mod tests {
         gloo_timers::future::TimeoutFuture::new(60).await;
         assert!(deadline.controller.signal().aborted());
         assert!(deadline.fired.get());
+    }
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
+    fn get_deadline_aborts_on_drop() {
+        let deadline = AbortDeadline::new()?;
+        deadline.arm(Duration::from_secs(60));
+        let signal = deadline.controller.signal();
+        assert!(!signal.aborted());
+        drop(deadline);
+        assert!(signal.aborted());
     }
 
     // verifies: ATCH-070

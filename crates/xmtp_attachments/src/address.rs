@@ -74,6 +74,41 @@ mod tests {
     use super::*;
 
     #[xmtp_common::test(unwrap_try = true)]
+    fn registry_rows_are_well_formed() {
+        for (index, line) in include_str!("address-registry.txt").lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() || line.starts_with('#') {
+                continue;
+            }
+            let fields: Vec<_> = line.split_whitespace().collect();
+            assert_eq!(fields.len(), 2, "line {}: {line}", index + 1);
+            let (address, bits) = fields[0]
+                .split_once('/')
+                .expect("registry row has a prefix length");
+            let address: IpAddr = address.parse()?;
+            let bits: u32 = bits.parse()?;
+            let aligned = match address {
+                IpAddr::V4(ip) => {
+                    assert!(bits <= 32, "line {}: {line}", index + 1);
+                    let mask = u32::MAX.checked_shl(32 - bits).unwrap_or(0);
+                    u32::from(ip) & mask == u32::from(ip)
+                }
+                IpAddr::V6(ip) => {
+                    assert!(bits <= 128, "line {}: {line}", index + 1);
+                    let mask = u128::MAX.checked_shl(128 - bits).unwrap_or(0);
+                    u128::from(ip) & mask == u128::from(ip)
+                }
+            };
+            assert!(aligned, "line {} has host bits: {line}", index + 1);
+            assert!(
+                matches!(fields[1], "true" | "false"),
+                "line {}: {line}",
+                index + 1
+            );
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     fn registry_and_embedded_addresses() {
         for address in [
             "10.0.0.1",

@@ -41,6 +41,14 @@ fn network() -> AttachmentError {
     AttachmentError::new(Cause::Network)
 }
 
+fn upload_failure(write: &BodyWrite) -> AttachmentError {
+    if write.read_failed.load(Ordering::Acquire) {
+        AttachmentError::new(Cause::LocalStorage)
+    } else {
+        network()
+    }
+}
+
 fn tls_config() -> Result<rustls::ClientConfig, AttachmentError> {
     #[cfg(target_os = "android")]
     {
@@ -97,7 +105,12 @@ impl Stream for TrackedBody {
                 self.write.read_failed.store(true, Ordering::Release);
                 Poll::Ready(Some(Err(error)))
             }
-            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Ready(None) => {
+                if self.remaining > 0 {
+                    self.write.read_failed.store(true, Ordering::Release);
+                }
+                Poll::Ready(None)
+            }
             Poll::Pending => Poll::Pending,
         }
     }
@@ -335,7 +348,7 @@ pub(super) async fn put(
     }
     let url = Url::parse(&upload.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
     secure_upload_url(&url)?;
-    let file = tokio::fs::File::open(body.path)
+    let file = tokio::fs::File::open(&body.path)
         .await
         .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
     let body_len = file
@@ -366,9 +379,9 @@ pub(super) async fn put(
         .uri(path)
         .body(StreamBody::new(stream))
         .map_err(|_| AttachmentError::new(Cause::Malformed))?;
-    let (mut parts, body) = request.into_parts();
+    let (mut parts, request_body) = request.into_parts();
     parts.headers = headers;
-    let request = Request::from_parts(parts, body);
+    let request = Request::from_parts(parts, request_body);
     let (mut sender, connection) = http1::handshake(TokioIo::new(io))
         .await
         .map_err(|_| network())?;
@@ -376,11 +389,14 @@ pub(super) async fn put(
     let _driver_guard = AbortOnDrop::new(&driver);
     let outcome = {
         let upload = async {
-            let mut response = sender.send_request(request).await.map_err(|_| network())?;
+            let mut response = sender
+                .send_request(request)
+                .await
+                .map_err(|_| upload_failure(&body_write))?;
             let outcome = put_outcome(response.status().as_u16())?;
             if outcome == PutOutcome::Stored {
                 while let Some(frame) = response.frame().await {
-                    frame.map_err(|_| network())?;
+                    frame.map_err(|_| upload_failure(&body_write))?;
                 }
             }
             Ok(outcome)
@@ -413,7 +429,7 @@ pub(super) async fn put(
                     {
                         Ok(PutOutcome::Stored)
                     } else {
-                        Err(network())
+                        Err(upload_failure(&body_write))
                     };
                 }
                 () = tokio::time::sleep_until(deadline) => {
@@ -427,5 +443,15 @@ pub(super) async fn put(
         outcome
     };
     driver.abort();
+    // Hyper stops polling the body at Content-Length. Check for bytes added later.
+    if matches!(outcome, Ok(PutOutcome::Stored)) {
+        let current_len = tokio::fs::metadata(&body.path)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+            .len();
+        if current_len != body_len {
+            return Err(AttachmentError::new(Cause::LocalStorage));
+        }
+    }
     outcome
 }
