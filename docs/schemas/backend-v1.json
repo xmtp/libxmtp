@@ -228,7 +228,8 @@
             "null"
           ],
           "format": "uint32",
-          "minimum": 0
+          "minimum": 300,
+          "maximum": 3600
         }
       },
       "additionalProperties": false,
