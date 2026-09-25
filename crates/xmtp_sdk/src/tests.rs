@@ -1368,6 +1368,30 @@ async fn conversation_list_lift_uses_bounded_queries() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn message_history_queries_do_not_grow_per_row() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let first = group.send_text("first".into()).await?;
+    assert_eq!(group.messages(None).await?.len(), 1);
+    let one_query_count = *group.history_query_count.lock();
+
+    for number in 0..3 {
+        group.send_text(format!("more {number}")).await?;
+    }
+    client
+        .conversations()
+        .reply_to_message(first, crate::encode_text("reply".into())?, None)
+        .await?;
+    assert_eq!(group.messages(None).await?.len(), 5);
+    let many_query_count = *group.history_query_count.lock();
+    assert!(
+        many_query_count <= one_query_count + 2,
+        "history used {one_query_count} queries for one row and {many_query_count} for five rows"
+    );
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn nested_reaction_reply_body_keeps_nested_envelope() {
     use crate::{EncodedContent, MessageBody, Reaction, ReactionAction, ReactionSchema};
     use prost::Message as _;
