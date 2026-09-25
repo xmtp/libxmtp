@@ -1343,6 +1343,30 @@ async fn conversation_list_state_and_last_activity() {
     client.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_list_lift_uses_bounded_queries() {
+    use xmtp_db::{count_sql_queries, sql_key_store::count_kv_reads};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    for _ in 0..3 {
+        client.conversations().create_group(vec![], None).await?;
+    }
+    let ((result, kv_reads), queries, writes) = count_sql_queries(|| {
+        count_kv_reads(|| {
+            futures::executor::block_on(crate::conversation::list_local(
+                client.inner.clone(),
+                client.key,
+                Default::default(),
+            ))
+        })
+    });
+    assert!(result?.len() >= 3);
+    assert!(queries <= 3, "list used {queries} SQL queries");
+    assert!(kv_reads <= 1, "list used {kv_reads} key-value reads");
+    assert_eq!(writes, 0);
+    client.end().await?;
+}
+
 // verifies: CTYPE-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn message_actions_use_ids_and_compression_is_opt_in() {
