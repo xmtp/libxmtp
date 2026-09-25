@@ -307,7 +307,7 @@ async fn lockout_blocks_all_paths_and_set_clears_it() {
     );
 }
 
-// verifies: EVENT-001, EVENT-025
+// verifies: EVENT-001, EVENT-025, EVENT-055
 #[xmtp_common::test(unwrap_try = true)]
 async fn shared_auth_handle_fans_lockout_transitions_to_live_clients() {
     let (client, peer, _) = fixture();

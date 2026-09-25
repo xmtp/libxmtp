@@ -188,7 +188,7 @@ A deployment with only API keys answers a token that matches none of them with `
 
 `auth.required_scopes` is one set for every path. A deployment cannot require one scope to publish and another to read.
 
-The lockout is per client, not per deployment. Two clients in one app each get 13 attempts, and a client that is recreated starts its count again.
+The lockout is per credential handle, not per deployment. Clients that share one handle share its count of 13 attempts and its lockout state; clients with separate handles each get 13 attempts. A client that is recreated with a new handle starts its count again.
 
 The published auth summary names the keys loaded at startup. A key added by a JWKS refresh verifies tokens but is not published until the backend restarts.
 
