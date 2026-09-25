@@ -4,6 +4,7 @@ use std::sync::{
 };
 
 use futures::StreamExt;
+use parking_lot::Mutex as SyncMutex;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use xmtp_mls::subscriptions::{
@@ -20,6 +21,8 @@ use crate::{
 #[derive(uniffi::Object)]
 pub struct ConversationReader {
     stream: Arc<Mutex<StreamConversations<xmtp_mls::MlsContext>>>,
+    request_lock: Mutex<()>,
+    pending: Arc<SyncMutex<Option<Conversation>>>,
     lease: Arc<IncomingLease>,
     closed: Arc<AtomicBool>,
     cancel: CancellationToken,
@@ -44,6 +47,8 @@ impl ConversationReader {
         let lease = stream.lease();
         Ok(Arc::new(Self {
             stream: Arc::new(Mutex::new(stream)),
+            request_lock: Mutex::new(()),
+            pending: Arc::new(SyncMutex::new(None)),
             lease,
             closed: Arc::new(AtomicBool::new(false)),
             cancel: CancellationToken::new(),
@@ -63,31 +68,47 @@ impl Drop for ConversationReader {
 #[xmtp_macro::sdk_export]
 impl ConversationReader {
     pub async fn next(&self) -> Result<Option<Conversation>, XmtpError> {
+        let _request = self.request_lock.lock().await;
+        let request_cancel = CancellationToken::new();
+        let _cancel_on_drop = super::CancelReadOnDrop(request_cancel.clone());
         let stream = self.stream.clone();
+        let pending = self.pending.clone();
         let lease = self.lease.clone();
         let closed = self.closed.clone();
         let cancel = self.cancel.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.context.clone(), async move {
             if closed.load(Ordering::Acquire) {
-                return Ok(None);
+                return Ok(false);
             }
             let mut stream = stream.lock().await;
+            if request_cancel.is_cancelled() {
+                return Ok(false);
+            }
+            if pending.lock().is_some() {
+                return Ok(true);
+            }
             loop {
                 let item = tokio::select! {
                     biased;
-                    _ = cancel.cancelled() => return Ok(None),
+                    _ = cancel.cancelled() => return Ok(false),
+                    _ = request_cancel.cancelled() => return Ok(false),
                     item = stream.next() => item,
                 };
                 if closed.load(Ordering::Acquire) {
-                    return Ok(None);
+                    return Ok(false);
                 }
                 match item {
                     Some(Ok(group)) => {
                         if let Some(conversation) =
                             Conversation::from_core(group, client_key).await?
                         {
-                            return Ok(Some(conversation));
+                            let mut pending = pending.lock();
+                            if closed.load(Ordering::Acquire) {
+                                return Ok(false);
+                            }
+                            *pending = Some(conversation);
+                            return Ok(true);
                         }
                     }
                     Some(Err(error)) => {
@@ -98,12 +119,24 @@ impl ConversationReader {
                     None => {
                         closed.store(true, Ordering::Release);
                         lease.close();
-                        return Ok(None);
+                        return Ok(false);
                     }
                 }
             }
         })
         .await
+        .and_then(|ready| {
+            if !ready || self.closed.load(Ordering::Acquire) {
+                return Ok(None);
+            }
+            let conversation = self.pending.lock().take();
+            if self.closed.load(Ordering::Acquire) {
+                return Ok(None);
+            }
+            conversation
+                .map(Some)
+                .ok_or_else(|| XmtpError::unknown("conversation handoff missing"))
+        })
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
@@ -111,10 +144,12 @@ impl ConversationReader {
         let lease = self.lease.clone();
         let closed = self.closed.clone();
         let cancel = self.cancel.clone();
+        let pending = self.pending.clone();
         on_sdk_worker(self.context.clone(), async move {
             closed.store(true, Ordering::Release);
             cancel.cancel();
             lease.close();
+            pending.lock().take();
             let _stream = stream.lock().await;
             Ok(())
         })

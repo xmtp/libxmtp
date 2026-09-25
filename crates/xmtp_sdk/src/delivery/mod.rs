@@ -11,9 +11,19 @@ pub(crate) use message_reader::{HandoffGate, selection_changed};
 
 use crate::{ErrorCategory, ErrorDetails, XmtpError};
 use std::error::Error;
+use tokio_util::sync::CancellationToken;
 use xmtp_db::{StorageError, stream_storage::StreamStorageError};
 use xmtp_mls::{client::ClientError, subscriptions::local_delivery::LocalDeliveryError};
 use xmtp_proto::api::{ApiClientError, AuthError};
+
+/// Stop a detached read when its caller leaves, including on cancellation.
+pub(super) struct CancelReadOnDrop(pub CancellationToken);
+
+impl Drop for CancelReadOnDrop {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
 
 fn details(code: &str, category: ErrorCategory, retryable: bool, message: String) -> ErrorDetails {
     ErrorDetails {

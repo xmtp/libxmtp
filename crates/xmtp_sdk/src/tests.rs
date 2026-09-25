@@ -892,6 +892,57 @@ async fn cancel_idle_read_settles() {
 
 // verifies: PROC-028
 #[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let reader = group.message_reader().await?;
+    assert!(
+        xmtp_common::time::timeout(Duration::from_millis(100), reader.next())
+            .await
+            .is_err(),
+        "first read must be idle before cancellation"
+    );
+
+    let message_id = group.send_text("after cancellation".into()).await?;
+    let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+        .await??
+        .expect("message after cancelled read");
+    assert_eq!(delivered.0.id, message_id);
+    reader.end().await?;
+
+    let replay = group.message_reader().await?;
+    let repeated = xmtp_common::time::timeout(Duration::from_secs(5), replay.next())
+        .await??
+        .expect("message was not acknowledged");
+    assert_eq!(repeated.0.id, message_id);
+    replay.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_conversation_read_delivers_next_group() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let reader = client.conversations().conversation_reader(None).await?;
+    assert!(
+        xmtp_common::time::timeout(Duration::from_millis(100), reader.next())
+            .await
+            .is_err(),
+        "first read must be idle before cancellation"
+    );
+
+    let group = client.conversations().create_group(vec![], None).await?;
+    let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+        .await??
+        .expect("group after cancelled read");
+    assert!(
+        matches!(delivered, crate::Conversation::Group { group: found } if found.id() == group.id())
+    );
+    reader.end().await?;
+    client.end().await?;
+}
+
+// verifies: PROC-028
+#[xmtp_common::test(unwrap_try = true)]
 async fn stream_ack_only_on_next_request() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
@@ -963,10 +1014,24 @@ async fn conversation_reader_rereads_after_fall_behind() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let reader = client.conversations().conversation_reader(None).await?;
+    let waiting_reader = reader.clone();
+    let pending = tokio::spawn(async move { waiting_reader.next().await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !pending.is_finished(),
+        "reader must start before new groups"
+    );
+    let first = client.conversations().create_group(vec![], None).await?;
+    let first_id = first.id().0;
+    let delivered = xmtp_common::time::timeout(Duration::from_secs(5), pending)
+        .await???
+        .expect("first group");
+    assert!(matches!(delivered, crate::Conversation::Group { group } if group.id().0 == first_id));
+
     let mut expected = HashSet::new();
-    // The core event hint queue holds ten entries. Leave this reader idle
-    // while more groups are stored, then read every committed group.
-    for _ in 0..14 {
+    // The core event hint queue holds ten entries. Its overflow must be read
+    // after the database scan has delivered all groups.
+    for _ in 0..13 {
         let group = client.conversations().create_group(vec![], None).await?;
         expected.insert(group.id().0);
     }
@@ -981,6 +1046,21 @@ async fn conversation_reader_rereads_after_fall_behind() {
         assert!(expected.remove(&id), "duplicate or unrequested group");
     }
     assert!(expected.is_empty());
+
+    let waiting_reader = reader.clone();
+    let pending = tokio::spawn(async move { waiting_reader.next().await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        !pending.is_finished(),
+        "lagged hint must not close the reader"
+    );
+    let final_group = client.conversations().create_group(vec![], None).await?;
+    let delivered = xmtp_common::time::timeout(Duration::from_secs(5), pending)
+        .await???
+        .expect("group after lagged hint");
+    assert!(
+        matches!(delivered, crate::Conversation::Group { group } if group.id() == final_group.id())
+    );
     reader.end().await?;
     client.end().await?;
 }
