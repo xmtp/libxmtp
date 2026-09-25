@@ -233,7 +233,7 @@ async fn custom_permission_set_is_converted_and_invalid_set_is_rejected() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn backend_url_is_required_and_allow_offline_skips_network() {
+async fn backend_url_is_required_and_offline_choice_uses_inbox_id() {
     assert!(
         crate::Backend::connect(BackendOptions::default())
             .await
@@ -266,12 +266,14 @@ async fn backend_url_is_required_and_allow_offline_skips_network() {
     online.end().await?;
     let identity = signer::identity(signer).await?;
     settings.backend = Some(BackendSource::Connected { backend });
+    assert_eq!(settings.allow_offline, None);
+    settings.allow_offline = Some(false);
     assert!(matches!(
         Client::build(identity.clone(), settings.clone(), Some(inbox_id.clone())).await,
         Err(XmtpError::ConfigurationUnavailable(_))
     ));
-    settings.allow_offline = true;
-    let client = Client::build(identity, settings, Some(inbox_id.clone())).await?;
+    settings.allow_offline = None;
+    let client = Client::build(identity.clone(), settings.clone(), Some(inbox_id.clone())).await?;
     assert_eq!(client.inbox_id(), inbox_id);
     assert!(
         client
@@ -287,6 +289,17 @@ async fn backend_url_is_required_and_allow_offline_skips_network() {
             })
     );
     client.end().await?;
+    settings.allow_offline = Some(true);
+    let explicit = Client::build(identity, settings, Some(inbox_id.clone())).await?;
+    assert_eq!(explicit.inbox_id(), inbox_id);
+    assert!(
+        explicit
+            .conversations()
+            .get_by_id(group_id)
+            .await?
+            .is_some()
+    );
+    explicit.end().await?;
     std::fs::remove_file(path)?;
 }
 
@@ -519,8 +532,17 @@ async fn dm_duplicate_lookup_finds_the_other_conversation() {
     let first = alix.conversations().create_dm(bo.inbox_id(), None).await?;
     let second = bo.conversations().create_dm(alix.inbox_id(), None).await?;
     assert_ne!(first.id(), second.id());
-    alix.conversations().sync_all(None).await?;
-    let duplicates = first.duplicate_dms().await?;
+    let duplicates = xmtp_common::time::timeout(Duration::from_secs(10), async {
+        loop {
+            alix.conversations().sync_all(None).await?;
+            let duplicates = first.duplicate_dms().await?;
+            if duplicates.iter().any(|dm| dm.id() == second.id()) {
+                break Ok::<_, XmtpError>(duplicates);
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
     assert_eq!(duplicates.len(), 1);
     assert_eq!(duplicates[0].id(), second.id());
     alix.end().await?;
@@ -1139,18 +1161,31 @@ async fn removed_member_does_not_receive_later_group_message() {
         .conversations()
         .create_group(vec![bo.inbox_id()], None)
         .await?;
-    bo.conversations().sync().await?;
-    let bo_group = bo
-        .conversations()
-        .get_by_id(group.id())
-        .await?
-        .expect("member group");
+    let bo_group = xmtp_common::time::timeout(Duration::from_secs(10), async {
+        loop {
+            bo.conversations().sync().await?;
+            if let Some(found) = bo.conversations().get_by_id(group.id()).await? {
+                break Ok::<_, XmtpError>(found);
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
     let crate::Conversation::Group { group: bo_group } = bo_group else {
         panic!("expected group")
     };
     group.remove_members(vec![bo.inbox_id()]).await?;
     group.send_text("only current members".into()).await?;
-    let _ = bo_group.sync().await;
+    xmtp_common::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let _ = bo_group.sync().await;
+            if !bo_group.state().await?.common.is_active {
+                break Ok::<(), XmtpError>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await??;
     assert!(!bo_group.state().await?.common.is_active);
     assert!(!bo_group.messages(None).await?.iter().any(|message| {
         matches!(&message.0.content, MessageContent::Text(value) if value == "only current members")
