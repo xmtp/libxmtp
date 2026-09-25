@@ -125,6 +125,80 @@ impl Conversation {
             ConversationType::Sync | ConversationType::Oneshot => None,
         })
     }
+
+    fn from_preloaded(
+        group: MlsGroup<MlsContext>,
+        client_key: u64,
+        identity: ConversationIdentity,
+        metadata: xmtp_mls::mls_common::group_metadata::GroupMetadata,
+    ) -> Result<Option<Self>, XmtpError> {
+        Ok(match group.conversation_type {
+            ConversationType::Group => Some(Self::Group {
+                group: Arc::new(Group {
+                    inner: group,
+                    client_key,
+                    identity,
+                    #[cfg(test)]
+                    state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
+                }),
+            }),
+            ConversationType::Dm => Some(Self::Dm {
+                dm: Arc::new(Dm::from_metadata(group, client_key, identity, metadata)?),
+            }),
+            ConversationType::Sync | ConversationType::Oneshot => None,
+        })
+    }
+}
+
+pub(crate) async fn list_local(
+    client: Arc<crate::client::CoreClient>,
+    client_key: u64,
+    args: GroupQueryArgs,
+) -> Result<Vec<Conversation>, XmtpError> {
+    use xmtp_mls::mls_common::app_data::component_source::read_group_metadata_from_extensions;
+    use xmtp_mls::mls_common::group_metadata::GroupMetadata;
+    use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1;
+
+    let items = client
+        .list_conversations(args)
+        .map_err(XmtpError::unknown)?;
+    let ids = items
+        .iter()
+        .map(|item| item.group.group_id)
+        .collect::<Vec<_>>();
+    let contexts = client
+        .context
+        .mls_storage()
+        .read_group_contexts(&ids)
+        .map_err(XmtpError::unknown)?;
+    let mut result = Vec::with_capacity(items.len());
+    for item in items {
+        let context = contexts
+            .get(&item.group.group_id)
+            .ok_or_else(|| XmtpError::unknown("conversation group context is missing"))?;
+        let seed = read_group_metadata_from_extensions(context.extensions())
+            .map_err(XmtpError::unknown)?
+            .ok_or_else(|| XmtpError::unknown("conversation metadata is missing"))?;
+        let metadata = GroupMetadata::try_from(GroupMetadataV1 {
+            conversation_type: seed.conversation_type,
+            creator_inbox_id: seed.creator_inbox_id,
+            creator_account_address: String::new(),
+            dm_members: seed.dm_members,
+            oneshot_message: seed.oneshot,
+        })
+        .map_err(XmtpError::unknown)?;
+        let identity = ConversationIdentity::from_metadata(
+            item.added_by_inbox_id,
+            &metadata,
+            client.inbox_id(),
+        )?;
+        if let Some(conversation) =
+            Conversation::from_preloaded(item.group, client_key, identity, metadata)?
+        {
+            result.push(conversation);
+        }
+    }
+    Ok(result)
 }
 
 #[xmtp_macro::sdk_export]
@@ -265,16 +339,7 @@ impl Conversations {
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
             let args: GroupQueryArgs = options.unwrap_or_default().into();
-            let groups = client
-                .list_conversations(args)
-                .map_err(XmtpError::unknown)?;
-            let mut result = Vec::with_capacity(groups.len());
-            for item in groups {
-                if let Some(conversation) = Conversation::from_core(item.group, client_key).await? {
-                    result.push(conversation);
-                }
-            }
-            Ok(result)
+            list_local(client, client_key, args).await
         })
         .await
     }
@@ -538,19 +603,26 @@ struct ConversationIdentity {
 }
 
 impl ConversationIdentity {
+    fn from_metadata(
+        added_by_inbox_id: String,
+        metadata: &xmtp_mls::mls_common::group_metadata::GroupMetadata,
+        own_inbox_id: &str,
+    ) -> Result<Self, XmtpError> {
+        Ok(Self {
+            added_by_inbox_id: InboxID::try_from(added_by_inbox_id)?,
+            creator_inbox_id: InboxID::try_from(metadata.creator_inbox_id.clone())?,
+            is_creator: metadata.creator_inbox_id == own_inbox_id,
+        })
+    }
+
     async fn from_core(
         group: &MlsGroup<xmtp_mls::MlsContext>,
     ) -> Result<(Self, xmtp_mls::mls_common::group_metadata::GroupMetadata), XmtpError> {
         let added_by_inbox_id =
             InboxID::try_from(group.added_by_inbox_id().map_err(XmtpError::unknown)?)?;
         let metadata = group.metadata().await.map_err(XmtpError::unknown)?;
-        let is_creator = metadata.creator_inbox_id == group.context.inbox_id();
         Ok((
-            Self {
-                added_by_inbox_id,
-                creator_inbox_id: InboxID::try_from(metadata.creator_inbox_id.clone())?,
-                is_creator,
-            },
+            Self::from_metadata(added_by_inbox_id.0, &metadata, group.context.inbox_id())?,
             metadata,
         ))
     }
@@ -573,11 +645,12 @@ impl Group {
 }
 
 impl Dm {
-    async fn from_core(
+    fn from_metadata(
         inner: MlsGroup<xmtp_mls::MlsContext>,
         client_key: u64,
+        identity: ConversationIdentity,
+        metadata: xmtp_mls::mls_common::group_metadata::GroupMetadata,
     ) -> Result<Self, XmtpError> {
-        let (identity, metadata) = ConversationIdentity::from_core(&inner).await?;
         let members = metadata
             .dm_members
             .ok_or_else(|| XmtpError::invalid("DM has no peer metadata"))?;
@@ -595,6 +668,14 @@ impl Dm {
             #[cfg(test)]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
         })
+    }
+
+    async fn from_core(
+        inner: MlsGroup<xmtp_mls::MlsContext>,
+        client_key: u64,
+    ) -> Result<Self, XmtpError> {
+        let (identity, metadata) = ConversationIdentity::from_core(&inner).await?;
+        Self::from_metadata(inner, client_key, identity, metadata)
     }
 }
 

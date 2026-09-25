@@ -1161,6 +1161,7 @@ where
                 });
 
                 ConversationListItem {
+                    added_by_inbox_id: conversation_item.added_by_inbox_id,
                     group: MlsGroup::new(
                         self.context.clone(),
                         conversation_item.id,
