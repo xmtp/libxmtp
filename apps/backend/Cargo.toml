@@ -126,6 +126,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = [
   "ring",
 ] }
 tonic-prost = "0.14"
+xmtp_attachments_server = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
