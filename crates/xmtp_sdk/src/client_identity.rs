@@ -3,7 +3,6 @@ use std::sync::Arc;
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_mls::context::XmtpSharedContext;
 
-#[cfg(not(target_arch = "wasm32"))]
 use crate::CatchUpSummary;
 use crate::{
     CanMessageEntry, Client, GroupSyncSummary, InboxCountEntry, InboxID, InboxState,
@@ -535,7 +534,7 @@ impl Client {
     }
 }
 
-#[xmtp_macro::sdk_export(native_only)]
+#[xmtp_macro::sdk_export]
 impl Client {
     pub async fn catch_up_to_live(
         &self,
