@@ -92,7 +92,7 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `connection.state_changed` | The client-wide state of open app streams that hold network interest changes under EVENT-027 | Transition | `connection_state_changed` |
 | `attachment.upload_started` | A pending attachment's status becomes `uploading` (ATCH-034) | Transition | `attachment_upload_started` |
 | `attachment.upload_completed` | A pending attachment's status becomes `complete` (ATCH-025) | Transition | `attachment_upload_completed` |
-| `attachment.upload_failed` | A pending attachment's status becomes `failed` (ATCH-025, ATCH-026, ATCH-036, ATCH-047, ATCH-071) | Transition | `attachment_upload_failed` |
+| `attachment.upload_failed` | A pending attachment's status becomes `failed` (ATCH-025, ATCH-026, ATCH-036, ATCH-047, ATCH-071, ATCH-078) | Transition | `attachment_upload_failed` |
 | `attachment.download_started` | The client begins a download that neither ATCH-052 nor ATCH-058 ends | Download | `attachment_download_started` |
 | `attachment.download_completed` | A download makes a plaintext file readable at its path under ATCH-051 | Download | `attachment_download_completed` |
 | `attachment.download_failed` | A download that emitted `attachment.download_started` ends without a plaintext file | Download | `attachment_download_failed` |
