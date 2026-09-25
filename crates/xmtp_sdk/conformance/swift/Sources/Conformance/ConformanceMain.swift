@@ -99,6 +99,33 @@ struct Conformance {
         } catch XmtpError.InvalidArgument {}
         print("Swift scenario 1: load, checksums, version passed")
 
+        let codecSamples = sdkConformanceStandardSamples()
+        guard codecSamples.count == 11 else { throw ConformanceFailure("missing standard codec samples") }
+        for sample in codecSamples {
+            let codec: any SDKContentCodec
+            let value: Any
+            switch sample.value {
+            case let .text(item): codec = TextCodec(); value = item
+            case .readReceipt: codec = ReadReceiptCodec(); value = ()
+            case .reaction: codec = ReactionV2Codec(); value = sample.value
+            case let .attachment(item): codec = AttachmentCodec(); value = item
+            case let .remoteAttachment(item): codec = RemoteAttachmentCodec(); value = item
+            case let .multiRemoteAttachment(item): codec = MultiRemoteAttachmentCodec(); value = item
+            case let .transactionReference(item): codec = TransactionReferenceCodec(); value = item
+            case .reply: codec = ReplyCodec(); value = sample.value
+            case let .groupUpdated(item): codec = GroupUpdatedCodec(); value = item
+            case .deleteMessage: codec = DeleteMessageCodec(); value = sample.value
+            case let .leaveRequest(item): codec = LeaveRequestCodec(); value = item
+            }
+            let encoded = try codec.encode(value)
+            guard encoded.content == sample.expected.content,
+                  encoded.parameters == sample.expected.parameters,
+                  codec.type.typeID == sample.expected.type.typeID,
+                  try codec.encode(codec.decode(encoded)).content == sample.expected.content
+            else { throw ConformanceFailure("standard codec bytes differ from Rust") }
+        }
+        print("Swift P69: all 11 standard codecs match Rust bytes")
+
         let signer = TestSigner()
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("xmtp-sdk-conformance-\(UUID().uuidString)")
@@ -352,7 +379,7 @@ struct Conformance {
         } catch XmtpError.InvalidArgument {}
         print("Swift scenario 12: notification state and typed error passed")
 
-        try initLogging(options: LoggingOptions(level: .error))
+        try await initLogging(options: LoggingOptions(level: .error))
         let orderedSink = OrderedLogSink()
         try setLogSink(sink: orderedSink)
         try await sdkConformanceEmit(count: 32)
