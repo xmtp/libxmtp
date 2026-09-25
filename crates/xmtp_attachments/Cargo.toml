@@ -36,6 +36,7 @@ hyper-util = { workspace = true, features = ["tokio"] }
 reqwest.workspace = true
 rustls.workspace = true
 rustls-platform-verifier = "0.7"
+tracing.workspace = true
 tokio = { workspace = true, features = [
   "fs",
   "io-util",

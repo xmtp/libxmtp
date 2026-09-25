@@ -35,6 +35,15 @@ pub fn staged_path(content_digest: &str) -> Result<String, AttachmentError> {
     Ok(format!(".staged/{content_digest}"))
 }
 
+pub(crate) fn is_reconcile_dir(name: &str) -> bool {
+    name == ".tmp"
+        || name == ".staged"
+        || (name.len() == 64
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
+}
+
 /// A path for a temporary file. Temporary files never sit under key directories.
 pub fn temporary_path(name: &str) -> Result<String, AttachmentError> {
     validate_relative(name)?;
@@ -151,6 +160,7 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
         source: &str,
         output: &str,
     ) -> Result<DecodedMeta, AttachmentError>;
+    /// List files one level below the managed directories. Do not enter app directories.
     async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError>;
 }
 
@@ -356,10 +366,11 @@ mod tests {
     async fn native_plaintext_files_are_owner_only() {
         use std::os::unix::fs::PermissionsExt as _;
         let directory = tempfile::tempdir()?;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o755))?;
         let store = NativeStore::new(directory.path()).await?;
         assert_eq!(
             std::fs::metadata(directory.path())?.permissions().mode() & 0o777,
-            0o700
+            0o755
         );
         let mut writer = store.create_temp(".tmp/plaintext").await?;
         writer.write(b"private").await?;
@@ -386,6 +397,47 @@ mod tests {
                 & 0o777,
             0o600
         );
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn chmod_failure_does_not_stop_native_store() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir()?;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o755))?;
+        let store = NativeStore::new(directory.path())
+            .await?
+            .with_forced_chmod_error();
+        assert_eq!(
+            std::fs::metadata(directory.path())?.permissions().mode() & 0o777,
+            0o755
+        );
+        let mut writer = store.create_temp(".tmp/plaintext").await?;
+        writer.write(b"private").await?;
+        drop(writer);
+        store.rename(".tmp/plaintext", "key/plaintext").await?;
+        assert!(store.exists("key/plaintext").await?);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_reconcile_scan_stops_at_key_level() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let key = "a".repeat(64);
+        for path in [
+            format!("{key}/plain.txt"),
+            format!("{key}/nested/deep.txt"),
+            "app/file.txt".to_owned(),
+            ".DS_Store".to_owned(),
+        ] {
+            let path = directory.path().join(path);
+            tokio::fs::create_dir_all(path.parent().unwrap()).await?;
+            tokio::fs::write(path, b"file").await?;
+        }
+        let files = store.list_files().await?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, format!("{key}/plain.txt"));
     }
 
     #[cfg(not(target_arch = "wasm32"))]

@@ -8,7 +8,10 @@ use web_sys::{
     FileSystemSyncAccessHandle, WorkerGlobalScope,
 };
 
-use super::{LocalStore, StagedFile, StoreFile, StoreWriter, validate_relative, validate_temp};
+use super::{
+    LocalStore, StagedFile, StoreFile, StoreWriter, is_reconcile_dir, validate_relative,
+    validate_temp,
+};
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
 fn storage_error(_: impl Sized) -> AttachmentError {
@@ -325,6 +328,7 @@ impl LocalStore for OpfsStore {
                     .dyn_into()
                     .map_err(storage_error)?;
                 let name = pair.get(0).as_string().ok_or_else(|| storage_error(()))?;
+                let descend = prefix.is_empty() && is_reconcile_dir(&name);
                 let path = if prefix.is_empty() {
                     name
                 } else {
@@ -332,8 +336,10 @@ impl LocalStore for OpfsStore {
                 };
                 let handle = pair.get(1);
                 if let Some(child) = handle.dyn_ref::<FileSystemDirectoryHandle>() {
-                    dirs.push((child.clone(), path));
-                } else {
+                    if descend {
+                        dirs.push((child.clone(), path));
+                    }
+                } else if !prefix.is_empty() {
                     let file: FileSystemFileHandle = handle.dyn_into().map_err(storage_error)?;
                     let file: web_sys::File = JsFuture::from(file.get_file())
                         .await
@@ -436,21 +442,33 @@ mod tests {
         assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"second");
     }
 
-    // verifies: ATCH-046, ATCH-048
+    // verifies: ATCH-046, ATCH-048, P24
     #[xmtp_common::test(unwrap_try = true)]
     async fn opfs_list_files_and_mtime() {
         let store = OpfsStore::new(&test_path()).await?;
+        let key = "a".repeat(64);
         for path in [".tmp/one", ".tmp/two"] {
             let mut writer = store.create_temp(path).await?;
             DownloadSink::write(&mut writer, b"file").await?;
             store.sync(&mut writer).await?;
         }
-        store.rename(".tmp/two", "key/two").await?;
-        let expected = store.file_handle("key/two", false).await?;
+        let plain = format!("{key}/two");
+        store.rename(".tmp/two", &plain).await?;
+        for (source, destination) in [
+            (".tmp/deep", format!("{key}/nested/deep")),
+            (".tmp/app", "app/file".to_owned()),
+        ] {
+            let mut writer = store.create_temp(source).await?;
+            DownloadSink::write(&mut writer, b"file").await?;
+            store.sync(&mut writer).await?;
+            drop(writer);
+            store.rename(source, &destination).await?;
+        }
+        let expected = store.file_handle(&plain, false).await?;
         let expected: web_sys::File = JsFuture::from(expected.get_file()).await?.dyn_into()?;
         let files = store.list_files().await?;
         assert_eq!(files.len(), 2);
-        let listed = files.iter().find(|file| file.path == "key/two").unwrap();
+        let listed = files.iter().find(|file| file.path == plain).unwrap();
         assert_eq!(
             listed.modified_at_ns,
             (expected.last_modified() as i64) * 1_000_000
