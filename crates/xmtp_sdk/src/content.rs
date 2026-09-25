@@ -393,12 +393,14 @@ pub struct SendOptions {
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ReactionAction {
+    Unknown,
     Added,
     Removed,
 }
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ReactionSchema {
+    Unknown,
     Unicode,
     Shortcode,
     Custom,
@@ -420,15 +422,16 @@ impl Reaction {
         };
         Self {
             content: value.content,
-            action: if value.action == ProtoAction::Removed as i32 {
-                ReactionAction::Removed
-            } else {
-                ReactionAction::Added
+            action: match ProtoAction::try_from(value.action) {
+                Ok(ProtoAction::Added) => ReactionAction::Added,
+                Ok(ProtoAction::Removed) => ReactionAction::Removed,
+                _ => ReactionAction::Unknown,
             },
             schema: match ProtoSchema::try_from(value.schema) {
+                Ok(ProtoSchema::Unicode) => ReactionSchema::Unicode,
                 Ok(ProtoSchema::Shortcode) => ReactionSchema::Shortcode,
                 Ok(ProtoSchema::Custom) => ReactionSchema::Custom,
-                _ => ReactionSchema::Unicode,
+                _ => ReactionSchema::Unknown,
             },
         }
     }
@@ -445,11 +448,13 @@ impl Reaction {
             reference: reference.0,
             reference_inbox_id: reference_inbox_id.0,
             action: match self.action {
+                ReactionAction::Unknown => 0,
                 ReactionAction::Added => ProtoAction::Added as i32,
                 ReactionAction::Removed => ProtoAction::Removed as i32,
             },
             content: self.content,
             schema: match self.schema {
+                ReactionSchema::Unknown => 0,
                 ReactionSchema::Unicode => ProtoSchema::Unicode as i32,
                 ReactionSchema::Shortcode => ProtoSchema::Shortcode as i32,
                 ReactionSchema::Custom => ProtoSchema::Custom as i32,

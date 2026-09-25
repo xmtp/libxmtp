@@ -1250,6 +1250,19 @@ async fn callback_errors_convert() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+fn reaction_unknown_values_remain_unknown() {
+    use xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2;
+
+    let reaction = crate::Reaction::from_proto(ReactionV2 {
+        action: 0,
+        schema: i32::MAX,
+        ..Default::default()
+    });
+    assert_eq!(format!("{:?}", reaction.action), "Unknown");
+    assert_eq!(format!("{:?}", reaction.schema), "Unknown");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn conversation_list_state_and_last_activity() {
     use crate::{Conversation, ConversationOrder, ListConversationsOptions};
     use xmtp_db::{count_sql_queries, sql_key_store::count_kv_reads};
