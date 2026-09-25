@@ -1688,12 +1688,17 @@ mod wasm_tests {
                 )),
             ))
         });
-        let client = Client::builder(identity_setup(generate_local_wallet()))
+        let builder = match Client::builder(identity_setup(generate_local_wallet()))
             .api_client(api)
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .temp_store()
             .await
-            .default_mls_store()?
+            .default_mls_store()
+        {
+            Ok(builder) => builder,
+            Err(error) => panic!("MLS store setup failed: {error:?}"),
+        };
+        let client = match builder
             .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
                 |configuration: &mut ServerConfiguration| {
                     configuration.attachments = Some(AttachmentsConfiguration {
@@ -1707,15 +1712,23 @@ mod wasm_tests {
             .with_allow_offline(Some(true))
             .with_disable_workers(true)
             .build()
-            .await?;
-        let pending = client
+            .await
+        {
+            Ok(client) => client,
+            Err(error) => panic!("client build failed: {error:?}"),
+        };
+        let pending = match client
             .attachments()
             .create(AttachmentSource::Bytes {
                 bytes: b"timer proof".to_vec(),
                 filename: None,
                 mime_type: "text/plain".into(),
             })
-            .await?;
+            .await
+        {
+            Ok(pending) => pending,
+            Err(error) => panic!("attachment create failed: {error:?}"),
+        };
         *client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
             Duration::from_secs(2),
             Duration::from_millis(30),
@@ -1733,11 +1746,12 @@ mod wasm_tests {
             .attachments
             .fail_next_outcome_write
             .store(true, AtomicOrdering::SeqCst);
-        let error =
-            match xmtp_common::time::timeout(Duration::from_secs(5), pending.upload()).await? {
-                Ok(()) => panic!("upload unexpectedly succeeded"),
-                Err(error) => error,
-            };
+        let error = match xmtp_common::time::timeout(Duration::from_secs(5), pending.upload()).await
+        {
+            Ok(Ok(())) => panic!("upload unexpectedly succeeded"),
+            Ok(Err(error)) => error,
+            Err(error) => panic!("upload did not finish: {error:?}"),
+        };
         assert_eq!(error.cause, Cause::BackendRejected);
         assert!(
             !client
