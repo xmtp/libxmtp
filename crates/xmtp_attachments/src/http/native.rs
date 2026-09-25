@@ -10,26 +10,23 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures_util::StreamExt;
 use reqwest::{
-    Client, Method, StatusCode, Url,
+    Client, StatusCode, Url,
     dns::{Addrs, Name, Resolve, Resolving},
-    header::{ACCEPT_ENCODING, CONTENT_ENCODING, HeaderName, HeaderValue, LOCATION},
+    header::{ACCEPT_ENCODING, CONTENT_ENCODING, LOCATION},
     redirect::Policy,
 };
 use tokio::sync::mpsc;
-use tokio::time::{Instant, timeout};
-use tokio_util::io::ReaderStream;
+use tokio::time::timeout;
 
-use super::{
-    CONNECT_TIMEOUT, IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, put_outcome,
-    sensitive_header,
-};
+use super::{CONNECT_TIMEOUT, IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
     address::is_private,
     store::{AttachmentOptions, CHUNK_SIZE, DownloadSink, StagedFile},
 };
+
+mod upload;
 
 #[derive(Debug)]
 struct BlockedDns;
@@ -129,7 +126,9 @@ fn redirect_target(
 /// Native HTTP transfer. The resolver checks the addresses used by each connection.
 pub struct Transfer {
     client: Client,
+    resolver: Arc<GuardedResolver>,
     options: AttachmentOptions,
+    connect_timeout: Duration,
     idle_timeout: Duration,
 }
 
@@ -157,14 +156,16 @@ impl Transfer {
         });
         let client = xmtp_common::http::client_builder()
             .no_proxy()
-            .dns_resolver(resolver)
+            .dns_resolver(resolver.clone())
             .redirect(Policy::none())
             .connect_timeout(connect_timeout)
             .build()
             .map_err(reqwest_error)?;
         Ok(Self {
             client,
+            resolver,
             options,
+            connect_timeout,
             idle_timeout,
         })
     }
@@ -183,49 +184,7 @@ impl Transfer {
         request: &UploadRequest,
         body: StagedFile,
     ) -> Result<PutOutcome, AttachmentError> {
-        if request.method != "PUT" {
-            return Err(AttachmentError::new(Cause::TargetRejected));
-        }
-        let url = Url::parse(&request.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
-        validate_url(&url, &self.options)?;
-        let file = tokio::fs::File::open(body.path)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
-        let last_progress = Arc::new(std::sync::Mutex::new(Instant::now()));
-        let upload_progress = last_progress.clone();
-        let stream = ReaderStream::with_capacity(file, CHUNK_SIZE).inspect(move |chunk| {
-            if chunk.as_ref().is_ok_and(|bytes| !bytes.is_empty()) {
-                *upload_progress.lock().unwrap() = Instant::now();
-            }
-        });
-        let mut builder = self
-            .client
-            .request(Method::PUT, url)
-            .body(reqwest::Body::wrap_stream(stream));
-        for (name, value) in &request.headers {
-            let name = HeaderName::from_bytes(name.as_bytes())
-                .map_err(|_| AttachmentError::new(Cause::Malformed))?;
-            if sensitive_header(name.as_str()) {
-                return Err(AttachmentError::new(Cause::Credential));
-            }
-            let value =
-                HeaderValue::from_str(value).map_err(|_| AttachmentError::new(Cause::Malformed))?;
-            builder = builder.header(name, value);
-        }
-        let mut send = Box::pin(builder.send());
-        let response = loop {
-            let deadline = *last_progress.lock().unwrap() + self.idle_timeout;
-            tokio::select! {
-                result = &mut send => break result.map_err(reqwest_error)?,
-                () = tokio::time::sleep_until(deadline) => {
-                    if Instant::now().duration_since(*last_progress.lock().unwrap()) >= self.idle_timeout {
-                        return Err(AttachmentError::new(Cause::Network));
-                    }
-                }
-            }
-        };
-        let status = response.status();
-        put_outcome(status.as_u16())
+        upload::put(self, request, body).await
     }
 
     pub async fn get(
@@ -444,7 +403,9 @@ mod tests {
     use http_body_util::Full;
     use hyper::{Request, Response, body::Incoming, server::conn::http1, service::service_fn};
     use hyper_util::rt::TokioIo;
+    use reqwest::Method;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use tokio::time::Instant;
 
     struct Server {
         url: String,
@@ -530,6 +491,14 @@ mod tests {
     }
 
     struct FakeResolver(Vec<SocketAddr>);
+
+    struct PendingResolver;
+
+    impl Resolve for PendingResolver {
+        fn resolve(&self, _name: Name) -> Resolving {
+            Box::pin(std::future::pending())
+        }
+    }
 
     impl Resolve for FakeResolver {
         fn resolve(&self, _name: Name) -> Resolving {
@@ -897,6 +866,51 @@ mod tests {
 
     // verifies: ATCH-070
     #[xmtp_common::test(unwrap_try = true)]
+    async fn connect_timeout_is_network() {
+        let transfer = Transfer::with_resolver_and_timeouts(
+            AttachmentOptions::default(),
+            Arc::new(PendingResolver),
+            Duration::from_millis(100),
+            Duration::from_millis(400),
+        )?;
+        let started = Instant::now();
+        let error = tokio::time::timeout(
+            Duration::from_secs(2),
+            transfer.get(
+                "https://pending.example/object",
+                1,
+                &mut MemorySink::default(),
+            ),
+        )
+        .await?
+        .unwrap_err();
+        assert_eq!(error.cause, Cause::Network);
+        assert!(started.elapsed() < Duration::from_secs(2));
+
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let mut writer = store.create_temp(".tmp/body").await?;
+        writer.write(b"body").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        store.rename(".tmp/body", "body").await?;
+        let request = UploadRequest {
+            method: "PUT".into(),
+            url: "https://pending.example/object".into(),
+            headers: vec![],
+            expires_in_seconds: 60,
+        };
+        let error = tokio::time::timeout(
+            Duration::from_secs(2),
+            transfer.put(&request, store.open_read("body").await?),
+        )
+        .await?
+        .unwrap_err();
+        assert_eq!(error.cause, Cause::Network);
+    }
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
     async fn put_stalls_after_body() {
         use http_body_util::BodyExt;
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
@@ -988,6 +1002,85 @@ mod tests {
         let mut sink = MemorySink::default();
         short_timeout().get(&url, 5, &mut sink).await?;
         assert_eq!(sink.0, b"abcde");
+        task.await?;
+    }
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_trickle_has_no_total_deadline() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+        const BODY_SIZE: usize = 3 * 1024 * 1024;
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.set_recv_buffer_size(8192)?;
+        socket.bind("127.0.0.1:0".parse()?)?;
+        let listener = socket.listen(1)?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut line = String::new();
+            let mut content_length = None;
+            loop {
+                line.clear();
+                reader.read_line(&mut line).await.unwrap();
+                if line == "\r\n" {
+                    break;
+                }
+                let lower = line.to_ascii_lowercase();
+                if let Some(length) = lower.strip_prefix("content-length: ") {
+                    content_length = Some(length.trim().parse::<usize>().unwrap());
+                }
+            }
+            assert_eq!(content_length, Some(BODY_SIZE));
+            let mut remaining = BODY_SIZE;
+            let mut buffer = [0_u8; 8192];
+            while remaining > 0 {
+                let limit = remaining.min(buffer.len());
+                let size = reader.read(&mut buffer[..limit]).await.unwrap();
+                assert!(size > 0);
+                assert!(buffer[..size].iter().all(|byte| *byte == 0x5a));
+                remaining -= size;
+                if BODY_SIZE - remaining <= 2 * 1024 * 1024 {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+            }
+            reader
+                .get_mut()
+                .write_all(b"HTTP/1.1 202 Accepted\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+        });
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let mut writer = store.create_temp(".tmp/body").await?;
+        for _ in 0..BODY_SIZE / CHUNK_SIZE {
+            writer.write(&[0x5a; CHUNK_SIZE]).await?;
+        }
+        store.sync(&mut writer).await?;
+        drop(writer);
+        store.rename(".tmp/body", "body").await?;
+        let request = UploadRequest {
+            method: "PUT".into(),
+            url,
+            headers: vec![],
+            expires_in_seconds: 60,
+        };
+        let started = Instant::now();
+        let transfer = Transfer::with_timeouts(
+            AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )?;
+        assert_eq!(
+            transfer
+                .put(&request, store.open_read("body").await?)
+                .await?,
+            PutOutcome::Stored
+        );
+        assert!(started.elapsed() > Duration::from_secs(1));
         task.await?;
     }
 }

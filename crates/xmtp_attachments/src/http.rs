@@ -16,6 +16,7 @@ pub use native::Transfer;
 pub use wasm::Transfer;
 
 /// Limit for establishing a connection to a storage target or download host.
+#[cfg(not(target_arch = "wasm32"))]
 pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
 /// Limit between bytes during a storage transfer.
 pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
@@ -84,6 +85,14 @@ pub(crate) fn sensitive_header(name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
+    fn transfer_deadlines() {
+        #[cfg(not(target_arch = "wasm32"))]
+        assert_eq!(CONNECT_TIMEOUT, Duration::from_secs(30));
+        assert_eq!(IDLE_TIMEOUT, Duration::from_secs(60));
+    }
 
     // verifies: ATCH-056
     #[xmtp_common::test(unwrap_try = true)]

@@ -28,13 +28,23 @@ xmtp_proto.workspace = true
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bytes.workspace = true
 reqwest.workspace = true
+rustls.workspace = true
+rustls-platform-verifier = "0.7"
 tokio = { workspace = true, features = [
   "fs",
   "io-util",
   "net",
   "rt-multi-thread",
 ] }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+  "ring",
+  "tls12",
+] }
 tokio-util = { workspace = true, features = ["io"] }
+xmtp_cryptography.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-roots.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
@@ -56,6 +66,7 @@ web-sys = { workspace = true, features = [
   "FileSystemSyncAccessHandle",
   "Headers",
   "Navigator",
+  "Performance",
   "ReadableStream",
   "Request",
   "RequestCredentials",

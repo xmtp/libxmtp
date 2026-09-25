@@ -4,7 +4,10 @@ use std::{
     time::Duration,
 };
 
-use futures_util::{AsyncReadExt, Stream};
+use futures_util::{
+    AsyncReadExt,
+    future::{Either, select},
+};
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
@@ -13,8 +16,7 @@ use web_sys::{
 };
 
 use super::{
-    CONNECT_TIMEOUT, IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, put_outcome,
-    sensitive_header,
+    IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, put_outcome, sensitive_header,
 };
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
@@ -60,8 +62,6 @@ fn set_upload_headers(request: &Request, upload: &UploadRequest) -> Result<(), A
     Ok(())
 }
 
-// Blob bodies work in browsers that cannot send a request stream. Fetch does not
-// report progress for a Blob body, so this path cannot apply an idle deadline.
 async fn blob_put(
     upload: &UploadRequest,
     file: &web_sys::File,
@@ -83,11 +83,18 @@ fn private_request(method: &str) -> RequestInit {
     init
 }
 
-#[derive(Clone)]
 struct AbortDeadline {
     controller: AbortController,
     timer: Rc<RefCell<Option<gloo_timers::callback::Timeout>>>,
     fired: Rc<Cell<bool>>,
+    expires_at: Cell<f64>,
+}
+
+fn now_ms() -> f64 {
+    let global: WorkerGlobalScope = js_sys::global().unchecked_into();
+    global
+        .performance()
+        .map_or_else(js_sys::Date::now, |performance| performance.now())
 }
 
 impl AbortDeadline {
@@ -96,10 +103,13 @@ impl AbortDeadline {
             controller: AbortController::new().map_err(|_| AttachmentError::new(Cause::Network))?,
             timer: Rc::new(RefCell::new(None)),
             fired: Rc::new(Cell::new(false)),
+            expires_at: Cell::new(0.0),
         })
     }
 
     fn arm(&self, duration: Duration) {
+        self.expires_at
+            .set(now_ms() + duration.as_secs_f64() * 1000.0);
         let controller = self.controller.clone();
         let fired = self.fired.clone();
         let milliseconds = duration.as_millis().min(u32::MAX as u128) as u32;
@@ -117,10 +127,50 @@ impl AbortDeadline {
     }
 }
 
+async fn read_body<R: futures_util::io::AsyncRead + Unpin>(
+    reader: &mut R,
+    cap: u64,
+    sink: &mut dyn DownloadSink,
+    deadline: &AbortDeadline,
+    idle_timeout: Duration,
+) -> Result<(), AttachmentError> {
+    let mut buffer = [0_u8; CHUNK_SIZE];
+    let mut count = 0;
+    loop {
+        let remaining = deadline.expires_at.get() - now_ms();
+        if remaining <= 0.0 || deadline.fired.get() {
+            deadline.controller.abort();
+            return Err(AttachmentError::new(Cause::Network));
+        }
+        let milliseconds = remaining.ceil().min(u32::MAX as f64) as u32;
+        let read = reader.read(&mut buffer);
+        let timer = gloo_timers::future::TimeoutFuture::new(milliseconds);
+        let size = match select(read, timer).await {
+            Either::Left((result, _)) => {
+                result.map_err(|_| AttachmentError::new(Cause::Network))?
+            }
+            Either::Right(_) => {
+                deadline.controller.abort();
+                return Err(AttachmentError::new(Cause::Network));
+            }
+        };
+        if deadline.fired.get() {
+            return Err(AttachmentError::new(Cause::Network));
+        }
+        if size == 0 {
+            break;
+        }
+        deadline.arm(idle_timeout);
+        count = checked_count(count, size, cap)?;
+        sink.write(&buffer[..size]).await?;
+    }
+    deadline.stop();
+    Ok(())
+}
+
 /// Browser transfer through fetch. The browser owns DNS and redirects.
 pub struct Transfer {
     options: AttachmentOptions,
-    connect_timeout: Duration,
     idle_timeout: Duration,
 }
 
@@ -128,20 +178,14 @@ impl Transfer {
     pub fn new(options: AttachmentOptions) -> Result<Self, AttachmentError> {
         Ok(Self {
             options,
-            connect_timeout: CONNECT_TIMEOUT,
             idle_timeout: IDLE_TIMEOUT,
         })
     }
 
     #[cfg(test)]
-    fn with_timeouts(
-        options: AttachmentOptions,
-        connect_timeout: Duration,
-        idle_timeout: Duration,
-    ) -> Self {
+    fn with_timeout(options: AttachmentOptions, idle_timeout: Duration) -> Self {
         Self {
             options,
-            connect_timeout,
             idle_timeout,
         }
     }
@@ -155,62 +199,7 @@ impl Transfer {
             return Err(AttachmentError::new(Cause::TargetRejected));
         }
         validate_url(&upload.url, &self.options)?;
-        if upload
-            .headers
-            .iter()
-            .any(|(name, _)| sensitive_header(name))
-        {
-            return Err(AttachmentError::new(Cause::Credential));
-        }
-        let deadline = AbortDeadline::new()?;
-        deadline.arm(self.connect_timeout);
-        let init = private_request("PUT");
-        init.set_signal(Some(&deadline.controller.signal()));
-        let progress = deadline.clone();
-        let idle = self.idle_timeout;
-        let mut source =
-            Box::pin(wasm_streams::ReadableStream::from_raw(body.file.stream()).into_stream());
-        let stream =
-            wasm_streams::ReadableStream::from_stream(futures_util::stream::poll_fn(move |cx| {
-                let next = source.as_mut().poll_next(cx);
-                if matches!(
-                    &next,
-                    std::task::Poll::Ready(Some(Ok(_))) | std::task::Poll::Ready(None)
-                ) {
-                    progress.arm(idle);
-                }
-                next
-            }))
-            .into_raw();
-        init.set_body_opt_readable_stream(Some(&stream));
-        js_sys::Reflect::set(init.as_ref(), &"duplex".into(), &"half".into())
-            .map_err(|_| AttachmentError::new(Cause::Malformed))?;
-        let request = match Request::new_with_str_and_init(&upload.url, &init) {
-            Ok(request) => request,
-            Err(_) => {
-                deadline.stop();
-                return blob_put(upload, &body.file).await;
-            }
-        };
-        if request
-            .headers()
-            .get("content-type")
-            .ok()
-            .flatten()
-            .is_some_and(|value| value.starts_with("text/plain"))
-        {
-            deadline.stop();
-            return blob_put(upload, &body.file).await;
-        }
-        set_upload_headers(&request, upload)?;
-        let response = fetch(&request).await;
-        deadline.stop();
-        let response = match response {
-            Ok(response) => response,
-            Err(error) if deadline.fired.get() => return Err(error),
-            Err(_) => return blob_put(upload, &body.file).await,
-        };
-        put_outcome(response.status())
+        blob_put(upload, &body.file).await
     }
 
     pub async fn get(
@@ -221,15 +210,16 @@ impl Transfer {
     ) -> Result<(), AttachmentError> {
         validate_url(url, &self.options)?;
         let deadline = AbortDeadline::new()?;
-        deadline.arm(self.connect_timeout);
+        deadline.arm(self.idle_timeout);
         let init = private_request("GET");
         init.set_signal(Some(&deadline.controller.signal()));
         let request = Request::new_with_str_and_init(url, &init)
             .map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
         let response = fetch(&request).await;
-        deadline.stop();
         let response = response?;
-        deadline.arm(self.idle_timeout);
+        if deadline.fired.get() {
+            return Err(AttachmentError::new(Cause::Network));
+        }
         match response.status() {
             200 => {}
             404 | 410 => return Err(AttachmentError::new(Cause::NotFound)),
@@ -239,30 +229,39 @@ impl Transfer {
             .body()
             .ok_or(AttachmentError::new(Cause::HttpStatus))?;
         let mut reader = wasm_streams::ReadableStream::from_raw(body).into_async_read();
-        let mut buffer = [0_u8; CHUNK_SIZE];
-        let mut count = 0;
         let cap = cap.min(self.options.max_download_bytes.unwrap_or(u64::MAX));
-        loop {
-            let size = reader.read(&mut buffer).await.map_err(|_| {
-                deadline.stop();
-                AttachmentError::new(Cause::Network)
-            })?;
-            if size == 0 {
-                break;
-            }
-            deadline.stop();
-            count = checked_count(count, size, cap)?;
-            sink.write(&buffer[..size]).await?;
-            deadline.arm(self.idle_timeout);
-        }
-        deadline.stop();
-        Ok(())
+        read_body(&mut reader, cap, sink, &deadline, self.idle_timeout).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    struct PendingReader;
+
+    impl futures_util::io::AsyncRead for PendingReader {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            _buf: &mut [u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Poll::Pending
+        }
+    }
+
+    struct NullSink;
+
+    #[async_trait::async_trait(?Send)]
+    impl DownloadSink for NullSink {
+        async fn write(&mut self, _bytes: &[u8]) -> Result<(), AttachmentError> {
+            Ok(())
+        }
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn request_omits_browser_credentials() {
@@ -276,13 +275,10 @@ mod tests {
     // verifies: ATCH-070
     #[xmtp_common::test(unwrap_try = true)]
     async fn deadline_resets_on_progress() {
-        let transfer = Transfer::with_timeouts(
-            AttachmentOptions::default(),
-            Duration::from_millis(80),
-            Duration::from_millis(80),
-        );
+        let transfer =
+            Transfer::with_timeout(AttachmentOptions::default(), Duration::from_millis(80));
         let deadline = AbortDeadline::new()?;
-        deadline.arm(transfer.connect_timeout);
+        deadline.arm(transfer.idle_timeout);
         gloo_timers::future::TimeoutFuture::new(50).await;
         deadline.arm(transfer.idle_timeout);
         gloo_timers::future::TimeoutFuture::new(50).await;
@@ -290,5 +286,23 @@ mod tests {
         gloo_timers::future::TimeoutFuture::new(60).await;
         assert!(deadline.controller.signal().aborted());
         assert!(deadline.fired.get());
+    }
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn get_read_loop_aborts_idle_body() {
+        let deadline = AbortDeadline::new()?;
+        deadline.arm(Duration::from_millis(40));
+        let error = read_body(
+            &mut PendingReader,
+            100,
+            &mut NullSink,
+            &deadline,
+            Duration::from_millis(40),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(error.cause, Cause::Network);
+        assert!(deadline.controller.signal().aborted());
     }
 }
