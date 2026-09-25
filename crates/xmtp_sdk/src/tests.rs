@@ -1346,11 +1346,21 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
         )
         .await?;
     let stored = client.inner.message(hex::decode(&compressed_id.0)?)?;
+    assert!(matches!(
+        MessageContent::decode(stored.decrypted_message_bytes.clone())?,
+        MessageContent::Text(value) if value == "compressed"
+    ));
     assert!(
         ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?
             .compression
             .is_some()
     );
+    let read_back = client
+        .conversations()
+        .get_message_by_id(compressed_id)
+        .await?
+        .expect("compressed message");
+    assert!(matches!(read_back.0.content, MessageContent::Text(value) if value == "compressed"));
     assert!(
         client
             .conversations()
@@ -1432,7 +1442,11 @@ fn decode_rejects_compression_bomb_with_bounded_output() {
     let mut content = TextCodec::encode("placeholder".into())?;
     content.content = encoder.finish()?;
     content.compression = Some(WireCompression::Deflate as i32);
-    assert!(MessageContent::decode(content.clone().encode_to_vec()).is_err());
+    let error = MessageContent::decode(content.clone().encode_to_vec()).unwrap_err();
+    assert!(
+        error.to_string().contains("decompressed content exceeds"),
+        "unexpected decode error: {error}"
+    );
     let mut budget = DecompressionBudget::new();
     assert!(xmtp_content_types::compression::decompress_with_budget(content, &mut budget).is_err());
     assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
@@ -1548,7 +1562,7 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     a.conversations().sync_all(None).await?;
 
     let mut inactive = None;
-    for id in [first, second] {
+    for id in [first.clone(), second.clone()] {
         let bytes = hex::decode(&id.0)?;
         if let Some((stored, stitched)) = a.inner.message_with_group(&bytes).await?
             && stored.group_id != stitched.group_id
@@ -1558,7 +1572,44 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
         }
     }
     let id = inactive.expect("one duplicate DM must be inactive");
-    let reaction = a
+    let (owner, peer) = if id == first { (&a, &b) } else { (&b, &a) };
+    let stored = owner.inner.message(hex::decode(&id.0)?)?;
+    assert_eq!(stored.sender_inbox_id, owner.inbox_id().0);
+    let crate::Conversation::Dm { dm: peer_dm } = peer
+        .conversations()
+        .get_by_id(stored.group_id.into())
+        .await?
+        .expect("peer holds duplicate DM")
+    else {
+        panic!("expected a DM");
+    };
+    let peer_message = peer_dm
+        .send_text("peer in inactive duplicate".into())
+        .await?;
+    owner.conversations().sync_all(None).await?;
+    let active_id = if id == first { &second } else { &first };
+    let active_group_id = owner.inner.message(hex::decode(&active_id.0)?)?.group_id;
+    let crate::Conversation::Dm { dm: active_dm } = owner
+        .conversations()
+        .get_by_id(active_group_id.into())
+        .await?
+        .expect("active duplicate DM")
+    else {
+        panic!("expected a DM");
+    };
+    active_dm
+        .send_text("keep other duplicate active".into())
+        .await?;
+    for message_id in [&id, &peer_message] {
+        let bytes = hex::decode(&message_id.0)?;
+        let (stored, winner) = owner
+            .inner
+            .message_with_group(&bytes)
+            .await?
+            .expect("message");
+        assert_ne!(stored.group_id, winner.group_id);
+    }
+    let reaction = owner
         .conversations()
         .react_to_message(
             id.clone(),
@@ -1570,15 +1621,20 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
             None,
         )
         .await?;
-    let reply = a
+    let reply = owner
         .conversations()
         .reply_to_message(id.clone(), crate::encode_text("reply".into())?, None)
         .await?;
     assert_ne!(reaction, reply);
-    assert!(matches!(
-        a.conversations().delete_message(id).await,
-        Err(crate::XmtpError::PermissionDenied(_))
-    ));
+    let peer_error = owner
+        .conversations()
+        .delete_message(peer_message)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(&peer_error, crate::XmtpError::PermissionDenied(details) if details.message.contains("not your message"))
+    );
+    assert_ne!(owner.conversations().delete_message(id.clone()).await?, id);
     a.end().await?;
     b.end().await?;
 }
