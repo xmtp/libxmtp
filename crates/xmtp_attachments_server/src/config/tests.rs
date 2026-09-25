@@ -70,6 +70,7 @@ async fn retention_rules() {
     );
 }
 
+// verifies: ATCH-075
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_prefix_rules() {
     let mut config = config();
