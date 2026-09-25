@@ -105,9 +105,11 @@ pub fn check_base_url(base_url: &str) -> Result<(), AttachmentConfigurationError
     let (scheme, authority_and_path) = base_url
         .split_once("://")
         .ok_or_else(|| invalid_url("is not an absolute URL with an authority"))?;
-    let is_http = scheme.eq_ignore_ascii_case("http");
-    if !is_http && !scheme.eq_ignore_ascii_case("https") {
-        return Err(invalid_url("scheme is not https or loopback http"));
+    let is_http = scheme == "http";
+    if !is_http && scheme != "https" {
+        return Err(invalid_url(
+            "scheme is not lowercase https or loopback http",
+        ));
     }
     if base_url.contains('?') || base_url.contains('#') {
         return Err(invalid_url("has a query or fragment"));
