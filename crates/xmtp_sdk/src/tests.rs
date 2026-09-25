@@ -50,6 +50,24 @@ async fn added_account_opens_the_existing_inbox() {
     owner
         .unsafe_add_account(second_signer.clone(), false)
         .await?;
+    let identifier = signer::identity(second_signer.clone()).await?.to_core()?;
+    let backend = options().backend.unwrap_or_default().resolve().await?;
+    let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
+    let expected = owner.inbox_id().0;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let found = api
+                .get_inbox_ids(vec![identifier.clone().into()])
+                .await
+                .map_err(XmtpError::from_api)?;
+            if found.into_iter().next().flatten().as_deref() == Some(expected.as_str()) {
+                return Ok::<(), XmtpError>(());
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("added account did not become visible to the backend")?;
     let second = Client::create(second_signer, options()).await?;
     assert_eq!(second.inbox_id(), owner.inbox_id());
     assert!(owner.inbox_state(true).await?.identities.len() >= 2);
