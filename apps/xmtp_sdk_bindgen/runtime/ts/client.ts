@@ -29,13 +29,6 @@ import {
 import { EventStream } from "./events/reader";
 import type { ConversationID, InboxID, InstallationID } from "./ids";
 
-// Conformance uses this hook to pause delivery before the app callback starts.
-let eventStartHookForTest: (() => Promise<void>) | undefined;
-
-export function setEventStartHookForTest(hook?: () => Promise<void>): void {
-  eventStartHookForTest = hook;
-}
-
 declare const process: { cwd(): string } | undefined;
 
 function resolvedOptions(options: ClientOptions): ClientOptions {
@@ -200,7 +193,6 @@ export class Client {
     try {
       const id = await this.raw.startListener(filter, {
         async onEvent(event: ClientEvent): Promise<void> {
-          if (eventStartHookForTest) await eventStartHookForTest();
           if (gate.stopped) return;
           try {
             await callback(event);

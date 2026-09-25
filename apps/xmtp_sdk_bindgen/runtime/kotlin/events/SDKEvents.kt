@@ -43,10 +43,6 @@ internal class ListenerGates {
         }
 }
 
-internal object EventStartHookForTest {
-    @Volatile var beforeCallback: (suspend () -> Unit)? = null
-}
-
 /** Read one event only when the flow collector requests it. */
 suspend fun SDKClient.events(filter: EventFilter): Flow<ClientEvent> {
     val reader = raw.events(filter)
@@ -77,7 +73,6 @@ suspend fun SDKClient.startListener(
                 object : EventListener {
                     override suspend fun onEvent(event: ClientEvent) {
                         withContext(NonCancellable) {
-                            EventStartHookForTest.beforeCallback?.invoke()
                             if (!gate.begin()) return@withContext
                             try {
                                 handler(event)
