@@ -31,6 +31,11 @@ pub struct ConversationReader {
 }
 
 impl ConversationReader {
+    #[cfg(test)]
+    pub(crate) fn lease_for_test(&self) -> &Arc<IncomingLease> {
+        &self.lease
+    }
+
     pub(crate) async fn open(
         context: xmtp_mls::MlsContext,
         kind: Option<ConversationKind>,

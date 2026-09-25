@@ -273,13 +273,14 @@ impl MessageReader {
         previous: ConnectionState,
     ) -> Result<ConnectionState, XmtpError> {
         let control = self.control.clone();
+        let mut changes = control.observer();
         on_sdk_worker(self.context.clone(), async move {
             loop {
                 let current = control.catch_up_snapshot().connection.into();
                 if current != previous || current == ConnectionState::Closed {
                     return Ok(current);
                 }
-                control.changed().await;
+                changes.changed().await;
             }
         })
         .await

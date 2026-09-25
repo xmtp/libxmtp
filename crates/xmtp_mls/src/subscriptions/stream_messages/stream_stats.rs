@@ -62,6 +62,7 @@ impl StreamStatsWrapper {
             pending: parking_lot::Mutex::new(Vec::new()),
         });
         let control = inner.control.clone();
+        let mut changes = control.observer();
         let events = stats.clone();
         let watch = xmtp_common::spawn(None, async move {
             let mut previous = StreamState::Unknown;
@@ -101,7 +102,7 @@ impl StreamStatsWrapper {
                     pending.push(StreamStat::ChangeState { state });
                     previous = state;
                 }
-                control.changed().await;
+                changes.changed().await;
             }
         });
         Self {

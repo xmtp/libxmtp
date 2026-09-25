@@ -61,3 +61,4 @@ xmtp_common = { workspace = true, features = ["test-utils-network"] }
 xmtp_configuration.workspace = true
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }
+xmtp_mls = { workspace = true, features = ["test-utils"] }

@@ -24,8 +24,26 @@ pub struct MessageReader<C: XmtpSharedContext> {
 pub struct MessageReaderControl {
     delivery: LocalDeliveryControl,
     lease: Arc<Mutex<Option<Arc<IncomingLease>>>>,
+    changes: Arc<tokio::sync::Mutex<tokio::sync::watch::Receiver<u64>>>,
     last_status: Arc<Mutex<IncomingStatus>>,
     closed: tokio_util::sync::CancellationToken,
+}
+
+/// One independent status observer for a caller that snapshots before waiting.
+pub struct MessageReaderObserver {
+    changes: Option<tokio::sync::watch::Receiver<u64>>,
+    closed: tokio_util::sync::CancellationToken,
+}
+
+impl MessageReaderObserver {
+    pub async fn changed(&mut self) {
+        if let Some(changes) = &mut self.changes {
+            tokio::select! {
+                _ = self.closed.cancelled() => {},
+                _ = changes.changed() => {},
+            }
+        }
+    }
 }
 
 fn incoming_scope(scope: &DeliveryScope) -> IncomingScope {
@@ -55,6 +73,7 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
         let control = MessageReaderControl {
             delivery: delivery.control(),
             last_status: Arc::new(Mutex::new(lease.snapshot())),
+            changes: Arc::new(tokio::sync::Mutex::new(lease.subscribe_changes())),
             lease: Arc::new(Mutex::new(Some(lease))),
             closed: tokio_util::sync::CancellationToken::new(),
         };
@@ -171,6 +190,18 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
 }
 
 impl MessageReaderControl {
+    /// Create a receiver before the caller reads its first status snapshot.
+    pub fn observer(&self) -> MessageReaderObserver {
+        MessageReaderObserver {
+            changes: self
+                .lease
+                .lock()
+                .as_ref()
+                .map(|lease| lease.subscribe_changes()),
+            closed: self.closed.clone(),
+        }
+    }
+
     /// Replace network interest and local selection; excluded groups keep their saved D.
     pub fn update_scope(&self, scope: DeliveryScope) {
         self.delivery.update_scope(scope.clone());
@@ -197,12 +228,10 @@ impl MessageReaderControl {
 
     /// Wait for a status hint or close; read a fresh snapshot after this returns.
     pub async fn changed(&self) {
-        let lease = self.lease.lock().clone();
-        if let Some(lease) = lease {
-            tokio::select! {
-                _ = self.closed.cancelled() => {},
-                _ = lease.changed() => {},
-            }
+        let mut changes = self.changes.lock().await;
+        tokio::select! {
+            _ = self.closed.cancelled() => {},
+            _ = changes.changed() => {},
         }
     }
 
