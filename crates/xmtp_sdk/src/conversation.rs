@@ -763,7 +763,12 @@ async fn send_standard(
     value: StandardContent,
     options: Option<SendOptions>,
 ) -> Result<MessageID, XmtpError> {
-    send_encoded(group, crate::encode_standard(value)?, options.unwrap_or_default()).await
+    send_encoded(
+        group,
+        crate::encode_standard(value)?,
+        options.unwrap_or_default(),
+    )
+    .await
 }
 
 async fn send_encoded(
