@@ -78,10 +78,14 @@ async fn standard_codec_bytes_match_typed_send_wire_bytes() {
             .get_message_by_id(id)
             .await?
             .expect("sent message");
-        assert_eq!(
-            stored.0.encoded.r#type.type_id,
-            expected.r#type.expect("content type").type_id
-        );
+        let expected_type = expected.r#type.expect("content type");
+        let actual_type = &stored.0.encoded.r#type;
+        assert_eq!(actual_type.authority_id, expected_type.authority_id);
+        assert_eq!(actual_type.type_id, expected_type.type_id);
+        assert_eq!(actual_type.version_major, expected_type.version_major);
+        assert_eq!(actual_type.version_minor, expected_type.version_minor);
+        assert_eq!(stored.0.encoded.parameters, expected.parameters);
+        assert_eq!(stored.0.encoded.fallback, expected.fallback);
         assert_eq!(stored.0.encoded.content, expected.content);
         sent += 1;
     }
