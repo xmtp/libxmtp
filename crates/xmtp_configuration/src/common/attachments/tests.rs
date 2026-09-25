@@ -24,6 +24,8 @@ fn base_url_accepts_raw_rfc_forms() {
 fn base_url_rejects_non_rfc_or_disallowed_forms() {
     for base_url in [
         "http://example.com/attachments",
+        "HTTPS://example.com/a",
+        "Http://127.0.0.1/a",
         "https://example.com/attachments?key=value",
         "https://example.com/attachments#section",
         "https://example.com/attachments/",

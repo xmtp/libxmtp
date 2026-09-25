@@ -215,6 +215,8 @@ fn attachments_zero_max_reads_default() {
 fn unusable_attachments_is_none() {
     for (base_url, max_upload_bytes, retention_seconds) in [
         ("http://example.com/attachments", 1, 0),
+        ("HTTPS://example.com/a", 1, 0),
+        ("Http://127.0.0.1/a", 1, 0),
         ("https://example.com/attachments?key=value", 1, 0),
         ("https://example.com/attachments#section", 1, 0),
         ("https://example.com/attachments/", 1, 0),
