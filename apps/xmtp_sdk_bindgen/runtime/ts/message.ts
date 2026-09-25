@@ -5,6 +5,7 @@ import {
   XmtpError,
   encodeText,
   type EncodedContent,
+  type Conversation,
   type MessageContent,
   type MessageBody,
   type MessageData,
@@ -171,7 +172,7 @@ export class Message {
       : this.client().conversations().getMessageByID(id);
   }
 
-  async conversation(): Promise<object | undefined> {
+  async conversation(): Promise<Conversation | undefined> {
     return this.client().conversations().getByID(this.conversationID);
   }
 
