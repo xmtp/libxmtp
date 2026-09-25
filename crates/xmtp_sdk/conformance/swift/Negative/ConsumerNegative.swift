@@ -1,5 +1,5 @@
-import XmtpSdk
 import Foundation
+import XmtpSdk
 
 final class NonSendableValue {
     var text = "value"
@@ -8,7 +8,7 @@ final class NonSendableValue {
 struct NonSendableCodec: SDKContentCodec {
     let type = ContentTypeID(authorityID: "example.org", typeID: "non-sendable", versionMajor: 1, versionMinor: 0)
 
-    func encode(_ value: Any) throws -> EncodedContent {
+    func encode(_: Any) throws -> EncodedContent {
         EncodedContent(type: type, content: Data())
     }
 
