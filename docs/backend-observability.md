@@ -173,7 +173,7 @@ also produce spans from shared crates. Two database helpers use `db.history`.
 - `tailer.bootstrap`, `tailer.poll`.
 - `stream.fetch`, `stream.update`.
 - `scw.verify`.
-- `rpc.get_inbox_ids`, `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.verify_smart_contract_wallet_signatures`.
+- `rpc.create_upload`, `rpc.get_inbox_ids`, `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.verify_smart_contract_wallet_signatures`.
 
 Transport spans have the tracing name `grpc_request`. Their exported name is
 `<service>/<method>` from the fixed route table. This includes Query, QueryNewest,
