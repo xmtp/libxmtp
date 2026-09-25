@@ -32,7 +32,7 @@ pub fn sanitize_path_component(value: &str) -> String {
     } else {
         name.split('.').next().unwrap_or_default()
     };
-    let reserved = if stem.len() <= 6 {
+    let reserved = if stem.len() <= 7 {
         let upper = stem.to_ascii_uppercase();
         matches!(
             upper.as_str(),
@@ -100,6 +100,8 @@ mod tests {
             ("\\", "attachment"),
             ("CON.txt", "_CON.txt"),
             ("conin$.txt", "_conin$.txt"),
+            ("CONOUT$.txt", "_CONOUT$.txt"),
+            ("conout$", "_conout$"),
             ("COM¹.txt", "_COM¹.txt"),
             ("lpt³", "_lpt³"),
             ("COM0.txt", "COM0.txt"),

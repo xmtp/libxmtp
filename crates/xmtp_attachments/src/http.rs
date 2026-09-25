@@ -28,6 +28,16 @@ pub enum PutOutcome {
     AlreadyStored,
 }
 
+pub(crate) fn put_outcome(status: u16) -> Result<PutOutcome, AttachmentError> {
+    if status == 412 {
+        Ok(PutOutcome::AlreadyStored)
+    } else if (200..300).contains(&status) {
+        Ok(PutOutcome::Stored)
+    } else {
+        Err(AttachmentError::new(Cause::TargetRejected))
+    }
+}
+
 /// Compute the bound before a download starts.
 pub fn download_cap(
     content_length: Option<u64>,
@@ -94,5 +104,14 @@ mod tests {
             assert!(sensitive_header(name));
         }
         assert!(!sensitive_header("Content-Type"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn any_success_status_stores_upload() {
+        for status in [200, 201, 202, 204, 206, 299] {
+            assert_eq!(put_outcome(status)?, PutOutcome::Stored);
+        }
+        assert_eq!(put_outcome(412)?, PutOutcome::AlreadyStored);
+        assert_eq!(put_outcome(500).unwrap_err().cause, Cause::TargetRejected);
     }
 }

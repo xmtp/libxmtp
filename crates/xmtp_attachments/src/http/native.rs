@@ -2,9 +2,13 @@ use std::{
     error::Error,
     io::Read,
     net::{IpAddr, SocketAddr},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
 };
 
+use bytes::Bytes;
 use reqwest::{
     Client, Method, StatusCode, Url,
     dns::{Addrs, Name, Resolve, Resolving},
@@ -14,7 +18,7 @@ use reqwest::{
 use tokio::sync::mpsc;
 use tokio_util::io::ReaderStream;
 
-use super::{PutOutcome, UploadRequest, checked_count, sensitive_header};
+use super::{PutOutcome, UploadRequest, checked_count, put_outcome, sensitive_header};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
     address::is_private,
@@ -100,6 +104,22 @@ fn validate_url(url: &Url, options: &AttachmentOptions) -> Result<(), Attachment
     Ok(())
 }
 
+fn redirect_target(
+    current: &Url,
+    location: &str,
+    redirects: u8,
+    options: &AttachmentOptions,
+) -> Result<Url, AttachmentError> {
+    if redirects == 10 {
+        return Err(AttachmentError::new(Cause::TooManyRedirects));
+    }
+    let target = current
+        .join(location)
+        .map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
+    validate_url(&target, options)?;
+    Ok(target)
+}
+
 /// Native HTTP transfer. The resolver checks the addresses used by each connection.
 pub struct Transfer {
     client: Client,
@@ -157,11 +177,7 @@ impl Transfer {
             builder = builder.header(name, value);
         }
         let status = builder.send().await.map_err(reqwest_error)?.status();
-        match status {
-            StatusCode::OK | StatusCode::CREATED | StatusCode::NO_CONTENT => Ok(PutOutcome::Stored),
-            StatusCode::PRECONDITION_FAILED => Ok(PutOutcome::AlreadyStored),
-            _ => Err(AttachmentError::new(Cause::TargetRejected)),
-        }
+        put_outcome(status.as_u16())
     }
 
     pub async fn get(
@@ -184,18 +200,13 @@ impl Transfer {
             if !response.status().is_redirection() {
                 break response;
             }
-            if redirects == 10 {
-                return Err(AttachmentError::new(Cause::TooManyRedirects));
-            }
             let location = response
                 .headers()
                 .get(LOCATION)
                 .ok_or(AttachmentError::new(Cause::HttpStatus))?
                 .to_str()
                 .map_err(|_| AttachmentError::new(Cause::HttpStatus))?;
-            url = url
-                .join(location)
-                .map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
+            url = redirect_target(&url, location, redirects, &self.options)?;
             redirects += 1;
         };
         match response.status() {
@@ -234,19 +245,31 @@ async fn read_identity(
 }
 
 struct ChannelReader {
-    rx: mpsc::Receiver<Vec<u8>>,
-    chunk: std::io::Cursor<Vec<u8>>,
+    rx: mpsc::Receiver<Bytes>,
+    consumed: mpsc::Sender<()>,
+    chunk: Bytes,
+    position: usize,
 }
 
 impl Read for ChannelReader {
     fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
-        if self.chunk.position() as usize == self.chunk.get_ref().len() {
+        if self.position == self.chunk.len() {
+            if !self.chunk.is_empty() {
+                self.chunk = Bytes::new();
+                if self.consumed.blocking_send(()).is_err() {
+                    return Ok(0);
+                }
+            }
             let Some(bytes) = self.rx.blocking_recv() else {
                 return Ok(0);
             };
-            self.chunk = std::io::Cursor::new(bytes);
+            self.chunk = bytes;
+            self.position = 0;
         }
-        self.chunk.read(output)
+        let count = output.len().min(self.chunk.len() - self.position);
+        output[..count].copy_from_slice(&self.chunk[self.position..self.position + count]);
+        self.position += count;
+        Ok(count)
     }
 }
 
@@ -257,60 +280,92 @@ async fn read_compressed(
     sink: &mut dyn DownloadSink,
 ) -> Result<(), AttachmentError> {
     let (input_tx, input_rx) = mpsc::channel(1);
+    let (consumed_tx, mut consumed_rx) = mpsc::channel(1);
     let (output_tx, mut output_rx) = mpsc::channel(1);
+    let (recycle_tx, mut recycle_rx) = mpsc::channel(1);
+    let network_failed = Arc::new(AtomicBool::new(false));
+    let producer_failed = network_failed.clone();
     let gzip = encoding == "gzip";
     let producer = tokio::spawn(async move {
-        while let Some(chunk) = response.chunk().await.map_err(reqwest_error)? {
-            if input_tx.send(chunk.to_vec()).await.is_err() {
-                break;
+        loop {
+            let chunk = match response.chunk().await {
+                Ok(Some(chunk)) => chunk,
+                Ok(None) => break,
+                Err(_) => {
+                    producer_failed.store(true, Ordering::Release);
+                    break;
+                }
+            };
+            for start in (0..chunk.len()).step_by(CHUNK_SIZE) {
+                let end = (start + CHUNK_SIZE).min(chunk.len());
+                if input_tx.send(chunk.slice(start..end)).await.is_err() {
+                    return;
+                }
+                if consumed_rx.recv().await.is_none() {
+                    return;
+                }
             }
         }
-        Ok::<_, AttachmentError>(())
     });
     let decoder = tokio::task::spawn_blocking(move || {
         let reader = ChannelReader {
             rx: input_rx,
-            chunk: std::io::Cursor::new(Vec::new()),
+            consumed: consumed_tx,
+            chunk: Bytes::new(),
+            position: 0,
         };
         let mut reader: Box<dyn Read> = if gzip {
             Box::new(flate2::read::GzDecoder::new(reader))
         } else {
             Box::new(flate2::read::ZlibDecoder::new(reader))
         };
+        let mut output = vec![0_u8; CHUNK_SIZE];
         loop {
-            let mut output = vec![0_u8; CHUNK_SIZE];
             let count = reader.read(&mut output).map_err(|_| ())?;
             if count == 0 {
                 return Ok::<_, ()>(());
             }
-            output.truncate(count);
-            if output_tx.blocking_send(output).is_err() {
+            if output_tx.blocking_send((output, count)).is_err() {
                 return Ok(());
             }
+            let Some(recycled) = recycle_rx.blocking_recv() else {
+                return Ok(());
+            };
+            output = recycled;
         }
     });
     let mut count = 0;
     let mut result = Ok(());
-    while let Some(chunk) = output_rx.recv().await {
-        match checked_count(count, chunk.len(), cap) {
+    while let Some((output, size)) = output_rx.recv().await {
+        match checked_count(count, size, cap) {
             Ok(next) => count = next,
             Err(error) => {
                 result = Err(error);
                 break;
             }
         }
-        if let Err(error) = sink.write(&chunk).await {
+        if let Err(error) = sink.write(&output[..size]).await {
             result = Err(error);
             break;
         }
+        if recycle_tx.send(output).await.is_err() {
+            break;
+        }
     }
+    drop(recycle_tx);
     drop(output_rx);
     producer.abort();
     if result.is_ok() {
         result = decoder
             .await
             .map_err(|_| AttachmentError::new(Cause::HttpStatus))?
-            .map_err(|_| AttachmentError::new(Cause::HttpStatus));
+            .map_err(|_| {
+                AttachmentError::new(if network_failed.load(Ordering::Acquire) {
+                    Cause::Network
+                } else {
+                    Cause::HttpStatus
+                })
+            });
     } else {
         let _ = decoder.await;
     }
@@ -476,15 +531,46 @@ mod tests {
             .unwrap_err();
         // The permitted loopback source cannot make an insecure target safe.
         assert_eq!(error.cause, Cause::InsecureUrl);
-        let transfer = Transfer::new(AttachmentOptions::default())?;
+        let public = Url::parse("https://public.example/object")?;
         assert_eq!(
-            transfer
-                .get("https://10.0.0.1/private", 10, &mut MemorySink::default())
-                .await
-                .unwrap_err()
-                .cause,
+            redirect_target(
+                &public,
+                "https://10.0.0.1/private",
+                0,
+                &AttachmentOptions::default(),
+            )
+            .unwrap_err()
+            .cause,
             Cause::BlockedAddress
         );
+    }
+
+    // verifies: ATCH-055
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn ten_redirects_succeed() {
+        let server = server(|request| {
+            let n: u8 = request
+                .uri()
+                .path()
+                .trim_start_matches('/')
+                .parse()
+                .unwrap();
+            if n < 10 {
+                Response::builder()
+                    .status(StatusCode::FOUND)
+                    .header(LOCATION, format!("/{}", n + 1))
+                    .body(Full::new(Bytes::new()))
+                    .unwrap()
+            } else {
+                answer(StatusCode::OK, "done")
+            }
+        })
+        .await;
+        let mut sink = MemorySink::default();
+        allowed()
+            .get(&format!("{}/0", server.url), 10, &mut sink)
+            .await?;
+        assert_eq!(sink.0, b"done");
     }
 
     // verifies: ATCH-055
@@ -535,6 +621,49 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.cause, Cause::TooLarge);
+    }
+
+    // verifies: ATCH-056
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn identity_body_capped() {
+        let server = server(|_| answer(StatusCode::OK, "five!")).await;
+        let error = allowed()
+            .get(&server.url, 4, &mut MemorySink::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::TooLarge);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn gzip_network_error_is_network() {
+        use std::io::Write;
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gzip.write_all(&vec![b'x'; 128 * 1024])?;
+        let compressed = gzip.finish()?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let task = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = socket.read(&mut request).await;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 1000\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            socket
+                .write_all(&compressed[..compressed.len() / 2])
+                .await
+                .unwrap();
+        });
+        let error = allowed()
+            .get(&url, 1024 * 1024, &mut MemorySink::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::Network);
+        task.await?;
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -606,24 +735,32 @@ mod tests {
         }
     }
 
-    // verifies: ATCH-027
     #[xmtp_common::test(unwrap_try = true)]
     async fn no_credential_headers() {
-        let seen_clean = Arc::new(AtomicBool::new(false));
-        let flag = seen_clean.clone();
+        let seen_get = Arc::new(AtomicBool::new(false));
+        let seen_put = Arc::new(AtomicBool::new(false));
+        let get_flag = seen_get.clone();
+        let put_flag = seen_put.clone();
         let server = server(move |request| {
             let clean = request.headers().get("authorization").is_none()
                 && request.headers().get("cookie").is_none()
-                && request.headers().get("x-xmtp-inbox-id").is_none()
-                && request.headers().get(ACCEPT_ENCODING).unwrap() == "identity";
-            flag.store(clean, Ordering::Relaxed);
-            answer(StatusCode::OK, "x")
+                && request.headers().get("x-xmtp-inbox-id").is_none();
+            if request.method() == Method::PUT {
+                put_flag.store(clean, Ordering::Relaxed);
+                answer(StatusCode::ACCEPTED, "")
+            } else {
+                get_flag.store(
+                    clean && request.headers().get(ACCEPT_ENCODING).unwrap() == "identity",
+                    Ordering::Relaxed,
+                );
+                answer(StatusCode::OK, "x")
+            }
         })
         .await;
         allowed()
             .get(&server.url, 10, &mut MemorySink::default())
             .await?;
-        assert!(seen_clean.load(Ordering::Relaxed));
+        assert!(seen_get.load(Ordering::Relaxed));
 
         let directory = tempfile::tempdir()?;
         let store = NativeStore::new(directory.path()).await?;
@@ -636,8 +773,19 @@ mod tests {
         let upload = UploadRequest {
             method: "PUT".into(),
             url: server.url.clone(),
-            headers: vec![("authorization".into(), "secret".into())],
+            headers: vec![],
             expires_in_seconds: 60,
+        };
+        assert_eq!(
+            allowed()
+                .put(&upload, store.open_read(&staged).await?)
+                .await?,
+            PutOutcome::Stored
+        );
+        assert!(seen_put.load(Ordering::Relaxed));
+        let upload = UploadRequest {
+            headers: vec![("authorization".into(), "secret".into())],
+            ..upload
         };
         let error = allowed()
             .put(&upload, store.open_read(&staged).await?)

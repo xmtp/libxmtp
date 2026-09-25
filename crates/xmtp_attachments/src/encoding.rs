@@ -351,6 +351,7 @@ fn probe_zlib(reader: &mut impl Read) -> Result<bool, AttachmentError> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
     use std::io::{Cursor, Write as _};
 
     use flate2::{
@@ -363,6 +364,18 @@ mod tests {
     };
 
     use super::*;
+
+    #[derive(Clone, PartialEq, prost::Message)]
+    struct OrderedAttachmentEnvelope {
+        #[prost(message, optional, tag = "1")]
+        r#type: Option<xmtp_proto::xmtp::mls::message_contents::ContentTypeId>,
+        #[prost(btree_map = "string, string", tag = "2")]
+        parameters: BTreeMap<String, String>,
+        #[prost(string, optional, tag = "3")]
+        fallback: Option<String>,
+        #[prost(bytes = "vec", tag = "4")]
+        content: Vec<u8>,
+    }
 
     fn envelope(content: Vec<u8>) -> EncodedContent {
         AttachmentCodec::encode(Attachment {
@@ -414,7 +427,18 @@ mod tests {
             with_filename.extend_from_slice(&content);
             assert_eq!(
                 EncodedContent::decode(with_filename.as_slice())?,
-                envelope(content)
+                envelope(content.clone())
+            );
+            let expected = envelope(content);
+            assert_eq!(
+                with_filename,
+                OrderedAttachmentEnvelope {
+                    r#type: expected.r#type,
+                    parameters: expected.parameters.into_iter().collect(),
+                    fallback: expected.fallback,
+                    content: expected.content,
+                }
+                .encode_to_vec()
             );
         }
     }
