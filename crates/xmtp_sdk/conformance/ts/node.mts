@@ -240,6 +240,57 @@ const rejectedRead = rejectedOpening.next();
 await rejectedOpening.return();
 assert.equal((await rejectedRead).done, true);
 
+let readerLeaseHeld = false;
+const readFailure = new Error("injected reader failure");
+const failedStream = new sdk.MessageStream(async () => {
+  assert.equal(readerLeaseHeld, false);
+  readerLeaseHeld = true;
+  return {
+    next: async () => {
+      throw readFailure;
+    },
+    end: async () => {
+      readerLeaseHeld = false;
+    },
+  };
+}, reopened);
+await assert.rejects(
+  async () => {
+    for await (const message of failedStream) {
+      assert.fail(`unexpected message: ${message.id}`);
+    }
+  },
+  (error) => error === readFailure,
+);
+const replacementStream = new sdk.MessageStream(async () => {
+  assert.equal(readerLeaseHeld, false, "failed stream kept the reader lease");
+  readerLeaseHeld = true;
+  return {
+    next: async () => first!,
+    end: async () => {
+      readerLeaseHeld = false;
+    },
+  };
+}, reopened);
+assert.equal(
+  (await replacementStream.next()).value?.id.toString(),
+  messageID.toString(),
+);
+await replacementStream.return();
+const endFailure = new Error("injected reader end failure");
+const failedEndStream = new sdk.MessageStream(
+  async () => ({
+    next: async () => {
+      throw readFailure;
+    },
+    end: async () => {
+      throw endFailure;
+    },
+  }),
+  reopened,
+);
+await assert.rejects(failedEndStream.next(), (error) => error === readFailure);
+
 const largeExpiry = 9_007_199_254_740_993n;
 const credentialOptions = {
   ...options,

@@ -51,6 +51,14 @@ export class MessageStream implements AsyncIterableIterator<Message> {
       }
     } catch (error) {
       if (this.isClosed()) return done;
+      this.closed = true;
+      this.pending?.abort();
+      try {
+        const reader = await this.reader;
+        await reader?.end();
+      } catch {
+        // Keep the read failure when opening or ending the reader also fails.
+      }
       throw error;
     }
   }
