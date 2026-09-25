@@ -762,13 +762,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "The attachment upload request and signed response are not implemented yet."
 
 [[waiver]]
-id = "ATCH-027"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
-
-[[waiver]]
 id = "ATCH-030"
 kind = "gap"
 owner = "attachments"
@@ -860,13 +853,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Pending attachment creation and upload are not implemented yet."
 
 [[waiver]]
-id = "ATCH-039"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Pending attachment creation and upload are not implemented yet."
-
-[[waiver]]
 id = "ATCH-040"
 kind = "gap"
 owner = "attachments"
@@ -879,20 +865,6 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "binding and SDK exposure pending"
-
-[[waiver]]
-id = "ATCH-048"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Local attachment file storage and deletion are not implemented yet."
-
-[[waiver]]
-id = "ATCH-049"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Local attachment file storage and deletion are not implemented yet."
 
 [[waiver]]
 id = "ATCH-043"
@@ -966,41 +938,6 @@ reason = "Attachment download and validation are not implemented yet."
 
 [[waiver]]
 id = "ATCH-052"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment download and validation are not implemented yet."
-
-[[waiver]]
-id = "ATCH-053"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment download and validation are not implemented yet."
-
-[[waiver]]
-id = "ATCH-054"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment download and validation are not implemented yet."
-
-[[waiver]]
-id = "ATCH-055"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment download and validation are not implemented yet."
-
-[[waiver]]
-id = "ATCH-056"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment download and validation are not implemented yet."
-
-[[waiver]]
-id = "ATCH-057"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"

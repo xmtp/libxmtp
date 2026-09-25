@@ -1,14 +1,27 @@
 //! Streaming remote attachment primitives.
 
+#[cfg(not(target_arch = "wasm32"))]
+mod address;
 mod crypto;
 mod derive;
 mod encoding;
+mod http;
 mod sanitize;
+mod store;
 
 pub use crypto::{GcmDecryptor, GcmEncryptor, KeyMaterial};
 pub use derive::{attachment_key, download_url, plaintext_rel_path, remote_attachment};
 pub use encoding::{AttachmentDecoder, DecodedMeta, ciphertext_len, encoded_prefix};
+pub use http::{PutOutcome, Transfer, UploadRequest, download_cap};
 pub use sanitize::{local_file_name, sanitize_path_component};
+#[cfg(not(target_arch = "wasm32"))]
+pub use store::NativeStore;
+#[cfg(target_arch = "wasm32")]
+pub use store::OpfsStore;
+pub use store::{
+    AttachmentOptions, DownloadSink, LocalStore, StagedFile, StoreWriter, staged_path,
+    temporary_path,
+};
 
 #[cfg(all(test, target_arch = "wasm32"))]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);

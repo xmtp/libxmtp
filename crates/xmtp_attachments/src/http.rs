@@ -1,0 +1,98 @@
+//! Bounded transfer of staged ciphertext.
+
+use crate::store::AttachmentOptions;
+use crate::{AttachmentError, AttachmentFailureCause as Cause};
+
+#[cfg(not(target_arch = "wasm32"))]
+mod native;
+#[cfg(target_arch = "wasm32")]
+mod wasm;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub use native::Transfer;
+#[cfg(target_arch = "wasm32")]
+pub use wasm::Transfer;
+
+/// Values from the backend's signed upload response.
+#[derive(Clone, Debug)]
+pub struct UploadRequest {
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub expires_in_seconds: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PutOutcome {
+    Stored,
+    AlreadyStored,
+}
+
+/// Compute the bound before a download starts.
+pub fn download_cap(
+    content_length: Option<u64>,
+    snapshot_max_upload_bytes: u64,
+    options: &AttachmentOptions,
+) -> u64 {
+    content_length
+        .unwrap_or(u64::MAX)
+        .min(
+            options
+                .max_download_bytes
+                .unwrap_or(snapshot_max_upload_bytes),
+        )
+        .min(u32::MAX as u64)
+}
+
+pub(crate) fn checked_count(current: u64, added: usize, cap: u64) -> Result<u64, AttachmentError> {
+    let next = current
+        .checked_add(added as u64)
+        .ok_or(AttachmentError::new(Cause::TooLarge))?;
+    if next > cap.min(u32::MAX as u64) {
+        return Err(AttachmentError::new(Cause::TooLarge));
+    }
+    Ok(next)
+}
+
+pub(crate) fn sensitive_header(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    matches!(
+        name.as_str(),
+        "authorization" | "cookie" | "proxy-authorization"
+    ) || name.starts_with("x-xmtp-")
+        || name.starts_with("x-inbox-")
+        || name.starts_with("x-installation-")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // verifies: ATCH-056
+    #[xmtp_common::test(unwrap_try = true)]
+    fn size_cap_least_of() {
+        let mut options = AttachmentOptions::default();
+        assert_eq!(download_cap(Some(10), 100, &options), 10);
+        assert_eq!(download_cap(None, 100, &options), 100);
+        options.max_download_bytes = Some(20);
+        assert_eq!(download_cap(Some(30), 100, &options), 20);
+        options.max_download_bytes = Some(u64::MAX);
+        assert_eq!(download_cap(None, u64::MAX, &options), u32::MAX as u64);
+        assert!(checked_count(9, 2, 10).is_err());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn credential_header_filter() {
+        for name in [
+            "Authorization",
+            "Cookie",
+            "Proxy-Authorization",
+            "X-XMTP-Inbox-ID",
+            "X-Inbox-Id",
+            "X-Installation-Id",
+        ] {
+            assert!(sensitive_header(name));
+        }
+        assert!(!sensitive_header("Content-Type"));
+    }
+}
