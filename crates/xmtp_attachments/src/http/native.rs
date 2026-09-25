@@ -28,6 +28,17 @@ use crate::{
 
 mod upload;
 
+const DEFLATE_OVERHEAD_DIVISOR: u64 = 1000;
+
+fn compressed_input_cap(decoded_cap: u64) -> u64 {
+    // Allow normal DEFLATE block overhead and framing, but stop streams that
+    // consume input without producing decoded bytes.
+    let decoded_cap = decoded_cap.min(u32::MAX as u64);
+    decoded_cap
+        .saturating_add(decoded_cap / DEFLATE_OVERHEAD_DIVISOR)
+        .saturating_add(CHUNK_SIZE as u64)
+}
+
 #[derive(Debug)]
 struct BlockedDns;
 
@@ -326,14 +337,25 @@ async fn read_compressed(
     let (recycle_tx, mut recycle_rx) = mpsc::channel(1);
     let network_failed = Arc::new(AtomicBool::new(false));
     let producer_failed = network_failed.clone();
+    let input_too_large = Arc::new(AtomicBool::new(false));
+    let producer_too_large = input_too_large.clone();
+    let input_cap = compressed_input_cap(cap);
     let gzip = encoding == "gzip";
     let producer = tokio::spawn(async move {
+        let mut input_count = 0_u64;
         loop {
             let chunk = match timeout(idle_timeout, response.chunk()).await {
                 Ok(Ok(Some(chunk))) => chunk,
                 Ok(Ok(None)) => break,
                 Err(_) | Ok(Err(_)) => {
                     producer_failed.store(true, Ordering::Release);
+                    break;
+                }
+            };
+            input_count = match input_count.checked_add(chunk.len() as u64) {
+                Some(next) if next <= input_cap => next,
+                _ => {
+                    producer_too_large.store(true, Ordering::Release);
                     break;
                 }
             };
@@ -397,16 +419,19 @@ async fn read_compressed(
     drop(output_rx);
     producer.abort();
     if result.is_ok() {
-        result = decoder
+        let decoded = decoder
             .await
-            .map_err(|_| AttachmentError::new(Cause::HttpStatus))?
-            .map_err(|_| {
-                AttachmentError::new(if network_failed.load(Ordering::Acquire) {
-                    Cause::Network
-                } else {
-                    Cause::HttpStatus
-                })
-            });
+            .map_err(|_| AttachmentError::new(Cause::HttpStatus))?;
+        if input_too_large.load(Ordering::Acquire) {
+            return Err(AttachmentError::new(Cause::TooLarge));
+        }
+        result = decoded.map_err(|_| {
+            AttachmentError::new(if network_failed.load(Ordering::Acquire) {
+                Cause::Network
+            } else {
+                Cause::HttpStatus
+            })
+        });
     } else {
         let _ = decoder.await;
     }
@@ -1204,6 +1229,48 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.cause, Cause::TooLarge);
+    }
+
+    // verifies: ATCH-056
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn endless_empty_gzip_blocks_hit_input_cap() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = socket.read(&mut request).await;
+            socket
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nConnection: close\r\n\r\n",
+                )
+                .await
+                .unwrap();
+            socket
+                .write_all(&[0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 0xff])
+                .await
+                .unwrap();
+            // Each non-final stored block has no decoded bytes.
+            let empty_blocks = [0, 0, 0, 0xff, 0xff].repeat(1024);
+            loop {
+                if socket.write_all(&empty_blocks).await.is_err() {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            }
+        });
+
+        let mut sink = MemorySink::default();
+        let result = timeout(Duration::from_secs(3), allowed().get(&url, 1024, &mut sink)).await;
+        server.abort();
+        let _ = server.await;
+        let error = result
+            .expect("encoded input limit ends the stream")
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::TooLarge);
+        assert!(sink.0.is_empty());
     }
 
     // verifies: ATCH-056
