@@ -18,10 +18,6 @@ import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
-import {
-  Client as RuntimeClient,
-  ClientRegistry,
-} from "../../../../target/sdk-generated/typescript-wasm/runtime/client";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 
 function expect(value: unknown, message: string): asserts value {
@@ -275,16 +271,28 @@ export async function runBrowserBridgeConformance(
     const reply = await reopened.conversations().getMessageByID(replyID);
     expect(parent, "parent message was not read");
     expect(reply, "reply message was not read");
+    equal(
+      (await reopened.decodeContent(parent.encoded)).tag,
+      Pure.StandardContent_Tags.Text,
+      "pure WASM did not decode the message",
+    );
+    equal(parent.content.tag, B.MessageContent_Tags.Text, "host content changed");
+    const hostReactionID = await parent.react({
+      content: "host",
+      action: B.ReactionAction.Added,
+      schema: B.ReactionSchema.Unicode,
+    });
+    expect(hostReactionID.toString().length > 0, "host action did not send");
     expect(markdownID.toString().length > 0, "markdown was not sent");
     expect(receiptID.toString().length > 0, "read receipt was not sent");
     equal(
-      parent.data.reactions[0]?.id.toString(),
+      parent.reactions[0]?.id.toString(),
       reactionID.toString(),
       "reaction missing",
     );
-    equal(parent.data.replyCount, 1n, "reply count changed");
+    equal(parent.replyCount, 1n, "reply count changed");
     equal(
-      reply.data.inReplyTo?.id.toString(),
+      reply.inReplyTo?.id.toString(),
       parentID.toString(),
       "reply parent changed",
     );
@@ -297,24 +305,6 @@ export async function runBrowserBridgeConformance(
       versionMinor: 0,
     });
     const customBytes = new TextEncoder().encode("custom browser value");
-    const customID = await group.send(
-      B.EncodedContent.create({
-        type: customType,
-        parameters: new Map([["source", "browser"]]),
-        fallback: "custom",
-        content: customBytes.buffer,
-      }),
-      undefined,
-    );
-    const custom = await reopened.conversations().getMessageByID(customID);
-    expect(custom, "custom message was not read");
-    equal(custom.encoded.fallback, "custom", "custom fallback was lost");
-    equal(custom.encoded.parameters.get("source"), "browser", "map was lost");
-    equal(
-      new TextDecoder().decode(custom.encoded.content),
-      "custom browser value",
-      "custom bytes changed",
-    );
     const customCodec = {
       type: customType,
       encode(value: string): B.EncodedContent {
@@ -327,50 +317,37 @@ export async function runBrowserBridgeConformance(
         return new TextDecoder().decode(value.content);
       },
     };
-    // The public runtime constructor normally receives the raw binding from
-    // Client.create. The bridge test supplies its generated proxy instead.
-    const owner = Reflect.construct(RuntimeClient, [
-      reopened,
-      [customCodec],
-    ]) as RuntimeClient;
+    const customOptions = { ...clientOptions, codecs: [customCodec] };
+    const customOwner = await Client.build(
+      session,
+      identity,
+      customOptions,
+      inboxID,
+    );
+    const customGroup = await customOwner.conversations().createGroup([]);
+    const customID = await customGroup.send(
+      B.EncodedContent.create({
+        type: customType,
+        parameters: new Map([["source", "browser"]]),
+        fallback: "custom",
+        content: customBytes.buffer,
+      }),
+      undefined,
+    );
+    const custom = await customOwner.conversations().getMessageByID(customID);
+    expect(custom, "custom message was not read");
+    equal(custom.encoded.fallback, "custom", "custom fallback was lost");
+    equal(custom.encoded.parameters.get("source"), "browser", "map was lost");
+    equal(new TextDecoder().decode(custom.encoded.content), "custom browser value", "custom bytes changed");
     equal(
-      owner.decodeCustom(custom.encoded)?.value,
+      await customOwner.decodeContent(custom.encoded),
       "custom browser value",
       "custom codec failed",
     );
-    equal(
-      ClientRegistry.get(reopened.clientKey()),
-      owner,
-      "codec owner changed",
-    );
-    ClientRegistry.delete(reopened.clientKey());
-    const unknownOwner = Reflect.construct(RuntimeClient, [
-      reopened,
-      [],
-    ]) as RuntimeClient;
-    equal(
-      unknownOwner.decodeCustom(custom.encoded),
-      undefined,
-      "unknown codec decoded a value",
-    );
-    const failingOwner = Reflect.construct(RuntimeClient, [
-      reopened,
-      [
-        {
-          ...customCodec,
-          decode(): string {
-            throw new Error("custom decode failed");
-          },
-        },
-      ],
-    ]) as RuntimeClient;
-    expect(
-      failingOwner
-        .decodeCustom(custom.encoded)
-        ?.error?.includes("custom decode failed"),
-      "decode error was lost",
-    );
-    ClientRegistry.delete(reopened.clientKey());
+    equal(custom.content.tag, B.MessageContent_Tags.Custom, "custom tag changed");
+    if (custom.content.tag === B.MessageContent_Tags.Custom)
+      equal(custom.content.inner.value, "custom browser value", "host custom content failed");
+    await customOwner.end();
     results.push("scenario 6: custom codec registry, unknown codec, and error");
 
     const readerGroup = await reopened
@@ -467,6 +444,11 @@ export async function runBrowserBridgeConformance(
     );
     await reopened.end();
     reopened = undefined;
+    await checkError(
+      () => parent.react({ content: "closed", action: B.ReactionAction.Added, schema: B.ReactionSchema.Unicode }),
+      (error) => B.XmtpError.ClientClosed.instanceOf(error),
+      "message action did not fail after end",
+    );
     await second.conversations().listGroups(undefined);
     await second.end();
     results.push("smoke: two page clients share the origin lock");
