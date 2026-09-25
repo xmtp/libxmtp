@@ -1391,6 +1391,74 @@ async fn message_history_queries_do_not_grow_per_row() {
     client.end().await?;
 }
 
+// verifies: CTYPE-010, SEND-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn encoded_sends_use_catalogue_push_defaults_and_explicit_override() {
+    use crate::{Reaction, ReactionAction, ReactionSchema, SendOptions};
+    use xmtp_content_types::{ContentCodec, reaction::ReactionCodec};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent = group.send_text("reference".into()).await?;
+    let reaction = || Reaction {
+        content: "👍".into(),
+        action: ReactionAction::Added,
+        schema: ReactionSchema::Unicode,
+    };
+    let encoded_reaction = || {
+        ReactionCodec::encode(reaction().into_proto(parent.clone(), client.inbox_id()))
+            .map(Into::into)
+    };
+    let stored_push = |id: &MessageID| {
+        client
+            .inner
+            .message(hex::decode(&id.0).expect("message ID"))
+            .expect("stored message")
+            .should_push
+    };
+
+    let raw = group.send(encoded_reaction()?, None).await?;
+    let raw_push = stored_push(&raw);
+    let action = client
+        .conversations()
+        .react_to_message(parent.clone(), reaction(), None)
+        .await?;
+    let action_push = stored_push(&action);
+    let prepared = group.prepare_message(encoded_reaction()?, None).await?;
+    let prepared_push = stored_push(&prepared);
+    let text = group.send(crate::encode_text("text".into())?, None).await?;
+    let text_push = stored_push(&text);
+    let override_id = group
+        .send(
+            encoded_reaction()?,
+            Some(SendOptions {
+                should_push: Some(true),
+                ..Default::default()
+            }),
+        )
+        .await?;
+    let override_push = stored_push(&override_id);
+    let reply = client
+        .conversations()
+        .reply_to_message(parent, crate::encode_text("reply".into())?, None)
+        .await?;
+    let reply_push = stored_push(&reply);
+    let observed = [
+        raw_push,
+        action_push,
+        prepared_push,
+        text_push,
+        override_push,
+        reply_push,
+    ];
+    assert_eq!(
+        observed,
+        [false, false, false, true, true, true],
+        "raw, action, and prepared reactions must use the catalogue push default"
+    );
+    client.end().await?;
+}
+
 async fn assert_undecodable_standard_read_paths(
     client: &Client,
     group: &Arc<crate::Group>,
