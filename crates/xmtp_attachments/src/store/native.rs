@@ -7,6 +7,8 @@ use crate::{AttachmentError, AttachmentFailureCause as Cause};
 #[derive(Clone, Debug)]
 pub struct NativeStore {
     root: PathBuf,
+    #[cfg(test)]
+    forced_hard_link_error: Option<std::io::ErrorKind>,
 }
 
 impl NativeStore {
@@ -16,7 +18,23 @@ impl NativeStore {
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
         Ok(Self {
             root: root.as_ref().to_path_buf(),
+            #[cfg(test)]
+            forced_hard_link_error: None,
         })
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_forced_hard_link_error(mut self, kind: std::io::ErrorKind) -> Self {
+        self.forced_hard_link_error = Some(kind);
+        self
+    }
+
+    async fn hard_link(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+        #[cfg(test)]
+        if let Some(kind) = self.forced_hard_link_error {
+            return Err(std::io::Error::from(kind));
+        }
+        tokio::fs::hard_link(from, to).await
     }
 
     fn path(&self, relative: &str) -> Result<PathBuf, AttachmentError> {
@@ -60,12 +78,28 @@ impl LocalStore for NativeStore {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        tokio::fs::hard_link(&from, &to)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        tokio::fs::remove_file(from)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+        match self.hard_link(&from, &to).await {
+            Ok(()) => tokio::fs::remove_file(from)
+                .await
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage)),
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+                Err(AttachmentError::new(Cause::LocalStorage))
+            }
+            Err(_) => {
+                // Some file systems cannot make hard links. This check and
+                // rename are not atomic. ATCH-035/ATCH-058 keep each path
+                // single-flight, as with the OPFS check-then-move path.
+                if tokio::fs::try_exists(&to)
+                    .await
+                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+                {
+                    return Err(AttachmentError::new(Cause::LocalStorage));
+                }
+                tokio::fs::rename(from, to)
+                    .await
+                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+            }
+        }
     }
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
