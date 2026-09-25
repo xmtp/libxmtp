@@ -437,6 +437,13 @@ fun main() =
         check(parent == copiedBytes && parent.hashCode() == copiedBytes.hashCode())
         val sameParent = checkNotNull(reopened.conversations().getMessageByID(parentID))
         check(parent == sameParent) { "message_copies_compare_equal failed" }
+        check(parent != Message(parent.data.copy(reactions = emptyList()))) {
+            "reaction_change_compares_unequal failed"
+        }
+        val replyParent = checkNotNull(reply.data.inReplyTo)
+        check(reply != Message(reply.data.copy(inReplyTo = replyParent.copy(content = MessageBody.Text("changed"))))) {
+            "reply_parent_change_compares_unequal failed"
+        }
         val changedStatus =
             parent.data.copy(
                 deliveryStatus =

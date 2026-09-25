@@ -362,6 +362,20 @@ private fun clientClosedError() =
         ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
     )
 
+private fun MessageBody.deepEquals(other: MessageBody): Boolean =
+    when {
+        this is MessageBody.Custom && other is MessageBody.Custom -> encoded.deepEquals(other.encoded)
+        this is MessageBody.Unknown && other is MessageBody.Unknown -> encoded.deepEquals(other.encoded)
+        else -> this == other
+    }
+
+private fun MessageBody.deepHashCode(): Int =
+    when (this) {
+        is MessageBody.Custom -> encoded.deepHashCode()
+        is MessageBody.Unknown -> encoded.deepHashCode()
+        else -> hashCode()
+    }
+
 private fun ReplyParent?.deepEquals(other: ReplyParent?): Boolean =
     when {
         this == null || other == null -> {
@@ -372,6 +386,7 @@ private fun ReplyParent?.deepEquals(other: ReplyParent?): Boolean =
             id == other.id && senderInboxID == other.senderInboxID && sentAt == other.sentAt &&
                 kind == other.kind && deliveryStatus == other.deliveryStatus &&
                 contentType == other.contentType && fallback == other.fallback &&
+                content.deepEquals(other.content) &&
                 encoded.deepEquals(other.encoded)
         }
     }
@@ -385,6 +400,7 @@ private fun ReplyParent?.deepHashCode(): Int {
     result = 31 * result + deliveryStatus.hashCode()
     result = 31 * result + contentType.hashCode()
     result = 31 * result + (fallback?.hashCode() ?: 0)
+    result = 31 * result + content.deepHashCode()
     return 31 * result + encoded.deepHashCode()
 }
 
