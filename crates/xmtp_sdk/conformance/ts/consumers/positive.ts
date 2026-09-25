@@ -6,10 +6,13 @@ import {
   type Conversations,
   type EncodedContent,
   type Group,
+  type InboxID,
   type Message,
   type MessageContent,
   type MessageID,
   type Reaction,
+  type StandardContent,
+  StandardContent_Tags,
 } from "../../../../../target/sdk-generated/typescript-napi/index.ts";
 
 export function consume(
@@ -41,6 +44,24 @@ export async function consumeOmittedSendOptions(
   await group.prepareMessage(encoded);
   await conversations.reactToMessage(id, reaction);
   await conversations.replyToMessage(id, encoded);
+}
+
+export function consumeStandardIDs(content: StandardContent): MessageID | undefined {
+  if (content.tag === StandardContent_Tags.Reaction) {
+    const reference: MessageID = content.inner.reference;
+    const inbox: InboxID | undefined = content.inner.referenceInboxID;
+    void inbox;
+    return reference;
+  }
+  if (content.tag === StandardContent_Tags.Reply) {
+    const reference: MessageID = content.inner.reference;
+    return reference;
+  }
+  if (content.tag === StandardContent_Tags.DeleteMessage) {
+    const id: MessageID = content.inner.messageID;
+    return id;
+  }
+  return undefined;
 }
 
 export async function consumeMessageConversation(

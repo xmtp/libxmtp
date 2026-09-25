@@ -17,12 +17,16 @@ export { EventStream } from "./events/reader";
 export { setLogSink } from "./logging";
 export {
   TextCodec,
+  MarkdownCodec,
   ReadReceiptCodec,
   ReactionV2Codec,
   AttachmentCodec,
   RemoteAttachmentCodec,
   MultiRemoteAttachmentCodec,
   TransactionReferenceCodec,
+  WalletSendCallsCodec,
+  ActionsCodec,
+  IntentCodec,
   ReplyCodec,
   GroupUpdatedCodec,
   DeleteMessageCodec,

@@ -18,6 +18,14 @@ class TextCodec : SDKContentCodec {
     override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Text)?.v1 }
 }
 
+class MarkdownCodec : SDKContentCodec {
+    override val type get() = standardContentType(StandardContentKind.MARKDOWN)
+
+    override fun encode(value: Any) = encodeStandard(StandardContent.Markdown(value as String))
+
+    override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Markdown)?.v1 }
+}
+
 class ReadReceiptCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.READ_RECEIPT)
 
@@ -81,6 +89,31 @@ class TransactionReferenceCodec : SDKContentCodec {
         decodePure(encoded) {
             (it as? StandardContent.TransactionReference)?.v1
         }
+}
+
+class WalletSendCallsCodec : SDKContentCodec {
+    override val type get() = standardContentType(StandardContentKind.WALLET_SEND_CALLS)
+
+    override fun encode(value: Any) = encodeStandard(StandardContent.WalletSendCalls(value as WalletSendCalls))
+
+    override fun decode(encoded: EncodedContent): Any =
+        decodePure(encoded) { (it as? StandardContent.WalletSendCalls)?.v1 }
+}
+
+class ActionsCodec : SDKContentCodec {
+    override val type get() = standardContentType(StandardContentKind.ACTIONS)
+
+    override fun encode(value: Any) = encodeStandard(StandardContent.Actions(value as Actions))
+
+    override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Actions)?.v1 }
+}
+
+class IntentCodec : SDKContentCodec {
+    override val type get() = standardContentType(StandardContentKind.INTENT)
+
+    override fun encode(value: Any) = encodeStandard(StandardContent.Intent(value as Intent))
+
+    override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Intent)?.v1 }
 }
 
 class ReplyCodec : SDKContentCodec {

@@ -173,6 +173,35 @@ impl From<xmtp_content_types::wallet_send_calls::WalletSendCalls> for WalletSend
     }
 }
 
+impl From<WalletSendCalls> for xmtp_content_types::wallet_send_calls::WalletSendCalls {
+    fn from(value: WalletSendCalls) -> Self {
+        use xmtp_content_types::wallet_send_calls::{
+            WalletCall as CoreCall, WalletCallMetadata as CoreMetadata,
+        };
+        Self {
+            version: value.version,
+            chain_id: value.chain_id,
+            from: value.from,
+            calls: value
+                .calls
+                .into_iter()
+                .map(|call| CoreCall {
+                    to: call.to,
+                    data: call.data,
+                    value: call.value,
+                    gas: call.gas,
+                    metadata: call.metadata.map(|metadata| CoreMetadata {
+                        description: metadata.description,
+                        transaction_type: metadata.transaction_type,
+                        extra: metadata.extra,
+                    }),
+                })
+                .collect(),
+            capabilities: value.capabilities,
+        }
+    }
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct Intent {
     pub id: String,
@@ -189,6 +218,25 @@ impl From<xmtp_content_types::intent::Intent> for Intent {
                 .metadata
                 .and_then(|value| serde_json::to_string(&value).ok()),
         }
+    }
+}
+
+impl TryFrom<Intent> for xmtp_content_types::intent::Intent {
+    type Error = crate::XmtpError;
+
+    fn try_from(value: Intent) -> Result<Self, Self::Error> {
+        let metadata = value
+            .metadata_json
+            .map(|json| {
+                serde_json::from_str(&json)
+                    .map_err(|error| crate::XmtpError::invalid(error.to_string()))
+            })
+            .transpose()?;
+        Ok(Self {
+            id: value.id,
+            action_id: value.action_id,
+            metadata,
+        })
     }
 }
 
@@ -259,6 +307,36 @@ impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
                 })
                 .collect::<Result<Vec<_>, crate::XmtpError>>()?,
         })
+    }
+}
+
+impl From<Actions> for xmtp_content_types::actions::Actions {
+    fn from(value: Actions) -> Self {
+        use xmtp_content_types::actions::{Action as CoreAction, ActionStyle as CoreStyle};
+        Self {
+            id: value.id,
+            description: value.description,
+            expires_at: value
+                .expires_at
+                .map(|time| chrono::DateTime::from_timestamp_nanos(time.0)),
+            actions: value
+                .actions
+                .into_iter()
+                .map(|action| CoreAction {
+                    id: action.id,
+                    label: action.label,
+                    image_url: action.image_url,
+                    style: action.style.map(|style| match style {
+                        ActionStyle::Primary => CoreStyle::Primary,
+                        ActionStyle::Secondary => CoreStyle::Secondary,
+                        ActionStyle::Danger => CoreStyle::Danger,
+                    }),
+                    expires_at: action
+                        .expires_at
+                        .map(|time| chrono::DateTime::from_timestamp_nanos(time.0)),
+                })
+                .collect(),
+        }
     }
 }
 
@@ -381,24 +459,28 @@ pub struct EncodedContent {
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum StandardContent {
     Text(String),
+    Markdown(String),
     ReadReceipt,
     Reaction {
-        reference: String,
-        reference_inbox_id: Option<String>,
+        reference: crate::MessageID,
+        reference_inbox_id: Option<crate::InboxID>,
         reaction: Reaction,
     },
     Attachment(Attachment),
     RemoteAttachment(RemoteAttachment),
     MultiRemoteAttachment(MultiRemoteAttachment),
     TransactionReference(TransactionReference),
+    WalletSendCalls(WalletSendCalls),
+    Actions(Actions),
+    Intent(Intent),
     Reply {
-        reference: String,
-        reference_inbox_id: Option<String>,
+        reference: crate::MessageID,
+        reference_inbox_id: Option<crate::InboxID>,
         content: EncodedContent,
     },
     GroupUpdated(GroupUpdated),
     DeleteMessage {
-        message_id: String,
+        message_id: crate::MessageID,
     },
     LeaveRequest(LeaveRequest),
 }
@@ -406,12 +488,16 @@ pub enum StandardContent {
 #[derive(Clone, Copy, Debug, uniffi::Enum)]
 pub enum StandardContentKind {
     Text,
+    Markdown,
     ReadReceipt,
     Reaction,
     Attachment,
     RemoteAttachment,
     MultiRemoteAttachment,
     TransactionReference,
+    WalletSendCalls,
+    Actions,
+    Intent,
     Reply,
     GroupUpdated,
     DeleteMessage,
@@ -426,6 +512,9 @@ fn standard_type(kind: StandardContentKind) -> ProtoContentTypeId {
     use xmtp_content_types::ContentCodec;
     match kind {
         StandardContentKind::Text => xmtp_content_types::text::TextCodec::content_type(),
+        StandardContentKind::Markdown => {
+            xmtp_content_types::markdown::MarkdownCodec::content_type()
+        }
         StandardContentKind::ReadReceipt => {
             xmtp_content_types::read_receipt::ReadReceiptCodec::content_type()
         }
@@ -444,6 +533,11 @@ fn standard_type(kind: StandardContentKind) -> ProtoContentTypeId {
         StandardContentKind::TransactionReference => {
             xmtp_content_types::transaction_reference::TransactionReferenceCodec::content_type()
         }
+        StandardContentKind::WalletSendCalls => {
+            xmtp_content_types::wallet_send_calls::WalletSendCallsCodec::content_type()
+        }
+        StandardContentKind::Actions => xmtp_content_types::actions::ActionsCodec::content_type(),
+        StandardContentKind::Intent => xmtp_content_types::intent::IntentCodec::content_type(),
         StandardContentKind::Reply => xmtp_content_types::reply::ReplyCodec::content_type(),
         StandardContentKind::GroupUpdated => {
             xmtp_content_types::group_updated::GroupUpdatedCodec::content_type()
@@ -474,6 +568,9 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
     use xmtp_proto::xmtp::mls::message_contents::content_types as proto;
     let encoded = match value {
         StandardContent::Text(value) => xmtp_content_types::text::TextCodec::encode(value),
+        StandardContent::Markdown(value) => {
+            xmtp_content_types::markdown::MarkdownCodec::encode(value)
+        }
         StandardContent::ReadReceipt => xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
             xmtp_content_types::read_receipt::ReadReceipt {},
         ),
@@ -482,8 +579,8 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
             reference_inbox_id,
             reaction,
         } => xmtp_content_types::reaction::ReactionCodec::encode(reaction.into_proto(
-            crate::MessageID(reference),
-            crate::InboxID(reference_inbox_id.unwrap_or_default()),
+            reference,
+            crate::InboxID(reference_inbox_id.map(|id| id.0).unwrap_or_default()),
         )),
         StandardContent::Attachment(value) => {
             xmtp_content_types::attachment::AttachmentCodec::encode(
@@ -523,13 +620,22 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
                 },
             )
         }
+        StandardContent::WalletSendCalls(value) => {
+            xmtp_content_types::wallet_send_calls::WalletSendCallsCodec::encode(value.into())
+        }
+        StandardContent::Actions(value) => {
+            xmtp_content_types::actions::ActionsCodec::encode(value.into())
+        }
+        StandardContent::Intent(value) => {
+            xmtp_content_types::intent::IntentCodec::encode(value.try_into()?)
+        }
         StandardContent::Reply {
             reference,
             reference_inbox_id,
             content,
         } => xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
-            reference,
-            reference_inbox_id,
+            reference: reference.0,
+            reference_inbox_id: reference_inbox_id.map(|id| id.0),
             content: content.into(),
         }),
         StandardContent::GroupUpdated(value) => {
@@ -537,7 +643,7 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
         }
         StandardContent::DeleteMessage { message_id } => {
             xmtp_content_types::delete_message::DeleteMessageCodec::encode(proto::DeleteMessage {
-                message_id,
+                message_id: message_id.0,
             })
         }
         StandardContent::LeaveRequest(value) => {
@@ -555,12 +661,16 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
     use xmtp_content_types::ContentCodec;
     let kind = [
         StandardContentKind::Text,
+        StandardContentKind::Markdown,
         StandardContentKind::ReadReceipt,
         StandardContentKind::Reaction,
         StandardContentKind::Attachment,
         StandardContentKind::RemoteAttachment,
         StandardContentKind::MultiRemoteAttachment,
         StandardContentKind::TransactionReference,
+        StandardContentKind::WalletSendCalls,
+        StandardContentKind::Actions,
+        StandardContentKind::Intent,
         StandardContentKind::Reply,
         StandardContentKind::GroupUpdated,
         StandardContentKind::DeleteMessage,
@@ -572,13 +682,15 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
         encoded.r#type.authority_id == expected.authority_id
             && encoded.r#type.type_id == expected.type_id
             && encoded.r#type.version_major == expected.version_major
-            && encoded.r#type.version_minor == expected.version_minor
     })
     .ok_or_else(|| crate::XmtpError::invalid("unsupported standard content type"))?;
     let encoded: ProtoEncodedContent = encoded.into();
     Ok(match kind {
         StandardContentKind::Text => StandardContent::Text(
             xmtp_content_types::text::TextCodec::decode(encoded).map_err(codec_error)?,
+        ),
+        StandardContentKind::Markdown => StandardContent::Markdown(
+            xmtp_content_types::markdown::MarkdownCodec::decode(encoded).map_err(codec_error)?,
         ),
         StandardContentKind::ReadReceipt => {
             xmtp_content_types::read_receipt::ReadReceiptCodec::decode(encoded)
@@ -590,9 +702,11 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
                 .map_err(codec_error)?;
             let reaction = Reaction::from_proto(value.clone());
             StandardContent::Reaction {
-                reference: value.reference,
+                reference: crate::MessageID::try_from(value.reference)?,
                 reference_inbox_id: (!value.reference_inbox_id.is_empty())
-                    .then_some(value.reference_inbox_id),
+                    .then_some(value.reference_inbox_id)
+                    .map(crate::InboxID::try_from)
+                    .transpose()?,
                 reaction,
             }
         }
@@ -618,12 +732,30 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
                 .map_err(codec_error)?
                 .into(),
         ),
+        StandardContentKind::WalletSendCalls => StandardContent::WalletSendCalls(
+            xmtp_content_types::wallet_send_calls::WalletSendCallsCodec::decode(encoded)
+                .map_err(codec_error)?
+                .into(),
+        ),
+        StandardContentKind::Actions => StandardContent::Actions(
+            xmtp_content_types::actions::ActionsCodec::decode(encoded)
+                .map_err(codec_error)?
+                .into(),
+        ),
+        StandardContentKind::Intent => StandardContent::Intent(
+            xmtp_content_types::intent::IntentCodec::decode(encoded)
+                .map_err(codec_error)?
+                .into(),
+        ),
         StandardContentKind::Reply => {
             let value =
                 xmtp_content_types::reply::ReplyCodec::decode(encoded).map_err(codec_error)?;
             StandardContent::Reply {
-                reference: value.reference,
-                reference_inbox_id: value.reference_inbox_id,
+                reference: crate::MessageID::try_from(value.reference)?,
+                reference_inbox_id: value
+                    .reference_inbox_id
+                    .map(crate::InboxID::try_from)
+                    .transpose()?,
                 content: value.content.into(),
             }
         }
@@ -633,9 +765,11 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
                 .try_into()?,
         ),
         StandardContentKind::DeleteMessage => StandardContent::DeleteMessage {
-            message_id: xmtp_content_types::delete_message::DeleteMessageCodec::decode(encoded)
-                .map_err(codec_error)?
-                .message_id,
+            message_id: crate::MessageID::try_from(
+                xmtp_content_types::delete_message::DeleteMessageCodec::decode(encoded)
+                    .map_err(codec_error)?
+                    .message_id,
+            )?,
         },
         StandardContentKind::LeaveRequest => StandardContent::LeaveRequest(LeaveRequest {
             authenticated_note: xmtp_content_types::leave_request::LeaveRequestCodec::decode(
@@ -797,12 +931,12 @@ impl Reaction {
 }
 
 #[cfg(any(test, feature = "conformance"))]
-mod pure_codec_tests {
+pub(crate) mod pure_codec_tests {
     use super::*;
     use xmtp_content_types::ContentCodec;
     use xmtp_proto::xmtp::mls::message_contents::content_types as proto;
 
-    pub(super) fn standard_codec_samples()
+    pub(crate) fn standard_codec_samples()
     -> Result<Vec<(StandardContent, ProtoEncodedContent)>, Box<dyn std::error::Error>> {
         let text = xmtp_content_types::text::TextCodec::encode("hello".into())?;
         let remote = proto::RemoteAttachmentInfo {
@@ -822,14 +956,14 @@ mod pure_codec_tests {
             metadata: None,
         };
         let reaction = proto::ReactionV2 {
-            reference: "aabb".into(),
+            reference: "a".repeat(64),
             reference_inbox_id: "inbox".into(),
             action: proto::ReactionAction::Added as i32,
             content: "👍".into(),
             schema: proto::ReactionSchema::Unicode as i32,
         };
         let reply = xmtp_content_types::reply::Reply {
-            reference: "aabb".into(),
+            reference: "a".repeat(64),
             reference_inbox_id: Some("inbox".into()),
             content: text.clone(),
         };
@@ -837,8 +971,36 @@ mod pure_codec_tests {
             initiated_by_inbox_id: "inbox".into(),
             ..Default::default()
         };
+        let wallet = WalletSendCalls {
+            version: "1".into(),
+            chain_id: "0x1".into(),
+            from: "0xsender".into(),
+            calls: vec![],
+            capabilities: None,
+        };
+        let actions = Actions {
+            id: "actions".into(),
+            description: "Choose".into(),
+            actions: vec![Action {
+                id: "one".into(),
+                label: "One".into(),
+                image_url: None,
+                style: None,
+                expires_at: None,
+            }],
+            expires_at: None,
+        };
+        let intent = Intent {
+            id: "actions".into(),
+            action_id: "one".into(),
+            metadata_json: None,
+        };
         let cases = vec![
             (StandardContent::Text("hello".into()), text),
+            (
+                StandardContent::Markdown("**hello**".into()),
+                xmtp_content_types::markdown::MarkdownCodec::encode("**hello**".into())?,
+            ),
             (
                 StandardContent::ReadReceipt,
                 xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
@@ -847,8 +1009,10 @@ mod pure_codec_tests {
             ),
             (
                 StandardContent::Reaction {
-                    reference: reaction.reference.clone(),
-                    reference_inbox_id: Some(reaction.reference_inbox_id.clone()),
+                    reference: crate::MessageID::try_from(reaction.reference.clone())?,
+                    reference_inbox_id: Some(crate::InboxID::try_from(
+                        reaction.reference_inbox_id.clone(),
+                    )?),
                     reaction: Reaction::from_proto(reaction.clone()),
                 },
                 xmtp_content_types::reaction::ReactionCodec::encode(reaction)?,
@@ -890,9 +1054,25 @@ mod pure_codec_tests {
                 )?,
             ),
             (
+                StandardContent::WalletSendCalls(wallet.clone()),
+                xmtp_content_types::wallet_send_calls::WalletSendCallsCodec::encode(wallet.into())?,
+            ),
+            (
+                StandardContent::Actions(actions.clone()),
+                xmtp_content_types::actions::ActionsCodec::encode(actions.into())?,
+            ),
+            (
+                StandardContent::Intent(intent.clone()),
+                xmtp_content_types::intent::IntentCodec::encode(intent.try_into()?)?,
+            ),
+            (
                 StandardContent::Reply {
-                    reference: reply.reference.clone(),
-                    reference_inbox_id: reply.reference_inbox_id.clone(),
+                    reference: crate::MessageID::try_from(reply.reference.clone())?,
+                    reference_inbox_id: reply
+                        .reference_inbox_id
+                        .clone()
+                        .map(crate::InboxID::try_from)
+                        .transpose()?,
                     content: reply.content.clone().into(),
                 },
                 xmtp_content_types::reply::ReplyCodec::encode(reply)?,
@@ -903,11 +1083,11 @@ mod pure_codec_tests {
             ),
             (
                 StandardContent::DeleteMessage {
-                    message_id: "aabb".into(),
+                    message_id: crate::MessageID::try_from("a".repeat(64))?,
                 },
                 xmtp_content_types::delete_message::DeleteMessageCodec::encode(
                     proto::DeleteMessage {
-                        message_id: "aabb".into(),
+                        message_id: "a".repeat(64),
                     },
                 )?,
             ),
@@ -929,7 +1109,7 @@ mod pure_codec_tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn standard_codec_bytes_match_the_core_send_codecs() {
         let cases = standard_codec_samples()?;
-        assert_eq!(cases.len(), 11);
+        assert_eq!(cases.len(), 15);
         for (value, core) in cases {
             let facade = encode_standard(value)?;
             let expected: EncodedContent = core.into();
@@ -940,6 +1120,17 @@ mod pure_codec_tests {
             let round_trip = encode_standard(decode_standard(facade)?)?;
             assert_eq!(round_trip.content, expected.content);
         }
+    }
+
+    #[cfg(test)]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn text_minor_version_decodes() {
+        let mut encoded = encode_text("minor version".into())?;
+        encoded.r#type.version_minor = 1;
+        assert!(matches!(
+            decode_standard(encoded)?,
+            StandardContent::Text(value) if value == "minor version"
+        ));
     }
 }
 

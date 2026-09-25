@@ -11,6 +11,9 @@ import {
   type RemoteAttachment,
   type MultiRemoteAttachment,
   type TransactionReference,
+  type WalletSendCalls,
+  type Actions,
+  type Intent,
   type GroupUpdated,
   type LeaveRequest,
 } from "../xmtp_sdk";
@@ -59,6 +62,16 @@ export class TextCodec extends PureCodec<string> {
       StandardContentKind.Text,
       (value) => new StandardContent.Text(value),
       (value) => tupleValue(value, StandardContent_Tags.Text),
+    );
+  }
+}
+
+export class MarkdownCodec extends PureCodec<string> {
+  constructor() {
+    super(
+      StandardContentKind.Markdown,
+      (value) => new StandardContent.Markdown(value),
+      (value) => tupleValue(value, StandardContent_Tags.Markdown),
     );
   }
 }
@@ -121,6 +134,36 @@ export class TransactionReferenceCodec extends PureCodec<TransactionReference> {
       StandardContentKind.TransactionReference,
       (value) => new StandardContent.TransactionReference(value),
       (value) => tupleValue(value, StandardContent_Tags.TransactionReference),
+    );
+  }
+}
+
+export class WalletSendCallsCodec extends PureCodec<WalletSendCalls> {
+  constructor() {
+    super(
+      StandardContentKind.WalletSendCalls,
+      (value) => new StandardContent.WalletSendCalls(value),
+      (value) => tupleValue(value, StandardContent_Tags.WalletSendCalls),
+    );
+  }
+}
+
+export class ActionsCodec extends PureCodec<Actions> {
+  constructor() {
+    super(
+      StandardContentKind.Actions,
+      (value) => new StandardContent.Actions(value),
+      (value) => tupleValue(value, StandardContent_Tags.Actions),
+    );
+  }
+}
+
+export class IntentCodec extends PureCodec<Intent> {
+  constructor() {
+    super(
+      StandardContentKind.Intent,
+      (value) => new StandardContent.Intent(value),
+      (value) => tupleValue(value, StandardContent_Tags.Intent),
     );
   }
 }

@@ -39,16 +39,23 @@ export type Attachment = object;
 export type RemoteAttachment = object;
 export type MultiRemoteAttachment = object;
 export type TransactionReference = object;
+export type WalletSendCalls = object;
+export type Actions = object;
+export type Intent = object;
 export type GroupUpdated = object;
 export type LeaveRequest = object;
 export enum StandardContentKind {
   Text,
+  Markdown,
   ReadReceipt,
   Reaction,
   Attachment,
   RemoteAttachment,
   MultiRemoteAttachment,
   TransactionReference,
+  WalletSendCalls,
+  Actions,
+  Intent,
   Reply,
   GroupUpdated,
   DeleteMessage,
@@ -56,12 +63,16 @@ export enum StandardContentKind {
 }
 export enum StandardContent_Tags {
   Text = "Text",
+  Markdown = "Markdown",
   ReadReceipt = "ReadReceipt",
   Reaction = "Reaction",
   Attachment = "Attachment",
   RemoteAttachment = "RemoteAttachment",
   MultiRemoteAttachment = "MultiRemoteAttachment",
   TransactionReference = "TransactionReference",
+  WalletSendCalls = "WalletSendCalls",
+  Actions = "Actions",
+  Intent = "Intent",
   Reply = "Reply",
   GroupUpdated = "GroupUpdated",
   DeleteMessage = "DeleteMessage",
@@ -74,6 +85,13 @@ export type StandardContent = {
 export const StandardContent = {
   Text: class {
     readonly tag = StandardContent_Tags.Text;
+    readonly inner: readonly [string];
+    constructor(value: string) {
+      this.inner = [value];
+    }
+  },
+  Markdown: class {
+    readonly tag = StandardContent_Tags.Markdown;
     readonly inner: readonly [string];
     constructor(value: string) {
       this.inner = [value];
@@ -108,6 +126,27 @@ export const StandardContent = {
     readonly tag = StandardContent_Tags.TransactionReference;
     readonly inner: readonly [TransactionReference];
     constructor(value: TransactionReference) {
+      this.inner = [value];
+    }
+  },
+  WalletSendCalls: class {
+    readonly tag = StandardContent_Tags.WalletSendCalls;
+    readonly inner: readonly [WalletSendCalls];
+    constructor(value: WalletSendCalls) {
+      this.inner = [value];
+    }
+  },
+  Actions: class {
+    readonly tag = StandardContent_Tags.Actions;
+    readonly inner: readonly [Actions];
+    constructor(value: Actions) {
+      this.inner = [value];
+    }
+  },
+  Intent: class {
+    readonly tag = StandardContent_Tags.Intent;
+    readonly inner: readonly [Intent];
+    constructor(value: Intent) {
       this.inner = [value];
     }
   },
