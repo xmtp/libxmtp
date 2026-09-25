@@ -21,6 +21,9 @@ the durable state. Client apps have separate local databases that they must
 preserve. Size the server for its connections and traffic; the backend defines
 no fixed CPU or memory minimum.
 
+For remote ciphertext uploads, configure an optional
+[attachment storage target](/deploy/attachment-storage/).
+
 ## Configuration file
 
 Mount this file and start the binary with

@@ -46,6 +46,12 @@ url = "env:XMTP_DATABASE_URL"
 
 The JSON schema at that URL validates the file in editors that support Taplo.
 
+To offer remote ciphertext uploads, add `[attachments]` and an S3 target.
+See [Attachment storage](/deploy/attachment-storage/) for the target contract,
+retention rule, CORS headers, and credential kinds. Without this section, the
+published configuration has no attachment offer and CreateUpload returns
+`UNIMPLEMENTED`.
+
 ### `[server]`
 
 | Key                     | Type                                             | Default        | Purpose                                                                               |

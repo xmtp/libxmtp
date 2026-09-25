@@ -727,41 +727,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Attachment event ordering is not implemented yet."
 
 [[waiver]]
-id = "ATCH-001"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
-id = "ATCH-002"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
-id = "ATCH-003"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
-id = "ATCH-004"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
-id = "ATCH-006"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
 id = "ATCH-009"
 kind = "gap"
 owner = "attachments"
@@ -788,34 +753,6 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Pending attachment creation and upload are not implemented yet."
-
-[[waiver]]
-id = "ATCH-020"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
-
-[[waiver]]
-id = "ATCH-021"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
-
-[[waiver]]
-id = "ATCH-023"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
-
-[[waiver]]
-id = "ATCH-028"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
 
 [[waiver]]
 id = "ATCH-024"

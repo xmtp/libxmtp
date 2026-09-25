@@ -10,6 +10,20 @@ log_level = "info"
 url = "env:XMTP_DATABASE_URL"
 replica_url = "env:XMTP_REPLICA_URL"
 
+[attachments]
+base_url = "env:XMTP_MINIO_BASE_URL"
+max_upload_bytes = 10485760
+retention_seconds = 0
+[attachments.target.S3]
+endpoint = "env:XMTP_MINIO_URL"
+region = "us-east-1"
+bucket = "attachments"
+key_prefix = ""
+[attachments.target.S3.credentials]
+kind = "static"
+access_key_id = "xmtpminio"
+secret_access_key = "xmtpminiosecret"
+
 [chains]
 "eip155:31337" = "env:XMTP_CHAIN_31337_URL"
 

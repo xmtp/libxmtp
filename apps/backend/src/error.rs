@@ -2,6 +2,8 @@ use xmtp_mls_validation::ValidationError;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
+    #[error(transparent)]
+    AttachmentSigning(#[from] xmtp_attachments_server::SignError),
     #[error("recipient is not registered")]
     PushRecipientMissing,
     #[error("recipient secret is not valid")]

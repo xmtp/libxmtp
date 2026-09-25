@@ -1,3 +1,4 @@
+mod attachment;
 mod configuration;
 mod conversion;
 mod error;
@@ -17,6 +18,7 @@ pub struct Backend {
     pub config: Arc<Config>,
     pub verifier: Arc<CachedSmartContractSignatureVerifier>,
     pub(crate) auth: Option<Arc<crate::auth::Authentication>>,
+    pub(crate) attachments: Option<Arc<dyn xmtp_attachments_server::StorageTarget>>,
     pub(crate) streams: Option<Arc<crate::stream::StreamHub>>,
     pub(crate) push: Option<Arc<crate::push::PushHub>>,
     /// The published deployment settings, built once from the validated
@@ -44,6 +46,7 @@ impl Backend {
             streams: None,
             push: None,
             auth: None,
+            attachments: None,
             configuration,
         }
     }

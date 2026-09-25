@@ -108,6 +108,8 @@ fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
 #[serde(deny_unknown_fields)]
 pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<xmtp_attachments_server::AttachmentsConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<auth::AuthConfig>,
     #[serde(default)]
     pub server: ServerConfig,
@@ -152,6 +154,14 @@ impl Config {
 
     /// Validate scalar values and relationships between values.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if let Some(attachments) = &self.attachments {
+            attachments
+                .validate()
+                .map_err(|error| ConfigError::Invalid {
+                    field: error.field,
+                    reason: error.reason,
+                })?;
+        }
         if let Some(auth) = &self.auth {
             auth.validate()?;
         }
@@ -270,7 +280,13 @@ impl Config {
                 commit_log_enabled: Some(self.mls.commit_log_enabled),
             }),
             smart_contract_wallet_chains: self.chains.keys().cloned().collect(),
-            attachments: None,
+            attachments: self.attachments.as_ref().map(|attachments| {
+                api::AttachmentsConfiguration {
+                    base_url: attachments.base_url.clone(),
+                    max_upload_bytes: attachments.upload_ceiling(),
+                    retention_seconds: attachments.retention_seconds.unwrap_or_default(),
+                }
+            }),
         }
     }
 
@@ -322,6 +338,7 @@ impl std::fmt::Debug for Config {
         formatter
             .debug_struct("Config")
             .field("auth", &self.auth)
+            .field("attachments", &self.attachments)
             .field("server", &self.server)
             .field("database", &self.database)
             .field("publishing", &self.publishing)
