@@ -44,7 +44,7 @@ impl ConversationReader {
             StreamConversations::new_owned(context.clone(), conversation_type, false, None)
                 .await
                 .map_err(subscribe_error)?;
-        let lease = stream.lease();
+        let lease = stream.lease().expect("new stream owns its lease");
         Ok(Arc::new(Self {
             stream: Arc::new(Mutex::new(stream)),
             request_lock: Mutex::new(()),

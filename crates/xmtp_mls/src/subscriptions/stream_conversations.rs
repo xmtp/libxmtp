@@ -10,7 +10,7 @@ use futures::Stream;
 use std::{
     collections::{HashMap, VecDeque},
     pin::Pin,
-    sync::Arc,
+    sync::{Arc, Weak},
     task::{Context, Poll},
 };
 use xmtp_common::{BoxDynStream, time::sleep};
@@ -70,7 +70,7 @@ impl KnownConversations {
 /// Notify one subscriber of committed local creation and Welcome joins.
 pub struct StreamConversations<C: XmtpSharedContext> {
     inner: BoxDynStream<'static, Result<MlsGroup<C>>>,
-    lease: Arc<IncomingLease>,
+    lease: Weak<IncomingLease>,
 }
 
 impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
@@ -128,7 +128,7 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
             include_duplicate_dms,
             ..Default::default()
         };
-        let observer = lease.clone();
+        let observer = Arc::downgrade(&lease);
         let stream = futures::stream::unfold(
             Some((context, events, lease, known, VecDeque::new(), query)),
             |state| async move {
@@ -199,8 +199,8 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
     }
 
     /// Observe the same connection that supplies this conversation stream.
-    pub fn lease(&self) -> Arc<IncomingLease> {
-        self.lease.clone()
+    pub fn lease(&self) -> Option<Arc<IncomingLease>> {
+        self.lease.upgrade()
     }
 }
 
