@@ -718,6 +718,27 @@ const undecodedReply = await ownerWithoutCodec
   .conversations()
   .getMessageByID(customReplyID);
 assert.equal(undecoded?.content.tag, sdk.MessageContent_Tags.Unknown);
+const serializedCustom = new Uint8Array([10, 3, 1, 2, 3]).buffer;
+const syntheticUnknown = new sdk.Message({
+  clientKey: ownerWithoutCodec.raw.clientKey(),
+  content: {
+    tag: sdk.MessageContent_Tags.Custom,
+    inner: { encoded: customCodec.encode("codec value"), rawBytes: serializedCustom },
+  },
+  inReplyTo: undefined,
+} as sdk.MessageData);
+assert.deepEqual(
+  new Uint8Array((syntheticUnknown.content as { inner: { rawBytes: ArrayBuffer } }).inner.rawBytes),
+  new Uint8Array(serializedCustom),
+);
+const rustRawBytes = (
+  undecoded?.data.content as { inner: { rawBytes: ArrayBuffer } }
+).inner.rawBytes;
+assert.ok(new Uint8Array(rustRawBytes).byteLength > new Uint8Array(undecoded!.encoded.content).byteLength);
+assert.deepEqual(
+  new Uint8Array((undecoded?.content as { inner: { rawBytes: ArrayBuffer } }).inner.rawBytes),
+  new Uint8Array(rustRawBytes),
+);
 assert.equal(undecodedReply?.replyContent?.tag, sdk.MessageBody_Tags.Unknown);
 assert.equal(
   (customReply?.replyContent as { inner?: { value?: string } })?.inner?.value,

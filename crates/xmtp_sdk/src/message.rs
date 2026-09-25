@@ -57,6 +57,7 @@ pub enum MessageContent {
     },
     Custom {
         encoded: SdkEncodedContent,
+        raw_bytes: Vec<u8>,
     },
     Unknown {
         encoded: SdkEncodedContent,
@@ -167,6 +168,7 @@ impl MessageContent {
             }
             CoreBody::Custom(value) => Ok(Self::Custom {
                 encoded: value.into(),
+                raw_bytes: raw_bytes.to_vec(),
             }),
             _ => Ok(Self::Unknown {
                 encoded: content.into(),
