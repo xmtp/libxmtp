@@ -12,7 +12,7 @@ pub use crypto::{GcmDecryptor, GcmEncryptor, KeyMaterial};
 pub use derive::{attachment_key, download_url, plaintext_rel_path, remote_attachment};
 pub use encoding::{AttachmentDecoder, ContentChunk, DecodedMeta, ciphertext_len, encoded_prefix};
 pub use http::{PutOutcome, Transfer, UploadRequest, download_cap};
-pub use sanitize::{local_file_name, sanitize_path_component};
+pub use sanitize::{local_file_name, sanitize_path_component, sanitize_path_component_with_limit};
 #[cfg(not(target_arch = "wasm32"))]
 pub use store::NativeStore;
 #[cfg(target_arch = "wasm32")]

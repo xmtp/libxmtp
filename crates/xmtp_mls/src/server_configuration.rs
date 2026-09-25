@@ -30,6 +30,8 @@ use crate::client::ClientError;
 /// backend that refused from a database that would not accept the answer.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigurationFetchError {
+    #[error("the deployment record could not be written: {0}")]
+    StorageLocation(#[from] crate::storage_location::StorageLocationError),
     /// The backend did not answer, or answered with an error. A backend with
     /// no `ConfigurationService` answers `UNIMPLEMENTED`; there is no shim.
     #[error("the backend did not serve its configuration: {0}")]
@@ -44,6 +46,7 @@ impl xmtp_common::RetryableError for ConfigurationFetchError {
         match self {
             Self::Api(e) => e.is_retryable(),
             Self::Storage(e) => e.is_retryable(),
+            Self::StorageLocation(_) => false,
         }
     }
 }
@@ -83,6 +86,7 @@ impl From<&BlockedConnection> for ClientError {
 /// refresh sets it.
 #[derive(Clone)]
 pub struct ServerConfigurationHandle {
+    deployment_recorder: Arc<RwLock<Option<crate::storage_location::DeploymentRecorder>>>,
     provider: Arc<dyn ConfigProvider>,
     blocked_connection: Arc<RwLock<Option<BlockedConnection>>>,
     event_writer: Arc<RwLock<Option<Arc<dyn EventWriter<()>>>>>,
@@ -149,6 +153,7 @@ impl ServerConfigurationHandle {
             })
         };
         Self {
+            deployment_recorder: Arc::default(),
             provider: match sanitized {
                 Some(configuration) => Arc::new(StoredConfigProvider::new(configuration)),
                 None => provider,
@@ -197,6 +202,25 @@ impl ServerConfigurationHandle {
 
     pub(crate) fn set_event_writer(&self, writer: Arc<dyn EventWriter<()>>) {
         *self.event_writer.write() = Some(writer);
+    }
+
+    pub(crate) fn set_deployment_recorder(
+        &self,
+        recorder: crate::storage_location::DeploymentRecorder,
+    ) {
+        *self.deployment_recorder.write() = Some(recorder);
+    }
+
+    async fn record_deployment(&self, identifier: &str) -> Result<(), ClientError> {
+        let recorder = self.deployment_recorder.read().clone();
+        if let Some(recorder) = recorder {
+            recorder.record(identifier).await.map_err(|error| {
+                ClientError::ConfigurationUnavailable(Box::new(
+                    ConfigurationFetchError::StorageLocation(error),
+                ))
+            })?;
+        }
+        Ok(())
     }
 
     /// Fail when the connection is blocked. Every call that reaches the network goes
@@ -259,7 +283,7 @@ fn snapshot_from(stored: &StoredServerConfiguration) -> ServerConfiguration {
 }
 
 /// Validate a fetched response and turn it into a snapshot.
-fn validated(
+pub(crate) fn validated(
     response: &backend_v1::GetConfigurationResponse,
 ) -> Result<ServerConfiguration, ServerConfigurationError> {
     let configuration = ServerConfiguration::from(response.clone());
@@ -317,6 +341,8 @@ where
         xmtp_common::time::now_ns(),
     )
     .map_err(storage_unavailable)?;
+
+    handle.record_deployment(&configuration.identifier).await?;
 
     Ok(configuration)
 }
