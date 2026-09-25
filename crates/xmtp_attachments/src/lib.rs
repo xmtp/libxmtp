@@ -84,10 +84,22 @@ impl AttachmentFailureCause {
 #[error("attachment failure: {}", cause.as_str())]
 pub struct AttachmentError {
     pub cause: AttachmentFailureCause,
+    /// Final HTTP status from a host answer, when it is available.
+    pub http_status: Option<u16>,
 }
 
 impl AttachmentError {
     pub const fn new(cause: AttachmentFailureCause) -> Self {
-        Self { cause }
+        Self {
+            cause,
+            http_status: None,
+        }
+    }
+
+    pub(crate) const fn with_http_status(cause: AttachmentFailureCause, status: u16) -> Self {
+        Self {
+            cause,
+            http_status: Some(status),
+        }
     }
 }

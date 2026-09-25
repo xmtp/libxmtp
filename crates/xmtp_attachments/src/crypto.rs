@@ -299,7 +299,8 @@ mod tests {
                         assert!(matches!(
                             decryptor.finish(),
                             Err(AttachmentError {
-                                cause: AttachmentFailureCause::DecryptionFailed
+                                cause: AttachmentFailureCause::DecryptionFailed,
+                                ..
                             })
                         ));
                     }

@@ -128,24 +128,27 @@ fn validate_url(url: &Url, options: &AttachmentOptions) -> Result<(), Attachment
     Ok(())
 }
 
-fn content_encoding(headers: &HeaderMap) -> Result<Option<&'static str>, AttachmentError> {
+fn content_encoding(
+    headers: &HeaderMap,
+    status: u16,
+) -> Result<Option<&'static str>, AttachmentError> {
     let mut coding = None;
     for value in headers.get_all(CONTENT_ENCODING) {
         let value = value
             .to_str()
-            .map_err(|_| AttachmentError::new(Cause::HttpStatus))?;
+            .map_err(|_| AttachmentError::with_http_status(Cause::HttpStatus, status))?;
         for part in value.split(',') {
             let part = part.trim().to_ascii_lowercase();
             if part == "identity" {
                 continue;
             }
             if coding.is_some() {
-                return Err(AttachmentError::new(Cause::HttpStatus));
+                return Err(AttachmentError::with_http_status(Cause::HttpStatus, status));
             }
             coding = Some(match part.as_str() {
                 "gzip" | "x-gzip" => "gzip",
                 "deflate" => "deflate",
-                _ => return Err(AttachmentError::new(Cause::HttpStatus)),
+                _ => return Err(AttachmentError::with_http_status(Cause::HttpStatus, status)),
             });
         }
     }
@@ -280,23 +283,25 @@ impl Transfer {
             ) {
                 break response;
             }
+            let status = response.status().as_u16();
             let location = response
                 .headers()
                 .get(LOCATION)
-                .ok_or(AttachmentError::new(Cause::HttpStatus))?
+                .ok_or(AttachmentError::with_http_status(Cause::HttpStatus, status))?
                 .to_str()
-                .map_err(|_| AttachmentError::new(Cause::HttpStatus))?;
+                .map_err(|_| AttachmentError::with_http_status(Cause::HttpStatus, status))?;
             url = redirect_target(&url, location, redirects, &self.options)?;
             redirects += 1;
         };
+        let status = response.status().as_u16();
         match response.status() {
             StatusCode::OK => {}
             StatusCode::NOT_FOUND | StatusCode::GONE => {
                 return Err(AttachmentError::new(Cause::NotFound));
             }
-            _ => return Err(AttachmentError::new(Cause::HttpStatus)),
+            _ => return Err(AttachmentError::with_http_status(Cause::HttpStatus, status)),
         }
-        let encoding = content_encoding(response.headers())?;
+        let encoding = content_encoding(response.headers(), status)?;
         let cap = cap.min(self.options.max_download_bytes.unwrap_or(u64::MAX));
         match encoding {
             None => read_identity(response, cap, sink, self.idle_timeout).await,
@@ -361,6 +366,7 @@ async fn read_compressed(
     sink: &mut dyn DownloadSink,
     idle_timeout: Duration,
 ) -> Result<(), AttachmentError> {
+    let status = response.status().as_u16();
     let (input_tx, input_rx) = mpsc::channel(1);
     let (consumed_tx, mut consumed_rx) = mpsc::channel(1);
     let (output_tx, mut output_rx) = mpsc::channel(1);
@@ -454,14 +460,14 @@ async fn read_compressed(
     if result.is_ok() {
         let decoded = decoder
             .await
-            .map_err(|_| AttachmentError::new(Cause::HttpStatus))?;
+            .map_err(|_| AttachmentError::with_http_status(Cause::HttpStatus, status))?;
         if input_too_large.load(Ordering::Acquire) {
             return Err(AttachmentError::new(Cause::TooLarge));
         }
         if network_failed.load(Ordering::Acquire) {
             return Err(AttachmentError::new(Cause::Network));
         }
-        result = decoded.map_err(|_| AttachmentError::new(Cause::HttpStatus));
+        result = decoded.map_err(|_| AttachmentError::with_http_status(Cause::HttpStatus, status));
     } else {
         let _ = decoder.await;
     }
@@ -1008,6 +1014,14 @@ mod tests {
         );
     }
 
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_rejection_keeps_http_status() {
+        let error = early_put_status(StatusCode::FORBIDDEN).await?.unwrap_err();
+        assert_eq!(error.cause, Cause::TargetRejected);
+        assert_eq!(error.http_status, Some(403));
+    }
+
     // verifies: ATCH-025
     #[xmtp_common::test(unwrap_try = true)]
     async fn put_early_2xx_waits_for_body() {
@@ -1235,14 +1249,12 @@ mod tests {
                 .unwrap()
         })
         .await;
-        assert_eq!(
-            allowed()
-                .get(&server.url, 1, &mut MemorySink::default())
-                .await
-                .unwrap_err()
-                .cause,
-            Cause::HttpStatus
-        );
+        let error = allowed()
+            .get(&server.url, 1, &mut MemorySink::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::HttpStatus);
+        assert_eq!(error.http_status, Some(304));
     }
 
     // verifies: ATCH-055
@@ -1651,14 +1663,31 @@ mod tests {
                 .unwrap()
         })
         .await;
-        assert_eq!(
-            allowed()
-                .get(&server.url, 10, &mut MemorySink::default())
-                .await
-                .unwrap_err()
-                .cause,
-            Cause::HttpStatus
-        );
+        let error = allowed()
+            .get(&server.url, 10, &mut MemorySink::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::HttpStatus);
+        assert_eq!(error.http_status, Some(200));
+    }
+
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn invalid_gzip_keeps_http_status() {
+        let server = server(|_| {
+            Response::builder()
+                .status(StatusCode::OK)
+                .header(CONTENT_ENCODING, "gzip")
+                .body(Full::new(Bytes::from_static(b"not gzip")))
+                .unwrap()
+        })
+        .await;
+        let error = allowed()
+            .get(&server.url, 100, &mut MemorySink::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::HttpStatus);
+        assert_eq!(error.http_status, Some(200));
     }
 
     // verifies: ATCH-057
@@ -1681,6 +1710,36 @@ mod tests {
             );
             assert!(sink.0.is_empty());
         }
+    }
+
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn get_http_error_keeps_status() {
+        let server = server(|_| answer(StatusCode::SERVICE_UNAVAILABLE, "unavailable")).await;
+        let error = allowed()
+            .get(&server.url, 100, &mut MemorySink::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::HttpStatus);
+        assert_eq!(error.http_status, Some(503));
+    }
+
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn get_transport_failure_has_no_status() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let accepted = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            drop(socket);
+        });
+        let error = allowed()
+            .get(&url, 100, &mut MemorySink::default())
+            .await
+            .unwrap_err();
+        tokio::time::timeout(Duration::from_secs(1), accepted).await??;
+        assert_eq!(error.cause, Cause::Network);
+        assert_eq!(error.http_status, None);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
