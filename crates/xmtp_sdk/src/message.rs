@@ -127,7 +127,7 @@ impl MessageContent {
             CoreBody::MultiRemoteAttachment(value) => Ok(Self::MultiRemoteAttachment(value.into())),
             CoreBody::TransactionReference(value) => Ok(Self::TransactionReference(value.into())),
             CoreBody::WalletSendCalls(value) => Ok(Self::WalletSendCalls(value.into())),
-            CoreBody::Actions(Some(value)) => Ok(Self::Actions(value.into())),
+            CoreBody::Actions(Some(value)) => Ok(Self::Actions(value.try_into()?)),
             CoreBody::Intent(Some(value)) => Ok(Self::Intent(value.into())),
             CoreBody::GroupUpdated(value) => Ok(Self::GroupUpdated(value.try_into()?)),
             CoreBody::LeaveRequest(value) => Ok(Self::LeaveRequest(crate::LeaveRequest {
@@ -164,7 +164,7 @@ impl MessageBody {
             CoreBody::MultiRemoteAttachment(value) => Self::MultiRemoteAttachment(value.into()),
             CoreBody::TransactionReference(value) => Self::TransactionReference(value.into()),
             CoreBody::WalletSendCalls(value) => Self::WalletSendCalls(value.into()),
-            CoreBody::Actions(Some(value)) => Self::Actions(value.into()),
+            CoreBody::Actions(Some(value)) => Self::Actions(value.try_into()?),
             CoreBody::Intent(Some(value)) => Self::Intent(value.into()),
             CoreBody::GroupUpdated(value) => Self::GroupUpdated(value.try_into()?),
             CoreBody::LeaveRequest(value) => Self::LeaveRequest(crate::LeaveRequest {
