@@ -96,7 +96,7 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `attachment.download_started` | The client begins a download that neither ATCH-052 nor ATCH-058 ends | Download | `attachment_download_started` |
 | `attachment.download_completed` | A download makes a plaintext file readable at its path under ATCH-051 | Download | `attachment_download_completed` |
 | `attachment.download_failed` | A download that emitted `attachment.download_started` ends without a plaintext file | Download | `attachment_download_failed` |
-| `attachment.deleted` | An app's request under ATCH-047 deletes at least one of the attachment key directory and the staged ciphertext | Request | `attachment_deleted` |
+| `attachment.deleted` | An app's request under ATCH-047 deletes at least one of the attachment key directory, the staged ciphertext, and the local attachment record | Request | `attachment_deleted` |
 
 The payload of every event, including `lagged`, is the `ClientEvent` below. The client and SDK use the typed `EventKind` set in this section.
 

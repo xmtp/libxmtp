@@ -161,7 +161,7 @@ The span catalogue names the operation spans an operator measures: the request s
 | Group | Span names |
 | --- | --- |
 | Request | `<grpc_service>/<grpc_method>` from the route table; `unknown/unknown` for any other path |
-| RPC handler | `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.get_inbox_ids`, `rpc.verify_smart_contract_wallet_signatures`, `rpc.get_configuration`, `rpc.register`, `rpc.unregister`, `rpc.update_subscriptions` |
+| RPC handler | `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.get_inbox_ids`, `rpc.verify_smart_contract_wallet_signatures`, `rpc.get_configuration`, `rpc.register`, `rpc.unregister`, `rpc.update_subscriptions`, `rpc.create_upload` |
 | Publish stages | `publish.parse_publish`, `publish.validate_publish`, `publish.locks`, `db.commit_publish` |
 | Streams | `tailer.bootstrap`, `tailer.poll`, `stream.fetch`, `stream.update` |
 | Verification | `scw.verify` |
