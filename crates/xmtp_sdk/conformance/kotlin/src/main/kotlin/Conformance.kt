@@ -289,6 +289,7 @@ fun main() =
         check(Files.list(defaultDirectory).use { paths -> paths.anyMatch { it.fileName.toString().endsWith(".db3") } })
         defaultClient.end()
         val (orphan, weak) = releasedMessage(signer.identity(), options, inboxID)
+        // The run task uses SerialGC with explicit GC enabled, so System.gc() runs a full collection.
         repeat(50) {
             if (weak.get() == null) return@repeat
             System.gc()
