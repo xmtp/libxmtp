@@ -9,13 +9,19 @@ export interface ContentCodec<T = unknown> {
   decode(encoded: B.EncodedContent): T;
 }
 
+type AnyCodec = {
+  readonly type: B.ContentTypeID;
+  encode(value: never): B.EncodedContent;
+  decode(encoded: B.EncodedContent): unknown;
+};
+
 export type HostClientOptions = B.ClientOptions & {
-  codecs?: readonly ContentCodec[];
+  codecs?: readonly AnyCodec[];
 };
 
 interface Owner {
   client: WeakRef<Client>;
-  codecs: ReadonlyMap<string, ContentCodec>;
+  codecs: ReadonlyMap<string, AnyCodec>;
 }
 
 const owners = new WeakMap<MainSession, Map<bigint, Owner>>();
@@ -27,7 +33,7 @@ function codecKey(type: B.ContentTypeID): string {
 export function registerClient(
   session: MainSession,
   client: Client,
-  codecs: readonly ContentCodec[],
+  codecs: readonly AnyCodec[],
 ): void {
   const entries = owners.get(session) ?? new Map<bigint, Owner>();
   entries.set(client.clientKey(), {
