@@ -1205,7 +1205,7 @@ async fn removed_member_does_not_receive_later_group_message() {
             if let Some(found) = bo.conversations().get_by_id(group.id()).await? {
                 break Ok::<_, XmtpError>(found);
             }
-            tokio::task::yield_now().await;
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
         }
     })
     .await??;
@@ -1220,7 +1220,7 @@ async fn removed_member_does_not_receive_later_group_message() {
             if !bo_group.state().await?.common.is_active {
                 break Ok::<(), XmtpError>(());
             }
-            tokio::task::yield_now().await;
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
         }
     })
     .await??;

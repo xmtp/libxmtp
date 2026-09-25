@@ -556,7 +556,7 @@ async fn backend_only_identity_and_message_queries() {
             {
                 return Ok::<_, XmtpError>(metadata);
             }
-            tokio::task::yield_now().await;
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
         }
     })
     .await
