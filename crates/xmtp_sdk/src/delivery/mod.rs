@@ -35,6 +35,18 @@ fn details(code: &str, category: ErrorCategory, retryable: bool, message: String
 }
 
 pub(crate) fn delivery_error(error: LocalDeliveryError) -> XmtpError {
+    let mut cause = &error;
+    while let LocalDeliveryError::SessionFailure(inner) = cause {
+        cause = inner.as_ref();
+    }
+    if matches!(cause, LocalDeliveryError::NetworkRecoveryExhausted { .. }) {
+        return XmtpError::RecoveryExhausted(details(
+            "recoveryExhausted",
+            ErrorCategory::Stream,
+            true,
+            error.to_string(),
+        ));
+    }
     if let Some(auth) = auth_cause(&error) {
         let message = error.to_string();
         return match auth {
@@ -55,15 +67,8 @@ pub(crate) fn delivery_error(error: LocalDeliveryError) -> XmtpError {
             _ => XmtpError::unknown(error),
         };
     }
-    let cause = match &error {
-        LocalDeliveryError::SessionFailure(cause) => cause.as_ref(),
-        other => other,
-    };
     let message = error.to_string();
     match cause {
-        LocalDeliveryError::NetworkRecoveryExhausted { .. } => XmtpError::RecoveryExhausted(
-            details("recoveryExhausted", ErrorCategory::Stream, true, message),
-        ),
         LocalDeliveryError::Configuration(cause) => configuration_error(cause, message),
         LocalDeliveryError::Storage(StorageError::Stream(
             StreamStorageError::AlreadyActive | StreamStorageError::NotCurrentOwner,
@@ -144,6 +149,14 @@ mod tests {
             matches!(exhausted, XmtpError::RecoveryExhausted(ref details)
             if details.code == "recoveryExhausted" && details.retryable)
         );
+        let exhausted_with_auth = delivery_error(LocalDeliveryError::NetworkRecoveryExhausted {
+            attempts: 10,
+            source: Some(Arc::new(IncomingError::Transport(NetworkError::new(
+                ApiClientError::Auth(AuthError::CredentialRejected { retryable: true }),
+            )))),
+        });
+        assert!(matches!(exhausted_with_auth, XmtpError::RecoveryExhausted(ref details)
+            if details.code == "recoveryExhausted" && details.retryable));
         let storage = delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
             StreamStorageError::LocalReadCapacity { bytes: 2, limit: 1 },
         )));
