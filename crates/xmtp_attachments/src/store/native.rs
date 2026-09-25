@@ -60,7 +60,10 @@ impl LocalStore for NativeStore {
         tokio::fs::create_dir_all(parent)
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        tokio::fs::rename(from, to)
+        tokio::fs::hard_link(&from, &to)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        tokio::fs::remove_file(from)
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))
     }

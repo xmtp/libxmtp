@@ -17,7 +17,7 @@ use web_sys::{
 };
 
 use super::{
-    IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, put_outcome, sensitive_header,
+    IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, put_outcome, secure_upload_url,
 };
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
@@ -58,21 +58,6 @@ fn is_localhost_name(name: &str) -> bool {
             .is_some_and(|(_, suffix)| suffix.eq_ignore_ascii_case("localhost"))
 }
 
-fn validate_upload_url(url: &str) -> Result<(), AttachmentError> {
-    let url = url::Url::parse(url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
-    let loopback = match url.host() {
-        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
-        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
-        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
-        None => false,
-    };
-    if url.scheme() == "https" || (url.scheme() == "http" && loopback) {
-        Ok(())
-    } else {
-        Err(AttachmentError::new(Cause::InsecureUrl))
-    }
-}
-
 async fn fetch(request: &Request) -> Result<Response, AttachmentError> {
     let global: WorkerGlobalScope = js_sys::global().unchecked_into();
     JsFuture::from(global.fetch_with_request(request))
@@ -84,9 +69,6 @@ async fn fetch(request: &Request) -> Result<Response, AttachmentError> {
 
 fn set_upload_headers(request: &Request, upload: &UploadRequest) -> Result<(), AttachmentError> {
     for (name, value) in &upload.headers {
-        if sensitive_header(name) {
-            return Err(AttachmentError::new(Cause::Credential));
-        }
         request
             .headers()
             .set(name, value)
@@ -246,7 +228,9 @@ impl Transfer {
         if upload.method != "PUT" {
             return Err(AttachmentError::new(Cause::TargetRejected));
         }
-        validate_upload_url(&upload.url)?;
+        let url =
+            url::Url::parse(&upload.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
+        secure_upload_url(&url)?;
         blob_put(upload, &body.file).await
     }
 
@@ -316,6 +300,27 @@ mod tests {
         }
     }
 
+    // verifies: ATCH-024
+    #[xmtp_common::test(unwrap_try = true)]
+    fn signed_upload_header_is_kept() {
+        let request = Request::new_with_str("https://storage.example/object")
+            .map_err(|_| AttachmentError::new(Cause::Malformed))?;
+        let upload = UploadRequest {
+            method: "PUT".into(),
+            url: request.url(),
+            headers: vec![(
+                "authorization".into(),
+                "AWS4-HMAC-SHA256 Credential=example".into(),
+            )],
+            expires_in_seconds: 60,
+        };
+        set_upload_headers(&request, &upload)?;
+        assert_eq!(
+            request.headers().get("authorization").unwrap().as_deref(),
+            Some("AWS4-HMAC-SHA256 Credential=example")
+        );
+    }
+
     // verifies: ATCH-071
     #[xmtp_common::test(unwrap_try = true)]
     fn upload_url_policy() {
@@ -325,11 +330,11 @@ mod tests {
             "http://127.0.0.1/object",
             "http://[::1]/object",
         ] {
-            validate_upload_url(url)?;
+            secure_upload_url(&url::Url::parse(url)?)?;
         }
         for url in ["http://example.com/object", "ftp://localhost/object"] {
             assert_eq!(
-                validate_upload_url(url).unwrap_err().cause,
+                secure_upload_url(&url::Url::parse(url)?).unwrap_err().cause,
                 Cause::InsecureUrl
             );
         }

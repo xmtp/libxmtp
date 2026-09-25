@@ -86,7 +86,10 @@ pub trait DownloadSink: xmtp_common::wasm::MaybeSend {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSync {
     async fn open_read(&self, path: &str) -> Result<StagedFile, AttachmentError>;
+    /// Create a temporary file. Callers must use unique names because OPFS
+    /// cannot create a file exclusively.
     async fn create_temp(&self, path: &str) -> Result<StoreWriter, AttachmentError>;
+    /// Move a file only when the destination does not exist.
     async fn rename(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError>;
@@ -164,5 +167,31 @@ mod tests {
         store.open_read("key/file").await?;
         store.remove_dir_all("key").await?;
         assert!(!store.exists("key/file").await?);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_rename_refuses_existing_destination() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let mut source = store.create_temp(".tmp/source").await?;
+        source.write(b"source").await?;
+        drop(source);
+        let mut destination = store.create_temp(".tmp/destination").await?;
+        destination.write(b"destination").await?;
+        drop(destination);
+        let error = store
+            .rename(".tmp/source", ".tmp/destination")
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::LocalStorage);
+        assert_eq!(
+            tokio::fs::read(directory.path().join(".tmp/source")).await?,
+            b"source"
+        );
+        assert_eq!(
+            tokio::fs::read(directory.path().join(".tmp/destination")).await?,
+            b"destination"
+        );
     }
 }
