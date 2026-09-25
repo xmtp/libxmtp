@@ -33,7 +33,7 @@ use tokio_util::io::ReaderStream;
 use super::{AbortOnDrop, Transfer};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
-    http::{PutOutcome, UploadRequest, put_outcome, secure_upload_url},
+    http::{PutOutcome, UploadRequest, is_loopback_name, put_outcome, secure_upload_url},
     store::{CHUNK_SIZE, StagedFile},
 };
 
@@ -183,15 +183,22 @@ async fn connect(
         url::Host::Ipv6(ip) => vec![SocketAddr::new(IpAddr::V6(ip), port)],
         url::Host::Domain(host) => {
             // The backend supplies the PUT URL. Download address limits do not apply.
-            let name: Name = host.parse().map_err(|_| network())?;
-            let addresses = transfer
-                .upload_resolver
-                .resolve(name)
-                .await
-                .map_err(|_| network())?;
-            addresses
-                .map(|addr| SocketAddr::new(addr.ip(), port))
-                .collect()
+            if is_loopback_name(host) {
+                vec![
+                    SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), port),
+                    SocketAddr::new(std::net::Ipv6Addr::LOCALHOST.into(), port),
+                ]
+            } else {
+                let name: Name = host.parse().map_err(|_| network())?;
+                let addresses = transfer
+                    .upload_resolver
+                    .resolve(name)
+                    .await
+                    .map_err(|_| network())?;
+                addresses
+                    .map(|addr| SocketAddr::new(addr.ip(), port))
+                    .collect()
+            }
         }
     };
     let mut connected = None;

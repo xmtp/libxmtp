@@ -91,7 +91,7 @@ pub(crate) fn checked_count(current: u64, added: usize, cap: u64) -> Result<u64,
 pub(crate) fn secure_upload_url(url: &url::Url) -> Result<(), AttachmentError> {
     let host = url.host().ok_or(AttachmentError::new(Cause::InsecureUrl))?;
     let loopback = match host {
-        url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+        url::Host::Domain(name) => is_loopback_name(name),
         url::Host::Ipv4(address) => address.is_loopback(),
         url::Host::Ipv6(address) => address.is_loopback(),
     };
@@ -100,6 +100,12 @@ pub(crate) fn secure_upload_url(url: &url::Url) -> Result<(), AttachmentError> {
     } else {
         Err(AttachmentError::new(Cause::InsecureUrl))
     }
+}
+
+pub(crate) fn is_loopback_name(name: &str) -> bool {
+    name.strip_suffix('.')
+        .unwrap_or(name)
+        .eq_ignore_ascii_case("localhost")
 }
 
 #[cfg(test)]

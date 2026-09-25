@@ -19,7 +19,9 @@ use reqwest::{
 use tokio::sync::mpsc;
 use tokio::time::timeout;
 
-use super::{CONNECT_TIMEOUT, IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count};
+use super::{
+    CONNECT_TIMEOUT, IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, is_loopback_name,
+};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
     address::is_private,
@@ -69,7 +71,15 @@ struct GuardedResolver {
 
 impl Resolve for GuardedResolver {
     fn resolve(&self, name: Name) -> Resolving {
-        let answer = self.upstream.resolve(name);
+        let answer = if is_loopback_name(name.as_str()) {
+            let addrs = [
+                SocketAddr::new(std::net::Ipv4Addr::LOCALHOST.into(), 0),
+                SocketAddr::new(std::net::Ipv6Addr::LOCALHOST.into(), 0),
+            ];
+            Box::pin(async move { Ok(Box::new(addrs.into_iter()) as Addrs) }) as Resolving
+        } else {
+            self.upstream.resolve(name)
+        };
         let allow_private = self.allow_private;
         Box::pin(async move {
             let addrs: Vec<SocketAddr> = answer
@@ -98,7 +108,7 @@ fn reqwest_error(error: reqwest::Error) -> AttachmentError {
 fn validate_url(url: &Url, options: &AttachmentOptions) -> Result<(), AttachmentError> {
     let host = url.host().ok_or(AttachmentError::new(Cause::InsecureUrl))?;
     let loopback = match host {
-        url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+        url::Host::Domain(name) => is_loopback_name(name),
         url::Host::Ipv4(address) => address.is_loopback(),
         url::Host::Ipv6(address) => address.is_loopback(),
     };
@@ -260,7 +270,14 @@ impl Transfer {
             .await
             .map_err(|_| AttachmentError::new(Cause::Network))?
             .map_err(reqwest_error)?;
-            if !response.status().is_redirection() {
+            if !matches!(
+                response.status(),
+                StatusCode::MOVED_PERMANENTLY
+                    | StatusCode::FOUND
+                    | StatusCode::SEE_OTHER
+                    | StatusCode::TEMPORARY_REDIRECT
+                    | StatusCode::PERMANENT_REDIRECT
+            ) {
                 break response;
             }
             let location = response
@@ -555,6 +572,48 @@ mod tests {
         let mut sink = MemorySink::default();
         allowed().get(&server.url, 5, &mut sink).await?;
         assert_eq!(sink.0, b"hello");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn localhost_resolves_to_loopback_only() {
+        use http_body_util::BodyExt;
+
+        let server = server_async(|request| async move {
+            if request.method() == Method::PUT {
+                assert_eq!(
+                    request
+                        .into_body()
+                        .collect()
+                        .await
+                        .unwrap()
+                        .to_bytes()
+                        .as_ref(),
+                    b"body"
+                );
+                answer(StatusCode::OK, "")
+            } else {
+                answer(StatusCode::OK, "hello")
+            }
+        })
+        .await;
+        let port = Url::parse(&server.url)?.port().unwrap();
+        let transfer = Transfer::with_resolver_and_timeouts(
+            AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            },
+            Arc::new(FakeResolver(vec!["192.0.2.1:0".parse()?])),
+            Duration::from_millis(500),
+            Duration::from_secs(1),
+        )?;
+        for host in ["localhost", "LOCALHOST."] {
+            let url = format!("http://{host}:{port}/object");
+            let mut sink = MemorySink::default();
+            transfer.get(&url, 5, &mut sink).await?;
+            assert_eq!(sink.0, b"hello");
+            let (_directory, body) = staged_body()?;
+            assert_eq!(transfer.put(&upload(url), body).await?, PutOutcome::Stored);
+        }
     }
 
     struct FakeResolver(Vec<SocketAddr>);
@@ -1163,6 +1222,26 @@ mod tests {
             .unwrap_err()
             .cause,
             Cause::BlockedAddress
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn not_modified_with_location_is_http_status() {
+        let server = server(|_| {
+            Response::builder()
+                .status(StatusCode::NOT_MODIFIED)
+                .header(LOCATION, "http://example.com/other")
+                .body(Full::new(Bytes::new()))
+                .unwrap()
+        })
+        .await;
+        assert_eq!(
+            allowed()
+                .get(&server.url, 1, &mut MemorySink::default())
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::HttpStatus
         );
     }
 
@@ -1890,7 +1969,7 @@ mod tests {
             let mut content_length = None;
             loop {
                 line.clear();
-                reader.read_line(&mut line).await.unwrap();
+                assert!(reader.read_line(&mut line).await.unwrap() > 0);
                 if line == "\r\n" {
                     break;
                 }
