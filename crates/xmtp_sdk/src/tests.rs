@@ -158,15 +158,15 @@ async fn event_reader_stays_open_on_rejection_and_ends_on_close() {
         reader.next().await?,
         Some(ClientEvent::ClientRejectedByServer { .. })
     ));
-    let pending = reader.next();
-    tokio::pin!(pending);
+    let reading = reader.clone();
+    let mut pending = tokio::spawn(async move { reading.next().await });
     assert!(
         tokio::time::timeout(Duration::from_millis(20), &mut pending)
             .await
             .is_err()
     );
     client.end().await?;
-    assert!(pending.await?.is_none());
+    assert!(pending.await??.is_none());
     assert!(matches!(
         client.events(EventFilter::default()).await,
         Err(XmtpError::ClientClosed(_))
@@ -199,6 +199,36 @@ async fn event_reader_end_waits_for_in_flight_read() {
     assert!(read.await??.is_none());
     end.await??;
     client.end().await?;
+}
+
+// verifies: EVENT-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn client_end_waits_for_in_flight_event_read() {
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, options()).await?);
+    let reader = client
+        .events(event_filter(vec![EventKind::HmacKeysUpdated]))
+        .await?;
+    let gate = Arc::new(reader::HandoffGate {
+        arrived: Notify::new(),
+        release: Notify::new(),
+    });
+    *reader.handoff_gate.lock() = Some(gate.clone());
+    emit_hmac(&client);
+    let reading = reader.clone();
+    let read = tokio::spawn(async move { reading.next().await });
+    tokio::time::timeout(Duration::from_secs(5), gate.arrived.notified()).await?;
+    let ending = client.clone();
+    let mut end = tokio::spawn(async move { ending.end().await });
+    let ended_before_read = tokio::time::timeout(Duration::from_millis(50), &mut end)
+        .await
+        .is_ok();
+    gate.release.notify_one();
+    assert!(
+        !ended_before_read,
+        "client end returned during an event read"
+    );
+    assert!(read.await??.is_none());
+    end.await??;
 }
 
 // verifies: EVENT-020
@@ -642,6 +672,41 @@ async fn end_racing_listener_start_leaves_no_listener() {
     .await?;
     assert!(refused, "listener started after client end");
     assert_eq!(client.listeners.active_count_for_test(), 0);
+}
+
+// verifies: EVENT-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn end_racing_listener_stop_blocks_a_late_callback() {
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, options()).await?);
+    let (start_hook, start_release) = crate::events::dispatch::StartHook::new();
+    client.listeners.set_start_hook_for_test(start_hook.clone());
+    let (probe, mut started) = event_probe(None, false, None, false);
+    let id = client
+        .start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), probe)
+        .await?;
+    emit_hmac(&client);
+    tokio::time::timeout(Duration::from_secs(5), start_hook.arrived.notified()).await?;
+
+    let (stop_hook, stop_release) = crate::events::dispatch::StartHook::new();
+    client.listeners.set_stop_hook_for_test(stop_hook.clone());
+    let stopping_client = client.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let stopping = std::thread::spawn(move || runtime.block_on(stopping_client.stop_listener(id)));
+    tokio::time::timeout(Duration::from_secs(5), stop_hook.arrived.notified()).await?;
+
+    let end = tokio::time::timeout(Duration::from_secs(5), client.end()).await;
+    start_release.send(())?;
+    let late_callback = tokio::time::timeout(Duration::from_millis(100), started.recv()).await;
+    stop_release.send(())?;
+    assert!(
+        tokio::task::spawn_blocking(move || stopping.join().is_ok()).await?,
+        "stop thread failed"
+    );
+    end??;
+    assert!(
+        !matches!(late_callback, Ok(Some(_))),
+        "listener callback started after client end"
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]

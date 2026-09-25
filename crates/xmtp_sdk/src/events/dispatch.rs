@@ -62,6 +62,8 @@ pub(crate) struct ListenerRegistry {
     start_hook: Mutex<Option<Arc<StartHook>>>,
     #[cfg(test)]
     registration_hook: Mutex<Option<Arc<StartHook>>>,
+    #[cfg(test)]
+    stop_hook: Mutex<Option<Arc<StartHook>>>,
 }
 
 impl ListenerRegistry {
@@ -73,6 +75,11 @@ impl ListenerRegistry {
     #[cfg(test)]
     pub(crate) fn set_registration_hook_for_test(&self, hook: Arc<StartHook>) {
         *self.registration_hook.lock() = Some(hook);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_stop_hook_for_test(&self, hook: Arc<StartHook>) {
+        *self.stop_hook.lock() = Some(hook);
     }
 
     #[cfg(test)]
@@ -128,10 +135,20 @@ impl ListenerRegistry {
     }
 
     pub(crate) fn stop(&self, id: ListenerID) {
-        let control = self.state.lock().listeners.remove(&id.0);
+        let control = {
+            let mut state = self.state.lock();
+            let control = state.listeners.remove(&id.0);
+            if let Some(control) = &control {
+                *control.start_gate.lock() = true;
+                let _ = control.stopped.send(true);
+            }
+            control
+        };
+        #[cfg(test)]
+        if let Some(hook) = self.stop_hook.lock().take() {
+            hook.block_once();
+        }
         if let Some(control) = control {
-            *control.start_gate.lock() = true;
-            let _ = control.stopped.send(true);
             control.subscription.close();
         }
     }

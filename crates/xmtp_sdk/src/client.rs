@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, Weak,
     atomic::{AtomicU64, Ordering},
 };
 use xmtp_id::associations::{
@@ -20,6 +20,12 @@ use crate::{
 pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 
 static NEXT_CLIENT_KEY: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Default)]
+struct EventReaderRegistry {
+    closing: bool,
+    readers: Vec<Weak<crate::EventReader>>,
+}
 
 #[derive(Clone, Debug, Default, uniffi::Enum)]
 pub enum StorageLocation {
@@ -203,6 +209,7 @@ pub struct Client {
     pub(crate) signer: Option<Arc<dyn Signer>>,
     pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
     pub(crate) listeners: crate::events::dispatch::ListenerRegistry,
+    event_readers: parking_lot::Mutex<EventReaderRegistry>,
 }
 
 impl Client {
@@ -280,6 +287,7 @@ impl Client {
             signer: None,
             auth_handle,
             listeners: crate::events::dispatch::ListenerRegistry::default(),
+            event_readers: parking_lot::Mutex::new(EventReaderRegistry::default()),
         })
     }
 
@@ -406,7 +414,18 @@ impl Client {
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
+        let readers: Vec<_> = {
+            let mut registry = self.event_readers.lock();
+            registry.closing = true;
+            registry.readers.iter().filter_map(Weak::upgrade).collect()
+        };
         self.listeners.stop_all();
+        for reader in &readers {
+            reader.close();
+        }
+        for reader in &readers {
+            reader.wait_for_reads().await;
+        }
         self.inner.close().await.map_err(XmtpError::from_client)
     }
 
@@ -424,7 +443,17 @@ impl Client {
             .events()
             .subscribe_app(filter)
             .ok_or_else(XmtpError::closed)?;
-        Ok(crate::EventReader::new(subscription))
+        let reader = crate::EventReader::new(subscription);
+        {
+            let mut registry = self.event_readers.lock();
+            if registry.closing {
+                reader.close();
+                return Err(XmtpError::closed());
+            }
+            registry.readers.retain(|weak| weak.strong_count() > 0);
+            registry.readers.push(Arc::downgrade(&reader));
+        }
+        Ok(reader)
     }
 
     // implements: EVENT-050

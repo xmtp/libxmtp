@@ -26,6 +26,15 @@ impl EventReader {
             handoff_gate: Mutex::new(None),
         })
     }
+
+    pub(crate) fn close(&self) {
+        *self.ended.lock() = true;
+        self.subscription.close();
+    }
+
+    pub(crate) async fn wait_for_reads(&self) {
+        let _read = self.read_lock.lock().await;
+    }
 }
 
 impl Drop for EventReader {
@@ -60,9 +69,8 @@ impl EventReader {
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
-        *self.ended.lock() = true;
-        self.subscription.close();
-        let _read = self.read_lock.lock().await;
+        self.close();
+        self.wait_for_reads().await;
         Ok(())
     }
 }
