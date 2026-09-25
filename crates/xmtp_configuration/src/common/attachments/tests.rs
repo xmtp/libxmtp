@@ -1,6 +1,6 @@
 use super::*;
 
-// verifies: ATCH-002, ATCH-008
+// verifies: ATCH-008
 #[xmtp_common::test(unwrap_try = true)]
 fn base_url_accepts_raw_rfc_forms() {
     for base_url in [
@@ -19,7 +19,7 @@ fn base_url_accepts_raw_rfc_forms() {
     }
 }
 
-// verifies: ATCH-002, ATCH-008
+// verifies: ATCH-008
 #[xmtp_common::test(unwrap_try = true)]
 fn base_url_rejects_non_rfc_or_disallowed_forms() {
     for base_url in [
@@ -57,7 +57,7 @@ fn base_url_rejects_non_rfc_or_disallowed_forms() {
     }
 }
 
-// verifies: ATCH-003, ATCH-004, ATCH-008
+// verifies: ATCH-008
 #[xmtp_common::test(unwrap_try = true)]
 fn upload_and_retention_bounds() {
     for value in [
