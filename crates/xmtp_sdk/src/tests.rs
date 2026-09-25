@@ -1541,7 +1541,7 @@ async fn encoded_sends_use_catalogue_push_defaults_and_explicit_override() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let parent = group.send_text("reference".into()).await?;
+    let parent = group.send_text("reference".into(), None).await?;
     let reaction = || Reaction {
         content: "👍".into(),
         action: ReactionAction::Added,
