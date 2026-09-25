@@ -55,6 +55,12 @@ type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage
 // Mapping of deletions, keyed by the ID of the deleted message
 type DeletionMap = HashMap<Vec<u8>, Vec<StoredMessageDeletion>>;
 
+pub struct EnrichedStoredMessage {
+    pub stored: StoredGroupMessage,
+    pub decoded: DecodedMessage,
+    pub parent_stored: Option<StoredGroupMessage>,
+}
+
 /// Validates if a deletion should be applied. Checks group membership and authorization.
 // implements: PROC-037
 pub(crate) fn is_deletion_valid(
@@ -84,6 +90,17 @@ pub fn enrich_messages(
     group_id: &GroupId,
     messages: Vec<StoredGroupMessage>,
 ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
+    Ok(enrich_messages_with_stored(conn, group_id, messages)?
+        .into_iter()
+        .map(|message| message.decoded)
+        .collect())
+}
+
+pub fn enrich_messages_with_stored(
+    conn: impl DbQuery,
+    group_id: &GroupId,
+    messages: Vec<StoredGroupMessage>,
+) -> Result<Vec<EnrichedStoredMessage>, EnrichMessageError> {
     let initial_message_ids: Vec<&[u8]> = messages.iter().map(|m| m.id.as_ref()).collect();
 
     let reference_ids: Vec<&[u8]> = messages
@@ -93,12 +110,13 @@ pub fn enrich_messages(
 
     let mut relations = get_relations(conn, group_id, &initial_message_ids, &reference_ids)?;
 
-    let messages: Vec<DecodedMessage> = messages
+    let messages: Vec<EnrichedStoredMessage> = messages
         .into_iter()
         .filter_map(|stored_message| {
             let mut decoded = DecodedMessage::try_from(stored_message.clone())
                 .inspect_err(|err| tracing::warn!("Failed to decode message {:?}", err))
                 .ok()?;
+            let mut parent_stored = None;
 
             let valid_deletion =
                 relations
@@ -152,6 +170,10 @@ pub fn enrich_messages(
                             )
                         })
                         .inspect(|id| {
+                            parent_stored = relations
+                                .referenced_messages
+                                .get(id)
+                                .map(|(stored, _)| stored.clone());
                             let mut in_reply_to = relations
                                 .referenced_messages
                                 .get(id)
@@ -182,7 +204,11 @@ pub fn enrich_messages(
                 }
             }
 
-            Some(decoded)
+            Some(EnrichedStoredMessage {
+                stored: stored_message,
+                decoded,
+                parent_stored,
+            })
         })
         .collect();
 

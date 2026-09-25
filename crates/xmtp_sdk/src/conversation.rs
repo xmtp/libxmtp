@@ -140,6 +140,8 @@ impl Conversation {
                     identity,
                     #[cfg(test)]
                     state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
+                    #[cfg(test)]
+                    history_query_count: Arc::new(parking_lot::Mutex::new(0)),
                 }),
             }),
             ConversationType::Dm => Some(Self::Dm {
@@ -584,6 +586,8 @@ pub struct Group {
     identity: ConversationIdentity,
     #[cfg(test)]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
+    #[cfg(test)]
+    pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
 }
 
 #[derive(uniffi::Object)]
@@ -594,6 +598,8 @@ pub struct Dm {
     peer_inbox_id: InboxID,
     #[cfg(test)]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
+    #[cfg(test)]
+    pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
 }
 
 struct ConversationIdentity {
@@ -640,6 +646,8 @@ impl Group {
             identity,
             #[cfg(test)]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
+            #[cfg(test)]
+            history_query_count: Arc::new(parking_lot::Mutex::new(0)),
         })
     }
 }
@@ -667,6 +675,8 @@ impl Dm {
             peer_inbox_id,
             #[cfg(test)]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
+            #[cfg(test)]
+            history_query_count: Arc::new(parking_lot::Mutex::new(0)),
         })
     }
 
@@ -1002,22 +1012,34 @@ macro_rules! common_conversation {
                 let query: MsgQueryArgs = options.unwrap_or_default().try_into()?;
                 let group = self.inner.clone();
                 let client_key = self.client_key;
+                #[cfg(test)]
+                let history_query_count = self.history_query_count.clone();
                 on_sdk_worker(self.inner.context.clone(), async move {
-                    group
-                        .find_messages_v2(&query)
-                        .map_err(XmtpError::unknown)?
-                        .into_iter()
-                        .map(|enriched| {
-                            let stored = group
-                                .context
-                                .db()
-                                .get_group_message(&enriched.metadata.id)
-                                .map_err(XmtpError::unknown)?
-                                .ok_or_else(|| XmtpError::invalid("message not found"))?;
-                            let parent = parent_stored(&group, &enriched)?;
-                            Message::from_enriched(stored, enriched, parent, client_key)
-                        })
-                        .collect()
+                    let load = || -> Result<Vec<Message>, XmtpError> {
+                        group
+                            .find_messages_v2_with_stored(&query)
+                            .map_err(XmtpError::unknown)?
+                            .into_iter()
+                            .map(|enriched| {
+                                Message::from_enriched(
+                                    enriched.stored,
+                                    enriched.decoded,
+                                    enriched.parent_stored,
+                                    client_key,
+                                )
+                            })
+                            .collect()
+                    };
+                    #[cfg(test)]
+                    {
+                        let (messages, queries, _) = xmtp_db::count_sql_queries(load);
+                        *history_query_count.lock() = queries;
+                        messages
+                    }
+                    #[cfg(not(test))]
+                    {
+                        load()
+                    }
                 })
                 .await
             }

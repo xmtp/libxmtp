@@ -88,6 +88,14 @@ impl MessageContent {
         // The shared bounded decoder validates nested content before any standard codec runs.
         let body = xmtp_mls::messages::decoded_message::MessageBody::try_from(content.clone())
             .map_err(XmtpError::unknown)?;
+        Self::from_core(body, content, raw_bytes)
+    }
+
+    fn from_core(
+        body: xmtp_mls::messages::decoded_message::MessageBody,
+        content: EncodedContent,
+        raw_bytes: &[u8],
+    ) -> Result<Self, XmtpError> {
         use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
         match body {
             CoreBody::Text(value) => Ok(Self::Text(value.content)),
@@ -96,7 +104,10 @@ impl MessageContent {
             CoreBody::Reaction(value) => Ok(Self::Reaction(crate::Reaction::from_proto(value))),
             CoreBody::Reply(value) => Ok(Self::Reply {
                 reference_id: MessageID::try_from(value.reference_id)?,
-                body: MessageBody::from_core(*value.content, nested_reply_content(content.into())?)?,
+                body: MessageBody::from_core(
+                    *value.content,
+                    nested_reply_content(content.into())?,
+                )?,
             }),
             CoreBody::Attachment(value) => Ok(Self::Attachment(value.into())),
             CoreBody::RemoteAttachment(value) => Ok(Self::RemoteAttachment(value.into())),
@@ -234,6 +245,14 @@ impl Message {
         value: StoredGroupMessage,
         client_key: u64,
     ) -> Result<Self, XmtpError> {
+        Self::from_stored_with_content(value, client_key, None)
+    }
+
+    fn from_stored_with_content(
+        value: StoredGroupMessage,
+        client_key: u64,
+        decoded: Option<xmtp_mls::messages::decoded_message::MessageBody>,
+    ) -> Result<Self, XmtpError> {
         let encoded = EncodedContent::decode(value.decrypted_message_bytes.as_slice()).ok();
         let raw_fallback = encoded.is_none().then(|| SdkEncodedContent {
             r#type: ContentTypeId {
@@ -255,7 +274,12 @@ impl Message {
             .and_then(|content| content.fallback.clone());
         let content = encoded
             .clone()
-            .map(|content| MessageContent::decode_proto(content, &value.decrypted_message_bytes))
+            .map(|content| match decoded {
+                Some(body) => {
+                    MessageContent::from_core(body, content, &value.decrypted_message_bytes)
+                }
+                None => MessageContent::decode_proto(content, &value.decrypted_message_bytes),
+            })
             .transpose()
             .unwrap_or(None)
             .unwrap_or_else(|| MessageContent::Unknown {
@@ -311,7 +335,8 @@ impl Message {
         client_key: u64,
     ) -> Result<Self, XmtpError> {
         use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
-        let mut message = Self::from_stored(value, client_key)?;
+        let mut message =
+            Self::from_stored_with_content(value, client_key, Some(enriched.content.clone()))?;
         message.0.reply_count = enriched.num_replies as u64;
         message.0.reactions = enriched
             .reactions
@@ -331,13 +356,17 @@ impl Message {
                 })())
             })
             .collect::<Result<_, XmtpError>>()?;
-        let content = enriched.content;
-        if let CoreBody::Reply(reply) = &content
+        if let CoreBody::Reply(reply) = &enriched.content
             && let Some(parent) = &reply.in_reply_to
         {
             let parent = parent.as_ref();
             if let Some(parent_stored) = parent_stored {
-                let parent_data = Self::from_stored(parent_stored, client_key)?.0;
+                let parent_data = Self::from_stored_with_content(
+                    parent_stored,
+                    client_key,
+                    Some(parent.content.clone()),
+                )?
+                .0;
                 message.0.in_reply_to = Some(ReplyParent {
                     id: parent_data.id,
                     sender_inbox_id: parent_data.sender_inbox_id,
@@ -351,21 +380,6 @@ impl Message {
                 });
             }
         }
-        message.0.content = match content {
-            CoreBody::DeletedMessage { deleted_by } => {
-                MessageContent::DeletedMessage(crate::DeletedMessage {
-                    deleted_by: deleted_by.try_into()?,
-                })
-            }
-            CoreBody::Reply(reply) => MessageContent::Reply {
-                reference_id: MessageID::try_from(reply.reference_id)?,
-                body: MessageBody::from_core(
-                    *reply.content,
-                    nested_reply_content(message.0.encoded.clone())?,
-                )?,
-            },
-            _ => message.0.content,
-        };
         Ok(message)
     }
 }
