@@ -1,9 +1,12 @@
 use futures_util::AsyncReadExt;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
-use web_sys::{Request, RequestInit, RequestRedirect, Response, WorkerGlobalScope};
+use web_sys::{
+    ReferrerPolicy, Request, RequestCredentials, RequestInit, RequestRedirect, Response,
+    WorkerGlobalScope,
+};
 
-use super::{PutOutcome, UploadRequest, checked_count, sensitive_header};
+use super::{PutOutcome, UploadRequest, checked_count, put_outcome, sensitive_header};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
     store::{AttachmentOptions, CHUNK_SIZE, DownloadSink, StagedFile},
@@ -35,6 +38,15 @@ async fn fetch(request: &Request) -> Result<Response, AttachmentError> {
         .map_err(|_| AttachmentError::new(Cause::Network))
 }
 
+fn private_request(method: &str) -> RequestInit {
+    let init = RequestInit::new();
+    init.set_method(method);
+    init.set_redirect(RequestRedirect::Follow);
+    init.set_credentials(RequestCredentials::Omit);
+    init.set_referrer_policy(ReferrerPolicy::NoReferrer);
+    init
+}
+
 /// Browser transfer through fetch. The browser owns DNS and redirects.
 pub struct Transfer {
     options: AttachmentOptions,
@@ -54,9 +66,7 @@ impl Transfer {
             return Err(AttachmentError::new(Cause::TargetRejected));
         }
         validate_url(&upload.url, &self.options)?;
-        let init = RequestInit::new();
-        init.set_method("PUT");
-        init.set_redirect(RequestRedirect::Follow);
+        let init = private_request("PUT");
         init.set_body_opt_blob(Some(&body.file));
         let request = Request::new_with_str_and_init(&upload.url, &init)
             .map_err(|_| AttachmentError::new(Cause::Malformed))?;
@@ -69,11 +79,7 @@ impl Transfer {
                 .set(name, value)
                 .map_err(|_| AttachmentError::new(Cause::Malformed))?;
         }
-        match fetch(&request).await?.status() {
-            200 | 201 | 204 => Ok(PutOutcome::Stored),
-            412 => Ok(PutOutcome::AlreadyStored),
-            _ => Err(AttachmentError::new(Cause::TargetRejected)),
-        }
+        put_outcome(fetch(&request).await?.status())
     }
 
     pub async fn get(
@@ -83,9 +89,7 @@ impl Transfer {
         sink: &mut dyn DownloadSink,
     ) -> Result<(), AttachmentError> {
         validate_url(url, &self.options)?;
-        let init = RequestInit::new();
-        init.set_method("GET");
-        init.set_redirect(RequestRedirect::Follow);
+        let init = private_request("GET");
         let request = Request::new_with_str_and_init(url, &init)
             .map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
         let response = fetch(&request).await?;
@@ -113,5 +117,19 @@ impl Transfer {
             sink.write(&buffer[..size]).await?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn request_omits_browser_credentials() {
+        for method in ["GET", "PUT"] {
+            let init = private_request(method);
+            assert_eq!(init.get_credentials(), Some(RequestCredentials::Omit));
+            assert_eq!(init.get_referrer_policy(), Some(ReferrerPolicy::NoReferrer));
+        }
     }
 }

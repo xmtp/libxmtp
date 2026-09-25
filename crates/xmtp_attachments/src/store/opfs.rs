@@ -1,4 +1,3 @@
-use futures_util::AsyncReadExt;
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
@@ -7,9 +6,7 @@ use web_sys::{
     WorkerGlobalScope,
 };
 
-use super::{
-    CHUNK_SIZE, DownloadSink, LocalStore, StagedFile, StoreWriter, validate_relative, validate_temp,
-};
+use super::{LocalStore, StagedFile, StoreWriter, validate_relative, validate_temp};
 use crate::{AttachmentError, AttachmentFailureCause as Cause};
 
 fn storage_error(_: impl Sized) -> AttachmentError {
@@ -120,37 +117,19 @@ impl LocalStore for OpfsStore {
         let (target_parent, target_name) = self.parent(to, true).await?;
         let move_method = js_sys::Reflect::get(source.as_ref(), &JsValue::from_str("move"))
             .map_err(storage_error)?;
-        if let Some(move_method) = move_method.dyn_ref::<js_sys::Function>() {
-            let promise = move_method
-                .call2(
-                    source.as_ref(),
-                    target_parent.as_ref(),
-                    &JsValue::from_str(&target_name),
-                )
-                .map_err(storage_error)?
-                .dyn_into::<js_sys::Promise>()
-                .map_err(storage_error)?;
-            JsFuture::from(promise).await.map_err(storage_error)?;
-            return Ok(());
-        }
-        // On browsers without OPFS move, copy in bounded chunks, then remove.
-        let file = self.open_read(from).await?.file;
-        let mut reader = wasm_streams::ReadableStream::from_raw(file.stream()).into_async_read();
-        let mut writer = self.create_file(to).await?;
-        let mut buffer = [0_u8; CHUNK_SIZE];
-        loop {
-            let count = reader.read(&mut buffer).await.map_err(storage_error)?;
-            if count == 0 {
-                break;
-            }
-            writer.write(&buffer[..count]).await?;
-        }
-        self.sync(&mut writer).await?;
-        drop(writer);
-        let (parent, name) = self.parent(from, false).await?;
-        JsFuture::from(parent.remove_entry(&name))
-            .await
+        let move_method = move_method
+            .dyn_ref::<js_sys::Function>()
+            .ok_or(AttachmentError::new(Cause::LocalStorage))?;
+        let promise = move_method
+            .call2(
+                source.as_ref(),
+                target_parent.as_ref(),
+                &JsValue::from_str(&target_name),
+            )
+            .map_err(storage_error)?
+            .dyn_into::<js_sys::Promise>()
             .map_err(storage_error)?;
+        JsFuture::from(promise).await.map_err(storage_error)?;
         Ok(())
     }
 
@@ -194,6 +173,7 @@ impl Drop for StoreWriter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::DownloadSink;
 
     // verifies: ATCH-048
     #[xmtp_common::test(unwrap_try = true)]

@@ -26,6 +26,7 @@ xmtp_content_types.workspace = true
 xmtp_proto.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bytes.workspace = true
 reqwest.workspace = true
 tokio = { workspace = true, features = [
   "fs",
@@ -54,8 +55,10 @@ web-sys = { workspace = true, features = [
   "Navigator",
   "ReadableStream",
   "Request",
+  "RequestCredentials",
   "RequestInit",
   "RequestRedirect",
+  "ReferrerPolicy",
   "Response",
   "StorageManager",
   "WorkerGlobalScope",
@@ -68,7 +71,6 @@ tokio.workspace = true
 xmtp_common = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
-bytes.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["server", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }
