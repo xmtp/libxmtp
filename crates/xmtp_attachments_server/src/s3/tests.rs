@@ -20,7 +20,7 @@ fn config() -> S3Config {
         credentials: CredentialsConfig::Static {
             access_key_id: "AKID".into(),
             secret_access_key: "SECRET".into(),
-            session_token: None,
+            session_token: Some("SESSION_TOKEN_SECRET".into()),
         },
         presign_ttl_seconds: Some(900),
     }
@@ -42,15 +42,34 @@ fn credentials(expiry_after: Option<u64>) -> Credentials {
 
 #[derive(Debug)]
 struct FakeProvider {
-    replies: StdMutex<VecDeque<Credentials>>,
+    replies: StdMutex<VecDeque<CredentialResult>>,
     calls: AtomicUsize,
+    advance_on_call: Option<(usize, Arc<AtomicU64>, u64)>,
 }
 
 impl FakeProvider {
     fn new(replies: impl IntoIterator<Item = Credentials>) -> Arc<Self> {
+        Self::with_results(replies.into_iter().map(Ok))
+    }
+
+    fn with_results(replies: impl IntoIterator<Item = CredentialResult>) -> Arc<Self> {
         Arc::new(Self {
             replies: StdMutex::new(replies.into_iter().collect()),
             calls: AtomicUsize::new(0),
+            advance_on_call: None,
+        })
+    }
+
+    fn advancing(
+        replies: impl IntoIterator<Item = Credentials>,
+        call: usize,
+        clock: Arc<AtomicU64>,
+        offset: u64,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            replies: StdMutex::new(replies.into_iter().map(Ok).collect()),
+            calls: AtomicUsize::new(0),
+            advance_on_call: Some((call, clock, offset)),
         })
     }
 }
@@ -60,12 +79,20 @@ impl ProvideCredentials for FakeProvider {
     where
         Self: 'a,
     {
-        self.calls.fetch_add(1, Ordering::SeqCst);
-        let result: CredentialResult = self.replies.lock().unwrap().pop_front().ok_or_else(|| {
-            aws_credential_types::provider::error::CredentialsError::provider_error(
-                "no credentials",
-            )
-        });
+        let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+        if let Some((selected_call, clock, offset)) = &self.advance_on_call
+            && call == *selected_call
+        {
+            clock.store(*offset, Ordering::SeqCst);
+        }
+        let result: CredentialResult =
+            self.replies.lock().unwrap().pop_front().unwrap_or_else(|| {
+                Err(
+                    aws_credential_types::provider::error::CredentialsError::provider_error(
+                        "no credentials",
+                    ),
+                )
+            });
         future::ProvideCredentials::ready(result)
     }
 }
@@ -201,13 +228,89 @@ async fn refresh_below_300s() {
     assert_eq!(provider.calls.load(Ordering::SeqCst), 3);
 }
 
+// verifies: ATCH-028
+#[xmtp_common::test(unwrap_try = true)]
+async fn refresh_uses_post_provider_clock() {
+    let offset = Arc::new(AtomicU64::new(0));
+    let clock: Arc<dyn Fn() -> SystemTime + Send + Sync> = {
+        let offset = offset.clone();
+        Arc::new(move || {
+            UNIX_EPOCH + Duration::from_secs(REFERENCE_TIME + offset.load(Ordering::SeqCst))
+        })
+    };
+    let provider = FakeProvider::advancing(
+        [credentials(Some(301)), credentials(Some(800))],
+        2,
+        offset.clone(),
+        100,
+    );
+    let target = target(&config(), provider.clone(), clock);
+    assert_eq!(
+        target.presign_put(&[1; 32], 1).await?.expires_in_seconds,
+        301
+    );
+    offset.store(2, Ordering::SeqCst);
+    let signed = target.presign_put(&[1; 32], 1).await?;
+    assert_eq!(signed.expires_in_seconds, 700);
+    let url = Url::parse(&signed.url)?;
+    assert_eq!(
+        url.query_pairs()
+            .find(|(key, _)| key == "X-Amz-Expires")
+            .unwrap()
+            .1,
+        "700"
+    );
+    assert_eq!(
+        url.query_pairs()
+            .find(|(key, _)| key == "X-Amz-Date")
+            .unwrap()
+            .1,
+        "20130524T000140Z"
+    );
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn refresh_error_does_not_use_cached_credentials() {
+    let offset = Arc::new(AtomicU64::new(0));
+    let clock: Arc<dyn Fn() -> SystemTime + Send + Sync> = {
+        let offset = offset.clone();
+        Arc::new(move || {
+            UNIX_EPOCH + Duration::from_secs(REFERENCE_TIME + offset.load(Ordering::SeqCst))
+        })
+    };
+    let provider = FakeProvider::with_results([
+        Ok(credentials(Some(301))),
+        Err(
+            aws_credential_types::provider::error::CredentialsError::provider_error(
+                "provider failed",
+            ),
+        ),
+    ]);
+    let target = target(&config(), provider.clone(), clock);
+    target.presign_put(&[1; 32], 1).await?;
+    offset.store(2, Ordering::SeqCst);
+    assert!(matches!(
+        target.presign_put(&[1; 32], 1).await,
+        Err(SignError::CredentialsUnavailable)
+    ));
+    assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn debug_redacts_secrets() {
     let config = config();
+    let full_config = AttachmentsConfig {
+        base_url: "https://public.example.com/objects".into(),
+        max_upload_bytes: None,
+        retention_seconds: None,
+        target: TargetConfig::S3(config.clone()),
+    };
     let provider = FakeProvider::new([credentials(None)]);
     let target = target(&config, provider, fixed_clock());
     let signed = target.presign_put(&[1; 32], 1).await?;
     for output in [
+        format!("{full_config:?}"),
         format!("{config:?}"),
         format!("{target:?}"),
         format!("{signed:?}"),
@@ -215,6 +318,7 @@ async fn debug_redacts_secrets() {
         for secret in [
             "SECRET",
             "AKID",
+            "SESSION_TOKEN_SECRET",
             "s3.example.com",
             "attachments",
             "X-Amz-Signature",

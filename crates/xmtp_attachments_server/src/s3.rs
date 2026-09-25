@@ -7,7 +7,7 @@ use async_trait::async_trait;
 use aws_config::{BehaviorVersion, Region, provider_config::ProviderConfig};
 use aws_credential_types::{
     Credentials,
-    provider::{ProvideCredentials, SharedCredentialsProvider},
+    provider::{ProvideCredentials, SharedCredentialsProvider, error::CredentialsError},
 };
 use aws_sigv4::{
     http_request::{
@@ -137,22 +137,33 @@ impl S3Target {
 
     /// Keep a credential until less than five minutes remain, then ask the provider again.
     /// The lock also makes concurrent refreshes one operation.
-    async fn credentials(&self, now: SystemTime) -> Result<(Credentials, u32), SignError> {
+    async fn credentials(&self) -> Result<Credentials, SignError> {
         let mut cached = self.cached.lock().await;
+        let now = (self.clock)();
         if let Some(credentials) = cached.as_ref()
-            && let Some(ttl) = credential_ttl(credentials, now, self.ttl)
+            && credential_ttl(credentials, now, self.ttl).is_some()
         {
-            return Ok((credentials.clone(), ttl));
+            return Ok(credentials.clone());
         }
-        let credentials = self
-            .provider
-            .provide_credentials()
-            .await
-            .map_err(|_| SignError::CredentialsUnavailable)?;
-        let ttl =
-            credential_ttl(&credentials, now, self.ttl).ok_or(SignError::CredentialsUnavailable)?;
+        let credentials = self.provider.provide_credentials().await.map_err(|error| {
+            let kind = match error {
+                CredentialsError::CredentialsNotLoaded(_) => "not_loaded",
+                CredentialsError::ProviderTimedOut(_) => "timed_out",
+                CredentialsError::InvalidConfiguration(_) => "invalid_configuration",
+                CredentialsError::ProviderError(_) => "provider_error",
+                CredentialsError::Unhandled(_) => "unhandled",
+                _ => "unknown",
+            };
+            tracing::warn!(
+                credential_error_kind = kind,
+                "attachment credentials unavailable"
+            );
+            SignError::CredentialsUnavailable
+        })?;
+        credential_ttl(&credentials, (self.clock)(), self.ttl)
+            .ok_or(SignError::CredentialsUnavailable)?;
         *cached = Some(credentials.clone());
-        Ok((credentials, ttl))
+        Ok(credentials)
     }
 
     fn object_url(&self, digest: &[u8; 32]) -> Result<Url, SignError> {
@@ -193,8 +204,10 @@ impl StorageTarget for S3Target {
         content_digest: &[u8; 32],
         content_length: u64,
     ) -> Result<PresignedRequest, SignError> {
+        let credentials = self.credentials().await?;
         let now = (self.clock)();
-        let (credentials, ttl) = self.credentials(now).await?;
+        let ttl =
+            credential_ttl(&credentials, now, self.ttl).ok_or(SignError::CredentialsUnavailable)?;
         let url = self.object_url(content_digest)?;
         let headers = vec![
             ("content-length".to_string(), content_length.to_string()),
