@@ -10,7 +10,7 @@ use std::{
 
 use reqwest::{
     Url,
-    dns::{Name, Resolve},
+    dns::Name,
     header::{CONTENT_LENGTH, HOST, HeaderName, HeaderValue},
 };
 use rustls::pki_types::ServerName;
@@ -20,7 +20,7 @@ use tokio::{
     time::{Instant, timeout},
 };
 
-use super::{BlockedDns, Transfer, validate_url};
+use super::{Transfer, validate_upload_url};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
     http::{PutOutcome, UploadRequest, put_outcome, sensitive_header},
@@ -103,14 +103,13 @@ async fn connect(
         url::Host::Ipv4(ip) => vec![SocketAddr::new(IpAddr::V4(ip), port)],
         url::Host::Ipv6(ip) => vec![SocketAddr::new(IpAddr::V6(ip), port)],
         url::Host::Domain(host) => {
+            // The backend supplies the PUT URL. Download address limits do not apply.
             let name: Name = host.parse().map_err(|_| network())?;
-            let addresses = transfer.resolver.resolve(name).await.map_err(|error| {
-                if error.is::<BlockedDns>() {
-                    AttachmentError::new(Cause::BlockedAddress)
-                } else {
-                    network()
-                }
-            })?;
+            let addresses = transfer
+                .upload_resolver
+                .resolve(name)
+                .await
+                .map_err(|_| network())?;
             addresses
                 .map(|addr| SocketAddr::new(addr.ip(), port))
                 .collect()
@@ -274,7 +273,7 @@ pub(super) async fn put(
         return Err(AttachmentError::new(Cause::TargetRejected));
     }
     let url = Url::parse(&upload.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
-    validate_url(&url, &transfer.options)?;
+    validate_upload_url(&url)?;
     let mut file = tokio::fs::File::open(body.path)
         .await
         .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;

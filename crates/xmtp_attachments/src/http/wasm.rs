@@ -12,7 +12,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     AbortController, ReferrerPolicy, Request, RequestCredentials, RequestInit, RequestRedirect,
-    Response, WorkerGlobalScope,
+    Response, ResponseType, WorkerGlobalScope,
 };
 
 use super::{
@@ -23,7 +23,7 @@ use crate::{
     store::{AttachmentOptions, CHUNK_SIZE, DownloadSink, StagedFile},
 };
 
-fn validate_url(url: &str, options: &AttachmentOptions) -> Result<(), AttachmentError> {
+fn validate_download_url(url: &str, options: &AttachmentOptions) -> Result<(), AttachmentError> {
     let url = url::Url::parse(url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
     let loopback = match url.host() {
         Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
@@ -34,6 +34,21 @@ fn validate_url(url: &str, options: &AttachmentOptions) -> Result<(), Attachment
     if url.scheme() == "https"
         || (url.scheme() == "http" && loopback && options.allow_private_network)
     {
+        Ok(())
+    } else {
+        Err(AttachmentError::new(Cause::InsecureUrl))
+    }
+}
+
+fn validate_upload_url(url: &str) -> Result<(), AttachmentError> {
+    let url = url::Url::parse(url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
+    let loopback = match url.host() {
+        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
+        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
+        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
+        None => false,
+    };
+    if url.scheme() == "https" || (url.scheme() == "http" && loopback) {
         Ok(())
     } else {
         Err(AttachmentError::new(Cause::InsecureUrl))
@@ -71,13 +86,21 @@ async fn blob_put(
     let request = Request::new_with_str_and_init(&upload.url, &init)
         .map_err(|_| AttachmentError::new(Cause::Malformed))?;
     set_upload_headers(&request, upload)?;
-    put_outcome(fetch(&request).await?.status())
+    let response = fetch(&request).await?;
+    if response.type_() == ResponseType::Opaqueredirect {
+        return Err(AttachmentError::new(Cause::TargetRejected));
+    }
+    put_outcome(response.status())
 }
 
 fn private_request(method: &str) -> RequestInit {
     let init = RequestInit::new();
     init.set_method(method);
-    init.set_redirect(RequestRedirect::Follow);
+    init.set_redirect(if method == "PUT" {
+        RequestRedirect::Manual
+    } else {
+        RequestRedirect::Follow
+    });
     init.set_credentials(RequestCredentials::Omit);
     init.set_referrer_policy(ReferrerPolicy::NoReferrer);
     init
@@ -198,7 +221,7 @@ impl Transfer {
         if upload.method != "PUT" {
             return Err(AttachmentError::new(Cause::TargetRejected));
         }
-        validate_url(&upload.url, &self.options)?;
+        validate_upload_url(&upload.url)?;
         blob_put(upload, &body.file).await
     }
 
@@ -208,7 +231,7 @@ impl Transfer {
         cap: u64,
         sink: &mut dyn DownloadSink,
     ) -> Result<(), AttachmentError> {
-        validate_url(url, &self.options)?;
+        validate_download_url(url, &self.options)?;
         let deadline = AbortDeadline::new()?;
         deadline.arm(self.idle_timeout);
         let init = private_request("GET");
@@ -270,6 +293,39 @@ mod tests {
             assert_eq!(init.get_credentials(), Some(RequestCredentials::Omit));
             assert_eq!(init.get_referrer_policy(), Some(ReferrerPolicy::NoReferrer));
         }
+    }
+
+    // verifies: ATCH-071
+    #[xmtp_common::test(unwrap_try = true)]
+    fn upload_url_policy() {
+        for url in [
+            "https://10.1.2.3/object",
+            "http://localhost/object",
+            "http://127.0.0.1/object",
+            "http://[::1]/object",
+        ] {
+            validate_upload_url(url)?;
+        }
+        for url in ["http://example.com/object", "ftp://localhost/object"] {
+            assert_eq!(
+                validate_upload_url(url).unwrap_err().cause,
+                Cause::InsecureUrl
+            );
+        }
+    }
+
+    // verifies: ATCH-071
+    #[xmtp_common::test(unwrap_try = true)]
+    fn put_redirect_is_manual() {
+        assert_eq!(
+            private_request("PUT").get_redirect(),
+            Some(RequestRedirect::Manual)
+        );
+        assert_eq!(
+            private_request("GET").get_redirect(),
+            Some(RequestRedirect::Follow)
+        );
+        assert_eq!(put_outcome(307).unwrap_err().cause, Cause::TargetRejected);
     }
 
     // verifies: ATCH-070

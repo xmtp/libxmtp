@@ -74,6 +74,7 @@ web-sys = { workspace = true, features = [
   "RequestRedirect",
   "ReferrerPolicy",
   "Response",
+  "ResponseType",
   "StorageManager",
   "WorkerGlobalScope",
   "WorkerNavigator",
