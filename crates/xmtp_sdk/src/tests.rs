@@ -1800,7 +1800,6 @@ async fn late_reader_released() {
     client.end().await?;
 }
 
-// verifies: PROC-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn conversation_reader_rereads_after_fall_behind() {
     use std::collections::HashSet;
