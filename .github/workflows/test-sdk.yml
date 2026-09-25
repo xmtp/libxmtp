@@ -151,6 +151,8 @@ jobs:
     name: Windows SDK load (win32-x64)
     runs-on: windows-latest
     timeout-minutes: 60
+    permissions:
+      contents: read
     env:
       SQLX_OFFLINE: "true"
     steps:
