@@ -506,7 +506,7 @@ reason = "The legacy reaction encoder and the unrestricted raw-send path still p
 id = "CTYPE-014"
 kind = "gap"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Remote-attachment decoding accepts a missing required parameter as an empty value. The Android and iOS remote attachment codecs reject an http:// URL to localhost or a loopback address, which the parameters table admits."
 
 [[waiver]]
