@@ -590,7 +590,7 @@ async fn dm_duplicate_lookup_finds_the_other_conversation() {
             if duplicates.iter().any(|dm| dm.id() == second.id()) {
                 break Ok::<_, XmtpError>(duplicates);
             }
-            tokio::task::yield_now().await;
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
         }
     })
     .await??;
