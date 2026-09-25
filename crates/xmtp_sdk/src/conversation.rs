@@ -437,15 +437,9 @@ impl Conversations {
         reaction: Reaction,
         options: Option<SendOptions>,
     ) -> Result<MessageID, XmtpError> {
-        let client = self.client.clone();
+        let (stored, group) = self.message_group(&id).await?;
         on_sdk_worker(self.client.context.clone(), async move {
             Box::pin(async move {
-                let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
-                let (stored, group) = client
-                    .message_with_group(&bytes)
-                    .await
-                    .map_err(XmtpError::unknown)?
-                    .ok_or_else(|| XmtpError::invalid("message not found"))?;
                 let content = ReactionCodec::encode(
                     reaction.into_proto(id, InboxID::try_from(stored.sender_inbox_id)?),
                 )
@@ -463,15 +457,9 @@ impl Conversations {
         content: EncodedContent,
         options: Option<SendOptions>,
     ) -> Result<MessageID, XmtpError> {
-        let client = self.client.clone();
+        let (stored, group) = self.message_group(&id).await?;
         on_sdk_worker(self.client.context.clone(), async move {
             Box::pin(async move {
-                let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
-                let (stored, group) = client
-                    .message_with_group(&bytes)
-                    .await
-                    .map_err(XmtpError::unknown)?
-                    .ok_or_else(|| XmtpError::invalid("message not found"))?;
                 let reply = Reply {
                     reference: id.0,
                     reference_inbox_id: Some(stored.sender_inbox_id),
