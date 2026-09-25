@@ -761,8 +761,8 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
             }
             // implements: CTYPE-024
             // implements: CTYPE-025
-            let nested = xmtp_content_types::compression::decompress(value.content)
-                .map_err(codec_error)?;
+            let nested =
+                xmtp_content_types::compression::decompress(value.content).map_err(codec_error)?;
             StandardContent::Reply {
                 reference: crate::MessageID::try_from(value.reference)?,
                 reference_inbox_id: value
@@ -1149,13 +1149,12 @@ pub(crate) mod pure_codec_tests {
                 ..Default::default()
             },
         ] {
-            let outer = xmtp_content_types::reply::ReplyCodec::encode(
-                xmtp_content_types::reply::Reply {
+            let outer =
+                xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
                     reference: "a".repeat(64),
                     reference_inbox_id: None,
                     content: nested,
-                },
-            )?;
+                })?;
             assert!(decode_standard(outer.into()).is_err());
         }
     }
