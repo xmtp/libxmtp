@@ -15,6 +15,7 @@ import java.lang.ref.WeakReference
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 @Suppress("unused")
 private suspend fun consumeOmittedSendOptions(
@@ -437,6 +438,22 @@ fun main() =
             "collector exception acknowledged the last message"
         }
         thrownReplay.end()
+        val stateGroup = reopened.conversations().createGroup(emptyList(), null)
+        val stateID = stateGroup.sendText("throwing state callback")
+        val uncaughtStateError = AtomicReference<Throwable?>()
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, error -> uncaughtStateError.compareAndSet(null, error) }
+        try {
+            val stateFlow = reopenedHost.messages(
+                stateGroup,
+                onConnectionStateChange = { _, _ -> throw IllegalStateException("state callback failed") },
+            )
+            check(withTimeout(3_000) { stateFlow.take(1).toList().single().id } == stateID)
+            delay(100)
+            check(uncaughtStateError.get() == null) { "state callback crashed its coroutine" }
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
+        }
         val openedReader = CompletableDeferred<MessageReader>()
         val releaseOpening = CompletableDeferred<Unit>()
         SDKClient.readerOpenedForTest = { opened ->

@@ -111,8 +111,8 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
       previous = current;
     };
     let current = ConnectionState.Connecting;
-    emit(current);
     try {
+      emit(current);
       current = reader.connectionState();
       emit(current);
       while (!this.isClosed() && reader.connectionStateChanged !== undefined) {
