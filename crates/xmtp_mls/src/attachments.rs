@@ -20,7 +20,10 @@ use xmtp_attachments::{
 };
 use xmtp_common::{RetryableError as _, time::now_ns};
 use xmtp_content_types::remote_attachment::RemoteAttachment;
-use xmtp_db::prelude::*;
+use xmtp_db::{
+    attachments::{PendingAttachmentOutcome, StoredPendingAttachment},
+    prelude::*,
+};
 
 impl crate::worker::NeedsDbReconnect for AttachmentClientError {
     fn needs_db_reconnect(&self) -> bool {
@@ -35,6 +38,41 @@ use crate::{client::Client, context::XmtpSharedContext};
 const DEFAULT_MAX_PENDING_AGE: Duration = Duration::from_secs(86_400);
 const RECONCILE_AGE: Duration = Duration::from_secs(3_600);
 const CHUNK: usize = 64 * 1024;
+const LEASE_DURATION: Duration = Duration::from_secs(120);
+const LEASE_RENEW: Duration = Duration::from_secs(30);
+const LEASE_POLL: Duration = Duration::from_secs(1);
+
+#[derive(Clone, Copy)]
+struct LeaseTiming {
+    duration: Duration,
+    renew: Duration,
+    poll: Duration,
+}
+
+impl Default for LeaseTiming {
+    fn default() -> Self {
+        Self {
+            duration: LEASE_DURATION,
+            renew: LEASE_RENEW,
+            poll: LEASE_POLL,
+        }
+    }
+}
+
+impl LeaseTiming {
+    fn duration_ns(self) -> i64 {
+        self.duration.as_nanos().min(i64::MAX as u128) as i64
+    }
+
+    #[cfg(test)]
+    fn for_test(duration: Duration, renew: Duration, poll: Duration) -> Self {
+        Self {
+            duration,
+            renew,
+            poll,
+        }
+    }
+}
 
 #[derive(Clone, Debug)]
 pub enum AttachmentSource {
@@ -150,10 +188,68 @@ pub enum PendingAttachmentStatus {
     Failed(AttachmentClientError),
 }
 
+fn failure_from_row(row: &StoredPendingAttachment) -> AttachmentClientError {
+    let cause = match row.failure_cause.as_deref() {
+        Some("not_offered") => Cause::NotOffered,
+        Some("too_large") => Cause::TooLarge,
+        Some("source_unreadable") => Cause::SourceUnreadable,
+        Some("local_storage") => Cause::LocalStorage,
+        Some("staged_unusable") => Cause::StagedUnusable,
+        Some("connection_blocked") => Cause::ConnectionBlocked,
+        Some("credential") => Cause::Credential,
+        Some("backend_rejected") => Cause::BackendRejected,
+        Some("backend_unavailable") => Cause::BackendUnavailable,
+        Some("target_rejected") => Cause::TargetRejected,
+        Some("network") => Cause::Network,
+        Some("insecure_url") => Cause::InsecureUrl,
+        Some("blocked_address") => Cause::BlockedAddress,
+        Some("too_many_redirects") => Cause::TooManyRedirects,
+        Some("not_found") => Cause::NotFound,
+        Some("http_status") => Cause::HttpStatus,
+        Some("malformed") => Cause::Malformed,
+        Some("digest_mismatch") => Cause::DigestMismatch,
+        Some("decryption_failed") => Cause::DecryptionFailed,
+        Some("not_an_attachment") => Cause::NotAnAttachment,
+        Some("deleted") => Cause::Deleted,
+        _ => Cause::LocalStorage,
+    };
+    let credential_kind = match row.failure_credential_kind.as_deref() {
+        Some("credential_rejected") => Some(CredentialFailureKind::CredentialRejected),
+        Some("callback_failed") => Some(CredentialFailureKind::CallbackFailed),
+        Some("exhausted") => Some(CredentialFailureKind::Exhausted),
+        Some("missing_credential") => Some(CredentialFailureKind::MissingCredential),
+        _ => None,
+    };
+    AttachmentClientError {
+        cause,
+        credential_kind,
+        retryable: row.failure_retryable.unwrap_or(false),
+    }
+}
+
+fn status_from_row(row: &StoredPendingAttachment, now: i64) -> PendingAttachmentStatus {
+    match row.effective_status(now) {
+        "waiting" => PendingAttachmentStatus::Waiting,
+        "uploading" => PendingAttachmentStatus::Uploading,
+        "complete" => PendingAttachmentStatus::Complete,
+        "failed" => PendingAttachmentStatus::Failed(failure_from_row(row)),
+        _ => PendingAttachmentStatus::Failed(AttachmentClientError::new(Cause::LocalStorage)),
+    }
+}
+
+fn credential_kind_name(kind: CredentialFailureKind) -> &'static str {
+    match kind {
+        CredentialFailureKind::CredentialRejected => "credential_rejected",
+        CredentialFailureKind::CallbackFailed => "callback_failed",
+        CredentialFailureKind::Exhausted => "exhausted",
+        CredentialFailureKind::MissingCredential => "missing_credential",
+    }
+}
+
 struct PendingShared {
-    state: AsyncMutex<PendingAttachmentStatus>,
+    state: AsyncMutex<()>,
     watch: watch::Sender<PendingAttachmentStatus>,
-    permanent: Mutex<Option<AttachmentClientError>>,
+    lease: Mutex<Option<([u8; 16], i64)>>,
     cancel: CancellationToken,
 }
 
@@ -161,9 +257,9 @@ impl PendingShared {
     fn new() -> Self {
         let (watch, _) = watch::channel(PendingAttachmentStatus::Waiting);
         Self {
-            state: AsyncMutex::new(PendingAttachmentStatus::Waiting),
+            state: AsyncMutex::new(()),
             watch,
-            permanent: Mutex::new(None),
+            lease: Mutex::new(None),
             cancel: CancellationToken::new(),
         }
     }
@@ -226,10 +322,11 @@ pub struct AttachmentRuntime {
     pub(crate) store: Option<Arc<dyn LocalStore>>,
     pub(crate) dir: Option<PathBuf>,
     pub(crate) options: AttachmentOptions,
-    pending: Mutex<HashMap<String, Arc<PendingShared>>>,
+    pending: Mutex<HashMap<String, Weak<PendingShared>>>,
     downloads: Mutex<HashMap<String, Arc<DownloadShared>>>,
     deleting: Mutex<HashMap<String, usize>>,
     event_locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
+    lease_timing: Mutex<LeaseTiming>,
     #[cfg(test)]
     sweep_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
@@ -246,6 +343,7 @@ impl Default for AttachmentRuntime {
             downloads: Mutex::new(HashMap::new()),
             deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
+            lease_timing: Mutex::new(LeaseTiming::default()),
             #[cfg(test)]
             sweep_pause: Mutex::new(None),
             #[cfg(test)]
@@ -276,6 +374,7 @@ impl AttachmentRuntime {
             downloads: Mutex::new(HashMap::new()),
             deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
+            lease_timing: Mutex::new(LeaseTiming::default()),
             #[cfg(test)]
             sweep_pause: Mutex::new(None),
             #[cfg(test)]
@@ -291,11 +390,11 @@ impl AttachmentRuntime {
 
     fn shared(&self, digest: &str) -> Arc<PendingShared> {
         let mut pending = self.pending.lock();
-        if let Some(shared) = pending.get(digest) {
-            return shared.clone();
+        if let Some(shared) = pending.get(digest).and_then(Weak::upgrade) {
+            return shared;
         }
         let shared = Arc::new(PendingShared::new());
-        pending.insert(digest.to_owned(), shared.clone());
+        pending.insert(digest.to_owned(), Arc::downgrade(&shared));
         shared
     }
 
@@ -331,10 +430,7 @@ impl AttachmentRuntime {
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
         for digest in rows {
             let shared = self.shared(&digest);
-            let state = shared.state.lock().await;
-            if matches!(*state, PendingAttachmentStatus::Uploading) {
-                continue;
-            }
+            let _state = shared.state.lock().await;
             #[cfg(test)]
             {
                 let pause = self.sweep_pause.lock().clone();
@@ -343,16 +439,18 @@ impl AttachmentRuntime {
                     resume.notified().await;
                 }
             }
-            context
+            let deleted = context
                 .db()
-                .delete_pending_attachment(&digest)
+                .sweep_pending_attachment(&digest, self.cutoff(), now_ns())
                 .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+            if deleted == 0 {
+                continue;
+            }
             let path = staged_path(&digest)?;
             if store.exists(&path).await? {
                 store.remove_file(&path).await?;
             }
             self.pending.lock().remove(&digest);
-            drop(state);
         }
         Ok(())
     }
@@ -364,12 +462,12 @@ impl AttachmentRuntime {
         let Some(store) = &self.store else {
             return Ok(());
         };
-        let pending: HashSet<_> = context
+        let pending: HashMap<_, _> = context
             .db()
             .list_pending_attachments_since(0)
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
             .into_iter()
-            .map(|row| row.content_digest)
+            .map(|row| (row.content_digest, row.status))
             .collect();
         let records = context
             .db()
@@ -385,7 +483,11 @@ impl AttachmentRuntime {
                     store.remove_file(&file.path).await?;
                 }
             } else if let Some(digest) = file.path.strip_prefix(".staged/") {
-                if !pending.contains(digest) && file.modified_at_ns < cutoff {
+                if pending
+                    .get(digest)
+                    .is_some_and(|status| status == "complete")
+                    || (!pending.contains_key(digest) && file.modified_at_ns < cutoff)
+                {
                     store.remove_file(&file.path).await?;
                 }
             } else if file.path.split_once('/').is_some_and(|(key, name)| {
@@ -636,7 +738,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 .pending
                 .lock()
                 .get(&remote.content_digest)
-                .cloned();
+                .and_then(Weak::upgrade);
             let download = self.runtime().downloads.lock().get(&relative).cloned();
             if let Some(shared) = &upload {
                 shared.cancel.cancel();
@@ -677,6 +779,14 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         }
         let _guard = lock.lock().await;
         let mut changed = false;
+        // Remove the row first. An upload in another client sees the deletion
+        // before this client removes its staged ciphertext.
+        changed |= self
+            .context
+            .db()
+            .delete_pending_attachment(&remote.content_digest)
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+            != 0;
         if store.exists(&key).await? {
             store.remove_dir_all(&key).await?;
             changed = true;
@@ -689,12 +799,6 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             .context
             .db()
             .delete_local_attachment(&relative)
-            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
-            != 0;
-        changed |= self
-            .context
-            .db()
-            .delete_pending_attachment(&remote.content_digest)
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
             != 0;
         self.runtime().pending.lock().remove(&remote.content_digest);
@@ -927,14 +1031,16 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         &self,
         remote: &RemoteAttachment,
     ) -> Result<PendingAttachment<Context>, AttachmentClientError> {
-        let rows = self
+        let row = self
             .context
             .db()
-            .list_pending_attachments_since(self.runtime().cutoff())
-            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
-        let row = rows
-            .into_iter()
-            .find(|row| row.content_digest == remote.content_digest)
+            .get_pending_attachment(&remote.content_digest)
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+            .filter(|row| {
+                row.created_at_ns >= self.runtime().cutoff()
+                    || row.status == "uploading"
+                        && row.lease_expires_at_ns.is_some_and(|end| end >= now_ns())
+            })
             .ok_or_else(|| AttachmentClientError::new(Cause::StagedUnusable))?;
         let remote = RemoteAttachment::decode(row.remote_attachment.as_slice())
             .map_err(|_| AttachmentClientError::new(Cause::StagedUnusable))?;
@@ -950,9 +1056,15 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
     ) -> Result<Vec<PendingAttachment<Context>>, AttachmentClientError> {
         self.context
             .db()
-            .list_pending_attachments_since(self.runtime().cutoff())
+            .list_pending_attachments_since(0)
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
             .into_iter()
+            .filter(|row| {
+                row.status != "complete"
+                    && (row.created_at_ns >= self.runtime().cutoff()
+                        || row.status == "uploading"
+                            && row.lease_expires_at_ns.is_some_and(|end| end >= now_ns()))
+            })
             .map(|row| {
                 let remote = RemoteAttachment::decode(row.remote_attachment.as_slice())
                     .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
@@ -998,11 +1110,56 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
     }
 
     pub fn status(&self) -> PendingAttachmentStatus {
-        self.shared.watch.borrow().clone()
+        if self
+            .shared
+            .lease
+            .lock()
+            .as_ref()
+            .is_some_and(|(_, until)| now_ns() < *until)
+            && matches!(
+                *self.shared.watch.borrow(),
+                PendingAttachmentStatus::Uploading
+            )
+        {
+            return PendingAttachmentStatus::Uploading;
+        }
+        match self.record() {
+            Ok(Some(row)) => status_from_row(&row, now_ns()),
+            Ok(None) => PendingAttachmentStatus::Failed(AttachmentClientError::new(
+                if self.shared.cancel.is_cancelled() {
+                    Cause::Deleted
+                } else {
+                    Cause::StagedUnusable
+                },
+            )),
+            Err(_) => self.shared.watch.borrow().clone(),
+        }
     }
 
     pub fn watch_status(&self) -> watch::Receiver<PendingAttachmentStatus> {
-        self.shared.watch.subscribe()
+        self.shared.watch.send_replace(self.status());
+        let receiver = self.shared.watch.subscribe();
+        let pending = PendingAttachment {
+            context: self.context.context_ref().clone(),
+            remote: self.remote.clone(),
+            shared: self.shared.clone(),
+        };
+        drop(xmtp_common::task::spawn(async move {
+            while pending.shared.watch.receiver_count() > 0 {
+                let poll = pending
+                    .context
+                    .attachment_runtime()
+                    .lease_timing
+                    .lock()
+                    .poll;
+                tokio::time::sleep(poll).await;
+                let status = pending.status();
+                if *pending.shared.watch.borrow() != status {
+                    pending.shared.watch.send_replace(status);
+                }
+            }
+        }));
+        receiver
     }
 
     fn reference(&self) -> AttachmentRef {
@@ -1013,95 +1170,262 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         }
     }
 
-    pub async fn upload(&self) -> Result<(), AttachmentClientError> {
+    fn record(&self) -> Result<Option<StoredPendingAttachment>, AttachmentClientError> {
+        self.context
+            .db()
+            .get_pending_attachment(&self.remote.content_digest)
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))
+    }
+
+    async fn wait_for_record_change(
+        &self,
+    ) -> Result<PendingAttachmentStatus, AttachmentClientError> {
         let mut watch = self.shared.watch.subscribe();
-        {
+        loop {
+            match self.record() {
+                Ok(Some(row)) => {
+                    let status = status_from_row(&row, now_ns());
+                    if status != PendingAttachmentStatus::Uploading
+                        && self.shared.lease.lock().is_none()
+                    {
+                        self.shared.watch.send_replace(status.clone());
+                        return Ok(status);
+                    }
+                }
+                Ok(None) => {
+                    return Err(AttachmentClientError::new(Cause::Deleted));
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "pending attachment status read will be retried")
+                }
+            }
+            let poll = self.context.attachment_runtime().lease_timing.lock().poll;
+            tokio::select! {
+                _ = tokio::time::sleep(poll) => {},
+                changed = watch.changed() => {
+                    if changed.is_err() {
+                        return Err(AttachmentClientError::new(Cause::LocalStorage));
+                    }
+                }
+            }
+        }
+    }
+
+    pub async fn upload(&self) -> Result<(), AttachmentClientError> {
+        loop {
+            let mut claim_missed = false;
+            let should_wait = {
+                let _state = self.shared.state.lock().await;
+                let row = self
+                    .record()?
+                    .ok_or_else(|| AttachmentClientError::new(Cause::StagedUnusable))?;
+                match status_from_row(&row, now_ns()) {
+                    PendingAttachmentStatus::Complete => return Ok(()),
+                    PendingAttachmentStatus::Failed(error)
+                        if error.cause == Cause::BackendRejected =>
+                    {
+                        return Err(error);
+                    }
+                    PendingAttachmentStatus::Uploading => true,
+                    PendingAttachmentStatus::Waiting | PendingAttachmentStatus::Failed(_)
+                        if self.shared.lease.lock().is_some() =>
+                    {
+                        true
+                    }
+                    PendingAttachmentStatus::Waiting | PendingAttachmentStatus::Failed(_) => {
+                        let token = xmtp_common::rand_array::<16>();
+                        let now = now_ns();
+                        let timing = *self.context.attachment_runtime().lease_timing.lock();
+                        let event_lock = self
+                            .context
+                            .attachment_runtime()
+                            .event_lock(&self.reference().attachment_key);
+                        let _event_guard = event_lock.lock().await;
+                        let claimed = self
+                            .context
+                            .db()
+                            .claim_pending_attachment(
+                                &self.remote.content_digest,
+                                &token,
+                                now,
+                                timing.duration_ns(),
+                            )
+                            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+                        if claimed == 0 {
+                            claim_missed = true;
+                            false
+                        } else {
+                            *self.shared.lease.lock() =
+                                Some((token, now.saturating_add(timing.duration_ns())));
+                            self.shared
+                                .watch
+                                .send_replace(PendingAttachmentStatus::Uploading);
+                            self.context.events().emit(
+                                Some(ClientEvent::AttachmentUploadStarted(self.reference())),
+                                None,
+                            );
+                            let pending = PendingAttachment {
+                                context: self.context.context_ref().clone(),
+                                remote: self.remote.clone(),
+                                shared: self.shared.clone(),
+                            };
+                            // The registry entry owns the attempt after the caller stops waiting.
+                            drop(xmtp_common::task::spawn(async move {
+                                pending.run_attempt(token).await;
+                            }));
+                            true
+                        }
+                    }
+                }
+            };
+            if claim_missed {
+                let row = self
+                    .record()?
+                    .ok_or_else(|| AttachmentClientError::new(Cause::StagedUnusable))?;
+                match status_from_row(&row, now_ns()) {
+                    PendingAttachmentStatus::Complete => return Ok(()),
+                    PendingAttachmentStatus::Failed(error) => return Err(error),
+                    PendingAttachmentStatus::Waiting => continue,
+                    PendingAttachmentStatus::Uploading => {}
+                }
+            }
+            if should_wait || claim_missed {
+                match self.wait_for_record_change().await? {
+                    PendingAttachmentStatus::Complete => return Ok(()),
+                    PendingAttachmentStatus::Failed(error) => return Err(error),
+                    PendingAttachmentStatus::Waiting => continue,
+                    PendingAttachmentStatus::Uploading => continue,
+                }
+            }
+        }
+    }
+
+    fn lease_is_current(&self, token: &[u8; 16]) -> bool {
+        self.shared
+            .lease
+            .lock()
+            .as_ref()
+            .is_some_and(|(owner, end)| owner == token && now_ns() < *end)
+    }
+
+    async fn run_attempt(&self, token: [u8; 16]) {
+        let timing = *self.context.attachment_runtime().lease_timing.lock();
+        let mut tick = tokio::time::interval(timing.renew);
+        tick.tick().await;
+        let mut transfer = Box::pin(self.upload_once(&token));
+        let result = loop {
+            tokio::select! {
+                biased;
+                _ = self.shared.cancel.cancelled() => break Err(AttachmentClientError::new(Cause::Deleted)),
+                result = &mut transfer => break result,
+                _ = tick.tick() => {
+                    let now = now_ns();
+                    match self.context.db().extend_pending_attachment(
+                        &self.remote.content_digest, &token, now, timing.duration_ns()
+                    ) {
+                        Ok(1) => *self.shared.lease.lock() = Some((token, now.saturating_add(timing.duration_ns()))),
+                        Ok(_) => {
+                            self.lost_lease().await;
+                            return;
+                        }
+                        Err(error) => tracing::warn!(%error, "attachment lease extension will be retried"),
+                    }
+                }
+            }
+        };
+        drop(transfer);
+        self.finish_attempt(&token, result).await;
+    }
+
+    async fn lost_lease(&self) {
+        *self.shared.lease.lock() = None;
+        match self.record() {
+            Ok(Some(row)) => {
+                self.shared
+                    .watch
+                    .send_replace(status_from_row(&row, now_ns()));
+            }
+            Ok(None) => {
+                self.shared
+                    .watch
+                    .send_replace(PendingAttachmentStatus::Failed(AttachmentClientError::new(
+                        Cause::Deleted,
+                    )));
+            }
+            Err(error) => {
+                tracing::warn!(%error, "lost attachment lease status read will be retried")
+            }
+        }
+    }
+
+    async fn finish_attempt(&self, token: &[u8; 16], result: Result<(), AttachmentClientError>) {
+        let mut delay = Duration::from_millis(100);
+        loop {
             let event_lock = self
                 .context
                 .attachment_runtime()
                 .event_lock(&self.reference().attachment_key);
             let _event_guard = event_lock.lock().await;
-            let mut state = self.shared.state.lock().await;
-            match &*state {
-                PendingAttachmentStatus::Complete => return Ok(()),
-                PendingAttachmentStatus::Uploading => {}
-                _ => {
-                    *state = PendingAttachmentStatus::Uploading;
-                    self.shared.watch.send_replace(state.clone());
-                    self.context.events().emit(
-                        Some(ClientEvent::AttachmentUploadStarted(self.reference())),
-                        None,
-                    );
-                    let pending = PendingAttachment {
-                        context: self.context.context_ref().clone(),
-                        remote: self.remote.clone(),
-                        shared: self.shared.clone(),
+            let recorded = match &result {
+                Ok(()) => PendingAttachmentOutcome::Complete,
+                Err(error) => PendingAttachmentOutcome::failed(
+                    error.cause.as_str(),
+                    error.credential_kind.map(credential_kind_name),
+                    Some(error.retryable),
+                ),
+            };
+            let outcome = self.context.db().finish_pending_attachment(
+                &self.remote.content_digest,
+                token,
+                now_ns(),
+                recorded,
+            );
+            match outcome {
+                Ok(1) => {
+                    *self.shared.lease.lock() = None;
+                    if result.is_ok()
+                        && let Ok(store) = self.context.attachment_runtime().store()
+                        && let Ok(path) = staged_path(&self.remote.content_digest)
+                        && let Err(error) = store.remove_file(&path).await
+                    {
+                        tracing::warn!(%error, "staged ciphertext cleanup will be retried by reconciliation");
+                    }
+                    let next = match &result {
+                        Ok(()) => PendingAttachmentStatus::Complete,
+                        Err(error) => PendingAttachmentStatus::Failed(error.clone()),
                     };
-                    // The task keeps the attempt alive when a caller stops waiting.
-                    drop(xmtp_common::task::spawn(async move {
-                        pending.run_attempt().await;
-                    }));
+                    self.shared.watch.send_replace(next);
+                    let reference = self.reference();
+                    let event = match &result {
+                        Ok(()) => ClientEvent::AttachmentUploadCompleted(reference),
+                        Err(error) => ClientEvent::AttachmentUploadFailed(AttachmentFailed {
+                            attachment_key: reference.attachment_key,
+                            url: reference.url,
+                            content_digest: reference.content_digest,
+                            cause: error.cause.as_str().to_owned(),
+                        }),
+                    };
+                    self.context.events().emit(Some(event), None);
+                    return;
                 }
+                Ok(_) => {
+                    drop(_event_guard);
+                    self.lost_lease().await;
+                    return;
+                }
+                Err(error) => tracing::warn!(%error, "attachment outcome write will be retried"),
             }
-        }
-        loop {
-            let status = watch.borrow_and_update().clone();
-            match status {
-                PendingAttachmentStatus::Complete => return Ok(()),
-                PendingAttachmentStatus::Failed(error) => return Err(error),
-                _ => watch
-                    .changed()
-                    .await
-                    .map_err(|_| AttachmentClientError::new(Cause::Network))?,
-            }
+            drop(_event_guard);
+            tokio::time::sleep(delay).await;
+            delay = delay.saturating_mul(2).min(Duration::from_secs(5));
         }
     }
 
-    async fn run_attempt(&self) {
-        let result = tokio::select! {
-            biased;
-            _ = self.shared.cancel.cancelled() => Err(AttachmentClientError::new(Cause::Deleted)),
-            result = self.upload_once() => result,
-        };
-        let event_lock = self
-            .context
-            .attachment_runtime()
-            .event_lock(&self.reference().attachment_key);
-        let _event_guard = event_lock.lock().await;
-        let mut state = self.shared.state.lock().await;
-        *state = match &result {
-            Ok(()) => PendingAttachmentStatus::Complete,
-            Err(error) => PendingAttachmentStatus::Failed(error.clone()),
-        };
-        let reference = self.reference();
-        let event = match &result {
-            Ok(()) => ClientEvent::AttachmentUploadCompleted(reference),
-            Err(error) => ClientEvent::AttachmentUploadFailed(AttachmentFailed {
-                attachment_key: reference.attachment_key,
-                url: reference.url,
-                content_digest: reference.content_digest,
-                cause: error.cause.as_str().to_owned(),
-            }),
-        };
-        self.context.events().emit(Some(event), None);
-        if result.is_ok() {
-            self.context
-                .attachment_runtime()
-                .pending
-                .lock()
-                .remove(&self.remote.content_digest);
-        }
-        self.shared.watch.send_replace(state.clone());
-    }
-
-    async fn upload_once(&self) -> Result<(), AttachmentClientError> {
+    async fn upload_once(&self, token: &[u8; 16]) -> Result<(), AttachmentClientError> {
         self.context
             .server_configuration()
             .check()
             .map_err(|_| AttachmentClientError::new(Cause::ConnectionBlocked))?;
-        if let Some(error) = self.shared.permanent.lock().clone() {
-            return Err(error);
-        }
         let runtime = self.context.attachment_runtime();
         let store = runtime.store()?;
         let path = staged_path(&self.remote.content_digest)?;
@@ -1119,6 +1443,9 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         {
             return Err(AttachmentClientError::new(Cause::StagedUnusable));
         }
+        if !self.lease_is_current(token) {
+            return Err(AttachmentClientError::new(Cause::Network));
+        }
         let response = self
             .context
             .api()
@@ -1127,13 +1454,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 content_length: length,
             })
             .await
-            .map_err(|error| {
-                let error = api_error(error);
-                if error.cause == Cause::BackendRejected {
-                    *self.shared.permanent.lock() = Some(error.clone());
-                }
-                error
-            })?;
+            .map_err(api_error)?;
         let request = UploadRequest {
             method: response.method,
             url: response.url,
@@ -1144,21 +1465,11 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 .collect(),
             expires_in_seconds: response.expires_in_seconds,
         };
+        if !self.lease_is_current(token) {
+            return Err(AttachmentClientError::new(Cause::Network));
+        }
         let transfer = Transfer::new(runtime.options.clone())?;
         transfer.put(&request, staged).await?;
-        // Delete the row first, so a stopped client cannot resume a missing file.
-        if let Err(error) = self
-            .context
-            .db()
-            .delete_pending_attachment(&self.remote.content_digest)
-        {
-            // Keep the staged file with its row so a later upload can retry cleanup.
-            tracing::warn!(%error, "pending attachment cleanup will be retried after upload");
-            return Ok(());
-        }
-        if let Err(error) = store.remove_file(&path).await {
-            tracing::warn!(%error, "staged ciphertext cleanup will be retried by reconciliation");
-        }
         Ok(())
     }
 }
@@ -1412,6 +1723,84 @@ mod tests {
             }
         }));
         (url, captured)
+    }
+
+    async fn paused_put(
+        status: u16,
+    ) -> (
+        String,
+        tokio::sync::oneshot::Receiver<()>,
+        tokio::sync::oneshot::Sender<()>,
+    ) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind PUT capture listener");
+        let url = format!(
+            "http://{}/attachment",
+            listener.local_addr().expect("read capture address")
+        );
+        let (entered, seen) = tokio::sync::oneshot::channel();
+        let (release, resume) = tokio::sync::oneshot::channel();
+        drop(xmtp_common::task::spawn(async move {
+            let (mut stream, _) = listener
+                .accept()
+                .await
+                .expect("accept PUT capture connection");
+            let mut request = Vec::new();
+            let mut chunk = [0u8; 4096];
+            let header_end = loop {
+                let count = stream
+                    .read(&mut chunk)
+                    .await
+                    .expect("read PUT request headers");
+                if count == 0 {
+                    return;
+                }
+                request.extend_from_slice(&chunk[..count]);
+                if let Some(end) = request.windows(4).position(|part| part == b"\r\n\r\n") {
+                    break end + 4;
+                }
+            };
+            let head = String::from_utf8_lossy(&request[..header_end]);
+            let length = head
+                .lines()
+                .find_map(|line| {
+                    line.split_once(':')
+                        .filter(|(name, _)| name.eq_ignore_ascii_case("content-length"))
+                        .and_then(|(_, value)| value.trim().parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            while request.len() - header_end < length {
+                let count = stream
+                    .read(&mut chunk)
+                    .await
+                    .expect("read PUT request body");
+                if count == 0 {
+                    return;
+                }
+                request.extend_from_slice(&chunk[..count]);
+            }
+            let _ = entered.send(());
+            let _ = resume.await;
+            let response =
+                format!("HTTP/1.1 {status} Test\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+            let _ = stream.write_all(response.as_bytes()).await;
+        }));
+        (url, seen, release)
+    }
+
+    fn signed_put_api(url: String, calls: usize) -> xmtp_api_backend::MockBackendClient {
+        use xmtp_proto::backend_v1::CreateUploadResponse;
+        let mut api = xmtp_api_backend::MockBackendClient::new();
+        api.expect_create_upload().times(calls).returning(move |_| {
+            Ok(CreateUploadResponse {
+                method: "PUT".into(),
+                url: url.clone(),
+                headers: vec![],
+                expires_in_seconds: 3600,
+            })
+        });
+        api
     }
 
     struct KnownCredential(Arc<AtomicUsize>);
@@ -1993,6 +2382,211 @@ mod tests {
         assert_eq!(pending.upload().await.unwrap_err(), first_error);
     }
 
+    // verifies: ATCH-029, ATCH-066
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn failed_status_survives_restart() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let mut rejected = xmtp_api_backend::MockBackendClient::new();
+        rejected.expect_create_upload().times(1).returning(|_| {
+            Err(xmtp_proto::api::ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument(
+                    "permanent",
+                )),
+            ))
+        });
+        let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(rejected))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert_eq!(
+            first
+                .attachments()
+                .pending(&remote)
+                .await?
+                .upload()
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::BackendRejected
+        );
+        drop(first);
+        drop(created);
+        let mut no_request = xmtp_api_backend::MockBackendClient::new();
+        no_request.expect_create_upload().times(0);
+        let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(no_request))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let pending = restarted.attachments().pending(&remote).await?;
+        assert!(
+            matches!(pending.status(), PendingAttachmentStatus::Failed(error) if error.cause == Cause::BackendRejected)
+        );
+        assert_eq!(
+            pending.upload().await.unwrap_err().cause,
+            Cause::BackendRejected
+        );
+    }
+
+    // verifies: ATCH-037, ATCH-038, ATCH-067
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn complete_survives_restart() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        let staged = dir.path().join(staged_path(&remote.content_digest)?);
+        pending.upload().await?;
+        assert!(!staged.exists());
+        let mut no_request = xmtp_api_backend::MockBackendClient::new();
+        no_request.expect_create_upload().times(0);
+        let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(no_request))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let resumed = restarted.attachments().pending(&remote).await?;
+        assert_eq!(resumed.status(), PendingAttachmentStatus::Complete);
+        resumed.upload().await?;
+        assert!(restarted.attachments().list_pending().await?.is_empty());
+        assert_eq!(
+            restarted
+                .context
+                .db()
+                .get_pending_attachment(&remote.content_digest)?
+                .unwrap()
+                .status,
+            "complete"
+        );
+    }
+
+    // verifies: ATCH-029
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rejected_record_is_not_touched() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let token = [9u8; 16];
+        let db = alix.client.context.db();
+        db.claim_pending_attachment(
+            &remote.content_digest,
+            &token,
+            now_ns(),
+            LEASE_DURATION.as_nanos() as i64,
+        )?;
+        db.finish_pending_attachment(
+            &remote.content_digest,
+            &token,
+            now_ns(),
+            PendingAttachmentOutcome::failed("backend_rejected", None, Some(false)),
+        )?;
+        let before = db.get_pending_attachment(&remote.content_digest)?.unwrap();
+        let mut no_request = xmtp_api_backend::MockBackendClient::new();
+        no_request.expect_create_upload().times(0);
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(no_request))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let events = client.context.events().subscribe_app(EventFilter::new([
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadFailed,
+        ]))?;
+        client
+            .context
+            .server_configuration
+            .block_connection(BlockedConnection::BackendMismatch {
+                stored: "one".into(),
+                received: "two".into(),
+            });
+        let pending = client.attachments().pending(&remote).await?;
+        assert_eq!(
+            pending.upload().await.unwrap_err().cause,
+            Cause::BackendRejected
+        );
+        assert_eq!(
+            db.get_pending_attachment(&remote.content_digest)?.unwrap(),
+            before
+        );
+        assert!(events.drain().is_empty());
+    }
+
+    // verifies: ATCH-061
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn credential_failure_kind_persists() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let token = [8u8; 16];
+        let db = alix.client.context.db();
+        db.claim_pending_attachment(
+            &remote.content_digest,
+            &token,
+            now_ns(),
+            LEASE_DURATION.as_nanos() as i64,
+        )?;
+        db.finish_pending_attachment(
+            &remote.content_digest,
+            &token,
+            now_ns(),
+            PendingAttachmentOutcome::failed("credential", Some("callback_failed"), Some(true)),
+        )?;
+        let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let status = restarted.attachments().pending(&remote).await?.status();
+        assert!(matches!(
+            status,
+            PendingAttachmentStatus::Failed(AttachmentClientError {
+                cause: Cause::Credential,
+                credential_kind: Some(CredentialFailureKind::CallbackFailed),
+                retryable: true,
+            })
+        ));
+    }
+
+    // verifies: ATCH-074
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn expired_lease_reads_waiting() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let digest = &pending.remote_attachment().content_digest;
+        let token = [7u8; 16];
+        alix.client.context.db().claim_pending_attachment(
+            digest,
+            &token,
+            now_ns() - 200_000_000_000,
+            LEASE_DURATION.as_nanos() as i64,
+        )?;
+        assert_eq!(pending.status(), PendingAttachmentStatus::Waiting);
+        pending.upload().await?;
+        assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
+    }
+
     // verifies: ATCH-061
     #[xmtp_common::test(unwrap_try = true)]
     fn credential_kind_kept() {
@@ -2146,54 +2740,327 @@ mod tests {
         assert!(alix.client.attachments().list_pending().await?.is_empty());
     }
 
-    // verifies: ATCH-025, ATCH-037
+    // verifies: ATCH-025, ATCH-066
     #[xmtp_common::test(unwrap_try = true)]
-    async fn stored_object_stays_complete_when_pending_row_delete_fails() {
+    async fn outcome_written_after_reconnect() {
         let dir = tempfile::tempdir()?;
-        tester!(alix, attachments_dir: dir.path(), disable_workers);
-        let pending = alix.client.attachments().create(bytes()).await?;
-        let remote = pending.remote_attachment().clone();
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers, persistent_db);
+        let original = alix.client.attachments().create(bytes()).await?;
+        let remote = original.remote_attachment().clone();
         let staged = dir.path().join(staged_path(&remote.content_digest)?);
-        let events = alix
+        let (url, entered, release) = paused_put(200).await;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let pending = client.attachments().pending(&remote).await?;
+        let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), entered).await??;
+        client.release_db_connection()?;
+        release.send(()).unwrap();
+        tokio::time::sleep(Duration::from_millis(250)).await;
+        client.reconnect_db()?;
+        tokio::time::timeout(Duration::from_secs(10), upload).await???;
+        assert_eq!(
+            client
+                .context
+                .db()
+                .get_pending_attachment(&remote.content_digest)?
+                .unwrap()
+                .status,
+            "complete"
+        );
+        assert!(!staged.exists());
+    }
+
+    // verifies: ATCH-035, ATCH-074
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn second_client_joins_running_upload() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let (url, entered, release) = paused_put(200).await;
+        let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(
+                "http://127.0.0.1:1/unused".into(),
+                0,
+            )))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        *second.context.attachments.lease_timing.lock() =
+            LeaseTiming::for_test(LEASE_DURATION, LEASE_RENEW, Duration::from_millis(20));
+        let a = first.attachments().pending(&remote).await?;
+        let b = second.attachments().pending(&remote).await?;
+        let mut observed = b.watch_status();
+        let first_upload = xmtp_common::task::spawn(async move { a.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), entered).await??;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while *observed.borrow_and_update() != PendingAttachmentStatus::Uploading {
+                observed.changed().await.unwrap();
+            }
+        })
+        .await?;
+        let second_upload = xmtp_common::task::spawn(async move { b.upload().await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(!second_upload.is_finished());
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), first_upload).await???;
+        tokio::time::timeout(Duration::from_secs(10), second_upload).await???;
+        tokio::time::timeout(Duration::from_secs(2), async {
+            while *observed.borrow_and_update() != PendingAttachmentStatus::Complete {
+                observed.changed().await.unwrap();
+            }
+        })
+        .await?;
+        assert_eq!(
+            second.attachments().pending(&remote).await?.status(),
+            PendingAttachmentStatus::Complete
+        );
+    }
+
+    // verifies: ATCH-074, ATCH-035
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stale_holder_yields_to_new_claim() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let staged = dir.path().join(staged_path(&remote.content_digest)?);
+        let (a_url, a_entered, a_release) = paused_put(500).await;
+        let (b_url, b_entered, b_release) = paused_put(200).await;
+        let a_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(a_url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let b_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(b_url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        *a_client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+            Duration::from_millis(100),
+            Duration::from_secs(1),
+            Duration::from_millis(10),
+        );
+        let a = a_client.attachments().pending(&remote).await?;
+        let events = a_client.context.events().subscribe_app(EventFilter::new([
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadFailed,
+        ]))?;
+        let a_upload = xmtp_common::task::spawn(async move { a.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), a_entered).await??;
+        let old_token = alix
             .client
             .context
-            .events()
-            .subscribe_app(EventFilter::new([
-                EventKind::AttachmentUploadCompleted,
-                EventKind::AttachmentUploadFailed,
-            ]))?;
-        alix.client.context.db().raw_query(|conn| {
-            xmtp_db::diesel::sql_query(
-                "CREATE TRIGGER reject_pending_delete BEFORE DELETE ON pending_attachments \
-                 BEGIN SELECT RAISE(ABORT, 'delete rejected'); END",
-            )
-            .execute(conn)
-        })?;
-
-        pending.upload().await?;
-        assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
-        assert!(staged.exists());
-        assert_eq!(alix.client.attachments().list_pending().await?.len(), 1);
-
-        let already_stored = alix.client.attachments().pending(&remote).await?;
-        already_stored.upload().await?;
-        assert_eq!(already_stored.status(), PendingAttachmentStatus::Complete);
-        assert!(staged.exists());
-
-        alix.client.context.db().raw_query(|conn| {
-            xmtp_db::diesel::sql_query("DROP TRIGGER reject_pending_delete").execute(conn)
-        })?;
-        let resumed = alix.client.attachments().pending(&remote).await?;
-        resumed.upload().await?;
-        assert_eq!(resumed.status(), PendingAttachmentStatus::Complete);
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .unwrap()
+            .lease_id
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        let b = b_client.attachments().pending(&remote).await?;
+        let b_upload = xmtp_common::task::spawn(async move { b.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), b_entered).await??;
+        // The old token cannot write while the replacement still uploads.
+        assert_eq!(
+            alix.client.context.db().finish_pending_attachment(
+                &remote.content_digest,
+                &old_token,
+                now_ns(),
+                PendingAttachmentOutcome::failed("network", None, None)
+            )?,
+            0
+        );
+        b_release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), b_upload).await???;
+        a_release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), a_upload).await???;
+        assert_eq!(
+            a_client
+                .context
+                .db()
+                .get_pending_attachment(&remote.content_digest)?
+                .unwrap()
+                .status,
+            "complete"
+        );
+        assert_eq!(
+            a_client.attachments().pending(&remote).await?.status(),
+            PendingAttachmentStatus::Complete
+        );
         assert!(!staged.exists());
-        assert!(alix.client.attachments().list_pending().await?.is_empty());
         let emitted = events.drain();
-        assert_eq!(emitted.len(), 3);
-        assert!(emitted.iter().all(|entry| matches!(
-            &entry.client,
-            Some(ClientEvent::AttachmentUploadCompleted(_))
-        )));
+        assert_eq!(emitted.len(), 1);
+        assert!(matches!(
+            &emitted[0].client,
+            Some(ClientEvent::AttachmentUploadStarted(_))
+        ));
+    }
+
+    // verifies: ATCH-074
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn lease_extended_while_running() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let (url, entered, release) = paused_put(200).await;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        *client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+            Duration::from_millis(300),
+            Duration::from_millis(30),
+            Duration::from_millis(10),
+        );
+        let pending = client.attachments().pending(&remote).await?;
+        let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), entered).await??;
+        let initial = client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .unwrap()
+            .lease_expires_at_ns
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let extended = client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .unwrap()
+            .lease_expires_at_ns
+            .unwrap();
+        assert!(extended > initial);
+        release.send(()).unwrap();
+        tokio::time::timeout(Duration::from_secs(10), upload).await???;
+    }
+
+    // verifies: ATCH-068, ATCH-074
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn sweep_keeps_leased_upload() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let leased = alix.client.attachments().create(bytes()).await?;
+        let waiting = alix.client.attachments().create(bytes()).await?;
+        let complete = alix.client.attachments().create(bytes()).await?;
+        let leased_digest = leased.remote_attachment().content_digest.clone();
+        let waiting_digest = waiting.remote_attachment().content_digest.clone();
+        let complete_digest = complete.remote_attachment().content_digest.clone();
+        let db = alix.client.context.db();
+        db.raw_query(|conn| {
+            xmtp_db::diesel::sql_query("UPDATE pending_attachments SET created_at_ns = 1")
+                .execute(conn)
+        })?;
+        let token = [3u8; 16];
+        db.claim_pending_attachment(
+            &leased_digest,
+            &token,
+            now_ns(),
+            LEASE_DURATION.as_nanos() as i64,
+        )?;
+        db.claim_pending_attachment(
+            &complete_digest,
+            &token,
+            now_ns(),
+            LEASE_DURATION.as_nanos() as i64,
+        )?;
+        db.finish_pending_attachment(
+            &complete_digest,
+            &token,
+            now_ns(),
+            PendingAttachmentOutcome::Complete,
+        )?;
+        alix.client
+            .context
+            .attachments
+            .sweep(&alix.client.context)
+            .await?;
+        assert!(db.get_pending_attachment(&leased_digest)?.is_some());
+        assert!(dir.path().join(staged_path(&leased_digest)?).exists());
+        assert!(db.get_pending_attachment(&waiting_digest)?.is_none());
+        assert!(!dir.path().join(staged_path(&waiting_digest)?).exists());
+        assert!(db.get_pending_attachment(&complete_digest)?.is_none());
+        assert!(!dir.path().join(staged_path(&complete_digest)?).exists());
+    }
+
+    // verifies: ATCH-047
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn delete_ends_other_clients_upload() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let (url, entered, release) = paused_put(200).await;
+        let uploader = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        *uploader.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+            Duration::from_millis(300),
+            Duration::from_millis(30),
+            Duration::from_millis(10),
+        );
+        let deleting_client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let pending = uploader.attachments().pending(&remote).await?;
+        let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), entered).await??;
+        deleting_client.attachments().delete_local(&remote).await?;
+        let _ = release.send(());
+        let error = tokio::time::timeout(Duration::from_secs(10), upload)
+            .await??
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::Deleted);
+        assert!(
+            alix.client
+                .context
+                .db()
+                .get_pending_attachment(&remote.content_digest)?
+                .is_none()
+        );
     }
 
     // verifies: ATCH-025
@@ -2207,19 +3074,16 @@ mod tests {
         let ciphertext = tokio::fs::read(&staged).await?;
         pending.upload().await?;
         tokio::fs::write(&staged, ciphertext).await?;
-        alix.client
-            .context
-            .db()
-            .insert_or_ignore_pending_attachment(
-                &remote.content_digest,
-                &remote.encode_to_vec(),
-                now_ns(),
-            )?;
-        let second = PendingAttachment {
-            context: alix.client.context.clone(),
-            remote,
-            shared: Arc::new(PendingShared::new()),
-        };
+        // Model a client that stopped after the target stored the object but
+        // before it recorded the successful outcome.
+        alix.client.context.db().raw_query(|conn| {
+            xmtp_db::diesel::sql_query(
+                "UPDATE pending_attachments SET status = 'waiting' WHERE content_digest = ?",
+            )
+            .bind::<xmtp_db::diesel::sql_types::Text, _>(&remote.content_digest)
+            .execute(conn)
+        })?;
+        let second = alix.client.attachments().pending(&remote).await?;
         second.upload().await?;
         assert_eq!(second.status(), PendingAttachmentStatus::Complete);
     }
@@ -2727,6 +3591,22 @@ mod tests {
             .path()
             .join(staged_path(&pending.remote_attachment().content_digest)?);
         assert!(owned_staged.exists());
+        let completed = alix.client.attachments().create(bytes()).await?;
+        let completed_staged = dir
+            .path()
+            .join(staged_path(&completed.remote_attachment().content_digest)?);
+        let completed_body = tokio::fs::read(&completed_staged).await?;
+        completed.upload().await?;
+        tokio::fs::write(&completed_staged, completed_body).await?;
+        assert_eq!(
+            alix.client
+                .context
+                .db()
+                .get_pending_attachment(&completed.remote_attachment().content_digest)?
+                .unwrap()
+                .status,
+            "complete"
+        );
         for file in [&temp, &staged, &owned_staged] {
             std::fs::File::open(file)?.set_modified(UNIX_EPOCH + Duration::from_secs(1))?;
         }
@@ -2740,13 +3620,17 @@ mod tests {
         assert!(fresh_temp.exists());
         assert!(fresh_staged.exists());
         assert!(owned_staged.exists());
+        assert!(!completed_staged.exists());
         assert!(next.attachments().list_pending().await?.iter().any(|row| {
             row.remote_attachment().content_digest == pending.remote_attachment().content_digest
         }));
         let listed = next.attachments().list_local().await?;
-        assert_eq!(listed.len(), 1);
-        assert_eq!(listed[0].path, relative);
-        assert!(listed[0].created_at_ns > 0);
+        assert_eq!(listed.len(), 2);
+        assert!(
+            listed
+                .iter()
+                .any(|row| row.path == relative && row.created_at_ns > 0)
+        );
         let adopted = next
             .attachments()
             .download(pending.remote_attachment())
@@ -2782,7 +3666,7 @@ mod tests {
     // verifies: ATCH-025, ATCH-037, P22
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn pending_row_removed_before_staged_file() {
+    async fn complete_recorded_before_staged_file() {
         use std::os::unix::fs::PermissionsExt as _;
         let dir = tempfile::tempdir()?;
         tester!(alix, attachments_dir: dir.path(), disable_workers);
@@ -2794,13 +3678,14 @@ mod tests {
         std::fs::set_permissions(&staged_dir, std::fs::Permissions::from_mode(0o755))?;
         result?;
         assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
-        assert!(
+        assert_eq!(
             alix.client
                 .context
                 .db()
-                .list_pending_attachments_since(0)?
-                .iter()
-                .all(|row| row.content_digest != digest)
+                .get_pending_attachment(&digest)?
+                .unwrap()
+                .status,
+            "complete"
         );
         assert!(dir.path().join(staged_path(&digest)?).exists());
     }
@@ -3031,14 +3916,13 @@ mod tests {
         path_pending.upload().await?;
         bytes_pending.upload().await?;
         tokio::fs::write(&staged, ciphertext).await?;
-        alix.client
-            .context
-            .db()
-            .insert_or_ignore_pending_attachment(
-                &bytes_remote.content_digest,
-                &bytes_remote.encode_to_vec(),
-                now_ns(),
-            )?;
+        alix.client.context.db().raw_query(|conn| {
+            xmtp_db::diesel::sql_query(
+                "UPDATE pending_attachments SET status = 'waiting' WHERE content_digest = ?",
+            )
+            .bind::<xmtp_db::diesel::sql_types::Text, _>(&bytes_remote.content_digest)
+            .execute(conn)
+        })?;
         let repeated = alix.client.attachments().pending(&bytes_remote).await?;
         repeated.upload().await?;
         assert_eq!(repeated.status(), PendingAttachmentStatus::Complete);
