@@ -157,6 +157,28 @@ data class Timestamp(
         )
 }
 
+private fun decodeReplyBody(
+    body: MessageBody,
+    clientKey: ULong,
+): SDKReplyContent =
+    when (body) {
+        is MessageBody.Custom -> {
+            when (val decoded = ClientRegistry.get(clientKey)?.decodeCustom(body.encoded)) {
+                is SDKMessageContent.Custom -> SDKReplyContent.Custom(body.encoded, decoded.value, decoded.error)
+                is SDKMessageContent.Unknown -> SDKReplyContent.Unknown(body.encoded)
+                else -> SDKReplyContent.Custom(body.encoded, null, clientClosedError())
+            }
+        }
+
+        is MessageBody.Unknown -> {
+            SDKReplyContent.Unknown(body.encoded)
+        }
+
+        else -> {
+            SDKReplyContent.Standard(body)
+        }
+    }
+
 class Message(
     val data: MessageData,
 ) {
@@ -178,33 +200,9 @@ class Message(
             }
         }
     val inReplyToContent: SDKReplyContent? =
-        data.inReplyTo?.let { parent ->
-            when (val body = parent.content) {
-                is MessageBody.Custom -> {
-                    when (val decoded = ClientRegistry.get(data.clientKey)?.decodeCustom(body.encoded)) {
-                        is SDKMessageContent.Custom -> {
-                            SDKReplyContent.Custom(
-                                body.encoded,
-                                decoded.value,
-                                decoded.error,
-                            )
-                        }
-
-                        is SDKMessageContent.Unknown -> {
-                            SDKReplyContent.Unknown(body.encoded)
-                        }
-
-                        else -> {
-                            SDKReplyContent.Custom(body.encoded, null, clientClosedError())
-                        }
-                    }
-                }
-
-                else -> {
-                    SDKReplyContent.Standard(body)
-                }
-            }
-        }
+        data.inReplyTo?.let { decodeReplyBody(it.content, data.clientKey) }
+    val replyContent: SDKReplyContent? =
+        (data.content as? MessageContent.Reply)?.let { decodeReplyBody(it.body, data.clientKey) }
     val id get() = data.id
     val conversationID get() = data.conversationID
     val topic get() = data.topic

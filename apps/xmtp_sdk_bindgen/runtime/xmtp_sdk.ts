@@ -37,6 +37,7 @@ export type ContentTypeID = {
 export type EncodedContent = { type: ContentTypeID; content: ArrayBuffer };
 export enum MessageContent_Tags {
   Text = "Text",
+  Reply = "Reply",
   Custom = "Custom",
   Unknown = "Unknown",
 }
@@ -49,10 +50,18 @@ export type MessageBody = {
   tag: MessageBody_Tags;
   inner: { encoded: EncodedContent };
 };
-export type MessageContent = {
-  tag: MessageContent_Tags;
-  inner: { encoded: EncodedContent };
-};
+export type MessageContent =
+  | {
+      tag: MessageContent_Tags.Reply;
+      inner: { referenceID: MessageID; body: MessageBody };
+    }
+  | {
+      tag:
+        | MessageContent_Tags.Text
+        | MessageContent_Tags.Custom
+        | MessageContent_Tags.Unknown;
+      inner: { encoded: EncodedContent };
+    };
 export type Reaction = object;
 export type SendOptions = object;
 
