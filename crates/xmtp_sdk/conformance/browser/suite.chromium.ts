@@ -395,6 +395,29 @@ export async function runBrowserBridgeConformance(
     equal(customReply.replyContent?.tag, B.MessageBody_Tags.Custom, "custom reply tag changed");
     if (customReply.replyContent?.tag === B.MessageBody_Tags.Custom)
       equal(customReply.replyContent.inner.value, "custom reply", "custom reply decode failed");
+    const alternateCodec = {
+      ...customCodec,
+      decode(): string {
+        return "other client";
+      },
+    };
+    const alternateOwner = await Client.create(session, signer(session), {
+      ...customOptions,
+      codecs: [alternateCodec],
+    });
+    const alternateGroup = await alternateOwner.conversations().createGroup([], undefined);
+    const alternateID = await alternateGroup.send(customCodec.encode("same type"), undefined);
+    const alternate = await alternateOwner.conversations().getMessageByID(alternateID);
+    expect(alternate instanceof Message, "second client's message was not lifted");
+    if (alternate.content.tag === B.MessageContent_Tags.Custom)
+      equal(alternate.content.inner.value, "other client", "codec leaked across clients");
+    else throw new Error("second client's custom content changed tag");
+    const originalAgain = await customOwner.conversations().getMessageByID(customID);
+    expect(originalAgain instanceof Message, "first client's message was not lifted");
+    if (originalAgain.content.tag === B.MessageContent_Tags.Custom)
+      equal(originalAgain.content.inner.value, "custom browser value", "first codec was replaced");
+    else throw new Error("first client's custom content changed tag");
+    await alternateOwner.end();
     const unknownType = B.ContentTypeID.create({
       authorityID: "example.org",
       typeID: "bridge-unknown",
