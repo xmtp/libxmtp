@@ -1,6 +1,5 @@
 //! Streaming remote attachment primitives.
 
-#[cfg(not(target_arch = "wasm32"))]
 mod address;
 mod crypto;
 mod derive;
