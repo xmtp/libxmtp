@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 #![warn(clippy::unwrap_used)]
 
+pub mod attachments;
 pub mod builder;
 pub mod client;
 pub mod context;

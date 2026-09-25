@@ -165,6 +165,7 @@ where
                     crate::worker::FfiWorkerKind::CommitLog,
                     crate::worker::FfiWorkerKind::TaskRunner,
                     crate::worker::FfiWorkerKind::ConfigurationRefresh,
+                    crate::worker::FfiWorkerKind::AttachmentCleanup,
                 ],
                 ..Default::default()
             }),

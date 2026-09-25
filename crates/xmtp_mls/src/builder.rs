@@ -2,6 +2,7 @@
 use crate::GroupCommitLock;
 use crate::{
     StorageError, XmtpApi,
+    attachments::AttachmentRuntime,
     client::{Client, ClientError, DeviceSync},
     context::{XmtpMlsLocalContext, XmtpSharedContext},
     groups::change_callbacks::UnstableChangeCallbacks,
@@ -35,6 +36,10 @@ type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum ClientBuilderError {
+    /// Attachment storage could not be prepared or cleaned.
+    #[error(transparent)]
+    #[error_code("Attachment")]
+    Attachment(#[from] crate::attachments::AttachmentClientError),
     #[error(transparent)]
     #[error_code(inherit)]
     AddressValidation(#[from] IdentifierValidationError),
@@ -93,6 +98,8 @@ impl From<crate::groups::GroupError> for ClientBuilderError {
 }
 
 pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
+    pub(crate) attachments_dir: Option<std::path::PathBuf>,
+    pub(crate) attachment_options: xmtp_attachments::AttachmentOptions,
     pub(crate) api_client: Option<ApiClient>,
     pub(crate) identity: Option<Identity>,
     pub(crate) store: Option<Db>,
@@ -172,6 +179,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     #[tracing::instrument(level = "trace", skip_all)]
     pub fn new(identity_strategy: IdentityStrategy) -> Self {
         Self {
+            attachments_dir: None,
+            attachment_options: xmtp_attachments::AttachmentOptions::default(),
             identity_strategy,
             api_client: None,
             identity: None,
@@ -206,6 +215,8 @@ where
     ) -> ClientBuilder<ApiClient, S, Db> {
         let cloned_api: ApiClient = client.context.api_client.clone().api_client;
         ClientBuilder {
+            attachments_dir: client.context.attachments.dir.clone(),
+            attachment_options: client.context.attachments.options.clone(),
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
             store: Some(client.context.store.clone()),
@@ -290,6 +301,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         S: XmtpMlsStorageProvider + 'static,
     {
         let ClientBuilder {
+            attachments_dir,
+            attachment_options,
             mut api_client,
             identity,
             mut store,
@@ -422,6 +435,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 crate::worker::WorkerKind::CommitLog,
                 crate::worker::WorkerKind::TaskRunner,
                 crate::worker::WorkerKind::ConfigurationRefresh,
+                crate::worker::WorkerKind::AttachmentCleanup,
             ] {
                 worker_config.enabled.insert(kind, false);
             }
@@ -448,7 +462,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .api_client
             .register_client_event_writer(&public_event_writer);
         let mut workers = WorkerRunner::new();
+        let attachments =
+            Arc::new(AttachmentRuntime::new(attachments_dir, attachment_options).await?);
         let context = Arc::new(XmtpMlsLocalContext {
+            attachments,
             identity,
             mls_storage,
             store,
@@ -482,6 +499,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         });
 
         // register workers
+        context.attachments.sweep(&context).await?;
         if !disable_workers {
             use crate::worker::WorkerKind;
             // One source of truth for enablement: the folded WorkerConfig map.
@@ -550,6 +568,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     );
                 }
             }
+            if enabled(WorkerKind::AttachmentCleanup) && context.attachments.store.is_some() {
+                workers.register_new_worker::<crate::attachments::cleanup::AttachmentCleanup<
+                    ContextParts<ApiClient, S, Db>,
+                >, _>(context.clone());
+            }
         }
 
         // Every open client observes HMAC epoch changes, including clients
@@ -602,6 +625,16 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
+    pub fn attachments_dir(mut self, path: impl Into<std::path::PathBuf>) -> Self {
+        self.attachments_dir = Some(path.into());
+        self
+    }
+
+    pub fn attachment_options(mut self, options: xmtp_attachments::AttachmentOptions) -> Self {
+        self.attachment_options = options;
+        self
+    }
+
     /// Unstable: register callbacks notified when group state changes.
     ///
     /// Registration is construction-time by necessity — the changes these
@@ -637,6 +670,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
+            attachment_options: self.attachment_options,
         }
     }
 
@@ -676,6 +711,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
+            attachment_options: self.attachment_options,
         })
     }
 
@@ -699,6 +736,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
+            attachment_options: self.attachment_options,
         }
     }
 
@@ -770,6 +809,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
+            attachment_options: self.attachment_options,
         }
     }
 
@@ -898,6 +939,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
+            attachment_options: self.attachment_options,
         })
     }
 
@@ -925,6 +968,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
+            attachment_options: self.attachment_options,
         }
     }
 
@@ -963,6 +1008,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
             config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
+            attachment_options: self.attachment_options,
         })
     }
 }

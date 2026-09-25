@@ -91,6 +91,7 @@ zeroize.workspace = true
 # XMTP/Local
 xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
+xmtp_attachments.workspace = true
 xmtp_api_backend.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_archive.workspace = true
@@ -133,6 +134,7 @@ dyn-clone.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
+uuid = { workspace = true, features = ["js"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 

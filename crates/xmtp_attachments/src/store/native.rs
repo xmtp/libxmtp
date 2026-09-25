@@ -133,6 +133,12 @@ impl LocalStore for NativeStore {
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))
     }
 
+    async fn remove_file(&self, path: &str) -> Result<(), AttachmentError> {
+        tokio::fs::remove_file(self.path(path)?)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+    }
+
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError> {
         Ok(tokio::fs::try_exists(self.path(path)?)
             .await

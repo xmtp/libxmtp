@@ -21,6 +21,7 @@ use rstest::*;
 pub fn context() -> NewMockContext {
     let events = xmtp_events::EventBus::new();
     XmtpMlsLocalContext {
+        attachments: Default::default(),
         identity: Identity::mock_identity(),
         api_client: ApiClientWrapper::new(Arc::new(MockBackendClient::new()), Default::default()),
         store: xmtp_db::MockXmtpDb::new(),

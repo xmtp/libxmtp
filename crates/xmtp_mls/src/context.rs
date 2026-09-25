@@ -40,6 +40,7 @@ use crate::worker::device_sync::DeviceSyncClient;
 /// - Sqlite Database
 /// - Identity for the User
 pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
+    pub(crate) attachments: Arc<crate::attachments::AttachmentRuntime>,
     /// XMTP Identity
     pub(crate) identity: Identity,
     /// The XMTP Api Client
@@ -126,6 +127,7 @@ where
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
     pub fn replace_mls_store<S2>(self, mls_store: S2) -> XmtpMlsLocalContext<ApiClient, Db, S2> {
         XmtpMlsLocalContext::<ApiClient, Db, S2> {
+            attachments: self.attachments,
             identity: self.identity,
             api_client: self.api_client,
             store: self.store,
@@ -222,6 +224,7 @@ where
     /// Return the handle to clone when work can outlive this context borrow.
     fn context_ref(&self) -> &Self::ContextReference;
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery;
+    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime>;
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient>;
     fn scw_verifier(&self) -> Arc<Box<dyn SmartContractSignatureVerifier>>;
 
@@ -338,6 +341,10 @@ where
         self.store.db()
     }
 
+    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime> {
+        &self.attachments
+    }
+
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {
         &self.api_client
     }
@@ -452,6 +459,10 @@ where
 
     fn db(&self) -> <Self::Db as XmtpDb>::DbQuery {
         <T as XmtpSharedContext>::db(self)
+    }
+
+    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime> {
+        <T as XmtpSharedContext>::attachment_runtime(self)
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {

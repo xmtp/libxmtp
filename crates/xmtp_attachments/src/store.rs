@@ -136,8 +136,56 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     /// Move a file only when the destination does not exist.
     async fn rename(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
+    async fn remove_file(&self, path: &str) -> Result<(), AttachmentError>;
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError>;
     async fn sync(&self, writer: &mut StoreWriter) -> Result<(), AttachmentError>;
+}
+
+impl StagedFile {
+    /// Hash the stored ciphertext in fixed-size chunks before upload.
+    pub async fn sha256(&self) -> Result<([u8; 32], u64), AttachmentError> {
+        use sha2::{Digest as _, Sha256};
+        let mut hash = Sha256::new();
+        let mut length = 0u64;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            use tokio::io::AsyncReadExt as _;
+            let mut file = tokio::fs::File::open(&self.path)
+                .await
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+            let mut chunk = [0u8; CHUNK_SIZE];
+            loop {
+                let count = file
+                    .read(&mut chunk)
+                    .await
+                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+                if count == 0 {
+                    break;
+                }
+                hash.update(&chunk[..count]);
+                length += count as u64;
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use wasm_bindgen_futures::JsFuture;
+            let size = self.file.size() as u64;
+            while length < size {
+                let end = (length + CHUNK_SIZE as u64).min(size);
+                let slice = self
+                    .file
+                    .slice_with_f64_and_f64(length as f64, end as f64)
+                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+                let buffer = JsFuture::from(slice.array_buffer())
+                    .await
+                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+                let bytes = js_sys::Uint8Array::new(&buffer).to_vec();
+                hash.update(&bytes);
+                length = end;
+            }
+        }
+        Ok((hash.finalize().into(), length))
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
