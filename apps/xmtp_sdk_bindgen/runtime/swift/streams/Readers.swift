@@ -20,7 +20,9 @@ private final class StreamCompletion: @unchecked Sendable {
     func markClosed() -> Bool {
         lock.lock()
         defer { lock.unlock() }
-        if didClose { return false }
+        if didClose {
+            return false
+        }
         didClose = true
         return true
     }
@@ -101,7 +103,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
     ) {
         self.open = open
-        self.completion = StreamCompletion(onClose)
+        completion = StreamCompletion(onClose)
         self.onConnectionStateChange = onConnectionStateChange
     }
 
@@ -126,7 +128,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
             lock.unlock()
             if start {
                 Task.detached { [self] in
-                    do { opened(try await open()) }
+                    do { try opened(await open()) }
                     catch { openFailed(error) }
                 }
             }
@@ -145,7 +147,9 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         waiters.removeAll()
         lock.unlock()
         startMonitor(newHandle)
-        for waiter in pending { waiter.resume(returning: newHandle) }
+        for waiter in pending {
+            waiter.resume(returning: newHandle)
+        }
     }
 
     private func openFailed(_ error: Error) {
@@ -154,8 +158,12 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         waiters.removeAll()
         let wasStopped = stopped
         lock.unlock()
-        for waiter in pending { waiter.resume(throwing: error) }
-        if !wasStopped { close(.failed(error)) }
+        for waiter in pending {
+            waiter.resume(throwing: error)
+        }
+        if !wasStopped {
+            close(.failed(error))
+        }
     }
 
     private func startMonitor(_ currentHandle: StreamHandle<Value>) {
@@ -179,8 +187,11 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
             }
         }
         lock.lock()
-        if stopped { task.cancel() }
-        else { monitor = task }
+        if stopped {
+            task.cancel()
+        } else {
+            monitor = task
+        }
         lock.unlock()
     }
 
@@ -200,11 +211,15 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         let notify = completion.markClosed()
         lock.unlock()
         currentMonitor?.cancel()
-        for waiter in pending { waiter.resume(throwing: CancellationError()) }
+        for waiter in pending {
+            waiter.resume(throwing: CancellationError())
+        }
         if notify {
             let completion = completion
             Task.detached {
-                if let currentHandle { await currentHandle.end() }
+                if let currentHandle {
+                    await currentHandle.end()
+                }
                 completion.notify(reason)
             }
         }
@@ -214,10 +229,14 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         try await withTaskCancellationHandler(operation: {
             do {
                 let currentHandle = try await acquire()
-                if Task.isCancelled { throw CancellationError() }
+                if Task.isCancelled {
+                    throw CancellationError()
+                }
                 _ = currentHandle.owner.raw
                 let value = try await currentHandle.next()
-                if value == nil { close(.closed) }
+                if value == nil {
+                    close(.closed)
+                }
                 return value
             } catch {
                 close(Task.isCancelled ? .closed : .failed(error))

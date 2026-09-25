@@ -348,7 +348,7 @@ struct Conformance {
             throw ConformanceFailure("cancelled reader creation delivered a message")
         } catch is CancellationError {}
         SDKClient.readerOpenedForTest = nil
-        for _ in 0..<1_000 where lateReader.connectionState() != .closed {
+        for _ in 0 ..< 1000 where lateReader.connectionState() != .closed {
             try await Task.sleep(for: .milliseconds(10))
         }
         guard lateReader.connectionState() == .closed else {
