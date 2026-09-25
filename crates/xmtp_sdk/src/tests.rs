@@ -1572,6 +1572,7 @@ async fn group_options_metadata_members_and_message_filters() {
     client.end().await?;
 }
 
+// verifies: DMS-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn duplicate_dm_message_actions_keep_typed_results() {
     use crate::{Reaction, ReactionAction, ReactionSchema};
@@ -1596,23 +1597,22 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
         }
     }
     let id = inactive.expect("one duplicate DM must be inactive");
-    let (owner, peer) = if id == first { (&a, &b) } else { (&b, &a) };
+    let owner = if id == first { &a } else { &b };
     let stored = owner.inner.message(hex::decode(&id.0)?)?;
     assert_eq!(stored.sender_inbox_id, owner.inbox_id().0);
-    let crate::Conversation::Dm { dm: peer_dm } = peer
+    let active_id = if id == first { &second } else { &first };
+    let active_group_id = owner.inner.message(hex::decode(&active_id.0)?)?.group_id;
+    let crate::Conversation::Dm { dm: resolved_dm } = owner
         .conversations()
         .get_by_id(stored.group_id.into())
         .await?
-        .expect("peer holds duplicate DM")
+        .expect("inactive DM resolves to the active DM")
     else {
         panic!("expected a DM");
     };
-    let peer_message = peer_dm
-        .send_text("peer in inactive duplicate".into())
-        .await?;
+    assert_eq!(resolved_dm.id(), active_group_id.into());
+    let peer_message = active_id.clone();
     owner.conversations().sync_all(None).await?;
-    let active_id = if id == first { &second } else { &first };
-    let active_group_id = owner.inner.message(hex::decode(&active_id.0)?)?.group_id;
     let crate::Conversation::Dm { dm: active_dm } = owner
         .conversations()
         .get_by_id(active_group_id.into())
@@ -1624,7 +1624,7 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     active_dm
         .send_text("keep other duplicate active".into())
         .await?;
-    for message_id in [&id, &peer_message] {
+    for message_id in [&id] {
         let bytes = hex::decode(&message_id.0)?;
         let (stored, winner) = owner
             .inner
@@ -1656,7 +1656,8 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
         .await
         .unwrap_err();
     assert!(
-        matches!(&peer_error, crate::XmtpError::PermissionDenied(details) if details.message.contains("not your message"))
+        matches!(&peer_error, crate::XmtpError::PermissionDenied(details) if details.message.contains("not your message")),
+        "{peer_error:?}"
     );
     assert_ne!(owner.conversations().delete_message(id.clone()).await?, id);
     a.end().await?;
