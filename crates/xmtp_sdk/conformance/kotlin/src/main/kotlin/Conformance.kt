@@ -126,6 +126,9 @@ fun main() =
                     is StandardContent.LeaveRequest -> LeaveRequestCodec() to content.v1
                 }
             val encoded = codec.encode(value)
+            check(runCatching { codec.encode(Any()) }.exceptionOrNull() is XmtpException.InvalidArgument) {
+                "${codec.javaClass.simpleName} did not reject a wrong value with InvalidArgument"
+            }
             check(sameEncoded(encoded, sample.expected)) { "standard codec content differs from Rust" }
             check(sameEncoded(codec.encode(codec.decode(encoded)), sample.expected))
         }
