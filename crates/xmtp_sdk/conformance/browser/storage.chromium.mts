@@ -6,7 +6,13 @@ import { createServer } from "../../../../sdks/browser/node_modules/vite/dist/no
 const server = await createServer({
   root: process.cwd(),
   configFile: false,
-  resolve: { preserveSymlinks: true },
+  cacheDir: "target/sdk-browser-storage-vite",
+  resolve: {
+    alias: {
+      "@ubjs/core": `${process.cwd()}/target/sdk-generated/typescript-wasm/node_modules/@ubjs/core`,
+    },
+  },
+  optimizeDeps: { noDiscovery: true },
   server: {
     host: "127.0.0.1",
     port: 0,

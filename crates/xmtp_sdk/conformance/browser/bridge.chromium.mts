@@ -6,7 +6,14 @@ import { createServer } from "../../../../sdks/browser/node_modules/vite/dist/no
 const server = await createServer({
   root: process.cwd(),
   configFile: false,
-  resolve: { preserveSymlinks: false },
+  cacheDir: "target/sdk-browser-smoke-vite",
+  resolve: {
+    preserveSymlinks: false,
+    alias: {
+      "@ubjs/core": `${process.cwd()}/target/sdk-generated/typescript-wasm/node_modules/@ubjs/core`,
+    },
+  },
+  optimizeDeps: { noDiscovery: true },
   server: {
     host: "127.0.0.1",
     port: 0,
