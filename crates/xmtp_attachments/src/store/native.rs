@@ -9,17 +9,23 @@ pub struct NativeStore {
     root: PathBuf,
     #[cfg(test)]
     forced_hard_link_error: Option<std::io::ErrorKind>,
+    #[cfg(test)]
+    forced_source_unlink_error: Option<std::io::ErrorKind>,
 }
 
 impl NativeStore {
     pub async fn new(root: impl AsRef<Path>) -> Result<Self, AttachmentError> {
+        let root = std::path::absolute(root.as_ref())
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
         tokio::fs::create_dir_all(&root)
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
         Ok(Self {
-            root: root.as_ref().to_path_buf(),
+            root,
             #[cfg(test)]
             forced_hard_link_error: None,
+            #[cfg(test)]
+            forced_source_unlink_error: None,
         })
     }
 
@@ -27,6 +33,20 @@ impl NativeStore {
     pub(crate) fn with_forced_hard_link_error(mut self, kind: std::io::ErrorKind) -> Self {
         self.forced_hard_link_error = Some(kind);
         self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_forced_source_unlink_error(mut self, kind: std::io::ErrorKind) -> Self {
+        self.forced_source_unlink_error = Some(kind);
+        self
+    }
+
+    async fn remove_source(&self, path: &Path) -> std::io::Result<()> {
+        #[cfg(test)]
+        if let Some(kind) = self.forced_source_unlink_error {
+            return Err(std::io::Error::from(kind));
+        }
+        tokio::fs::remove_file(path).await
     }
 
     async fn hard_link(&self, from: &Path, to: &Path) -> std::io::Result<()> {
@@ -79,9 +99,13 @@ impl LocalStore for NativeStore {
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
         match self.hard_link(&from, &to).await {
-            Ok(()) => tokio::fs::remove_file(from)
-                .await
-                .map_err(|_| AttachmentError::new(Cause::LocalStorage)),
+            Ok(()) => match self.remove_source(&from).await {
+                Ok(()) => Ok(()),
+                Err(_) => {
+                    let _ = tokio::fs::remove_file(&to).await;
+                    Err(AttachmentError::new(Cause::LocalStorage))
+                }
+            },
             Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
                 Err(AttachmentError::new(Cause::LocalStorage))
             }

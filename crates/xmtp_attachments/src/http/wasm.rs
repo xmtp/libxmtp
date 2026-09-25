@@ -157,6 +157,10 @@ impl AbortDeadline {
     }
 }
 
+fn response_headers_received(deadline: &AbortDeadline, idle_timeout: Duration) {
+    deadline.arm(idle_timeout);
+}
+
 async fn read_body<R: futures_util::io::AsyncRead + Unpin>(
     reader: &mut R,
     cap: u64,
@@ -252,6 +256,7 @@ impl Transfer {
         if deadline.fired.get() {
             return Err(AttachmentError::new(Cause::Network));
         }
+        response_headers_received(&deadline, self.idle_timeout);
         download_status(response.status(), response.type_())?;
         let body = response
             .body()
@@ -266,6 +271,7 @@ impl Transfer {
 mod tests {
     use super::*;
     use std::{
+        future::Future,
         pin::Pin,
         task::{Context, Poll},
     };
@@ -279,6 +285,30 @@ mod tests {
             _buf: &mut [u8],
         ) -> Poll<std::io::Result<usize>> {
             Poll::Pending
+        }
+    }
+
+    struct DelayedByte {
+        delay: Pin<Box<gloo_timers::future::TimeoutFuture>>,
+        sent: bool,
+    }
+
+    impl futures_util::io::AsyncRead for DelayedByte {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut [u8],
+        ) -> Poll<std::io::Result<usize>> {
+            let this = self.get_mut();
+            if this.sent {
+                return Poll::Ready(Ok(0));
+            }
+            if this.delay.as_mut().poll(cx).is_pending() {
+                return Poll::Pending;
+            }
+            buf[0] = b'x';
+            this.sent = true;
+            Poll::Ready(Ok(1))
         }
     }
 
@@ -433,5 +463,22 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.cause, Cause::Network);
         assert!(deadline.controller.signal().aborted());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn get_late_headers_leave_full_body_idle_window() {
+        let idle = Duration::from_millis(300);
+        let deadline = AbortDeadline::new()?;
+        deadline.arm(idle);
+        gloo_timers::future::TimeoutFuture::new(180).await;
+        assert!(!deadline.fired.get());
+        response_headers_received(&deadline, idle);
+        let mut reader = DelayedByte {
+            delay: Box::pin(gloo_timers::future::TimeoutFuture::new(180)),
+            sent: false,
+        };
+        read_body(&mut reader, 1, &mut NullSink, &deadline, idle).await?;
+        assert!(reader.sent);
+        assert!(!deadline.controller.signal().aborted());
     }
 }

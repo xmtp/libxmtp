@@ -1037,6 +1037,18 @@ owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Task 10 must bound memory during creation, upload, and download as one full flow."
 [[waiver]]
+id = "ATCH-048"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "client-level wiring lands in the client.attachments() PR"
+[[waiver]]
+id = "ATCH-049"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "client-level wiring lands in the client.attachments() PR"
+[[waiver]]
 id = "ATCH-056"
 kind = "gap"
 owner = "attachments"

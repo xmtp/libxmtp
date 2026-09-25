@@ -441,13 +441,10 @@ async fn read_compressed(
         if input_too_large.load(Ordering::Acquire) {
             return Err(AttachmentError::new(Cause::TooLarge));
         }
-        result = decoded.map_err(|_| {
-            AttachmentError::new(if network_failed.load(Ordering::Acquire) {
-                Cause::Network
-            } else {
-                Cause::HttpStatus
-            })
-        });
+        if network_failed.load(Ordering::Acquire) {
+            return Err(AttachmentError::new(Cause::Network));
+        }
+        result = decoded.map_err(|_| AttachmentError::new(Cause::HttpStatus));
     } else {
         let _ = decoder.await;
     }
@@ -1330,6 +1327,35 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.cause, Cause::Network);
         task.await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn gzip_truncated_after_member_is_network() {
+        use std::io::Write;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut gzip = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::fast());
+        gzip.write_all(b"complete member")?;
+        let compressed = gzip.finish()?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n",
+                compressed.len() + 100
+            );
+            socket.write_all(head.as_bytes()).await.unwrap();
+            socket.write_all(&compressed).await.unwrap();
+        });
+        let error = allowed()
+            .get(&url, 100, &mut MemorySink::default())
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::Network);
+        server.await?;
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -44,7 +44,7 @@ pub(crate) fn validate_relative(path: &str) -> Result<(), AttachmentError> {
         || path.contains('\\')
         || path
             .split('/')
-            .any(|part| part.is_empty() || part == "." || part == "..")
+            .any(|part| part.is_empty() || part == "." || part == ".." || part.contains(':'))
     {
         return Err(AttachmentError::new(Cause::Malformed));
     }
@@ -139,6 +139,17 @@ pub struct AttachmentOptions {
 mod tests {
     use super::*;
 
+    #[xmtp_common::test(unwrap_try = true)]
+    fn validate_relative_rejects_drive_and_stream_forms() {
+        for path in ["C:/outside", "C:relative", "key/a:b"] {
+            assert_eq!(
+                validate_relative(path).unwrap_err().cause,
+                Cause::Malformed,
+                "{path}"
+            );
+        }
+    }
+
     // verifies: ATCH-049
     #[xmtp_common::test(unwrap_try = true)]
     fn staged_outside_key_dirs() {
@@ -225,5 +236,56 @@ mod tests {
             tokio::fs::read(directory.path().join(".tmp/second")).await?,
             b"second"
         );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_store_root_is_absolute() {
+        use std::path::PathBuf;
+
+        struct RestoreCwd(PathBuf);
+        impl Drop for RestoreCwd {
+            fn drop(&mut self) {
+                let _ = std::env::set_current_dir(&self.0);
+            }
+        }
+
+        let original = std::env::current_dir()?;
+        let directory = tempfile::tempdir_in(&original)?;
+        let relative = directory.path().strip_prefix(&original)?;
+        let store = NativeStore::new(relative).await?;
+        let elsewhere = tempfile::tempdir()?;
+        let _restore = RestoreCwd(original);
+        std::env::set_current_dir(elsewhere.path())?;
+        let mut writer = store.create_temp(".tmp/file").await?;
+        writer.write(b"original root").await?;
+        drop(writer);
+        assert_eq!(
+            tokio::fs::read(directory.path().join(".tmp/file")).await?,
+            b"original root"
+        );
+        assert!(!elsewhere.path().join(relative).join(".tmp/file").exists());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rename_rolls_back_when_source_unlink_fails() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path())
+            .await?
+            .with_forced_source_unlink_error(std::io::ErrorKind::PermissionDenied);
+        let mut writer = store.create_temp(".tmp/source").await?;
+        writer.write(b"saved").await?;
+        drop(writer);
+        assert_eq!(
+            store
+                .rename(".tmp/source", "key/final")
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::LocalStorage
+        );
+        assert!(store.exists(".tmp/source").await?);
+        assert!(!store.exists("key/final").await?);
     }
 }
