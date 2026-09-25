@@ -549,7 +549,7 @@ id = "EVENT-001"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "The shared client event bus has emission paths and focused tests for all 20 change kinds, including connection.state_changed. EVENT-001 remains open for the HMAC root-key path that stores a new root key under SYNC-015 and SYNC-022, alternate change paths such as replacing an ended group and activating a restored group, and a transaction that aborts before commit and then succeeds on retry. These paths do not yet have one-event assertions."
+reason = "The shared client event bus has emission paths and focused tests for 20 of the 27 change kinds, including connection.state_changed. The seven attachment.* kinds have no emission paths yet. EVENT-001 remains open for the HMAC root-key path that stores a new root key under SYNC-015 and SYNC-022, alternate change paths such as replacing an ended group and activating a restored group, and a transaction that aborts before commit and then succeeds on retry. These paths do not yet have one-event assertions."
 
 [[waiver]]
 id = "EVENT-002"
@@ -1131,3 +1131,10 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "binding and SDK exposure pending"
+
+[[waiver]]
+id = "ATCH-070"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "Transfer deadlines are not implemented yet."
