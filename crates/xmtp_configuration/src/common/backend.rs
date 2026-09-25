@@ -28,6 +28,8 @@ pub const BACKEND_DEFAULT_MAX_ENVELOPE_BYTES: usize = 1_048_576;
 pub const BACKEND_DEFAULT_MAX_REQUEST_BYTES: usize = 26_214_400;
 /// Default maximum encoded response size, in bytes.
 pub const BACKEND_DEFAULT_MAX_RESPONSE_BYTES: usize = 26_214_400;
+/// Default maximum ciphertext size for one attachment upload, in bytes.
+pub const BACKEND_DEFAULT_MAX_UPLOAD_BYTES: u64 = 104_857_600;
 /// Default maximum topics added by one stream update.
 pub const BACKEND_DEFAULT_MAX_UPDATE_ADDS: usize = 100_000;
 /// Default maximum topics removed by one stream update.
