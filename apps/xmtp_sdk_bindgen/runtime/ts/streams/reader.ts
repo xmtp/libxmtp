@@ -160,9 +160,9 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     }
   }
 
-  return(): Promise<IteratorResult<T>> {
-    void this.end();
-    return Promise.resolve(done);
+  async return(): Promise<IteratorResult<T>> {
+    await this.end();
+    return done;
   }
 
   async end(): Promise<void> {

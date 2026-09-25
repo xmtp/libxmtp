@@ -34,12 +34,16 @@ elif language == "swift":
         "    public let raw: Client\n\n"
         "    nonisolated(unsafe) static var readerOpenedForTest: (@Sendable (MessageReader) async -> Void)?\n",
     )
-    source = replace_once(
-        source,
+    path.write_text(source)
+    readers = path.parent / "streams" / "Readers.swift"
+    readers_source = replace_once(
+        readers.read_text(),
         "        let reader = try await group.messageReader()\n",
         "        let reader = try await group.messageReader()\n"
-        "        await Self.readerOpenedForTest?(reader)\n",
+        "        await SDKClient.readerOpenedForTest?(reader)\n",
     )
+    readers.write_text(readers_source)
 else:
     raise SystemExit(f"unknown conformance language: {language}")
-path.write_text(source)
+if language != "swift":
+    path.write_text(source)

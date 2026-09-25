@@ -35,6 +35,7 @@ private fun <T, R> readerFlow(
         val opening = openerScope.async { open() }
         var reader: R? = null
         var failure: Throwable? = null
+        var collectorStopped = false
         val monitor = CoroutineScope(Dispatchers.Default)
         try {
             val active = opening.await()
@@ -62,7 +63,12 @@ private fun <T, R> readerFlow(
             while (true) {
                 owner.raw.clientKey()
                 val value = next(active) ?: break
-                emit(value)
+                try {
+                    emit(value)
+                } catch (error: Throwable) {
+                    collectorStopped = true
+                    throw error
+                }
             }
         } catch (error: Throwable) {
             failure = error
@@ -80,7 +86,7 @@ private fun <T, R> readerFlow(
             }
             val reason =
                 failure
-                    ?.takeUnless { it is CancellationException }
+                    ?.takeUnless { collectorStopped || it is CancellationException }
                     ?.let(SDKStreamCloseReason::Failed) ?: SDKStreamCloseReason.Closed
             onClose?.invoke(reason)
         }
