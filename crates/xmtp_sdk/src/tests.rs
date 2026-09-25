@@ -1530,7 +1530,11 @@ async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
     )?;
     let mut action_only = actions.clone();
     action_only.expires_at = None;
-    for actions in [actions, action_only] {
+    let mut top_level_only = actions.clone();
+    for action in &mut top_level_only.actions {
+        action.expires_at = None;
+    }
+    for actions in [top_level_only, actions, action_only] {
         let encoded = ActionsCodec::encode(actions)?;
         let id = group.send(encoded.into(), None).await?;
         let stored = client.inner.message(hex::decode(&id.0)?)?;
