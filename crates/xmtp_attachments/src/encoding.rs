@@ -717,6 +717,52 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    async fn retained_fields_total_cap_is_enforced() {
+        let with_values = |mime_type: usize, filename: usize| {
+            let mut value = envelope(b"file data".to_vec());
+            value
+                .parameters
+                .insert("mimeType".into(), "m".repeat(mime_type));
+            value
+                .parameters
+                .insert("filename".into(), "f".repeat(filename));
+            value
+        };
+        // The decoder keeps the type and the mimeType and filename entries.
+        let retained_len = |value: &EncodedContent| {
+            EncodedContent {
+                r#type: value.r#type.clone(),
+                parameters: value.parameters.clone(),
+                ..Default::default()
+            }
+            .encoded_len()
+        };
+
+        // Each value is under the per-value cap. Together they are over the total.
+        let over = with_values(40_000, 30_000);
+        assert!(retained_len(&over) > MAX_METADATA_BYTES);
+        assert_eq!(
+            decode(&over.encode_to_vec()).unwrap_err().cause,
+            AttachmentFailureCause::NotAnAttachment
+        );
+
+        let filename = (20_000..30_000)
+            .find(|&len| retained_len(&with_values(40_000, len)) == MAX_METADATA_BYTES)
+            .expect("a filename length that fills the cap exactly");
+        let (stored, _, meta) = decode(&with_values(40_000, filename).encode_to_vec())?;
+        assert_eq!(stored, b"file data");
+        assert_eq!(meta.mime_type.len(), 40_000);
+        assert_eq!(meta.filename.map(|name| name.len()), Some(filename));
+
+        let one_over = with_values(40_000, filename + 1);
+        assert_eq!(retained_len(&one_over), MAX_METADATA_BYTES + 1);
+        assert_eq!(
+            decode(&one_over.encode_to_vec()).unwrap_err().cause,
+            AttachmentFailureCause::NotAnAttachment
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     async fn decoder_repeated_content_last_wins() {
         let mut bytes = envelope(b"first".to_vec()).encode_to_vec();
         bytes.extend_from_slice(b"\x22\x06second");
