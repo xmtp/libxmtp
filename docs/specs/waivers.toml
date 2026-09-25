@@ -587,6 +587,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
 
 [[waiver]]
+id = "STORE-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
 id = "IDENT-073"
 kind = "gap"
 owner = "protocol"
