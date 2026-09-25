@@ -21,6 +21,434 @@ use crate::{
     credentials::AuthBridge, reader, signer,
 };
 
+use crate::{ClientEvent, EventFilter, EventKind, EventListener, ListenerError};
+use xmtp_events::{EventWriter, HmacKeysUpdated};
+
+fn event_filter(kinds: Vec<EventKind>) -> EventFilter {
+    EventFilter {
+        kinds,
+        ..EventFilter::default()
+    }
+}
+
+fn emit_hmac(client: &Client) {
+    client.inner.context.events().emit(
+        Some(xmtp_events::ClientEvent::HmacKeysUpdated(HmacKeysUpdated)),
+        None,
+    );
+}
+
+struct EventProbe {
+    started: tokio::sync::mpsc::UnboundedSender<usize>,
+    completed: Arc<AtomicBool>,
+    release: Option<Arc<Notify>>,
+    calls: std::sync::atomic::AtomicUsize,
+    active: std::sync::atomic::AtomicUsize,
+    maximum: std::sync::atomic::AtomicUsize,
+    fail_first: bool,
+    reenter: Option<Arc<Client>>,
+    end_inside: bool,
+}
+
+#[xmtp_common::async_trait]
+impl EventListener for EventProbe {
+    async fn on_event(&self, _event: ClientEvent) -> Result<(), ListenerError> {
+        let index = self.calls.fetch_add(1, Ordering::SeqCst);
+        let active = self.active.fetch_add(1, Ordering::SeqCst) + 1;
+        self.maximum.fetch_max(active, Ordering::SeqCst);
+        let _ = self.started.send(index);
+        if let Some(client) = &self.reenter {
+            if self.end_inside {
+                client.end().await.map_err(|_| ListenerError::Failed)?;
+            } else {
+                let reader = client
+                    .events(event_filter(vec![EventKind::HmacKeysUpdated]))
+                    .await
+                    .map_err(|_| ListenerError::Failed)?;
+                reader.end().await.map_err(|_| ListenerError::Failed)?;
+            }
+        }
+        if let Some(release) = &self.release {
+            release.notified().await;
+        }
+        self.completed.store(true, Ordering::SeqCst);
+        self.active.fetch_sub(1, Ordering::SeqCst);
+        if index == 0 && self.fail_first {
+            Err(ListenerError::Failed)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+fn event_probe(
+    release: Option<Arc<Notify>>,
+    fail_first: bool,
+    reenter: Option<Arc<Client>>,
+    end_inside: bool,
+) -> (Arc<EventProbe>, tokio::sync::mpsc::UnboundedReceiver<usize>) {
+    let (started, receiver) = tokio::sync::mpsc::unbounded_channel();
+    (
+        Arc::new(EventProbe {
+            started,
+            completed: Arc::new(AtomicBool::new(false)),
+            release,
+            calls: std::sync::atomic::AtomicUsize::new(0),
+            active: std::sync::atomic::AtomicUsize::new(0),
+            maximum: std::sync::atomic::AtomicUsize::new(0),
+            fail_first,
+            reenter,
+            end_inside,
+        }),
+        receiver,
+    )
+}
+
+// verifies: EVENT-014
+// verifies: EVENT-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn events_registered_before_return() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    emit_hmac(&client);
+    let reader = client
+        .events(event_filter(vec![
+            EventKind::HmacKeysUpdated,
+            EventKind::ArchiveRestored,
+        ]))
+        .await?;
+    emit_hmac(&client);
+    client.inner.context.events().emit(
+        Some(xmtp_events::ClientEvent::ArchiveRestored(
+            xmtp_events::ArchiveRestored { complete: true },
+        )),
+        None,
+    );
+    assert!(matches!(
+        reader.next().await?,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    assert!(matches!(
+        reader.next().await?,
+        Some(ClientEvent::ArchiveRestored { complete: true })
+    ));
+    reader.end().await?;
+    client.end().await?;
+}
+
+// verifies: EVENT-016
+// verifies: EVENT-053
+// verifies: EVENT-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn event_reader_stays_open_on_rejection_and_ends_on_close() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let reader = client
+        .events(event_filter(vec![EventKind::ClientRejectedByServer]))
+        .await?;
+    client.inner.context.cancellation_token().cancel();
+    client.inner.context.events().emit(
+        Some(xmtp_events::ClientEvent::ClientRejectedByServer(
+            xmtp_events::ClientRejectedByServer {
+                cause: xmtp_events::RejectionCause::BackendMismatch,
+                min_libxmtp_version: None,
+            },
+        )),
+        None,
+    );
+    assert!(matches!(
+        reader.next().await?,
+        Some(ClientEvent::ClientRejectedByServer { .. })
+    ));
+    let pending = reader.next();
+    tokio::pin!(pending);
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), &mut pending)
+            .await
+            .is_err()
+    );
+    client.end().await?;
+    assert!(pending.await?.is_none());
+    assert!(matches!(
+        client.events(EventFilter::default()).await,
+        Err(XmtpError::ClientClosed(_))
+    ));
+}
+
+// verifies: EVENT-020
+// verifies: EVENT-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn event_filter_selects_before_queueing() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let filter = EventFilter {
+        content_types: Some(vec![crate::ContentTypeId {
+            authority_id: "xmtp.org".into(),
+            type_id: "reply".into(),
+            version_major: 1,
+            version_minor: 9,
+        }]),
+        references_own_messages: true,
+        ..event_filter(vec![EventKind::MessageReceived])
+    };
+    let reader = client.events(filter).await?;
+    let bus = client.inner.context.events();
+    let message = xmtp_events::ClientEvent::MessageReceived(xmtp_events::MessageReceived {
+        group_id: vec![1; 16],
+        message_id: vec![2; 32],
+        content_type: Some(xmtp_events::ContentTypeId {
+            authority_id: "xmtp.org".into(),
+            type_id: "reply".into(),
+            version_major: 1,
+        }),
+        sender_inbox_id: client.inbox_id().0,
+    });
+    bus.emit(Some(message.clone()), None);
+    bus.emit_with_context(
+        Some(message),
+        None,
+        xmtp_events::EventContext {
+            references_own_messages: true,
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        reader.next().await?,
+        Some(ClientEvent::MessageReceived { .. })
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), reader.next())
+            .await
+            .is_err()
+    );
+    reader.end().await?;
+    client.end().await?;
+}
+
+// verifies: EVENT-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn event_filter_matches_stitched_dm_identifier() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let other = Client::create(crate::generate_local_signer().await, options()).await?;
+    let dm = client
+        .inner
+        .find_or_create_dm(other.inbox_id().0, None)
+        .await?;
+    let dm_identifier = dm.dm_id.clone().expect("DM ID");
+    let reader = client
+        .events(EventFilter {
+            conversation_ids: Some(vec![dm.group_id.into()]),
+            ..event_filter(vec![EventKind::ConversationJoined])
+        })
+        .await?;
+    let event = xmtp_events::ClientEvent::ConversationJoined(xmtp_events::ConversationJoined {
+        group_id: vec![8; 16],
+        conversation_type: xmtp_events::ConversationType::Dm,
+        origin: xmtp_events::JoinOrigin::Welcomed,
+        adder_inbox_id: None,
+    });
+    client
+        .inner
+        .context
+        .events()
+        .emit(Some(event.clone()), None);
+    client.inner.context.events().emit_with_context(
+        Some(event),
+        None,
+        xmtp_events::EventContext {
+            dm_identifier: Some(dm_identifier.into_bytes()),
+            ..Default::default()
+        },
+    );
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), reader.next()).await??,
+        Some(ClientEvent::ConversationJoined { .. })
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(20), reader.next())
+            .await
+            .is_err()
+    );
+    reader.end().await?;
+    other.end().await?;
+    client.end().await?;
+}
+
+// verifies: EVENT-022
+// verifies: EVENT-030
+// verifies: EVENT-031
+#[xmtp_common::test(unwrap_try = true)]
+async fn reader_counts_taken_event() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let reader = client
+        .events(event_filter(vec![EventKind::HmacKeysUpdated]))
+        .await?;
+    emit_hmac(&client);
+    let gate = Arc::new(reader::HandoffGate {
+        arrived: Notify::new(),
+        release: Notify::new(),
+    });
+    *reader.handoff_gate.lock() = Some(gate.clone());
+    let read = reader.next();
+    tokio::pin!(read);
+    tokio::select! { _ = gate.arrived.notified() => {}, result = &mut read => panic!("read returned before handoff gate: {result:?}") }
+    for _ in 0..1025 {
+        emit_hmac(&client);
+    }
+    gate.release.notify_one();
+    assert!(matches!(read.await?, Some(ClientEvent::HmacKeysUpdated)));
+    for _ in 0..1023 {
+        assert!(matches!(
+            reader.next().await?,
+            Some(ClientEvent::HmacKeysUpdated)
+        ));
+    }
+    assert!(matches!(
+        reader.next().await?,
+        Some(ClientEvent::Lagged { discarded: 2 })
+    ));
+    reader.end().await?;
+    client.end().await?;
+}
+
+// verifies: EVENT-050
+// verifies: EVENT-033
+#[xmtp_common::test(unwrap_try = true)]
+async fn listener_calls_are_sequential() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let release = Arc::new(Notify::new());
+    let (probe, mut started) = event_probe(Some(release.clone()), false, None, false);
+    let id = client
+        .start_listener(
+            event_filter(vec![EventKind::HmacKeysUpdated]),
+            probe.clone(),
+        )
+        .await?;
+    let other = client
+        .events(event_filter(vec![EventKind::HmacKeysUpdated]))
+        .await?;
+    emit_hmac(&client);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
+        Some(0)
+    );
+    emit_hmac(&client);
+    assert!(matches!(
+        other.next().await?,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    assert!(matches!(
+        other.next().await?,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    let early = tokio::time::timeout(Duration::from_millis(20), started.recv()).await;
+    tokio::time::sleep(Duration::from_millis(10)).await;
+    release.notify_waiters();
+    release.notify_one();
+    assert!(early.is_err());
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
+        Some(1)
+    );
+    assert_eq!(probe.maximum.load(Ordering::SeqCst), 1);
+    client.stop_listener(id).await;
+    release.notify_one();
+    other.end().await?;
+    client.end().await?;
+}
+
+// verifies: EVENT-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn listener_failure_contained() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let (probe, mut started) = event_probe(None, true, None, false);
+    let id = client
+        .start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), probe)
+        .await?;
+    emit_hmac(&client);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
+        Some(0)
+    );
+    emit_hmac(&client);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
+        Some(1)
+    );
+    client.stop_listener(id).await;
+    client.end().await?;
+}
+
+// verifies: EVENT-052
+#[xmtp_common::test(unwrap_try = true)]
+async fn listener_reentrant_call_completes() {
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, options()).await?);
+    let (probe, mut started) = event_probe(None, false, Some(client.clone()), false);
+    let completed = probe.completed.clone();
+    let id = client
+        .start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), probe)
+        .await?;
+    emit_hmac(&client);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
+        Some(0)
+    );
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !completed.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    client.stop_listener(id).await;
+    client.end().await?;
+}
+
+// verifies: EVENT-053
+#[xmtp_common::test(unwrap_try = true)]
+async fn no_call_after_stop_returns() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let release = Arc::new(Notify::new());
+    let (probe, mut started) = event_probe(Some(release.clone()), false, None, false);
+    let id = client
+        .start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), probe)
+        .await?;
+    emit_hmac(&client);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
+        Some(0)
+    );
+    client.stop_listener(id).await;
+    emit_hmac(&client);
+    release.notify_one();
+    let later = tokio::time::timeout(Duration::from_millis(100), started.recv()).await;
+    release.notify_one();
+    assert!(!matches!(later, Ok(Some(_))));
+    client.end().await?;
+}
+
+// verifies: EVENT-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn end_detaches_running_call() {
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, options()).await?);
+    let release = Arc::new(Notify::new());
+    let (probe, mut started) = event_probe(Some(release.clone()), false, None, false);
+    let completed = probe.completed.clone();
+    client
+        .start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), probe)
+        .await?;
+    emit_hmac(&client);
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
+        Some(0)
+    );
+    tokio::time::timeout(Duration::from_secs(2), client.end()).await??;
+    assert!(!completed.load(Ordering::SeqCst));
+    release.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while !completed.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_signer_and_signature_request_register() {
     assert!(matches!(

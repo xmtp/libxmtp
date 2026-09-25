@@ -549,5 +549,28 @@ assert.equal(await unsigned.raw.isRegistered(), true);
 await unsigned.end();
 console.log("Node scenario 11: local signer and signature request passed");
 
+// verifies: EVENT-014
+// verifies: EVENT-050
+// verifies: EVENT-053
+const eventFilter = {
+  kinds: [sdk.EventKind.ConversationJoined],
+  conversationIDs: undefined,
+  contentTypes: undefined,
+  referencesOwnMessages: false,
+};
+const eventReader = await reopened.raw.events(eventFilter);
+let listenerCalls = 0;
+const listenerID = await reopened.startListener(eventFilter, async () => {
+  listenerCalls += 1;
+});
+await reopened.raw.conversations().createGroup([]);
+assert.ok(await eventReader.next());
+for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
+  await new Promise((resolve) => setTimeout(resolve, 10));
+assert.equal(listenerCalls, 1);
+await reopened.stopListener(listenerID);
+await eventReader.end();
+console.log("Node scenario 8: event reader and listener passed");
+
 await reopened.end();
 console.log("Node scenario 7: durable stream and idle cancellation passed");

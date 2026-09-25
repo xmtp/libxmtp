@@ -5,6 +5,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -339,6 +340,35 @@ fun main() =
             failedCredential is XmtpException.CredentialCallbackFailed,
         ) { "credential Error became $failedCredential" }
         println("Kotlin signer Error: call failed without a hang")
+
+        // verifies: EVENT-014
+        // verifies: EVENT-050
+        // verifies: EVENT-052
+        // verifies: EVENT-054
+        val eventFilter =
+            EventFilter(
+                kinds = listOf(EventKind.CONVERSATION_JOINED),
+                conversationIDs = null,
+                contentTypes = null,
+                referencesOwnMessages = false,
+            )
+        val eventReader = reopenedHost.events(eventFilter)
+        val received = CompletableDeferred<Unit>()
+        val listenerID = reopenedHost.startListener(eventFilter) { received.complete(Unit) }
+        reopened.conversations().createGroup(emptyList())
+        withTimeout(10_000) { eventReader.first() }
+        withTimeout(10_000) { received.await() }
+        reopenedHost.stopListener(listenerID)
+        println("Kotlin scenario 8: event reader and listener passed")
+
+        val endedFromCallback = CompletableDeferred<Unit>()
+        reopenedHost.startListener(eventFilter) {
+            reopenedHost.end()
+            endedFromCallback.complete(Unit)
+        }
+        runCatching { reopened.conversations().createGroup(emptyList()) }
+        withTimeout(10_000) { endedFromCallback.await() }
+        println("Kotlin end_from_inside_listener passed")
 
         reopenedHost.end()
     }

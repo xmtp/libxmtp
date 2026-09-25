@@ -8,6 +8,7 @@ use xmtp_id::associations::{
 };
 use xmtp_mls::{
     builder::{DeviceSyncMode, ForkRecoveryOpts},
+    context::XmtpSharedContext,
     identity::IdentityStrategy,
 };
 
@@ -201,6 +202,7 @@ pub struct Client {
     pub(crate) options: ClientOptions,
     pub(crate) signer: Option<Arc<dyn Signer>>,
     pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
+    pub(crate) listeners: crate::events::dispatch::ListenerRegistry,
 }
 
 impl Client {
@@ -277,6 +279,7 @@ impl Client {
             options,
             signer: None,
             auth_handle,
+            listeners: crate::events::dispatch::ListenerRegistry::default(),
         })
     }
 
@@ -403,7 +406,49 @@ impl Client {
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
+        self.listeners.stop_all();
         self.inner.close().await.map_err(XmtpError::from_client)
+    }
+
+    // implements: EVENT-014
+    // implements: EVENT-015
+    // implements: EVENT-016
+    pub async fn events(
+        &self,
+        filter: crate::EventFilter,
+    ) -> Result<Arc<crate::EventReader>, XmtpError> {
+        let filter = filter.to_core(&self.inner)?;
+        let subscription = self
+            .inner
+            .context
+            .events()
+            .subscribe_app(filter)
+            .ok_or_else(XmtpError::closed)?;
+        Ok(crate::EventReader::new(subscription))
+    }
+
+    // implements: EVENT-050
+    // implements: EVENT-051
+    // implements: EVENT-052
+    pub async fn start_listener(
+        &self,
+        filter: crate::EventFilter,
+        listener: Arc<dyn crate::EventListener>,
+    ) -> Result<crate::ListenerID, XmtpError> {
+        let filter = filter.to_core(&self.inner)?;
+        let subscription = self
+            .inner
+            .context
+            .events()
+            .subscribe_app(filter)
+            .ok_or_else(XmtpError::closed)?;
+        self.listeners.start(subscription, listener)
+    }
+
+    // implements: EVENT-053
+    // implements: EVENT-054
+    pub async fn stop_listener(&self, id: crate::ListenerID) {
+        self.listeners.stop(id);
     }
 }
 

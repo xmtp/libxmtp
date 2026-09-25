@@ -16,6 +16,9 @@ import {
   type CanMessageEntry,
   type ClientLike,
   type ClientOptions,
+  type ClientEvent,
+  type EventFilter,
+  ListenerError,
   type InboxState,
   type KeyPackageStatusEntry,
   type MessageMetadataEntry,
@@ -23,6 +26,7 @@ import {
   type ServerConfiguration,
   type Signer,
 } from "../xmtp_sdk";
+import { EventStream } from "./events/reader";
 import type { ConversationID, InboxID, InstallationID } from "./ids";
 
 declare const process: { cwd(): string } | undefined;
@@ -172,6 +176,29 @@ export class Client {
 
   conversations() {
     return this.raw.conversations();
+  }
+
+  async events(filter: EventFilter): Promise<EventStream> {
+    return new EventStream(await this.raw.events(filter));
+  }
+
+  startListener(
+    filter: EventFilter,
+    callback: (event: ClientEvent) => void | Promise<void>,
+  ): Promise<bigint> {
+    return this.raw.startListener(filter, {
+      async onEvent(event: ClientEvent): Promise<void> {
+        try {
+          await callback(event);
+        } catch {
+          throw new ListenerError.Failed();
+        }
+      },
+    });
+  }
+
+  stopListener(id: bigint): Promise<void> {
+    return this.raw.stopListener(id);
   }
 
   async end(): Promise<void> {

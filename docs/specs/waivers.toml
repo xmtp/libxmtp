@@ -587,27 +587,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No local app event subscription API exists to establish that starting, holding, or ending one creates no network interest."
 
 [[waiver]]
-id = "EVENT-014"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No app event subscription API registers before it returns and limits delivery to later emissions."
-
-[[waiver]]
-id = "EVENT-015"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No app event subscription API hands off events in client emission order."
-
-[[waiver]]
-id = "EVENT-016"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "The Rust event bus retains subscriptions through server rejection, but no SDK facade exposes an event subscription to an app or verifies that it stays open across a blocked connection."
-
-[[waiver]]
 id = "EVENT-018"
 kind = "gap"
 owner = "protocol"
@@ -620,27 +599,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No conversation.metadata_changed payload names changed components and fields."
-
-[[waiver]]
-id = "EVENT-020"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No app event subscription filters kinds, groups, stitched DMs, and content types before queueing."
-
-[[waiver]]
-id = "EVENT-021"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No app event filter selects received replies and reactions that reference an own message."
-
-[[waiver]]
-id = "EVENT-022"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No event subscription hands off lagged regardless of its kind filter."
 
 [[waiver]]
 id = "EVENT-024"
@@ -662,59 +620,3 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
-
-[[waiver]]
-id = "EVENT-030"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No app event subscription has the 1024-event total bound and discard count."
-
-[[waiver]]
-id = "EVENT-031"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No app event subscription reports its discarded-event count before later events."
-
-[[waiver]]
-id = "EVENT-033"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No app event subscription fan-out prevents one full queue or running callback from delaying another."
-
-[[waiver]]
-id = "EVENT-050"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No SDK app event callback dispatcher serializes callbacks of one subscription."
-
-[[waiver]]
-id = "EVENT-051"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No SDK app event callback dispatcher contains a callback failure and continues delivery."
-
-[[waiver]]
-id = "EVENT-052"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No SDK app event callback dispatcher completes same-client operations called from a callback."
-
-[[waiver]]
-id = "EVENT-053"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No SDK app event subscription end operation stops later handoffs and pending iterator reads."
-
-[[waiver]]
-id = "EVENT-054"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No SDK app event subscription is ended by closing its client."

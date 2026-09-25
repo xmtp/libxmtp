@@ -61,6 +61,24 @@ final class OrderedLogSink: LogSink, @unchecked Sendable {
     }
 }
 
+actor EventSignal {
+    private var seen = false
+
+    func mark() {
+        seen = true
+    }
+
+    func wait() async throws {
+        for _ in 0 ..< 100 {
+            if seen {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw ConformanceFailure("event listener did not run")
+    }
+}
+
 @main
 struct Conformance {
     static func main() async throws {
@@ -319,6 +337,27 @@ struct Conformance {
         }
         try clearLogSink()
         print("Swift logging: inline records stayed in order")
+
+        // verifies: EVENT-014
+        // verifies: EVENT-050
+        // verifies: EVENT-053
+        let eventFilter = EventFilter(
+            kinds: [.conversationJoined], conversationIDs: nil,
+            contentTypes: nil, referencesOwnMessages: false
+        )
+        let eventReader = try await reopened.events(filter: eventFilter)
+        let eventSignal = EventSignal()
+        let listenerID = try await reopenedHost.startListener(eventFilter) { _ in
+            await eventSignal.mark()
+        }
+        _ = try await reopened.conversations().createGroup(members: [])
+        guard try await eventReader.next() != nil else {
+            throw ConformanceFailure("event reader ended before event")
+        }
+        try await eventSignal.wait()
+        await reopenedHost.stopListener(listenerID)
+        try await eventReader.end()
+        print("Swift scenario 8: event reader and listener passed")
 
         try await reopenedHost.end()
     }
