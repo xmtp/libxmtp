@@ -115,7 +115,7 @@ public struct Timestamp: Hashable, Sendable {
 
 private func decodeReplyBody(_ body: MessageBody, clientKey: UInt64) -> SDKReplyContent {
     switch body {
-    case let .custom(encoded, _):
+    case let .custom(encoded):
         let decoded = ClientRegistry.get(clientKey)?.decodeCustom(encoded)
             ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
         switch decoded {
