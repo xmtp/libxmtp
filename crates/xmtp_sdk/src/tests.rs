@@ -1025,6 +1025,27 @@ async fn message_decode_error_closes_reader_and_releases_lease() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn conversation_conversion_error_closes_reader() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let reader = client.conversations().conversation_reader(None).await?;
+    reader.fail_next_conversion_for_test();
+    let waiting = reader.clone();
+    let read = tokio::spawn(async move { waiting.next().await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    client.conversations().create_group(vec![], None).await?;
+    assert!(
+        xmtp_common::time::timeout(Duration::from_secs(5), read)
+            .await??
+            .is_err(),
+        "injected conversion must fail the pending read"
+    );
+    assert_eq!(reader.connection_state(), crate::ConnectionState::Closed);
+    let replacement = client.conversations().conversation_reader(None).await?;
+    replacement.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn conversation_reader_rereads_after_fall_behind() {
     use std::collections::HashSet;
 
