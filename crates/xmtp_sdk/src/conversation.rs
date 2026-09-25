@@ -385,25 +385,25 @@ impl Conversations {
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
             let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
-            client
+            let Some((stored, group)) = client
                 .message_with_group(&bytes)
                 .await
                 .map_err(XmtpError::unknown)?
-                .map(|(stored, group)| {
-                    let enriched = xmtp_mls::messages::enrichment::enrich_messages(
-                        group.context.db(),
-                        &stored.group_id,
-                        vec![stored.clone()],
-                    )
-                    .map_err(XmtpError::unknown)?;
-                    if let Some(value) = enriched.into_iter().next() {
-                        let parent = parent_stored(&group, &value)?;
-                        Message::from_enriched(stored, value, parent, client_key)
-                    } else {
-                        Message::from_stored(stored, client_key)
-                    }
-                })
-                .transpose()
+            else {
+                return Ok(None);
+            };
+            let enriched = xmtp_mls::messages::enrichment::enrich_messages(
+                group.context.db(),
+                &stored.group_id,
+                vec![stored.clone()],
+            )
+            .map_err(XmtpError::unknown)?;
+            if let Some(value) = enriched.into_iter().next() {
+                let parent = parent_stored(&group, &value)?;
+                Ok(Message::from_enriched(stored, value, parent, client_key).ok())
+            } else {
+                Ok(Message::from_stored(stored, client_key).ok())
+            }
         })
         .await
     }
@@ -1098,19 +1098,20 @@ macro_rules! common_conversation {
                 let history_query_count = self.history_query_count.clone();
                 on_sdk_worker(self.inner.context.clone(), async move {
                     let load = || -> Result<Vec<Message>, XmtpError> {
-                        group
+                        Ok(group
                             .find_messages_v2_with_stored(&query)
                             .map_err(XmtpError::unknown)?
                             .into_iter()
-                            .map(|enriched| {
+                            .filter_map(|enriched| {
                                 Message::from_enriched(
                                     enriched.stored,
                                     enriched.decoded,
                                     enriched.parent_stored,
                                     client_key,
                                 )
+                                .ok()
                             })
-                            .collect()
+                            .collect())
                     };
                     #[cfg(test)]
                     {

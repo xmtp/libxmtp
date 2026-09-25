@@ -1558,6 +1558,64 @@ async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
     client.end().await?;
 }
 
+// verifies: CTYPE-008, CTYPE-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn invalid_reply_parent_body_does_not_break_history() {
+    use crate::MessageBody;
+    use xmtp_content_types::{
+        ContentCodec,
+        actions::{Actions, ActionsCodec},
+        group_updated::GroupUpdatedCodec,
+    };
+    use xmtp_proto::xmtp::mls::message_contents::GroupUpdated;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let actions: Actions = serde_json::from_str(
+        r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One"}]}"#,
+    )?;
+    let parents = [
+        (
+            "group_updated",
+            GroupUpdatedCodec::encode(GroupUpdated {
+                initiated_by_inbox_id: String::new(),
+                ..Default::default()
+            })?
+            .into(),
+        ),
+        ("actions", ActionsCodec::encode(actions)?.into()),
+    ];
+    for (kind, content) in parents {
+        let parent_id = group.send(content, None).await?;
+        let reply_id = client
+            .conversations()
+            .reply_to_message(parent_id, crate::encode_text("reply".into())?, None)
+            .await?;
+        let by_id = client
+            .conversations()
+            .get_message_by_id(reply_id.clone())
+            .await?
+            .expect("reply by ID");
+        let history = group
+            .messages(None)
+            .await?
+            .into_iter()
+            .find(|message| message.0.id == reply_id)
+            .expect("reply in history");
+        for (path, message) in [("by ID", by_id), ("history", history)] {
+            assert!(
+                matches!(&message.0.content, MessageContent::Reply { body: MessageBody::Text(text), .. } if text == "reply"),
+                "{path} changed the reply body for {kind}"
+            );
+            assert!(
+                matches!(message.0.in_reply_to.as_ref().map(|parent| &parent.content), Some(MessageBody::Unknown { encoded }) if encoded.r#type.type_id == kind),
+                "{path} did not keep the failed {kind} parent body as Unknown"
+            );
+        }
+    }
+    client.end().await?;
+}
+
 // verifies: CTYPE-008, CTYPE-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn unknown_compression_stays_unknown_on_all_read_paths() {
