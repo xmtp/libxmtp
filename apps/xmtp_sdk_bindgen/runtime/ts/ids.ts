@@ -1,4 +1,15 @@
+import { ErrorCategory, XmtpError } from "../xmtp_sdk";
+
 const hex = /^[0-9a-f]+$/;
+
+function invalidID(message: string): Error {
+  return new XmtpError.InvalidArgument({
+    code: "InvalidArgument",
+    category: ErrorCategory.Input,
+    retryable: false,
+    message,
+  });
+}
 
 abstract class StringID {
   protected constructor(readonly value: string) {}
@@ -10,7 +21,7 @@ abstract class StringID {
 
 function checkHex(value: string, bytes: number): void {
   if (value.length !== bytes * 2 || !hex.test(value)) {
-    throw new Error("invalid lowercase hex ID");
+    throw invalidID("invalid lowercase hex ID");
   }
 }
 
@@ -21,7 +32,7 @@ export class InboxID extends StringID {
   }
 
   static fromString(value: string): InboxID {
-    if (value.length === 0) throw new Error("inbox ID is empty");
+    if (value.length === 0) throw invalidID("inbox ID is empty");
     return new InboxID(value);
   }
 }

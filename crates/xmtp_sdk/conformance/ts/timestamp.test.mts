@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import { Timestamp } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/ids.ts";
+import { Timestamp } from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 
 assert.equal(new Timestamp(-1n).date.getTime(), -1);
 assert.equal(new Timestamp(-1_000_000n).date.getTime(), -1);

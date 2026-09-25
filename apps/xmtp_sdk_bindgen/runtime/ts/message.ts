@@ -1,15 +1,17 @@
 import {
   ErrorCategory,
+  MessageBody_Tags,
   MessageContent_Tags,
   XmtpError,
   encodeText,
   type EncodedContent,
   type MessageContent,
+  type MessageBody,
   type MessageData,
   type Reaction,
   type SendOptions,
 } from "../xmtp_sdk";
-import { ClientRegistry, type Client } from "./client";
+import { ClientRegistry, type Client, type ContentCodec } from "./client";
 import type { MessageID } from "./ids";
 
 export class Message {
@@ -19,21 +21,39 @@ export class Message {
         tag: MessageContent_Tags.Custom;
         inner: { encoded: EncodedContent; value?: unknown; error?: string };
       };
+  readonly inReplyToContent?:
+    | MessageBody
+    | {
+        tag: MessageBody_Tags.Custom;
+        inner: { encoded: EncodedContent; value?: unknown; error?: string };
+      };
 
   constructor(readonly data: MessageData) {
+    const parent = data.inReplyTo?.content;
+    if (parent?.tag === MessageBody_Tags.Custom) {
+      const encoded = parent.inner.encoded;
+      const decoded = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded);
+      this.inReplyToContent = {
+        tag: MessageBody_Tags.Custom,
+        inner: { encoded, ...(decoded ?? { error: "clientClosed" }) },
+      };
+    } else {
+      this.inReplyToContent = parent;
+    }
     const content = data.content;
     if (content.tag !== MessageContent_Tags.Custom) {
       this.content = content;
       return;
     }
     const encoded = content.inner.encoded;
-    const decoded = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded);
+    const owner = ClientRegistry.get(data.clientKey);
+    const decoded = owner?.decodeCustom(encoded);
     this.content =
-      decoded === undefined
+      decoded === undefined && owner !== undefined
         ? content
         : {
             tag: MessageContent_Tags.Custom,
-            inner: { encoded, ...decoded },
+            inner: { encoded, ...(decoded ?? { error: "clientClosed" }) },
           };
   }
 
@@ -118,14 +138,30 @@ export class Message {
   async reply(
     content: string | EncodedContent,
     options?: SendOptions,
+  ): Promise<MessageID>;
+  async reply<T>(
+    codec: ContentCodec<T>,
+    value: T,
+    options?: SendOptions,
+  ): Promise<MessageID>;
+  async reply<T>(
+    content: string | EncodedContent | ContentCodec<T>,
+    valueOrOptions?: T | SendOptions,
+    options?: SendOptions,
   ): Promise<MessageID> {
+    const isCodec = typeof content !== "string" && "encode" in content;
+    const encoded =
+      typeof content === "string"
+        ? encodeText(content)
+        : isCodec
+          ? content.encode(valueOrOptions as T)
+          : content;
+    const sendOptions = isCodec
+      ? options
+      : (valueOrOptions as SendOptions | undefined);
     return this.client()
       .conversations()
-      .replyToMessage(
-        this.id,
-        typeof content === "string" ? encodeText(content) : content,
-        options,
-      );
+      .replyToMessage(this.id, encoded, sendOptions);
   }
 
   async parent(): Promise<Message | undefined> {
