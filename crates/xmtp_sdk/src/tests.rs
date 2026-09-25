@@ -1257,7 +1257,8 @@ async fn conversation_list_state_and_last_activity() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let older = client.conversations().create_group(vec![], None).await?;
     let newer = client.conversations().create_group(vec![], None).await?;
-    older.send_text("most recent".into()).await?;
+    let sent = older.send_text("most recent".into()).await?;
+    let stored_sent_at_ns = client.inner.message(hex::decode(&sent.0)?)?.sent_at_ns;
     let ordered = client
         .conversations()
         .list(Some(ListConversationsOptions {
@@ -1283,6 +1284,7 @@ async fn conversation_list_state_and_last_activity() {
         .collect::<Vec<_>>();
     assert_eq!(ids, core_ids);
     let older_activity = older.last_activity_at_ns(None).await?.0;
+    assert_eq!(older_activity, stored_sent_at_ns);
     let newer_activity = newer.last_activity_at_ns(None).await?.0;
     let first_activity = if ids.first() == Some(&older.id()) {
         older_activity
