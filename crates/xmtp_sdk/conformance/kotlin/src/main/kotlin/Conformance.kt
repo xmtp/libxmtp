@@ -368,6 +368,11 @@ fun main() =
         val reply = familyMessages.first { it.id == replyID }
         check(parent.replyCount == 1uL && parent.reactions.firstOrNull()?.id == reactionID)
         check(reply.inReplyTo?.id == parentID)
+        val changedEnvelope =
+            Message(parent.data.copy(encoded = parent.encoded.copy(parameters = mapOf("key" to "different"))))
+        check(parent != changedEnvelope) { "EncodedContent parameters must affect message equality" }
+        val copiedBytes = Message(parent.data.copy(encoded = parent.encoded.copy(content = parent.encoded.content.copyOf())))
+        check(parent == copiedBytes && parent.hashCode() == copiedBytes.hashCode())
         println("Kotlin scenario 5: message records, reaction, and reply passed")
 
         val codec = SampleCodec()
