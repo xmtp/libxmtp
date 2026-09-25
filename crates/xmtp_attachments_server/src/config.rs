@@ -2,8 +2,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use xmtp_configuration::{
-    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, MAX_ATTACHMENT_RETENTION_SECONDS, check_base_url,
-    check_max_upload_bytes, check_retention_seconds,
+    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, MAX_ATTACHMENT_RETENTION_SECONDS,
+    MAX_ATTACHMENT_UPLOAD_BYTES, check_base_url, check_max_upload_bytes, check_retention_seconds,
 };
 
 pub const DEFAULT_PRESIGN_TTL_SECONDS: u32 = 900;
@@ -15,6 +15,7 @@ pub const MAX_PRESIGN_TTL_SECONDS: u32 = 3600;
 #[serde(deny_unknown_fields)]
 pub struct AttachmentsConfig {
     pub base_url: String,
+    #[schemars(range(min = 1, max = MAX_ATTACHMENT_UPLOAD_BYTES))]
     pub max_upload_bytes: Option<u64>,
     #[schemars(range(min = 0, max = MAX_ATTACHMENT_RETENTION_SECONDS))]
     pub retention_seconds: Option<u64>,
@@ -71,7 +72,13 @@ pub struct S3Config {
     pub endpoint: String,
     pub region: String,
     pub bucket: String,
+    /// The prefix can be empty. Other prefixes use ASCII letters, digits,
+    /// `_`, `-`, `.`, and slash separators. A trailing slash is allowed.
+    /// Leading slashes, empty interior segments, and `.` or `..` segments are invalid.
     #[serde(default)]
+    #[schemars(regex(
+        pattern = r"^(?!/)(?!.*//)(?!.*(?:^|/)\.{1,2}(?:/|$))[A-Za-z0-9_./-]*(?![\s\S])"
+    ))]
     pub key_prefix: String,
     pub credentials: CredentialsConfig,
     #[schemars(range(min = MIN_PRESIGN_TTL_SECONDS, max = MAX_PRESIGN_TTL_SECONDS))]

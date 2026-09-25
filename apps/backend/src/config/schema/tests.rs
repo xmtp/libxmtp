@@ -75,6 +75,47 @@ fn published_schema_bounds_attachment_settings() {
     let validator = validator();
     let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
     let baseline = serde_json::to_value(s3)?;
+    for (upload_bytes, accepted) in [
+        (0_u64, false),
+        (1, true),
+        (u32::MAX as u64, true),
+        (u32::MAX as u64 + 1, false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["max_upload_bytes"] = json!(upload_bytes);
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "max_upload_bytes = {upload_bytes}"
+        );
+    }
+    for (prefix, accepted) in [
+        ("", true),
+        ("a/", true),
+        ("a/b/", true),
+        ("a.b/_-/", true),
+        ("a/.../b", true),
+        ("/lead/", false),
+        ("/", false),
+        ("a//b/", false),
+        ("a//", false),
+        ("a/./b", false),
+        ("a/../b", false),
+        ("a/.", false),
+        ("a/..", false),
+        (".", false),
+        ("..", false),
+        ("a b", false),
+        ("a\n", false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["target"]["S3"]["key_prefix"] = json!(prefix);
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "key_prefix = {prefix:?}"
+        );
+    }
     for (ttl, accepted) in [(299, false), (300, true), (3600, true), (3601, false)] {
         let mut instance = baseline.clone();
         instance["attachments"]["target"]["S3"]["presign_ttl_seconds"] = json!(ttl);
