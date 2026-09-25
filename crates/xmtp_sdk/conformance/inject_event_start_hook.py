@@ -29,6 +29,28 @@ if language == "kotlin":
         "                            EventStartHookForTest.beforeCallback?.invoke()\n"
         "                            if (!gate.begin()) return@withContext\n",
     )
+elif language == "swift":
+    source = replace_once(
+        source,
+        "final class ListenerStartGate: @unchecked Sendable {\n",
+        "actor EventStartHookForTest {\n"
+        "    static let shared = EventStartHookForTest()\n"
+        "    private var hook: (@Sendable () async -> Void)?\n\n"
+        "    func set(_ hook: (@Sendable () async -> Void)?) {\n"
+        "        self.hook = hook\n"
+        "    }\n\n"
+        "    func run() async {\n"
+        "        await hook?()\n"
+        "    }\n"
+        "}\n\n"
+        "final class ListenerStartGate: @unchecked Sendable {\n",
+    )
+    source = replace_once(
+        source,
+        "        guard gate.begin() else { return }\n",
+        "        await EventStartHookForTest.shared.run()\n"
+        "        guard gate.begin() else { return }\n",
+    )
 elif language == "typescript":
     source = replace_once(
         source,

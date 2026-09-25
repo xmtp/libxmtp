@@ -77,6 +77,40 @@ actor EventSignal {
         }
         throw ConformanceFailure("event listener did not run")
     }
+
+    func hasRun() -> Bool {
+        seen
+    }
+}
+
+actor EventStartPause {
+    private var entered = false
+    private var released = false
+
+    func hold() async {
+        entered = true
+        while !released {
+            do {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } catch {
+                return
+            }
+        }
+    }
+
+    func waitUntilEntered() async throws {
+        for _ in 0 ..< 1000 {
+            if entered {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw ConformanceFailure("event listener start hook did not run")
+    }
+
+    func release() {
+        released = true
+    }
 }
 
 @main
@@ -358,6 +392,26 @@ struct Conformance {
         await reopenedHost.stopListener(listenerID)
         try await eventReader.end()
         print("Swift scenario 8: event reader and listener passed")
+
+        // verifies: EVENT-053
+        let startPause = EventStartPause()
+        await EventStartHookForTest.shared.set {
+            await startPause.hold()
+        }
+        let lateCalls = EventSignal()
+        let delayedID = try await reopenedHost.startListener(eventFilter) { _ in
+            await lateCalls.mark()
+        }
+        _ = try await reopened.conversations().createGroup(members: [])
+        try await startPause.waitUntilEntered()
+        await reopenedHost.stopListener(delayedID)
+        await startPause.release()
+        await EventStartHookForTest.shared.set(nil)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        guard !(await lateCalls.hasRun()) else {
+            throw ConformanceFailure("callback started after stop returned")
+        }
+        print("Swift delayed listener stop passed")
 
         try await reopenedHost.end()
     }
