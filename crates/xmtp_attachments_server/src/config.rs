@@ -1,9 +1,11 @@
 use schemars::JsonSchema;
 use serde::Deserialize;
-use url::{Host, Url};
-use xmtp_configuration::BACKEND_DEFAULT_MAX_UPLOAD_BYTES;
+use url::Url;
+use xmtp_configuration::{
+    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, check_base_url, check_max_upload_bytes,
+    check_retention_seconds,
+};
 
-pub const MAX_UPLOAD_BYTES: u64 = u32::MAX as u64;
 pub const DEFAULT_PRESIGN_TTL_SECONDS: u32 = 900;
 pub const MIN_PRESIGN_TTL_SECONDS: u32 = 300;
 pub const MAX_PRESIGN_TTL_SECONDS: u32 = 3600;
@@ -37,40 +39,10 @@ impl AttachmentsConfig {
 
     /// Reject settings that cannot be published or enforced.
     pub fn validate(&self) -> Result<(), ConfigInvalid> {
-        let url = Url::parse(&self.base_url)
-            .map_err(|_| ConfigInvalid::new("attachments.base_url", "must be an absolute URL"))?;
-        let permitted_scheme = match url.scheme() {
-            "https" => true,
-            "http" => match url.host() {
-                Some(Host::Domain(host)) => host.eq_ignore_ascii_case("localhost"),
-                Some(Host::Ipv4(ip)) => ip.is_loopback(),
-                Some(Host::Ipv6(ip)) => ip.is_loopback(),
-                None => false,
-            },
-            _ => false,
-        };
-        if !permitted_scheme
-            || url.host().is_none()
-            || !url.username().is_empty()
-            || url.password().is_some()
-        {
-            return Err(ConfigInvalid::new(
-                "attachments.base_url",
-                "requires HTTPS or HTTP on loopback",
-            ));
-        }
-        if url.query().is_some() || url.fragment().is_some() || self.base_url.ends_with('/') {
-            return Err(ConfigInvalid::new(
-                "attachments.base_url",
-                "must have no query, fragment, or trailing slash",
-            ));
-        }
-        if !(1..=MAX_UPLOAD_BYTES).contains(&self.upload_ceiling()) {
-            return Err(ConfigInvalid::new(
-                "attachments.max_upload_bytes",
-                "outside 1..=4294967295",
-            ));
-        }
+        check_base_url(&self.base_url).map_err(ConfigInvalid::from_shared)?;
+        check_max_upload_bytes(self.upload_ceiling()).map_err(ConfigInvalid::from_shared)?;
+        check_retention_seconds(self.retention_seconds.unwrap_or_default())
+            .map_err(ConfigInvalid::from_shared)?;
         match &self.target {
             TargetConfig::S3(s3) => s3.validate(),
         }
@@ -158,6 +130,8 @@ impl S3Config {
             .key_prefix
             .chars()
             .any(|c| !(c.is_ascii_alphanumeric() || matches!(c, '/' | '_' | '-' | '.')))
+            || self.key_prefix.starts_with('/')
+            || self.key_prefix.contains("//")
             || self
                 .key_prefix
                 .split('/')
@@ -281,6 +255,16 @@ pub struct ConfigInvalid {
 impl ConfigInvalid {
     fn new(field: &'static str, reason: &'static str) -> Self {
         Self { field, reason }
+    }
+
+    fn from_shared(error: xmtp_configuration::AttachmentConfigurationError) -> Self {
+        let field = match error.field() {
+            "base_url" => "attachments.base_url",
+            "max_upload_bytes" => "attachments.max_upload_bytes",
+            "retention_seconds" => "attachments.retention_seconds",
+            _ => unreachable!("shared attachment configuration field"),
+        };
+        Self::new(field, error.reason())
     }
 }
 

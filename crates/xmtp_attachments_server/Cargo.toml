@@ -23,6 +23,7 @@ schemars.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tracing.workspace = true
 url.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_configuration.workspace = true
