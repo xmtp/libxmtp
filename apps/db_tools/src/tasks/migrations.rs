@@ -90,7 +90,7 @@ mod tests {
         db.run_pending_migrations()?;
         assert_eq!(applied_migrations(&conn)?, applied);
         conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
-        conn.raw_query(|c| c.batch_execute("SELECT * FROM local_attachments"))?;
+        conn.raw_query(|c| c.batch_execute("SELECT mime_type, filename FROM local_attachments"))?;
         conn.raw_query(|c| c.batch_execute("SELECT * FROM pending_attachments"))?;
     }
 

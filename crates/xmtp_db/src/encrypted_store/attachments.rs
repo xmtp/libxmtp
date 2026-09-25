@@ -12,6 +12,8 @@ use diesel::prelude::*;
 pub struct StoredLocalAttachment {
     pub path: String,
     pub created_at_ns: i64,
+    pub mime_type: Option<String>,
+    pub filename: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Queryable, Selectable)]
@@ -28,7 +30,13 @@ pub trait QueryLocalAttachment {
         &self,
         path: &str,
         created_at_ns: i64,
+        mime_type: Option<String>,
+        filename: Option<String>,
     ) -> Result<(), StorageError>;
+    fn get_local_attachment(
+        &self,
+        path: &str,
+    ) -> Result<Option<StoredLocalAttachment>, StorageError>;
     fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError>;
     fn list_local_attachments(&self) -> Result<Vec<StoredLocalAttachment>, StorageError>;
 }
@@ -38,8 +46,17 @@ impl<T: QueryLocalAttachment + ?Sized> QueryLocalAttachment for &T {
         &self,
         path: &str,
         created_at_ns: i64,
+        mime_type: Option<String>,
+        filename: Option<String>,
     ) -> Result<(), StorageError> {
-        (**self).insert_or_ignore_local_attachment(path, created_at_ns)
+        (**self).insert_or_ignore_local_attachment(path, created_at_ns, mime_type, filename)
+    }
+
+    fn get_local_attachment(
+        &self,
+        path: &str,
+    ) -> Result<Option<StoredLocalAttachment>, StorageError> {
+        (**self).get_local_attachment(path)
     }
 
     fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError> {
@@ -57,18 +74,36 @@ impl<C: ConnectionExt> QueryLocalAttachment for DbConnection<C> {
         &self,
         path: &str,
         created_at_ns: i64,
+        mime_type: Option<String>,
+        filename: Option<String>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
             diesel::insert_into(local_attachments::table)
                 .values((
                     local_attachments::path.eq(path),
                     local_attachments::created_at_ns.eq(created_at_ns),
+                    local_attachments::mime_type.eq(mime_type),
+                    local_attachments::filename.eq(filename),
                 ))
                 .on_conflict(local_attachments::path)
                 .do_nothing()
                 .execute(conn)
         })?;
         Ok(())
+    }
+
+    #[xmtp_common::db_span]
+    fn get_local_attachment(
+        &self,
+        path: &str,
+    ) -> Result<Option<StoredLocalAttachment>, StorageError> {
+        Ok(self.raw_query(|conn| {
+            local_attachments::table
+                .find(path)
+                .select(StoredLocalAttachment::as_select())
+                .first(conn)
+                .optional()
+        })?)
     }
 
     #[xmtp_common::db_span]
@@ -206,23 +241,35 @@ mod tests {
     async fn insert_or_ignore_local_keeps_first_record() {
         let store = TestDb::create_ephemeral_store().await;
         let db = store.db();
-        db.insert_or_ignore_local_attachment("key/file", 3)?;
-        db.insert_or_ignore_local_attachment("key/file", 9)?;
+        db.insert_or_ignore_local_attachment(
+            "key/file",
+            3,
+            Some("image/png".into()),
+            Some("photo.png".into()),
+        )?;
+        db.insert_or_ignore_local_attachment("key/file", 9, Some("text/plain".into()), None)?;
         assert_eq!(
             db.list_local_attachments()?,
             vec![StoredLocalAttachment {
                 path: "key/file".into(),
                 created_at_ns: 3,
+                mime_type: Some("image/png".into()),
+                filename: Some("photo.png".into()),
             }]
         );
+        assert_eq!(
+            db.get_local_attachment("key/file")?,
+            db.list_local_attachments()?.pop()
+        );
+        assert_eq!(db.get_local_attachment("missing")?, None);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn delete_local_removes_only_matching_path() {
         let store = TestDb::create_ephemeral_store().await;
         let db = store.db();
-        db.insert_or_ignore_local_attachment("a/file", 1)?;
-        db.insert_or_ignore_local_attachment("b/file", 2)?;
+        db.insert_or_ignore_local_attachment("a/file", 1, None, None)?;
+        db.insert_or_ignore_local_attachment("b/file", 2, None, None)?;
         assert_eq!(db.delete_local_attachment("a/file")?, 1);
         assert_eq!(db.delete_local_attachment("a/file")?, 0);
         assert_eq!(db.list_local_attachments()?[0].path, "b/file");
@@ -232,8 +279,8 @@ mod tests {
     async fn list_local_orders_by_creation_time() {
         let store = TestDb::create_ephemeral_store().await;
         let db = store.db();
-        db.insert_or_ignore_local_attachment("late", 9)?;
-        db.insert_or_ignore_local_attachment("early", 1)?;
+        db.insert_or_ignore_local_attachment("late", 9, None, None)?;
+        db.insert_or_ignore_local_attachment("early", 1, None, None)?;
         let rows = db.list_local_attachments()?;
         assert_eq!(
             rows.iter().map(|row| row.path.as_str()).collect::<Vec<_>>(),

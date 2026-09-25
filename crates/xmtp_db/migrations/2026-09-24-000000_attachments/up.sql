@@ -1,6 +1,8 @@
 CREATE TABLE local_attachments (
   path          TEXT PRIMARY KEY NOT NULL,   -- "{attachment_key}/{local file name}"
-  created_at_ns BIGINT NOT NULL
+  created_at_ns BIGINT NOT NULL,
+  mime_type     TEXT,
+  filename      TEXT
 );
 CREATE TABLE pending_attachments (
   content_digest    TEXT PRIMARY KEY NOT NULL, -- lowercase hex
