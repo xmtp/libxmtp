@@ -33,19 +33,23 @@ console.log("Node scenario 1: load, checksums, version passed");
 
 const standardCodecs = new Map([
   [sdk.StandardContent_Tags.Text, new sdk.TextCodec()],
+  [sdk.StandardContent_Tags.Markdown, new sdk.MarkdownCodec()],
   [sdk.StandardContent_Tags.ReadReceipt, new sdk.ReadReceiptCodec()],
   [sdk.StandardContent_Tags.Reaction, new sdk.ReactionV2Codec()],
   [sdk.StandardContent_Tags.Attachment, new sdk.AttachmentCodec()],
   [sdk.StandardContent_Tags.RemoteAttachment, new sdk.RemoteAttachmentCodec()],
   [sdk.StandardContent_Tags.MultiRemoteAttachment, new sdk.MultiRemoteAttachmentCodec()],
   [sdk.StandardContent_Tags.TransactionReference, new sdk.TransactionReferenceCodec()],
+  [sdk.StandardContent_Tags.WalletSendCalls, new sdk.WalletSendCallsCodec()],
+  [sdk.StandardContent_Tags.Actions, new sdk.ActionsCodec()],
+  [sdk.StandardContent_Tags.Intent, new sdk.IntentCodec()],
   [sdk.StandardContent_Tags.Reply, new sdk.ReplyCodec()],
   [sdk.StandardContent_Tags.GroupUpdated, new sdk.GroupUpdatedCodec()],
   [sdk.StandardContent_Tags.DeleteMessage, new sdk.DeleteMessageCodec()],
   [sdk.StandardContent_Tags.LeaveRequest, new sdk.LeaveRequestCodec()],
 ]);
 const codecSamples = sdk.sdkConformanceStandardSamples();
-assert.equal(codecSamples.length, 11);
+assert.equal(codecSamples.length, 15);
 for (const sample of codecSamples) {
   const codec = standardCodecs.get(sample.value.tag);
   assert.ok(codec, `missing codec for ${sample.value.tag}`);
@@ -65,7 +69,7 @@ for (const sample of codecSamples) {
     Buffer.from(sample.expected.content),
   );
 }
-console.log("Node P69: all 11 standard codecs match Rust bytes");
+console.log("Node P69: all 15 standard codecs match Rust bytes");
 
 const account = privateKeyToAccount(generatePrivateKey());
 const identity = {
@@ -118,7 +122,34 @@ const storagePath = await client.storage().path();
 assert.ok(storagePath);
 assert.ok((await stat(storagePath)).isFile());
 const group = await client.conversations().createGroup([], undefined);
-const sentID = await group.sendText("conformance message");
+let typedSends = 0;
+for (const sample of codecSamples) {
+  const value = sample.value;
+  let id: sdk.MessageID;
+  switch (value.tag) {
+    case sdk.StandardContent_Tags.Text: id = await group.sendText(value.inner[0], undefined); break;
+    case sdk.StandardContent_Tags.Markdown: id = await group.sendMarkdown(value.inner[0], undefined); break;
+    case sdk.StandardContent_Tags.Reaction: id = await group.sendReaction(value.inner.reference, value.inner.referenceInboxID, value.inner.reaction, undefined); break;
+    case sdk.StandardContent_Tags.Reply: id = await group.sendReply(value.inner.reference, value.inner.referenceInboxID, value.inner.content, undefined); break;
+    case sdk.StandardContent_Tags.ReadReceipt: id = await group.sendReadReceipt(undefined); break;
+    case sdk.StandardContent_Tags.Attachment: id = await group.sendAttachment(value.inner[0], undefined); break;
+    case sdk.StandardContent_Tags.RemoteAttachment: id = await group.sendRemoteAttachment(value.inner[0], undefined); break;
+    case sdk.StandardContent_Tags.MultiRemoteAttachment: id = await group.sendMultiRemoteAttachment(value.inner[0], undefined); break;
+    case sdk.StandardContent_Tags.TransactionReference: id = await group.sendTransactionReference(value.inner[0], undefined); break;
+    case sdk.StandardContent_Tags.WalletSendCalls: id = await group.sendWalletSendCalls(value.inner[0], undefined); break;
+    case sdk.StandardContent_Tags.Actions: id = await group.sendActions(value.inner[0], undefined); break;
+    case sdk.StandardContent_Tags.Intent: id = await group.sendIntent(value.inner[0], undefined); break;
+    default: continue;
+  }
+  const wire = await client.conversations().getMessageByID(id);
+  assert.ok(wire);
+  assert.equal(wire.encoded.type.typeID, sample.expected.type.typeID);
+  assert.deepEqual(Buffer.from(wire.encoded.content), Buffer.from(sample.expected.content));
+  typedSends++;
+}
+assert.equal(typedSends, 12);
+console.log("Node P69: typed send bytes match all 12 public codecs");
+const sentID = await group.sendText("conformance message", undefined);
 const history = await group.messages(undefined);
 const sent = history.find(
   (message) => message.id.toString() === sentID.toString(),
@@ -163,7 +194,7 @@ const weak = await (async () => {
   const shortGroup = await shortLived
     .conversations()
     .createGroup([], undefined);
-  const id = await shortGroup.sendText("weak owner");
+  const id = await shortGroup.sendText("weak owner", undefined);
   releasedMessage = (await shortGroup.messages(undefined)).find(
     (value) => value.id.toString() === id.toString(),
   )!;
@@ -188,7 +219,7 @@ console.log("Node scenario 2: create, reopen, end passed");
 
 const reopenedGroup = await reopened.conversations().createGroup([], undefined);
 const reader = await reopenedGroup.messageReader();
-const messageID = await reopenedGroup.sendText("durable stream");
+const messageID = await reopenedGroup.sendText("durable stream", undefined);
 const first = await reader.next();
 assert.equal(first?.id.toString(), messageID.toString());
 await reader.end();
@@ -206,7 +237,7 @@ setTimeout(() => void stream.return(), 50);
 assert.equal((await pending).done, true);
 await stream.return();
 const protocolGroup = await reopened.conversations().createGroup([], undefined);
-const firstID = await protocolGroup.sendText("ack on request");
+const firstID = await protocolGroup.sendText("ack on request", undefined);
 const firstStream = new sdk.MessageStream(
   (signal) => protocolGroup.messageReader({ signal }),
   reopened,
@@ -235,7 +266,7 @@ assert.equal(
   firstID.toString(),
   "item was prefetched and acknowledged",
 );
-const secondID = await protocolGroup.sendText("second request");
+const secondID = await protocolGroup.sendText("second request", undefined);
 assert.equal(
   (await secondStream.next()).value?.id.toString(),
   secondID.toString(),
@@ -560,7 +591,7 @@ assert.ok(
 );
 console.log("Node scenario 4: group options, state, and list passed");
 
-const parentID = await familyGroup.sendText("parent");
+const parentID = await familyGroup.sendText("parent", undefined);
 const reactionID = await reopened.conversations().reactToMessage(
   parentID,
   {

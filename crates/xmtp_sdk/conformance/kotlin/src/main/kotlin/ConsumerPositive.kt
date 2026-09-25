@@ -16,3 +16,24 @@ fun consumePositive(
     }
     return if (narrowed == id) id else narrowed
 }
+
+fun consumeStandardIDs(content: StandardContent): MessageID? =
+    when (content) {
+        is StandardContent.Reaction -> {
+            val inbox: InboxID? = content.referenceInboxID
+            check(inbox == null || inbox.toString().isNotEmpty())
+            content.reference
+        }
+
+        is StandardContent.Reply -> {
+            content.reference
+        }
+
+        is StandardContent.DeleteMessage -> {
+            content.messageID
+        }
+
+        else -> {
+            null
+        }
+    }

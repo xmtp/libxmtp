@@ -20,4 +20,5 @@ fi
 grep -q "cannot convert value of type 'String' to specified type 'ConversationID'" "$log"
 grep -q "cannot convert value of type 'MessageContent' to specified type 'EncodedContent'" "$log"
 grep -q "cannot convert value of type 'Conversation' to specified type 'Group'" "$log"
+grep -q "cannot convert value of type 'String' to expected argument type 'MessageID'" "$log"
 echo "Swift ID, content, and Group/Dm consumer checks passed"
