@@ -299,6 +299,36 @@ async fn event_filter_matches_stitched_dm_identifier() {
     client.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn event_filter_reports_storage_error_when_resolving_dm() {
+    use xmtp_db::ConnectionExt;
+
+    let mut settings = options();
+    let path = std::env::temp_dir().join(format!(
+        "xmtp-sdk-event-filter-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let other = Client::create(crate::generate_local_signer().await, options()).await?;
+    let dm = client
+        .inner
+        .find_or_create_dm(other.inbox_id().0, None)
+        .await?;
+    client.inner.context.db().disconnect()?;
+    let result = client
+        .events(EventFilter {
+            conversation_ids: Some(vec![dm.group_id.into()]),
+            ..event_filter(vec![EventKind::ConversationJoined])
+        })
+        .await;
+    client.inner.context.db().reconnect()?;
+    assert!(result.is_err(), "storage error silently dropped the DM ID");
+    other.end().await?;
+    client.end().await?;
+}
+
 // verifies: EVENT-022
 // verifies: EVENT-030
 // verifies: EVENT-031
