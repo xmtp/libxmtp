@@ -2187,7 +2187,7 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let id = group.send_text("valid".into()).await?;
+    let id = group.send_text("valid".into(), None).await?;
     let id_bytes = hex::decode(&id.0)?;
     let stored = client.inner.message(id_bytes.clone())?;
     let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
