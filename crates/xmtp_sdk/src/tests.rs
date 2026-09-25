@@ -1515,7 +1515,7 @@ async fn unknown_message_bytes_remain_available_to_the_host() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let id = group.send_text("fallback".into()).await?;
+    let id = group.send_text("fallback".into(), None).await?;
     let mut stored = client.inner.message(hex::decode(&id.0)?)?;
     let original = vec![0xff, 0x00, 0x80];
     stored.decrypted_message_bytes = original.clone();
