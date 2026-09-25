@@ -63,7 +63,7 @@ async fn added_account_opens_the_existing_inbox() {
             if found.into_iter().next().flatten().as_deref() == Some(expected.as_str()) {
                 return Ok::<(), XmtpError>(());
             }
-            tokio::task::yield_now().await;
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
         }
     })
     .await
