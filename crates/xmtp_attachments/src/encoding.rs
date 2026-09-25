@@ -21,15 +21,31 @@ fn invalid() -> AttachmentError {
 
 /// Encode the protobuf fields before the attachment content.
 ///
+/// Map entries use sorted keys, so the same inputs produce the same bytes.
+/// Task 10 must compute this prefix once per creation and reuse those bytes.
 /// The caller writes exactly `content_len` content bytes after this prefix.
 pub fn encoded_prefix(filename: Option<&str>, mime_type: &str, content_len: u64) -> Vec<u8> {
-    let envelope = AttachmentCodec::encode(Attachment {
+    let mut envelope = AttachmentCodec::encode(Attachment {
         filename: filename.map(str::to_owned),
         mime_type: mime_type.to_owned(),
         content: Vec::new(),
     })
     .expect("attachment encoding has no failure path");
-    let mut prefix = envelope.encode_to_vec();
+    let mut field = EncodedContent {
+        r#type: envelope.r#type.take(),
+        ..Default::default()
+    };
+    let mut prefix = field.encode_to_vec();
+    let mut parameters = envelope.parameters.drain().collect::<Vec<_>>();
+    parameters.sort_unstable_by(|left, right| left.0.cmp(&right.0));
+    field.r#type = None;
+    for (key, value) in parameters {
+        field.parameters.insert(key, value);
+        prefix.extend_from_slice(&field.encode_to_vec());
+        field.parameters.clear();
+    }
+    field.fallback = envelope.fallback.take();
+    prefix.extend_from_slice(&field.encode_to_vec());
     if content_len != 0 {
         prefix.push(CONTENT_FIELD_TAG);
         encode_varint(content_len, &mut prefix);
@@ -391,6 +407,10 @@ mod tests {
 
             let mut with_filename =
                 encoded_prefix(Some("report.pdf"), "application/pdf", len as u64);
+            assert_eq!(
+                with_filename,
+                encoded_prefix(Some("report.pdf"), "application/pdf", len as u64)
+            );
             with_filename.extend_from_slice(&content);
             assert_eq!(
                 EncodedContent::decode(with_filename.as_slice())?,
