@@ -128,6 +128,14 @@ export function codeOf(error: unknown): unknown {
     : undefined;
 }
 
+export function isStorageBusy(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    B.XmtpError.StorageBusy.instanceOf(error)
+  );
+}
+
 export async function stop(): Promise<void> {
   while (clients.length > 0) await endOne();
   worker?.terminate();

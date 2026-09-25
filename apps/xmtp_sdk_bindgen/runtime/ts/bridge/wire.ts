@@ -36,7 +36,10 @@ export function bridgeError(
 ): BridgeError {
   if (code === "storageBusy") {
     // ErrorCategory.Storage is the third variant in the UniFFI flat enum.
-    return new BridgeError("StorageBusy", code, 2, true, code, details);
+    const category = 2;
+    return new BridgeError("StorageBusy", code, category, true, code, [
+      { code, category, retryable: true, message: code },
+    ]);
   }
   return new BridgeError(code, code, "lifecycle", false, code, details);
 }
