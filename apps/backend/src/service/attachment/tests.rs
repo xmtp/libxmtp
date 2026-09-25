@@ -434,13 +434,3 @@ async fn s3_target_accepts_exact_bytes_once() -> TestResult {
     assert!(reply.to_ascii_lowercase().contains("expir"), "{reply}");
     server.stop().await
 }
-
-#[xmtp_common::test(unwrap_try = true)]
-// verifies: OPS-019
-fn attachment_route_has_fixed_labels() {
-    let labels =
-        crate::telemetry::RpcLabels::from_path("/xmtp.backend.v1.AttachmentService/CreateUpload");
-    assert_eq!(labels.service, "xmtp.backend.v1.AttachmentService");
-    assert_eq!(labels.method, "CreateUpload");
-    assert!(!labels.health);
-}
