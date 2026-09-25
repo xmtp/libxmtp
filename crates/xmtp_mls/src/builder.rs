@@ -34,6 +34,42 @@ use xmtp_proto::xmtp::mls::database::{
 };
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
+type LocationStoreOpener<Db> =
+    fn(
+        crate::storage_location::ResolvedPaths,
+        xmtp_db::EncryptionKey,
+    ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>;
+
+fn open_location_store(
+    paths: crate::storage_location::ResolvedPaths,
+    key: xmtp_db::EncryptionKey,
+) -> xmtp_common::BoxDynFuture<'static, Result<xmtp_db::DefaultStore, ClientBuilderError>> {
+    Box::pin(async move {
+        #[cfg(not(target_arch = "wasm32"))]
+        let db = {
+            let parent = paths
+                .db_path
+                .parent()
+                .ok_or(crate::storage_location::StorageLocationError::InboxId)?;
+            tokio::fs::create_dir_all(parent)
+                .await
+                .map_err(crate::storage_location::StorageLocationError::from)?;
+            xmtp_db::NativeDb::builder()
+                .persistent(paths.db_path.to_string_lossy().into_owned())
+                .key(key)
+                .build()?
+        };
+        #[cfg(target_arch = "wasm32")]
+        let db = xmtp_db::WasmDb::new(&xmtp_db::StorageOption::Persistent(
+            paths.db_path.to_string_lossy().into_owned(),
+        ))
+        .await
+        .map_err(xmtp_db::StorageError::from)?;
+        #[cfg(target_arch = "wasm32")]
+        let _ = key;
+        Ok(xmtp_db::EncryptedMessageStore::new(db)?)
+    })
+}
 
 #[derive(Error, Debug, ErrorCode)]
 pub enum ClientBuilderError {
@@ -104,6 +140,12 @@ impl From<crate::groups::GroupError> for ClientBuilderError {
 
 pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) deployment_recorder: Option<crate::storage_location::DeploymentRecorder>,
+    pub(crate) data_location: Option<(
+        crate::storage_location::StorageLocation,
+        xmtp_db::EncryptionKey,
+    )>,
+    pub(crate) location_store_opener: Option<LocationStoreOpener<Db>>,
+    pub(crate) mls_storage_factory: Option<fn(&Db) -> S>,
     pub(crate) storage_location_selected: bool,
     pub(crate) storage_location_conflict: bool,
     pub(crate) attachments_dir: Option<std::path::PathBuf>,
@@ -188,6 +230,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub fn new(identity_strategy: IdentityStrategy) -> Self {
         Self {
             deployment_recorder: None,
+            data_location: None,
+            location_store_opener: None,
+            mls_storage_factory: None,
             storage_location_selected: false,
             storage_location_conflict: false,
             attachments_dir: None,
@@ -227,6 +272,9 @@ where
         let cloned_api: ApiClient = client.context.api_client.clone().api_client;
         ClientBuilder {
             deployment_recorder: None,
+            data_location: None,
+            location_store_opener: None,
+            mls_storage_factory: None,
             storage_location_selected: false,
             storage_location_conflict: false,
             attachments_dir: client.context.attachments.dir.clone(),
@@ -315,9 +363,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         S: XmtpMlsStorageProvider + 'static,
     {
         let ClientBuilder {
-            deployment_recorder,
+            mut deployment_recorder,
+            data_location,
+            location_store_opener,
+            mls_storage_factory,
             storage_location_conflict,
-            attachments_dir,
+            mut attachments_dir,
             attachment_options,
             mut api_client,
             identity,
@@ -357,17 +408,70 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 parameter: "scw_verifier",
             })?;
 
+        let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
+        if let Some((location, key)) = data_location {
+            use crate::storage_location::StorageLocationError;
+            let inbox_id = identity_strategy
+                .inbox_id()
+                .ok_or(StorageLocationError::InboxId)?;
+            let backend_url = api_client.backend_url().unwrap_or_default().to_owned();
+            let recorder = location.recorder(&backend_url);
+            let recorded = match &recorder {
+                Some(recorder) => recorder.lookup().await?,
+                None => None,
+            };
+            let mut fetched = None;
+            let paths = if let Some(identifier) = recorded {
+                location.resolve_identifier(inbox_id, &identifier)?
+            } else if matches!(
+                location,
+                crate::storage_location::StorageLocation::Explicit { .. }
+            ) {
+                location.resolve_identifier(inbox_id, "")?
+            } else {
+                if allow_offline {
+                    return Err(StorageLocationError::OfflineMissingDeployment.into());
+                }
+                let response = api_client.get_configuration().await.map_err(|error| {
+                    ClientBuilderError::ClientError(ClientError::ConfigurationUnavailable(
+                        Box::new(crate::server_configuration::ConfigurationFetchError::Api(
+                            error,
+                        )),
+                    ))
+                })?;
+                let configuration =
+                    crate::server_configuration::validated(&response).map_err(ClientError::from)?;
+                let paths = location.resolve_identifier(inbox_id, &configuration.identifier)?;
+                fetched = Some((configuration.identifier, response));
+                paths
+            };
+            let opener = location_store_opener.ok_or(StorageLocationError::ConflictingStore)?;
+            let opened = opener(paths.clone(), key).await?;
+            if let Some((identifier, response)) = fetched {
+                opened.db().store_server_configuration(
+                    &identifier,
+                    backend_url.trim_end_matches('/'),
+                    &response.encode_to_vec(),
+                    xmtp_common::time::now_ns(),
+                )?;
+                if let Some(recorder) = &recorder {
+                    recorder.record(&identifier).await?;
+                }
+            }
+            store = Some(opened);
+            attachments_dir = Some(paths.attachments_dir);
+            deployment_recorder = recorder;
+        }
         let store = store
             .take()
             .ok_or(ClientBuilderError::MissingParameter { parameter: "store" })?;
-
         let mls_storage = mls_storage
             .take()
+            .or_else(|| mls_storage_factory.map(|factory| factory(&store)))
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "mls_storage",
             })?;
 
-        let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
         let conn = store.db();
 
         // The configuration is resolved before any identity
@@ -669,106 +773,46 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         self
     }
 
-    /// Open the database and attachment store at a deployment-scoped location.
-    /// The API client and an identity strategy with an inbox id must be set first.
+    /// Save a deployment-scoped location. `build` resolves it after all options are set.
     pub async fn data_location(
-        mut self,
+        self,
         location: crate::storage_location::StorageLocation,
         key: xmtp_db::EncryptionKey,
-    ) -> Result<ClientBuilder<ApiClient, S, xmtp_db::DefaultStore>, ClientBuilderError>
-    where
-        ApiClient: XmtpApi,
-    {
-        use crate::storage_location::StorageLocationError;
-        if self.store.is_some() || self.mls_storage.is_some() || self.storage_location_selected {
-            return Err(StorageLocationError::ConflictingStore.into());
-        }
-        let inbox_id = self
-            .identity_strategy
-            .inbox_id()
-            .ok_or(StorageLocationError::InboxId)?
-            .to_string();
-        let backend_url = self
-            .api_client
-            .as_ref()
-            .ok_or(ClientBuilderError::MissingParameter {
-                parameter: "api_client",
-            })?
-            .backend_url()
-            .unwrap_or_default()
-            .to_owned();
-        let recorder = location.recorder(&backend_url);
-        let recorded = match &recorder {
-            Some(recorder) => recorder.lookup().await?,
-            None => None,
-        };
-        let mut fetched = None;
-        let paths = if let Some(identifier) = recorded {
-            location.resolve_identifier(&inbox_id, &identifier)?
-        } else if matches!(
-            location,
-            crate::storage_location::StorageLocation::Explicit { .. }
-        ) {
-            location.resolve_identifier(&inbox_id, "")?
-        } else {
-            if self.allow_offline {
-                return Err(StorageLocationError::OfflineMissingDeployment.into());
-            }
-            let api = self.api_client.take().expect("checked above");
-            let wrapper = ApiClientWrapper::new(api, Retry::default());
-            let response = wrapper.get_configuration().await.map_err(|error| {
-                ClientBuilderError::ClientError(ClientError::ConfigurationUnavailable(Box::new(
-                    crate::server_configuration::ConfigurationFetchError::Api(error),
-                )))
-            })?;
-            let configuration =
-                crate::server_configuration::validated(&response).map_err(ClientError::from)?;
-            self.api_client = Some(wrapper.api_client);
-            let paths = location.resolve_identifier(&inbox_id, &configuration.identifier)?;
-            fetched = Some((configuration.identifier, response));
-            paths
-        };
-
-        #[cfg(not(target_arch = "wasm32"))]
-        let db = {
-            let parent = paths
-                .db_path
-                .parent()
-                .ok_or(StorageLocationError::InboxId)?;
-            tokio::fs::create_dir_all(parent)
-                .await
-                .map_err(StorageLocationError::from)?;
-            xmtp_db::NativeDb::builder()
-                .persistent(paths.db_path.to_string_lossy().into_owned())
-                .key(key)
-                .build()?
-        };
-        #[cfg(target_arch = "wasm32")]
-        let db = xmtp_db::WasmDb::new(&xmtp_db::StorageOption::Persistent(
-            paths.db_path.to_string_lossy().into_owned(),
-        ))
-        .await
-        .map_err(xmtp_db::StorageError::from)?;
-        #[cfg(target_arch = "wasm32")]
-        let _ = key;
-        let store = xmtp_db::EncryptedMessageStore::new(db)?;
-        if let Some((identifier, response)) = fetched {
-            store.db().store_server_configuration(
-                &identifier,
-                backend_url.trim_end_matches('/'),
-                &response.encode_to_vec(),
-                xmtp_common::time::now_ns(),
-            )?;
-            if let Some(recorder) = &recorder {
-                recorder.record(&identifier).await?;
-            }
-        }
-        let mut builder = self.store(store);
-        builder.attachments_dir = Some(paths.attachments_dir);
-        builder.deployment_recorder = recorder;
-        builder.storage_location_selected = true;
-        builder.storage_location_conflict = false;
-        Ok(builder)
+    ) -> Result<ClientBuilder<ApiClient, S, xmtp_db::DefaultStore>, ClientBuilderError> {
+        let conflict = self.storage_location_conflict
+            || self.store.is_some()
+            || self.mls_storage.is_some()
+            || self.mls_storage_factory.is_some()
+            || self.storage_location_selected
+            || self.attachments_dir.is_some();
+        Ok(ClientBuilder {
+            deployment_recorder: None,
+            data_location: Some((location, key)),
+            location_store_opener: Some(open_location_store),
+            mls_storage_factory: None,
+            storage_location_selected: true,
+            storage_location_conflict: conflict,
+            attachments_dir: self.attachments_dir,
+            attachment_options: self.attachment_options,
+            api_client: self.api_client,
+            identity: self.identity,
+            store: None,
+            identity_strategy: self.identity_strategy,
+            scw_verifier: self.scw_verifier,
+            custom_scw_verifier: self.custom_scw_verifier,
+            device_sync_worker_mode: self.device_sync_worker_mode,
+            fork_recovery_opts: self.fork_recovery_opts,
+            change_callbacks: self.change_callbacks,
+            stream_policy: self.stream_policy,
+            incoming_factory: self.incoming_factory,
+            version_info: self.version_info,
+            allow_offline: self.allow_offline,
+            disable_commit_log_worker: self.disable_commit_log_worker,
+            mls_storage: self.mls_storage,
+            disable_workers: self.disable_workers,
+            worker_config: self.worker_config,
+            config_provider: self.config_provider,
+        })
     }
 
     /// Unstable: register callbacks notified when group state changes.
@@ -789,6 +833,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub fn store<NewDb>(self, db: NewDb) -> ClientBuilder<ApiClient, S, NewDb> {
         ClientBuilder {
             deployment_recorder: self.deployment_recorder,
+            data_location: self.data_location,
+            location_store_opener: None,
+            mls_storage_factory: None,
             storage_location_selected: self.storage_location_selected,
             storage_location_conflict: self.storage_location_conflict
                 || self.storage_location_selected,
@@ -827,6 +874,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     {
         Ok(ClientBuilder {
             deployment_recorder: self.deployment_recorder,
+            data_location: self.data_location,
+            location_store_opener: self.location_store_opener,
+            mls_storage_factory: Some(|store: &Db| SqlKeyStore::new(store.db())),
             storage_location_selected: self.storage_location_selected,
             storage_location_conflict: self.storage_location_conflict,
             api_client: self.api_client,
@@ -842,14 +892,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
-            mls_storage: Some(SqlKeyStore::new(
-                self.store
-                    .as_ref()
-                    .ok_or(ClientBuilderError::MissingParameter {
-                        parameter: "encrypted store",
-                    })?
-                    .db(),
-            )),
+            mls_storage: self
+                .store
+                .as_ref()
+                .map(|store| SqlKeyStore::new(store.db())),
             store: self.store,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -862,6 +908,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub fn mls_storage<NewS>(self, mls_storage: NewS) -> ClientBuilder<ApiClient, NewS, Db> {
         ClientBuilder {
             deployment_recorder: self.deployment_recorder,
+            data_location: self.data_location,
+            location_store_opener: self.location_store_opener,
+            mls_storage_factory: None,
             storage_location_selected: self.storage_location_selected,
             storage_location_conflict: self.storage_location_conflict,
             store: self.store,
@@ -938,6 +987,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     pub fn api_client<A>(self, api_client: A) -> ClientBuilder<A, S, Db> {
         ClientBuilder {
             deployment_recorder: self.deployment_recorder,
+            data_location: self.data_location,
+            location_store_opener: self.location_store_opener,
+            mls_storage_factory: self.mls_storage_factory,
             storage_location_selected: self.storage_location_selected,
             storage_location_conflict: self.storage_location_conflict,
             api_client: Some(api_client),
@@ -1068,6 +1120,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         Ok(ClientBuilder {
             deployment_recorder: self.deployment_recorder,
+            data_location: self.data_location,
+            location_store_opener: self.location_store_opener,
+            mls_storage_factory: self.mls_storage_factory,
             storage_location_selected: self.storage_location_selected,
             storage_location_conflict: self.storage_location_conflict,
             api_client: Some(TrackedStatsClient::new(
@@ -1102,6 +1157,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     ) -> ClientBuilder<ApiClient, S, Db> {
         ClientBuilder {
             deployment_recorder: self.deployment_recorder,
+            data_location: self.data_location,
+            location_store_opener: self.location_store_opener,
+            mls_storage_factory: self.mls_storage_factory,
             storage_location_selected: self.storage_location_selected,
             storage_location_conflict: self.storage_location_conflict,
             api_client: self.api_client,
@@ -1143,6 +1201,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         Ok(ClientBuilder {
             deployment_recorder: self.deployment_recorder,
+            data_location: self.data_location,
+            location_store_opener: self.location_store_opener,
+            mls_storage_factory: self.mls_storage_factory,
             storage_location_selected: self.storage_location_selected,
             storage_location_conflict: self.storage_location_conflict,
             api_client: self.api_client,
