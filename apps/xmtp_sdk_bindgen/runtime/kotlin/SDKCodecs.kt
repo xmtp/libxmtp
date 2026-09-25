@@ -5,6 +5,8 @@ private fun codecValueError() =
         ErrorDetails("InvalidArgument", ErrorCategory.INPUT, false, "wrong standard codec value"),
     )
 
+private inline fun <reified T : Any> codecValue(value: Any): T = value as? T ?: throw codecValueError()
+
 private fun <T : Any> decodePure(
     encoded: EncodedContent,
     take: (StandardContent) -> T?,
@@ -13,7 +15,7 @@ private fun <T : Any> decodePure(
 class TextCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.TEXT)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.Text(value as String))
+    override fun encode(value: Any) = encodeStandard(StandardContent.Text(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Text)?.v1 }
 }
@@ -21,7 +23,7 @@ class TextCodec : SDKContentCodec {
 class MarkdownCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.MARKDOWN)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.Markdown(value as String))
+    override fun encode(value: Any) = encodeStandard(StandardContent.Markdown(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Markdown)?.v1 }
 }
@@ -30,7 +32,7 @@ class ReadReceiptCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.READ_RECEIPT)
 
     override fun encode(value: Any): EncodedContent {
-        require(value == Unit)
+        if (value != Unit) throw codecValueError()
         return encodeStandard(StandardContent.ReadReceipt)
     }
 
@@ -51,7 +53,7 @@ class ReactionV2Codec : SDKContentCodec {
 class AttachmentCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.ATTACHMENT)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.Attachment(value as Attachment))
+    override fun encode(value: Any) = encodeStandard(StandardContent.Attachment(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Attachment)?.v1 }
 }
@@ -59,7 +61,7 @@ class AttachmentCodec : SDKContentCodec {
 class RemoteAttachmentCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.REMOTE_ATTACHMENT)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.RemoteAttachment(value as RemoteAttachment))
+    override fun encode(value: Any) = encodeStandard(StandardContent.RemoteAttachment(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any =
         decodePure(encoded) {
@@ -70,8 +72,7 @@ class RemoteAttachmentCodec : SDKContentCodec {
 class MultiRemoteAttachmentCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.MULTI_REMOTE_ATTACHMENT)
 
-    override fun encode(value: Any) =
-        encodeStandard(StandardContent.MultiRemoteAttachment(value as MultiRemoteAttachment))
+    override fun encode(value: Any) = encodeStandard(StandardContent.MultiRemoteAttachment(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any =
         decodePure(encoded) {
@@ -82,8 +83,7 @@ class MultiRemoteAttachmentCodec : SDKContentCodec {
 class TransactionReferenceCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.TRANSACTION_REFERENCE)
 
-    override fun encode(value: Any) =
-        encodeStandard(StandardContent.TransactionReference(value as TransactionReference))
+    override fun encode(value: Any) = encodeStandard(StandardContent.TransactionReference(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any =
         decodePure(encoded) {
@@ -94,7 +94,7 @@ class TransactionReferenceCodec : SDKContentCodec {
 class WalletSendCallsCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.WALLET_SEND_CALLS)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.WalletSendCalls(value as WalletSendCalls))
+    override fun encode(value: Any) = encodeStandard(StandardContent.WalletSendCalls(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any =
         decodePure(encoded) { (it as? StandardContent.WalletSendCalls)?.v1 }
@@ -103,7 +103,7 @@ class WalletSendCallsCodec : SDKContentCodec {
 class ActionsCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.ACTIONS)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.Actions(value as Actions))
+    override fun encode(value: Any) = encodeStandard(StandardContent.Actions(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Actions)?.v1 }
 }
@@ -111,7 +111,7 @@ class ActionsCodec : SDKContentCodec {
 class IntentCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.INTENT)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.Intent(value as Intent))
+    override fun encode(value: Any) = encodeStandard(StandardContent.Intent(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any = decodePure(encoded) { (it as? StandardContent.Intent)?.v1 }
 }
@@ -127,7 +127,7 @@ class ReplyCodec : SDKContentCodec {
 class GroupUpdatedCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.GROUP_UPDATED)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.GroupUpdated(value as GroupUpdated))
+    override fun encode(value: Any) = encodeStandard(StandardContent.GroupUpdated(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any =
         decodePure(encoded) { (it as? StandardContent.GroupUpdated)?.v1 }
@@ -144,7 +144,7 @@ class DeleteMessageCodec : SDKContentCodec {
 class LeaveRequestCodec : SDKContentCodec {
     override val type get() = standardContentType(StandardContentKind.LEAVE_REQUEST)
 
-    override fun encode(value: Any) = encodeStandard(StandardContent.LeaveRequest(value as LeaveRequest))
+    override fun encode(value: Any) = encodeStandard(StandardContent.LeaveRequest(codecValue(value)))
 
     override fun decode(encoded: EncodedContent): Any =
         decodePure(encoded) { (it as? StandardContent.LeaveRequest)?.v1 }
