@@ -37,6 +37,17 @@ private fun validHex(
     bytes: Int,
 ): Boolean = value.length == bytes * 2 && value.all { it in '0'..'9' || it in 'a'..'f' }
 
+private fun EncodedContent.deepEquals(other: EncodedContent): Boolean =
+    type == other.type && parameters == other.parameters && fallback == other.fallback &&
+        content.contentEquals(other.content)
+
+private fun EncodedContent.deepHashCode(): Int {
+    var result = type.hashCode()
+    result = 31 * result + parameters.hashCode()
+    result = 31 * result + (fallback?.hashCode() ?: 0)
+    return 31 * result + content.contentHashCode()
+}
+
 // ID types have no public constructor or copy(), so a caller can only make
 // one through fromString. Generated lifts use the internal unchecked factory.
 
@@ -202,7 +213,7 @@ class Message(
             data.contentType == other.data.contentType && data.fallback == other.data.fallback &&
             data.insertedAt == other.data.insertedAt && data.expiresAt == other.data.expiresAt &&
             data.replyCount == other.data.replyCount &&
-            data.encoded.content.contentEquals(other.data.encoded.content) &&
+            data.encoded.deepEquals(other.data.encoded) &&
             when (val value = data.content) {
                 is MessageContent.Text -> {
                     value == other.data.content
@@ -226,14 +237,14 @@ class Message(
 
                 is MessageContent.Custom -> {
                     val otherContent = other.data.content
-                    otherContent is MessageContent.Custom &&
-                        value.encoded.content.contentEquals(otherContent.encoded.content)
+                    otherContent is MessageContent.Custom && value.encoded.deepEquals(otherContent.encoded)
                 }
 
                 is MessageContent.Unknown -> {
                     val otherContent = other.data.content
                     otherContent is MessageContent.Unknown &&
-                        value.encoded.content.contentEquals(otherContent.encoded.content)
+                        value.encoded.deepEquals(otherContent.encoded) &&
+                        value.rawBytes.contentEquals(otherContent.rawBytes)
                 }
 
                 else -> {
@@ -254,7 +265,7 @@ class Message(
         result = 31 * result + data.insertedAt.hashCode()
         result = 31 * result + (data.expiresAt?.hashCode() ?: 0)
         result = 31 * result + data.replyCount.hashCode()
-        result = 31 * result + data.encoded.content.contentHashCode()
+        result = 31 * result + data.encoded.deepHashCode()
         result = 31 * result +
             when (val value = data.content) {
                 is MessageContent.Text -> value.hashCode()
@@ -262,8 +273,9 @@ class Message(
                 is MessageContent.ReadReceipt -> 0
                 is MessageContent.Reaction -> value.hashCode()
                 is MessageContent.Reply -> value.hashCode()
-                is MessageContent.Custom -> value.encoded.content.contentHashCode()
-                is MessageContent.Unknown -> value.encoded.content.contentHashCode()
+                is MessageContent.Custom -> value.encoded.deepHashCode()
+                is MessageContent.Unknown ->
+                    31 * value.encoded.deepHashCode() + value.rawBytes.contentHashCode()
                 else -> value.hashCode()
             }
         return result
