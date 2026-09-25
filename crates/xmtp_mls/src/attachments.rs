@@ -1361,6 +1361,9 @@ mod tests {
                 );
             }
         }
+        let downloader_request = requests[1].to_ascii_lowercase();
+        assert!(!downloader_request.contains(&bo.inbox_id().to_string().to_ascii_lowercase()));
+        assert!(!downloader_request.contains(&hex::encode(bo.client.context.installation_id())));
     }
 
     // verifies: ATCH-030, ATCH-031, ATCH-011, ATCH-012
@@ -2583,6 +2586,7 @@ mod tests {
     // verifies: ATCH-065
     #[xmtp_common::test(unwrap_try = true)]
     async fn no_auto_download() {
+        use xmtp_content_types::{ContentCodec, remote_attachment::RemoteAttachmentCodec};
         let sender = tempfile::tempdir()?;
         let recipient = tempfile::tempdir()?;
         tester!(alix, attachments_dir: sender.path(), disable_workers);
@@ -2596,14 +2600,10 @@ mod tests {
             .await?;
         let received = bo.sync_welcomes().await?;
         let bo_group = received.first()?.clone();
-        group
-            .send_message(&remote.encode_to_vec(), Default::default())
-            .await?;
+        let encoded = RemoteAttachmentCodec::encode(remote.clone())?.encode_to_vec();
+        group.send_message(&encoded, Default::default()).await?;
         bo_group.sync().await?;
-        assert_eq!(
-            bo_group.test_last_message_bytes().await??,
-            remote.encode_to_vec()
-        );
+        assert_eq!(bo_group.test_last_message_bytes().await??, encoded);
         xmtp_common::time::sleep(Duration::from_millis(100)).await;
         assert_eq!(requests.load(Ordering::SeqCst), 0);
     }
