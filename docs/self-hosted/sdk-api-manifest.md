@@ -3560,7 +3560,7 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_sync_consent` | core: `crates/xmtp_mls/src/worker/device_sync/tests.rs::test_incremental_consent` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_set_and_get_group_consent` | core: `crates/xmtp_mls/src/groups/tests/mod.rs::test_get_and_set_consent` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_set_and_get_member_consent` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::member_consent_is_visible_in_group_member_record` |
-| `bindings/mobile/src/mls/local_delivery/tests.rs` | `replay_cursor_rejects_malformed_database_identity_with_typed_error` | binding only: mobile FfiDeliveryCursor input conversion; the façade reader has no public cursor input |
+| `bindings/mobile/src/mls/local_delivery/tests.rs` | `replay_cursor_rejects_malformed_database_identity_with_typed_error` | binding only: reader and cursor input are Task 19 (#4250); this façade branch has no public replay cursor input |
 | `bindings/mobile/src/mls/local_delivery/tests.rs` | `catch_up_translation_keeps_previous_generation_and_typed_blocked_cause` | core: `crates/xmtp_mls/src/subscriptions/stream_failure/tests.rs::published_failure_keeps_zero_target_and_intent_identity` |
 | `bindings/mobile/src/mls/notifications.rs` | `notification_debug_redacts_credentials` | binding only: mobile debug formatting of the notification object |
 | `bindings/mobile/src/mls/tests/archive.rs` | `test_archive_excludes_disappearing_messages` | façade: `crates/xmtp_sdk/src/tests.rs::archive_excludes_disappearing_messages_when_requested` |
@@ -3640,14 +3640,14 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/tests/identity.rs` | `test_wallet_b_cannot_create_new_client_for_inbox_b_after_association` | façade: `crates/xmtp_sdk/src/tests.rs::associated_wallet_uses_existing_inbox` |
 | `bindings/mobile/src/mls/tests/identity.rs` | `test_cannot_create_more_than_max_installations` | core: `crates/xmtp_mls/src/server_configuration/tests/applied_tests.rs::a_lowered_installation_limit_refuses_the_registration` |
 | `bindings/mobile/src/mls/tests/identity.rs` | `test_sorts_members_by_created_at_using_ffi_identifiers` | façade: `crates/xmtp_sdk/src/tests.rs::inbox_state_preserves_member_creation_order` |
-| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_suspend_and_resume_redelivers` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
+| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_suspend_and_resume_redelivers` | binding only: reader and cursor input are Task 19 (#4250); this façade branch uses a durable MessageReader |
 | `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_replays_and_is_idempotent` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::catch_up_replays_once_and_preserves_bounded_progress` |
 | `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_bounded_run_is_cancel_safe` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::catch_up_replays_once_and_preserves_bounded_progress` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `radio_silence` | binding only: mobile sync-worker stream radio-silence statistics; the façade does not expose that worker stream |
-| `bindings/mobile/src/mls/tests/networking.rs` | `create_client_does_not_hit_network` | binding only: mobile low-level create_client skips configuration fetch; the façade builder must fetch server configuration and rejects an unreachable backend |
+| `bindings/mobile/src/mls/tests/networking.rs` | `create_client_does_not_hit_network` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_allow_offline_skips_network` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `ffi_api_stats_exposed_correctly` | façade: `crates/xmtp_sdk/src/tests.rs::facade_api_statistics_track_and_clear_requests` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `test_is_connected_after_connect` | binding only: mobile connection is_connected getter; the façade Backend has no connectivity getter |
-| `bindings/mobile/src/mls/tests/networking.rs` | `backend_url_is_required` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_connection_is_network_free` |
+| `bindings/mobile/src/mls/tests/networking.rs` | `backend_url_is_required` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_allow_offline_skips_network` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `api_client_cache_key_uses_backend_url_and_app_version` | binding only: mobile API-client cache key getter; the façade Backend has no cache-key getter |
 | `bindings/mobile/src/mls/tests/server_configuration.rs` | `server_configuration_exposes_every_published_field` | façade: `crates/xmtp_sdk/src/configuration.rs::server_configuration_preserves_all_published_fields` |
 | `bindings/mobile/src/mls/tests/server_configuration.rs` | `fetch_server_configuration_reads_the_shared_backend` | façade: `crates/xmtp_sdk/src/tests.rs::client_configuration_and_credential_update` |
@@ -3663,8 +3663,8 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_dm_message_streaming_uses_bidi` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_message_streaming_when_removed_then_added` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_groups_gets_callback_when_streaming_messages` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
-| `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_consent` | binding only: mobile consent callback stream; the façade exposes consent state operations but no consent stream |
-| `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_preferences` | binding only: mobile preference callback stream; the façade has no preference stream |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_consent` | binding only: live consent events are Task 20 (#4251); this façade branch has no consent event stream |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_preferences` | binding only: live preference events are Task 20 (#4251); this façade branch has no preference event stream |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_overlapping_streams` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_can_stream_and_update_name_without_forking_group` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::reader_survives_group_name_update_without_fork` |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_all_messages_with_optimistic_group_creation` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
