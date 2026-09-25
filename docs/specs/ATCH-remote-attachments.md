@@ -148,6 +148,7 @@ The admission table adds the conditions of `CreateUpload` to the status table of
 | ATCH-026 | Blocked clients do not upload | When an upload starts while the client has a blocked connection under CONF-075, the client MUST end it as `failed` with the cause `connection_blocked` before it sends any request. | A client with a blocked connection is bound to another deployment or refused by this one. |
 | ATCH-029 | Permanent rejections are not resent | When an upload has ended as `failed` because `CreateUpload` answered `INVALID_ARGUMENT`, `OUT_OF_RANGE`, or `UNIMPLEMENTED`, the client MUST end each later upload of that pending attachment as `failed` with the same cause without sending a request. | API-284: the same request fails the same way, and a retry loop loads the deployment for nothing. |
 | ATCH-027 | No credential off the backend | The client MUST NOT send a backend credential under AUTH section 6, or any other value that identifies the inbox or the installation, on a request to a storage target or a download host. | The request goes to a host the backend does not control, and a download host is chosen by the sender of a message. |
+| ATCH-071 | Secure upload URL | When the configured storage endpoint URL has neither an `https` scheme nor an `http` scheme with `localhost` or a loopback address, the backend MUST refuse to start and name the key under CONF-065. The client MUST NOT send an upload PUT to a URL that does not use `https`, except `http` to `localhost` or a loopback address, and MUST end the upload as `failed` with cause `insecure_url`. When the upload PUT receives a redirect, the client MUST NOT follow it and MUST end the upload as `failed` with cause `target_rejected`. | A network attacker could fake a 2xx response to a plaintext PUT; the client would drop the staged ciphertext under ATCH-037, and every recipient would get `not_found`. |
 
 ## 4. Pending attachments
 
@@ -267,7 +268,7 @@ dictionary AttachmentOptions {
 | ATCH-051 | Verified before readable | When a download ends, the client MUST make the plaintext file readable at its path only if the ciphertext passes the digest check and the decryption of CTYPE-015 and decodes as `xmtp.org/attachment:1.0` encoded content, and MUST otherwise leave no file at the path. | A partial or forged file at the path is shown by every later reader as the attachment. |
 | ATCH-052 | Existing files are not fetched | When a download is asked for and a file is at the plaintext path, the client MUST return that path without sending a request. | |
 | ATCH-053 | Secure URLs only | The client MUST NOT send a download request to a URL whose scheme is not `https`, or, where it follows redirects itself, follow a redirect to one, except `http` to `localhost` or a loopback address while `allow_private_network` is true. | A plain-HTTP fetch shows every observer which attachment a user opens, and lets an observer replace the response. |
-| ATCH-054 | Private addresses | Where the client opens its own connections, it MUST NOT connect a download request, or a redirected request, to a private address while `allow_private_network` is false, and MUST check the address it connects to, not the host name. | A message whose URL names the cloud metadata address or an internal host makes a server-side client fetch it. |
+| ATCH-054 | Private addresses | Where the client opens its own connections, it MUST NOT connect a download request, or a redirected request, to a private address while `allow_private_network` is false, and MUST check the address it connects to, not the host name. Where the client opens its own connections, it MUST NOT send a download through a proxy. | A message whose URL names the cloud metadata address or an internal host makes a server-side client fetch it. A proxy could resolve the host to an address the client did not check. |
 | ATCH-055 | Redirects are checked | Where the client follows redirects itself, it MUST follow at most 10 redirects for one download, apply ATCH-053 and ATCH-054 to each, and fail the download at the first redirect that fails either. | A redirect from a public host to a blocked one would bypass both rules. |
 | ATCH-056 | Download size bound | The client MUST fail a download, and stop reading, once the response body after content decoding is longer than the least of `content_length` when the remote attachment carries it, the app's `max_download_bytes`, and the largest `contentLength` the CTYPE-014 parameters table admits. When the app sets no `max_download_bytes`, the client MUST use the snapshot's `max_upload_bytes` under CONF-025. | A hostile host that streams without end, or sends a small compressed body that inflates, fills the device's storage. |
 | ATCH-057 | Success status | The client MUST read the ciphertext only from a final response with status 200, and MUST fail a download with `not_found` on a final 404 or 410 and with `http_status` on any other final status. | An app tells an object that is not yet stored, or no longer stored, from a failure of the host. |
@@ -289,9 +290,9 @@ enum AttachmentFailureCause {
   "credential",           // CreateUpload failed with a client credential failure of AUTH section 6 (ATCH-061)
   "backend_rejected",     // CreateUpload failed with INVALID_ARGUMENT, OUT_OF_RANGE, or UNIMPLEMENTED
   "backend_unavailable",  // CreateUpload failed with any other code, or did not reach the backend
-  "target_rejected",      // the storage target answered a status other than 2xx or 412
+  "target_rejected",      // the upload PUT received a redirect, or the storage target answered a status other than 2xx or 412
   "network",              // ATCH-070, or a request to a storage target or download host failed in transport
-  "insecure_url",         // ATCH-053
+  "insecure_url",         // ATCH-053 for a download, or ATCH-071 for an upload PUT
   "blocked_address",      // ATCH-054
   "too_many_redirects",   // ATCH-055
   "not_found",            // ATCH-057
@@ -327,7 +328,5 @@ A failed upload or download starts again from the first byte. There is no multip
 A host that sends a byte at least every 60 s can keep a download, and every download joined to it under ATCH-058, running up to the ATCH-056 size bound. The app can end the download under ATCH-047.
 
 In a browser, the client neither opens its own connections nor follows redirects itself, so ATCH-054 and ATCH-055 do not apply and the browser's own rules for redirects and private network access apply instead. A browser client cannot set a connect timeout or observe upload progress of a fetch PUT, so its PUT has no deadline beyond the browser's own. The client can observe response reads of a download GET and applies ATCH-070 to them. A download host that sends no CORS headers cannot serve a browser client.
-
-A download sent through an HTTP proxy is checked against the address the client resolves. The proxy can resolve the host to another address.
 
 A file that an app removes from the attachments directory without asking the client leaves its record behind until the app asks the client to delete the local files of that remote attachment.
