@@ -32,14 +32,20 @@ pub struct OpfsStore {
 }
 
 impl OpfsStore {
-    pub async fn new(path: &str) -> Result<Self, AttachmentError> {
-        validate_relative(path)?;
+    /// Open the origin's OPFS root for a source path supplied by the app.
+    pub async fn new_root() -> Result<Self, AttachmentError> {
         let global: WorkerGlobalScope = js_sys::global().unchecked_into();
         let root = JsFuture::from(global.navigator().storage().get_directory())
             .await
             .map_err(storage_error)?
             .dyn_into::<FileSystemDirectoryHandle>()
             .map_err(storage_error)?;
+        Ok(Self { root })
+    }
+
+    pub async fn new(path: &str) -> Result<Self, AttachmentError> {
+        validate_relative(path)?;
+        let root = Self::new_root().await?.root;
         let root = Self::directories(root, path, true).await?;
         Ok(Self { root })
     }
@@ -242,6 +248,12 @@ mod tests {
         store.rename(path, "key/file").await?;
         assert!(!store.exists(path).await?);
         assert!(store.exists("key/file").await?);
+        let source = OpfsStore::new_root()
+            .await?
+            .open_read("attachment-tests/lane-c/key/file")
+            .await?;
+        assert_eq!(source.len(), 4);
+        assert_eq!(source.read_chunk(0, 64).await?, b"OPFS");
         store.remove_dir_all("key").await?;
         assert!(!store.exists("key/file").await?);
     }
