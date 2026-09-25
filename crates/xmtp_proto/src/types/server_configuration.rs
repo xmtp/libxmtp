@@ -140,17 +140,8 @@ impl TryFrom<backend_v1::AttachmentsConfiguration> for AttachmentsConfiguration 
         {
             return Err("base_url has whitespace, a control character, or a backslash");
         }
-        if attachments.base_url.ends_with('/') {
-            return Err("base_url has a trailing slash");
-        }
         let base_url = url::Url::parse(&attachments.base_url)
             .map_err(|_| "base_url is not an absolute URL")?;
-        if base_url.as_str() != attachments.base_url
-            && !(base_url.path() == "/"
-                && base_url.as_str().strip_suffix('/') == Some(attachments.base_url.as_str()))
-        {
-            return Err("base_url changes when parsed");
-        }
         if base_url.host().is_none() {
             return Err("base_url has no host");
         }
@@ -169,6 +160,23 @@ impl TryFrom<backend_v1::AttachmentsConfiguration> for AttachmentsConfiguration 
         }
         if base_url.query().is_some() || base_url.fragment().is_some() {
             return Err("base_url has a query or fragment");
+        }
+        if attachments.base_url.ends_with('/') {
+            return Err("base_url has a trailing slash");
+        }
+        let (raw_scheme, authority_and_path) = attachments
+            .base_url
+            .split_once("://")
+            .ok_or("base_url changes when parsed")?;
+        if !raw_scheme.eq_ignore_ascii_case(base_url.scheme()) {
+            return Err("base_url changes when parsed");
+        }
+        let raw_path = authority_and_path
+            .find('/')
+            .map(|start| &authority_and_path[start..])
+            .unwrap_or("/");
+        if base_url.path() != raw_path {
+            return Err("base_url path changes when parsed");
         }
         if attachments.max_upload_bytes > u32::MAX as u64 {
             return Err("max_upload_bytes exceeds the remote attachment limit");

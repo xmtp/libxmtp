@@ -243,9 +243,12 @@ fn usable_attachments_keep_the_offer() {
     for base_url in [
         "https://example.com/attachments",
         "https://example.com",
+        "https://CDN.example.com/att",
+        "https://example.com:443/att",
         "http://127.0.0.1:9000",
         "http://127.0.0.1/attachments",
         "http://[::1]/attachments",
+        "http://[0:0:0:0:0:0:0:1]/att",
     ] {
         let mut response = populated();
         response.attachments = Some(backend_v1::AttachmentsConfiguration {
