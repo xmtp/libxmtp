@@ -185,7 +185,7 @@ The upload table: what the client does when an app asks to upload a pending atta
 | ATCH-032 | Creation reads the source once | When creation returns successfully, the client MUST have made the plaintext file readable at its plaintext path and written the staged ciphertext so that it survives the end of the process, and MUST NOT read the source again for that pending attachment. | An app that moves or deletes its file after creation, or whose process ends after an optimistic send, would otherwise hold a message whose object can never be uploaded. |
 | ATCH-033 | Failed creation leaves nothing | If creation fails, then the client MUST leave no plaintext file, no staged ciphertext, no pending attachment record, and no local attachment record for it. | An app retries creation; a leftover partial file is a file ATCH-052 would return as complete. |
 | ATCH-072 | Source shape | If an `AttachmentSource` whose `kind` is `path` has no `path` or has `bytes`, or one whose `kind` is `bytes` has no `bytes` or has `path`, then the SDK MUST fail creation with the cause `malformed` before the client reads the source or writes any file. | An SDK that guesses which member to read attaches the wrong content. |
-| ATCH-034 | Status transitions | The client MUST set a pending attachment's status to `waiting` at creation, MUST handle each request to upload as the upload table states, and MUST set the status only to the outcome of an upload under ATCH-025, ATCH-026, ATCH-029, ATCH-036, or ATCH-047 when the upload ends. An upload that the end of the process interrupts has no outcome: a client created later holds that pending attachment as `waiting` under ATCH-066 and emits no event for it. After `complete`, the status MUST NOT change. | Two concurrent PUTs of one object race the create-only precondition for no gain; a completed upload repeated by a retry loop must not fail. |
+| ATCH-034 | Status transitions | The client MUST set a pending attachment's status to `waiting` at creation, MUST handle each request to upload as the upload table states, and MUST set the status only to the outcome of an upload under ATCH-025, ATCH-026, ATCH-029, ATCH-036, ATCH-047, or ATCH-071 when the upload ends. An upload that the end of the process interrupts has no outcome: a client created later holds that pending attachment as `waiting` under ATCH-066 and emits no event for it. After `complete`, the status MUST NOT change. | Two concurrent PUTs of one object race the create-only precondition for no gain; a completed upload repeated by a retry loop must not fail. |
 | ATCH-035 | One pending attachment per digest | The client MUST hold at most one pending attachment for each content digest, and every handle an SDK returns for that digest MUST report that pending attachment's status and share its uploads. | Two handles would run two uploads of one staged ciphertext, and the one that completes first deletes the file under the other (ATCH-037). |
 | ATCH-036 | Unusable staged ciphertext | If an upload starts and the staged ciphertext is absent, or its SHA-256 differs from the content digest, then the client MUST end the upload as `failed` with the cause `staged_unusable` before it sends any request. | A truncated file would be rejected by the target on every retry, and the app would loop on `target_rejected` for an object it can never store. |
 | ATCH-037 | Staged ciphertext is released | When a pending attachment becomes `complete`, the client MUST delete its staged ciphertext and its pending attachment record. | Every sent attachment would otherwise occupy its size twice on the device. |
@@ -306,6 +306,22 @@ enum AttachmentFailureCause {
   "deleted"               // ATCH-047
 };
 ```
+
+The cause tells an app when a later attempt can succeed:
+
+| Cause | A later attempt can succeed |
+| --- | --- |
+| `not_offered` | After the deployment offers attachments |
+| `too_large`, `staged_unusable`, `backend_rejected`, `insecure_url`, `too_many_redirects`, `malformed`, `digest_mismatch`, `decryption_failed`, `not_an_attachment` | No. The same input fails again |
+| `source_unreadable` | After the app makes the source readable |
+| `local_storage` | Yes, when the device has space and the directory is writable |
+| `connection_blocked` | After the client is updated or bound to its deployment again (CONF-075) |
+| `credential` | After the app renews the credential of the kind ATCH-061 reports |
+| `backend_unavailable`, `network`, `http_status` | Yes, after a backoff |
+| `target_rejected` | Yes, for a new upload request, which gets a new signed URL; a target that rejects every signed request fails again |
+| `blocked_address` | Only with `allow_private_network` set |
+| `not_found` | Yes, while the sender has not completed the upload; no, after the target has deleted the object (ATCH-004) |
+| `deleted` | Yes. The app can download again |
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
