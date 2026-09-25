@@ -194,4 +194,36 @@ mod tests {
             b"destination"
         );
     }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_rename_falls_back_without_hard_links() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path())
+            .await?
+            .with_forced_hard_link_error(std::io::ErrorKind::PermissionDenied);
+        let mut source = store.create_temp(".tmp/source").await?;
+        source.write(b"source").await?;
+        drop(source);
+        store.rename(".tmp/source", "key/file").await?;
+        assert!(!store.exists(".tmp/source").await?);
+        assert_eq!(
+            tokio::fs::read(directory.path().join("key/file")).await?,
+            b"source"
+        );
+
+        let mut source = store.create_temp(".tmp/second").await?;
+        source.write(b"second").await?;
+        drop(source);
+        let error = store.rename(".tmp/second", "key/file").await.unwrap_err();
+        assert_eq!(error.cause, Cause::LocalStorage);
+        assert_eq!(
+            tokio::fs::read(directory.path().join("key/file")).await?,
+            b"source"
+        );
+        assert_eq!(
+            tokio::fs::read(directory.path().join(".tmp/second")).await?,
+            b"second"
+        );
+    }
 }
