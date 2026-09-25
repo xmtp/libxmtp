@@ -273,7 +273,6 @@ impl IncomingCoordinator {
         IncomingLease {
             id,
             coordinator: self.clone(),
-            changes: tokio::sync::Mutex::new(self.state.changed.subscribe()),
             closed: std::sync::atomic::AtomicBool::new(false),
         }
     }
@@ -288,7 +287,6 @@ impl IncomingCoordinator {
 pub struct IncomingLease {
     id: u64,
     coordinator: Arc<IncomingCoordinator>,
-    changes: tokio::sync::Mutex<watch::Receiver<u64>>,
     closed: std::sync::atomic::AtomicBool,
 }
 
@@ -370,11 +368,16 @@ impl IncomingLease {
 
     /// A notification is a hint. Read a fresh snapshot after it arrives.
     pub async fn changed(&self) {
-        let mut changes = self.changes.lock().await;
+        let mut changes = self.subscribe_changes();
         if self.closed.load(Ordering::Acquire) {
             return;
         }
         let _ = changes.changed().await;
+    }
+
+    /// Subscribe before reading a status so an update cannot be missed.
+    pub fn subscribe_changes(&self) -> watch::Receiver<u64> {
+        self.coordinator.state.changed.subscribe()
     }
 
     /// Release interest even if another task still holds this lease to watch status.
@@ -399,5 +402,32 @@ impl IncomingLease {
 impl Drop for IncomingLease {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+#[cfg(test)]
+mod lease_observer_tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn lease_change_wakes_independent_observers() {
+        let (commands, _receiver) = mpsc::unbounded_channel();
+        let coordinator = Arc::new(IncomingCoordinator {
+            commands,
+            generations: AtomicU64::new(0),
+            state: Arc::new(SharedState::default()),
+        });
+        let lease = Arc::new(coordinator.acquire(IncomingScope::AllGroups));
+        let first_lease = lease.clone();
+        let first = tokio::spawn(async move { first_lease.changed().await });
+        let second_lease = lease.clone();
+        let second = tokio::spawn(async move { second_lease.changed().await });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        coordinator.state.notify();
+        xmtp_common::time::timeout(std::time::Duration::from_secs(1), async {
+            first.await?;
+            second.await
+        })
+        .await??;
     }
 }

@@ -1126,17 +1126,28 @@ async fn connection_state_across_toxiproxy_drop() {
         assert_eq!(message, ConnectionState::Connected);
         assert_eq!(conversation, ConnectionState::Connected);
 
+        let pending_conversation = conversations.clone();
+        let pending_read = tokio::spawn(async move { pending_conversation.next().await });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!pending_read.is_finished(), "conversation read was not pending");
+        let state_messages = messages.clone();
+        let state_conversations = conversations.clone();
+        let pending_states = tokio::spawn(async move {
+            tokio::join!(
+                state_messages.connection_state_changed(ConnectionState::Connected),
+                state_conversations.connection_state_changed(ConnectionState::Connected)
+            )
+        });
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(!pending_states.is_finished(), "state observer was not pending");
+
         proxy.disable().await.expect("disable proxy");
         let outage = AssertUnwindSafe(async {
             let (message, conversation) =
-                xmtp_common::time::timeout(Duration::from_secs(30), async {
-                    tokio::join!(
-                        messages.connection_state_changed(ConnectionState::Connected),
-                        conversations.connection_state_changed(ConnectionState::Connected)
-                    )
-                })
-                .await
-                .expect("connection drop");
+                xmtp_common::time::timeout(Duration::from_secs(30), pending_states)
+                    .await
+                    .expect("connection drop")
+                    .expect("state observer task");
             assert_eq!(
                 message.expect("message drop"),
                 ConnectionState::Reconnecting
@@ -1169,6 +1180,14 @@ async fn connection_state_across_toxiproxy_drop() {
         );
         messages.end().await.expect("end message reader");
         conversations.end().await.expect("end conversation reader");
+        assert!(
+            xmtp_common::time::timeout(Duration::from_secs(5), pending_read)
+                .await
+                .expect("pending conversation read settles")
+                .expect("pending conversation task")
+                .expect("pending conversation result")
+                .is_none()
+        );
         client.end().await.expect("end client");
     })
     .await;
