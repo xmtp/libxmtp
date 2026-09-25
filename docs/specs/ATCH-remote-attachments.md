@@ -359,4 +359,8 @@ In a browser, the SQLite store keeps every database in one origin-private pool, 
 
 Each client emits the `attachment.*` events only for the changes it makes. A second client on the same database, such as an app and its notification extension, reads the recorded status of a pending attachment but receives no event for an upload that the other client runs. The upload lease depends on the device clock and on a running process: a clock that jumps forward, or a platform that suspends the process for more than 120 seconds, expires a running upload's lease, so a second upload of the same object can start. The first upload then leaves the record to the second (ATCH-074), and when both PUTs reach the target, the create-only precondition (ATCH-023) ends one of them with 412.
 
+The client does not change the permissions of an attachments directory the app supplies; an app that supplies one that other local users can write gives them control of the files below it.
+
+Two processes that share a data directory can each record a deployment identifier at the same time, and one record can be lost; the next online start records it again, and until then an offline start for that backend fails with a storage-location error.
+
 A file that an app removes from the attachments directory without asking the client leaves its record behind until the next client creation, or until the app asks the client to delete the local files of that remote attachment.
