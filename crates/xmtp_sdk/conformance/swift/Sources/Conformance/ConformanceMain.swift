@@ -76,12 +76,27 @@ struct SampleCodec: SDKContentCodec {
     }
 }
 
+struct FailingCodec: SDKContentCodec {
+    let type = SampleCodec().type
+    func encode(_ value: Any) throws -> EncodedContent {
+        try SampleCodec().encode(value)
+    }
+
+    func decode(_: EncodedContent) throws -> Any {
+        throw ConformanceFailure("codec decode failed")
+    }
+}
+
 @main
 struct Conformance {
     static func main() async throws {
         precondition(sdkVersion().hasPrefix("1.12.0"))
         let messageID = try MessageID.fromString(String(repeating: "a", count: 64))
         precondition(messageID.description.count == 64)
+        do {
+            _ = try MessageID.fromString("bad")
+            throw ConformanceFailure("malformed ID was accepted")
+        } catch XmtpError.InvalidArgument {}
         print("Swift scenario 1: load, checksums, version passed")
 
         let signer = TestSigner()
@@ -110,6 +125,10 @@ struct Conformance {
         do {
             _ = try sent?.client()
             preconditionFailure("ended client remained in the registry")
+        } catch XmtpError.ClientClosed {}
+        do {
+            _ = try await sent?.refresh()
+            throw ConformanceFailure("message action after end did not fail")
         } catch XmtpError.ClientClosed {}
         let reopenedHost = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxID: inboxID
@@ -151,6 +170,11 @@ struct Conformance {
             _ = try orphan.client()
             preconditionFailure("released client remained in the registry")
         } catch XmtpError.ClientClosed {}
+        do {
+            _ = try await orphan.refresh()
+            throw ConformanceFailure("message action after release did not fail")
+        } catch XmtpError.ClientClosed {}
+        print("Swift client_closed_after_end_and_release passed")
         print("Swift scenario 2: create, reopen, end passed")
 
         let reopenedGroup = try await reopened.conversations().createGroup(members: [], options: nil)
@@ -362,6 +386,22 @@ struct Conformance {
               parent.replyCount == 1, parent.reactions.first?.id == reactionID,
               reply.inReplyTo?.id == parentID
         else { throw ConformanceFailure("message reaction or reply edge was not materialized") }
+        let sameParent = try await reopened.conversations().getMessageByID(id: parentID)
+        guard let sameParent, parent == sameParent else {
+            throw ConformanceFailure("message_copies_compare_equal failed")
+        }
+        var changedStatus = parent.data
+        changedStatus.deliveryStatus = parent.deliveryStatus == .failed ? .published : .failed
+        guard parent != Message(data: changedStatus) else {
+            throw ConformanceFailure("status_change_compares_unequal failed")
+        }
+        let forwarded: Conversation = .group(group: family)
+        let forwardedLast = try await forwarded.lastMessage()
+        let directLast = try await family.lastMessage()
+        guard forwarded.id() == family.id(),
+              forwardedLast?.id == directLast?.id
+        else { throw ConformanceFailure("Conversation forwarding failed") }
+        print("Swift message_copies_compare_equal and status_change_compares_unequal passed")
         print("Swift scenario 5: message records, reaction, and reply passed")
 
         let codec = SampleCodec()
@@ -378,6 +418,14 @@ struct Conformance {
         guard case let .custom(_, value, nil) = decoded.content, value as? String == "codec value",
               case .unknown = undecoded.content
         else { throw ConformanceFailure("custom codec leaked between clients") }
+        let failingHost = try await SDKClient.build(
+            identity: await signer.identity(), options: options, inboxID: inboxID, codecs: [FailingCodec()]
+        )
+        guard let failed = try await failingHost.raw.conversations().getMessageByID(id: customID),
+              case let .custom(_, nil, error) = failed.content, error != nil
+        else { throw ConformanceFailure("throwing custom codec was not recorded") }
+        try await failingHost.end()
+        print("Swift codec_scoped_to_client passed")
         try await withCodec.end()
         try await withoutCodec.end()
         print("Swift scenario 6: custom codec stayed with its client")

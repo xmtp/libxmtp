@@ -1,6 +1,8 @@
 mod callback_cursor;
+mod forwarding;
 mod id_names;
 mod kotlin_callbacks;
+mod kotlin_records;
 mod validate;
 
 use std::{fs, path::Path};
@@ -112,10 +114,8 @@ fn generate(
             })?;
             if matches!(language, Language::Kotlin) {
                 let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
-                fs::write(
-                    &binding,
-                    kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?,
-                )?;
+                let callbacks = kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?;
+                fs::write(&binding, kotlin_records::rewrite(&callbacks, &metadata)?)?;
             }
         }
         Language::TypescriptNapi | Language::TypescriptWasm => {
@@ -209,6 +209,9 @@ fn generate(
         .join("runtime")
         .join(runtime_name);
     copy_tree(runtime.as_std_path(), out.join("runtime").as_std_path())?;
+    if matches!(language, Language::Swift | Language::Kotlin) {
+        forwarding::generate(&metadata, language, out)?;
+    }
     Ok(())
 }
 

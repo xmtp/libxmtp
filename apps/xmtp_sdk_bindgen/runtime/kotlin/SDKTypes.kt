@@ -32,6 +32,22 @@ sealed class SDKMessageContent {
     ) : SDKMessageContent()
 }
 
+sealed class SDKReplyContent {
+    data class Standard(
+        val value: MessageBody,
+    ) : SDKReplyContent()
+
+    data class Custom(
+        val encoded: EncodedContent,
+        val value: Any?,
+        val error: Throwable?,
+    ) : SDKReplyContent()
+
+    data class Unknown(
+        val encoded: EncodedContent,
+    ) : SDKReplyContent()
+}
+
 private fun validHex(
     value: String,
     bytes: Int,
@@ -47,6 +63,10 @@ private fun EncodedContent.deepHashCode(): Int {
     result = 31 * result + (fallback?.hashCode() ?: 0)
     return 31 * result + content.contentHashCode()
 }
+private fun invalidID(message: String) =
+    XmtpException.InvalidArgument(
+        ErrorDetails("InvalidArgument", ErrorCategory.INPUT, false, message),
+    )
 
 // ID types have no public constructor or copy(), so a caller can only make
 // one through fromString. Generated lifts use the internal unchecked factory.
@@ -62,7 +82,7 @@ class InboxID private constructor(
 
     companion object {
         fun fromString(value: String): InboxID {
-            require(value.isNotEmpty()) { "inbox ID is empty" }
+            if (value.isEmpty()) throw invalidID("inbox ID is empty")
             return InboxID(value)
         }
 
@@ -81,7 +101,7 @@ class InstallationID private constructor(
 
     companion object {
         fun fromString(value: String): InstallationID {
-            require(validHex(value, 32)) { "invalid lowercase hex ID" }
+            if (!validHex(value, 32)) throw invalidID("invalid lowercase hex ID")
             return InstallationID(value)
         }
 
@@ -100,7 +120,7 @@ class ConversationID private constructor(
 
     companion object {
         fun fromString(value: String): ConversationID {
-            require(validHex(value, 16)) { "invalid lowercase hex ID" }
+            if (!validHex(value, 16)) throw invalidID("invalid lowercase hex ID")
             return ConversationID(value)
         }
 
@@ -119,7 +139,7 @@ class MessageID private constructor(
 
     companion object {
         fun fromString(value: String): MessageID {
-            require(validHex(value, 32)) { "invalid lowercase hex ID" }
+            if (!validHex(value, 32)) throw invalidID("invalid lowercase hex ID")
             return MessageID(value)
         }
 
@@ -155,6 +175,34 @@ class Message(
 
             else -> {
                 SDKMessageContent.Standard(body)
+            }
+        }
+    val inReplyToContent: SDKReplyContent? =
+        data.inReplyTo?.let { parent ->
+            when (val body = parent.content) {
+                is MessageBody.Custom -> {
+                    when (val decoded = ClientRegistry.get(data.clientKey)?.decodeCustom(body.encoded)) {
+                        is SDKMessageContent.Custom -> {
+                            SDKReplyContent.Custom(
+                                body.encoded,
+                                decoded.value,
+                                decoded.error,
+                            )
+                        }
+
+                        is SDKMessageContent.Unknown -> {
+                            SDKReplyContent.Unknown(body.encoded)
+                        }
+
+                        else -> {
+                            SDKReplyContent.Custom(body.encoded, null, clientClosedError())
+                        }
+                    }
+                }
+
+                else -> {
+                    SDKReplyContent.Standard(body)
+                }
             }
         }
     val id get() = data.id
@@ -194,25 +242,30 @@ class Message(
         options: SendOptions? = null,
     ): MessageID = client().raw.conversations().replyToMessage(id, content, options)
 
+    suspend fun reply(
+        codec: SDKContentCodec,
+        value: Any,
+        options: SendOptions? = null,
+    ): MessageID = reply(codec.encode(value), options)
+
     suspend fun parent(): Message? = inReplyTo?.id?.let { client().raw.conversations().getMessageByID(it) }
 
     suspend fun conversation(): Conversation? = client().raw.conversations().getByID(conversationID)
 
     fun client(): SDKClient =
         ClientRegistry.get(data.clientKey)
-            ?: throw XmtpException.ClientClosed(
-                ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
-            )
+            ?: throw clientClosedError()
 
     override fun equals(other: Any?): Boolean =
         other is Message &&
             id == other.id && data.clientKey == other.data.clientKey &&
-            data.conversationID == other.data.conversationID &&
+            data.conversationID == other.data.conversationID && data.topic == other.data.topic &&
             data.senderInboxID == other.data.senderInboxID && data.sentAt == other.data.sentAt &&
             data.kind == other.data.kind && data.deliveryStatus == other.data.deliveryStatus &&
             data.contentType == other.data.contentType && data.fallback == other.data.fallback &&
             data.insertedAt == other.data.insertedAt && data.expiresAt == other.data.expiresAt &&
-            data.replyCount == other.data.replyCount &&
+            data.replyCount == other.data.replyCount && data.reactions == other.data.reactions &&
+            data.inReplyTo.deepEquals(other.data.inReplyTo) &&
             data.encoded.deepEquals(other.data.encoded) &&
             when (val value = data.content) {
                 is MessageContent.Text -> {
@@ -265,6 +318,8 @@ class Message(
         result = 31 * result + data.insertedAt.hashCode()
         result = 31 * result + (data.expiresAt?.hashCode() ?: 0)
         result = 31 * result + data.replyCount.hashCode()
+        result = 31 * result + data.reactions.hashCode()
+        result = 31 * result + data.inReplyTo.deepHashCode()
         result = 31 * result + data.encoded.deepHashCode()
         result = 31 * result +
             when (val value = data.content) {
@@ -302,6 +357,37 @@ class Message(
             }
         return result
     }
+}
+
+private fun clientClosedError() =
+    XmtpException.ClientClosed(
+        ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
+    )
+
+private fun ReplyParent?.deepEquals(other: ReplyParent?): Boolean =
+    when {
+        this == null || other == null -> {
+            this == null && other == null
+        }
+
+        else -> {
+            id == other.id && senderInboxID == other.senderInboxID && sentAt == other.sentAt &&
+                kind == other.kind && deliveryStatus == other.deliveryStatus &&
+                contentType == other.contentType && fallback == other.fallback &&
+                encoded.deepEquals(other.encoded)
+        }
+    }
+
+private fun ReplyParent?.deepHashCode(): Int {
+    if (this == null) return 0
+    var result = id.hashCode()
+    result = 31 * result + senderInboxID.hashCode()
+    result = 31 * result + sentAt.hashCode()
+    result = 31 * result + kind.hashCode()
+    result = 31 * result + deliveryStatus.hashCode()
+    result = 31 * result + contentType.hashCode()
+    result = 31 * result + (fallback?.hashCode() ?: 0)
+    return 31 * result + encoded.deepHashCode()
 }
 
 object ClientRegistry {

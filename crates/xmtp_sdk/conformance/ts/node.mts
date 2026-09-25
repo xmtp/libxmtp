@@ -23,6 +23,10 @@ const { toBytes } = await import(
 assert.equal(typeof sdk.Client.create, "function");
 assert.equal(typeof sdk.Message, "function");
 assert.equal(typeof sdk.Timestamp, "function");
+assert.throws(
+  () => sdk.MessageID.fromString("bad"),
+  sdk.XmtpError.InvalidArgument,
+);
 await sdk.uniffiInitAsync();
 assert.match(sdk.sdkVersion(), /^1\.12\.0/);
 console.log("Node scenario 1: load, checksums, version passed");
@@ -584,7 +588,10 @@ const reactionID = await reopened.conversations().reactToMessage(
 const replyID = await reopened
   .conversations()
   .replyToMessage(parentID, sdk.encodeText("reply"), undefined);
-assert.equal((await reopened.raw.decodeContent(sdk.encodeText("decoded"))).tag, sdk.MessageContent_Tags.Text);
+assert.equal(
+  (await reopened.raw.decodeContent(sdk.encodeText("decoded"))).tag,
+  sdk.MessageContent_Tags.Text,
+);
 const familyMessages = await familyGroup.messages(undefined);
 const parent = familyMessages.find(
   (value) => value.id.toString() === parentID.toString(),
@@ -637,6 +644,27 @@ assert.equal(
   (undecoded?.content as { inner?: { value?: string } }).inner?.value,
   undefined,
 );
+const failingCodec = {
+  ...customCodec,
+  decode(_value: sdk.EncodedContent): string {
+    throw new Error("codec decode failed");
+  },
+};
+const ownerWithFailingCodec = await sdk.Client.build(
+  identity,
+  { ...options, codecs: [failingCodec] },
+  inboxID,
+);
+const failedDecode = await ownerWithFailingCodec
+  .conversations()
+  .getMessageByID(customID);
+assert.match(
+  String(
+    (failedDecode?.content as { inner?: { error?: string } }).inner?.error,
+  ),
+  /codec decode failed/,
+);
+await ownerWithFailingCodec.end();
 await ownerWithCodec.end();
 await ownerWithoutCodec.end();
 console.log("Node scenario 6: custom codec stayed with its client");
