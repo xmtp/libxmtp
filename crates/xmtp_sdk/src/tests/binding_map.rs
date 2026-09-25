@@ -410,6 +410,52 @@ async fn backend_url_is_required_and_offline_choice_is_explicit() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn offline_build_with_moved_url_uses_stored_copy() {
+    use xmtp_db::prelude::QueryServerConfiguration;
+
+    // verifies: CONF-034
+    let path = std::env::temp_dir().join(format!(
+        "sdk-moved-backend-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
+    let signer = crate::generate_local_signer().await;
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let online = Client::create(signer.clone(), settings.clone()).await?;
+    let inbox_id = online.inbox_id();
+    let stored = online
+        .inner
+        .context
+        .db()
+        .server_configuration()?
+        .expect("stored configuration");
+    online.end().await?;
+
+    settings.allow_offline = true;
+    settings.backend = Some(BackendSource::Options {
+        options: BackendOptions {
+            url: "http://127.0.0.1:1".into(),
+            ..Default::default()
+        },
+    });
+    let identity = signer::identity(signer).await?;
+    assert_ne!(stored.backend_url, "http://127.0.0.1:1");
+    let offline = Client::build(identity, settings, Some(inbox_id)).await?;
+    assert_eq!(offline.server_configuration().identifier, stored.identifier);
+    let retained = offline
+        .inner
+        .context
+        .db()
+        .server_configuration()?
+        .expect("stored configuration after offline build");
+    assert_eq!(retained.backend_url, stored.backend_url);
+    assert_eq!(retained.fetched_at_ns, stored.fetched_at_ns);
+    offline.end().await?;
+    std::fs::remove_file(path)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_create_keeps_one_inbox_id() {
     let signer = crate::generate_local_signer().await;
     let results =
