@@ -30,6 +30,8 @@ pub struct ResolvedPaths {
 pub enum StorageLocationError {
     #[error("storage location needs an inbox id before opening the database")]
     InboxId,
+    #[error("data directory needs a backend URL")]
+    BackendUrl,
     #[error("offline storage location has no deployment record for this backend URL")]
     OfflineMissingDeployment,
     #[error("store or attachments_dir conflicts with data_location")]
@@ -77,6 +79,9 @@ impl DeploymentRecorder {
     }
 
     pub(crate) async fn lookup(&self) -> Result<Option<String>, StorageLocationError> {
+        if self.backend_url.is_empty() {
+            return Err(StorageLocationError::BackendUrl);
+        }
         let _guard = RECORD_LOCK.get_or_init(|| Mutex::new(())).lock().await;
         Ok(read_file(&self.data_dir)
             .await?
@@ -85,6 +90,9 @@ impl DeploymentRecorder {
     }
 
     pub(crate) async fn record(&self, identifier: &str) -> Result<(), StorageLocationError> {
+        if self.backend_url.is_empty() {
+            return Err(StorageLocationError::BackendUrl);
+        }
         let _guard = RECORD_LOCK.get_or_init(|| Mutex::new(())).lock().await;
         let mut file = read_file(&self.data_dir).await?;
         file.version = 1;

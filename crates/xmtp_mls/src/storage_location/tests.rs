@@ -60,6 +60,35 @@ mod native {
 
     // verifies: ATCH-069
     #[xmtp_common::test(unwrap_try = true)]
+    async fn data_dir_without_backend_url_fails_before_request() {
+        let dir = tempfile::tempdir()?;
+        let mut builder = builder();
+        builder
+            .api_client
+            .as_mut()
+            .unwrap()
+            .expect_get_configuration()
+            .times(0);
+        let result = builder
+            .data_location(
+                StorageLocation::DataDir(dir.path().to_path_buf()),
+                [0u8; 32].into(),
+            )
+            .await?
+            .default_mls_store()?
+            .build()
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::BackendUrl
+            ))
+        ));
+        assert!(!dir.path().join("deployments.json").exists());
+    }
+
+    // verifies: ATCH-069
+    #[xmtp_common::test(unwrap_try = true)]
     async fn offline_uses_record() {
         let dir = tempfile::tempdir()?;
         // A second client opens the same database after its backend stops.
@@ -175,14 +204,13 @@ mod native {
     #[xmtp_common::test(unwrap_try = true)]
     async fn offline_first_start_without_record_fails() {
         let dir = tempfile::tempdir()?;
-        let mut builder = builder();
-        builder
-            .api_client
-            .as_mut()
-            .unwrap()
-            .expect_get_configuration()
-            .times(0);
-        let result = builder
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(format!("http://{}", listener.local_addr()?));
+        let result = Client::builder(identity_setup(generate_local_wallet()))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .with_allow_offline(Some(true))
             .data_location(
                 StorageLocation::DataDir(dir.path().to_path_buf()),
@@ -199,20 +227,22 @@ mod native {
             ))
         ));
         assert!(!dir.path().join("deployments.json").exists());
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
     }
 
     // verifies: ATCH-069
     #[xmtp_common::test(unwrap_try = true)]
     async fn offline_set_after_location_still_fails_without_request() {
         let dir = tempfile::tempdir()?;
-        let mut builder = builder();
-        builder
-            .api_client
-            .as_mut()
-            .unwrap()
-            .expect_get_configuration()
-            .times(0);
-        let result = builder
+        let listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+        listener.set_nonblocking(true)?;
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(format!("http://{}", listener.local_addr()?));
+        let result = Client::builder(identity_setup(generate_local_wallet()))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .data_location(
                 StorageLocation::DataDir(dir.path().to_path_buf()),
                 [0u8; 32].into(),
@@ -229,6 +259,9 @@ mod native {
             ))
         ));
         assert!(!dir.path().join("deployments.json").exists());
+        assert!(
+            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        );
     }
 
     // verifies: ATCH-069

@@ -1147,10 +1147,15 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         let transfer = Transfer::new(runtime.options.clone())?;
         transfer.put(&request, staged).await?;
         // Delete the row first, so a stopped client cannot resume a missing file.
-        self.context
+        if let Err(error) = self
+            .context
             .db()
             .delete_pending_attachment(&self.remote.content_digest)
-            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+        {
+            // Keep the staged file with its row so a later upload can retry cleanup.
+            tracing::warn!(%error, "pending attachment cleanup will be retried after upload");
+            return Ok(());
+        }
         if let Err(error) = store.remove_file(&path).await {
             tracing::warn!(%error, "staged ciphertext cleanup will be retried by reconciliation");
         }
@@ -2139,6 +2144,56 @@ mod tests {
         pending.upload().await?;
         assert!(!staged.exists());
         assert!(alix.client.attachments().list_pending().await?.is_empty());
+    }
+
+    // verifies: ATCH-025, ATCH-037
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stored_object_stays_complete_when_pending_row_delete_fails() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        let staged = dir.path().join(staged_path(&remote.content_digest)?);
+        let events = alix
+            .client
+            .context
+            .events()
+            .subscribe_app(EventFilter::new([
+                EventKind::AttachmentUploadCompleted,
+                EventKind::AttachmentUploadFailed,
+            ]))?;
+        alix.client.context.db().raw_query(|conn| {
+            xmtp_db::diesel::sql_query(
+                "CREATE TRIGGER reject_pending_delete BEFORE DELETE ON pending_attachments \
+                 BEGIN SELECT RAISE(ABORT, 'delete rejected'); END",
+            )
+            .execute(conn)
+        })?;
+
+        pending.upload().await?;
+        assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
+        assert!(staged.exists());
+        assert_eq!(alix.client.attachments().list_pending().await?.len(), 1);
+
+        let already_stored = alix.client.attachments().pending(&remote).await?;
+        already_stored.upload().await?;
+        assert_eq!(already_stored.status(), PendingAttachmentStatus::Complete);
+        assert!(staged.exists());
+
+        alix.client.context.db().raw_query(|conn| {
+            xmtp_db::diesel::sql_query("DROP TRIGGER reject_pending_delete").execute(conn)
+        })?;
+        let resumed = alix.client.attachments().pending(&remote).await?;
+        resumed.upload().await?;
+        assert_eq!(resumed.status(), PendingAttachmentStatus::Complete);
+        assert!(!staged.exists());
+        assert!(alix.client.attachments().list_pending().await?.is_empty());
+        let emitted = events.drain();
+        assert_eq!(emitted.len(), 3);
+        assert!(emitted.iter().all(|entry| matches!(
+            &entry.client,
+            Some(ClientEvent::AttachmentUploadCompleted(_))
+        )));
     }
 
     // verifies: ATCH-025
