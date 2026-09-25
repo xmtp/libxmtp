@@ -1,5 +1,6 @@
 use std::{
     cell::{Cell, RefCell},
+    net::IpAddr,
     rc::Rc,
     time::Duration,
 };
@@ -20,24 +21,33 @@ use super::{
 };
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
+    address::is_private,
     store::{AttachmentOptions, CHUNK_SIZE, DownloadSink, StagedFile},
 };
 
 fn validate_download_url(url: &str, options: &AttachmentOptions) -> Result<(), AttachmentError> {
     let url = url::Url::parse(url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
-    let loopback = match url.host() {
-        Some(url::Host::Domain(name)) => name.eq_ignore_ascii_case("localhost"),
-        Some(url::Host::Ipv4(ip)) => ip.is_loopback(),
-        Some(url::Host::Ipv6(ip)) => ip.is_loopback(),
-        None => false,
+    let host = url.host().ok_or(AttachmentError::new(Cause::InsecureUrl))?;
+    let loopback = match host {
+        url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+        url::Host::Ipv4(ip) => ip.is_loopback(),
+        url::Host::Ipv6(ip) => ip.is_loopback(),
     };
-    if url.scheme() == "https"
-        || (url.scheme() == "http" && loopback && options.allow_private_network)
+    if !options.allow_private_network
+        && match host {
+            url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+            url::Host::Ipv4(ip) => is_private(IpAddr::V4(ip)),
+            url::Host::Ipv6(ip) => is_private(IpAddr::V6(ip)),
+        }
     {
-        Ok(())
-    } else {
-        Err(AttachmentError::new(Cause::InsecureUrl))
+        return Err(AttachmentError::new(Cause::BlockedAddress));
     }
+    if url.scheme() != "https"
+        && !(url.scheme() == "http" && loopback && options.allow_private_network)
+    {
+        return Err(AttachmentError::new(Cause::InsecureUrl));
+    }
+    Ok(())
 }
 
 fn validate_upload_url(url: &str) -> Result<(), AttachmentError> {
@@ -96,14 +106,21 @@ async fn blob_put(
 fn private_request(method: &str) -> RequestInit {
     let init = RequestInit::new();
     init.set_method(method);
-    init.set_redirect(if method == "PUT" {
-        RequestRedirect::Manual
-    } else {
-        RequestRedirect::Follow
-    });
+    init.set_redirect(RequestRedirect::Manual);
     init.set_credentials(RequestCredentials::Omit);
     init.set_referrer_policy(ReferrerPolicy::NoReferrer);
     init
+}
+
+fn download_status(status: u16, response_type: ResponseType) -> Result<(), AttachmentError> {
+    if response_type == ResponseType::Opaqueredirect || (300..400).contains(&status) {
+        return Err(AttachmentError::new(Cause::TooManyRedirects));
+    }
+    match status {
+        200 => Ok(()),
+        404 | 410 => Err(AttachmentError::new(Cause::NotFound)),
+        _ => Err(AttachmentError::new(Cause::HttpStatus)),
+    }
 }
 
 struct AbortDeadline {
@@ -191,7 +208,7 @@ async fn read_body<R: futures_util::io::AsyncRead + Unpin>(
     Ok(())
 }
 
-/// Browser transfer through fetch. The browser owns DNS and redirects.
+/// Browser transfer through fetch. Browser downloads reject redirects.
 pub struct Transfer {
     options: AttachmentOptions,
     idle_timeout: Duration,
@@ -243,11 +260,7 @@ impl Transfer {
         if deadline.fired.get() {
             return Err(AttachmentError::new(Cause::Network));
         }
-        match response.status() {
-            200 => {}
-            404 | 410 => return Err(AttachmentError::new(Cause::NotFound)),
-            _ => return Err(AttachmentError::new(Cause::HttpStatus)),
-        }
+        download_status(response.status(), response.type_())?;
         let body = response
             .body()
             .ok_or(AttachmentError::new(Cause::HttpStatus))?;
@@ -321,11 +334,55 @@ mod tests {
             private_request("PUT").get_redirect(),
             Some(RequestRedirect::Manual)
         );
+        assert_eq!(put_outcome(307).unwrap_err().cause, Cause::TargetRejected);
+    }
+
+    // verifies: ATCH-054
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn private_download_hosts_are_blocked_before_fetch() {
+        let transfer = Transfer::new(AttachmentOptions::default())?;
+        for url in [
+            "https://10.0.0.1/object",
+            "https://[::1]/object",
+            "https://LOCALHOST/object",
+            "http://LOCALHOST/object",
+            "https://[::ffff:10.0.0.1]/object",
+            "https://[64:ff9b::a00:1]/object",
+        ] {
+            assert_eq!(
+                transfer.get(url, 1, &mut NullSink).await.unwrap_err().cause,
+                Cause::BlockedAddress,
+                "{url}"
+            );
+        }
+        validate_download_url("https://example.com/object", &AttachmentOptions::default())?;
+        let options = AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        };
+        validate_download_url("https://10.0.0.1/object", &options)?;
+        validate_download_url("https://LOCALHOST/object", &options)?;
+        validate_download_url("http://localhost/object", &options)?;
+    }
+
+    // verifies: ATCH-055
+    #[xmtp_common::test(unwrap_try = true)]
+    fn download_redirect_is_rejected() {
         assert_eq!(
             private_request("GET").get_redirect(),
-            Some(RequestRedirect::Follow)
+            Some(RequestRedirect::Manual)
         );
-        assert_eq!(put_outcome(307).unwrap_err().cause, Cause::TargetRejected);
+        for (status, response_type) in [
+            (0, ResponseType::Opaqueredirect),
+            (301, ResponseType::Basic),
+            (307, ResponseType::Basic),
+        ] {
+            assert_eq!(
+                download_status(status, response_type).unwrap_err().cause,
+                Cause::TooManyRedirects
+            );
+        }
+        download_status(200, ResponseType::Basic)?;
     }
 
     // verifies: ATCH-070

@@ -1,4 +1,4 @@
-//! Native download address checks.
+//! Download address checks.
 //!
 //! `address-registry.txt` is the IANA special-purpose registry snapshot from
 //! 2025-10-09. A longer entry overrides its parent entry.
