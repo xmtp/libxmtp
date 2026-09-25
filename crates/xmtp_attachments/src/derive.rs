@@ -87,7 +87,6 @@ mod tests {
         );
     }
 
-    // verifies: ATCH-011
     #[xmtp_common::test(unwrap_try = true)]
     async fn remote_attachment_fields() {
         let ra = remote();
@@ -117,7 +116,6 @@ mod tests {
         assert_eq!(plaintext_rel_path(&ra)?, format!("{expected}/report.pdf"));
     }
 
-    // verifies: ATCH-059
     #[xmtp_common::test(unwrap_try = true)]
     async fn malformed_key_material() {
         let valid = remote();

@@ -6,41 +6,62 @@ pub fn local_file_name(filename: Option<&str>) -> String {
 /// Apply steps 2 to 8 of the file name table to a path component.
 pub fn sanitize_path_component(value: &str) -> String {
     let part = value.rsplit(['/', '\\']).next().unwrap_or_default();
-    let mut name: String = part
-        .chars()
-        .filter(|&c| {
-            !matches!(c, '\u{0000}'..='\u{001f}' | '\u{007f}'..='\u{009f}'
-                | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
-                | '<' | '>' | ':' | '"' | '|' | '?' | '*')
-        })
-        .collect();
-    name = name.trim_matches(['.', ' ']).to_owned();
-    let stem = name.split('.').next().unwrap_or_default();
-    let upper = stem.to_ascii_uppercase();
-    let reserved = matches!(
-        upper.as_str(),
-        "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
-    ) || (upper.starts_with("COM") || upper.starts_with("LPT"))
-        && upper
-            .chars()
-            .nth(3)
-            .is_some_and(|c| matches!(c, '1'..='9' | '¹' | '²' | '³'))
-        && upper.chars().count() == 4;
+    let clean_ascii = part.bytes().all(|byte| {
+        matches!(byte, 0x20..=0x7e)
+            && !matches!(byte, b'<' | b'>' | b':' | b'"' | b'|' | b'?' | b'*')
+    });
+    let mut name: String = if clean_ascii {
+        part.to_owned()
+    } else {
+        part.chars()
+            .filter(|&c| {
+                !matches!(c, '\u{0000}'..='\u{001f}' | '\u{007f}'..='\u{009f}'
+                    | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}'
+                    | '<' | '>' | ':' | '"' | '|' | '?' | '*')
+            })
+            .collect()
+    };
+    if name.starts_with(['.', ' ']) || name.ends_with(['.', ' ']) {
+        name = name.trim_matches(['.', ' ']).to_owned();
+    }
+    let stem = if clean_ascii {
+        name[..name.len().min(7)]
+            .split('.')
+            .next()
+            .unwrap_or_default()
+    } else {
+        name.split('.').next().unwrap_or_default()
+    };
+    let reserved = if stem.len() <= 6 {
+        let upper = stem.to_ascii_uppercase();
+        matches!(
+            upper.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) || (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && upper
+                .chars()
+                .nth(3)
+                .is_some_and(|c| matches!(c, '1'..='9' | '¹' | '²' | '³'))
+            && upper.chars().count() == 4
+    } else {
+        false
+    };
     if reserved {
         name.insert(0, '_');
     }
-    while name.len() > 255 {
-        let remove_at = name.rfind('.').and_then(|dot| {
-            if dot > 0 {
-                name[..dot].char_indices().last().map(|(index, _)| index)
-            } else {
-                None
+    if name.len() > 255 {
+        name = match name.rfind('.') {
+            Some(dot) if dot > 0 => {
+                let suffix = &name[dot..];
+                if suffix.len() >= 255 {
+                    truncate_bytes(suffix, 255).to_owned()
+                } else {
+                    let stem = truncate_bytes(&name[..dot], 255 - suffix.len());
+                    format!("{stem}{suffix}")
+                }
             }
-        });
-        let remove_at = remove_at.or_else(|| name.char_indices().last().map(|(index, _)| index));
-        if let Some(index) = remove_at {
-            name.remove(index);
-        }
+            _ => truncate_bytes(&name, 255).to_owned(),
+        };
     }
     let name = name.trim_matches(['.', ' ']);
     if name.is_empty() {
@@ -48,6 +69,15 @@ pub fn sanitize_path_component(value: &str) -> String {
     } else {
         name.to_owned()
     }
+}
+
+/// Keep the longest UTF-8 prefix within a byte limit.
+fn truncate_bytes(value: &str, limit: usize) -> &str {
+    let mut end = value.len().min(limit);
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    &value[..end]
 }
 
 #[cfg(test)]
@@ -83,5 +113,22 @@ mod tests {
         assert_eq!(actual.len(), 254);
         assert!(actual.ends_with(".pdf"));
         assert_eq!(actual.chars().filter(|&c| c == 'é').count(), 125);
+
+        let no_dot = "a".repeat(256);
+        assert_eq!(local_file_name(Some(&no_dot)), "a".repeat(255));
+        let after_truncation = format!("{} bb", "a".repeat(254));
+        assert_eq!(local_file_name(Some(&after_truncation)), "a".repeat(254));
+        let long_extension = format!("x.{}", "a".repeat(300));
+        assert_eq!(local_file_name(Some(&long_extension)), "a".repeat(254));
+    }
+
+    // verifies: ATCH-042
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn huge_file_name_linear() {
+        let no_dot = "a".repeat(4 * 1024 * 1024);
+        assert_eq!(local_file_name(Some(&no_dot)), "a".repeat(255));
+
+        let long_extension = format!("x.{}", "a".repeat(4 * 1024 * 1024));
+        assert_eq!(local_file_name(Some(&long_extension)), "a".repeat(254));
     }
 }

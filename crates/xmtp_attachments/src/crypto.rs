@@ -107,9 +107,7 @@ impl GcmCore {
             }
         }
         let blocks = input.len() / BLOCK_LEN;
-        for block in input[..blocks * BLOCK_LEN].chunks_exact(BLOCK_LEN) {
-            self.hash.update(&[GenericArray::clone_from_slice(block)]);
-        }
+        self.hash.update_padded(&input[..blocks * BLOCK_LEN]);
         let tail = &input[blocks * BLOCK_LEN..];
         self.partial[..tail.len()].copy_from_slice(tail);
         self.partial_len = tail.len();
@@ -209,6 +207,67 @@ mod tests {
 
     use super::*;
 
+    fn check_lengths(material: &KeyMaterial, plaintext: &[u8], start: usize, end: usize) {
+        let key =
+            derive_key(&material.secret, &material.salt).expect("32-byte HKDF expansion is valid");
+        let cipher = Aes256Gcm::new((&key).into());
+        let mut seed = 0x91c3_7d52_u64 ^ start as u64;
+        for len in start..=end {
+            let expected = cipher
+                .encrypt((&material.nonce).into(), &plaintext[..len])
+                .expect("fixed key and nonce");
+            let mut encryptor = GcmEncryptor::new(material);
+            let mut actual = Vec::new();
+            let mut at = 0;
+            while at < len {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let end = (at + 1 + (seed as usize % 32_768)).min(len);
+                encryptor.update(&plaintext[at..end], &mut actual);
+                at = end;
+            }
+            actual.extend_from_slice(&encryptor.finish());
+            assert_eq!(actual, expected, "length {len}");
+
+            let mut decryptor = GcmDecryptor::new(material);
+            let mut decoded = Vec::new();
+            let mut at = 0;
+            while at < actual.len() {
+                seed ^= seed << 13;
+                seed ^= seed >> 7;
+                seed ^= seed << 17;
+                let end = (at + 1 + (seed as usize % 24_576)).min(actual.len());
+                decryptor.update(&actual[at..end], &mut decoded);
+                at = end;
+            }
+            decryptor.finish().expect("valid ciphertext and tag");
+            assert_eq!(decoded, plaintext[..len], "length {len}");
+
+            if [0, 1, 15, 16, 17, 1024, 70_000].contains(&len) {
+                let mut positions = vec![len, actual.len() - 1];
+                if len != 0 {
+                    positions.extend([0, len - 1]);
+                }
+                for pos in positions {
+                    for bit in 0..8 {
+                        let mut changed = actual.clone();
+                        changed[pos] ^= 1 << bit;
+                        let mut decryptor = GcmDecryptor::new(material);
+                        let mut out = Vec::new();
+                        decryptor.update(&changed, &mut out);
+                        assert!(matches!(
+                            decryptor.finish(),
+                            Err(AttachmentError {
+                                cause: AttachmentFailureCause::DecryptionFailed
+                            })
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     // verifies: ATCH-012
     #[xmtp_common::test(unwrap_try = true)]
     async fn gcm_stream_matches_one_shot() {
@@ -217,8 +276,6 @@ mod tests {
             salt: [9; 32],
             nonce: [11; 12],
         };
-        let key = derive_key(&material.secret, &material.salt)?;
-        let cipher = Aes256Gcm::new((&key).into());
         // The native run checks every required length. Wasm runs a shorter
         // smoke pass because debug AES in the browser is much slower.
         let max_len = if cfg!(target_arch = "wasm32") {
@@ -234,61 +291,26 @@ mod tests {
             seed ^= seed << 17;
             *byte = seed as u8;
         }
-        for len in 0..=max_len {
-            let expected = cipher
-                .encrypt((&material.nonce).into(), &plaintext[..len])
-                .expect("fixed key and nonce");
-            let mut encryptor = GcmEncryptor::new(&material);
-            let mut actual = Vec::new();
-            let mut at = 0;
-            while at < len {
-                seed ^= seed << 13;
-                seed ^= seed >> 7;
-                seed ^= seed << 17;
-                let end = (at + 1 + (seed as usize % 4096)).min(len);
-                encryptor.update(&plaintext[at..end], &mut actual);
-                at = end;
+        #[cfg(target_arch = "wasm32")]
+        check_lengths(&material, &plaintext, 0, max_len);
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::scope(|scope| {
+            const WORKERS: usize = 10;
+            let mut handles = Vec::with_capacity(WORKERS);
+            // Total work is proportional to the sum of plaintext lengths.
+            let boundary = |worker: usize| {
+                ((max_len + 1) as f64 * (worker as f64 / WORKERS as f64).sqrt()) as usize
+            };
+            for worker in 0..WORKERS {
+                let start = boundary(worker);
+                let end = boundary(worker + 1) - 1;
+                let material = &material;
+                let plaintext = &plaintext;
+                handles.push(scope.spawn(move || check_lengths(material, plaintext, start, end)));
             }
-            actual.extend_from_slice(&encryptor.finish());
-            assert_eq!(actual, expected, "length {len}");
-
-            let mut decryptor = GcmDecryptor::new(&material);
-            let mut decoded = Vec::new();
-            let mut at = 0;
-            while at < actual.len() {
-                seed ^= seed << 13;
-                seed ^= seed >> 7;
-                seed ^= seed << 17;
-                let end = (at + 1 + (seed as usize % 3072)).min(actual.len());
-                decryptor.update(&actual[at..end], &mut decoded);
-                at = end;
+            for handle in handles {
+                handle.join().expect("GCM worker completed");
             }
-            decryptor.finish()?;
-            assert_eq!(decoded, plaintext[..len], "length {len}");
-
-            if [0, 1, 15, 16, 17, 1024, 70_000].contains(&len) {
-                let mut positions = vec![len, actual.len() - 1];
-                if len != 0 {
-                    positions.extend([0, len - 1]);
-                }
-                for pos in positions {
-                    for bit in 0..8 {
-                        let mut changed = actual.clone();
-                        changed[pos] ^= 1 << bit;
-                        let mut decryptor = GcmDecryptor::new(&material);
-                        let mut out = Vec::new();
-                        for chunk in changed.chunks(13) {
-                            decryptor.update(chunk, &mut out);
-                        }
-                        assert!(matches!(
-                            decryptor.finish(),
-                            Err(AttachmentError {
-                                cause: AttachmentFailureCause::DecryptionFailed
-                            })
-                        ));
-                    }
-                }
-            }
-        }
+        });
     }
 }
