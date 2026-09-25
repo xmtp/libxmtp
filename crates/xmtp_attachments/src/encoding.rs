@@ -261,16 +261,26 @@ pub struct DecodedMeta {
     pub compressed: bool,
 }
 
+/// Content events returned by the streaming attachment decoder.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentChunk<'a> {
+    /// Discard earlier content and start again at byte zero.
+    Reset,
+    /// Write these bytes after the last content event.
+    Bytes(&'a [u8]),
+}
+
 /// Parses a protobuf envelope across arbitrary chunk boundaries.
 ///
-/// Write every slice returned by `push` to a temporary content sink before the
-/// next call. The decoder retains only bounded metadata, not content bytes.
+/// Apply every event returned by `push` to a temporary content sink, in order,
+/// before the next call. `Reset` truncates the sink to zero and rewinds it.
+/// The decoder retains only bounded metadata, not content bytes.
 pub struct AttachmentDecoder {
     state: ParseState,
     header: Vec<u8>,
     metadata: Vec<u8>,
     parameter: Option<ParameterEntry>,
-    saw_content: bool,
+    content_fields: usize,
 }
 
 impl Default for AttachmentDecoder {
@@ -286,7 +296,7 @@ impl AttachmentDecoder {
             header: Vec::new(),
             metadata: Vec::new(),
             parameter: None,
-            saw_content: false,
+            content_fields: 0,
         }
     }
 
@@ -298,8 +308,8 @@ impl AttachmentDecoder {
         Ok(())
     }
 
-    /// Return content slices that borrow from this input chunk.
-    pub fn push<'a>(&mut self, input: &'a [u8]) -> Result<Vec<&'a [u8]>, AttachmentError> {
+    /// Return ordered content events. Byte slices borrow from this input chunk.
+    pub fn push<'a>(&mut self, input: &'a [u8]) -> Result<Vec<ContentChunk<'a>>, AttachmentError> {
         let mut at = 0;
         let mut content = Vec::new();
         while at < input.len() {
@@ -351,10 +361,10 @@ impl AttachmentDecoder {
                                 _ => DataKind::Skip,
                             };
                             if matches!(kind, DataKind::Content) {
-                                if self.saw_content {
-                                    return Err(invalid());
+                                if self.content_fields > 0 {
+                                    content.push(ContentChunk::Reset);
                                 }
-                                self.saw_content = true;
+                                self.content_fields = self.content_fields.saturating_add(1);
                             } else if matches!(kind, DataKind::Type) {
                                 let mut header = Vec::new();
                                 encode_varint((field << 3) | 2, &mut header);
@@ -392,7 +402,7 @@ impl AttachmentDecoder {
                     let take = remaining.min(input.len() - at);
                     let bytes = &input[at..at + take];
                     match kind {
-                        DataKind::Content => content.push(bytes),
+                        DataKind::Content => content.push(ContentChunk::Bytes(bytes)),
                         DataKind::Type => self.append_metadata(bytes)?,
                         DataKind::Parameter => self.parameter.as_mut().unwrap().push(bytes)?,
                         DataKind::Skip => {}
@@ -559,8 +569,16 @@ mod tests {
         let mut decoder = AttachmentDecoder::new();
         let mut temporary = Cursor::new(Vec::new());
         for byte in bytes.chunks(1) {
-            for slice in decoder.push(byte)? {
-                temporary.write_all(slice).map_err(|_| invalid())?;
+            for event in decoder.push(byte)? {
+                match event {
+                    ContentChunk::Reset => {
+                        temporary.get_mut().clear();
+                        temporary.set_position(0);
+                    }
+                    ContentChunk::Bytes(slice) => {
+                        temporary.write_all(slice).map_err(|_| invalid())?;
+                    }
+                }
             }
         }
         let mut decompressed = Vec::new();
@@ -686,6 +704,64 @@ mod tests {
             decode(&value.encode_to_vec()).unwrap_err().cause,
             AttachmentFailureCause::NotAnAttachment
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn decoder_repeated_content_last_wins() {
+        let mut bytes = envelope(b"first".to_vec()).encode_to_vec();
+        bytes.extend_from_slice(b"\x22\x06second");
+        assert_eq!(EncodedContent::decode(bytes.as_slice())?.content, b"second");
+        let (stored, decompressed, _) = decode(&bytes)?;
+        assert_eq!(stored, b"second");
+        assert!(decompressed.is_empty());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn decoder_repeated_compressed_content_last_wins() {
+        let mut zlib = ZlibEncoder::new(Vec::new(), FlateCompression::default());
+        zlib.write_all(b"second")?;
+        let zlib = zlib.finish()?;
+        let mut value = envelope(b"invalid zlib".to_vec());
+        value.compression = Some(Compression::Deflate as i32);
+        let mut bytes = value.encode_to_vec();
+        bytes.push(CONTENT_FIELD_TAG);
+        encode_varint(zlib.len() as u64, &mut bytes);
+        bytes.extend_from_slice(&zlib);
+        assert_eq!(EncodedContent::decode(bytes.as_slice())?.content, zlib);
+        let (stored, decompressed, meta) = decode(&bytes)?;
+        assert_eq!(stored, zlib);
+        assert_eq!(decompressed, b"second");
+        assert!(meta.compressed);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn repeated_entry_fields_replace_not_append() {
+        let mut bytes = envelope(b"content".to_vec()).encode_to_vec();
+        let mut entry = Vec::new();
+        for key in ["junk", "junk", "filename"] {
+            entry.push(0x0a);
+            encode_varint(key.len() as u64, &mut entry);
+            entry.extend_from_slice(key.as_bytes());
+        }
+        for value in ["a".repeat(60_000), "b".repeat(60_000)] {
+            entry.push(0x12);
+            encode_varint(value.len() as u64, &mut entry);
+            entry.extend_from_slice(value.as_bytes());
+        }
+        bytes.push(0x12);
+        encode_varint(entry.len() as u64, &mut bytes);
+        bytes.extend_from_slice(&entry);
+        let expected = EncodedContent::decode(bytes.as_slice())?;
+        assert_eq!(expected.parameters.get("filename").unwrap().len(), 60_000);
+        assert!(
+            expected.parameters["filename"]
+                .bytes()
+                .all(|byte| byte == b'b')
+        );
+        let (_, _, meta) = decode(&bytes)?;
+        let filename = meta.filename.unwrap();
+        assert_eq!(filename.len(), 60_000);
+        assert!(filename.bytes().all(|byte| byte == b'b'));
     }
 
     // verifies: CTYPE-001, CTYPE-016
