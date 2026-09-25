@@ -3,6 +3,7 @@ use quote::quote;
 use syn::{ImplItem, Item, ReturnType, TraitItem, Type};
 
 pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStream> {
+    let mut pure = false;
     let target = if attr.is_empty() {
         None
     } else {
@@ -10,16 +11,41 @@ pub fn sdk_export(attr: TokenStream, input: TokenStream) -> syn::Result<TokenStr
         match target.to_string().as_str() {
             "native_only" => Some(quote!(#[cfg(not(target_arch = "wasm32"))])),
             "wasm_only" => Some(quote!(#[cfg(target_arch = "wasm32")])),
+            "pure" => {
+                pure = true;
+                None
+            }
             _ => {
                 return Err(syn::Error::new_spanned(
                     target,
-                    "sdk_export accepts only native_only or wasm_only",
+                    "sdk_export accepts only native_only, wasm_only, or pure",
                 ));
             }
         }
     };
 
     let mut item: Item = syn::parse2(input)?;
+    if pure {
+        match &mut item {
+            Item::Fn(function) if function.sig.asyncness.is_none() => {
+                function
+                    .attrs
+                    .push(syn::parse_quote!(#[doc = "@xmtp-pure"]));
+            }
+            Item::Fn(function) => {
+                return Err(syn::Error::new_spanned(
+                    &function.sig,
+                    "pure export must be synchronous",
+                ));
+            }
+            _ => {
+                return Err(syn::Error::new_spanned(
+                    item,
+                    "pure export must be a free function",
+                ));
+            }
+        }
+    }
     let has_async = match &mut item {
         Item::Impl(item_impl) => {
             let mut has_async = false;

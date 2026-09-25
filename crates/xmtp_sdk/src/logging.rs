@@ -63,7 +63,7 @@ pub struct OtelOptions {
 }
 
 #[xmtp_macro::sdk_export]
-pub fn init_logging(options: LoggingOptions) -> Result<(), XmtpError> {
+pub async fn init_logging(options: LoggingOptions) -> Result<(), XmtpError> {
     let level = options.level.unwrap_or(LogLevel::Info);
     if let Some(handle) = LOGGING.get() {
         return handle.set_level(level.into()).map_err(XmtpError::unknown);
@@ -88,7 +88,7 @@ pub fn init_logging(options: LoggingOptions) -> Result<(), XmtpError> {
 }
 
 #[xmtp_macro::sdk_export]
-pub fn flush_telemetry() {
+pub async fn flush_telemetry() {
     if let Some(handle) = LOGGING.get() {
         handle.flush();
     }

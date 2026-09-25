@@ -15,3 +15,16 @@ export { Message } from "./message";
 export { MessageStream } from "./reader";
 export { EventStream } from "./events/reader";
 export { setLogSink } from "./logging";
+export {
+  TextCodec,
+  ReadReceiptCodec,
+  ReactionV2Codec,
+  AttachmentCodec,
+  RemoteAttachmentCodec,
+  MultiRemoteAttachmentCodec,
+  TransactionReferenceCodec,
+  ReplyCodec,
+  GroupUpdatedCodec,
+  DeleteMessageCodec,
+  LeaveRequestCodec,
+} from "./codecs";

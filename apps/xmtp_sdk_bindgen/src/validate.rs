@@ -134,6 +134,20 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                 )?;
             }
             Metadata::Func(function) => {
+                if function
+                    .docstring
+                    .as_deref()
+                    .is_some_and(|doc| doc.contains("@xmtp-pure"))
+                {
+                    if function.is_async {
+                        bail!("{}: pure export must be synchronous", function.name);
+                    }
+                    for input in &function.inputs {
+                        if contains_object(&input.ty, &items, &mut HashSet::new()) {
+                            bail!("{}: pure export takes an object", function.name);
+                        }
+                    }
+                }
                 if function.return_type.as_ref().is_some_and(raw_message) {
                     bail!("{}: return Message, not MessageData", function.name);
                 }
@@ -444,6 +458,62 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("open: object Failure")
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn pure_export_rejects_async_and_nested_object_input() {
+        let mut pure = Metadata::Func(FnMetadata {
+            module_path: "test".into(),
+            name: "encode_pure".into(),
+            orig_name: None,
+            is_async: true,
+            inputs: vec![],
+            return_type: None,
+            throws: None,
+            checksum: None,
+            docstring: Some("@xmtp-pure".into()),
+        });
+        assert!(
+            validate_items(&[pure.clone()])
+                .unwrap_err()
+                .to_string()
+                .contains("pure")
+        );
+        let Metadata::Func(ref mut function) = pure else {
+            unreachable!()
+        };
+        function.is_async = false;
+        function.inputs = vec![FnParamMetadata::simple(
+            "value",
+            Type::Record {
+                module_path: "test".into(),
+                name: "Wrapper".into(),
+            },
+        )];
+        let wrapper = Metadata::Record(RecordMetadata {
+            module_path: "test".into(),
+            name: "Wrapper".into(),
+            orig_name: None,
+            remote: false,
+            docstring: None,
+            fields: vec![FieldMetadata {
+                name: "client".into(),
+                orig_name: None,
+                ty: Type::Object {
+                    module_path: "test".into(),
+                    name: "Client".into(),
+                    imp: ObjectImpl::Struct,
+                },
+                default: None,
+                docstring: None,
+            }],
+        });
+        assert!(
+            validate_items(&[pure, wrapper])
+                .unwrap_err()
+                .to_string()
+                .contains("pure")
         );
     }
 
