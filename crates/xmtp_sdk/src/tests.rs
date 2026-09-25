@@ -1664,6 +1664,27 @@ async fn disappearing_permission_denies_both_metadata_fields() {
     client.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn get_message_by_id_errors_on_unconvertible_row() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let id = group.send_text("valid".into()).await?;
+    let id_bytes = hex::decode(&id.0)?;
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&id_bytes)))
+            .set(dsl::sender_inbox_id.eq(""))
+            .execute(conn)
+    })?;
+    let result = client.conversations().get_message_by_id(id).await;
+    assert!(
+        result.is_err(),
+        "a stored row with an unconvertible sender_inbox_id must surface an error, not None: {result:?}"
+    );
+    client.end().await?;
+}
+
 // verifies: CTYPE-008, CTYPE-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn unknown_compression_stays_unknown_on_all_read_paths() {
