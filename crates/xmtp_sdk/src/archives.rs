@@ -31,8 +31,8 @@ pub struct ArchiveOptions {
     pub start: Option<Timestamp>,
     #[uniffi(default = None)]
     pub end: Option<Timestamp>,
-    #[uniffi(default)]
-    pub elements: Vec<ArchiveElement>,
+    #[uniffi(default = None)]
+    pub elements: Option<Vec<ArchiveElement>>,
     #[uniffi(default = false)]
     pub exclude_disappearing_messages: bool,
 }
@@ -42,18 +42,18 @@ impl From<ArchiveOptions> for CoreArchiveOptions {
         Self {
             start_ns: value.start.map(|value| value.0),
             end_ns: value.end.map(|value| value.0),
-            elements: if value.elements.is_empty() {
-                vec![CoreElement::Messages, CoreElement::Consent]
-            } else {
-                value
-                    .elements
-                    .into_iter()
-                    .map(|value| match value {
-                        ArchiveElement::Messages => CoreElement::Messages,
-                        ArchiveElement::Consent => CoreElement::Consent,
-                    })
-                    .collect()
-            },
+            elements: value.elements.map_or_else(
+                || vec![CoreElement::Messages, CoreElement::Consent],
+                |elements| {
+                    elements
+                        .into_iter()
+                        .map(|value| match value {
+                            ArchiveElement::Messages => CoreElement::Messages,
+                            ArchiveElement::Consent => CoreElement::Consent,
+                        })
+                        .collect()
+                },
+            ),
             exclude_disappearing_messages: value.exclude_disappearing_messages,
         }
     }
@@ -116,7 +116,7 @@ impl Archives {
                     .unwrap_or(ArchiveOptions {
                         start: None,
                         end: None,
-                        elements: vec![],
+                        elements: None,
                         exclude_disappearing_messages: false,
                     })
                     .into(),
@@ -184,7 +184,7 @@ impl Archives {
             let options = options.unwrap_or(ArchiveOptions {
                 start: None,
                 end: None,
-                elements: vec![],
+                elements: None,
                 exclude_disappearing_messages: false,
             });
             let saved =
