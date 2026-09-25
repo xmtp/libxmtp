@@ -1391,6 +1391,86 @@ async fn message_history_queries_do_not_grow_per_row() {
     client.end().await?;
 }
 
+async fn assert_undecodable_standard_read_paths(
+    client: &Client,
+    group: &Arc<crate::Group>,
+    id: MessageID,
+    expected_raw: &[u8],
+) -> Result<(), XmtpError> {
+    let stored = client
+        .inner
+        .message(hex::decode(&id.0).map_err(XmtpError::unknown)?)
+        .map_err(XmtpError::unknown)?;
+    let direct = crate::Message::from_stored(stored, client.client_key())?;
+    let by_id = client
+        .conversations()
+        .get_message_by_id(id.clone())
+        .await?
+        .expect("message by ID");
+    let history = group
+        .messages(None)
+        .await?
+        .into_iter()
+        .find(|message| message.0.id == id)
+        .expect("message in history");
+    let outcomes = [("direct", direct), ("by ID", by_id), ("history", history)]
+        .into_iter()
+        .map(|(path, message)| {
+            let preserved = matches!(message.0.content,
+                MessageContent::Unknown { encoded, raw_bytes }
+                    if raw_bytes.as_slice() == expected_raw
+                        && encoded.r#type.authority_id == "xmtp.org"
+                        && encoded.r#type.type_id == "text");
+            (path, preserved)
+        })
+        .collect::<Vec<_>>();
+    assert!(
+        outcomes.iter().all(|(_, preserved)| *preserved),
+        "failed standard content was not Unknown with raw bytes: {outcomes:?}"
+    );
+    Ok(())
+}
+
+// verifies: CTYPE-008, CTYPE-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn invalid_text_bytes_stay_unknown_on_all_read_paths() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let mut encoded = crate::encode_text("valid".into())?;
+    encoded.content = vec![0xff, 0xfe];
+    let id = group.send(encoded, None).await?;
+    let raw = client
+        .inner
+        .message(hex::decode(&id.0)?)?
+        .decrypted_message_bytes;
+    assert_undecodable_standard_read_paths(&client, &group, id, &raw).await?;
+    client.end().await?;
+}
+
+// verifies: CTYPE-008, CTYPE-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn unknown_compression_stays_unknown_on_all_read_paths() {
+    use prost::Message as _;
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let id = group.send_text("valid".into()).await?;
+    let id_bytes = hex::decode(&id.0)?;
+    let stored = client.inner.message(id_bytes.clone())?;
+    let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
+    encoded.compression = Some(99);
+    let raw = encoded.encode_to_vec();
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(id_bytes)))
+            .set(dsl::decrypted_message_bytes.eq(&raw))
+            .execute(conn)
+    })?;
+    assert_undecodable_standard_read_paths(&client, &group, id, &raw).await?;
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn nested_reaction_reply_body_keeps_nested_envelope() {
     use crate::{EncodedContent, MessageBody, Reaction, ReactionAction, ReactionSchema};
