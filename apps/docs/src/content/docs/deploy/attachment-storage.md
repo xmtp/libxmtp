@@ -31,9 +31,10 @@ kind = "environment"
 The public `base_url` must be an absolute HTTPS URL in production. It must
 have no user info, query, fragment, trailing slash, or dot path segment. Use
 HTTP only for a local target. The target must serve objects at
-`{base_url}/{hex SHA-256 digest}`. The endpoint must support path-style S3
-requests. Keep the endpoint, bucket, and credential values private. The
-backend validates the URL, upload limit, and retention limit at startup.
+`{base_url}/{hex SHA-256 digest}`. This backend signs path-style S3 requests,
+so use an endpoint that supports them. Keep the endpoint, bucket, and
+credential values private. The backend validates the URL, upload limit, and
+retention limit at startup.
 
 The target must enforce `If-None-Match: *` on PUT, return `412` when an object
 exists, check `x-amz-checksum-sha256` against the request body, and reject a
