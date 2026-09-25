@@ -23,6 +23,7 @@ import {
 import {
   PoolLocks,
   WorkerHost,
+  poolName,
   type LockProvider,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
 
@@ -193,8 +194,34 @@ describe("browser bridge transport", () => {
     const { main, session } = host(async () => new Promise<unknown>(() => {}));
     await session.ready();
     const call = session.call("wait", []);
+    await Promise.resolve();
+    expect(
+      main.sent.some(
+        (message) => message.t === "call" && message.key === "wait",
+      ),
+    ).toBe(true);
+    expect(Reflect.get(session, "pending").size).toBe(1);
     main.exit();
-    await expect(call).rejects.toMatchObject({ code: "workerTerminated" });
+    await expect(
+      Promise.race([
+        call,
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(
+            () => reject(new Error("pending call did not settle")),
+            100,
+          ),
+        ),
+      ]),
+    ).rejects.toMatchObject({ code: "workerTerminated" });
+  });
+
+  it("rolls back a pending call when structuredClone throws", async () => {
+    const { session } = host(async () => undefined);
+    await session.ready();
+    await expect(
+      session.call("cannot-clone", [() => undefined]),
+    ).rejects.toThrow();
+    expect(Reflect.get(session, "pending").size).toBe(0);
   });
 
   it("panic_closes_clients", async () => {
@@ -253,7 +280,7 @@ describe("browser bridge transport", () => {
     const session = new MainSession(main, 1, "pool");
     await session.ready();
     await locks.open("client-pool");
-    const handle = engine.registry.add({}, "Client");
+    const handle = engine.registry.add({ end: async () => {} }, "Client");
     locks.attachOwner(handle.owner, "client-pool");
     const client = new TestProxy(session, handle);
     await expect(otherTab.open("client-pool")).rejects.toMatchObject({
@@ -337,7 +364,8 @@ describe("browser bridge transport", () => {
     const received: number[] = [];
     const callback = mainCallbacks.register("EventListener", {
       onEvent: (event) => {
-        if (typeof event !== "number") throw new TypeError("event is not a number");
+        if (typeof event !== "number")
+          throw new TypeError("event is not a number");
         received.push(event);
         if (event === 1) throw new Error("first event failed");
       },
@@ -382,6 +410,14 @@ describe("browser bridge transport", () => {
       code: "storageBusy",
     });
     first.closeAll();
+  });
+
+  it("uses one OPFS SAH pool lock for all persistent paths", () => {
+    const options = (path: string) => ({
+      storage: { location: { tag: "Path", inner: [path] }, label: path },
+    });
+    expect(poolName(options("first.db"))).toBe(".opfs-libxmtp-metadata");
+    expect(poolName(options("second.db"))).toBe(poolName(options("first.db")));
   });
 
   it("shares one pool lock between clients in one worker", async () => {

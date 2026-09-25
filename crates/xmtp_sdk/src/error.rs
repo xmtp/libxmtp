@@ -34,6 +34,8 @@ pub enum XmtpError {
     StorageLocationRequired(ErrorDetails),
     #[error("identity not found: {0:?}")]
     IdentityNotFound(ErrorDetails),
+    #[error("storage pool busy: {0:?}")]
+    StorageBusy(ErrorDetails),
     #[error("signer failed: {0:?}")]
     Signer(ErrorDetails),
     #[error("credential failed: {0:?}")]
@@ -174,6 +176,16 @@ impl XmtpError {
             ErrorCategory::Identity,
             false,
             "database has no stored identity",
+        ))
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn storage_busy(message: impl Into<String>) -> Self {
+        Self::StorageBusy(Self::details(
+            "storageBusy",
+            ErrorCategory::Storage,
+            true,
+            message,
         ))
     }
 

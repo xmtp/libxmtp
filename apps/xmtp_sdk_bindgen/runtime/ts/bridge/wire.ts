@@ -78,6 +78,7 @@ export function encodeError(error: unknown): ErrorWire {
         category: "unknown",
         retryable: false,
         message: error.message,
+        details: inner,
       };
     }
     return {

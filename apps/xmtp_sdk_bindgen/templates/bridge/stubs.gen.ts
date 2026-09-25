@@ -24,7 +24,22 @@ export function foreignStub(
   if (!methods) throw new TypeError(`unknown foreign trait ${handle.type}`);
   if (handle.type === "LogSink") {
     const window = new LogWindow(callbacks, handle.cb);
-    const sink = { log: (record: unknown) => window.log(record) };
+    const encoder = new ValueCodec(
+      LAYOUTS,
+      "worker",
+      "encode",
+      undefined,
+      registry,
+    );
+    const sink = {
+      log(record: unknown): void {
+        const wire = encoder.convert(
+          { kind: "record", name: "LogRecord" },
+          record,
+        );
+        if (window.log(wire) === "busy") throw B.LogSinkError.Busy.new();
+      },
+    };
     collected.register(sink, { callbacks, cb: handle.cb });
     return sink;
   }

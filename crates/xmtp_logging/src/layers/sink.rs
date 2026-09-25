@@ -1,5 +1,7 @@
 //! A replaceable event sink and an optional bounded delivery queue.
 
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
     cell::Cell,
     collections::BTreeMap,
@@ -8,13 +10,17 @@ use std::{
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
-        mpsc::{SyncSender, TrySendError, sync_channel},
     },
+};
+#[cfg(not(target_arch = "wasm32"))]
+use std::{
+    sync::mpsc::{SyncSender, TrySendError, sync_channel},
     thread,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
-use parking_lot::{Mutex, RwLock};
+#[cfg(not(target_arch = "wasm32"))]
+use parking_lot::Mutex;
+use parking_lot::RwLock;
 use tracing::{
     Event,
     field::{Field, Visit},
@@ -24,7 +30,25 @@ use tracing_subscriber::{Layer, layer::Context};
 use crate::Level;
 
 /// The queue size used by a Node log sink.
+#[cfg(not(target_arch = "wasm32"))]
 pub const BOUNDED_SINK_CAPACITY: usize = 4_096;
+
+#[cfg(target_arch = "wasm32")]
+fn timestamp_ns() -> i64 {
+    (js_sys::Date::now() * 1_000_000.0) as i64
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn timestamp_ns() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| i64::try_from(duration.as_nanos()).unwrap_or(i64::MAX))
+        .unwrap_or_default()
+}
+
+fn timestamp_seconds() -> u64 {
+    u64::try_from(timestamp_ns() / 1_000_000_000).unwrap_or_default()
+}
 
 /// One event sent to a log sink.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -40,6 +64,11 @@ pub struct LogRecord {
 
 /// Error returned by a log sink.
 pub type SinkError = Box<dyn Error + Send + Sync>;
+
+/// The sink rejected a record because its delivery window is full.
+#[derive(Debug, thiserror::Error)]
+#[error("log sink is busy")]
+pub struct SinkBusy;
 
 /// A destination for log records. A direct sink is called on the logging thread.
 /// A sink must return errors instead of panicking: release builds abort on panic.
@@ -79,9 +108,7 @@ static LAST_ERROR_REPORT_SECOND: AtomicU64 = AtomicU64::new(0);
 
 fn report_error(errors: &AtomicU64, detail: &'static str) {
     errors.fetch_add(1, Ordering::Relaxed);
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |duration| duration.as_secs());
+    let now = timestamp_seconds();
     if LAST_ERROR_REPORT_SECOND
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |previous| {
             (now.saturating_sub(previous) >= 60).then_some(now)
@@ -94,9 +121,12 @@ fn report_error(errors: &AtomicU64, detail: &'static str) {
     }
 }
 
-fn deliver(target: &dyn LogSinkTarget, record: LogRecord, errors: &AtomicU64) {
+fn deliver(target: &dyn LogSinkTarget, record: LogRecord, errors: &AtomicU64, dropped: &AtomicU64) {
     match catch_unwind(AssertUnwindSafe(|| target.on_record(record))) {
         Ok(Ok(())) => {}
+        Ok(Err(error)) if error.is::<SinkBusy>() => {
+            dropped.fetch_add(1, Ordering::Relaxed);
+        }
         Ok(Err(_)) => report_error(errors, "returned an error"),
         Err(_) => report_error(errors, "panicked"),
     }
@@ -106,6 +136,7 @@ fn deliver(target: &dyn LogSinkTarget, record: LogRecord, errors: &AtomicU64) {
 struct SinkState {
     target: RwLock<Option<Arc<dyn LogSinkTarget>>>,
     errors: AtomicU64,
+    dropped: AtomicU64,
 }
 
 /// Always-present layer slot. Replacing or dropping a sink never calls it under
@@ -135,6 +166,11 @@ impl SinkSlot {
     pub(crate) fn error_count(&self) -> u64 {
         self.0.errors.load(Ordering::Relaxed)
     }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) fn dropped_count(&self) -> u64 {
+        self.0.dropped.load(Ordering::Relaxed)
+    }
 }
 
 impl<S: tracing::Subscriber> Layer<S> for SinkSlot {
@@ -146,7 +182,7 @@ impl<S: tracing::Subscriber> Layer<S> for SinkSlot {
             return;
         };
         let record = LogRecord::from_event(event);
-        deliver(target.as_ref(), record, &self.0.errors);
+        deliver(target.as_ref(), record, &self.0.errors, &self.0.dropped);
     }
 }
 
@@ -188,16 +224,12 @@ impl LogRecord {
             tracing::Level::DEBUG => Level::Debug,
             tracing::Level::TRACE => Level::Trace,
         };
-        let timestamp_ns = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| i64::try_from(duration.as_nanos()).unwrap_or(i64::MAX))
-            .unwrap_or_default();
         Self {
             level,
             target: metadata.target().to_owned(),
             message: visitor.message,
             fields: visitor.fields,
-            timestamp_ns,
+            timestamp_ns: timestamp_ns(),
             dropped_records: 0,
         }
     }
@@ -208,6 +240,7 @@ impl LogRecord {
 /// The drain thread owns no queue or slot lock while it calls the destination.
 /// Detaching or dropping the adapter closes its queue without waiting for an
 /// active callback. Queued records are counted as drops and are not delivered.
+#[cfg(not(target_arch = "wasm32"))]
 pub struct BoundedSink {
     sender: Mutex<Option<SyncSender<LogRecord>>>,
     stopped: Arc<std::sync::atomic::AtomicBool>,
@@ -216,6 +249,7 @@ pub struct BoundedSink {
     errors: Arc<AtomicU64>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl BoundedSink {
     pub fn new(target: Arc<dyn LogSinkTarget>) -> std::io::Result<Self> {
         let (sender, receiver) = sync_channel::<LogRecord>(BOUNDED_SINK_CAPACITY);
@@ -242,7 +276,7 @@ impl BoundedSink {
                         continue;
                     }
                     if let Some(_guard) = SinkCallGuard::enter() {
-                        deliver(target.as_ref(), record, &worker_errors);
+                        deliver(target.as_ref(), record, &worker_errors, &worker_discarded);
                     }
                 }
             })?;
@@ -271,12 +305,14 @@ impl BoundedSink {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl Drop for BoundedSink {
     fn drop(&mut self) {
         self.stop();
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl LogSinkTarget for BoundedSink {
     fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
         let send_result = self

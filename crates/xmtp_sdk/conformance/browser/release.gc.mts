@@ -74,7 +74,10 @@ assert.ok(
   "live client must pin its snapshot handle",
 );
 assert.equal(client.conversations().handle.h, 2);
-assert.equal((await client.conversations().createGroup([])).id().toString(), "group");
+assert.equal(
+  (await client.conversations().createGroup([])).id().toString(),
+  "group",
+);
 
 const duplicateHandle = {
   h: 6,
@@ -189,7 +192,7 @@ const host = new WorkerHost(
 const lockSession = new MainSession(mainEndpoint, 1, "gc-pool");
 await lockSession.ready();
 await locks.open("collected-client");
-const lockHandle = host.registry.add({}, "Client");
+const lockHandle = host.registry.add({ end: async () => {} }, "Client");
 const groupHandle = host.registry.add({}, "Group", lockHandle.owner, () => ({
   id: "live-group",
 }));
@@ -208,7 +211,10 @@ async function keepGroupAfterClientGC(): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, 10));
   }
   assert.equal(host.registry.size, 1, "Client handle was not collected");
-  assert.equal((await group.sendText("client was collected")).toString(), "message-id");
+  assert.equal(
+    (await group.sendText("client was collected")).toString(),
+    "message-id",
+  );
   await assert.rejects(otherTab.open("collected-client"), {
     code: "storageBusy",
   });

@@ -94,17 +94,18 @@ pub async fn flush_telemetry() {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-mod native {
+mod sink {
     use super::{LOGGING, LogLevel, XmtpError};
     use std::sync::Arc;
-    use xmtp_logging::{BoundedSink, LogSinkTarget};
+    #[cfg(not(target_arch = "wasm32"))]
+    use xmtp_logging::BoundedSink;
+    use xmtp_logging::LogSinkTarget;
 
-    #[cfg(feature = "conformance")]
+    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
     static CONFORMANCE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     /// Emit ordered records from one Rust thread for host callback checks.
-    #[cfg(feature = "conformance")]
+    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
     #[xmtp_macro::sdk_export]
     pub async fn sdk_conformance_emit(count: u32) -> Result<(), XmtpError> {
         tokio::task::spawn_blocking(move || {
@@ -116,8 +117,17 @@ mod native {
         .map_err(XmtpError::unknown)
     }
 
+    #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
+    #[xmtp_macro::sdk_export]
+    pub async fn sdk_conformance_emit(count: u32) -> Result<(), XmtpError> {
+        for sequence in 0..count {
+            tracing::error!(target: "xmtp_sdk::conformance", sequence, "conformance log");
+        }
+        Ok(())
+    }
+
     /// The inline sink deadlocks if its JavaScript callback reads this lock.
-    #[cfg(feature = "conformance")]
+    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
     #[xmtp_macro::sdk_export]
     pub async fn sdk_conformance_emit_under_lock() -> Result<(), XmtpError> {
         tokio::task::spawn_blocking(|| {
@@ -128,7 +138,7 @@ mod native {
         .map_err(XmtpError::unknown)
     }
 
-    #[cfg(feature = "conformance")]
+    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
     #[xmtp_macro::sdk_export]
     pub fn sdk_conformance_read_lock() -> u32 {
         let _guard = CONFORMANCE_LOCK.lock().expect("conformance lock");
@@ -136,10 +146,22 @@ mod native {
     }
 
     /// Read errors observed by Rust after direct host sink calls.
-    #[cfg(feature = "conformance")]
+    #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
     #[xmtp_macro::sdk_export]
     pub fn sdk_conformance_sink_error_count() -> Result<u64, XmtpError> {
         Ok(handle()?.sink_error_count())
+    }
+
+    #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
+    #[xmtp_macro::sdk_export]
+    pub async fn sdk_conformance_sink_error_count() -> Result<u64, XmtpError> {
+        Ok(handle()?.sink_error_count())
+    }
+
+    #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
+    #[xmtp_macro::sdk_export]
+    pub async fn sdk_conformance_sink_dropped_count() -> Result<u64, XmtpError> {
+        Ok(handle()?.sink_dropped_count())
     }
 
     #[derive(Clone, Debug, uniffi::Record)]
@@ -194,9 +216,10 @@ mod native {
             &self,
             record: xmtp_logging::LogRecord,
         ) -> Result<(), xmtp_logging::SinkError> {
-            self.0
-                .log(record.into())
-                .map_err(|error| Box::new(error) as xmtp_logging::SinkError)
+            self.0.log(record.into()).map_err(|error| match error {
+                LogSinkError::Busy => Box::new(xmtp_logging::SinkBusy) as xmtp_logging::SinkError,
+                other => Box::new(other) as xmtp_logging::SinkError,
+            })
         }
     }
 
@@ -206,12 +229,21 @@ mod native {
             .ok_or_else(|| XmtpError::invalid("init_logging must be called first"))
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub fn set_log_sink(sink: Option<Arc<dyn LogSink>>) -> Result<(), XmtpError> {
         handle()?.set_sink(sink.map(|sink| Arc::new(SinkBridge(sink)) as Arc<dyn LogSinkTarget>));
         Ok(())
     }
 
+    #[cfg(target_arch = "wasm32")]
+    #[xmtp_macro::sdk_export]
+    pub async fn set_log_sink(sink: Option<Arc<dyn LogSink>>) -> Result<(), XmtpError> {
+        handle()?.set_sink(sink.map(|sink| Arc::new(SinkBridge(sink)) as Arc<dyn LogSinkTarget>));
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub fn set_log_sink_queued(sink: Arc<dyn LogSink>) -> Result<(), XmtpError> {
         let queue = BoundedSink::new(Arc::new(SinkBridge(sink))).map_err(XmtpError::unknown)?;
@@ -219,12 +251,21 @@ mod native {
         Ok(())
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub fn clear_log_sink() -> Result<(), XmtpError> {
         handle()?.set_sink(None);
         Ok(())
     }
 
+    #[cfg(target_arch = "wasm32")]
+    #[xmtp_macro::sdk_export]
+    pub async fn clear_log_sink() -> Result<(), XmtpError> {
+        handle()?.set_sink(None);
+        Ok(())
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     #[derive(Clone, Copy, Debug, uniffi::Enum)]
     pub enum LogRotation {
         Minutely,
@@ -232,6 +273,7 @@ mod native {
         Daily,
         Never,
     }
+    #[cfg(not(target_arch = "wasm32"))]
     impl From<LogRotation> for xmtp_logging::Rotation {
         fn from(value: LogRotation) -> Self {
             match value {
@@ -243,11 +285,13 @@ mod native {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[derive(Clone, Copy, Debug, uniffi::Enum)]
     pub enum LogProcessType {
         Main,
         Extension,
     }
+    #[cfg(not(target_arch = "wasm32"))]
     impl From<LogProcessType> for xmtp_logging::ProcessType {
         fn from(value: LogProcessType) -> Self {
             match value {
@@ -257,6 +301,7 @@ mod native {
         }
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub fn enter_debug_writer(
         directory: String,
@@ -276,12 +321,13 @@ mod native {
             .map_err(XmtpError::unknown)
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub fn exit_debug_writer() -> Result<(), XmtpError> {
         handle()?.disable_file().map_err(XmtpError::unknown)
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     mod tests {
         use super::*;
 
@@ -306,4 +352,5 @@ mod native {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::{LogProcessType, LogRecord, LogRotation, LogSink, LogSinkError};
+pub use sink::{LogProcessType, LogRotation};
+pub use sink::{LogRecord, LogSink, LogSinkError};

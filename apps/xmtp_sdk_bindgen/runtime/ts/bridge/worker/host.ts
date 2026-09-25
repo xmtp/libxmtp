@@ -130,18 +130,10 @@ export function poolName(options: unknown): string | undefined {
   const location = "location" in storage ? storage.location : undefined;
   if (location !== null && typeof location === "object" && "tag" in location) {
     if (location.tag === "InMemory") return undefined;
-    if (
-      (location.tag === "Path" || location.tag === "Directory") &&
-      "inner" in location &&
-      Array.isArray(location.inner) &&
-      typeof location.inner[0] === "string"
-    ) {
-      return location.inner[0];
-    }
+    if (location.tag === "Path" || location.tag === "Directory")
+      return ".opfs-libxmtp-metadata";
   }
-  return "label" in storage && typeof storage.label === "string"
-    ? storage.label
-    : "default";
+  return ".opfs-libxmtp-metadata";
 }
 
 export interface WorkerContext {
@@ -204,14 +196,7 @@ export class WorkerHost {
         this.active.get(message.id)?.abort();
         break;
       case "release": {
-        const emptyOwners = this.registry.release(message.handles);
-        for (const owner of message.owners ?? [])
-          this.registry.closeOwner(owner);
-        for (const owner of new Set([
-          ...emptyOwners,
-          ...(message.owners ?? []),
-        ]))
-          this.locks?.closeOwner(owner);
+        void this.releaseHandles(message);
         break;
       }
       case "callbackResult":
@@ -220,6 +205,33 @@ export class WorkerHost {
       default:
         console.error("unknown bridge message", message);
         this.fatal(bridgeError("contractMismatch", message));
+    }
+  }
+
+  private async releaseHandles(
+    message: Extract<WireMessage, { t: "release" }>,
+  ): Promise<void> {
+    const emptyOwners = this.registry.release(message.handles);
+    const endedOwners = new Set(message.owners ?? []);
+    for (const owner of endedOwners) {
+      this.registry.closeOwner(owner);
+      this.locks?.closeOwner(owner);
+    }
+    for (const owner of emptyOwners) {
+      if (endedOwners.has(owner)) continue;
+      const client = this.registry.takeClient(owner);
+      if (client) {
+        try {
+          const end: unknown = Reflect.get(client, "end");
+          if (typeof end !== "function")
+            throw new TypeError("Client.end is missing");
+          await Reflect.apply(end, client, []);
+        } catch (error) {
+          console.error("collected client could not close", error);
+          continue;
+        }
+      }
+      this.locks?.closeOwner(owner);
     }
   }
 

@@ -555,19 +555,41 @@ function bridgeHandle(raw: unknown, type: string): HandleWire { const value = br
                     code.push_str(") {\n");
                     for variant in &value.variants {
                         let args = if value.shape.is_error() {
-                            variant
-                                .fields
-                                .first()
-                                .map(|field| {
-                                    decode_expr(
-                                        &field.ty,
-                                        "bridgeArray(fields.details)[0]",
-                                        "session",
-                                    )
-                                })
-                                .into_iter()
-                                .collect::<Vec<_>>()
-                                .join(", ")
+                            if variant.fields.first().is_some_and(|f| !f.name.is_empty()) {
+                                let entries = variant
+                                    .fields
+                                    .iter()
+                                    .map(|field| {
+                                        let name = ts_name(&field.name, names);
+                                        format!(
+                                            "{name}: {}",
+                                            decode_expr(
+                                                &field.ty,
+                                                &format!(
+                                                    "bridgeRecord(bridgeArray(fields.details)[0]).{name}"
+                                                ),
+                                                "session"
+                                            )
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ");
+                                format!("{{ {entries} }}")
+                            } else {
+                                variant
+                                    .fields
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(index, field)| {
+                                        decode_expr(
+                                            &field.ty,
+                                            &format!("bridgeArray(fields.details)[{index}]"),
+                                            "session",
+                                        )
+                                    })
+                                    .collect::<Vec<_>>()
+                                    .join(", ")
+                            }
                         } else if variant.fields.first().is_some_and(|f| f.name.is_empty()) {
                             variant
                                 .fields
@@ -753,9 +775,7 @@ fn render(
                         .all(|variant| variant.fields.is_empty())
             )?;
             for variant in &value.variants {
-                if value.shape.is_error()
-                    || variant.fields.first().is_some_and(|f| f.name.is_empty())
-                {
+                if variant.fields.first().is_some_and(|f| f.name.is_empty()) {
                     writeln!(wire, "    {}: [", variant.name)?;
                     for field in &variant.fields {
                         writeln!(wire, "      {},", shape(&field.ty))?;
@@ -1068,9 +1088,40 @@ fn render(
 mod tests {
     use super::*;
     use uniffi_meta::{
-        ConstructorMetadata, EnumMetadata, EnumShape, FnMetadata, MethodMetadata, ObjectMetadata,
-        ObjectTraitImplMetadata, TraitMethodMetadata, UniffiTraitMetadata, VariantMetadata,
+        ConstructorMetadata, EnumMetadata, EnumShape, FieldMetadata, FnMetadata, MethodMetadata,
+        ObjectMetadata, ObjectTraitImplMetadata, TraitMethodMetadata, UniffiTraitMetadata,
+        VariantMetadata,
     };
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn named_error_variant_uses_named_constructor() {
+        let item = Metadata::Enum(EnumMetadata {
+            module_path: "test".into(),
+            name: "LogSinkError".into(),
+            orig_name: None,
+            shape: EnumShape::Error { flat: false },
+            remote: false,
+            variants: vec![VariantMetadata {
+                name: "Failed".into(),
+                orig_name: None,
+                discr: None,
+                fields: vec![FieldMetadata {
+                    name: "reason".into(),
+                    orig_name: None,
+                    ty: Type::String,
+                    default: None,
+                    docstring: None,
+                }],
+                docstring: None,
+            }],
+            discr_type: None,
+            non_exhaustive: false,
+            docstring: None,
+        });
+        let files = render(&[item], &[], "test", &BTreeMap::new())?;
+        assert!(files["proxy.gen.ts"].contains("B.LogSinkError.Failed.new({ reason:"));
+        assert!(files["wire.gen.ts"].contains("Failed: {"));
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn rejects_sync_constructor() {

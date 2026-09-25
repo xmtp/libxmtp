@@ -9,6 +9,7 @@ interface Entry {
 export class WorkerRegistry {
   private readonly entries = new Map<number, Entry>();
   private readonly ownerCounts = new Map<number, number>();
+  private readonly ownerClients = new Map<number, object>();
   private nextHandle = 1;
   private nextOwner = 1;
 
@@ -23,6 +24,7 @@ export class WorkerRegistry {
     const h = this.nextHandle++;
     const actualOwner = owner ?? this.nextOwner++;
     this.entries.set(h, { value, owner: actualOwner, type });
+    if (type === "Client") this.ownerClients.set(actualOwner, value);
     this.ownerCounts.set(
       actualOwner,
       (this.ownerCounts.get(actualOwner) ?? 0) + 1,
@@ -38,6 +40,7 @@ export class WorkerRegistry {
     } catch (error) {
       this.entries.delete(h);
       this.decrementOwner(actualOwner);
+      if (type === "Client") this.ownerClients.delete(actualOwner);
       throw error;
     }
   }
@@ -71,6 +74,13 @@ export class WorkerRegistry {
       if (entry.owner === owner) this.entries.delete(h);
     }
     this.ownerCounts.delete(owner);
+    this.ownerClients.delete(owner);
+  }
+
+  takeClient(owner: number): object | undefined {
+    const client = this.ownerClients.get(owner);
+    this.ownerClients.delete(owner);
+    return client;
   }
 
   private decrementOwner(owner: number): boolean {
