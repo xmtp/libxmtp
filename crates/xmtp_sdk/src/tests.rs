@@ -1485,6 +1485,30 @@ async fn consent_archive_storage_and_diagnostics() {
     client.end().await?;
 }
 
+// verifies: ARCH-017
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_empty_archive_elements_export_nothing() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bytes = client
+        .archives()
+        .export_to_bytes(
+            vec![7; 32],
+            Some(crate::ArchiveOptions {
+                start: None,
+                end: None,
+                elements: Some(vec![]),
+                exclude_disappearing_messages: false,
+            }),
+        )
+        .await?;
+    let metadata = client
+        .archives()
+        .metadata_from_bytes(bytes, vec![7; 32])
+        .await?;
+    assert!(metadata.elements.is_empty());
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn group_options_metadata_members_and_message_filters() {
     use crate::{CreateGroupOptions, GroupPermissionMode, ListMessagesOptions, MessageOrder};
