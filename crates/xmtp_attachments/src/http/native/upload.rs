@@ -4,15 +4,18 @@ use std::{
     io::{self, IoSlice},
     net::{IpAddr, SocketAddr},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     task::{Context, Poll},
 };
 
-use futures_util::StreamExt;
-use http_body_util::StreamBody;
+use futures_util::Stream;
+use http_body_util::{BodyExt, StreamBody};
 use hyper::{
     Request,
-    body::Frame,
+    body::{Bytes, Frame},
     client::conn::http1,
     header::{CONTENT_LENGTH, HOST, HeaderMap, HeaderName, HeaderValue},
 };
@@ -22,6 +25,7 @@ use rustls::pki_types::ServerName;
 use tokio::{
     io::{AsyncRead, AsyncWrite, ReadBuf},
     net::{TcpSocket, TcpStream},
+    sync::Notify,
     time::{Instant, timeout},
 };
 use tokio_util::io::ReaderStream;
@@ -56,10 +60,54 @@ fn tls_config() -> Result<rustls::ClientConfig, AttachmentError> {
 trait SocketIo: AsyncRead + AsyncWrite + Unpin + Send {}
 impl<T: AsyncRead + AsyncWrite + Unpin + Send> SocketIo for T {}
 
+#[derive(Default)]
+struct BodyWrite {
+    complete: AtomicBool,
+    read_failed: AtomicBool,
+    flushed: AtomicBool,
+    notify: Notify,
+}
+
+struct TrackedBody {
+    reader: ReaderStream<tokio::fs::File>,
+    write: Arc<BodyWrite>,
+    remaining: u64,
+}
+
+impl Stream for TrackedBody {
+    type Item = io::Result<Frame<Bytes>>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match Pin::new(&mut self.reader).poll_next(cx) {
+            Poll::Ready(Some(Ok(bytes))) => {
+                let Some(remaining) = self.remaining.checked_sub(bytes.len() as u64) else {
+                    self.write.read_failed.store(true, Ordering::Release);
+                    return Poll::Ready(Some(Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "staged file changed size",
+                    ))));
+                };
+                self.remaining = remaining;
+                if remaining == 0 {
+                    self.write.complete.store(true, Ordering::Release);
+                }
+                Poll::Ready(Some(Ok(Frame::data(bytes))))
+            }
+            Poll::Ready(Some(Err(error))) => {
+                self.write.read_failed.store(true, Ordering::Release);
+                Poll::Ready(Some(Err(error)))
+            }
+            Poll::Ready(None) => Poll::Ready(None),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
 /// Record bytes accepted by the socket, including encrypted TLS records.
 struct ProgressIo<T> {
     inner: T,
     last: Arc<Mutex<Instant>>,
+    body_write: Arc<BodyWrite>,
 }
 
 impl<T: AsyncRead + Unpin> AsyncRead for ProgressIo<T> {
@@ -107,7 +155,15 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ProgressIo<T> {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
+        let result = Pin::new(&mut self.inner).poll_flush(cx);
+        if matches!(result, Poll::Ready(Ok(())))
+            && self.body_write.complete.load(Ordering::Acquire)
+            && !self.body_write.read_failed.load(Ordering::Acquire)
+            && !self.body_write.flushed.swap(true, Ordering::AcqRel)
+        {
+            self.body_write.notify.notify_one();
+        }
+        result
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -119,6 +175,7 @@ async fn connect(
     transfer: &Transfer,
     url: &Url,
     last: Arc<Mutex<Instant>>,
+    body_write: Arc<BodyWrite>,
 ) -> Result<Box<dyn SocketIo>, AttachmentError> {
     let port = url.port_or_known_default().ok_or_else(network)?;
     let addresses: Vec<SocketAddr> = match url.host().ok_or_else(network)? {
@@ -157,6 +214,7 @@ async fn connect(
     let stream = ProgressIo {
         inner: stream,
         last,
+        body_write,
     };
     if url.scheme() == "http" {
         return Ok(Box::new(stream));
@@ -283,14 +341,22 @@ pub(super) async fn put(
         .len();
     let (path, headers) = request_headers(&url, upload, body_len)?;
     let last = Arc::new(Mutex::new(Instant::now()));
+    let body_write = Arc::new(BodyWrite::default());
+    if body_len == 0 {
+        body_write.complete.store(true, Ordering::Release);
+    }
     let io = timeout(
         transfer.connect_timeout,
-        connect(transfer, &url, last.clone()),
+        connect(transfer, &url, last.clone(), body_write.clone()),
     )
     .await
     .map_err(|_| network())??;
     *last.lock().unwrap() = Instant::now();
-    let stream = ReaderStream::with_capacity(file, CHUNK_SIZE).map(|chunk| chunk.map(Frame::data));
+    let stream = TrackedBody {
+        reader: ReaderStream::with_capacity(file, CHUNK_SIZE),
+        write: body_write.clone(),
+        remaining: body_len,
+    };
     let request = Request::builder()
         .method("PUT")
         .uri(path)
@@ -302,22 +368,58 @@ pub(super) async fn put(
     let (mut sender, connection) = http1::handshake(TokioIo::new(io))
         .await
         .map_err(|_| network())?;
-    let driver = tokio::spawn(connection);
-    let upload = async {
-        let response = sender.send_request(request).await.map_err(|_| network())?;
-        put_outcome(response.status().as_u16())
-    };
-    tokio::pin!(upload);
-    let outcome = loop {
-        let deadline = *last.lock().unwrap() + transfer.idle_timeout;
-        tokio::select! {
-            result = &mut upload => break result,
-            () = tokio::time::sleep_until(deadline) => {
-                if Instant::now().duration_since(*last.lock().unwrap()) >= transfer.idle_timeout {
-                    break Err(network());
+    let mut driver = tokio::spawn(connection);
+    let outcome = {
+        let upload = async {
+            let mut response = sender.send_request(request).await.map_err(|_| network())?;
+            let outcome = put_outcome(response.status().as_u16())?;
+            if outcome == PutOutcome::Stored {
+                while let Some(frame) = response.frame().await {
+                    frame.map_err(|_| network())?;
+                }
+            }
+            Ok(outcome)
+        };
+        tokio::pin!(upload);
+        loop {
+            let deadline = *last.lock().unwrap() + transfer.idle_timeout;
+            tokio::select! {
+                result = &mut upload => break result,
+                () = tokio::time::sleep_until(deadline) => {
+                    if Instant::now().duration_since(*last.lock().unwrap()) >= transfer.idle_timeout {
+                        break Err(network());
+                    }
                 }
             }
         }
+    };
+    drop(sender);
+    let outcome = if matches!(outcome, Ok(PutOutcome::Stored)) {
+        loop {
+            if body_write.flushed.load(Ordering::Acquire) {
+                break Ok(PutOutcome::Stored);
+            }
+            let deadline = *last.lock().unwrap() + transfer.idle_timeout;
+            tokio::select! {
+                () = body_write.notify.notified() => {}
+                result = &mut driver => {
+                    break if result.is_ok_and(|result| result.is_ok())
+                        && body_write.flushed.load(Ordering::Acquire)
+                    {
+                        Ok(PutOutcome::Stored)
+                    } else {
+                        Err(network())
+                    };
+                }
+                () = tokio::time::sleep_until(deadline) => {
+                    if Instant::now().duration_since(*last.lock().unwrap()) >= transfer.idle_timeout {
+                        break Err(network());
+                    }
+                }
+            }
+        }
+    } else {
+        outcome
     };
     driver.abort();
     outcome

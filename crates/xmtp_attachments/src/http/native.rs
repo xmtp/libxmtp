@@ -422,7 +422,10 @@ mod tests {
     use hyper::{Request, Response, body::Incoming, server::conn::http1, service::service_fn};
     use hyper_util::rt::TokioIo;
     use reqwest::Method;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::{
+        future::Future,
+        sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
     use tokio::time::Instant;
 
     struct Server {
@@ -440,6 +443,14 @@ mod tests {
     where
         F: Fn(Request<Incoming>) -> Response<Full<Bytes>> + Send + Sync + 'static,
     {
+        server_async(move |request| std::future::ready(handler(request))).await
+    }
+
+    async fn server_async<F, Fut>(handler: F) -> Server
+    where
+        F: Fn(Request<Incoming>) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Response<Full<Bytes>>> + Send + 'static,
+    {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let handler = Arc::new(handler);
@@ -449,7 +460,7 @@ mod tests {
                 tokio::spawn(async move {
                     let service = service_fn(move |request| {
                         let response = handler(request);
-                        async move { Ok::<_, std::convert::Infallible>(response) }
+                        async move { Ok::<_, std::convert::Infallible>(response.await) }
                     });
                     let _ = http1::Builder::new()
                         .serve_connection(TokioIo::new(stream), service)
@@ -743,7 +754,14 @@ mod tests {
     // verifies: ATCH-071
     #[xmtp_common::test(unwrap_try = true)]
     async fn loopback_http_put_needs_no_private_network_flag() {
-        let server = server(|_| answer(StatusCode::ACCEPTED, "")).await;
+        use http_body_util::BodyExt;
+
+        let server = server_async(|request| async move {
+            let body = request.into_body().collect().await.unwrap().to_bytes();
+            assert_eq!(body.as_ref(), b"body");
+            answer(StatusCode::ACCEPTED, "")
+        })
+        .await;
         let (_directory, body) = staged_body()?;
         let transfer = Transfer::new(AttachmentOptions::default())?;
         assert_eq!(
@@ -849,7 +867,8 @@ mod tests {
             let mut buffer = [0_u8; 8192];
             let _ = tokio::time::timeout(Duration::from_millis(200), async {
                 while discarded < 256 * 1024 {
-                    let read = reader.read(&mut buffer).await.unwrap();
+                    let limit = (256 * 1024 - discarded).min(buffer.len());
+                    let read = reader.read(&mut buffer[..limit]).await.unwrap();
                     if read == 0 {
                         break;
                     }
@@ -889,6 +908,90 @@ mod tests {
                 .unwrap_err()
                 .cause,
             Cause::TargetRejected
+        );
+    }
+
+    // verifies: ATCH-025
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_early_2xx_waits_for_body() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        const BODY_SIZE: usize = 4 * 1024 * 1024;
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.set_recv_buffer_size(8192)?;
+        socket.bind("127.0.0.1:0".parse()?)?;
+        let listener = socket.listen(1)?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let received = Arc::new(AtomicUsize::new(0));
+        let observed = received.clone();
+        let (paused_tx, paused_rx) = tokio::sync::oneshot::channel();
+        let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut line = String::new();
+            let mut content_length = None;
+            loop {
+                line.clear();
+                assert!(reader.read_line(&mut line).await.unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(length) = line.to_ascii_lowercase().strip_prefix("content-length: ") {
+                    content_length = Some(length.trim().parse::<usize>().unwrap());
+                }
+            }
+            assert_eq!(content_length, Some(BODY_SIZE));
+            reader
+                .get_mut()
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n")
+                .await
+                .unwrap();
+            let mut buffer = [0_u8; 8192];
+            let mut count = 0;
+            let mut paused_tx = Some(paused_tx);
+            let mut resume_rx = Some(resume_rx);
+            while count < BODY_SIZE {
+                let limit = (BODY_SIZE - count).min(buffer.len());
+                let size = reader.read(&mut buffer[..limit]).await.unwrap();
+                assert!(size > 0);
+                assert!(buffer[..size].iter().all(|byte| *byte == 0x5a));
+                count += size;
+                observed.store(count, Ordering::Release);
+                if count >= BODY_SIZE / 2 && paused_tx.is_some() {
+                    paused_tx.take().unwrap().send(()).unwrap();
+                    resume_rx.take().unwrap().await.unwrap();
+                }
+            }
+            reader.get_mut().write_all(b"x").await.unwrap();
+        });
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("body");
+        std::fs::write(&path, vec![0x5a; BODY_SIZE])?;
+        let mut upload =
+            tokio::spawn(async move { allowed().put(&upload(url), StagedFile { path }).await });
+        tokio::time::timeout(Duration::from_secs(5), paused_rx).await??;
+        assert!(received.load(Ordering::Acquire) < BODY_SIZE);
+        assert!(
+            tokio::time::timeout(Duration::from_millis(150), &mut upload)
+                .await
+                .is_err()
+        );
+        resume_tx.send(()).unwrap();
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(5), &mut upload).await???,
+            PutOutcome::Stored
+        );
+        assert_eq!(received.load(Ordering::Acquire), BODY_SIZE);
+        tokio::time::timeout(Duration::from_secs(5), server).await??;
+    }
+
+    // verifies: ATCH-025
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_early_2xx_then_close_is_network() {
+        assert_eq!(
+            early_put_status(StatusCode::OK).await?.unwrap_err().cause,
+            Cause::Network
         );
     }
 
@@ -1217,23 +1320,31 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn no_credential_headers() {
+        use http_body_util::BodyExt;
+
         let seen_get = Arc::new(AtomicBool::new(false));
         let seen_put = Arc::new(AtomicBool::new(false));
         let get_flag = seen_get.clone();
         let put_flag = seen_put.clone();
-        let server = server(move |request| {
-            let clean = request.headers().get("authorization").is_none()
-                && request.headers().get("cookie").is_none()
-                && request.headers().get("x-xmtp-inbox-id").is_none();
-            if request.method() == Method::PUT {
-                put_flag.store(clean, Ordering::Relaxed);
-                answer(StatusCode::ACCEPTED, "")
-            } else {
-                get_flag.store(
-                    clean && request.headers().get(ACCEPT_ENCODING).unwrap() == "identity",
-                    Ordering::Relaxed,
-                );
-                answer(StatusCode::OK, "x")
+        let server = server_async(move |request| {
+            let get_flag = get_flag.clone();
+            let put_flag = put_flag.clone();
+            async move {
+                let clean = request.headers().get("authorization").is_none()
+                    && request.headers().get("cookie").is_none()
+                    && request.headers().get("x-xmtp-inbox-id").is_none();
+                if request.method() == Method::PUT {
+                    let body = request.into_body().collect().await.unwrap().to_bytes();
+                    assert_eq!(body.as_ref(), b"body");
+                    put_flag.store(clean, Ordering::Relaxed);
+                    answer(StatusCode::ACCEPTED, "")
+                } else {
+                    get_flag.store(
+                        clean && request.headers().get(ACCEPT_ENCODING).unwrap() == "identity",
+                        Ordering::Relaxed,
+                    );
+                    answer(StatusCode::OK, "x")
+                }
             }
         })
         .await;
