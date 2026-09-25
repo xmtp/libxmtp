@@ -382,6 +382,11 @@ impl IncomingLease {
         self.coordinator.state.changed.subscribe()
     }
 
+    #[cfg(test)]
+    pub(crate) fn notify_change_for_test(&self) {
+        self.coordinator.state.notify();
+    }
+
     /// Hold the shared observer to test that another reader uses its own observer.
     #[cfg(any(test, feature = "test-utils"))]
     pub async fn lock_change_receiver_for_test(
