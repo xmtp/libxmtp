@@ -740,7 +740,7 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
         StandardContentKind::Actions => StandardContent::Actions(
             xmtp_content_types::actions::ActionsCodec::decode(encoded)
                 .map_err(codec_error)?
-                .into(),
+                .try_into()?,
         ),
         StandardContentKind::Intent => StandardContent::Intent(
             xmtp_content_types::intent::IntentCodec::decode(encoded)
