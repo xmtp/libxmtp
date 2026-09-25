@@ -956,6 +956,7 @@ async fn reaction_with_compression_only_does_not_push() {
     assert!(!stored.should_push);
     client.end().await?;
 }
+mod binding_map;
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_signer_and_signature_request_register() {
@@ -1472,6 +1473,16 @@ async fn backend_only_identity_and_message_queries() {
     )
     .await?;
     assert_eq!(metadata.len(), 1);
+    assert_eq!(metadata[0].conversation_id, group.id());
+    assert!(metadata[0].created_at.0 > 0);
+    let first_metadata = metadata[0].created_at.0;
+    group.send_text("newer metadata".into()).await?;
+    let updated_metadata = crate::static_helpers::newest_message_metadata_with_backend(
+        source.clone(),
+        vec![group.id()],
+    )
+    .await?;
+    assert!(updated_metadata[0].created_at.0 >= first_metadata);
     let connected_client = Client::build(
         client.identity(),
         ClientOptions {
@@ -1649,6 +1660,7 @@ async fn facade_hmac_keys_include_duplicate_dms() {
             .expect("duplicate DM must have HMAC keys");
         assert_eq!(entry.keys.len(), 3);
         assert!(entry.keys.iter().all(|key| key.key.len() == 42));
+        assert!(entry.keys.iter().all(|key| key.epoch >= 1));
     }
     a.end().await?;
     b.end().await?;
@@ -4633,6 +4645,15 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
     assert_eq!(original.0.reply_count, 1);
     assert_eq!(original.0.reactions.len(), 1);
     assert_eq!(original.0.reactions[0].id, reaction_id);
+    assert_eq!(original.0.reactions[0].reaction.content, "👍");
+    assert!(matches!(
+        original.0.reactions[0].reaction.action,
+        ReactionAction::Added
+    ));
+    assert!(matches!(
+        original.0.reactions[0].reaction.schema,
+        ReactionSchema::Unicode
+    ));
     let answer = enriched
         .iter()
         .find(|value| value.0.id == reply_id)
@@ -4641,6 +4662,10 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
         answer.0.in_reply_to.as_ref().map(|parent| &parent.id),
         Some(&plain)
     );
+    assert!(matches!(
+        &answer.0.content,
+        MessageContent::Reply { reference_id, .. } if reference_id == &plain
+    ));
     assert!(
         !answer
             .0
@@ -4928,6 +4953,20 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     let second = second_dm.send_text("second duplicate".into(), None).await?;
     b.conversations().sync_all(None).await?;
     a.conversations().sync_all(None).await?;
+    let a_thread = a
+        .conversations()
+        .get_dm_by_inbox_id(b.inbox_id())
+        .await?
+        .expect("A thread");
+    let b_thread = b
+        .conversations()
+        .get_dm_by_inbox_id(a.inbox_id())
+        .await?
+        .expect("B thread");
+    assert_eq!(a_thread.id(), b_thread.id());
+    let thread_messages = a_thread.messages(None).await?;
+    assert!(thread_messages.iter().any(|message| message.0.id == first));
+    assert!(thread_messages.iter().any(|message| message.0.id == second));
 
     let mut inactive = None;
     for id in [first.clone(), second.clone()] {
