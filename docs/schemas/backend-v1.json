@@ -165,7 +165,8 @@
             "null"
           ],
           "format": "uint64",
-          "minimum": 0
+          "minimum": 1,
+          "maximum": 4294967295
         },
         "retention_seconds": {
           "type": [
@@ -217,7 +218,9 @@
           "type": "string"
         },
         "key_prefix": {
+          "description": "The prefix can be empty. Other prefixes use ASCII letters, digits,\n`_`, `-`, `.`, and slash separators. A trailing slash is allowed.\nLeading slashes, empty interior segments, and `.` or `..` segments are invalid.",
           "type": "string",
+          "pattern": "^(?!/)(?!.*//)(?!.*(?:^|/)\\.{1,2}(?:/|$))[A-Za-z0-9_./-]*(?![\\s\\S])",
           "default": ""
         },
         "credentials": {
