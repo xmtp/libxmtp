@@ -228,7 +228,8 @@ export class WorkerHost {
           await Reflect.apply(end, client, []);
         } catch (error) {
           console.error("collected client could not close", error);
-          continue;
+          this.fatal(error);
+          return;
         }
       }
       this.locks?.closeOwner(owner);

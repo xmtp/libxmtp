@@ -462,7 +462,9 @@ describe("generated bridge value conformance", () => {
     );
     const session = new MainSession(main, 1, "end");
     await session.ready();
-    const handle = host.registry.add({}, "Client");
+    const handle = host.registry.add({}, "Client", undefined, () => ({
+      clientKey: 1n,
+    }));
     const client = new P.Client(session, handle);
     const ending = client.end();
     expect(() => session.checkHandle(handle)).toThrow("clientClosed");

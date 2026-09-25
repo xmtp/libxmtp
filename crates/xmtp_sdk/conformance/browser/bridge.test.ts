@@ -327,6 +327,49 @@ describe("browser bridge transport", () => {
     otherTab.close("client-pool");
   });
 
+  it("releases a pool after collected Client.end rejects", async () => {
+    const held = new Set<string>();
+    const provider: LockProvider = {
+      async request(name, _options, callback) {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          await callback({});
+        } finally {
+          held.delete(name);
+        }
+      },
+    };
+    const locks = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
+    const [main, worker] = pair();
+    const engine = new WorkerHost(
+      worker,
+      1,
+      "pool",
+      async () => {},
+      async () => undefined,
+      locks,
+    );
+    const session = new MainSession(main, 1, "pool");
+    await session.ready();
+    await locks.open("client-pool");
+    const handle = engine.registry.add(
+      { end: async () => Promise.reject(new Error("close failed")) },
+      "Client",
+    );
+    locks.attachOwner(handle.owner, "client-pool");
+    const client = new TestProxy(session, handle);
+    await expect(otherTab.open("client-pool")).rejects.toMatchObject({
+      code: "storageBusy",
+    });
+    client.release();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(worker.sent.some((message) => message.t === "fatal")).toBe(true);
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
+  });
+
   it("reentrant_signer_completes", async () => {
     const { session, engine } = host(async (key, _args, context) => {
       if (key === "inner") return "inner result";
