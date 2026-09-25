@@ -100,18 +100,22 @@ struct Conformance {
         print("Swift scenario 1: load, checksums, version passed")
 
         let codecSamples = sdkConformanceStandardSamples()
-        guard codecSamples.count == 11 else { throw ConformanceFailure("missing standard codec samples") }
+        guard codecSamples.count == 15 else { throw ConformanceFailure("missing standard codec samples") }
         for sample in codecSamples {
             let codec: any SDKContentCodec
             let value: Any
             switch sample.value {
             case let .text(item): codec = TextCodec(); value = item
+            case let .markdown(item): codec = MarkdownCodec(); value = item
             case .readReceipt: codec = ReadReceiptCodec(); value = ()
             case .reaction: codec = ReactionV2Codec(); value = sample.value
             case let .attachment(item): codec = AttachmentCodec(); value = item
             case let .remoteAttachment(item): codec = RemoteAttachmentCodec(); value = item
             case let .multiRemoteAttachment(item): codec = MultiRemoteAttachmentCodec(); value = item
             case let .transactionReference(item): codec = TransactionReferenceCodec(); value = item
+            case let .walletSendCalls(item): codec = WalletSendCallsCodec(); value = item
+            case let .actions(item): codec = ActionsCodec(); value = item
+            case let .intent(item): codec = IntentCodec(); value = item
             case .reply: codec = ReplyCodec(); value = sample.value
             case let .groupUpdated(item): codec = GroupUpdatedCodec(); value = item
             case .deleteMessage: codec = DeleteMessageCodec(); value = sample.value
@@ -124,7 +128,7 @@ struct Conformance {
                   try codec.encode(codec.decode(encoded)).content == sample.expected.content
             else { throw ConformanceFailure("standard codec bytes differ from Rust") }
         }
-        print("Swift P69: all 11 standard codecs match Rust bytes")
+        print("Swift P69: all 15 standard codecs match Rust bytes")
 
         let signer = TestSigner()
         let directory = FileManager.default.temporaryDirectory
@@ -143,7 +147,33 @@ struct Conformance {
               FileManager.default.fileExists(atPath: storagePath)
         else { throw ConformanceFailure("storage path does not name the database file") }
         let group = try await client.conversations().createGroup(members: [], options: nil)
-        let sentID = try await group.sendText(text: "conformance message")
+        var typedSends = 0
+        for sample in codecSamples {
+            let id: MessageID
+            switch sample.value {
+            case let .text(text): id = try await group.sendText(text: text, options: nil)
+            case let .markdown(markdown): id = try await group.sendMarkdown(markdown: markdown, options: nil)
+            case let .reaction(reference, inboxID, reaction): id = try await group.sendReaction(reference: reference, referenceInboxID: inboxID, reaction: reaction, options: nil)
+            case let .reply(reference, inboxID, content): id = try await group.sendReply(reference: reference, referenceInboxID: inboxID, content: content, options: nil)
+            case .readReceipt: id = try await group.sendReadReceipt(options: nil)
+            case let .attachment(attachment): id = try await group.sendAttachment(attachment: attachment, options: nil)
+            case let .remoteAttachment(attachment): id = try await group.sendRemoteAttachment(attachment: attachment, options: nil)
+            case let .multiRemoteAttachment(attachment): id = try await group.sendMultiRemoteAttachment(attachment: attachment, options: nil)
+            case let .transactionReference(reference): id = try await group.sendTransactionReference(reference: reference, options: nil)
+            case let .walletSendCalls(calls): id = try await group.sendWalletSendCalls(calls: calls, options: nil)
+            case let .actions(actions): id = try await group.sendActions(actions: actions, options: nil)
+            case let .intent(intent): id = try await group.sendIntent(intent: intent, options: nil)
+            default: continue
+            }
+            guard let wire = try await client.conversations().getMessageByID(id: id),
+                  wire.encoded.type.typeID == sample.expected.type.typeID,
+                  wire.encoded.content == sample.expected.content
+            else { throw ConformanceFailure("typed send bytes differ from codec") }
+            typedSends += 1
+        }
+        guard typedSends == 12 else { throw ConformanceFailure("missing typed send cases") }
+        print("Swift P69: typed send bytes match all 12 public codecs")
+        let sentID = try await group.sendText(text: "conformance message", options: nil)
         let sent = try await group.messages(options: nil).first { $0.id == sentID }
         precondition(sent != nil)
         let owningClient = try sent?.client()
@@ -189,7 +219,7 @@ struct Conformance {
             )
             weakHost = shortLived
             let shortGroup = try await shortLived.raw.conversations().createGroup(members: [], options: nil)
-            let orphanID = try await shortGroup.sendText(text: "weak owner")
+            let orphanID = try await shortGroup.sendText(text: "weak owner", options: nil)
             orphan = try await shortGroup.messages(options: nil).first { $0.id == orphanID }
         }
         precondition(weakHost == nil, "the registry kept the host client alive")
@@ -206,7 +236,7 @@ struct Conformance {
 
         let reopenedGroup = try await reopened.conversations().createGroup(members: [], options: nil)
         let reader = try await reopenedGroup.messageReader()
-        let liveID = try await reopenedGroup.sendText(text: "durable stream")
+        let liveID = try await reopenedGroup.sendText(text: "durable stream", options: nil)
         let first = try await reader.next()
         precondition(first?.id == liveID)
         try await reader.end()
@@ -219,7 +249,7 @@ struct Conformance {
         try await replay.end()
         _ = try? await pending.value
         let stream = try await reopenedHost.messages(in: reopenedGroup)
-        let adapterID = try await reopenedGroup.sendText(text: "adapter stream")
+        let adapterID = try await reopenedGroup.sendText(text: "adapter stream", options: nil)
         let iterator = stream.makeAsyncIterator()
         let fromAdapter = try await iterator.next()
         precondition(fromAdapter?.id == adapterID)
@@ -228,7 +258,7 @@ struct Conformance {
         idle.cancel()
         _ = try? await idle.value
         let protocolGroup = try await reopened.conversations().createGroup(members: [], options: nil)
-        let firstID = try await protocolGroup.sendText(text: "ack on request")
+        let firstID = try await protocolGroup.sendText(text: "ack on request", options: nil)
         do {
             let protocolStream = try await reopenedHost.messages(in: protocolGroup)
             for try await value in protocolStream {
@@ -246,7 +276,7 @@ struct Conformance {
         stopReplay.cancel()
         precondition(replayed?.id == firstID, "adapter prefetched and acknowledged a value")
         try await reread.end()
-        let secondID = try await protocolGroup.sendText(text: "second request")
+        let secondID = try await protocolGroup.sendText(text: "second request", options: nil)
         do {
             let protocolStream = try await reopenedHost.messages(in: protocolGroup)
             var protocolIterator: SDKMessageStream.Iterator? = protocolStream.makeAsyncIterator()
@@ -398,7 +428,7 @@ struct Conformance {
         else { throw ConformanceFailure("group options, immutable fields, or list failed") }
         print("Swift scenario 4: group options, state, and list passed")
 
-        let parentID = try await family.sendText(text: "parent")
+        let parentID = try await family.sendText(text: "parent", options: nil)
         let reactionID = try await reopened.conversations().reactToMessage(
             id: parentID, reaction: Reaction(content: "👍", action: .added, schema: .unicode), options: nil
         )

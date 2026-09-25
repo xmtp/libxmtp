@@ -19,4 +19,5 @@ fi
 grep -q "ConversationID" "$log"
 grep -q "EncodedContent" "$log"
 grep -q "Group" "$log"
+grep -q "MessageID" "$log"
 echo "Kotlin ID, content, and Group/Dm consumer checks passed"

@@ -35,6 +35,27 @@ public struct TextCodec: SDKContentCodec {
     }
 }
 
+public struct MarkdownCodec: SDKContentCodec {
+    public init() {}
+    public var type: ContentTypeID {
+        standardContentType(kind: .markdown)
+    }
+
+    public func encode(_ value: Any) throws -> EncodedContent {
+        try encodePure(value, as: String.self, wrap: StandardContent.markdown)
+    }
+
+    public func decode(_ encoded: EncodedContent) throws -> Any {
+        try decodePure(encoded) {
+            if case let .markdown(value) = $0 {
+                value
+            } else {
+                nil
+            }
+        }
+    }
+}
+
 public struct ReadReceiptCodec: SDKContentCodec {
     public init() {}
     public var type: ContentTypeID {
@@ -155,6 +176,69 @@ public struct TransactionReferenceCodec: SDKContentCodec {
     public func decode(_ encoded: EncodedContent) throws -> Any {
         try decodePure(encoded) {
             if case let .transactionReference(value) = $0 {
+                value
+            } else {
+                nil
+            }
+        }
+    }
+}
+
+public struct WalletSendCallsCodec: SDKContentCodec {
+    public init() {}
+    public var type: ContentTypeID {
+        standardContentType(kind: .walletSendCalls)
+    }
+
+    public func encode(_ value: Any) throws -> EncodedContent {
+        try encodePure(value, as: WalletSendCalls.self, wrap: StandardContent.walletSendCalls)
+    }
+
+    public func decode(_ encoded: EncodedContent) throws -> Any {
+        try decodePure(encoded) {
+            if case let .walletSendCalls(value) = $0 {
+                value
+            } else {
+                nil
+            }
+        }
+    }
+}
+
+public struct ActionsCodec: SDKContentCodec {
+    public init() {}
+    public var type: ContentTypeID {
+        standardContentType(kind: .actions)
+    }
+
+    public func encode(_ value: Any) throws -> EncodedContent {
+        try encodePure(value, as: Actions.self, wrap: StandardContent.actions)
+    }
+
+    public func decode(_ encoded: EncodedContent) throws -> Any {
+        try decodePure(encoded) {
+            if case let .actions(value) = $0 {
+                value
+            } else {
+                nil
+            }
+        }
+    }
+}
+
+public struct IntentCodec: SDKContentCodec {
+    public init() {}
+    public var type: ContentTypeID {
+        standardContentType(kind: .intent)
+    }
+
+    public func encode(_ value: Any) throws -> EncodedContent {
+        try encodePure(value, as: Intent.self, wrap: StandardContent.intent)
+    }
+
+    public func decode(_ encoded: EncodedContent) throws -> Any {
+        try decodePure(encoded) {
+            if case let .intent(value) = $0 {
                 value
             } else {
                 nil
