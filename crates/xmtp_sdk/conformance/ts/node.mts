@@ -465,6 +465,25 @@ for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
   ]);
   await probe.end();
 }
+let closedStatePolls = 0;
+const closedStateProbe = new sdk.MessageStream(
+  async () => ({
+    next: async () => undefined,
+    end: async () => {},
+    connectionState: () => sdk.ConnectionState.Closed,
+    connectionStateChanged: async () => {
+      closedStatePolls += 1;
+      if (closedStatePolls > 2) throw new Error("closed state loop");
+      return sdk.ConnectionState.Closed;
+    },
+  }),
+  reopened,
+  { onConnectionStateChange: () => {} },
+);
+await closedStateProbe.ready();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(closedStatePolls, 0, "closed state kept the monitor running");
+await closedStateProbe.end();
 const callbackGroup = await reopened.conversations().createGroup([], undefined);
 const callbackID = await callbackGroup.sendText("callback acknowledgment");
 let releaseCallback!: () => void;

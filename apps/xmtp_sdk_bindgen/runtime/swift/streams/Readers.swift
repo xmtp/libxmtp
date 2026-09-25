@@ -179,7 +179,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
             emit(.connecting)
             emit(currentHandle.connectionState())
             do {
-                while !completion.closed, let last = previous {
+                while !completion.closed, let last = previous, last != .closed {
                     try emit(await currentHandle.connectionStateChanged(last))
                 }
             } catch {
