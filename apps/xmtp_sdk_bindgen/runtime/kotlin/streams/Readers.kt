@@ -52,7 +52,7 @@ private fun <T, R> readerFlow(
                     try {
                         emitState(ConnectionState.CONNECTING)
                         emitState(connectionState(active))
-                        while (true) {
+                        while (previous != ConnectionState.CLOSED) {
                             emitState(connectionStateChanged(active, previous!!))
                         }
                     } catch (_: Throwable) {
