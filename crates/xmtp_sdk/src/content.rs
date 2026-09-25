@@ -300,7 +300,7 @@ impl TryFrom<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpd
     }
 }
 
-/// An uncompressed encoded content value.
+/// Encoded content. Unknown compression values remain available to the host.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct EncodedContent {
     pub r#type: ContentTypeId,
@@ -309,6 +309,8 @@ pub struct EncodedContent {
     #[uniffi(default = None)]
     pub fallback: Option<String>,
     pub content: Vec<u8>,
+    #[uniffi(default = None)]
+    pub compression: Option<i32>,
 }
 
 #[xmtp_macro::sdk_export]
@@ -330,7 +332,7 @@ impl From<EncodedContent> for ProtoEncodedContent {
             }),
             parameters: value.parameters,
             fallback: value.fallback,
-            compression: None,
+            compression: value.compression,
             content: value.content,
         }
     }
@@ -348,6 +350,7 @@ impl From<ProtoEncodedContent> for EncodedContent {
             },
             parameters: value.parameters,
             fallback: value.fallback,
+            compression: value.compression,
             content: value.content,
         }
     }

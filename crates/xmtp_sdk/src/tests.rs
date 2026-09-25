@@ -1424,6 +1424,37 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
     client.end().await?;
 }
 
+// verifies: CTYPE-008
+#[xmtp_common::test(unwrap_try = true)]
+async fn unknown_message_bytes_remain_available_to_the_host() {
+    use prost::Message as _;
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let id = group.send_text("fallback".into()).await?;
+    let mut stored = client.inner.message(hex::decode(&id.0)?)?;
+    let original = vec![0xff, 0x00, 0x80];
+    stored.decrypted_message_bytes = original.clone();
+    let message = crate::Message::from_stored(stored, client.client_key())?;
+    assert!(matches!(message.0.content, MessageContent::Unknown { .. }));
+    assert_eq!(message.0.encoded.content, original);
+
+    let mut stored = client.inner.message(hex::decode(&id.0)?)?;
+    let mut proto = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
+    proto.compression = Some(12_345);
+    let original_content = proto.content.clone();
+    stored.decrypted_message_bytes = proto.encode_to_vec();
+    let message = crate::Message::from_stored(stored, client.client_key())?;
+    let MessageContent::Unknown { encoded } = &message.0.content else {
+        panic!("unknown compression must remain unknown");
+    };
+    assert_eq!(encoded.compression, Some(12_345));
+    assert_eq!(encoded.content, original_content);
+    assert_eq!(message.0.encoded.compression, Some(12_345));
+    client.end().await?;
+}
+
 // verifies: CTYPE-024, CTYPE-025
 #[xmtp_common::test(unwrap_try = true)]
 fn decode_rejects_compression_bomb_with_bounded_output() {
