@@ -89,7 +89,7 @@ impl OpfsStore {
             .map_err(storage_error)?
             .dyn_into::<FileSystemSyncAccessHandle>()
             .map_err(storage_error)?;
-        Ok(StoreWriter { handle })
+        Ok(StoreWriter { handle, offset: 0 })
     }
 }
 
