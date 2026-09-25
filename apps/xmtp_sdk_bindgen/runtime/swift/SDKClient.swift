@@ -11,6 +11,10 @@ public final class SDKClient: @unchecked Sendable {
         ClientRegistry.register(self)
     }
 
+    public func storage() -> Storage {
+        raw.storage()
+    }
+
     func decodeCustom(_ encoded: EncodedContent) -> SDKMessageContent {
         guard let codec = codecs[SDKContentCodecKey(encoded.type)] else { return .unknown(encoded) }
         do { return try .custom(encoded: encoded, value: codec.decode(encoded), error: nil) }

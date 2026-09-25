@@ -12,6 +12,7 @@ import kotlinx.coroutines.withTimeout
 import uniffi.xmtp_sdk.*
 import java.lang.ref.WeakReference
 import java.nio.file.Files
+import java.nio.file.Path
 
 private fun signCommand(
     action: String,
@@ -100,6 +101,8 @@ fun main() =
         val host = SDKClient.create(signer, options)
         val client = host.raw
         val inboxID = client.inboxID()
+        val storagePath = checkNotNull(host.storage().path())
+        check(Files.isRegularFile(Path.of(storagePath))) { "storage path does not name the database file" }
         val group = client.conversations().createGroup(emptyList(), null)
         val sentID = group.sendText("conformance message")
         val sent = group.messages(null).first { it.id == sentID }

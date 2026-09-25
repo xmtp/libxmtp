@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -74,6 +74,9 @@ assert.equal(
 const client = await sdk.Client.create(signer, options);
 const inboxID = client.inboxID();
 assert.equal(typeof inboxID.toString(), "string");
+const storagePath = await client.storage().path();
+assert.ok(storagePath);
+assert.ok((await stat(storagePath)).isFile());
 const group = await client.conversations().createGroup([], undefined);
 const sentID = await group.sendText("conformance message");
 const history = await group.messages(undefined);
