@@ -10,6 +10,8 @@ use crate::{AttachmentError, AttachmentFailureCause};
 
 const TAG_LEN: usize = 16;
 const BLOCK_LEN: usize = 16;
+/// GCM starts CTR at block 2, leaving at most 2^32 - 2 data blocks.
+const MAX_GCM_INPUT_BYTES: u64 = (u32::MAX as u64 - 1) * BLOCK_LEN as u64;
 
 /// The random values used by the attachment encryption scheme.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -92,6 +94,18 @@ impl GcmCore {
         }
     }
 
+    fn check_input_len(&self, input_len: usize) -> Result<(), AttachmentError> {
+        let additional = u64::try_from(input_len)
+            .map_err(|_| AttachmentError::new(AttachmentFailureCause::TooLarge))?;
+        let remaining = MAX_GCM_INPUT_BYTES
+            .checked_sub(self.ciphertext_len)
+            .ok_or_else(|| AttachmentError::new(AttachmentFailureCause::TooLarge))?;
+        if additional > remaining {
+            return Err(AttachmentError::new(AttachmentFailureCause::TooLarge));
+        }
+        Ok(())
+    }
+
     fn authenticate(&mut self, mut input: &[u8]) {
         self.ciphertext_len += input.len() as u64;
         if self.partial_len != 0 {
@@ -138,11 +152,14 @@ impl GcmEncryptor {
         Self(GcmCore::new(material))
     }
 
-    pub fn update(&mut self, input: &[u8], out: &mut Vec<u8>) {
+    /// Returns `too_large` without changing `out` when the GCM counter limit is exceeded.
+    pub fn update(&mut self, input: &[u8], out: &mut Vec<u8>) -> Result<(), AttachmentError> {
+        self.0.check_input_len(input.len())?;
         let start = out.len();
         out.extend_from_slice(input);
         self.0.cipher.apply_keystream(&mut out[start..]);
         self.0.authenticate(&out[start..]);
+        Ok(())
     }
 
     pub fn finish(self) -> [u8; TAG_LEN] {
@@ -167,12 +184,10 @@ impl GcmDecryptor {
         }
     }
 
-    pub fn update(&mut self, input: &[u8], out: &mut Vec<u8>) {
-        let release = self
-            .tail
-            .len()
-            .saturating_add(input.len())
-            .saturating_sub(TAG_LEN);
+    /// Returns `too_large` without changing `out` when the GCM counter limit is exceeded.
+    pub fn update(&mut self, input: &[u8], out: &mut Vec<u8>) -> Result<(), AttachmentError> {
+        let release = input.len().saturating_sub(TAG_LEN - self.tail.len());
+        self.core.check_input_len(release)?;
         let from_tail = release.min(self.tail.len());
         if from_tail != 0 {
             let old = self.tail.drain(..from_tail).collect::<Vec<_>>();
@@ -181,6 +196,7 @@ impl GcmDecryptor {
         let from_input = release - from_tail;
         self.decrypt_part(&input[..from_input], out);
         self.tail.extend_from_slice(&input[from_input..]);
+        Ok(())
     }
 
     fn decrypt_part(&mut self, ciphertext: &[u8], out: &mut Vec<u8>) {
@@ -224,7 +240,9 @@ mod tests {
                 seed ^= seed >> 7;
                 seed ^= seed << 17;
                 let end = (at + 1 + (seed as usize % 32_768)).min(len);
-                encryptor.update(&plaintext[at..end], &mut actual);
+                encryptor
+                    .update(&plaintext[at..end], &mut actual)
+                    .expect("plaintext length is below the GCM limit");
                 at = end;
             }
             actual.extend_from_slice(&encryptor.finish());
@@ -238,7 +256,9 @@ mod tests {
                 seed ^= seed >> 7;
                 seed ^= seed << 17;
                 let end = (at + 1 + (seed as usize % 24_576)).min(actual.len());
-                decryptor.update(&actual[at..end], &mut decoded);
+                decryptor
+                    .update(&actual[at..end], &mut decoded)
+                    .expect("ciphertext length is below the GCM limit");
                 at = end;
             }
             decryptor.finish().expect("valid ciphertext and tag");
@@ -255,7 +275,9 @@ mod tests {
                         changed[pos] ^= 1 << bit;
                         let mut decryptor = GcmDecryptor::new(material);
                         let mut out = Vec::new();
-                        decryptor.update(&changed, &mut out);
+                        decryptor
+                            .update(&changed, &mut out)
+                            .expect("ciphertext length is below the GCM limit");
                         assert!(matches!(
                             decryptor.finish(),
                             Err(AttachmentError {
@@ -312,5 +334,52 @@ mod tests {
                 handle.join().expect("GCM worker completed");
             }
         });
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn gcm_counter_limit_rejects_before_output() {
+        let material = KeyMaterial {
+            secret: [7; 32],
+            salt: [9; 32],
+            nonce: [11; 12],
+        };
+
+        let mut encryptor = GcmEncryptor::new(&material);
+        encryptor.0.ciphertext_len = MAX_GCM_INPUT_BYTES - 1;
+        let mut encrypted = vec![0x5a];
+        assert_eq!(
+            encryptor.update(&[1, 2], &mut encrypted).unwrap_err().cause,
+            AttachmentFailureCause::TooLarge
+        );
+        assert_eq!(encrypted, [0x5a]);
+        assert_eq!(encryptor.0.ciphertext_len, MAX_GCM_INPUT_BYTES - 1);
+        encryptor.update(&[1], &mut encrypted)?;
+        assert_eq!(encrypted.len(), 2);
+        assert_eq!(encryptor.0.ciphertext_len, MAX_GCM_INPUT_BYTES);
+        assert_eq!(
+            encryptor.update(&[2], &mut encrypted).unwrap_err().cause,
+            AttachmentFailureCause::TooLarge
+        );
+        assert_eq!(encrypted.len(), 2);
+
+        let mut decryptor = GcmDecryptor::new(&material);
+        decryptor.core.ciphertext_len = MAX_GCM_INPUT_BYTES - 1;
+        decryptor.tail = vec![0x3c; TAG_LEN];
+        let mut decrypted = vec![0x5a];
+        assert_eq!(
+            decryptor.update(&[1, 2], &mut decrypted).unwrap_err().cause,
+            AttachmentFailureCause::TooLarge
+        );
+        assert_eq!(decrypted, [0x5a]);
+        assert_eq!(decryptor.tail, [0x3c; TAG_LEN]);
+        assert_eq!(decryptor.core.ciphertext_len, MAX_GCM_INPUT_BYTES - 1);
+        decryptor.update(&[1], &mut decrypted)?;
+        assert_eq!(decrypted.len(), 2);
+        assert_eq!(decryptor.core.ciphertext_len, MAX_GCM_INPUT_BYTES);
+        assert_eq!(
+            decryptor.update(&[2], &mut decrypted).unwrap_err().cause,
+            AttachmentFailureCause::TooLarge
+        );
+        assert_eq!(decrypted.len(), 2);
     }
 }
