@@ -268,15 +268,37 @@ class Message(
         result = 31 * result + data.encoded.deepHashCode()
         result = 31 * result +
             when (val value = data.content) {
-                is MessageContent.Text -> value.hashCode()
-                is MessageContent.Markdown -> value.hashCode()
-                is MessageContent.ReadReceipt -> 0
-                is MessageContent.Reaction -> value.hashCode()
-                is MessageContent.Reply -> value.hashCode()
-                is MessageContent.Custom -> value.encoded.deepHashCode()
-                is MessageContent.Unknown ->
+                is MessageContent.Text -> {
+                    value.hashCode()
+                }
+
+                is MessageContent.Markdown -> {
+                    value.hashCode()
+                }
+
+                is MessageContent.ReadReceipt -> {
+                    0
+                }
+
+                is MessageContent.Reaction -> {
+                    value.hashCode()
+                }
+
+                is MessageContent.Reply -> {
+                    value.hashCode()
+                }
+
+                is MessageContent.Custom -> {
+                    value.encoded.deepHashCode()
+                }
+
+                is MessageContent.Unknown -> {
                     31 * value.encoded.deepHashCode() + value.rawBytes.contentHashCode()
-                else -> value.hashCode()
+                }
+
+                else -> {
+                    value.hashCode()
+                }
             }
         return result
     }
