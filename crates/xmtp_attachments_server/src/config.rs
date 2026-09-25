@@ -40,6 +40,7 @@ impl AttachmentsConfig {
     }
 
     /// Reject settings that cannot be published or enforced.
+    // implements: ATCH-002, ATCH-003, ATCH-004
     pub fn validate(&self) -> Result<(), ConfigInvalid> {
         check_base_url(&self.base_url).map_err(ConfigInvalid::from_shared)?;
         check_max_upload_bytes(self.upload_ceiling()).map_err(ConfigInvalid::from_shared)?;
