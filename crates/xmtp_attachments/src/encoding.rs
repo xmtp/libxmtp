@@ -281,6 +281,7 @@ pub struct AttachmentDecoder {
     metadata: Vec<u8>,
     parameter: Option<ParameterEntry>,
     content_fields: usize,
+    sink_has_content: bool,
 }
 
 impl Default for AttachmentDecoder {
@@ -297,6 +298,7 @@ impl AttachmentDecoder {
             metadata: Vec::new(),
             parameter: None,
             content_fields: 0,
+            sink_has_content: false,
         }
     }
 
@@ -309,9 +311,11 @@ impl AttachmentDecoder {
     }
 
     /// Return ordered content events. Byte slices borrow from this input chunk.
+    /// Repeated content fields in one input chunk keep only the last field.
     pub fn push<'a>(&mut self, input: &'a [u8]) -> Result<Vec<ContentChunk<'a>>, AttachmentError> {
         let mut at = 0;
-        let mut content = Vec::new();
+        let mut content = Vec::with_capacity(2);
+        let sink_has_content = self.sink_has_content;
         while at < input.len() {
             match self.state {
                 ParseState::Tag | ParseState::Length { .. } | ParseState::OtherVarint { .. } => {
@@ -362,7 +366,10 @@ impl AttachmentDecoder {
                             };
                             if matches!(kind, DataKind::Content) {
                                 if self.content_fields > 0 {
-                                    content.push(ContentChunk::Reset);
+                                    content.clear();
+                                    if sink_has_content {
+                                        content.push(ContentChunk::Reset);
+                                    }
                                 }
                                 self.content_fields = self.content_fields.saturating_add(1);
                             } else if matches!(kind, DataKind::Type) {
@@ -435,6 +442,9 @@ impl AttachmentDecoder {
                     };
                 }
             }
+        }
+        if let Some(last) = content.last() {
+            self.sink_has_content = matches!(last, ContentChunk::Bytes(_));
         }
         Ok(content)
     }
@@ -732,6 +742,57 @@ mod tests {
         assert_eq!(stored, zlib);
         assert_eq!(decompressed, b"second");
         assert!(meta.compressed);
+    }
+
+    // verifies: ATCH-039
+    #[xmtp_common::test(unwrap_try = true)]
+    fn repeated_content_fields_coalesce_per_push() {
+        let prefix = encoded_prefix(Some("report.pdf"), "application/pdf", 0);
+        let mut repeated = Vec::with_capacity(64 * 1024);
+        for _ in 0..(64 * 1024 / 3) {
+            repeated.extend_from_slice(b"\x22\x01x");
+        }
+
+        let mut decoder = AttachmentDecoder::new();
+        assert!(decoder.push(&prefix)?.is_empty());
+        let mut stored = Cursor::new(Vec::new());
+        for event in decoder.push(b"\x22\x01y")? {
+            if let ContentChunk::Bytes(bytes) = event {
+                stored.write_all(bytes)?;
+            }
+        }
+        assert_eq!(stored.get_ref().as_slice(), b"y");
+
+        let events = decoder.push(&repeated)?;
+        assert!(events.len() <= 2, "too many events: {}", events.len());
+        assert_eq!(
+            events
+                .iter()
+                .filter(|event| matches!(event, ContentChunk::Reset))
+                .count(),
+            1
+        );
+        for event in events {
+            match event {
+                ContentChunk::Reset => {
+                    stored.get_mut().clear();
+                    stored.set_position(0);
+                }
+                ContentChunk::Bytes(bytes) => stored.write_all(bytes)?,
+            }
+        }
+        decoder.finish(&mut stored, &mut Vec::new())?;
+        assert_eq!(stored.into_inner(), b"x");
+
+        let mut fresh = AttachmentDecoder::new();
+        fresh.push(&prefix)?;
+        let events = fresh.push(&repeated)?;
+        assert!(events.len() <= 1, "too many events: {}", events.len());
+        assert!(
+            events
+                .iter()
+                .all(|event| !matches!(event, ContentChunk::Reset))
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]

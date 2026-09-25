@@ -20,6 +20,9 @@ pub use opfs::OpfsStore;
 /// The maximum amount of data buffered for one file operation.
 pub const CHUNK_SIZE: usize = 64 * 1024;
 
+#[cfg(target_arch = "wasm32")]
+const MAX_EXACT_JS_OFFSET: u64 = (1_u64 << 53) - 1;
+
 /// A path for staged ciphertext. It cannot collide with an attachment key.
 pub fn staged_path(content_digest: &str) -> Result<String, AttachmentError> {
     if content_digest.len() != 64
@@ -81,6 +84,8 @@ pub struct StoreWriter {
     pub(crate) file: tokio::fs::File,
     #[cfg(target_arch = "wasm32")]
     pub(crate) handle: web_sys::FileSystemSyncAccessHandle,
+    #[cfg(target_arch = "wasm32")]
+    pub(crate) offset: u64,
 }
 
 impl StoreWriter {
@@ -103,10 +108,11 @@ impl StoreWriter {
                 }
                 #[cfg(target_arch = "wasm32")]
                 {
-                    // OPFS moves the cursor to zero when it truncates to zero.
                     self.handle
                         .truncate_with_u32(0)
-                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+                    self.offset = 0;
+                    Ok(())
                 }
             }
             ContentChunk::Bytes(bytes) => self.write(bytes).await,
@@ -150,14 +156,23 @@ impl DownloadSink for StoreWriter {
         {
             let mut remaining = bytes;
             while !remaining.is_empty() {
-                let count = self
-                    .handle
-                    .write_with_u8_array(remaining)
-                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
-                    as usize;
-                if count == 0 {
+                if self.offset > MAX_EXACT_JS_OFFSET {
                     return Err(AttachmentError::new(Cause::LocalStorage));
                 }
+                let options = web_sys::FileSystemReadWriteOptions::new();
+                options.set_at(self.offset as f64);
+                let count = self
+                    .handle
+                    .write_with_u8_array_and_options(remaining, &options)
+                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+                    as usize;
+                if count == 0 || count > remaining.len() {
+                    return Err(AttachmentError::new(Cause::LocalStorage));
+                }
+                self.offset = self
+                    .offset
+                    .checked_add(count as u64)
+                    .ok_or(AttachmentError::new(Cause::LocalStorage))?;
                 remaining = &remaining[count..];
             }
             Ok(())
