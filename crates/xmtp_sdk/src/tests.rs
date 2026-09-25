@@ -903,7 +903,7 @@ async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
         "first read must be idle before cancellation"
     );
 
-    let message_id = group.send_text("after cancellation".into()).await?;
+    let message_id = group.send_text("after cancellation".into(), None).await?;
     let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
         .await??
         .expect("message after cancelled read");
@@ -946,7 +946,7 @@ async fn cancelled_conversation_read_delivers_next_group() {
 async fn stream_ack_only_on_next_request() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let first_id = group.send_text("first".into()).await?;
+    let first_id = group.send_text("first".into(), None).await?;
     let reader = group.message_reader().await?;
     assert_eq!(
         xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
@@ -967,7 +967,7 @@ async fn stream_ack_only_on_next_request() {
             .id,
         first_id
     );
-    let second_id = group.send_text("second".into()).await?;
+    let second_id = group.send_text("second".into(), None).await?;
     assert_eq!(
         xmtp_common::time::timeout(Duration::from_secs(5), replay.next())
             .await??
@@ -1011,7 +1011,7 @@ async fn late_reader_released() {
 async fn message_decode_error_closes_reader_and_releases_lease() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    group.send_text("invalid stored message".into()).await?;
+    group.send_text("invalid stored message".into(), None).await?;
     let reader = group.message_reader().await?;
     reader.corrupt_next_message_for_test();
     assert!(
