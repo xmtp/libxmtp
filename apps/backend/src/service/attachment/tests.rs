@@ -4,13 +4,32 @@ use crate::{
 };
 use prost::Message;
 use sha2::{Digest, Sha256};
+use std::{
+    sync::Arc,
+    time::{Duration, SystemTime},
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tonic::{Code, Request};
-use xmtp_attachments_server::{AttachmentsConfig, CredentialsConfig, S3Config, TargetConfig};
+use xmtp_attachments_server::{
+    AttachmentsConfig, CredentialsConfig, PresignedRequest, S3Config, S3Target, SignError,
+    StorageTarget, TargetConfig,
+};
+
+struct FailingTarget;
+
+#[tonic::async_trait]
+impl StorageTarget for FailingTarget {
+    async fn presign_put(
+        &self,
+        _content_digest: &[u8; 32],
+        _content_length: u64,
+    ) -> Result<PresignedRequest, SignError> {
+        Err(SignError::CredentialsUnavailable)
+    }
+}
 
 fn attachment_config() -> AttachmentsConfig {
-    let endpoint =
-        std::env::var("XMTP_MINIO_URL").unwrap_or_else(|_| "http://127.0.0.1:9067".into());
+    let endpoint = std::env::var("XMTP_S3_URL").unwrap_or_else(|_| "http://127.0.0.1:9067".into());
     AttachmentsConfig {
         base_url: format!("{endpoint}/attachments"),
         max_upload_bytes: Some(1024),
@@ -21,8 +40,8 @@ fn attachment_config() -> AttachmentsConfig {
             bucket: "attachments".into(),
             key_prefix: String::new(),
             credentials: CredentialsConfig::Static {
-                access_key_id: "xmtpminio".into(),
-                secret_access_key: "xmtpminiosecret".into(),
+                access_key_id: "xmtps3".into(),
+                secret_access_key: "xmtps3secret".into(),
                 session_token: None,
             },
             presign_ttl_seconds: Some(300),
@@ -63,8 +82,8 @@ async fn offer_published_iff_configured() -> TestResult {
     assert_eq!(offer.max_upload_bytes, 1024);
     assert_eq!(offer.retention_seconds, 3600);
     let wire = String::from_utf8_lossy(&offer.encode_to_vec()).into_owned();
-    assert!(!wire.contains("xmtpminiosecret"));
-    assert!(!wire.contains("xmtpminio"));
+    assert!(!wire.contains("xmtps3secret"));
+    assert!(!wire.contains("xmtps3"));
     configured.stop().await
 }
 
@@ -99,8 +118,8 @@ async fn no_storage_secrets_published() -> TestResult {
         .into_inner();
     let json = String::from_utf8_lossy(&response.encode_to_vec()).into_owned();
     for secret in [
-        "xmtpminiosecret",
-        "xmtpminio",
+        "xmtps3secret",
+        "xmtps3",
         "access_key_id",
         "secret_access_key",
         "endpoint",
@@ -203,6 +222,24 @@ async fn admission_table_order() -> TestResult {
             Code::InvalidArgument
         );
     }
+    let mut failing_backend = configured.backend.clone();
+    failing_backend.attachments = Some(Arc::new(FailingTarget));
+    for length in [0, 1025] {
+        let status = api::attachment_service_server::AttachmentService::create_upload(
+            &failing_backend,
+            Request::new(request(vec![0; 32], length)),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(status.code(), Code::InvalidArgument);
+    }
+    let status = api::attachment_service_server::AttachmentService::create_upload(
+        &failing_backend,
+        Request::new(request(vec![0; 32], 1)),
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(status.code(), Code::Unavailable);
     let status: tonic::Status =
         crate::error::Error::from(xmtp_attachments_server::SignError::CredentialsUnavailable)
             .into();
@@ -250,10 +287,10 @@ async fn create_upload_requires_credential() -> TestResult {
 
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: ATCH-023
-async fn minio_accepts_exact_bytes_once() -> TestResult {
+async fn s3_target_accepts_exact_bytes_once() -> TestResult {
     let server = TestServer::new(|config| config.attachments = Some(attachment_config())).await?;
     let bytes = uuid::Uuid::new_v4().as_bytes().to_vec();
-    let digest = Sha256::digest(&bytes);
+    let digest: [u8; 32] = Sha256::digest(&bytes).into();
     let signed = server
         .attachments()
         .create_upload(request(digest.to_vec(), bytes.len() as u64))
@@ -283,8 +320,24 @@ async fn minio_accepts_exact_bytes_once() -> TestResult {
         "if-none-match",
         "x-amz-checksum-sha256",
     ] {
-        assert!(allowed.contains(name), "CORS excludes {name}: {allowed}");
+        assert!(
+            allowed == "*" || allowed.contains(name),
+            "CORS excludes {name}: {allowed}"
+        );
     }
+    assert!(
+        preflight
+            .headers()
+            .contains_key("access-control-allow-origin")
+    );
+    assert!(
+        preflight
+            .headers()
+            .get("access-control-allow-methods")
+            .expect("CORS methods")
+            .to_str()?
+            .contains("PUT")
+    );
     let put = |body: Vec<u8>| {
         let mut upload = client.put(&signed.url);
         for header in &signed.headers {
@@ -294,20 +347,6 @@ async fn minio_accepts_exact_bytes_once() -> TestResult {
     };
     let wrong_body = put(vec![0; bytes.len()]).send().await?;
     assert_eq!(wrong_body.status(), reqwest::StatusCode::BAD_REQUEST);
-    let error_body = wrong_body.text().await?;
-    assert!(
-        error_body.contains("XAmzContentChecksumMismatch"),
-        "{error_body}"
-    );
-    // MinIO reports SHA-256 mismatch with its own code. A wrong body with an
-    // additional stale Content-MD5 must also fail with the S3 BadDigest code.
-    let bad_digest = put(vec![0; bytes.len()])
-        .header("content-md5", "1B2M2Y8AsgTpgAmY7PhCfg==")
-        .send()
-        .await?;
-    assert_eq!(bad_digest.status(), reqwest::StatusCode::BAD_REQUEST);
-    let error_body = bad_digest.text().await?;
-    assert!(error_body.contains("BadDigest"), "{error_body}");
     let mut wrong_length = client.put(&signed.url);
     for header in &signed.headers {
         if header.name != "content-length" {
@@ -318,7 +357,7 @@ async fn minio_accepts_exact_bytes_once() -> TestResult {
         .body(bytes[..bytes.len() - 1].to_vec())
         .send()
         .await?;
-    assert_eq!(wrong_length.status(), reqwest::StatusCode::FORBIDDEN);
+    assert!(matches!(wrong_length.status().as_u16(), 400 | 403));
     let uploaded = put(bytes.clone()).send().await?;
     assert!(
         uploaded.status().is_success(),
@@ -327,28 +366,52 @@ async fn minio_accepts_exact_bytes_once() -> TestResult {
         uploaded.text().await?
     );
     let get_url = format!("{}/{}", attachment_config().base_url, hex::encode(digest));
-    let fetched = client.get(get_url).send().await?;
+    let get_preflight = client
+        .request(reqwest::Method::OPTIONS, &get_url)
+        .header("origin", "http://example.test")
+        .header("access-control-request-method", "GET")
+        .send()
+        .await?;
+    assert!(get_preflight.status().is_success());
+    assert!(
+        get_preflight
+            .headers()
+            .contains_key("access-control-allow-origin")
+    );
+    assert!(
+        get_preflight
+            .headers()
+            .get("access-control-allow-methods")
+            .expect("CORS methods")
+            .to_str()?
+            .contains("GET")
+    );
+    let fetched = client
+        .get(get_url)
+        .header("origin", "http://example.test")
+        .send()
+        .await?;
     assert_eq!(fetched.status(), reqwest::StatusCode::OK);
+    assert!(
+        fetched
+            .headers()
+            .contains_key("access-control-allow-origin")
+    );
     assert_eq!(fetched.bytes().await?.as_ref(), bytes);
     assert_eq!(
         put(bytes.clone()).send().await?.status(),
         reqwest::StatusCode::PRECONDITION_FAILED
     );
-    let mut expired = url::Url::parse(&signed.url)?;
-    let old_date = expired
-        .query_pairs()
-        .find(|(name, _)| name == "X-Amz-Date")
-        .expect("signature date")
-        .1
-        .into_owned();
-    expired.set_query(Some(
-        &expired
-            .query()
-            .expect("query")
-            .replace(&old_date, "20000101T000000Z"),
-    ));
-    // Send the full request in one write. MinIO can reject an expired date
-    // before a streaming client sends its body and close that connection.
+    let past = Arc::new(|| SystemTime::now() - Duration::from_secs(3600));
+    let expired_config = attachment_config();
+    let TargetConfig::S3(s3) = &expired_config.target;
+    let expired_target = S3Target::new_with_clock(s3, past).await?;
+    let expired_signed = expired_target
+        .presign_put(&digest, bytes.len() as u64)
+        .await?;
+    let expired = url::Url::parse(&expired_signed.url)?;
+    // Send the full request in one write. A target can reject the date before
+    // a streaming client sends its body and close that connection.
     let host = expired.host_str().expect("storage host");
     let port = expired.port_or_known_default().expect("storage port");
     let mut stream = tokio::net::TcpStream::connect((host, port)).await?;
@@ -358,8 +421,8 @@ async fn minio_accepts_exact_bytes_once() -> TestResult {
         expired.query().expect("signature query")
     )
     .into_bytes();
-    for header in &signed.headers {
-        wire.extend_from_slice(format!("{}: {}\r\n", header.name, header.value).as_bytes());
+    for (name, value) in &expired_signed.headers {
+        wire.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
     }
     wire.extend_from_slice(b"\r\n");
     wire.extend_from_slice(&bytes);
@@ -368,7 +431,7 @@ async fn minio_accepts_exact_bytes_once() -> TestResult {
     stream.read_to_end(&mut reply).await?;
     let reply = String::from_utf8(reply)?;
     assert!(reply.starts_with("HTTP/1.1 403"), "{reply}");
-    assert!(reply.contains("Request has expired"), "{reply}");
+    assert!(reply.to_ascii_lowercase().contains("expir"), "{reply}");
     server.stop().await
 }
 

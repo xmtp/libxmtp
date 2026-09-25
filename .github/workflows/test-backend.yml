@@ -23,10 +23,10 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
       - uses: taiki-e/install-action@just
-      - name: Start backend database and MinIO
+      - name: Start backend database and VersityGW
         run: |
           just backend db-up
-          just backend minio-up
+          just backend s3-up
       - name: Check SQL cache
         run: just backend sql-check
       - name: Test backend, replica recovery, and HTTPS streaming
@@ -89,8 +89,6 @@ jobs:
             -e XMTP_CHAIN_31337_URL=http://anvil.invalid:8545 \
             -e XMTP_DATABASE_URL=postgres://xmtp:xmtp@db:5432/xmtp_backend \
             -e XMTP_REPLICA_URL=postgres://xmtp:xmtp@replica:5432/xmtp_backend \
-            -e XMTP_MINIO_URL="${XMTP_MINIO_URL}" \
-            -e XMTP_MINIO_BASE_URL="${XMTP_MINIO_BASE_URL}" \
             -v "$PWD/dev/backend/local.toml:/config.toml:ro" \
             ghcr.io/xmtp/backend:self-hosted --config-file /config.toml
           dev/nix-shell 'for attempt in {1..30}; do grpc-health-probe -addr=127.0.0.1:55050 && exit 0; sleep 1; done; exit 1'

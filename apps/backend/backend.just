@@ -38,8 +38,8 @@ db-up:
     {{ root }}/dev/docker/up db replica
 
 # Start the S3 test target without building the backend image.
-minio-up:
-    {{ root }}/dev/docker/up minio minio-init
+s3-up:
+    {{ root }}/dev/docker/up s3 s3-init
 
 db-down:
     {{ root }}/dev/docker/down
@@ -82,7 +82,7 @@ logs *services:
       "backend:    $XMTP_BACKEND_URL" \
       "toxic:      $XMTP_BACKEND_TOXIC_URL" \
       "anvil:      $ANVIL_URL" \
-      "minio:      $XMTP_MINIO_URL" \
+      "s3:      $XMTP_S3_URL" \
       "database:   $DATABASE_URL" \
       "replica:    $XMTP_REPLICA_URL" \
       "grafana:    http://127.0.0.1:$XMTP_GRAFANA_PORT" \

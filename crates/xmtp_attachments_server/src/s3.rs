@@ -107,13 +107,17 @@ impl std::fmt::Debug for S3Target {
 
 impl S3Target {
     pub async fn new(config: &S3Config) -> Result<Self, BuildError> {
+        Self::new_with_clock(config, Arc::new(SystemTime::now)).await
+    }
+
+    /// Create a target with a supplied clock for deterministic signing.
+    pub async fn new_with_clock(
+        config: &S3Config,
+        clock: Arc<dyn Fn() -> SystemTime + Send + Sync>,
+    ) -> Result<Self, BuildError> {
         config.validate()?;
         let provider = provider_for(config).await?;
-        Ok(Self::with_provider(
-            config,
-            provider,
-            Arc::new(SystemTime::now),
-        ))
+        Ok(Self::with_provider(config, provider, clock))
     }
 
     fn with_provider(
@@ -137,13 +141,13 @@ impl S3Target {
 
     /// Keep a credential until less than five minutes remain, then ask the provider again.
     /// The lock also makes concurrent refreshes one operation.
-    async fn credentials(&self) -> Result<Credentials, SignError> {
+    async fn credentials(&self) -> Result<(Credentials, SystemTime), SignError> {
         let mut cached = self.cached.lock().await;
         let now = (self.clock)();
         if let Some(credentials) = cached.as_ref()
             && credential_ttl(credentials, now, self.ttl).is_some()
         {
-            return Ok(credentials.clone());
+            return Ok((credentials.clone(), now));
         }
         let credentials = self.provider.provide_credentials().await.map_err(|error| {
             let kind = match error {
@@ -160,10 +164,10 @@ impl S3Target {
             );
             SignError::CredentialsUnavailable
         })?;
-        credential_ttl(&credentials, (self.clock)(), self.ttl)
-            .ok_or(SignError::CredentialsUnavailable)?;
+        let now = (self.clock)();
+        credential_ttl(&credentials, now, self.ttl).ok_or(SignError::CredentialsUnavailable)?;
         *cached = Some(credentials.clone());
-        Ok(credentials)
+        Ok((credentials, now))
     }
 
     fn object_url(&self, digest: &[u8; 32]) -> Result<Url, SignError> {
@@ -204,8 +208,7 @@ impl StorageTarget for S3Target {
         content_digest: &[u8; 32],
         content_length: u64,
     ) -> Result<PresignedRequest, SignError> {
-        let credentials = self.credentials().await?;
-        let now = (self.clock)();
+        let (credentials, now) = self.credentials().await?;
         let ttl =
             credential_ttl(&credentials, now, self.ttl).ok_or(SignError::CredentialsUnavailable)?;
         let url = self.object_url(content_digest)?;

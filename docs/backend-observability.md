@@ -4,7 +4,7 @@ See [Query local traces](querying-traces.md) for bounded Tempo API queries,
 SDK/backend correlation, and commands for agent investigations.
 
 The local stack contains `db`, `replica`, `backend`, `anvil`, `toxiproxy`,
-`tempo`, `prometheus`, `grafana`, `minio`, and `minio-init`. Tempo stores local traces on disk. The
+`tempo`, `prometheus`, `grafana`, `s3`, and `s3-init`. Tempo stores local traces on disk. The
 other services use temporary storage.
 
 ```sh

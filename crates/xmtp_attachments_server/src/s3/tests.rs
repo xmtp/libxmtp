@@ -270,6 +270,30 @@ async fn refresh_uses_post_provider_clock() {
     assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
 }
 
+// verifies: ATCH-028
+#[xmtp_common::test(unwrap_try = true)]
+async fn presign_uses_one_clock_read_per_credentials_decision() {
+    let reads = Arc::new(AtomicUsize::new(0));
+    let clock: Arc<dyn Fn() -> SystemTime + Send + Sync> = {
+        let reads = reads.clone();
+        Arc::new(move || {
+            let offset = reads.fetch_add(1, Ordering::SeqCst) as u64;
+            UNIX_EPOCH + Duration::from_secs(REFERENCE_TIME + offset)
+        })
+    };
+    let target = target(
+        &config(),
+        FakeProvider::new([credentials(Some(800))]),
+        clock,
+    );
+    let first = target.presign_put(&[1; 32], 1).await?;
+    assert_eq!(first.expires_in_seconds, 799);
+    assert_eq!(reads.load(Ordering::SeqCst), 2);
+    let second = target.presign_put(&[2; 32], 1).await?;
+    assert_eq!(second.expires_in_seconds, 798);
+    assert_eq!(reads.load(Ordering::SeqCst), 3);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn refresh_error_does_not_use_cached_credentials() {
     let offset = Arc::new(AtomicU64::new(0));
