@@ -73,8 +73,18 @@ type CustomBody = {
   tag: B.MessageBody_Tags.Custom;
   inner: { encoded: B.EncodedContent; value?: unknown; error?: string };
 };
+type HostReply = {
+  tag: B.MessageContent_Tags.Reply;
+  inner: { referenceID: B.MessageID; body: B.MessageBody | CustomBody };
+};
 type HostContent =
-  | Exclude<B.MessageContent, { tag: B.MessageContent_Tags.Custom }>
+  | Exclude<
+      B.MessageContent,
+      {
+        tag: B.MessageContent_Tags.Custom | B.MessageContent_Tags.Reply;
+      }
+    >
+  | HostReply
   | CustomContent;
 
 function decodeCustom(
@@ -134,6 +144,11 @@ function decodeContent(
     case Pure.StandardContent_Tags.LeaveRequest:
       return B.MessageContent.LeaveRequest.new(standard.inner[0]);
     case Pure.StandardContent_Tags.Reply:
+      if (content.tag !== B.MessageContent_Tags.Reply) return content;
+      return { tag: B.MessageContent_Tags.Reply, inner: {
+        referenceID: content.inner.referenceID,
+        body: decodeBody(session, key, content.inner.body, standard.inner.content),
+      } };
     case Pure.StandardContent_Tags.DeleteMessage:
       return content;
   }
@@ -143,13 +158,46 @@ function decodeBody(
   session: MainSession,
   key: bigint,
   body: B.MessageBody,
+  encoded: B.EncodedContent,
 ): B.MessageBody | CustomBody {
-  if (body.tag !== B.MessageBody_Tags.Custom) return body;
-  const encoded = body.inner.encoded;
-  const result = decodeCustom(owner(session, key), encoded);
-  return result === undefined
-    ? { tag: B.MessageBody_Tags.Custom, inner: { encoded } }
-    : { tag: B.MessageBody_Tags.Custom, inner: { encoded, ...result } };
+  if (body.tag === B.MessageBody_Tags.Custom) {
+    const result = decodeCustom(owner(session, key), encoded);
+    return result === undefined
+      ? { tag: B.MessageBody_Tags.Custom, inner: { encoded } }
+      : { tag: B.MessageBody_Tags.Custom, inner: { encoded, ...result } };
+  }
+  if (body.tag === B.MessageBody_Tags.Unknown) return body;
+  const standard = Pure.decodeStandard(encoded);
+  switch (standard.tag) {
+    case Pure.StandardContent_Tags.Text:
+      return B.MessageBody.Text.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.Markdown:
+      return B.MessageBody.Markdown.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.ReadReceipt:
+      return B.MessageBody.ReadReceipt.new();
+    case Pure.StandardContent_Tags.Attachment:
+      return B.MessageBody.Attachment.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.RemoteAttachment:
+      return B.MessageBody.RemoteAttachment.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.MultiRemoteAttachment:
+      return B.MessageBody.MultiRemoteAttachment.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.TransactionReference:
+      return B.MessageBody.TransactionReference.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.WalletSendCalls:
+      return B.MessageBody.WalletSendCalls.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.Actions:
+      return B.MessageBody.Actions.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.Intent:
+      return B.MessageBody.Intent.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.GroupUpdated:
+      return B.MessageBody.GroupUpdated.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.LeaveRequest:
+      return B.MessageBody.LeaveRequest.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.Reaction:
+    case Pure.StandardContent_Tags.Reply:
+    case Pure.StandardContent_Tags.DeleteMessage:
+      return body;
+  }
 }
 
 export class Message extends B.Message {
@@ -161,11 +209,11 @@ export class Message extends B.Message {
     super(data);
     this.content = decodeContent(session, data.clientKey, data.content, data.encoded);
     this.inReplyToContent = data.inReplyTo
-      ? decodeBody(session, data.clientKey, data.inReplyTo.content)
+      ? decodeBody(session, data.clientKey, data.inReplyTo.content, data.inReplyTo.encoded)
       : undefined;
     this.replyContent =
-      data.content.tag === B.MessageContent_Tags.Reply
-        ? decodeBody(session, data.clientKey, data.content.inner.body)
+      this.content.tag === B.MessageContent_Tags.Reply
+        ? this.content.inner.body
         : undefined;
   }
 
