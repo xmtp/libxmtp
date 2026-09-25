@@ -12,7 +12,9 @@ use parking_lot::RwLock;
 use prost::Message;
 use xmtp_api::{ApiClientWrapper, ApiError};
 use xmtp_configuration::{
-    ConfigProvider, ServerConfiguration, ServerConfigurationError, StoredConfigProvider,
+    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ConfigProvider, ServerConfiguration,
+    ServerConfigurationError, StoredConfigProvider,
+    attachments::{check_base_url, check_max_upload_bytes, check_retention_seconds},
 };
 use xmtp_db::prelude::*;
 use xmtp_db::{StorageError, server_configuration::StoredServerConfiguration};
@@ -105,22 +107,45 @@ impl Default for ServerConfigurationHandle {
 }
 
 impl ServerConfigurationHandle {
-    /// Hold one snapshot, with no zero left in its limits.
+    /// Hold one snapshot, with no zero left in its limits or attachment upload ceiling.
     ///
     /// Wire conversion replaces a zero on the wire with the compiled default, but a
     /// snapshot an app builds in Rust and hands in through a `ConfigProvider`
     /// never passes through that conversion, and a zero dimension
     /// would panic the `chunks(limit)` calls in `xmtp_api`. Every
     /// snapshot reaches a client through this constructor, so sanitizing here
-    /// is what keeps the zero out of all three readers at once: this handle,
-    /// the wrapper that chunks with it, and the transport.
+    /// keeps zero limits out of all three readers at once: this handle, the
+    /// wrapper that chunks with them, and the transport. It also removes an
+    /// unusable attachment offer from a provider snapshot.
     pub fn new(provider: Arc<dyn ConfigProvider>) -> Self {
         let sanitized = {
             let supplied = provider.server_configuration();
             let limits = supplied.limits.without_zeroes();
-            (limits != supplied.limits).then(|| ServerConfiguration {
-                limits,
-                ..supplied.clone()
+            let attachments = supplied.attachments.as_ref().and_then(|offer| {
+                let mut offer = offer.clone();
+                if offer.max_upload_bytes == 0 {
+                    offer.max_upload_bytes = BACKEND_DEFAULT_MAX_UPLOAD_BYTES;
+                }
+                let checked = check_base_url(&offer.base_url)
+                    .and_then(|_| check_max_upload_bytes(offer.max_upload_bytes))
+                    .and_then(|_| check_retention_seconds(offer.retention_seconds));
+                if let Err(reason) = checked {
+                    tracing::warn!(
+                        field = reason.field(),
+                        reason = reason.reason(),
+                        "ignoring unusable attachment storage offer"
+                    );
+                    None
+                } else {
+                    Some(offer)
+                }
+            });
+            (limits != supplied.limits || attachments != supplied.attachments).then(|| {
+                ServerConfiguration {
+                    limits,
+                    attachments,
+                    ..supplied.clone()
+                }
             })
         };
         Self {
