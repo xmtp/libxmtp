@@ -74,10 +74,12 @@ fn open_location_store(
 #[derive(Error, Debug, ErrorCode)]
 pub enum ClientBuilderError {
     /// The deployment storage path could not be resolved or opened.
+    /// May be retryable if local storage becomes available.
     #[error(transparent)]
     #[error_code("StorageLocation")]
     StorageLocation(#[from] crate::storage_location::StorageLocationError),
     /// Attachment storage could not be prepared or cleaned.
+    /// May be retryable if local storage becomes available.
     #[error(transparent)]
     #[error_code("Attachment")]
     Attachment(#[from] crate::attachments::AttachmentClientError),
