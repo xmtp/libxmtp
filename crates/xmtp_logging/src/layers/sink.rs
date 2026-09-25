@@ -167,7 +167,6 @@ impl SinkSlot {
         self.0.errors.load(Ordering::Relaxed)
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub(crate) fn dropped_count(&self) -> u64 {
         self.0.dropped.load(Ordering::Relaxed)
     }
@@ -393,6 +392,40 @@ mod tests {
             timestamp_ns: 1,
             dropped_records: 0,
         }
+    }
+
+    struct Busy;
+
+    impl LogSinkTarget for Busy {
+        fn on_record(&self, _record: LogRecord) -> Result<(), SinkError> {
+            Err(Box::new(SinkBusy))
+        }
+    }
+
+    #[test]
+    fn native_busy_uses_dropped_count() {
+        let slot = SinkSlot::default();
+        slot.set_sink(Some(Arc::new(Busy)));
+        tracing::subscriber::with_default(
+            tracing_subscriber::registry().with(slot.clone()),
+            || {
+                tracing::info!(target: "xmtp_mls", "busy");
+            },
+        );
+        assert_eq!(slot.dropped_count(), 1);
+        assert_eq!(slot.error_count(), 0);
+    }
+
+    #[test]
+    fn native_handle_reports_busy_drops() {
+        let handle = crate::XmtpLogging::builder()
+            .level(Level::Info)
+            .install()
+            .unwrap();
+        handle.set_sink(Some(Arc::new(Busy)));
+        tracing::info!(target: "xmtp_mls", "busy");
+        assert_eq!(handle.sink_dropped_count(), 1);
+        assert_eq!(handle.sink_error_count(), 0);
     }
 
     #[test]

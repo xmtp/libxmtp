@@ -144,6 +144,11 @@ impl LoggingHandle {
         self.sink.error_count()
     }
 
+    /// Count records rejected because the sink was busy.
+    pub fn sink_dropped_count(&self) -> u64 {
+        self.sink.dropped_count()
+    }
+
     /// Change the native (stdout / logcat / oslog) layer's level at runtime, on
     /// all native targets. Note: reloads with a per-libxmtp-crate filter
     /// (`filter_directive`), so a prior `RUST_LOG` override no longer applies
