@@ -2,8 +2,8 @@ import Foundation
 
 public protocol SDKContentCodec {
     var type: ContentTypeID { get }
-    func encode(_ value: Any) throws -> EncodedContent
-    func decode(_ encoded: EncodedContent) throws -> Any
+    func encode(_ value: any Sendable) throws -> EncodedContent
+    func decode(_ encoded: EncodedContent) throws -> any Sendable
 }
 
 public func SDKContentCodecKey(_ type: ContentTypeID) -> String {
@@ -16,15 +16,15 @@ public extension SDKContentCodec {
     }
 }
 
-public enum SDKMessageContent {
+public enum SDKMessageContent: Sendable {
     case standard(MessageContent)
-    case custom(encoded: EncodedContent, value: Any?, error: Error?)
+    case custom(encoded: EncodedContent, value: (any Sendable)?, error: Error?)
     case unknown(EncodedContent)
 }
 
-public enum SDKReplyContent {
+public enum SDKReplyContent: Sendable {
     case standard(MessageBody)
-    case custom(encoded: EncodedContent, value: Any?, error: Error?)
+    case custom(encoded: EncodedContent, value: (any Sendable)?, error: Error?)
     case unknown(EncodedContent)
 }
 
@@ -128,7 +128,7 @@ private func decodeReplyBody(_ body: MessageBody, clientKey: UInt64) -> SDKReply
     }
 }
 
-public final class Message: Identifiable, Hashable, @unchecked Sendable {
+public final class Message: Identifiable, Hashable, Sendable {
     public let data: MessageData
     public let content: SDKMessageContent
     public let inReplyToContent: SDKReplyContent?
@@ -233,7 +233,7 @@ public final class Message: Identifiable, Hashable, @unchecked Sendable {
         try await client().raw.conversations().replyToMessage(id: id, content: content, options: options)
     }
 
-    public func reply(_ codec: any SDKContentCodec, value: Any, options: SendOptions? = nil) async throws -> MessageID {
+    public func reply(_ codec: any SDKContentCodec, value: any Sendable, options: SendOptions? = nil) async throws -> MessageID {
         try await reply(codec.encode(value), options: options)
     }
 

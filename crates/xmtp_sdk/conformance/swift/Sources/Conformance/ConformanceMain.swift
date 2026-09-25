@@ -73,12 +73,12 @@ final class OrderedLogSink: LogSink, @unchecked Sendable {
 
 struct SampleCodec: SDKContentCodec {
     let type = ContentTypeID(authorityID: "example.org", typeID: "sample", versionMajor: 1, versionMinor: 0)
-    func encode(_ value: Any) throws -> EncodedContent {
+    func encode(_ value: any Sendable) throws -> EncodedContent {
         guard let text = value as? String else { throw ConformanceFailure("custom value was not text") }
         return EncodedContent(type: type, content: Data(text.utf8))
     }
 
-    func decode(_ encoded: EncodedContent) throws -> Any {
+    func decode(_ encoded: EncodedContent) throws -> any Sendable {
         guard let text = String(data: encoded.content, encoding: .utf8) else {
             throw ConformanceFailure("custom content was not UTF-8")
         }
@@ -88,11 +88,11 @@ struct SampleCodec: SDKContentCodec {
 
 struct FailingCodec: SDKContentCodec {
     let type = SampleCodec().type
-    func encode(_ value: Any) throws -> EncodedContent {
+    func encode(_ value: any Sendable) throws -> EncodedContent {
         try SampleCodec().encode(value)
     }
 
-    func decode(_: EncodedContent) throws -> Any {
+    func decode(_: EncodedContent) throws -> any Sendable {
         throw ConformanceFailure("codec decode failed")
     }
 }
@@ -113,7 +113,7 @@ struct Conformance {
         guard codecSamples.count == 15 else { throw ConformanceFailure("missing standard codec samples") }
         for sample in codecSamples {
             let codec: any SDKContentCodec
-            let value: Any
+            let value: any Sendable
             switch sample.value {
             case let .text(item): codec = TextCodec(); value = item
             case let .markdown(item): codec = MarkdownCodec(); value = item
