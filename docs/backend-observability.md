@@ -90,8 +90,8 @@ route table. Unknown routes use `unknown`. Prometheus also adds `job` and
 
 CreateUpload uses `grpc_service="xmtp.backend.v1.AttachmentService"` and
 `grpc_method="CreateUpload"`. The standard RPC counters and latency histogram
-include this route. A signing failure returns `UNAVAILABLE`. Logs record the
-credential provider error kind or signing error kind without secret values.
+include this route. A signing failure returns `UNAVAILABLE`. Currently, the
+backend logs only the credential provider error kind or signing error kind.
 
 Backend metrics are in-process counters, gauges, and histograms. They do **not**
 depend on trace sampling. Tempo-derived `traces_spanmetrics_*` client counts and
