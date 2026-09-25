@@ -106,7 +106,6 @@ tracing = { version = "0.1", features = ["log"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "json", "smallvec"] }
 url = { version = "2", features = ["serde"] }
-uuid = { version = "1", features = ["fast-rng", "v4"] }
 winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7", features = ["simd"] }
 winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
@@ -208,7 +207,6 @@ tracing = { version = "0.1", features = ["log"] }
 tracing-core = { version = "0.1" }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["ansi", "env-filter", "json", "smallvec"] }
 url = { version = "2", features = ["serde"] }
-uuid = { version = "1", features = ["fast-rng", "v4"] }
 winnow-ca01ad9e24f5d932 = { package = "winnow", version = "0.7", features = ["simd"] }
 winnow-dff4ba8e3ae991db = { package = "winnow", version = "1" }
 zerocopy = { version = "0.8", default-features = false, features = ["derive", "simd"] }
@@ -239,7 +237,6 @@ subtle = { version = "2" }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uuid = { version = "1", default-features = false, features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-unknown-linux-gnu.build-dependencies]
@@ -269,7 +266,6 @@ subtle = { version = "2" }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uuid = { version = "1", default-features = false, features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-apple-darwin.dependencies]
@@ -300,7 +296,6 @@ subtle = { version = "2" }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uuid = { version = "1", default-features = false, features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-apple-darwin.build-dependencies]
@@ -332,7 +327,6 @@ subtle = { version = "2" }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uuid = { version = "1", default-features = false, features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-linux-android.dependencies]
@@ -363,7 +357,6 @@ subtle = { version = "2" }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uuid = { version = "1", default-features = false, features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.aarch64-linux-android.build-dependencies]
@@ -395,7 +388,6 @@ subtle = { version = "2" }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uuid = { version = "1", default-features = false, features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-linux-android.dependencies]
@@ -425,7 +417,6 @@ subtle = { version = "2" }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uuid = { version = "1", default-features = false, features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 [target.x86_64-linux-android.build-dependencies]
@@ -456,7 +447,6 @@ subtle = { version = "2" }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
-uuid = { version = "1", default-features = false, features = ["serde"] }
 zeroize = { version = "1", features = ["zeroize_derive"] }
 
 ### END HAKARI SECTION
