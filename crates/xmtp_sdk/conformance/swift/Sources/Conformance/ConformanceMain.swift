@@ -97,6 +97,9 @@ struct Conformance {
         let host = try await SDKClient.create(signer: signer, options: options)
         let client = host.raw
         let inboxID = client.inboxID()
+        guard let storagePath = try await host.storage().path(),
+              FileManager.default.fileExists(atPath: storagePath)
+        else { throw ConformanceFailure("storage path does not name the database file") }
         let group = try await client.conversations().createGroup(members: [], options: nil)
         let sentID = try await group.sendText(text: "conformance message")
         let sent = try await group.messages(options: nil).first { $0.id == sentID }

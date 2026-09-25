@@ -171,7 +171,12 @@ export interface ClientLike {
   inboxID(): InboxID;
   installationID(): InstallationID;
   conversations(): ConversationsLike;
+  storage(): StorageLike;
   end(): Promise<void>;
+}
+
+export interface StorageLike {
+  path(): Promise<string | undefined>;
 }
 
 export declare const Client: {
