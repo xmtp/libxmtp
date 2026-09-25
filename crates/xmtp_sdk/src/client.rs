@@ -207,8 +207,8 @@ pub struct ClientOptions {
     #[uniffi(default = true)]
     pub device_sync: bool,
     /// Permit startup from stored state when the backend is unavailable.
-    #[uniffi(default = false)]
-    pub allow_offline: bool,
+    #[uniffi(default = None)]
+    pub allow_offline: Option<bool>,
     #[uniffi(default)]
     pub registration: RegistrationOptions,
     #[uniffi(default = None)]
@@ -225,7 +225,7 @@ impl Default for ClientOptions {
             backend: None,
             storage: StorageOptions::default(),
             device_sync: true,
-            allow_offline: false,
+            allow_offline: None,
             registration: RegistrationOptions::default(),
             fork_recovery: None,
             workers: None,
@@ -266,6 +266,7 @@ impl Client {
             }
             StorageLocation::Default | StorageLocation::InMemory => {}
         }
+        let allow_offline = options.allow_offline.unwrap_or(inbox_id.is_some());
         let identifier = identity.to_core()?;
         let backend = options
             .backend
@@ -307,7 +308,7 @@ impl Client {
             None,
         ))
         .api_client_with_streams(backend.api.clone())
-        .with_allow_offline(Some(options.allow_offline))
+        .with_allow_offline(Some(allow_offline))
         .with_remote_verifier()
         .map_err(XmtpError::unknown)?
         .store(store)
@@ -445,8 +446,8 @@ impl Client {
         Ok(client)
     }
 
-    /// To start offline, pass an inbox ID, use a database with its identity,
-    /// and enable the `allowOffline` option.
+    /// An inbox ID enables offline startup from a database with its identity.
+    /// Set `allowOffline` to true or false to override this choice.
     #[uniffi::constructor]
     pub async fn build(
         identity: PublicIdentity,
