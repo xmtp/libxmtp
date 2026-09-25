@@ -32,6 +32,8 @@ pub enum XmtpError {
     InvalidInput(ErrorDetails),
     #[error("storage location required: {0:?}")]
     StorageLocationRequired(ErrorDetails),
+    #[error("identity not found: {0:?}")]
+    IdentityNotFound(ErrorDetails),
     #[error("signer failed: {0:?}")]
     Signer(ErrorDetails),
     #[error("credential failed: {0:?}")]
@@ -154,6 +156,15 @@ impl XmtpError {
             retryable: false,
             message: "the host must resolve the default storage location".into(),
         })
+    }
+
+    pub(crate) fn identity_not_found() -> Self {
+        Self::IdentityNotFound(Self::details(
+            "IdentityNotFound",
+            ErrorCategory::Identity,
+            false,
+            "database has no stored identity",
+        ))
     }
 
     pub(crate) fn unknown(error: impl std::fmt::Display) -> Self {

@@ -337,15 +337,17 @@ fun main() =
         val reopened = reopenedHost.raw
         check(reopened.inboxID() == inboxID)
         val defaultDirectory = Files.createTempDirectory("xmtp-sdk-default-")
-        val defaultClient =
-            SDKClient.build(
-                signer.identity(),
-                options.copy(storage = options.storage.copy(location = StorageLocation.Default)),
-                inboxID,
-                defaultDirectory = defaultDirectory.toString(),
-            )
-        check(Files.list(defaultDirectory).use { paths -> paths.anyMatch { it.fileName.toString().endsWith(".db3") } })
-        defaultClient.end()
+        check(
+            runCatching {
+                SDKClient.build(
+                    signer.identity(),
+                    options.copy(storage = options.storage.copy(location = StorageLocation.Default)),
+                    inboxID,
+                    defaultDirectory = defaultDirectory.toString(),
+                )
+            }.exceptionOrNull() is XmtpException.IdentityNotFound,
+        )
+        check(Files.list(defaultDirectory).use { paths -> paths.noneMatch { it.fileName.toString().endsWith(".db3") } })
         val (orphan, weak) = releasedMessage(signer.identity(), options, inboxID)
         // The run task uses SerialGC with explicit GC enabled, so System.gc() runs a full collection.
         repeat(50) {
@@ -609,7 +611,7 @@ fun main() =
                             credential = Credential(null, "Bearer initial", largeExpiry),
                         ),
                     ),
-                storage = StorageOptions(location = StorageLocation.InMemory),
+                storage = options.storage,
             )
         val credentialHost = SDKClient.build(signer.identity(), credentialOptions, inboxID)
         check(
@@ -634,15 +636,18 @@ fun main() =
             SDKClient.canMessage(listOf(signer.identity()), BackendSource.Connected(staticBackend)).first().canMessage,
         )
         check(SDKClient.canMessage(listOf(signer.identity()), BackendSource.Options(backendOptions)).first().canMessage)
-        SDKClient
-            .build(
-                signer.identity(),
-                options.copy(
-                    backend = BackendSource.Connected(staticBackend),
-                    storage = StorageOptions(location = StorageLocation.InMemory),
-                ),
-                inboxID,
-            ).end()
+        check(
+            runCatching {
+                SDKClient.build(
+                    signer.identity(),
+                    options.copy(
+                        backend = BackendSource.Connected(staticBackend),
+                        storage = StorageOptions(location = StorageLocation.InMemory),
+                    ),
+                    inboxID,
+                )
+            }.exceptionOrNull() is XmtpException.IdentityNotFound,
+        )
         check(fetched.identifier == snapshot.identifier)
         check(reopened.refreshServerConfiguration().identifier == snapshot.identifier)
         check(
@@ -729,8 +734,8 @@ fun main() =
         val failedCredential =
             withTimeout(10_000) {
                 runCatching {
-                    SDKClient.build(
-                        signer.identity(),
+                    SDKClient.create(
+                        signer,
                         options.copy(
                             backend =
                                 BackendSource.Options(
@@ -738,7 +743,6 @@ fun main() =
                                 ),
                             storage = StorageOptions(location = StorageLocation.InMemory),
                         ),
-                        inboxID,
                     )
                 }.exceptionOrNull()
             }

@@ -101,8 +101,9 @@ for sdk in ("Swift", "Kotlin"):
         ref,
         note=(
             "Host wrapper owns codecs and closures (11.1; plan Decisions). "
-            f"The new default fetches configuration with an inbox ID; the current {sdk} "
-            "build starts offline with an inbox ID."
+            "Build requires a stored identity and does not fetch configuration "
+            f"for an empty database. The current {sdk} build starts offline "
+            "with an inbox ID."
         ),
     )
     add(sdk, client_owner, "createInMemory", "approved removal", ref)
@@ -349,10 +350,22 @@ for sdk in ("Node", "Browser"):
     add(
         sdk,
         "Client",
-        "create build",
+        "create",
         "static runtime",
         ref,
         note="Host wrapper owns codecs and closures (11.1; plan Decisions).",
+    )
+    add(
+        sdk,
+        "Client",
+        "build",
+        "static runtime",
+        ref,
+        note=(
+            "Host wrapper owns codecs and closures (11.1; plan Decisions). "
+            "Build requires a stored identity and does not fetch configuration "
+            "for an empty database."
+        ),
     )
     add(
         sdk,

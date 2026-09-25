@@ -252,6 +252,7 @@ impl Client {
         identity: PublicIdentity,
         mut options: ClientOptions,
         inbox_id: Option<InboxID>,
+        require_stored_identity: bool,
     ) -> Result<Self, XmtpError> {
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
@@ -270,6 +271,14 @@ impl Client {
             return Err(XmtpError::invalid("allowOffline requires an inbox ID"));
         }
         let identifier = identity.to_core()?;
+        // Check a known database before resolving the backend. Build must not
+        // fetch configuration or create an identity for an empty database.
+        let checked_store = match (require_stored_identity, inbox_id.as_ref()) {
+            (true, Some(inbox_id)) => {
+                Some(open_existing_store(&options.storage, &inbox_id.0).await?)
+            }
+            _ => None,
+        };
         let backend = options
             .backend
             .clone()
@@ -293,7 +302,13 @@ impl Client {
                 }
             }
         };
-        let store = open_store(&options.storage, &inbox_id).await?;
+        let store = match checked_store {
+            Some(store) => store,
+            None if require_stored_identity => {
+                open_existing_store(&options.storage, &inbox_id).await?
+            }
+            None => open_store(&options.storage, &inbox_id).await?,
+        };
         #[cfg(not(target_arch = "wasm32"))]
         let storage_path = native_storage_path(&options.storage, &inbox_id)?;
         #[cfg(target_arch = "wasm32")]
@@ -431,6 +446,30 @@ impl Client {
     }
 }
 
+async fn open_existing_store(
+    options: &StorageOptions,
+    inbox_id: &str,
+) -> Result<xmtp_db::DefaultStore, XmtpError> {
+    use xmtp_db::{Fetch, identity::StoredIdentity};
+
+    if matches!(options.location, StorageLocation::InMemory) {
+        return Err(XmtpError::identity_not_found());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if native_storage_path(options, inbox_id)?
+        .as_ref()
+        .is_some_and(|path| !std::path::Path::new(path).exists())
+    {
+        return Err(XmtpError::identity_not_found());
+    }
+    let store = open_store(options, inbox_id).await?;
+    let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::unknown)?;
+    if stored.is_none() {
+        return Err(XmtpError::identity_not_found());
+    }
+    Ok(store)
+}
+
 #[xmtp_macro::sdk_export]
 impl Client {
     #[uniffi::constructor]
@@ -439,7 +478,7 @@ impl Client {
         options: ClientOptions,
     ) -> Result<Self, XmtpError> {
         let identity = signer::identity(signer.clone()).await?;
-        let mut client = Self::build_inner(identity, options, None).await?;
+        let mut client = Self::build_inner(identity, options, None, false).await?;
         if client.options.registration.auto {
             let kind = signer::kind(signer.clone()).await?;
             client.register_with_signer(signer.clone(), kind).await?;
@@ -448,7 +487,7 @@ impl Client {
         Ok(client)
     }
 
-    /// Build fetches server configuration by default, including with an inbox ID.
+    /// Build requires a stored identity. It fetches server configuration by default.
     /// Set `allowOffline` to true with a known inbox ID to use stored state offline.
     #[uniffi::constructor]
     pub async fn build(
@@ -456,7 +495,7 @@ impl Client {
         options: ClientOptions,
         inbox_id: Option<InboxID>,
     ) -> Result<Self, XmtpError> {
-        Self::build_inner(identity, options, inbox_id).await
+        Self::build_inner(identity, options, inbox_id, true).await
     }
 
     pub fn inbox_id(&self) -> InboxID {

@@ -239,23 +239,21 @@ const defaultRoot = await mkdtemp(join(tmpdir(), "xmtp-sdk-default-"));
 const oldCwd = process.cwd();
 process.chdir(defaultRoot);
 try {
-  const defaultClient = await sdk.Client.build(
-    identity,
-    {
-      ...options,
-      storage: {
-        ...options.storage,
-        location: new sdk.StorageLocation.Default(),
+  await assert.rejects(
+    sdk.Client.build(
+      identity,
+      {
+        ...options,
+        storage: {
+          ...options.storage,
+          location: new sdk.StorageLocation.Default(),
+        },
       },
-    },
-    inboxID,
-  );
-  assert.ok(
-    (await readdir(join(defaultRoot, "xmtp"))).some((name) =>
-      name.endsWith(".db3"),
+      inboxID,
     ),
+    (error) => error instanceof sdk.XmtpError.IdentityNotFound,
   );
-  await defaultClient.end();
+  assert.equal((await readdir(join(defaultRoot, "xmtp"))).length, 0);
 } finally {
   process.chdir(oldCwd);
 }
@@ -993,7 +991,7 @@ const credentialOptions = {
       },
     },
   }),
-  storage: { ...options.storage, location: new sdk.StorageLocation.InMemory() },
+  storage: options.storage,
 };
 const credentialClient = await sdk.Client.build(
   identity,
@@ -1072,19 +1070,21 @@ assert.equal(
   )[0]?.canMessage,
   true,
 );
-const connectedClient = await sdk.Client.build(
-  identity,
-  {
-    ...options,
-    backend: new sdk.BackendSource.Connected({ backend: staticBackend }),
-    storage: {
-      ...options.storage,
-      location: new sdk.StorageLocation.InMemory(),
+await assert.rejects(
+  sdk.Client.build(
+    identity,
+    {
+      ...options,
+      backend: new sdk.BackendSource.Connected({ backend: staticBackend }),
+      storage: {
+        ...options.storage,
+        location: new sdk.StorageLocation.InMemory(),
+      },
     },
-  },
-  inboxID,
+    inboxID,
+  ),
+  (error) => error instanceof sdk.XmtpError.IdentityNotFound,
 );
-await connectedClient.end();
 assert.equal(
   (await reopened.raw.refreshServerConfiguration()).identifier,
   snapshot.identifier,

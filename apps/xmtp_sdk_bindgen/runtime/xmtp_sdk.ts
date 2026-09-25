@@ -229,6 +229,7 @@ export type SendOptions = object;
 export enum ErrorCategory {
   Input,
   Lifecycle,
+  Identity,
 }
 
 export type ErrorDetails = {
@@ -241,6 +242,7 @@ export type ErrorDetails = {
 export declare const XmtpError: {
   ClientClosed: new (details: ErrorDetails) => Error;
   InvalidArgument: new (details: ErrorDetails) => Error;
+  IdentityNotFound: new (details: ErrorDetails) => Error;
 };
 
 export enum StorageLocation_Tags {

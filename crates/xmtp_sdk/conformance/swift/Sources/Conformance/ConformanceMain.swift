@@ -302,20 +302,22 @@ struct Conformance {
         let appFolder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(appName)
         defer { try? FileManager.default.removeItem(at: appFolder) }
-        let defaultHost = try await SDKClient.build(
-            identity: await signer.identity(),
-            options: ClientOptions(
-                backend: options.backend,
-                storage: StorageOptions(location: .default),
-                deviceSync: false
-            ), inboxID: inboxID, appName: appName
-        )
+        do {
+            _ = try await SDKClient.build(
+                identity: await signer.identity(),
+                options: ClientOptions(
+                    backend: options.backend,
+                    storage: StorageOptions(location: .default),
+                    deviceSync: false
+                ), inboxID: inboxID, appName: appName
+            )
+            throw ConformanceFailure("build opened a database with no identity")
+        } catch XmtpError.IdentityNotFound {}
         let defaultFolder = appFolder.appendingPathComponent("xmtp")
         let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
-        guard defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
-            throw ConformanceFailure("Default storage has no database file")
+        guard !defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
+            throw ConformanceFailure("build created a new database")
         }
-        try await defaultHost.end()
         try FileManager.default.removeItem(at: appFolder)
         var orphan: Message!
         weak var weakHost: SDKClient?
@@ -684,7 +686,7 @@ struct Conformance {
                 url: backendOptions.url,
                 credential: Credential(name: nil, value: "Bearer initial", expiresAtSeconds: largeExpiry)
             )),
-            storage: StorageOptions(location: .inMemory),
+            storage: options.storage,
             deviceSync: false
         )
         let credentialHost = try await SDKClient.build(
@@ -714,12 +716,14 @@ struct Conformance {
         guard try await SDKClient.canMessage([staticIdentity], backend: .options(options: backendOptions)).first?.canMessage == true else {
             throw ConformanceFailure("backend options canMessage did not find this inbox")
         }
-        let connectedHost = try await SDKClient.build(
-            identity: staticIdentity,
-            options: ClientOptions(backend: .connected(backend: staticBackend), storage: StorageOptions(location: .inMemory), deviceSync: false),
-            inboxID: inboxID
-        )
-        try await connectedHost.end()
+        do {
+            _ = try await SDKClient.build(
+                identity: staticIdentity,
+                options: ClientOptions(backend: .connected(backend: staticBackend), storage: StorageOptions(location: .inMemory), deviceSync: false),
+                inboxID: inboxID
+            )
+            throw ConformanceFailure("build opened a database with no identity")
+        } catch XmtpError.IdentityNotFound {}
         guard snapshot.identifier == fetched.identifier else {
             throw ConformanceFailure("configuration fetch returned a different deployment")
         }
