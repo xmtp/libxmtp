@@ -823,6 +823,22 @@ async fn storage_default_requires_host_and_directory_names_are_unique() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+fn wasm_directory_reports_the_store_path() {
+    let options = StorageOptions {
+        location: StorageLocation::Directory("sdk-files".into()),
+        label: Some("phone".into()),
+        ..Default::default()
+    };
+    let reported = crate::client::wasm_storage_path(&options, "inbox-a")?.expect("file path");
+    let location = crate::client::wasm_store_location(&options, "inbox-a")?;
+    let xmtp_db::StorageOption::Persistent(opened) = &location else {
+        panic!("Directory storage must be persistent");
+    };
+    assert_eq!(reported, opened.as_str());
+    assert_eq!(reported, "sdk-files/xmtp-phone-inbox-a.db3");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn associated_wallet_uses_existing_inbox() {
     let wallet_a = PrivateKeySigner::random();
     let wallet_b = PrivateKeySigner::random();

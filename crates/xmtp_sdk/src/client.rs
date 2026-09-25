@@ -505,22 +505,44 @@ pub(crate) async fn open_store(
     options: &StorageOptions,
     inbox_id: &str,
 ) -> Result<xmtp_db::DefaultStore, XmtpError> {
-    use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
+    use xmtp_db::{EncryptedMessageStore, WasmDb};
 
     if options.encryption_key.is_some() {
         return Err(XmtpError::invalid(
             "encrypted wasm storage is not available",
         ));
     }
-    let location = match &options.location {
-        StorageLocation::InMemory => StorageOption::Ephemeral,
-        StorageLocation::Default => return Err(XmtpError::storage_location_required()),
-        StorageLocation::Directory(directory) => {
-            let name = database_name(options, inbox_id)?;
-            StorageOption::Persistent(format!("{}/{name}", directory.trim_end_matches('/')))
-        }
-        StorageLocation::Path(path) => StorageOption::Persistent(path.clone()),
-    };
+    let location = wasm_store_location(options, inbox_id)?;
     let db = WasmDb::new(&location).await.map_err(XmtpError::unknown)?;
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) fn wasm_storage_path(
+    options: &StorageOptions,
+    inbox_id: &str,
+) -> Result<Option<String>, XmtpError> {
+    match &options.location {
+        StorageLocation::InMemory => Ok(None),
+        StorageLocation::Default => Err(XmtpError::storage_location_required()),
+        StorageLocation::Directory(directory) => {
+            let name = database_name(options, inbox_id)?;
+            Ok(Some(format!("{}/{name}", directory.trim_end_matches('/'))))
+        }
+        StorageLocation::Path(path) => Ok(Some(path.clone())),
+    }
+}
+
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) fn wasm_store_location(
+    options: &StorageOptions,
+    inbox_id: &str,
+) -> Result<xmtp_db::StorageOption, XmtpError> {
+    use xmtp_db::StorageOption;
+
+    let location = match wasm_storage_path(options, inbox_id)? {
+        None => StorageOption::Ephemeral,
+        Some(path) => StorageOption::Persistent(path),
+    };
+    Ok(location)
 }

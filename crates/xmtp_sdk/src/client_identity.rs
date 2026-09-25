@@ -73,7 +73,10 @@ impl Client {
                 }
                 #[cfg(target_arch = "wasm32")]
                 {
-                    Some(directory.clone())
+                    let _ = directory;
+                    crate::client::wasm_storage_path(&self.options.storage, self.inner.inbox_id())
+                        .ok()
+                        .flatten()
                 }
             }
             _ => None,
