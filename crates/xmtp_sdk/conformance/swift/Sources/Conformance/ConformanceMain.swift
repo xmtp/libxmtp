@@ -395,11 +395,14 @@ struct Conformance {
         try await reopenedReader.end()
         do {
             let conversationOpen = TestFlag()
-            SDKClient.conversationReaderOpenedForTest = { _ in
+            SDKClient.conversationReaderOpeningForTest = {
                 try? await Task.sleep(for: .milliseconds(300))
+            }
+            SDKClient.conversationReaderOpenedForTest = { _ in
                 conversationOpen.set()
             }
             defer {
+                SDKClient.conversationReaderOpeningForTest = nil
                 SDKClient.conversationReaderOpenedForTest = nil
             }
             let conversationStream = try await reopenedHost.conversationStream()
