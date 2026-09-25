@@ -821,5 +821,36 @@ async fn test_membership_state() {
     assert_eq!(bola_state, GroupMembershipState::Pending);
 }
 
+// verifies: CTYPE-001, CTYPE-018
+#[xmtp_common::test(unwrap_try = true)]
+fn queryable_fields_do_not_classify_custom_reply() {
+    use xmtp_content_types::{
+        reply::{Reply, ReplyCodec},
+        text::TextCodec,
+    };
+    use xmtp_db::group_message::ContentType;
+
+    let standard = ReplyCodec::encode(Reply {
+        reference: "0102".into(),
+        reference_inbox_id: None,
+        content: TextCodec::encode("reply".into())?,
+    })?;
+    let fields = super::QueryableContentFields::try_from(standard.clone())?;
+    assert_eq!(fields.content_type, ContentType::Reply);
+    assert_eq!(fields.reference_id, Some(vec![1, 2]));
+
+    let mut custom = standard.clone();
+    custom.r#type.as_mut().unwrap().authority_id = "custom.example".into();
+    let fields = super::QueryableContentFields::try_from(custom)?;
+    assert_eq!(fields.content_type, ContentType::Unknown);
+    assert_eq!(fields.reference_id, None);
+
+    let mut unsupported = standard;
+    unsupported.r#type.as_mut().unwrap().version_major = 99;
+    let fields = super::QueryableContentFields::try_from(unsupported)?;
+    assert_eq!(fields.content_type, ContentType::Unknown);
+    assert_eq!(fields.reference_id, None);
+}
+
 mod test_dictionary_creation;
 mod test_group_id;

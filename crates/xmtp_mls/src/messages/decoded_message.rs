@@ -142,6 +142,22 @@ impl MessageBody {
             None => return Err(CodecError::InvalidContentType.into()),
         };
 
+        if content_type.authority_id != "xmtp.org" {
+            return match (
+                content_type.authority_id.as_str(),
+                content_type.type_id.as_str(),
+                content_type.version_major,
+            ) {
+                ("coinbase.com", IntentCodec::TYPE_ID, IntentCodec::MAJOR_VERSION) => {
+                    Ok(MessageBody::Intent(Some(IntentCodec::decode(value)?)))
+                }
+                ("coinbase.com", ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => {
+                    Ok(MessageBody::Actions(Some(ActionsCodec::decode(value)?)))
+                }
+                _ => Ok(MessageBody::Custom(value)),
+            };
+        }
+
         match (content_type.type_id.as_str(), content_type.version_major) {
             (TextCodec::TYPE_ID, TextCodec::MAJOR_VERSION) => {
                 let text = TextCodec::decode(value)?;
@@ -190,9 +206,7 @@ impl MessageBody {
                 let transaction_reference = TransactionReferenceCodec::decode(value)?;
                 Ok(MessageBody::TransactionReference(transaction_reference))
             }
-            (GroupUpdatedCodec::TYPE_ID, GroupUpdatedCodec::MAJOR_VERSION)
-                if content_type.authority_id == "xmtp.org" =>
-            {
+            (GroupUpdatedCodec::TYPE_ID, GroupUpdatedCodec::MAJOR_VERSION) => {
                 let group_updated = GroupUpdatedCodec::decode(value)?;
                 Ok(MessageBody::GroupUpdated(group_updated))
             }
@@ -203,14 +217,6 @@ impl MessageBody {
             (WalletSendCallsCodec::TYPE_ID, WalletSendCallsCodec::MAJOR_VERSION) => {
                 let wallet_send_calls = WalletSendCallsCodec::decode(value)?;
                 Ok(MessageBody::WalletSendCalls(wallet_send_calls))
-            }
-            (IntentCodec::TYPE_ID, IntentCodec::MAJOR_VERSION) => {
-                let intent = IntentCodec::decode(value)?;
-                Ok(MessageBody::Intent(Some(intent)))
-            }
-            (ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => {
-                let actions = ActionsCodec::decode(value)?;
-                Ok(MessageBody::Actions(Some(actions)))
             }
             (LeaveRequestCodec::TYPE_ID, LeaveRequestCodec::MAJOR_VERSION) => {
                 let leave_request = LeaveRequestCodec::decode(value)?;
@@ -280,7 +286,11 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
 mod tests {
     use super::*;
     use xmtp_content_types::{
+        actions::{Action, Actions},
+        attachment::Attachment,
         compression::compress,
+        intent::Intent,
+        reaction::LegacyReaction,
         reply::{Reply as EncodedReply, ReplyCodec},
     };
     use xmtp_proto::xmtp::mls::message_contents::Compression;
@@ -339,13 +349,134 @@ mod tests {
 
     // verifies: CTYPE-001, CTYPE-008
     #[xmtp_common::test(unwrap_try = true)]
-    async fn custom_authority_group_updated_stays_custom() {
-        let mut content = GroupUpdatedCodec::encode(GroupUpdated::default())?;
-        content.r#type.as_mut().unwrap().authority_id = "custom.example".into();
-        let decoded = DecodedMessage::try_from(stored_message(content.clone()))?;
-        assert!(
-            matches!(decoded.content, MessageBody::Custom(actual) if actual == content),
-            "custom authority selected the standard group-updated codec"
+    async fn standard_codecs_match_authority_for_all_types() {
+        macro_rules! check {
+            ($content:expr, $standard:pat) => {{
+                let mut standard = $content;
+                let id = standard.r#type.as_mut().expect("encoded type");
+                id.version_minor = 9;
+                let name = format!("{}/{}", id.authority_id, id.type_id);
+                let decoded = DecodedMessage::try_from(stored_message(standard.clone()))?;
+                assert!(matches!(decoded.content, $standard), "{name} did not decode");
+
+                if standard.r#type.as_ref().expect("encoded type").authority_id != "xmtp.org" {
+                    let mut wrong_standard = standard.clone();
+                    wrong_standard.r#type.as_mut().expect("encoded type").authority_id =
+                        "xmtp.org".into();
+                    let decoded = DecodedMessage::try_from(stored_message(wrong_standard.clone()))?;
+                    assert!(
+                        matches!(decoded.content, MessageBody::Custom(actual) if actual == wrong_standard),
+                        "{name} selected the wrong standard authority"
+                    );
+                }
+
+                let mut custom = standard;
+                custom.r#type.as_mut().expect("encoded type").authority_id =
+                    "custom.example".into();
+                let decoded = DecodedMessage::try_from(stored_message(custom.clone()))?;
+                assert!(
+                    matches!(decoded.content, MessageBody::Custom(actual) if actual == custom),
+                    "{name} selected a codec for custom.example"
+                );
+            }};
+        }
+
+        check!(TextCodec::encode("text".into())?, MessageBody::Text(_));
+        check!(
+            MarkdownCodec::encode("markdown".into())?,
+            MessageBody::Markdown(_)
+        );
+        check!(
+            AttachmentCodec::encode(Attachment {
+                filename: None,
+                mime_type: "text/plain".into(),
+                content: vec![1],
+            })?,
+            MessageBody::Attachment(_)
+        );
+        check!(
+            RemoteAttachmentCodec::encode(RemoteAttachment::default())?,
+            MessageBody::RemoteAttachment(_)
+        );
+        check!(
+            ReplyCodec::encode(EncodedReply {
+                reference: "0102".into(),
+                reference_inbox_id: None,
+                content: TextCodec::encode("reply".into())?,
+            })?,
+            MessageBody::Reply(_)
+        );
+        check!(
+            ReactionCodec::encode(ReactionV2::default())?,
+            MessageBody::Reaction(_)
+        );
+        check!(
+            LegacyReactionCodec::encode(LegacyReaction {
+                action: "added".into(),
+                reference: "0102".into(),
+                reference_inbox_id: None,
+                schema: "unicode".into(),
+                content: "👍".into(),
+            })?,
+            MessageBody::Reaction(_)
+        );
+        check!(
+            MultiRemoteAttachmentCodec::encode(MultiRemoteAttachment::default())?,
+            MessageBody::MultiRemoteAttachment(_)
+        );
+        check!(
+            TransactionReferenceCodec::encode(TransactionReference {
+                namespace: None,
+                network_id: "1".into(),
+                reference: "0x123".into(),
+                metadata: None,
+            })?,
+            MessageBody::TransactionReference(_)
+        );
+        check!(
+            GroupUpdatedCodec::encode(GroupUpdated::default())?,
+            MessageBody::GroupUpdated(_)
+        );
+        check!(
+            ReadReceiptCodec::encode(ReadReceipt {})?,
+            MessageBody::ReadReceipt(_)
+        );
+        check!(
+            WalletSendCallsCodec::encode(WalletSendCalls {
+                version: "1".into(),
+                chain_id: "1".into(),
+                from: "0x123".into(),
+                calls: vec![],
+                capabilities: None,
+            })?,
+            MessageBody::WalletSendCalls(_)
+        );
+        check!(
+            IntentCodec::encode(Intent {
+                id: "one".into(),
+                action_id: "two".into(),
+                metadata: None,
+            })?,
+            MessageBody::Intent(_)
+        );
+        check!(
+            ActionsCodec::encode(Actions {
+                id: "one".into(),
+                description: "actions".into(),
+                actions: vec![Action {
+                    id: "two".into(),
+                    label: "two".into(),
+                    image_url: None,
+                    style: None,
+                    expires_at: None,
+                }],
+                expires_at: None,
+            })?,
+            MessageBody::Actions(_)
+        );
+        check!(
+            LeaveRequestCodec::encode(LeaveRequest::default())?,
+            MessageBody::LeaveRequest(_)
         );
     }
 
