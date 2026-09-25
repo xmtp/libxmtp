@@ -1428,7 +1428,14 @@ fn inbox_state_preserves_member_creation_order() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn backend_only_identity_and_message_queries() {
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let path = std::env::temp_dir().join(format!(
+        "sdk-backend-queries-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let client = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
     let Some(BackendSource::Options {
         options: backend_options,
     }) = options().backend
@@ -1502,7 +1509,7 @@ async fn backend_only_identity_and_message_queries() {
         client.identity(),
         ClientOptions {
             backend: Some(source),
-            ..options()
+            ..settings
         },
         Some(client.inbox_id()),
     )
@@ -1510,6 +1517,7 @@ async fn backend_only_identity_and_message_queries() {
     assert_eq!(connected_client.inbox_id(), client.inbox_id());
     connected_client.end().await?;
     client.end().await?;
+    std::fs::remove_file(path)?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
