@@ -202,8 +202,12 @@ export type MessageContent =
       inner: { referenceID: MessageID; body: MessageBody };
     }
   | {
-      tag: MessageContent_Tags.Text | MessageContent_Tags.Custom;
+      tag: MessageContent_Tags.Text;
       inner: { encoded: EncodedContent };
+    }
+  | {
+      tag: MessageContent_Tags.Custom;
+      inner: { encoded: EncodedContent; rawBytes: ArrayBuffer };
     }
   | {
       tag: MessageContent_Tags.Unknown;

@@ -6,7 +6,7 @@ func consumePositive(_ id: ConversationID, _ conversation: Conversation, _ conte
     case let .group(group): narrowed = group.id()
     case let .dm(dm): narrowed = dm.id()
     }
-    if case let .custom(encoded) = content {
+    if case let .custom(encoded, _) = content {
         let _: EncodedContent = encoded
     }
     return narrowed == id ? id : narrowed
