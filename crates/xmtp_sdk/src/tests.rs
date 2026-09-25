@@ -616,6 +616,34 @@ async fn end_detaches_running_call() {
     .await?;
 }
 
+// verifies: EVENT-054
+#[xmtp_common::test(unwrap_try = true)]
+async fn end_racing_listener_start_leaves_no_listener() {
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, options()).await?);
+    let (hook, release) = crate::events::dispatch::StartHook::new();
+    client
+        .listeners
+        .set_registration_hook_for_test(hook.clone());
+    let (probe, _) = event_probe(None, false, None, false);
+    let starting_client = client.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let start = std::thread::spawn(move || {
+        runtime.block_on(
+            starting_client.start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), probe),
+        )
+    });
+    tokio::time::timeout(Duration::from_secs(5), hook.arrived.notified()).await?;
+    let end = tokio::time::timeout(Duration::from_secs(5), client.end()).await;
+    release.send(())?;
+    end??;
+    let refused = tokio::task::spawn_blocking(move || {
+        matches!(start.join(), Ok(Err(XmtpError::ClientClosed(_))))
+    })
+    .await?;
+    assert!(refused, "listener started after client end");
+    assert_eq!(client.listeners.active_count_for_test(), 0);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_signer_and_signature_request_register() {
     assert!(matches!(

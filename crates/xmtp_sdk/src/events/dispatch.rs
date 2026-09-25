@@ -21,6 +21,12 @@ struct ListenerControl {
     start_gate: Arc<StartGate>,
 }
 
+#[derive(Default)]
+struct RegistryState {
+    closing: bool,
+    listeners: HashMap<u64, Arc<ListenerControl>>,
+}
+
 #[cfg(test)]
 pub(crate) struct StartHook {
     pub(crate) arrived: tokio::sync::Notify,
@@ -51,15 +57,27 @@ impl StartHook {
 #[derive(Default)]
 pub(crate) struct ListenerRegistry {
     next_id: AtomicU64,
-    listeners: Mutex<HashMap<u64, Arc<ListenerControl>>>,
+    state: Mutex<RegistryState>,
     #[cfg(test)]
     start_hook: Mutex<Option<Arc<StartHook>>>,
+    #[cfg(test)]
+    registration_hook: Mutex<Option<Arc<StartHook>>>,
 }
 
 impl ListenerRegistry {
     #[cfg(test)]
     pub(crate) fn set_start_hook_for_test(&self, hook: Arc<StartHook>) {
         *self.start_hook.lock() = Some(hook);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_registration_hook_for_test(&self, hook: Arc<StartHook>) {
+        *self.registration_hook.lock() = Some(hook);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn active_count_for_test(&self) -> usize {
+        self.state.lock().listeners.len()
     }
 
     pub(crate) fn start(
@@ -74,14 +92,30 @@ impl ListenerRegistry {
         let subscription = Arc::new(subscription);
         let (stopped, receiver) = watch::channel(false);
         let start_gate = Arc::new(StartGate::new(false));
-        self.listeners.lock().insert(
-            id,
-            Arc::new(ListenerControl {
-                subscription: subscription.clone(),
-                stopped,
-                start_gate: start_gate.clone(),
-            }),
-        );
+        #[cfg(test)]
+        if let Some(hook) = self.registration_hook.lock().take() {
+            hook.block_once();
+        }
+        let registered = {
+            let mut state = self.state.lock();
+            if state.closing {
+                false
+            } else {
+                state.listeners.insert(
+                    id,
+                    Arc::new(ListenerControl {
+                        subscription: subscription.clone(),
+                        stopped,
+                        start_gate: start_gate.clone(),
+                    }),
+                );
+                true
+            }
+        };
+        if !registered {
+            subscription.close();
+            return Err(XmtpError::closed());
+        }
         spawn_dispatch(
             subscription,
             listener,
@@ -94,19 +128,24 @@ impl ListenerRegistry {
     }
 
     pub(crate) fn stop(&self, id: ListenerID) {
-        let control = self.listeners.lock().get(&id.0).cloned();
+        let control = self.state.lock().listeners.remove(&id.0);
         if let Some(control) = control {
             *control.start_gate.lock() = true;
             let _ = control.stopped.send(true);
             control.subscription.close();
-            self.listeners.lock().remove(&id.0);
         }
     }
 
     pub(crate) fn stop_all(&self) {
-        let ids: Vec<_> = self.listeners.lock().keys().copied().collect();
-        for id in ids {
-            self.stop(ListenerID(id));
+        let listeners = {
+            let mut state = self.state.lock();
+            state.closing = true;
+            std::mem::take(&mut state.listeners)
+        };
+        for control in listeners.into_values() {
+            *control.start_gate.lock() = true;
+            let _ = control.stopped.send(true);
+            control.subscription.close();
         }
     }
 }
