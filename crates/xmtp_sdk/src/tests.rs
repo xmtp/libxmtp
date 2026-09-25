@@ -126,7 +126,12 @@ async fn message_action_push_defaults_follow_content_type() {
             }),
         )
         .await?;
-    assert!(client.inner.message(hex::decode(&overridden.0)?)?.should_push);
+    assert!(
+        client
+            .inner
+            .message(hex::decode(&overridden.0)?)?
+            .should_push
+    );
     client.end().await?;
 }
 
