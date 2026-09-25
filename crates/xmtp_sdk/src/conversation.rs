@@ -18,6 +18,7 @@ use xmtp_mls::MlsContext;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
 use xmtp_mls::messages::decoded_message::{DecodedMessage, MessageBody as CoreMessageBody};
+use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls::mls_store::MlsStore;
 use xmtp_proto::types::{ConversationType, GroupId};
 
@@ -1245,12 +1246,40 @@ impl Group {
         metadata_field: Option<crate::MetadataFieldKind>,
     ) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        let policy = policy.try_into()?;
+        let policy: xmtp_mls::groups::intents::PermissionPolicyOption = policy.try_into()?;
+        // The disappearing-message setting is stored as two metadata fields
+        // (from and retention). Apply the policy to both so they cannot
+        // diverge.
+        let fields: Option<Vec<MetadataField>> = metadata_field.map(|field| {
+            if matches!(field, crate::MetadataFieldKind::Disappearing) {
+                vec![
+                    MetadataField::MessageDisappearFromNS,
+                    MetadataField::MessageDisappearInNS,
+                ]
+            } else {
+                vec![field.into()]
+            }
+        });
         on_sdk_worker(self.inner.context.clone(), async move {
-            group
-                .update_permission_policy(kind.into(), policy, metadata_field.map(Into::into))
-                .await
-                .map_err(XmtpError::unknown)
+            match fields {
+                Some(fields) => {
+                    for field in fields {
+                        group
+                            .update_permission_policy(
+                                kind.clone().into(),
+                                policy.clone(),
+                                Some(field),
+                            )
+                            .await
+                            .map_err(XmtpError::unknown)?;
+                    }
+                    Ok(())
+                }
+                None => group
+                    .update_permission_policy(kind.into(), policy, None)
+                    .await
+                    .map_err(XmtpError::unknown),
+            }
         })
         .await
     }

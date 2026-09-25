@@ -329,7 +329,7 @@ pub enum MembershipState {
     PendingRemove,
 }
 
-#[derive(Clone, Debug, uniffi::Enum)]
+#[derive(Clone, Debug, PartialEq, uniffi::Enum)]
 pub enum PermissionPolicy {
     Allow,
     Deny,
@@ -564,7 +564,19 @@ impl GroupState {
                         update_name: metadata_policy(MetadataField::GroupName),
                         update_description: metadata_policy(MetadataField::Description),
                         update_image: metadata_policy(MetadataField::GroupImageUrlSquare),
-                        update_disappearing: metadata_policy(MetadataField::MessageDisappearInNS),
+                        update_disappearing: {
+                            // Disappearing-message policy spans two metadata
+                            // fields (from and retention). Report the shared
+                            // policy only when both agree; a mismatch means
+                            // the group was left in a divergent state.
+                            let from = metadata_policy(MetadataField::MessageDisappearFromNS);
+                            let in_ns = metadata_policy(MetadataField::MessageDisappearInNS);
+                            if from == in_ns {
+                                from
+                            } else {
+                                PermissionPolicy::Other
+                            }
+                        },
                         update_app_data: metadata_policy(MetadataField::AppData),
                     },
                 }

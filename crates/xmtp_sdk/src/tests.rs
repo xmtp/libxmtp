@@ -1620,6 +1620,50 @@ async fn invalid_reply_parent_body_does_not_break_history() {
     client.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn disappearing_permission_denies_both_metadata_fields() {
+    use crate::{MetadataFieldKind, PermissionPolicy, PermissionUpdateKind};
+    use xmtp_mls::groups::group_permissions::MetadataPolicies;
+    use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+
+    group
+        .update_permission(
+            PermissionUpdateKind::UpdateMetadata,
+            PermissionPolicy::Deny,
+            Some(MetadataFieldKind::Disappearing),
+        )
+        .await?;
+
+    let snapshot = group.inner.state_snapshot()?;
+    let policies = &snapshot
+        .group
+        .expect("group metadata snapshot")
+        .permissions
+        .policies;
+    let from_ns = policies
+        .update_metadata_policy
+        .get(MetadataField::MessageDisappearFromNS.as_str())
+        .cloned();
+    let in_ns = policies
+        .update_metadata_policy
+        .get(MetadataField::MessageDisappearInNS.as_str())
+        .cloned();
+    assert_eq!(
+        from_ns,
+        Some(MetadataPolicies::deny()),
+        "MessageDisappearFromNS must deny after the shared disappearing-message policy is denied"
+    );
+    assert_eq!(
+        from_ns, in_ns,
+        "MessageDisappearFromNS and MessageDisappearInNS must not diverge"
+    );
+
+    client.end().await?;
+}
+
 // verifies: CTYPE-008, CTYPE-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn unknown_compression_stays_unknown_on_all_read_paths() {
