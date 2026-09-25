@@ -121,16 +121,17 @@ impl<C: ConnectionExt> QueryLocalAttachment for DbConnection<C> {
         filename: Option<String>,
     ) -> Result<(), StorageError> {
         self.raw_query(|conn| {
-            diesel::insert_into(local_attachments::table)
-                .values((
-                    local_attachments::path.eq(path),
-                    local_attachments::created_at_ns.eq(created_at_ns),
-                    local_attachments::mime_type.eq(mime_type),
-                    local_attachments::filename.eq(filename),
-                ))
-                .on_conflict(local_attachments::path)
-                .do_nothing()
-                .execute(conn)
+            diesel::sql_query(
+                "INSERT INTO local_attachments (path, created_at_ns, mime_type, filename) \
+                 VALUES (?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET \
+                 mime_type = COALESCE(local_attachments.mime_type, excluded.mime_type), \
+                 filename = COALESCE(local_attachments.filename, excluded.filename)",
+            )
+            .bind::<Text, _>(path)
+            .bind::<BigInt, _>(created_at_ns)
+            .bind::<Nullable<Text>, _>(mime_type)
+            .bind::<Nullable<Text>, _>(filename)
+            .execute(conn)
         })?;
         Ok(())
     }
@@ -497,6 +498,46 @@ mod tests {
             db.list_local_attachments()?.pop()
         );
         assert_eq!(db.get_local_attachment("missing")?, None);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn adopted_local_record_gains_missing_metadata() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        db.insert_or_ignore_local_attachment("key/file", 3, None, None)?;
+        db.insert_or_ignore_local_attachment(
+            "key/file",
+            9,
+            Some("image/png".into()),
+            Some("photo.png".into()),
+        )?;
+        assert_eq!(
+            db.get_local_attachment("key/file")?,
+            Some(StoredLocalAttachment {
+                path: "key/file".into(),
+                created_at_ns: 3,
+                mime_type: Some("image/png".into()),
+                filename: Some("photo.png".into()),
+            })
+        );
+        db.insert_or_ignore_local_attachment(
+            "key/file",
+            10,
+            Some("text/plain".into()),
+            Some("other.txt".into()),
+        )?;
+        assert_eq!(
+            db.get_local_attachment("key/file")?
+                .as_ref()
+                .and_then(|row| row.mime_type.as_deref()),
+            Some("image/png")
+        );
+        assert_eq!(
+            db.get_local_attachment("key/file")?
+                .as_ref()
+                .and_then(|row| row.filename.as_deref()),
+            Some("photo.png")
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
