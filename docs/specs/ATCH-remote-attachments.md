@@ -316,6 +316,8 @@ enum AttachmentFailureCause {
 
 The upload contract is only as strong as the storage target. ATCH-023 depends on a target that enforces what the backend signs (ATCH-007). A target that enforces neither a signed SHA-256 nor a create-only precondition, such as Google Cloud Storage through its XML API, is not a supported target.
 
+The client sends the upload PUT to whatever `https` URL, or loopback `http` URL, the backend it is bound to (CONF-030) signs, including a private address, so an on-premises storage target works. A backend that the operator does not control could direct a client's PUT at an internal host; the body is ciphertext and carries no credential (ATCH-027), and ATCH-071 stops redirects. The client already trusts that backend with its messages.
+
 When auth is disabled (AUTH-003), anyone who can reach the backend can store objects up to `max_upload_bytes`. When auth is enabled, any holder of a credential can. The backend cannot tell a ciphertext from any other bytes, so a deployment's storage can be used to host arbitrary files. There is no per-caller quota.
 
 An object is public to anyone who has its URL. Its confidentiality rests on the encryption of CTYPE-015 alone. The storage target and every download host learn the size of the object, the time of each fetch, and the network address of the downloader.
