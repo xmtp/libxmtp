@@ -573,6 +573,21 @@ await reopened.stopListener(listenerID);
 await eventReader.end();
 console.log("Node scenario 8: event reader and listener passed");
 
+// verifies: EVENT-014
+// verifies: EVENT-053
+const eventStream = await reopened.events(eventFilter);
+assert.ok(eventStream instanceof sdk.EventStream);
+await reopened.raw.conversations().createGroup([]);
+let publicEvents = 0;
+for await (const event of eventStream) {
+  assert.ok(event);
+  publicEvents += 1;
+  break;
+}
+assert.equal(publicEvents, 1, "public EventStream missed the event");
+assert.deepEqual(await eventStream.next(), { done: true, value: undefined });
+console.log("Node public EventStream passed");
+
 // verifies: EVENT-053
 let releaseStart!: () => void;
 let startArrived!: () => void;
