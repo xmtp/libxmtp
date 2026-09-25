@@ -201,6 +201,12 @@ diesel::table! {
         content_digest -> Text,
         remote_attachment -> Binary,
         created_at_ns -> BigInt,
+        status -> Text,
+        failure_cause -> Nullable<Text>,
+        failure_credential_kind -> Nullable<Text>,
+        failure_retryable -> Nullable<Bool>,
+        lease_id -> Nullable<Binary>,
+        lease_expires_at_ns -> Nullable<BigInt>,
     }
 }
 
