@@ -1,6 +1,6 @@
 import Foundation
 
-public protocol SDKContentCodec {
+public protocol SDKContentCodec: Sendable {
     var type: ContentTypeID { get }
     func encode(_ value: any Sendable) throws -> EncodedContent
     func decode(_ encoded: EncodedContent) throws -> any Sendable
