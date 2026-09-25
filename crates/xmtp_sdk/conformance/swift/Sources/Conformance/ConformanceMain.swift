@@ -36,6 +36,23 @@ final class TestFlag: @unchecked Sendable {
 }
 }
 
+final class TestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
 final class TestSigner: Signer, @unchecked Sendable {
     private func run(_ action: String, _ text: String? = nil) throws -> String {
         let environment = ProcessInfo.processInfo.environment
@@ -394,8 +411,10 @@ struct Conformance {
                 conversationPending.cancel()
             }
             defer { conversationDeadline.cancel() }
-            for _ in 0 ..< 1_000 {
-                if conversationOpen.value { break }
+            for _ in 0 ..< 1000 {
+                if conversationOpen.value {
+                    break
+                }
                 try await Task.sleep(for: .milliseconds(10))
             }
             guard conversationOpen.value else {
@@ -410,6 +429,51 @@ struct Conformance {
             } catch is CancellationError {
                 throw ConformanceFailure("conversation stream did not deliver a group before the deadline")
             }
+        }
+        let monitorCalls = TestCounter()
+        let (monitorClosed, monitorClosedSignal) = AsyncStream<Void>.makeStream()
+        let fakeHandle = StreamHandle<Int>(
+            owner: reopenedHost,
+            next: {
+                try await Task.sleep(for: .seconds(10))
+                return nil
+            },
+            end: {},
+            connectionState: { .connecting },
+            connectionStateChanged: { _ in
+                monitorCalls.increment()
+                return .closed
+            }
+        )
+        let fakeStream = SDKReaderStream<Int>(
+            open: { fakeHandle },
+            onClose: nil,
+            onConnectionStateChange: { _, current in
+                if current == .closed {
+                    monitorClosedSignal.yield(())
+                }
+            }
+        )
+        let fakeRead = Task {
+            let iterator = fakeStream.makeAsyncIterator()
+            return try await iterator.next()
+        }
+        let monitorDeadline = Task {
+            try? await Task.sleep(for: .seconds(5))
+            monitorClosedSignal.finish()
+        }
+        var monitorClosedIterator = monitorClosed.makeAsyncIterator()
+        guard await monitorClosedIterator.next() != nil else {
+            fakeRead.cancel()
+            throw ConformanceFailure("state monitor did not report Closed")
+        }
+        monitorDeadline.cancel()
+        let callsAtClosed = monitorCalls.value
+        try await Task.sleep(for: .milliseconds(100))
+        fakeRead.cancel()
+        _ = try? await fakeRead.value
+        guard monitorCalls.value == callsAtClosed else {
+            throw ConformanceFailure("state monitor kept reading after Closed")
         }
         print("Swift scenario 7: durable stream and idle cancellation passed")
 

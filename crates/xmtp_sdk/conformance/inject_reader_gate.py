@@ -27,6 +27,14 @@ if language == "kotlin":
         "            open = { group.messageReader() },",
         "            open = { group.messageReader().also { readerOpenedForTest?.invoke(it) } },",
     )
+    readers = path.parent / "streams" / "Readers.kt"
+    readers.write_text(
+        replace_once(
+            readers.read_text(),
+            "private fun <T, R> readerFlow(",
+            "internal fun <T, R> readerFlow(",
+        )
+    )
 elif language == "swift":
     source = replace_once(
         source,
@@ -49,6 +57,24 @@ elif language == "swift":
         "        let reader = try await owner.raw.conversations().conversationReader(kind: kind)\n"
         "        await SDKClient.conversationReaderOpenedForTest?(reader)\n",
     )
+    readers_source = replace_once(
+        readers_source,
+        "private final class StreamHandle<Value>: @unchecked Sendable {",
+        "final class StreamHandle<Value>: @unchecked Sendable {",
+    )
+    sequence, marker, iterator = readers_source.partition(
+        "/// The loop releases this object"
+    )
+    if not marker:
+        raise SystemExit("reader gate seam changed: iterator marker missing")
+    sequence = replace_once(
+        sequence,
+        "    fileprivate init(\n        open: @escaping @Sendable () async throws -> StreamHandle<Value>,\n"
+        "        onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,",
+        "    init(\n        open: @escaping @Sendable () async throws -> StreamHandle<Value>,\n"
+        "        onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,",
+    )
+    readers_source = sequence + marker + iterator
     readers.write_text(readers_source)
 else:
     raise SystemExit(f"unknown conformance language: {language}")
