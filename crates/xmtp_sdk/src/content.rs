@@ -199,33 +199,49 @@ pub struct Actions {
     pub expires_at: Option<crate::Timestamp>,
 }
 
-impl From<xmtp_content_types::actions::Actions> for Actions {
-    fn from(value: xmtp_content_types::actions::Actions) -> Self {
+impl TryFrom<xmtp_content_types::actions::Actions> for Actions {
+    type Error = crate::XmtpError;
+
+    fn try_from(value: xmtp_content_types::actions::Actions) -> Result<Self, Self::Error> {
         use xmtp_content_types::actions::ActionStyle as CoreStyle;
-        Self {
+        Ok(Self {
             id: value.id,
             description: value.description,
             expires_at: value
                 .expires_at
-                .map(|time| crate::Timestamp(time.timestamp_nanos_opt().unwrap_or(i64::MAX))),
+                .map(|time| {
+                    time.timestamp_nanos_opt()
+                        .map(crate::Timestamp)
+                        .ok_or_else(|| crate::XmtpError::invalid("Actions expiry is out of range"))
+                })
+                .transpose()?,
             actions: value
                 .actions
                 .into_iter()
-                .map(|action| Action {
-                    id: action.id,
-                    label: action.label,
-                    image_url: action.image_url,
-                    style: action.style.map(|style| match style {
-                        CoreStyle::Primary => ActionStyle::Primary,
-                        CoreStyle::Secondary => ActionStyle::Secondary,
-                        CoreStyle::Danger => ActionStyle::Danger,
-                    }),
-                    expires_at: action.expires_at.map(|time| {
-                        crate::Timestamp(time.timestamp_nanos_opt().unwrap_or(i64::MAX))
-                    }),
+                .map(|action| {
+                    Ok(Action {
+                        id: action.id,
+                        label: action.label,
+                        image_url: action.image_url,
+                        style: action.style.map(|style| match style {
+                            CoreStyle::Primary => ActionStyle::Primary,
+                            CoreStyle::Secondary => ActionStyle::Secondary,
+                            CoreStyle::Danger => ActionStyle::Danger,
+                        }),
+                        expires_at: action
+                            .expires_at
+                            .map(|time| {
+                                time.timestamp_nanos_opt()
+                                    .map(crate::Timestamp)
+                                    .ok_or_else(|| {
+                                        crate::XmtpError::invalid("Action expiry is out of range")
+                                    })
+                            })
+                            .transpose()?,
+                    })
                 })
-                .collect(),
-        }
+                .collect::<Result<Vec<_>, crate::XmtpError>>()?,
+        })
     }
 }
 

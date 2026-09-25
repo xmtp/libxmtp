@@ -1447,6 +1447,49 @@ async fn invalid_text_bytes_stay_unknown_on_all_read_paths() {
     client.end().await?;
 }
 
+// verifies: CTYPE-007, CTYPE-008
+#[xmtp_common::test(unwrap_try = true)]
+async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
+    use xmtp_content_types::{
+        ContentCodec,
+        actions::{Actions, ActionsCodec},
+    };
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let actions: Actions = serde_json::from_str(
+        r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One","expiresAt":"9999-12-31T23:59:59.999Z"}]}"#,
+    )?;
+    let mut action_only = actions.clone();
+    action_only.expires_at = None;
+    for actions in [actions, action_only] {
+        let encoded = ActionsCodec::encode(actions)?;
+        let id = group.send(encoded.into(), None).await?;
+        let stored = client.inner.message(hex::decode(&id.0)?)?;
+        let raw = stored.decrypted_message_bytes.clone();
+        let direct = crate::Message::from_stored(stored, client.client_key())?;
+        let by_id = client
+            .conversations()
+            .get_message_by_id(id.clone())
+            .await?
+            .expect("message by ID");
+        let history = group
+            .messages(None)
+            .await?
+            .into_iter()
+            .find(|message| message.0.id == id)
+            .expect("message in history");
+        for (path, message) in [("stored", direct), ("by ID", by_id), ("history", history)] {
+            assert!(
+                matches!(message.0.content, MessageContent::Unknown { encoded, raw_bytes }
+                    if encoded.r#type.type_id == "actions" && raw_bytes == raw),
+                "{path} changed an out-of-range Actions expiry"
+            );
+        }
+    }
+    client.end().await?;
+}
+
 // verifies: CTYPE-008, CTYPE-024
 #[xmtp_common::test(unwrap_try = true)]
 async fn unknown_compression_stays_unknown_on_all_read_paths() {
