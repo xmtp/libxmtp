@@ -1,13 +1,15 @@
+use std::io::{Read, Seek, SeekFrom, Write};
+
 use wasm_bindgen::{JsCast, JsValue};
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
     FileSystemDirectoryHandle, FileSystemFileHandle, FileSystemGetDirectoryOptions,
-    FileSystemGetFileOptions, FileSystemRemoveOptions, FileSystemSyncAccessHandle,
-    WorkerGlobalScope,
+    FileSystemGetFileOptions, FileSystemReadWriteOptions, FileSystemRemoveOptions,
+    FileSystemSyncAccessHandle, WorkerGlobalScope,
 };
 
-use super::{LocalStore, StagedFile, StoreWriter, validate_relative, validate_temp};
-use crate::{AttachmentError, AttachmentFailureCause as Cause};
+use super::{LocalStore, StagedFile, StoreFile, StoreWriter, validate_relative, validate_temp};
+use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
 fn storage_error(_: impl Sized) -> AttachmentError {
     AttachmentError::new(Cause::LocalStorage)
@@ -22,6 +24,68 @@ fn lookup_absent(error: &JsValue) -> Result<bool, AttachmentError> {
         Some("NotFoundError") => Ok(true),
         Some("TypeMismatchError") => Ok(false),
         _ => Err(storage_error(())),
+    }
+}
+
+fn io_error(error: JsValue) -> std::io::Error {
+    std::io::Error::other(format!("OPFS error: {error:?}"))
+}
+
+struct OpfsReader {
+    handle: FileSystemSyncAccessHandle,
+    position: u64,
+}
+
+impl Read for OpfsReader {
+    fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+        let options = FileSystemReadWriteOptions::new();
+        options.set_at(self.position as f64);
+        let count = self
+            .handle
+            .read_with_u8_array_and_options(bytes, &options)
+            .map_err(io_error)? as usize;
+        self.position += count as u64;
+        Ok(count)
+    }
+}
+
+impl Seek for OpfsReader {
+    fn seek(&mut self, from: SeekFrom) -> std::io::Result<u64> {
+        let base = match from {
+            SeekFrom::Start(position) => {
+                self.position = position;
+                return Ok(position);
+            }
+            SeekFrom::Current(_) => self.position,
+            SeekFrom::End(_) => self.handle.get_size().map_err(io_error)? as u64,
+        };
+        let offset = match from {
+            SeekFrom::Current(offset) | SeekFrom::End(offset) => offset,
+            SeekFrom::Start(_) => unreachable!(),
+        };
+        self.position = base
+            .checked_add_signed(offset)
+            .ok_or_else(|| std::io::Error::other("invalid OPFS seek"))?;
+        Ok(self.position)
+    }
+}
+
+impl Drop for OpfsReader {
+    fn drop(&mut self) {
+        self.handle.close();
+    }
+}
+
+impl Write for StoreWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.handle
+            .write_with_u8_array(bytes)
+            .map(|count| count as usize)
+            .map_err(io_error)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        self.handle.flush().map_err(io_error)
     }
 }
 
@@ -199,6 +263,86 @@ impl LocalStore for OpfsStore {
 
     async fn sync(&self, writer: &mut StoreWriter) -> Result<(), AttachmentError> {
         writer.handle.flush().map_err(storage_error)
+    }
+
+    async fn finish_decode(
+        &self,
+        decoder: AttachmentDecoder,
+        source: &str,
+        output: &str,
+    ) -> Result<DecodedMeta, AttachmentError> {
+        validate_temp(source)?;
+        validate_temp(output)?;
+        let file = self.file_handle(source, false).await?;
+        let mut input = OpfsReader {
+            handle: JsFuture::from(file.create_sync_access_handle())
+                .await
+                .map_err(storage_error)?
+                .dyn_into()
+                .map_err(storage_error)?,
+            position: 0,
+        };
+        let mut decoded = self.create_temp(output).await?;
+        let meta = decoder.finish(&mut input, &mut decoded)?;
+        self.sync(&mut decoded).await?;
+        Ok(meta)
+    }
+
+    async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError> {
+        let mut files = Vec::new();
+        let mut dirs = vec![(self.root.clone(), String::new())];
+        while let Some((dir, prefix)) = dirs.pop() {
+            let entries: js_sys::Function = js_sys::Reflect::get(dir.as_ref(), &"entries".into())
+                .map_err(storage_error)?
+                .dyn_into()
+                .map_err(storage_error)?;
+            let iterator = entries.call0(dir.as_ref()).map_err(storage_error)?;
+            let next: js_sys::Function = js_sys::Reflect::get(&iterator, &"next".into())
+                .map_err(storage_error)?
+                .dyn_into()
+                .map_err(storage_error)?;
+            loop {
+                let promise: js_sys::Promise = next
+                    .call0(&iterator)
+                    .map_err(storage_error)?
+                    .dyn_into()
+                    .map_err(storage_error)?;
+                let step = JsFuture::from(promise).await.map_err(storage_error)?;
+                if js_sys::Reflect::get(&step, &"done".into())
+                    .map_err(storage_error)?
+                    .as_bool()
+                    == Some(true)
+                {
+                    break;
+                }
+                let pair: js_sys::Array = js_sys::Reflect::get(&step, &"value".into())
+                    .map_err(storage_error)?
+                    .dyn_into()
+                    .map_err(storage_error)?;
+                let name = pair.get(0).as_string().ok_or_else(|| storage_error(()))?;
+                let path = if prefix.is_empty() {
+                    name
+                } else {
+                    format!("{prefix}/{name}")
+                };
+                let handle = pair.get(1);
+                if let Some(child) = handle.dyn_ref::<FileSystemDirectoryHandle>() {
+                    dirs.push((child.clone(), path));
+                } else {
+                    let file: FileSystemFileHandle = handle.dyn_into().map_err(storage_error)?;
+                    let file: web_sys::File = JsFuture::from(file.get_file())
+                        .await
+                        .map_err(storage_error)?
+                        .dyn_into()
+                        .map_err(storage_error)?;
+                    files.push(StoreFile {
+                        path,
+                        modified_at_ns: (file.last_modified() as i64).saturating_mul(1_000_000),
+                    });
+                }
+            }
+        }
+        Ok(files)
     }
 }
 

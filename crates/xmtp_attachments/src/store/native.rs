@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
-use super::{LocalStore, StagedFile, StoreWriter, validate_relative, validate_temp};
-use crate::{AttachmentError, AttachmentFailureCause as Cause};
+use super::{LocalStore, StagedFile, StoreFile, StoreWriter, validate_relative, validate_temp};
+use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
 /// Files below one native attachments directory.
 #[derive(Clone, Debug)]
@@ -151,5 +151,78 @@ impl LocalStore for NativeStore {
             .sync_all()
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+    }
+
+    async fn finish_decode(
+        &self,
+        decoder: AttachmentDecoder,
+        source: &str,
+        output: &str,
+    ) -> Result<DecodedMeta, AttachmentError> {
+        validate_temp(source)?;
+        validate_temp(output)?;
+        let source = self.path(source)?;
+        let output = self.path(output)?;
+        xmtp_common::task::spawn_blocking(move || {
+            let mut input = std::fs::File::open(source)
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+            let mut decoded = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .open(output)
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+            let meta = decoder.finish(&mut input, &mut decoded)?;
+            decoded
+                .sync_all()
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+            Ok(meta)
+        })
+        .await
+        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+    }
+
+    async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError> {
+        use std::time::UNIX_EPOCH;
+        let mut files = Vec::new();
+        let mut dirs = vec![(self.root.clone(), String::new())];
+        while let Some((dir, prefix)) = dirs.pop() {
+            let mut entries = tokio::fs::read_dir(dir)
+                .await
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+            {
+                let name = entry.file_name().to_string_lossy().into_owned();
+                let path = if prefix.is_empty() {
+                    name
+                } else {
+                    format!("{prefix}/{name}")
+                };
+                let kind = entry
+                    .file_type()
+                    .await
+                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+                if kind.is_dir() {
+                    dirs.push((entry.path(), path));
+                } else if kind.is_file() {
+                    let meta = entry
+                        .metadata()
+                        .await
+                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+                    let modified_at_ns = meta
+                        .modified()
+                        .ok()
+                        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+                        .map_or(0, |age| age.as_nanos().min(i64::MAX as u128) as i64);
+                    files.push(StoreFile {
+                        path,
+                        modified_at_ns,
+                    });
+                }
+            }
+        }
+        Ok(files)
     }
 }

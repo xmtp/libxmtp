@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    AttachmentError, AttachmentFailureCause as Cause, ContentChunk,
+    AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, ContentChunk, DecodedMeta,
     sanitize::is_reserved_device_name,
 };
 
@@ -120,6 +120,12 @@ impl StoreWriter {
     }
 }
 
+/// A file found during attachment storage reconciliation.
+pub struct StoreFile {
+    pub path: String,
+    pub modified_at_ns: i64,
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait DownloadSink: xmtp_common::wasm::MaybeSend {
@@ -139,9 +145,38 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     async fn remove_file(&self, path: &str) -> Result<(), AttachmentError>;
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError>;
     async fn sync(&self, writer: &mut StoreWriter) -> Result<(), AttachmentError>;
+    async fn finish_decode(
+        &self,
+        decoder: AttachmentDecoder,
+        source: &str,
+        output: &str,
+    ) -> Result<DecodedMeta, AttachmentError>;
+    async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError>;
 }
 
 impl StagedFile {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn read_chunk(
+        &self,
+        offset: u64,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, AttachmentError> {
+        use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
+        let mut file = tokio::fs::File::open(&self.path)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        file.seek(std::io::SeekFrom::Start(offset))
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        let mut bytes = vec![0; max_bytes];
+        let count = file
+            .read(&mut bytes)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        bytes.truncate(count);
+        Ok(bytes)
+    }
+
     #[cfg(target_arch = "wasm32")]
     pub fn len(&self) -> u64 {
         self.file.size() as u64

@@ -720,13 +720,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No SDK app event subscription is ended by closing its client."
 
 [[waiver]]
-id = "EVENT-055"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment event ordering is not implemented yet."
-
-[[waiver]]
 id = "ATCH-009"
 kind = "gap"
 owner = "attachments"
@@ -1013,12 +1006,6 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "The explicit storage layout is not implemented and tested yet."
-[[waiver]]
-id = "ATCH-059"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Download does not yet reject malformed key material before a request."
 [[waiver]]
 id = "ATCH-027"
 kind = "gap"

@@ -1,14 +1,21 @@
 //! Pending remote attachments owned by a client.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    collections::{HashMap, HashSet},
+    path::PathBuf,
+    sync::{Arc, Weak},
+    time::Duration,
+};
 
 use parking_lot::Mutex;
 use prost::Message as _;
 use sha2::{Digest as _, Sha256};
 use tokio::sync::{Mutex as AsyncMutex, watch};
+use tokio_util::sync::CancellationToken;
 use xmtp_attachments::{
-    AttachmentError, AttachmentFailureCause as Cause, AttachmentOptions, DownloadSink as _,
-    GcmEncryptor, KeyMaterial, LocalStore, Transfer, UploadRequest, ciphertext_len, encoded_prefix,
+    AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, AttachmentOptions,
+    DownloadSink as _, GcmDecryptor, GcmEncryptor, KeyMaterial, LocalStore, StoreWriter, Transfer,
+    UploadRequest, attachment_key, ciphertext_len, download_cap, encoded_prefix,
     plaintext_rel_path, remote_attachment, staged_path, temporary_path,
 };
 use xmtp_common::{RetryableError as _, time::now_ns};
@@ -26,6 +33,7 @@ use xmtp_proto::{api::grpc_status, backend_v1::CreateUploadRequest};
 use crate::{client::Client, context::XmtpSharedContext};
 
 const DEFAULT_MAX_PENDING_AGE: Duration = Duration::from_secs(86_400);
+const RECONCILE_AGE: Duration = Duration::from_secs(3_600);
 const CHUNK: usize = 64 * 1024;
 
 #[derive(Clone, Debug)]
@@ -105,6 +113,35 @@ fn api_error(error: xmtp_api::ApiError) -> AttachmentClientError {
     })
 }
 
+fn attachment_reference(remote: &RemoteAttachment, key: &str) -> AttachmentRef {
+    AttachmentRef {
+        attachment_key: key.to_owned(),
+        url: remote.url.clone(),
+        content_digest: remote.content_digest.clone(),
+    }
+}
+
+struct DecoderSink {
+    writer: StoreWriter,
+    hash: Sha256,
+    cipher: GcmDecryptor,
+    decoder: AttachmentDecoder,
+}
+
+#[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
+#[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
+impl xmtp_attachments::DownloadSink for DecoderSink {
+    async fn write(&mut self, bytes: &[u8]) -> Result<(), AttachmentError> {
+        self.hash.update(bytes);
+        let mut plaintext = Vec::with_capacity(bytes.len());
+        self.cipher.update(bytes, &mut plaintext)?;
+        for content in self.decoder.push(&plaintext)? {
+            self.writer.write(content).await?;
+        }
+        Ok(())
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PendingAttachmentStatus {
     Waiting,
@@ -117,6 +154,7 @@ struct PendingShared {
     state: AsyncMutex<PendingAttachmentStatus>,
     watch: watch::Sender<PendingAttachmentStatus>,
     permanent: Mutex<Option<AttachmentClientError>>,
+    cancel: CancellationToken,
 }
 
 impl PendingShared {
@@ -126,6 +164,35 @@ impl PendingShared {
             state: AsyncMutex::new(PendingAttachmentStatus::Waiting),
             watch,
             permanent: Mutex::new(None),
+            cancel: CancellationToken::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DownloadedAttachment {
+    pub path: PathBuf,
+    pub mime_type: String,
+    pub filename: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LocalAttachment {
+    pub path: String,
+    pub created_at_ns: i64,
+}
+
+struct DownloadShared {
+    outcome: watch::Sender<Option<Result<DownloadedAttachment, AttachmentClientError>>>,
+    cancel: CancellationToken,
+}
+
+impl DownloadShared {
+    fn new() -> Self {
+        let (outcome, _) = watch::channel(None);
+        Self {
+            outcome,
+            cancel: CancellationToken::new(),
         }
     }
 }
@@ -136,6 +203,8 @@ pub struct AttachmentRuntime {
     pub(crate) dir: Option<PathBuf>,
     pub(crate) options: AttachmentOptions,
     pending: Mutex<HashMap<String, Arc<PendingShared>>>,
+    downloads: Mutex<HashMap<String, Arc<DownloadShared>>>,
+    event_locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
 }
 
 impl Default for AttachmentRuntime {
@@ -145,6 +214,8 @@ impl Default for AttachmentRuntime {
             dir: None,
             options: AttachmentOptions::default(),
             pending: Mutex::new(HashMap::new()),
+            downloads: Mutex::new(HashMap::new()),
+            event_locks: Mutex::new(HashMap::new()),
         }
     }
 }
@@ -168,6 +239,8 @@ impl AttachmentRuntime {
             dir,
             options,
             pending: Mutex::new(HashMap::new()),
+            downloads: Mutex::new(HashMap::new()),
+            event_locks: Mutex::new(HashMap::new()),
         })
     }
 
@@ -185,6 +258,16 @@ impl AttachmentRuntime {
         let shared = Arc::new(PendingShared::new());
         pending.insert(digest.to_owned(), shared.clone());
         shared
+    }
+
+    fn event_lock(&self, key: &str) -> Arc<AsyncMutex<()>> {
+        let mut locks = self.event_locks.lock();
+        if let Some(lock) = locks.get(key).and_then(Weak::upgrade) {
+            return lock;
+        }
+        let lock = Arc::new(AsyncMutex::new(()));
+        locks.insert(key.to_owned(), Arc::downgrade(&lock));
+        lock
     }
 
     fn cutoff(&self) -> i64 {
@@ -229,6 +312,55 @@ impl AttachmentRuntime {
         }
         Ok(())
     }
+
+    pub(crate) async fn reconcile<Context: XmtpSharedContext>(
+        &self,
+        context: &Context,
+    ) -> Result<(), AttachmentClientError> {
+        let Some(store) = &self.store else {
+            return Ok(());
+        };
+        let pending: HashSet<_> = context
+            .db()
+            .list_pending_attachments_since(0)
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+            .into_iter()
+            .map(|row| row.content_digest)
+            .collect();
+        let records = context
+            .db()
+            .list_local_attachments()
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+        let recorded: HashSet<_> = records.iter().map(|row| row.path.as_str()).collect();
+        let files = store.list_files().await?;
+        let present: HashSet<_> = files.iter().map(|file| file.path.as_str()).collect();
+        let cutoff = now_ns().saturating_sub(RECONCILE_AGE.as_nanos() as i64);
+        for file in &files {
+            if file.path.starts_with(".tmp/") {
+                if file.modified_at_ns < cutoff {
+                    store.remove_file(&file.path).await?;
+                }
+            } else if let Some(digest) = file.path.strip_prefix(".staged/") {
+                if !pending.contains(digest) && file.modified_at_ns < cutoff {
+                    store.remove_file(&file.path).await?;
+                }
+            } else if file.path.split('/').count() == 2 && !recorded.contains(file.path.as_str()) {
+                context
+                    .db()
+                    .insert_or_ignore_local_attachment(&file.path, file.modified_at_ns)
+                    .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+            }
+        }
+        for record in records {
+            if !present.contains(record.path.as_str()) {
+                context
+                    .db()
+                    .delete_local_attachment(&record.path)
+                    .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+            }
+        }
+        Ok(())
+    }
 }
 
 pub struct Attachments<Context> {
@@ -255,6 +387,249 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             .configuration()
             .attachments
             .is_some()
+    }
+
+    /// Derive the plaintext path without touching the file system.
+    pub fn local_path(&self, remote: &RemoteAttachment) -> Result<PathBuf, AttachmentClientError> {
+        let relative = plaintext_rel_path(remote)?;
+        let dir = self
+            .runtime()
+            .dir
+            .as_ref()
+            .ok_or_else(|| AttachmentClientError::new(Cause::LocalStorage))?;
+        Ok(dir.join(relative))
+    }
+
+    pub async fn list_local(&self) -> Result<Vec<LocalAttachment>, AttachmentClientError> {
+        self.context
+            .db()
+            .list_local_attachments()
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))
+            .map(|rows| {
+                rows.into_iter()
+                    .map(|row| LocalAttachment {
+                        path: row.path,
+                        created_at_ns: row.created_at_ns,
+                    })
+                    .collect()
+            })
+    }
+
+    /// Fetch one verified attachment when its plaintext file is absent.
+    pub async fn download(
+        &self,
+        remote: &RemoteAttachment,
+    ) -> Result<DownloadedAttachment, AttachmentClientError> {
+        let relative = plaintext_rel_path(remote)?;
+        let path = self.local_path(remote)?;
+        let key = attachment_key(remote)?;
+        let store = self.runtime().store()?;
+        let lock = self.runtime().event_lock(&key);
+        let shared = {
+            let _guard = lock.lock().await;
+            if store.exists(&relative).await? {
+                self.context
+                    .db()
+                    .insert_or_ignore_local_attachment(&relative, now_ns())
+                    .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+                return Ok(DownloadedAttachment {
+                    path,
+                    mime_type: String::new(),
+                    filename: remote.filename.clone(),
+                });
+            }
+            if let Some(shared) = self.runtime().downloads.lock().get(&relative).cloned() {
+                shared
+            } else {
+                let shared = Arc::new(DownloadShared::new());
+                self.runtime()
+                    .downloads
+                    .lock()
+                    .insert(relative.clone(), shared.clone());
+                let reference = attachment_reference(remote, &key);
+                self.context.events().emit(
+                    Some(ClientEvent::AttachmentDownloadStarted(reference)),
+                    None,
+                );
+                let task = Attachments {
+                    context: self.context.context_ref().clone(),
+                };
+                let remote = remote.clone();
+                let shared_for_task = shared.clone();
+                drop(xmtp_common::task::spawn(async move {
+                    task.run_download(remote, relative, key, shared_for_task)
+                        .await;
+                }));
+                shared
+            }
+        };
+        let mut outcome = shared.outcome.subscribe();
+        loop {
+            let current = outcome.borrow_and_update().clone();
+            if let Some(result) = current {
+                return result;
+            }
+            outcome
+                .changed()
+                .await
+                .map_err(|_| AttachmentClientError::new(Cause::Network))?;
+        }
+    }
+
+    async fn run_download(
+        &self,
+        remote: RemoteAttachment,
+        relative: String,
+        key: String,
+        shared: Arc<DownloadShared>,
+    ) {
+        let result = self.download_once(&remote, &relative, &shared.cancel).await;
+        let lock = self.runtime().event_lock(&key);
+        let _guard = lock.lock().await;
+        let reference = attachment_reference(&remote, &key);
+        let event = match &result {
+            Ok(_) => ClientEvent::AttachmentDownloadCompleted(reference),
+            Err(error) => ClientEvent::AttachmentDownloadFailed(AttachmentFailed {
+                attachment_key: key,
+                url: reference.url,
+                content_digest: reference.content_digest,
+                cause: error.cause.as_str().to_owned(),
+            }),
+        };
+        self.context.events().emit(Some(event), None);
+        self.runtime().downloads.lock().remove(&relative);
+        shared.outcome.send_replace(Some(result));
+    }
+
+    async fn download_once(
+        &self,
+        remote: &RemoteAttachment,
+        relative: &str,
+        cancel: &CancellationToken,
+    ) -> Result<DownloadedAttachment, AttachmentClientError> {
+        let store = self.runtime().store()?;
+        let material = KeyMaterial::from_remote(remote)?;
+        let suffix = hex::encode(xmtp_common::rand_array::<16>());
+        let content_tmp = temporary_path(&format!("{suffix}-content"))?;
+        let decoded_tmp = temporary_path(&format!("{suffix}-decoded"))?;
+        let result = tokio::select! {
+            biased;
+            _ = cancel.cancelled() => Err(AttachmentClientError::new(Cause::Deleted)),
+            result = async {
+            let writer = store.create_temp(&content_tmp).await?;
+            let mut sink = DecoderSink {
+                writer, hash: Sha256::new(),
+                cipher: GcmDecryptor::new(&material), decoder: AttachmentDecoder::new(),
+            };
+            let snapshot_limit = self.context.server_configuration().configuration().attachments
+                .as_ref().map_or(xmtp_configuration::BACKEND_DEFAULT_MAX_UPLOAD_BYTES, |offer| offer.max_upload_bytes);
+            let cap = download_cap(remote.content_length.map(u64::from), snapshot_limit, &self.runtime().options);
+            Transfer::new(self.runtime().options.clone())?.get(&remote.url, cap, &mut sink).await?;
+            let DecoderSink { mut writer, hash, cipher, decoder } = sink;
+            store.sync(&mut writer).await?;
+            drop(writer);
+            if hex::encode(hash.finalize()) != remote.content_digest {
+                return Err(AttachmentClientError::new(Cause::DigestMismatch));
+            }
+            cipher.finish()?;
+            let meta = store.finish_decode(decoder, &content_tmp, &decoded_tmp).await?;
+            let final_tmp = if meta.compressed { &decoded_tmp } else { &content_tmp };
+            store.rename(final_tmp, relative).await?;
+            self.context.db().insert_or_ignore_local_attachment(relative, now_ns())
+                .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+            Ok(DownloadedAttachment {
+                path: self.local_path(remote)?, mime_type: meta.mime_type, filename: meta.filename,
+            })
+            } => result,
+        };
+        for temp in [&content_tmp, &decoded_tmp] {
+            if store.exists(temp).await.unwrap_or(false) {
+                let _ = store.remove_file(temp).await;
+            }
+        }
+        result
+    }
+
+    /// Delete all local files and records for a remote attachment.
+    pub async fn delete_local(
+        &self,
+        remote: &RemoteAttachment,
+    ) -> Result<(), AttachmentClientError> {
+        let key = attachment_key(remote)?;
+        let relative = plaintext_rel_path(remote)?;
+        let staged = staged_path(&remote.content_digest)?;
+        let store = self.runtime().store()?;
+        let lock = self.runtime().event_lock(&key);
+        let (upload, download) = {
+            let _guard = lock.lock().await;
+            let upload = self
+                .runtime()
+                .pending
+                .lock()
+                .get(&remote.content_digest)
+                .cloned();
+            let download = self.runtime().downloads.lock().get(&relative).cloned();
+            if let Some(shared) = &upload {
+                shared.cancel.cancel();
+            }
+            if let Some(shared) = &download {
+                shared.cancel.cancel();
+            }
+            (upload, download)
+        };
+        if let Some(shared) = upload {
+            let mut status = shared.watch.subscribe();
+            while matches!(
+                status.borrow_and_update().clone(),
+                PendingAttachmentStatus::Uploading
+            ) {
+                status
+                    .changed()
+                    .await
+                    .map_err(|_| AttachmentClientError::new(Cause::Network))?;
+            }
+        }
+        if let Some(shared) = download {
+            let mut outcome = shared.outcome.subscribe();
+            while outcome.borrow_and_update().clone().is_none() {
+                outcome
+                    .changed()
+                    .await
+                    .map_err(|_| AttachmentClientError::new(Cause::Network))?;
+            }
+        }
+        let _guard = lock.lock().await;
+        let mut changed = false;
+        if store.exists(&key).await? {
+            store.remove_dir_all(&key).await?;
+            changed = true;
+        }
+        if store.exists(&staged).await? {
+            store.remove_file(&staged).await?;
+            changed = true;
+        }
+        changed |= self
+            .context
+            .db()
+            .delete_local_attachment(&relative)
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+            != 0;
+        changed |= self
+            .context
+            .db()
+            .delete_pending_attachment(&remote.content_digest)
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+            != 0;
+        self.runtime().pending.lock().remove(&remote.content_digest);
+        if changed {
+            self.context.events().emit(
+                Some(ClientEvent::AttachmentDeleted(attachment_reference(
+                    remote, &key,
+                ))),
+                None,
+            );
+        }
+        Ok(())
     }
 
     /// Stage one source and return its complete remote description before any request.
@@ -559,6 +934,11 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
     pub async fn upload(&self) -> Result<(), AttachmentClientError> {
         let mut watch = self.shared.watch.subscribe();
         {
+            let event_lock = self
+                .context
+                .attachment_runtime()
+                .event_lock(&self.reference().attachment_key);
+            let _event_guard = event_lock.lock().await;
             let mut state = self.shared.state.lock().await;
             match &*state {
                 PendingAttachmentStatus::Complete => return Ok(()),
@@ -596,7 +976,16 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
     }
 
     async fn run_attempt(&self) {
-        let result = self.upload_once().await;
+        let result = tokio::select! {
+            biased;
+            _ = self.shared.cancel.cancelled() => Err(AttachmentClientError::new(Cause::Deleted)),
+            result = self.upload_once() => result,
+        };
+        let event_lock = self
+            .context
+            .attachment_runtime()
+            .event_lock(&self.reference().attachment_key);
+        let _event_guard = event_lock.lock().await;
         let mut state = self.shared.state.lock().await;
         *state = match &result {
             Ok(()) => PendingAttachmentStatus::Complete,
@@ -728,11 +1117,13 @@ pub(crate) mod cleanup {
                     .context
                     .worker_interval(WorkerKind::AttachmentCleanup, Duration::from_secs(3600));
                 xmtp_common::time::sleep(interval.min(Duration::from_secs(3600))).await;
-                self.context
-                    .attachment_runtime()
-                    .sweep(&self.context)
-                    .await
-                    .map_err(|error| Box::new(error) as Box<_>)?;
+                let runtime = self.context.attachment_runtime();
+                if let Err(error) = runtime.sweep(&self.context).await {
+                    tracing::warn!(%error, "attachment expiry sweep failed");
+                }
+                if let Err(error) = runtime.reconcile(&self.context).await {
+                    tracing::warn!(%error, "attachment reconciliation failed");
+                }
             }
         }
     }
@@ -742,7 +1133,10 @@ pub(crate) mod cleanup {
 mod tests {
     use super::*;
     use crate::{server_configuration::BlockedConnection, tester};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
     use xmtp_attachments::GcmDecryptor;
+    use xmtp_common::StreamHandle as _;
     use xmtp_configuration::{AttachmentsConfiguration, ServerConfiguration};
     use xmtp_events::{EventFilter, EventKind};
 
@@ -760,6 +1154,36 @@ mod tests {
             max_upload_bytes: 10_485_760,
             retention_seconds: 0,
         });
+    }
+
+    async fn serve_body(body: Vec<u8>) -> (String, Arc<AtomicUsize>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind attachment test server");
+        let url = format!(
+            "http://{}/file",
+            listener.local_addr().expect("test server address")
+        );
+        let requests = Arc::new(AtomicUsize::new(0));
+        let seen = requests.clone();
+        drop(xmtp_common::task::spawn(async move {
+            while let Ok((mut stream, _)) = listener.accept().await {
+                seen.fetch_add(1, Ordering::SeqCst);
+                let mut request = [0u8; 1024];
+                let _ = stream.read(&mut request).await;
+                let header = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                    body.len()
+                );
+                if stream.write_all(header.as_bytes()).await.is_err() {
+                    break;
+                }
+                if stream.write_all(&body).await.is_err() {
+                    break;
+                }
+            }
+        }));
+        (url, requests)
     }
 
     // verifies: ATCH-030, ATCH-031, ATCH-011, ATCH-012
@@ -1383,5 +1807,720 @@ mod tests {
         };
         second.upload().await?;
         assert_eq!(second.status(), PendingAttachmentStatus::Complete);
+    }
+
+    // verifies: ATCH-043, ATCH-050, ATCH-051, ATCH-063
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn plaintext_content_exact() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        pending.upload().await?;
+        tester!(bo, attachments_dir: recipient.path(), configured: |_config: &mut ServerConfiguration| {}, disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                |_config: &mut ServerConfiguration| {},
+            )))
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert!(!client.attachments().offered());
+        let downloaded = client.attachments().download(&remote).await?;
+        assert_eq!(downloaded.path, client.attachments().local_path(&remote)?);
+        assert_eq!(downloaded.mime_type, "text/plain");
+        assert_eq!(downloaded.filename.as_deref(), Some("note.txt"));
+        assert_eq!(
+            tokio::fs::read(&downloaded.path).await?,
+            b"attachment content"
+        );
+        assert_eq!(client.attachments().list_local().await?.len(), 1);
+    }
+
+    // verifies: ATCH-044, ATCH-059
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn local_path_no_io() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let mut remote = pending.remote_attachment().clone();
+        let path = alix.client.attachments().local_path(&remote)?;
+        assert!(path.ends_with("note.txt"));
+        remote.secret.pop();
+        assert_eq!(
+            alix.client
+                .attachments()
+                .local_path(&remote)
+                .unwrap_err()
+                .cause,
+            Cause::Malformed
+        );
+        assert_eq!(
+            alix.client
+                .attachments()
+                .download(&remote)
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::Malformed
+        );
+    }
+
+    // verifies: ATCH-045, ATCH-046, ATCH-052, ATCH-065
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn existing_not_fetched() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let mut remote = pending.remote_attachment().clone();
+        let (url, requests) = serve_body(b"forged".to_vec()).await;
+        remote.url = url;
+        pending.upload().await?;
+        let path = alix.client.attachments().download(&remote).await?.path;
+        assert_eq!(tokio::fs::read(path).await?, b"attachment content");
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    // verifies: ATCH-047, ATCH-062, ATCH-063
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn list_local_exact() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let one = alix.client.attachments().create(bytes()).await?;
+        let two = alix
+            .client
+            .attachments()
+            .create(AttachmentSource::Bytes {
+                bytes: b"second".to_vec(),
+                filename: None,
+                mime_type: "text/plain".into(),
+            })
+            .await?;
+        let listed = alix.client.attachments().list_local().await?;
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].path, plaintext_rel_path(one.remote_attachment())?);
+        assert_eq!(listed[1].path, plaintext_rel_path(two.remote_attachment())?);
+        alix.client
+            .attachments()
+            .delete_local(one.remote_attachment())
+            .await?;
+        assert!(!one.local_path()?.exists());
+        assert_eq!(alix.client.attachments().list_local().await?.len(), 1);
+    }
+
+    // verifies: ATCH-051, ATCH-056, ATCH-060
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn forged_body_leaves_nothing() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let mut remote = pending.remote_attachment().clone();
+        let (url, requests) = serve_body(b"forged".to_vec()).await;
+        remote.url = url;
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert_eq!(
+            client
+                .attachments()
+                .download(&remote)
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::DigestMismatch
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+        assert!(!client.attachments().local_path(&remote)?.exists());
+        assert!(client.attachments().list_local().await?.is_empty());
+    }
+
+    // verifies: ATCH-058
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn one_fetch_per_path() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let mut remote = pending.remote_attachment().clone();
+        let staged =
+            tokio::fs::read(sender.path().join(staged_path(&remote.content_digest)?)).await?;
+        let (url, requests) = serve_body(staged).await;
+        remote.url = url;
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let attachments = client.attachments();
+        let (first, second) =
+            tokio::join!(attachments.download(&remote), attachments.download(&remote));
+        assert_eq!(first?.path, second?.path);
+        assert_eq!(requests.load(Ordering::SeqCst), 1);
+    }
+
+    // verifies: ATCH-047, ATCH-051, EVENT-055
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn delete_cancels_running() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let mut remote = pending.remote_attachment().clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        remote.url = format!("http://{}/file", listener.local_addr()?);
+        let (connected, ready) = tokio::sync::oneshot::channel();
+        drop(xmtp_common::task::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\npartial")
+                .await
+                .unwrap();
+            let _ = connected.send(());
+            std::future::pending::<()>().await;
+        }));
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        tokio::fs::create_dir_all(recipient.path().join(attachment_key(&remote)?)).await?;
+        let attachments = client.attachments();
+        let events = client.context.events().subscribe_app(EventFilter::new([
+            EventKind::AttachmentDownloadStarted,
+            EventKind::AttachmentDownloadFailed,
+            EventKind::AttachmentDeleted,
+        ]))?;
+        let running_client = client.clone();
+        let running_remote = remote.clone();
+        let download = xmtp_common::spawn(None, async move {
+            running_client.attachments().download(&running_remote).await
+        });
+        tokio::time::timeout(Duration::from_secs(5), ready).await??;
+        tokio::time::timeout(Duration::from_secs(5), attachments.delete_local(&remote)).await??;
+        let outcome = tokio::time::timeout(Duration::from_secs(5), download.join()).await??;
+        assert_eq!(outcome.unwrap_err().cause, Cause::Deleted);
+        assert!(!attachments.local_path(&remote)?.exists());
+        assert!(attachments.list_local().await?.is_empty());
+        let emitted = events.drain();
+        let key = attachment_key(&remote)?;
+        assert_eq!(emitted.len(), 3);
+        assert!(
+            matches!(&emitted[0].client, Some(ClientEvent::AttachmentDownloadStarted(reference)) if reference.attachment_key == key)
+        );
+        assert!(
+            matches!(&emitted[1].client, Some(ClientEvent::AttachmentDownloadFailed(failed)) if failed.attachment_key == key && failed.cause == "deleted")
+        );
+        assert!(
+            matches!(&emitted[2].client, Some(ClientEvent::AttachmentDeleted(reference)) if reference.attachment_key == key)
+        );
+    }
+
+    // verifies: ATCH-047, EVENT-055
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn delete_cancels_upload() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let events = alix
+            .client
+            .context
+            .events()
+            .subscribe_app(EventFilter::new([
+                EventKind::AttachmentUploadStarted,
+                EventKind::AttachmentUploadFailed,
+                EventKind::AttachmentDeleted,
+            ]))?;
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        let mut upload = Box::pin(pending.upload());
+        assert!(matches!(
+            futures::poll!(upload.as_mut()),
+            std::task::Poll::Pending
+        ));
+        alix.client.attachments().delete_local(&remote).await?;
+        assert_eq!(upload.await.unwrap_err().cause, Cause::Deleted);
+        assert!(matches!(
+            pending.status(),
+            PendingAttachmentStatus::Failed(AttachmentClientError {
+                cause: Cause::Deleted,
+                ..
+            })
+        ));
+        let emitted = events.drain();
+        let key = attachment_key(&remote)?;
+        assert_eq!(emitted.len(), 3);
+        assert!(
+            matches!(&emitted[0].client, Some(ClientEvent::AttachmentUploadStarted(reference)) if reference.attachment_key == key)
+        );
+        assert!(
+            matches!(&emitted[1].client, Some(ClientEvent::AttachmentUploadFailed(failed)) if failed.attachment_key == key && failed.cause == "deleted")
+        );
+        assert!(
+            matches!(&emitted[2].client, Some(ClientEvent::AttachmentDeleted(reference)) if reference.attachment_key == key)
+        );
+    }
+
+    // verifies: ATCH-059
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn malformed_never_fetched() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let (url, requests) = serve_body(b"body".to_vec()).await;
+        for field in 0..4 {
+            let mut remote = pending.remote_attachment().clone();
+            remote.url = url.clone();
+            match field {
+                0 => remote.content_digest.make_ascii_uppercase(),
+                1 => {
+                    remote.secret.pop();
+                }
+                2 => {
+                    remote.salt.pop();
+                }
+                _ => {
+                    remote.nonce.pop();
+                }
+            }
+            assert_eq!(
+                alix.client
+                    .attachments()
+                    .local_path(&remote)
+                    .unwrap_err()
+                    .cause,
+                Cause::Malformed
+            );
+            assert_eq!(
+                alix.client
+                    .attachments()
+                    .download(&remote)
+                    .await
+                    .unwrap_err()
+                    .cause,
+                Cause::Malformed
+            );
+        }
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    // verifies: ATCH-056
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn download_size_limit() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        pending.upload().await?;
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachment_options(AttachmentOptions {
+                max_download_bytes: Some(1),
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert_eq!(
+            client
+                .attachments()
+                .download(&remote)
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::TooLarge
+        );
+        assert!(!client.attachments().local_path(&remote)?.exists());
+    }
+
+    // verifies: ATCH-046, ATCH-063, P22, P24
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn reconcile_after_crash_points() {
+        use std::time::UNIX_EPOCH;
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let original = pending.local_path()?;
+        let relative = plaintext_rel_path(pending.remote_attachment())?;
+        alix.client
+            .context
+            .db()
+            .delete_local_attachment(&relative)?;
+        let missing = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/absent";
+        alix.client
+            .context
+            .db()
+            .insert_or_ignore_local_attachment(missing, 1)?;
+        let temp = dir.path().join(".tmp/stale");
+        tokio::fs::create_dir_all(temp.parent().unwrap()).await?;
+        tokio::fs::write(&temp, b"temporary").await?;
+        let staged = dir.path().join(format!(".staged/{}", "a".repeat(64)));
+        tokio::fs::create_dir_all(staged.parent().unwrap()).await?;
+        tokio::fs::write(&staged, b"orphan").await?;
+        for file in [&temp, &staged] {
+            std::fs::File::open(file)?.set_modified(UNIX_EPOCH + Duration::from_secs(1))?;
+        }
+        let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert!(original.exists());
+        assert!(!temp.exists());
+        assert!(!staged.exists());
+        let listed = next.attachments().list_local().await?;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].path, relative);
+        assert!(listed[0].created_at_ns > 0);
+    }
+
+    // verifies: EVENT-055
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn attachment_event_order() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let events = client.context.events().subscribe_app(EventFilter::new([
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadCompleted,
+            EventKind::AttachmentDownloadStarted,
+            EventKind::AttachmentDownloadCompleted,
+            EventKind::AttachmentDeleted,
+        ]))?;
+        let pending = client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        pending.upload().await?;
+        client.attachments().delete_local(&remote).await?;
+        client.attachments().download(&remote).await?;
+        client.attachments().delete_local(&remote).await?;
+        let kinds: Vec<_> = events
+            .drain()
+            .into_iter()
+            .map(|event| {
+                let event = event.client.unwrap();
+                let key = attachment_key(&remote).unwrap();
+                match &event {
+                    ClientEvent::AttachmentUploadStarted(reference)
+                    | ClientEvent::AttachmentUploadCompleted(reference)
+                    | ClientEvent::AttachmentDownloadStarted(reference)
+                    | ClientEvent::AttachmentDownloadCompleted(reference)
+                    | ClientEvent::AttachmentDeleted(reference) => {
+                        assert_eq!(reference.attachment_key, key)
+                    }
+                    _ => panic!("unexpected event"),
+                }
+                event.kind()
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                EventKind::AttachmentUploadStarted,
+                EventKind::AttachmentUploadCompleted,
+                EventKind::AttachmentDeleted,
+                EventKind::AttachmentDownloadStarted,
+                EventKind::AttachmentDownloadCompleted,
+                EventKind::AttachmentDeleted,
+            ]
+        );
+    }
+
+    // verifies: EVENT-001, EVENT-055
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn attachment_event_kinds() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let events = client.context.events().subscribe_app(EventFilter::new([
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadCompleted,
+            EventKind::AttachmentUploadFailed,
+            EventKind::AttachmentDownloadStarted,
+            EventKind::AttachmentDownloadCompleted,
+            EventKind::AttachmentDownloadFailed,
+            EventKind::AttachmentDeleted,
+        ]))?;
+        let failed = client.attachments().create(bytes()).await?;
+        let staged = dir
+            .path()
+            .join(staged_path(&failed.remote_attachment().content_digest)?);
+        tokio::fs::write(staged, b"damaged").await?;
+        assert_eq!(
+            failed.upload().await.unwrap_err().cause,
+            Cause::StagedUnusable
+        );
+        client
+            .attachments()
+            .delete_local(failed.remote_attachment())
+            .await?;
+        let pending = client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        pending.upload().await?;
+        client.attachments().delete_local(&remote).await?;
+        client.attachments().download(&remote).await?;
+        client.attachments().delete_local(&remote).await?;
+        let (url, _) = serve_body(b"forged".to_vec()).await;
+        let mut forged = remote;
+        forged.url = url;
+        assert_eq!(
+            client
+                .attachments()
+                .download(&forged)
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::DigestMismatch
+        );
+        let kinds: Vec<_> = events
+            .drain()
+            .into_iter()
+            .map(|entry| entry.client.unwrap().kind())
+            .collect();
+        for kind in [
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadCompleted,
+            EventKind::AttachmentUploadFailed,
+            EventKind::AttachmentDownloadStarted,
+            EventKind::AttachmentDownloadCompleted,
+            EventKind::AttachmentDownloadFailed,
+            EventKind::AttachmentDeleted,
+        ] {
+            assert!(kinds.contains(&kind), "missing {kind:?}");
+        }
+    }
+
+    // verifies: ATCH-065
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn no_auto_download() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let (url, requests) = serve_body(b"ciphertext".to_vec()).await;
+        let mut remote = pending.remote_attachment().clone();
+        remote.url = url;
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        bo.client.attachments().local_path(&remote)?;
+        bo.client.attachments().list_local().await?;
+        bo.client.attachments().list_pending().await?;
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+    }
+
+    // verifies: ATCH-043, ATCH-051
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn compressed_content_two_pass() {
+        use flate2::{Compression, write::GzEncoder};
+        use std::io::Write as _;
+        use xmtp_proto::xmtp::mls::message_contents::{
+            Compression as WireCompression, EncodedContent,
+        };
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let content = b"compressed attachment content";
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(content)?;
+        let mut envelope =
+            EncodedContent::decode(encoded_prefix(None, "text/plain", 0).as_slice())?;
+        envelope.compression = Some(WireCompression::Gzip as i32);
+        envelope.content = encoder.finish()?;
+        let material = KeyMaterial::random();
+        let mut cipher = GcmEncryptor::new(&material);
+        let mut body = Vec::new();
+        cipher.update(&envelope.encode_to_vec(), &mut body)?;
+        body.extend_from_slice(&cipher.finish());
+        let digest = hex::encode(Sha256::digest(&body));
+        let (url, _) = serve_body(body.clone()).await;
+        let mut remote = remote_attachment(
+            "http://localhost",
+            &digest,
+            &material,
+            body.len() as u32,
+            None,
+        );
+        remote.url = url;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let path = client.attachments().download(&remote).await?.path;
+        assert_eq!(tokio::fs::read(path).await?, content);
+    }
+
+    // verifies: ATCH-025, ATCH-038, ATCH-047, ATCH-050, ATCH-051, P23
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn s3_end_to_end() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path().join("attachments"), disable_workers);
+        let source = sender.path().join("source.txt");
+        tokio::fs::write(&source, b"from path").await?;
+        let path_pending = alix
+            .client
+            .attachments()
+            .create(AttachmentSource::Path {
+                path: source,
+                filename: None,
+                mime_type: "text/plain".into(),
+            })
+            .await?;
+        let path_remote = path_pending.remote_attachment().clone();
+        let bytes_pending = alix.client.attachments().create(bytes()).await?;
+        let bytes_remote = bytes_pending.remote_attachment().clone();
+        let staged = sender
+            .path()
+            .join("attachments")
+            .join(staged_path(&bytes_remote.content_digest)?);
+        let ciphertext = tokio::fs::read(&staged).await?;
+        path_pending.upload().await?;
+        bytes_pending.upload().await?;
+        tokio::fs::write(&staged, ciphertext).await?;
+        alix.client
+            .context
+            .db()
+            .insert_or_ignore_pending_attachment(
+                &bytes_remote.content_digest,
+                &bytes_remote.encode_to_vec(),
+                now_ns(),
+            )?;
+        let repeated = alix.client.attachments().pending(&bytes_remote).await?;
+        repeated.upload().await?;
+        assert_eq!(repeated.status(), PendingAttachmentStatus::Complete);
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        let recipient_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert_eq!(
+            tokio::fs::read(
+                recipient_client
+                    .attachments()
+                    .download(&path_remote)
+                    .await?
+                    .path
+            )
+            .await?,
+            b"from path"
+        );
+        assert_eq!(
+            tokio::fs::read(
+                recipient_client
+                    .attachments()
+                    .download(&bytes_remote)
+                    .await?
+                    .path
+            )
+            .await?,
+            b"attachment content"
+        );
+        let (url, _) = serve_body(b"forged".to_vec()).await;
+        let mut forged = bytes_remote.clone();
+        forged.url = url;
+        let forged_client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachments_dir(recipient.path().join("forged"))
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert_eq!(
+            forged_client
+                .attachments()
+                .download(&forged)
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::DigestMismatch
+        );
+        let restart_pending = alix.client.attachments().create(bytes()).await?;
+        let restart_remote = restart_pending.remote_attachment().clone();
+        let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert!(
+            restarted
+                .attachments()
+                .list_pending()
+                .await?
+                .iter()
+                .any(|p| p.remote_attachment().content_digest == restart_remote.content_digest)
+        );
+        restarted
+            .attachments()
+            .pending(&restart_remote)
+            .await?
+            .upload()
+            .await?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let mut running = restart_remote;
+        running.url = format!("http://{}/running", listener.local_addr()?);
+        let (connected, ready) = tokio::sync::oneshot::channel();
+        drop(xmtp_common::task::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).await;
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 10000\r\n\r\npartial")
+                .await
+                .unwrap();
+            let _ = connected.send(());
+            std::future::pending::<()>().await;
+        }));
+        let attachments = forged_client.attachments();
+        let running_client = forged_client.clone();
+        let running_remote = running.clone();
+        let download = xmtp_common::spawn(None, async move {
+            running_client.attachments().download(&running_remote).await
+        });
+        tokio::time::timeout(Duration::from_secs(5), ready).await??;
+        tokio::time::timeout(Duration::from_secs(5), attachments.delete_local(&running)).await??;
+        let outcome = tokio::time::timeout(Duration::from_secs(5), download.join()).await??;
+        assert_eq!(outcome.unwrap_err().cause, Cause::Deleted);
     }
 }
