@@ -217,6 +217,29 @@ mod tests {
         assert_eq!(messages.elements.len(), 1);
         assert!(matches!(messages.elements[0], CoreElement::Messages));
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn archive_metadata_keeps_fields_and_filters_unspecified() {
+        let metadata = BackupMetadata {
+            backup_version: 1,
+            elements: vec![
+                CoreElement::Messages,
+                CoreElement::Unspecified,
+                CoreElement::Consent,
+            ],
+            exported_at_ns: 12345,
+            start_ns: Some(100),
+            end_ns: Some(200),
+        };
+        let public: ArchiveMetadata = metadata.into();
+        assert_eq!(public.backup_version, 1);
+        assert_eq!(public.elements.len(), 2);
+        assert!(matches!(public.elements[0], ArchiveElement::Messages));
+        assert!(matches!(public.elements[1], ArchiveElement::Consent));
+        assert_eq!(public.exported_at.0, 12345);
+        assert_eq!(public.start.map(|time| time.0), Some(100));
+        assert_eq!(public.end.map(|time| time.0), Some(200));
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
