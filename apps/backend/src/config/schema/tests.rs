@@ -95,6 +95,7 @@ fn published_schema_bounds_attachment_settings() {
         ("a/b/", true),
         ("a.b/_-/", true),
         ("a/.../b", true),
+        ("Ab_09-x.y/z/", true),
         ("/lead/", false),
         ("/", false),
         ("a//b/", false),
@@ -106,6 +107,11 @@ fn published_schema_bounds_attachment_settings() {
         (".", false),
         ("..", false),
         ("a b", false),
+        ("a b/", false),
+        ("a%2Fb/", false),
+        ("a+b/", false),
+        ("é/", false),
+        ("a\\b/", false),
         ("a\n", false),
     ] {
         let mut instance = baseline.clone();
