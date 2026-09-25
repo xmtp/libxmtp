@@ -63,6 +63,7 @@ private fun EncodedContent.deepHashCode(): Int {
     result = 31 * result + (fallback?.hashCode() ?: 0)
     return 31 * result + content.contentHashCode()
 }
+
 private fun invalidID(message: String) =
     XmtpException.InvalidArgument(
         ErrorDetails("InvalidArgument", ErrorCategory.INPUT, false, message),
