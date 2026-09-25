@@ -172,7 +172,11 @@ export async function runBrowserBridgeConformance(
     await client.end();
     await checkError(
       async () => client?.conversations(),
-      (error) => Reflect.get(error, "code") === "clientClosed",
+      (error) =>
+        B.XmtpError.ClientClosed.instanceOf(error) &&
+        error.inner[0].code === "ClientClosed" &&
+        error.inner[0].category === B.ErrorCategory.Lifecycle &&
+        error.inner[0].retryable === false,
       "ended client accepted a call",
     );
     reopened = await Client.build(session, identity, clientOptions, inboxID);
