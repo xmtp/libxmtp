@@ -78,16 +78,51 @@ fn set_upload_headers(request: &Request, upload: &UploadRequest) -> Result<(), A
     Ok(())
 }
 
+struct PutAbortGuard {
+    controller: AbortController,
+    armed: bool,
+}
+
+impl PutAbortGuard {
+    fn new() -> Result<Self, AttachmentError> {
+        Ok(Self {
+            controller: AbortController::new().map_err(|_| AttachmentError::new(Cause::Network))?,
+            armed: true,
+        })
+    }
+
+    fn request_init(&self) -> RequestInit {
+        let init = private_request("PUT");
+        init.set_signal(Some(&self.controller.signal()));
+        init
+    }
+
+    fn disarm(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for PutAbortGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.controller.abort();
+        }
+    }
+}
+
 async fn blob_put(
     upload: &UploadRequest,
     file: &web_sys::File,
 ) -> Result<PutOutcome, AttachmentError> {
-    let init = private_request("PUT");
+    let mut guard = PutAbortGuard::new()?;
+    let init = guard.request_init();
     init.set_body_opt_blob(Some(file));
     let request = Request::new_with_str_and_init(&upload.url, &init)
         .map_err(|_| AttachmentError::new(Cause::Malformed))?;
     set_upload_headers(&request, upload)?;
-    let response = fetch(&request).await?;
+    let response = fetch(&request).await;
+    guard.disarm();
+    let response = response?;
     if response.type_() == ResponseType::Opaqueredirect {
         return Err(AttachmentError::new(Cause::TargetRejected));
     }
@@ -360,6 +395,24 @@ mod tests {
             request.headers().get("x-signed-meta").unwrap().as_deref(),
             Some("first, second")
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn put_abort_guard_aborts_on_drop() {
+        let guard = PutAbortGuard::new()?;
+        let signal = guard.controller.signal();
+        let init = guard.request_init();
+        let request_signal = init.get_signal().expect("PUT signal");
+        assert!(!signal.aborted());
+        drop(guard);
+        assert!(signal.aborted());
+        assert!(request_signal.aborted());
+
+        let mut guard = PutAbortGuard::new()?;
+        let settled_signal = guard.controller.signal();
+        guard.disarm();
+        drop(guard);
+        assert!(!settled_signal.aborted());
     }
 
     // verifies: ATCH-071

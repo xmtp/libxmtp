@@ -2,7 +2,10 @@
 
 use std::time::Duration;
 
-use crate::{AttachmentError, AttachmentFailureCause as Cause, sanitize::is_reserved_device_name};
+use crate::{
+    AttachmentError, AttachmentFailureCause as Cause, ContentChunk,
+    sanitize::is_reserved_device_name,
+};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
@@ -78,6 +81,37 @@ pub struct StoreWriter {
     pub(crate) file: tokio::fs::File,
     #[cfg(target_arch = "wasm32")]
     pub(crate) handle: web_sys::FileSystemSyncAccessHandle,
+}
+
+impl StoreWriter {
+    /// Apply a decoder content event to this temporary file.
+    pub async fn write_content(&mut self, chunk: ContentChunk<'_>) -> Result<(), AttachmentError> {
+        match chunk {
+            ContentChunk::Reset => {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    use tokio::io::AsyncSeekExt;
+                    self.file
+                        .set_len(0)
+                        .await
+                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+                    self.file
+                        .rewind()
+                        .await
+                        .map(|_| ())
+                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    // OPFS moves the cursor to zero when it truncates to zero.
+                    self.handle
+                        .truncate_with_u32(0)
+                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+                }
+            }
+            ContentChunk::Bytes(bytes) => self.write(bytes).await,
+        }
+    }
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -196,6 +230,23 @@ mod tests {
         store.open_read("key/file").await?;
         store.remove_dir_all("key").await?;
         assert!(!store.exists("key/file").await?);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_writer_reset_rewinds() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let mut writer = store.create_temp(".tmp/repeated").await?;
+        writer.write_content(ContentChunk::Bytes(b"first")).await?;
+        writer.write_content(ContentChunk::Reset).await?;
+        writer.write_content(ContentChunk::Bytes(b"second")).await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        assert_eq!(
+            tokio::fs::read(directory.path().join(".tmp/repeated")).await?,
+            b"second"
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]

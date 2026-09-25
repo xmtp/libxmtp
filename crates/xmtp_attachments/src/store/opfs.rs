@@ -196,4 +196,25 @@ mod tests {
         store.remove_dir_all("key").await?;
         assert!(!store.exists("key/file").await?);
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_writer_reset_rewinds() {
+        let store = OpfsStore::new("attachment-tests/lane-c-reset").await?;
+        if store.exists(".tmp/repeated").await? {
+            store.remove_dir_all(".tmp").await?;
+        }
+        let mut writer = store.create_temp(".tmp/repeated").await?;
+        writer
+            .write_content(crate::ContentChunk::Bytes(b"first"))
+            .await?;
+        writer.write_content(crate::ContentChunk::Reset).await?;
+        writer
+            .write_content(crate::ContentChunk::Bytes(b"second"))
+            .await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        let file = store.open_read(".tmp/repeated").await?.file;
+        let bytes = JsFuture::from(file.array_buffer()).await?;
+        assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"second");
+    }
 }
