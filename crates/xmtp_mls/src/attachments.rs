@@ -205,6 +205,8 @@ pub struct AttachmentRuntime {
     pending: Mutex<HashMap<String, Arc<PendingShared>>>,
     downloads: Mutex<HashMap<String, Arc<DownloadShared>>>,
     event_locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
+    #[cfg(test)]
+    sweep_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
 impl Default for AttachmentRuntime {
@@ -216,6 +218,8 @@ impl Default for AttachmentRuntime {
             pending: Mutex::new(HashMap::new()),
             downloads: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            sweep_pause: Mutex::new(None),
         }
     }
 }
@@ -241,6 +245,8 @@ impl AttachmentRuntime {
             pending: Mutex::new(HashMap::new()),
             downloads: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            sweep_pause: Mutex::new(None),
         })
     }
 
@@ -291,14 +297,18 @@ impl AttachmentRuntime {
             .pending_attachment_sweep_candidates(self.cutoff())
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
         for digest in rows {
-            let shared = self.pending.lock().get(&digest).cloned();
-            if let Some(shared) = shared
-                && matches!(
-                    *shared.state.lock().await,
-                    PendingAttachmentStatus::Uploading
-                )
-            {
+            let shared = self.shared(&digest);
+            let state = shared.state.lock().await;
+            if matches!(*state, PendingAttachmentStatus::Uploading) {
                 continue;
+            }
+            #[cfg(test)]
+            {
+                let pause = self.sweep_pause.lock().clone();
+                if let Some((entered, resume)) = pause {
+                    entered.notify_one();
+                    resume.notified().await;
+                }
             }
             context
                 .db()
@@ -309,6 +319,7 @@ impl AttachmentRuntime {
                 store.remove_file(&path).await?;
             }
             self.pending.lock().remove(&digest);
+            drop(state);
         }
         Ok(())
     }
@@ -541,10 +552,15 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             let meta = store.finish_decode(decoder, &content_tmp, &decoded_tmp).await?;
             let final_tmp = if meta.compressed { &decoded_tmp } else { &content_tmp };
             store.rename(final_tmp, relative).await?;
-            self.context.db().insert_or_ignore_local_attachment(
+            if self.context.db().insert_or_ignore_local_attachment(
                 relative, now_ns(), Some(meta.mime_type.clone()), meta.filename.clone()
             )
-                .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+            .is_err() {
+                if let Err(error) = store.remove_file(relative).await {
+                    tracing::warn!(%error, "could not remove downloaded file after metadata write failed");
+                }
+                return Err(AttachmentClientError::new(Cause::LocalStorage));
+            }
             Ok(DownloadedAttachment {
                 path: self.local_path(remote)?, mime_type: Some(meta.mime_type), filename: meta.filename,
             })
@@ -1082,7 +1098,9 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
             .db()
             .delete_pending_attachment(&self.remote.content_digest)
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
-        store.remove_file(&path).await?;
+        if let Err(error) = store.remove_file(&path).await {
+            tracing::warn!(%error, "staged ciphertext cleanup will be retried by reconciliation");
+        }
         Ok(())
     }
 }
@@ -1142,6 +1160,76 @@ pub(crate) mod cleanup {
     }
 }
 
+#[cfg(all(test, target_arch = "wasm32"))]
+mod wasm_tests {
+    use super::*;
+    use crate::{Client, utils::test::identity_setup};
+    use xmtp_configuration::{AttachmentsConfiguration, ServerConfiguration};
+    use xmtp_cryptography::utils::generate_local_wallet;
+    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
+    use xmtp_proto::backend_v1::{GetInboxIdsResponse, get_inbox_ids_response};
+
+    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
+
+    // verifies: ATCH-048
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn client_create_writes_plaintext_to_opfs() {
+        let root = format!(
+            "attachment-client-tests/{}",
+            hex::encode(xmtp_common::rand_array::<16>())
+        );
+        let mut api = xmtp_api_backend::MockBackendClient::new();
+        api.expect_get_inbox_ids().times(1).returning(|request| {
+            Ok(GetInboxIdsResponse {
+                responses: request
+                    .requests
+                    .into_iter()
+                    .map(|request| get_inbox_ids_response::Response {
+                        identifier: request.identifier,
+                        identifier_kind: request.identifier_kind,
+                        inbox_id: None,
+                    })
+                    .collect(),
+            })
+        });
+        let client = Client::builder(identity_setup(generate_local_wallet()))
+            .api_client(api)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .temp_store()
+            .await
+            .default_mls_store()?
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                |configuration: &mut ServerConfiguration| {
+                    configuration.attachments = Some(AttachmentsConfiguration {
+                        base_url: "https://example.com/attachments".into(),
+                        max_upload_bytes: 1_048_576,
+                        retention_seconds: 0,
+                    });
+                },
+            )))
+            .attachments_dir(root.clone())
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let pending = client
+            .attachments()
+            .create(AttachmentSource::Bytes {
+                bytes: b"opfs plaintext".to_vec(),
+                filename: Some("proof.txt".into()),
+                mime_type: "text/plain".into(),
+            })
+            .await?;
+        let remote = pending.remote_attachment();
+        let local = plaintext_rel_path(remote)?;
+        let staged = staged_path(&remote.content_digest)?;
+        let root_store = xmtp_attachments::OpfsStore::new_root().await?;
+        let local_file = root_store.open_read(&format!("{root}/{local}")).await?;
+        assert_eq!(local_file.read_chunk(0, 64).await?, b"opfs plaintext");
+        assert!(root_store.exists(&format!("{root}/{staged}")).await?);
+    }
+}
+
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod tests {
     use super::*;
@@ -1151,6 +1239,7 @@ mod tests {
     use xmtp_attachments::GcmDecryptor;
     use xmtp_common::StreamHandle as _;
     use xmtp_configuration::{AttachmentsConfiguration, ServerConfiguration};
+    use xmtp_db::{ConnectionExt as _, diesel::RunQueryDsl as _};
     use xmtp_events::{EventFilter, EventKind};
 
     fn bytes() -> AttachmentSource {
@@ -1366,7 +1455,7 @@ mod tests {
         assert!(!downloader_request.contains(&hex::encode(bo.client.context.installation_id())));
     }
 
-    // verifies: ATCH-030, ATCH-031, ATCH-011, ATCH-012
+    // verifies: ATCH-030, ATCH-031, ATCH-011, ATCH-012, ATCH-049
     #[xmtp_common::test(unwrap_try = true)]
     async fn remote_attachment_before_request() {
         let dir = tempfile::tempdir()?;
@@ -1388,7 +1477,15 @@ mod tests {
             )
         );
         assert_eq!(remote.filename.as_deref(), Some("note.txt"));
-        let staged = tokio::fs::read(dir.path().join(staged_path(&remote.content_digest)?)).await?;
+        let staged_relative = staged_path(&remote.content_digest)?;
+        let staged_file = dir.path().join(&staged_relative);
+        assert_eq!(
+            staged_file.parent(),
+            Some(dir.path().join(".staged").as_path())
+        );
+        assert_eq!(staged_relative.split('/').count(), 2);
+        assert!(!staged_file.starts_with(dir.path().join(attachment_key(remote)?)));
+        let staged = tokio::fs::read(&staged_file).await?;
         assert_eq!(hex::encode(Sha256::digest(&staged)), remote.content_digest);
         assert_eq!(remote.content_length, Some(staged.len() as u32));
         let material = KeyMaterial::from_remote(remote)?;
@@ -1675,6 +1772,36 @@ mod tests {
         assert!(!dir.path().join(staged_path(digest)?).exists());
         let registry = &alix.client.context.attachments.pending;
         assert!(!registry.lock().contains_key(digest));
+    }
+
+    // verifies: ATCH-068
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn sweep_holds_upload_state_until_expired_file_is_removed() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let digest = pending.remote_attachment().content_digest.clone();
+        let db = alix.client.context.db();
+        db.delete_pending_attachment(&digest)?;
+        db.insert_or_ignore_pending_attachment(
+            &digest,
+            &pending.remote_attachment().encode_to_vec(),
+            now_ns() - 172_800_000_000_000,
+        )?;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        *alix.client.context.attachments.sweep_pause.lock() =
+            Some((entered.clone(), resume.clone()));
+        let context = alix.client.context.clone();
+        let sweep =
+            xmtp_common::task::spawn(async move { context.attachments.sweep(&context).await });
+        entered.notified().await;
+        assert!(pending.shared.state.try_lock().is_err());
+        let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+        resume.notify_one();
+        sweep.await??;
+        assert_eq!(upload.await?.unwrap_err().cause, Cause::StagedUnusable);
+        assert!(!dir.path().join(staged_path(&digest)?).exists());
     }
 
     // verifies: ATCH-068
@@ -2056,6 +2183,44 @@ mod tests {
         }
     }
 
+    // verifies: ATCH-051, ATCH-063
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn failed_metadata_write_removes_downloaded_file() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        pending.upload().await?;
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        client.context.db().raw_query(|conn| {
+            xmtp_db::diesel::sql_query(
+                "CREATE TRIGGER reject_attachment_metadata BEFORE INSERT ON local_attachments \
+                 BEGIN SELECT RAISE(ABORT, 'metadata rejected'); END",
+            )
+            .execute(conn)
+        })?;
+        let path = client.attachments().local_path(&remote)?;
+        let error = client.attachments().download(&remote).await.unwrap_err();
+        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(!path.exists());
+        assert!(client.context.db().list_local_attachments()?.is_empty());
+        client.context.db().raw_query(|conn| {
+            xmtp_db::diesel::sql_query("DROP TRIGGER reject_attachment_metadata").execute(conn)
+        })?;
+        let downloaded = client.attachments().download(&remote).await?;
+        assert_eq!(downloaded.mime_type.as_deref(), Some("text/plain"));
+        assert_eq!(tokio::fs::read(path).await?, b"attachment content");
+    }
+
     // verifies: ATCH-044, ATCH-059
     #[xmtp_common::test(unwrap_try = true)]
     async fn local_path_no_io() {
@@ -2429,7 +2594,7 @@ mod tests {
         assert_eq!(adopted.filename, None);
     }
 
-    // verifies: ATCH-037, P22
+    // verifies: ATCH-025, ATCH-037, P22
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn pending_row_removed_before_staged_file() {
@@ -2442,7 +2607,8 @@ mod tests {
         std::fs::set_permissions(&staged_dir, std::fs::Permissions::from_mode(0o555))?;
         let result = pending.upload().await;
         std::fs::set_permissions(&staged_dir, std::fs::Permissions::from_mode(0o755))?;
-        assert_eq!(result.unwrap_err().cause, Cause::LocalStorage);
+        result?;
+        assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
         assert!(
             alix.client
                 .context

@@ -16,6 +16,30 @@ use cap_std::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 use super::{LocalStore, StagedFile, StoreFile, StoreWriter, validate_relative, validate_temp};
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
+async fn create_private_dir(path: &Path) -> Result<(), AttachmentError> {
+    #[cfg(unix)]
+    {
+        let path = path.to_path_buf();
+        xmtp_common::task::spawn_blocking(move || {
+            use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(&path)?;
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
+        })
+        .await
+        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+        .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::fs::create_dir_all(path)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+    }
+}
+
 /// Files below one native attachments directory.
 #[derive(Clone, Debug)]
 pub struct NativeStore {
@@ -495,9 +519,14 @@ impl LocalStore for NativeStore {
         xmtp_common::task::spawn_blocking(move || {
             let mut input = std::fs::File::open(source)
                 .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-            let mut decoded = std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
+            let mut options = std::fs::OpenOptions::new();
+            options.write(true).create_new(true);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::OpenOptionsExt as _;
+                options.mode(0o600);
+            }
+            let mut decoded = options
                 .open(output)
                 .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
             let meta = decoder.finish(&mut input, &mut decoded)?;
