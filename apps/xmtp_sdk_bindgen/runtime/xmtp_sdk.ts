@@ -375,7 +375,6 @@ export interface MessageReaderLike {
   end(): Promise<void>;
 }
 
-export type Conversation = object;
 export enum ConnectionState {
   Connecting,
   Connected,
