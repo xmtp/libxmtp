@@ -35,13 +35,18 @@ const second = await context.newPage();
 const third = await context.newPage();
 const url = `http://127.0.0.1:${address.port}/crates/xmtp_sdk/conformance/browser/bridge.chromium.html`;
 const base = `bridge-${crypto.randomUUID()}`;
-const busyFields = { code: "storageBusy", category: 2, retryable: true };
+const busyFields = {
+  code: "storageBusy",
+  category: 2,
+  retryable: true,
+  typed: true,
+};
 const opfsAttempt = (page: typeof first, path: string) =>
   page.evaluate(async (databasePath) => {
     const bridge = await import("./storage.bridge.chromium.ts");
     try {
       await bridge.open(databasePath);
-      return { code: "opened", category: -1, retryable: false };
+      return { code: "opened", category: -1, retryable: false, typed: false };
     } catch (error) {
       const detail =
         error !== null && typeof error === "object" && "inner" in error
@@ -55,6 +60,7 @@ const opfsAttempt = (page: typeof first, path: string) =>
         code: Reflect.get(detail, "code"),
         category: Reflect.get(detail, "category"),
         retryable: Reflect.get(detail, "retryable"),
+        typed: bridge.isStorageBusy(error),
       };
     }
   }, path);
@@ -194,6 +200,7 @@ try {
     code: "opened",
     category: -1,
     retryable: false,
+    typed: false,
   });
   await second.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).endOne(),
@@ -216,6 +223,7 @@ try {
     code: "opened",
     category: -1,
     retryable: false,
+    typed: false,
   });
   console.log(
     "Chromium real WASM retried OPFS install and unpause after SAH contention",
