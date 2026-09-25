@@ -284,7 +284,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 
 An event for a change to stored state is emitted after the change is stored, so an app that reads again on an event sees the change. A change that is not stored, because a transaction failed or was retried, has no event.
 
-Order is kept where an app depends on it: within one group, and within one consent entity. Events for two groups, including two groups of one stitched DM, and a group's events relative to its consent events, can be emitted in either order, because the client changes them independently.
+Order is kept where an app depends on it: within one group, within one consent entity, and within one attachment key. Events for two groups, including two groups of one stitched DM, and a group's events relative to its consent events, can be emitted in either order, because the client changes them independently.
 
 Emission does not depend on why the change happened: a message stream, a sync call, a push-driven fetch, a background worker, or an app act all produce the same events.
 
