@@ -144,7 +144,7 @@ message GetConfigurationResponse {
   repeated string smart_contract_wallet_chains = 8;
   // Attachment storage this deployment offers; absent when it offers none.
   // The message and its rules are owned by ATCH section 1.
-  xmtp.backend.v1.AttachmentsConfiguration attachments = 9;   // pending
+  xmtp.backend.v1.AttachmentsConfiguration attachments = 9;
 }
 ```
 

@@ -280,7 +280,8 @@ impl Default for MlsConfiguration {
 /// Attachment storage offered by this deployment.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AttachmentsConfiguration {
-    pub base_url: url::Url,
+    /// The validated value exactly as the backend published it.
+    pub base_url: String,
     pub max_upload_bytes: u64,
     pub retention_seconds: u64,
 }

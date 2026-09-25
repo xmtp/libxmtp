@@ -133,11 +133,24 @@ impl TryFrom<backend_v1::AttachmentsConfiguration> for AttachmentsConfiguration 
     type Error = &'static str;
 
     fn try_from(attachments: backend_v1::AttachmentsConfiguration) -> Result<Self, Self::Error> {
+        if attachments
+            .base_url
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace() || byte == b'\\')
+        {
+            return Err("base_url has whitespace, a control character, or a backslash");
+        }
         if attachments.base_url.ends_with('/') {
             return Err("base_url has a trailing slash");
         }
         let base_url = url::Url::parse(&attachments.base_url)
             .map_err(|_| "base_url is not an absolute URL")?;
+        if base_url.as_str() != attachments.base_url
+            && !(base_url.path() == "/"
+                && base_url.as_str().strip_suffix('/') == Some(attachments.base_url.as_str()))
+        {
+            return Err("base_url changes when parsed");
+        }
         if base_url.host().is_none() {
             return Err("base_url has no host");
         }
@@ -161,7 +174,7 @@ impl TryFrom<backend_v1::AttachmentsConfiguration> for AttachmentsConfiguration 
             return Err("max_upload_bytes exceeds the remote attachment limit");
         }
         Ok(Self {
-            base_url,
+            base_url: attachments.base_url,
             max_upload_bytes: or_default(
                 attachments.max_upload_bytes,
                 BACKEND_DEFAULT_MAX_UPLOAD_BYTES,

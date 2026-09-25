@@ -75,11 +75,11 @@ A client that receives an unusable attachments message still works for messaging
 // Absent when the deployment offers no attachment storage.
 message AttachmentsConfiguration {
   // Absolute URL with no query, fragment, or trailing "/".
-  string base_url = 1;                 // pending
+  string base_url = 1;
   // Largest ciphertext CreateUpload accepts, in bytes.
-  uint64 max_upload_bytes = 2;         // pending
+  uint64 max_upload_bytes = 2;
   // Seconds the operator keeps an object after it is stored. 0: no expiry.
-  uint64 retention_seconds = 3;        // pending
+  uint64 retention_seconds = 3;
 }
 ```
 
@@ -116,20 +116,20 @@ A second upload of stored bytes is not an error. The backend does not look for t
 
 ```proto
 message CreateUploadRequest {
-  bytes content_digest = 1;            // pending; 32 bytes: SHA-256 of the ciphertext
-  uint64 content_length = 2;           // pending; ciphertext length in bytes
+  bytes content_digest = 1;            // 32 bytes: SHA-256 of the ciphertext
+  uint64 content_length = 2;           // ciphertext length in bytes
 }
 
 message CreateUploadResponse {
-  string method = 1;                   // pending; "PUT"
-  string url = 2;                      // pending; the storage target's URL for the object key
-  repeated HttpHeader headers = 3;     // pending; sent exactly as given
-  uint32 expires_in_seconds = 4;       // pending; from the response until the target refuses the request
+  string method = 1;                   // "PUT"
+  string url = 2;                      // the storage target's URL for the object key
+  repeated HttpHeader headers = 3;     // sent exactly as given
+  uint32 expires_in_seconds = 4;       // from the response until the target refuses the request
 }
 
 message HttpHeader {
-  string name = 1;                     // pending
-  string value = 2;                    // pending
+  string name = 1;
+  string value = 2;
 }
 ```
 
