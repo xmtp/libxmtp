@@ -107,6 +107,20 @@ fn validate_url(url: &Url, options: &AttachmentOptions) -> Result<(), Attachment
     Ok(())
 }
 
+fn validate_upload_url(url: &Url) -> Result<(), AttachmentError> {
+    let host = url.host().ok_or(AttachmentError::new(Cause::InsecureUrl))?;
+    let loopback = match host {
+        url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+        url::Host::Ipv4(address) => address.is_loopback(),
+        url::Host::Ipv6(address) => address.is_loopback(),
+    };
+    if url.scheme() == "https" || (url.scheme() == "http" && loopback) {
+        Ok(())
+    } else {
+        Err(AttachmentError::new(Cause::InsecureUrl))
+    }
+}
+
 fn redirect_target(
     current: &Url,
     location: &str,
@@ -123,10 +137,10 @@ fn redirect_target(
     Ok(target)
 }
 
-/// Native HTTP transfer. The resolver checks the addresses used by each connection.
+/// Native HTTP transfer. Downloads check each connected address.
 pub struct Transfer {
     client: Client,
-    resolver: Arc<GuardedResolver>,
+    upload_resolver: Arc<dyn Resolve>,
     options: AttachmentOptions,
     connect_timeout: Duration,
     idle_timeout: Duration,
@@ -151,7 +165,7 @@ impl Transfer {
         idle_timeout: Duration,
     ) -> Result<Self, AttachmentError> {
         let resolver = Arc::new(GuardedResolver {
-            upstream,
+            upstream: upstream.clone(),
             allow_private: options.allow_private_network,
         });
         let client = xmtp_common::http::client_builder()
@@ -163,7 +177,7 @@ impl Transfer {
             .map_err(reqwest_error)?;
         Ok(Self {
             client,
-            resolver,
+            upload_resolver: upstream,
             options,
             connect_timeout,
             idle_timeout,
@@ -505,6 +519,177 @@ mod tests {
             let addresses = self.0.clone();
             Box::pin(async move { Ok(Box::new(addresses.into_iter()) as Addrs) })
         }
+    }
+
+    fn staged_body() -> std::io::Result<(tempfile::TempDir, StagedFile)> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("body");
+        std::fs::write(&path, b"body")?;
+        Ok((directory, StagedFile { path }))
+    }
+
+    fn upload(url: String) -> UploadRequest {
+        UploadRequest {
+            method: "PUT".into(),
+            url,
+            headers: vec![],
+            expires_in_seconds: 60,
+        }
+    }
+
+    // verifies: ATCH-071
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn public_http_put_is_rejected_before_request() {
+        let seen = Arc::new(AtomicBool::new(false));
+        let flag = seen.clone();
+        let server = server(move |_| {
+            flag.store(true, Ordering::Relaxed);
+            answer(StatusCode::OK, "")
+        })
+        .await;
+        let address: SocketAddr = server.url.trim_start_matches("http://").parse()?;
+        let transfer = Transfer::with_resolver(
+            AttachmentOptions::default(),
+            Arc::new(FakeResolver(vec![address])),
+        )?;
+        let (_directory, body) = staged_body()?;
+        let request = upload(format!("http://example.com:{}/object", address.port()));
+        assert_eq!(
+            transfer.put(&request, body).await.unwrap_err().cause,
+            Cause::InsecureUrl
+        );
+        assert!(!seen.load(Ordering::Relaxed));
+    }
+
+    // verifies: ATCH-071
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn loopback_http_put_needs_no_private_network_flag() {
+        let server = server(|_| answer(StatusCode::ACCEPTED, "")).await;
+        let (_directory, body) = staged_body()?;
+        let transfer = Transfer::new(AttachmentOptions::default())?;
+        assert_eq!(
+            transfer.put(&upload(server.url.clone()), body).await?,
+            PutOutcome::Stored
+        );
+    }
+
+    // verifies: ATCH-071
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn private_https_put_is_not_dns_blocked() {
+        validate_upload_url(&Url::parse("https://10.1.2.3/object")?)?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let transfer = Transfer::with_resolver_and_timeouts(
+            AttachmentOptions::default(),
+            Arc::new(FakeResolver(vec![address])),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )?;
+        let (_directory, body) = staged_body()?;
+        let accepted = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            drop(socket);
+        });
+        let request = upload(format!("https://private.example:{}/object", address.port()));
+        assert_eq!(
+            transfer.put(&request, body).await.unwrap_err().cause,
+            Cause::Network
+        );
+        tokio::time::timeout(Duration::from_secs(1), accepted).await??;
+    }
+
+    // verifies: ATCH-071
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_redirect_is_rejected_without_following() {
+        let followed = Arc::new(AtomicBool::new(false));
+        let flag = followed.clone();
+        let target = server(move |_| {
+            flag.store(true, Ordering::Relaxed);
+            answer(StatusCode::OK, "")
+        })
+        .await;
+        let location = target.url.clone();
+        let origin = server(move |_| {
+            Response::builder()
+                .status(StatusCode::TEMPORARY_REDIRECT)
+                .header(LOCATION, &location)
+                .body(Full::new(Bytes::new()))
+                .unwrap()
+        })
+        .await;
+        let (_directory, body) = staged_body()?;
+        let transfer = Transfer::new(AttachmentOptions::default())?;
+        assert_eq!(
+            transfer
+                .put(&upload(origin.url.clone()), body)
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::TargetRejected
+        );
+        assert!(!followed.load(Ordering::Relaxed));
+    }
+
+    // verifies: ATCH-054
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn downloads_ignore_proxy_environment() {
+        let proxy = std::net::TcpListener::bind("127.0.0.1:0")?;
+        let proxy_url = format!("http://{}", proxy.local_addr()?);
+        let output = std::process::Command::new(std::env::current_exe()?)
+            .args(["--exact", "http::native::tests::proxy_environment_child"])
+            .env("XMTP_ATTACHMENTS_PROXY_CHILD", "1")
+            .env("HTTP_PROXY", &proxy_url)
+            .env("HTTPS_PROXY", &proxy_url)
+            .env("ALL_PROXY", &proxy_url)
+            .env("NO_PROXY", "")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "child stdout: {}\nchild stderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn proxy_environment_child() {
+        if std::env::var_os("XMTP_ATTACHMENTS_PROXY_CHILD").is_none() {
+            return;
+        }
+        let target = server(|_| answer(StatusCode::OK, "direct")).await;
+        let mut sink = MemorySink::default();
+        allowed().get(&target.url, 6, &mut sink).await?;
+        assert_eq!(sink.0, b"direct");
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let address = listener.local_addr()?;
+        let transfer = Transfer::with_resolver_and_timeouts(
+            AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            },
+            Arc::new(FakeResolver(vec![address])),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )?;
+        let task = tokio::spawn(async move {
+            transfer
+                .get(
+                    &format!("https://example.test:{}/object", address.port()),
+                    1,
+                    &mut MemorySink::default(),
+                )
+                .await
+        });
+        let (socket, _) = tokio::time::timeout(Duration::from_secs(1), listener.accept()).await??;
+        drop(socket);
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(2), task)
+                .await??
+                .unwrap_err()
+                .cause,
+            Cause::Network
+        );
     }
 
     // verifies: ATCH-054
