@@ -88,6 +88,27 @@ async fn key_prefix_rules() {
     }
 }
 
+// verifies: ATCH-071 (backend)
+#[xmtp_common::test(unwrap_try = true)]
+async fn storage_endpoint_requires_https_or_loopback_http() {
+    let mut config = config();
+    for endpoint in [
+        "https://s3.example.com",
+        "http://127.0.0.1:9000",
+        "http://localhost:9000",
+    ] {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.endpoint = endpoint.into();
+        assert!(config.validate().is_ok(), "{endpoint}");
+    }
+    let TargetConfig::S3(s3) = &mut config.target;
+    s3.endpoint = "http://s3.example.com".into();
+    assert_eq!(
+        config.validate().unwrap_err().field,
+        "attachments.target.S3.endpoint"
+    );
+}
+
 // verifies: ATCH-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn upload_ceiling_rules() {

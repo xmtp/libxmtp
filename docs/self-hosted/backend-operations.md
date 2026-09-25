@@ -11,7 +11,7 @@ Run commands from the repository root. Use the Nix shell and the project recipes
 just backend db-up
 just backend sql-prepare
 just backend test
-just backend minio-up
+just backend s3-up
 ```
 
 In the main checkout the database listens on `127.0.0.1:55432`. Other worktrees
@@ -19,11 +19,12 @@ use other ports; see [Several worktrees](#several-worktrees). Run
 `just backend status` to print the ports for the checkout you are in.
 The credentials and database name are in `dev/docker/compose.yml`. These
 credentials are for disposable local tests only.
-The MinIO target uses the worktree port shown by `just backend status`.
-`minio-init` creates the `attachments` bucket and enables public GET. The
-MinIO server permits CORS for signed PUT requests. The MinIO integration test
-needs both services.
-The local configuration in `dev/backend/local.toml` uses this target.
+The VersityGW target uses the worktree port shown by `just backend status`.
+`s3-init` creates the `attachments` bucket, permits public GET, and sets CORS
+for signed PUT and GET requests. The S3 integration test needs both services.
+Compose uses `dev/backend/local-s3.toml` to offer attachments. The
+`dev/backend/local.toml` file starts without storage target settings or S3
+environment variables, including on the iOS Fly test backend.
 Set `DATABASE_URL` to select a different test database. The test user must be able
 to create and delete databases. Each service test uses a separate database.
 Tests live beside the modules they exercise and share one test-support module.
@@ -34,7 +35,7 @@ The replica listens on `127.0.0.1:55433` in the main checkout. `just backend run
 sets both database URLs and uses `dev/backend/local.toml`.
 
 The shared stack in `dev/docker/compose.yml` contains `db`, `replica`, `backend`,
-`anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
+`s3`, `s3-init`, `anvil`, `toxiproxy`, `tempo`, `prometheus`, and `grafana`.
 Run `just backend up` to build and load the backend image and start all services.
 Use `just backend up [services...]` to select services and their dependencies.
 Use `just backend logs [services...]` for logs. Both `just backend down` and

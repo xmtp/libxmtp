@@ -110,6 +110,14 @@ impl S3Config {
                 "invalid HTTP endpoint",
             ));
         }
+        // The shared URL check owns the loopback rule for HTTP. Check only the
+        // origin here so S3 endpoints can retain a path prefix.
+        check_base_url(&url.origin().ascii_serialization()).map_err(|_| {
+            ConfigInvalid::new(
+                "attachments.target.S3.endpoint",
+                "must use HTTPS or HTTP on a loopback host",
+            )
+        })?;
         if self.region.is_empty() || self.region.chars().any(char::is_whitespace) {
             return Err(ConfigInvalid::new(
                 "attachments.target.S3.region",

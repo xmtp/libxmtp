@@ -9,7 +9,7 @@ dev/nix-shell 'SQLX_OFFLINE=true dev/agent-run cargo build --locked -p xmtp_back
 just check crate xmtp_backend
 just backend build
 just backend db-up                     # primary and replica; no image build
-just backend minio-up                  # local S3 target and bucket setup; no image build
+just backend s3-up                     # local S3 target and bucket setup; no image build
 just backend sql-prepare               # apply migrations and update .sqlx
 just backend sql-check                 # verify committed .sqlx
 just backend schema                    # regenerate public config schema
@@ -26,11 +26,11 @@ just backend run
 just backend db-down
 ```
 
-`just backend run` uses `dev/backend/local.toml`. Its default and maximum query
-row limits are both 50, so SDK tests exercise paging.
-The local config offers attachment storage through MinIO. Run `just backend
-minio-up` before attachment integration tests. `just backend status` prints
-the worktree's MinIO URL.
+`just backend run` uses `dev/backend/local.toml` without attachment storage.
+Compose uses `dev/backend/local-s3.toml` to offer attachment storage through
+VersityGW. Both files set default and maximum query row limits to 50, so SDK
+tests exercise paging. Run `just backend s3-up` before attachment integration
+tests. `just backend status` prints the worktree's S3 URL.
 
 `db-down` stops the entire shared stack, not only PostgreSQL.
 For an explicit database-port override, set `XMTP_BACKEND_DB_PORT` and

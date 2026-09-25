@@ -69,6 +69,27 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+fn local_config_loads_without_attachment_settings() {
+    let base = include_str!("../../../../../dev/backend/local.toml");
+    assert!(!base.contains("XMTP_S3_"));
+    assert!(load_dev_config(base)?.attachments.is_none());
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn compose_config_loads_attachment_settings() {
+    let s3 = include_str!("../../../../../dev/backend/local-s3.toml");
+    assert!(load_dev_config(s3)?.attachments.is_some());
+}
+
+fn load_dev_config(contents: &str) -> Result<Config, crate::config::ConfigError> {
+    let contents = contents
+        .replace("env:XMTP_DATABASE_URL", "postgres://localhost/xmtp")
+        .replace("env:XMTP_REPLICA_URL", "postgres://localhost/xmtp")
+        .replace("env:XMTP_CHAIN_31337_URL", "http://127.0.0.1:8545");
+    Config::load_str(&contents)
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn published_schema_enforces_every_numeric_scalar_range() {
     let validator = validator();
     let config: Config = toml::from_str("[database]\nurl = 'postgres://localhost/xmtp'")?;
