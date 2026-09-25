@@ -11,7 +11,11 @@ let
   bindgen = lib.findFirst (
     package: package.name == "ubrn_bindgen"
   ) (throw "Cargo.lock has no ubrn_bindgen package") lock.package;
-  rev = builtins.elemAt (lib.splitString "#" bindgen.source) 1;
+  lockedRev = builtins.elemAt (lib.splitString "#" bindgen.source) 1;
+  expectedRev =
+    (builtins.fromTOML (builtins.readFile ../../../Cargo.toml)).workspace.metadata."xmtp-sdk-fork".rev;
+  rev =
+    if lockedRev == expectedRev then lockedRev else throw "SDK fork lock differs from workspace pin";
   src = builtins.fetchGit {
     url = "https://github.com/neekolas/uniffi-bindgen-react-native.git";
     inherit rev;

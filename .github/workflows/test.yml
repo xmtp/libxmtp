@@ -21,6 +21,7 @@ jobs:
     outputs:
       workspace: ${{ steps.filter.outputs.workspace }}
       sdk: ${{ steps.filter.outputs.sdk }}
+      sdk_swift: ${{ steps.filter.outputs.sdk_swift }}
       wasm: ${{ steps.filter.outputs.wasm }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       node: ${{ steps.filter.outputs.node }}
@@ -81,6 +82,11 @@ jobs:
               - 'flake.*'
               - '.github/actions/setup-nix/**'
               - '.github/actions/setup-js/**'
+              - '.github/workflows/test-sdk.yml'
+              - '.github/workflows/test.yml'
+            sdk_swift:
+              - 'crates/xmtp_sdk/**'
+              - 'apps/xmtp_sdk_bindgen/**'
               - '.github/workflows/test-sdk.yml'
               - '.github/workflows/test.yml'
             wasm:
@@ -289,11 +295,16 @@ jobs:
     uses: ./.github/workflows/test-workspace.yml
     secrets: inherit
 
-  # This job is informational until Task 9 adds conformance coverage.
   test-sdk:
+    # wait-backend reads the backend image from ghcr.io with GITHUB_TOKEN.
+    permissions:
+      contents: read
+      packages: read
     needs: detect-changes
-    if: needs.detect-changes.outputs.sdk == 'true'
+    if: needs.detect-changes.outputs.sdk == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/self-hosted')
     uses: ./.github/workflows/test-sdk.yml
+    with:
+      run_swift: ${{ needs.detect-changes.outputs.sdk_swift == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/self-hosted') }}
     secrets: inherit
 
   test-keepalive-probe:

@@ -128,10 +128,27 @@ fn generate(
                 .parent()
                 .context("global config has no parent directory")?
                 .join("typescript.toml");
-            let source = SourceArgs::library(&lib.to_owned()).with_config(Some(ts_config));
             let scratch = tempfile::tempdir()?;
             let scratch_path = Utf8Path::from_path(scratch.path())
                 .context("bindgen scratch directory is not UTF-8")?;
+            let mut ts_value: toml::Value = toml::from_str(&fs::read_to_string(&ts_config)?)?;
+            let crate_value: toml::Value =
+                toml::from_str(&fs::read_to_string(crate_root.join("uniffi.toml"))?)?;
+            let custom_types = crate_value
+                .get("bindings")
+                .and_then(|value| value.get("typescript"))
+                .and_then(|value| value.get("customTypes"))
+                .context("crate config needs TypeScript custom types")?
+                .clone();
+            ts_value
+                .get_mut("bindings")
+                .and_then(|value| value.get_mut("typescript"))
+                .and_then(toml::Value::as_table_mut)
+                .context("TypeScript config needs [bindings.typescript]")?
+                .insert("customTypes".into(), custom_types);
+            let scoped_config = scratch_path.join("typescript.toml");
+            fs::write(&scoped_config, toml::to_string(&ts_value)?)?;
+            let source = SourceArgs::library(&lib.to_owned()).with_config(Some(scoped_config));
             let mut args = BindingsArgs::new(
                 SwitchArgs { flavor },
                 source,
@@ -154,6 +171,10 @@ fn generate(
             let names =
                 id_names::typescript_rename_map(&metadata, &crate_root.join("uniffi.toml"))?;
             id_names::rewrite_generated_bindings(out, &names)?;
+            let index = out.join("index.ts");
+            let mut source = fs::read_to_string(&index)?;
+            source.push_str("\nexport { Client, Message, InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream } from './runtime';\n");
+            fs::write(index, source)?;
             for stale in [".bindgen-manifest", "abi"] {
                 let stale_dir = out.join(stale);
                 if stale_dir.is_dir() {

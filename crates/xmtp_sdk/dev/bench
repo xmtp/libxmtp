@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
+# Both native libraries use the workspace release profile (opt-level = "s").
+dev/agent-run cargo build --locked --release -p xmtp_sdk --features bench
+dev/agent-run cargo build --locked -p xmtp-sdk-bindgen
+nix build --no-link .#ubjs-core .#ubjs-node .#node-bindings-fast
+core="$(nix path-info .#ubjs-core)"
+node="$(nix path-info .#ubjs-node)"
+native="$(nix path-info .#node-bindings-fast)"
+benchmark=target/sdk-bench/typescript-napi
+package_dir="$benchmark/node_modules/@ubjs"
+case "$(uname -s)" in
+  Darwin) library=libxmtp_sdk.dylib ;;
+  Linux) library=libxmtp_sdk.so ;;
+  *) echo "unsupported benchmark host" >&2; exit 1 ;;
+esac
+rm -rf "$benchmark"
+target/debug/xmtp-sdk-bindgen generate \
+  --lib "target/release/$library" --language typescript-napi \
+  --out "$benchmark" --config apps/xmtp_sdk_bindgen/uniffi-global.toml
+cp "target/release/$library" "$benchmark/"
+crates/xmtp_sdk/dev/check-bench-exports --bench "$benchmark"
+echo 'Benchmark profile: release (workspace opt-level = s) on both native libraries'
+mkdir -p "$package_dir"
+ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
+ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
+export SDK_NAPI_BIN="$(find "$native/dist" -maxdepth 1 -name '*.node' -print -quit)"
+test -n "$SDK_NAPI_BIN"
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--preserve-symlinks"
+sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/ts/bench.mts

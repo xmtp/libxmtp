@@ -220,6 +220,11 @@ impl Client {
         InstallationID(self.inner.installation_public_key().to_string())
     }
 
+    /// Host runtimes use this key to find the owner of a lifted message.
+    pub fn client_key(&self) -> u64 {
+        self.key
+    }
+
     pub fn conversations(&self) -> Arc<Conversations> {
         Arc::new(Conversations {
             client: self.inner.clone(),

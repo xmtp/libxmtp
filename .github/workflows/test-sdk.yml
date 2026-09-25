@@ -1,6 +1,10 @@
 name: Test SDK façade
 on:
   workflow_call:
+    inputs:
+      run_swift:
+        type: boolean
+        default: false
 jobs:
   sdk:
     name: Generate and test SDK façade
@@ -36,7 +40,163 @@ jobs:
         run: just sdk wasm-init
       - name: Test SDK crate
         run: just test crate xmtp_sdk
+      - name: Node conformance
+        run: just sdk conformance node
+      - name: Kotlin JVM conformance
+        run: just sdk conformance kotlin
+      - name: Chromium worker conformance
+        env:
+          NIX_DEVSHELL: js
+        run: just sdk conformance browser
       - name: Dump Docker logs on failure
         if: failure()
         uses: jwalton/gh-docker-logs@v2
-      # Task 9 adds Swift, Kotlin, Node, and browser conformance jobs.
+
+  wait-backend:
+    if: inputs.run_swift && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 65
+    steps:
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Wait for the commit image
+        env:
+          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
+        run: |
+          for i in $(seq 1 240); do
+            if docker manifest inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then exit 0; fi
+            sleep 15
+          done
+          exit 1
+
+  deploy-backend:
+    if: inputs.run_swift && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: wait-backend
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      backend_url: ${{ steps.deploy.outputs.backend_url }}
+      app_name: ${{ steps.deploy.outputs.app_name }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+      - uses: ./.github/actions/setup-nix
+        with:
+          nix-disk: "false"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - name: Deploy test infrastructure
+        id: deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          APP_NAME="libxmtp-sdk-test-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
+          ./sdks/ios/dev/fly/deploy "$APP_NAME" "ghcr.io/xmtp/backend:sha-${{ github.sha }}"
+          echo "backend_url=https://${APP_NAME}.fly.dev" >> "$GITHUB_OUTPUT"
+      - name: Wait for services
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          BACKEND_HOST="${{ steps.deploy.outputs.app_name }}.fly.dev"
+          for i in $(seq 1 60); do
+            if nix run nixpkgs#grpc-health-probe -- -addr="${BACKEND_HOST}:443" -tls; then exit 0; fi
+            sleep 5
+          done
+          exit 1
+
+  swift:
+    name: Swift conformance
+    if: inputs.run_swift && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    needs: deploy-backend
+    runs-on: warp-macos-15-arm64-6x
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26"
+      - uses: taiki-e/install-action@just
+      - uses: ./.github/actions/setup-js
+      - run: just sdk generate
+      - run: just sdk conformance swift
+        env:
+          XMTP_BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
+
+  cleanup-backend:
+    needs: [deploy-backend, swift]
+    if: always() && needs.deploy-backend.result != 'skipped'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+      - name: Destroy app
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          APP_NAME="${{ needs.deploy-backend.outputs.app_name }}"
+          [ -n "$APP_NAME" ] && flyctl apps destroy "$APP_NAME" --yes || true
+
+  windows-load:
+    name: Windows SDK load (win32-x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    env:
+      SQLX_OFFLINE: "true"
+      CARGO_BUILD_JOBS: "4"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: x86_64-pc-windows-msvc
+          workspaces: .
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Disable usePackageExitCodes feature
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: feature disable --name="'usePackageExitCodes'"
+      - name: Upgrade Visual Studio 2022 enterprise
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: upgrade visualstudio2022enterprise
+      - name: Install Visual Studio 2022 build tools
+        uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: install visualstudio2022buildtools
+      - uses: crazy-max/ghaction-chocolatey@v4
+        with:
+          args: install protoc
+      - name: Build xmtp_sdk and generator
+        run: cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen
+      - name: Generate TypeScript bindings
+        shell: bash
+        run: |
+          # The Rust cache restores target/, so clear the staging output first.
+          # Otherwise `cp -R` below copies into the cached @ubjs folders.
+          rm -rf target/sdk-generated/typescript-napi
+          mkdir -p target/sdk-generated/typescript-napi
+          target/debug/xmtp-sdk-bindgen.exe generate --lib target/debug/xmtp_sdk.dll --language typescript-napi --out target/sdk-generated/typescript-napi --config apps/xmtp_sdk_bindgen/uniffi-global.toml
+          cp target/debug/xmtp_sdk.dll target/sdk-generated/typescript-napi/
+      - name: Build pinned @ubjs runtimes
+        shell: bash
+        run: |
+          git clone https://github.com/neekolas/uniffi-bindgen-react-native.git ubrn
+          fork_rev=$(node -p 'require("fs").readFileSync("Cargo.toml", "utf8").match(/\[workspace\.metadata\.xmtp-sdk-fork\][^\[]*rev\s*=\s*"([0-9a-f]{40})"/)[1]')
+          git -C ubrn checkout "$fork_rev"
+          npm ci --prefix ubrn/typescript --ignore-scripts
+          npm run build --prefix ubrn/typescript
+          npm ci --prefix ubrn/runtimes/napi --ignore-scripts
+          npm run build --prefix ubrn/runtimes/napi
+          mkdir -p target/sdk-generated/typescript-napi/node_modules/@ubjs
+          cp -R ubrn/typescript target/sdk-generated/typescript-napi/node_modules/@ubjs/core
+          cp -R ubrn/runtimes/napi target/sdk-generated/typescript-napi/node_modules/@ubjs/node
+      - name: Conformance scenario 1
+        run: npx --yes tsx crates/xmtp_sdk/conformance/ts/load.mts

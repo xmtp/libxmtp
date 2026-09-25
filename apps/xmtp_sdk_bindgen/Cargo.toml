@@ -12,12 +12,8 @@ clap.workspace = true
 heck = "0.5"
 tempfile = "3.27"
 toml.workspace = true
-ubrn_bindgen = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "330f9edbc3c4d6e6e948f6d2eb2724358668b79a", features = [
-  "wasm",
-] }
-ubrn_common = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "330f9edbc3c4d6e6e948f6d2eb2724358668b79a", features = [
-  "wasm",
-] }
+ubrn_bindgen.workspace = true
+ubrn_common.workspace = true
 uniffi_bindgen.workspace = true
 uniffi_meta.workspace = true
 

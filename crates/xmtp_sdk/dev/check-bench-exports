@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "${1:-}" == --bench ]]; then
+  binding="${2:?benchmark package path required}/xmtp_sdk.ts"
+  test -f "$binding"
+  rg -q 'sdkEmptyCall' "$binding"
+  rg -q 'getGroup' "$binding"
+  echo "Benchmark bindings contain both gated exports."
+  exit 0
+fi
+
+generated="${1:-target/sdk-generated}"
+bindings=(
+  "$generated/swift/xmtp_sdk.swift"
+  "$generated/kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt"
+  "$generated/typescript-napi/xmtp_sdk.ts"
+  "$generated/typescript-wasm/xmtp_sdk.ts"
+)
+for binding in "${bindings[@]}"; do
+  test -f "$binding"
+  if rg -n 'sdkEmptyCall|sdk_empty_call|getGroup|get_group' "$binding"; then
+    echo "Benchmark export leaked into $binding" >&2
+    exit 1
+  fi
+done
+echo "Default bindings omit both benchmark exports."

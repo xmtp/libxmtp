@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
+  exec env NIX_DEVSHELL=js dev/nix-shell 'bash crates/xmtp_sdk/dev/conformance-browser'
+fi
+export VITE_XMTP_BACKEND_URL="${XMTP_BACKEND_URL:?load the worktree backend URL}"
+bash crates/xmtp_sdk/dev/check-wasm-init
+sdks/browser/node_modules/.bin/vite --host 127.0.0.1 --port 9419 --strictPort > /tmp/xmtp-sdk-conformance-vite.log 2>&1 &
+server=$!
+trap 'kill "$server" 2>/dev/null || true; wait "$server" 2>/dev/null || true' EXIT
+for _ in $(seq 1 60); do
+    if curl -fsS http://127.0.0.1:9419/crates/xmtp_sdk/conformance/ts/browser.html >/dev/null; then break; fi
+    sleep 1
+done
+sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/ts/browser.mts
