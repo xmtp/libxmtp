@@ -16,7 +16,7 @@ dev/nix-shell 'cargo update-schema'      # regenerate schema_gen.rs after a migr
 
 - Keep existing migrations unchanged. Add a new migration directory for each schema change. Pre-transition databases are rejected before migrations run.
 - Initialization also rejects older self-hosted formats without durable stream progress or the `server_configuration` table. Keep a backup and create a new client database for those formats. Initialization never deletes old data.
-- `XmtpDb::init()` currently accepts only the baseline as an applied version. When adding the next migration, update that check and its tests to accept later self-hosted versions while it still rejects pre-transition databases.
+- `XmtpDb::init()` accepts the baseline and later self-hosted migrations. It rejects pre-transition databases before it runs migrations. Keep the format guards and test both baseline-only and current databases when adding a migration.
 - Regenerate `schema_gen.rs` with `cargo update-schema` through Nix. To generate before the models compile, apply all migrations to an empty SQLite file, then run `dev/nix-shell 'diesel print-schema --database-url <file> -e client_events > crates/xmtp_db/src/encrypted_store/schema_gen.rs'`.
 
 ## Conventions

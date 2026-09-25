@@ -67,6 +67,19 @@ mock! {
         fn disable_readonly(&self) -> Result<(), StorageError>;
     }
 
+    impl QueryLocalAttachment for DbQuery {
+        fn insert_or_ignore_local_attachment(&self, path: &str, created_at_ns: i64) -> Result<(), StorageError>;
+        fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError>;
+        fn list_local_attachments(&self) -> Result<Vec<crate::attachments::StoredLocalAttachment>, StorageError>;
+    }
+
+    impl QueryPendingAttachment for DbQuery {
+        fn insert_or_ignore_pending_attachment(&self, content_digest: &str, remote_attachment: &[u8], created_at_ns: i64) -> Result<(), StorageError>;
+        fn delete_pending_attachment(&self, content_digest: &str) -> Result<usize, StorageError>;
+        fn list_pending_attachments_since(&self, since_ns: i64) -> Result<Vec<crate::attachments::StoredPendingAttachment>, StorageError>;
+        fn pending_attachment_sweep_candidates(&self, older_than_ns: i64) -> Result<Vec<String>, StorageError>;
+    }
+
     impl QueryConsentRecord for DbQuery {
         fn get_consent_record(
             &self,

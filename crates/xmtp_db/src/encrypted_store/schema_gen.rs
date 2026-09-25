@@ -146,6 +146,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    local_attachments (path) {
+        path -> Text,
+        created_at_ns -> BigInt,
+    }
+}
+
+diesel::table! {
     local_commit_log (rowid) {
         rowid -> Integer,
         group_id -> Binary,
@@ -184,6 +191,14 @@ diesel::table! {
         version -> Integer,
         key_bytes -> Binary,
         value_bytes -> Binary,
+    }
+}
+
+diesel::table! {
+    pending_attachments (content_digest) {
+        content_digest -> Text,
+        remote_attachment -> Binary,
+        created_at_ns -> BigInt,
     }
 }
 
@@ -313,10 +328,12 @@ diesel::allow_tables_to_appear_in_same_query!(
     identity_updates,
     incoming_envelopes,
     key_package_history,
+    local_attachments,
     local_commit_log,
     message_deletions,
     openmls_key_store,
     openmls_key_value,
+    pending_attachments,
     pending_remove,
     processed_device_sync_messages,
     push_uploaded_topic,

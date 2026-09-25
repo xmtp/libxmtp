@@ -11,6 +11,7 @@
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
 pub mod association_state;
+pub mod attachments;
 pub mod consent_record;
 pub mod conversation_list;
 pub mod database;
@@ -66,6 +67,7 @@ use diesel::{prelude::*, sql_query};
 use diesel_migrations::{EmbeddedMigrations, MigrationHarness, embed_migrations};
 use std::{ops::Deref, sync::Arc};
 pub const MIGRATIONS: EmbeddedMigrations = embed_migrations!("./migrations/");
+const BASELINE_MIGRATION: &str = "20260908000000";
 
 #[derive(ZeroizeOnDrop, Clone)]
 pub struct EncryptionKey([u8; 32]);
@@ -313,10 +315,12 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             ).get_result::<MigrationTable>(conn).optional()?;
             if let Some(table) = migration_table {
                 debug_assert_eq!(table.name, "__diesel_schema_migrations");
-                let baseline = MIGRATIONS.final_migration();
                 let applied = conn.applied_migrations()
                     .map_err(diesel::result::Error::QueryBuilderError)?;
-                if applied.iter().any(|version| version.to_string() != baseline) {
+                if !applied.is_empty()
+                    && (applied.iter().all(|version| version.to_string() != BASELINE_MIGRATION)
+                        || applied.iter().any(|version| version.to_string().as_str() < BASELINE_MIGRATION))
+                {
                     return Ok(Err(StorageError::PreTransitionDatabase));
                 }
                 if !applied.is_empty() {
@@ -524,10 +528,10 @@ impl EmbeddedMigrationsExt for EmbeddedMigrations {
             .migrations()
             .expect("Migrations are directly embedded, so this cannot error");
         migrations
-            .first()
+            .iter()
+            .map(|migration| migration.name().to_string())
+            .max()
             .expect("There is at least one migration")
-            .name()
-            .to_string()
             .chars()
             .filter(|c| c.is_numeric())
             .collect()
@@ -543,9 +547,10 @@ impl MigrationHarnessExt for SqliteConnection {
         let migration: String = self
             .applied_migrations()
             .map_err(diesel::result::Error::QueryBuilderError)?
-            .pop()
-            .expect("This function should be run after migrations are applied")
-            .to_string();
+            .into_iter()
+            .map(|version| version.to_string())
+            .max()
+            .expect("This function should be run after migrations are applied");
 
         Ok(migration)
     }
