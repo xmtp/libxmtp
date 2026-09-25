@@ -50,6 +50,23 @@ impl From<xmtp_content_types::remote_attachment::RemoteAttachment> for RemoteAtt
     }
 }
 
+impl From<RemoteAttachment>
+    for xmtp_proto::xmtp::mls::message_contents::content_types::RemoteAttachmentInfo
+{
+    fn from(value: RemoteAttachment) -> Self {
+        Self {
+            url: value.url,
+            content_digest: value.content_digest,
+            secret: value.secret,
+            salt: value.salt,
+            nonce: value.nonce,
+            scheme: value.scheme,
+            content_length: value.content_length,
+            filename: value.filename,
+        }
+    }
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MultiRemoteAttachment {
     pub attachments: Vec<RemoteAttachment>,
@@ -300,6 +317,39 @@ impl TryFrom<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpd
     }
 }
 
+impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
+    fn from(value: GroupUpdated) -> Self {
+        use xmtp_proto::xmtp::mls::message_contents::group_updated::{
+            Inbox, MetadataFieldChange as ProtoChange,
+        };
+        fn inboxes(values: Vec<crate::InboxID>) -> Vec<Inbox> {
+            values
+                .into_iter()
+                .map(|value| Inbox { inbox_id: value.0 })
+                .collect()
+        }
+        Self {
+            initiated_by_inbox_id: value.initiated_by_inbox_id.0,
+            added_inboxes: inboxes(value.added_inboxes),
+            removed_inboxes: inboxes(value.removed_inboxes),
+            left_inboxes: inboxes(value.left_inboxes),
+            added_admin_inboxes: inboxes(value.added_admin_inboxes),
+            removed_admin_inboxes: inboxes(value.removed_admin_inboxes),
+            added_super_admin_inboxes: inboxes(value.added_super_admin_inboxes),
+            removed_super_admin_inboxes: inboxes(value.removed_super_admin_inboxes),
+            metadata_field_changes: value
+                .metadata_field_changes
+                .into_iter()
+                .map(|field| ProtoChange {
+                    field_name: field.field_name,
+                    old_value: field.old_value,
+                    new_value: field.new_value,
+                })
+                .collect(),
+        }
+    }
+}
+
 /// Content at this boundary is uncompressed. Send options control wire compression.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct EncodedContent {
@@ -311,12 +361,279 @@ pub struct EncodedContent {
     pub content: Vec<u8>,
 }
 
-#[xmtp_macro::sdk_export]
+/// A standard value that can be encoded without a client.
+#[derive(Clone, Debug, uniffi::Enum)]
+pub enum StandardContent {
+    Text(String),
+    ReadReceipt,
+    Reaction {
+        reference: String,
+        reference_inbox_id: Option<String>,
+        reaction: Reaction,
+    },
+    Attachment(Attachment),
+    RemoteAttachment(RemoteAttachment),
+    MultiRemoteAttachment(MultiRemoteAttachment),
+    TransactionReference(TransactionReference),
+    Reply {
+        reference: String,
+        reference_inbox_id: Option<String>,
+        content: EncodedContent,
+    },
+    GroupUpdated(GroupUpdated),
+    DeleteMessage {
+        message_id: String,
+    },
+    LeaveRequest(LeaveRequest),
+}
+
+#[derive(Clone, Copy, Debug, uniffi::Enum)]
+pub enum StandardContentKind {
+    Text,
+    ReadReceipt,
+    Reaction,
+    Attachment,
+    RemoteAttachment,
+    MultiRemoteAttachment,
+    TransactionReference,
+    Reply,
+    GroupUpdated,
+    DeleteMessage,
+    LeaveRequest,
+}
+
+fn codec_error(error: xmtp_content_types::CodecError) -> crate::XmtpError {
+    crate::XmtpError::invalid(error.to_string())
+}
+
+fn standard_type(kind: StandardContentKind) -> ProtoContentTypeId {
+    use xmtp_content_types::ContentCodec;
+    match kind {
+        StandardContentKind::Text => xmtp_content_types::text::TextCodec::content_type(),
+        StandardContentKind::ReadReceipt => {
+            xmtp_content_types::read_receipt::ReadReceiptCodec::content_type()
+        }
+        StandardContentKind::Reaction => {
+            xmtp_content_types::reaction::ReactionCodec::content_type()
+        }
+        StandardContentKind::Attachment => {
+            xmtp_content_types::attachment::AttachmentCodec::content_type()
+        }
+        StandardContentKind::RemoteAttachment => {
+            xmtp_content_types::remote_attachment::RemoteAttachmentCodec::content_type()
+        }
+        StandardContentKind::MultiRemoteAttachment => {
+            xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec::content_type()
+        }
+        StandardContentKind::TransactionReference => {
+            xmtp_content_types::transaction_reference::TransactionReferenceCodec::content_type()
+        }
+        StandardContentKind::Reply => xmtp_content_types::reply::ReplyCodec::content_type(),
+        StandardContentKind::GroupUpdated => {
+            xmtp_content_types::group_updated::GroupUpdatedCodec::content_type()
+        }
+        StandardContentKind::DeleteMessage => {
+            xmtp_content_types::delete_message::DeleteMessageCodec::content_type()
+        }
+        StandardContentKind::LeaveRequest => {
+            xmtp_content_types::leave_request::LeaveRequestCodec::content_type()
+        }
+    }
+}
+
+#[xmtp_macro::sdk_export(pure)]
+pub fn standard_content_type(kind: StandardContentKind) -> ContentTypeId {
+    let kind = standard_type(kind);
+    ContentTypeId {
+        authority_id: kind.authority_id,
+        type_id: kind.type_id,
+        version_major: kind.version_major,
+        version_minor: kind.version_minor,
+    }
+}
+
+#[xmtp_macro::sdk_export(pure)]
+pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::XmtpError> {
+    use xmtp_content_types::ContentCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types as proto;
+    let encoded = match value {
+        StandardContent::Text(value) => xmtp_content_types::text::TextCodec::encode(value),
+        StandardContent::ReadReceipt => xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
+            xmtp_content_types::read_receipt::ReadReceipt {},
+        ),
+        StandardContent::Reaction {
+            reference,
+            reference_inbox_id,
+            reaction,
+        } => xmtp_content_types::reaction::ReactionCodec::encode(reaction.into_proto(
+            crate::MessageID(reference),
+            crate::InboxID(reference_inbox_id.unwrap_or_default()),
+        )),
+        StandardContent::Attachment(value) => {
+            xmtp_content_types::attachment::AttachmentCodec::encode(
+                xmtp_content_types::attachment::Attachment {
+                    filename: value.filename,
+                    mime_type: value.mime_type,
+                    content: value.content,
+                },
+            )
+        }
+        StandardContent::RemoteAttachment(value) => {
+            xmtp_content_types::remote_attachment::RemoteAttachmentCodec::encode(value.into())
+        }
+        StandardContent::MultiRemoteAttachment(value) => {
+            xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec::encode(
+                proto::MultiRemoteAttachment {
+                    attachments: value.attachments.into_iter().map(Into::into).collect(),
+                },
+            )
+        }
+        StandardContent::TransactionReference(value) => {
+            xmtp_content_types::transaction_reference::TransactionReferenceCodec::encode(
+                xmtp_content_types::transaction_reference::TransactionReference {
+                    namespace: value.namespace,
+                    network_id: value.network_id,
+                    reference: value.reference,
+                    metadata: value.metadata.map(|metadata| {
+                        xmtp_content_types::transaction_reference::TransactionMetadata {
+                            transaction_type: metadata.transaction_type,
+                            currency: metadata.currency,
+                            amount: metadata.amount,
+                            decimals: metadata.decimals,
+                            from_address: metadata.from_address,
+                            to_address: metadata.to_address,
+                        }
+                    }),
+                },
+            )
+        }
+        StandardContent::Reply {
+            reference,
+            reference_inbox_id,
+            content,
+        } => xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
+            reference,
+            reference_inbox_id,
+            content: content.into(),
+        }),
+        StandardContent::GroupUpdated(value) => {
+            xmtp_content_types::group_updated::GroupUpdatedCodec::encode(value.into())
+        }
+        StandardContent::DeleteMessage { message_id } => {
+            xmtp_content_types::delete_message::DeleteMessageCodec::encode(proto::DeleteMessage {
+                message_id,
+            })
+        }
+        StandardContent::LeaveRequest(value) => {
+            xmtp_content_types::leave_request::LeaveRequestCodec::encode(proto::LeaveRequest {
+                authenticated_note: value.authenticated_note,
+            })
+        }
+    }
+    .map_err(codec_error)?;
+    Ok(encoded.into())
+}
+
+#[xmtp_macro::sdk_export(pure)]
+pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate::XmtpError> {
+    use xmtp_content_types::ContentCodec;
+    let kind = [
+        StandardContentKind::Text,
+        StandardContentKind::ReadReceipt,
+        StandardContentKind::Reaction,
+        StandardContentKind::Attachment,
+        StandardContentKind::RemoteAttachment,
+        StandardContentKind::MultiRemoteAttachment,
+        StandardContentKind::TransactionReference,
+        StandardContentKind::Reply,
+        StandardContentKind::GroupUpdated,
+        StandardContentKind::DeleteMessage,
+        StandardContentKind::LeaveRequest,
+    ]
+    .into_iter()
+    .find(|kind| {
+        let expected = standard_type(*kind);
+        encoded.r#type.authority_id == expected.authority_id
+            && encoded.r#type.type_id == expected.type_id
+            && encoded.r#type.version_major == expected.version_major
+            && encoded.r#type.version_minor == expected.version_minor
+    })
+    .ok_or_else(|| crate::XmtpError::invalid("unsupported standard content type"))?;
+    let encoded: ProtoEncodedContent = encoded.into();
+    Ok(match kind {
+        StandardContentKind::Text => StandardContent::Text(
+            xmtp_content_types::text::TextCodec::decode(encoded).map_err(codec_error)?,
+        ),
+        StandardContentKind::ReadReceipt => {
+            xmtp_content_types::read_receipt::ReadReceiptCodec::decode(encoded)
+                .map_err(codec_error)?;
+            StandardContent::ReadReceipt
+        }
+        StandardContentKind::Reaction => {
+            let value = xmtp_content_types::reaction::ReactionCodec::decode(encoded)
+                .map_err(codec_error)?;
+            let reaction = Reaction::from_proto(value.clone());
+            StandardContent::Reaction {
+                reference: value.reference,
+                reference_inbox_id: (!value.reference_inbox_id.is_empty())
+                    .then_some(value.reference_inbox_id),
+                reaction,
+            }
+        }
+        StandardContentKind::Attachment => StandardContent::Attachment(
+            xmtp_content_types::attachment::AttachmentCodec::decode(encoded)
+                .map_err(codec_error)?
+                .into(),
+        ),
+        StandardContentKind::RemoteAttachment => StandardContent::RemoteAttachment(
+            xmtp_content_types::remote_attachment::RemoteAttachmentCodec::decode(encoded)
+                .map_err(codec_error)?
+                .into(),
+        ),
+        StandardContentKind::MultiRemoteAttachment => StandardContent::MultiRemoteAttachment(
+            xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec::decode(
+                encoded,
+            )
+            .map_err(codec_error)?
+            .into(),
+        ),
+        StandardContentKind::TransactionReference => StandardContent::TransactionReference(
+            xmtp_content_types::transaction_reference::TransactionReferenceCodec::decode(encoded)
+                .map_err(codec_error)?
+                .into(),
+        ),
+        StandardContentKind::Reply => {
+            let value =
+                xmtp_content_types::reply::ReplyCodec::decode(encoded).map_err(codec_error)?;
+            StandardContent::Reply {
+                reference: value.reference,
+                reference_inbox_id: value.reference_inbox_id,
+                content: value.content.into(),
+            }
+        }
+        StandardContentKind::GroupUpdated => StandardContent::GroupUpdated(
+            xmtp_content_types::group_updated::GroupUpdatedCodec::decode(encoded)
+                .map_err(codec_error)?
+                .try_into()?,
+        ),
+        StandardContentKind::DeleteMessage => StandardContent::DeleteMessage {
+            message_id: xmtp_content_types::delete_message::DeleteMessageCodec::decode(encoded)
+                .map_err(codec_error)?
+                .message_id,
+        },
+        StandardContentKind::LeaveRequest => StandardContent::LeaveRequest(LeaveRequest {
+            authenticated_note: xmtp_content_types::leave_request::LeaveRequestCodec::decode(
+                encoded,
+            )
+            .map_err(codec_error)?
+            .authenticated_note,
+        }),
+    })
+}
+
+#[xmtp_macro::sdk_export(pure)]
 pub fn encode_text(text: String) -> Result<EncodedContent, crate::XmtpError> {
-    use xmtp_content_types::{ContentCodec, text::TextCodec};
-    TextCodec::encode(text)
-        .map(Into::into)
-        .map_err(crate::XmtpError::unknown)
+    encode_standard(StandardContent::Text(text))
 }
 
 impl From<EncodedContent> for ProtoEncodedContent {
@@ -456,4 +773,172 @@ impl Reaction {
             },
         }
     }
+}
+
+#[cfg(any(test, feature = "conformance"))]
+mod pure_codec_tests {
+    use super::*;
+    use xmtp_content_types::ContentCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types as proto;
+
+    pub(super) fn standard_codec_samples()
+    -> Result<Vec<(StandardContent, ProtoEncodedContent)>, Box<dyn std::error::Error>> {
+        let text = xmtp_content_types::text::TextCodec::encode("hello".into())?;
+        let remote = proto::RemoteAttachmentInfo {
+            url: "https://example.test/file".into(),
+            content_digest: "digest".into(),
+            secret: vec![1; 32],
+            salt: vec![2; 32],
+            nonce: vec![3; 12],
+            scheme: "https".into(),
+            content_length: Some(10),
+            filename: Some("file".into()),
+        };
+        let transaction = xmtp_content_types::transaction_reference::TransactionReference {
+            namespace: None,
+            network_id: "1".into(),
+            reference: "0x1".into(),
+            metadata: None,
+        };
+        let reaction = proto::ReactionV2 {
+            reference: "aabb".into(),
+            reference_inbox_id: "inbox".into(),
+            action: proto::ReactionAction::Added as i32,
+            content: "👍".into(),
+            schema: proto::ReactionSchema::Unicode as i32,
+        };
+        let reply = xmtp_content_types::reply::Reply {
+            reference: "aabb".into(),
+            reference_inbox_id: Some("inbox".into()),
+            content: text.clone(),
+        };
+        let update = xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
+            initiated_by_inbox_id: "inbox".into(),
+            ..Default::default()
+        };
+        let cases = vec![
+            (StandardContent::Text("hello".into()), text),
+            (
+                StandardContent::ReadReceipt,
+                xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
+                    xmtp_content_types::read_receipt::ReadReceipt {},
+                )?,
+            ),
+            (
+                StandardContent::Reaction {
+                    reference: reaction.reference.clone(),
+                    reference_inbox_id: Some(reaction.reference_inbox_id.clone()),
+                    reaction: Reaction::from_proto(reaction.clone()),
+                },
+                xmtp_content_types::reaction::ReactionCodec::encode(reaction)?,
+            ),
+            (
+                StandardContent::Attachment(Attachment {
+                    filename: None,
+                    mime_type: "text/plain".into(),
+                    content: b"file".to_vec(),
+                }),
+                xmtp_content_types::attachment::AttachmentCodec::encode(
+                    xmtp_content_types::attachment::Attachment {
+                        filename: None,
+                        mime_type: "text/plain".into(),
+                        content: b"file".to_vec(),
+                    },
+                )?,
+            ),
+            (
+                StandardContent::RemoteAttachment(remote.clone().into()),
+                xmtp_content_types::remote_attachment::RemoteAttachmentCodec::encode(
+                    remote.clone(),
+                )?,
+            ),
+            (
+                StandardContent::MultiRemoteAttachment(MultiRemoteAttachment {
+                    attachments: vec![remote.clone().into()],
+                }),
+                xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec::encode(
+                    proto::MultiRemoteAttachment {
+                        attachments: vec![remote],
+                    },
+                )?,
+            ),
+            (
+                StandardContent::TransactionReference(transaction.clone().into()),
+                xmtp_content_types::transaction_reference::TransactionReferenceCodec::encode(
+                    transaction,
+                )?,
+            ),
+            (
+                StandardContent::Reply {
+                    reference: reply.reference.clone(),
+                    reference_inbox_id: reply.reference_inbox_id.clone(),
+                    content: reply.content.clone().into(),
+                },
+                xmtp_content_types::reply::ReplyCodec::encode(reply)?,
+            ),
+            (
+                StandardContent::GroupUpdated(update.clone().try_into()?),
+                xmtp_content_types::group_updated::GroupUpdatedCodec::encode(update)?,
+            ),
+            (
+                StandardContent::DeleteMessage {
+                    message_id: "aabb".into(),
+                },
+                xmtp_content_types::delete_message::DeleteMessageCodec::encode(
+                    proto::DeleteMessage {
+                        message_id: "aabb".into(),
+                    },
+                )?,
+            ),
+            (
+                StandardContent::LeaveRequest(LeaveRequest {
+                    authenticated_note: None,
+                }),
+                xmtp_content_types::leave_request::LeaveRequestCodec::encode(
+                    proto::LeaveRequest {
+                        authenticated_note: None,
+                    },
+                )?,
+            ),
+        ];
+        Ok(cases)
+    }
+
+    #[cfg(test)]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn standard_codec_bytes_match_the_core_send_codecs() {
+        let cases = standard_codec_samples()?;
+        assert_eq!(cases.len(), 11);
+        for (value, core) in cases {
+            let facade = encode_standard(value)?;
+            let expected: EncodedContent = core.into();
+            assert_eq!(facade.r#type.type_id, expected.r#type.type_id);
+            assert_eq!(facade.content, expected.content);
+            assert_eq!(facade.parameters, expected.parameters);
+            assert_eq!(facade.fallback, expected.fallback);
+            let round_trip = encode_standard(decode_standard(facade)?)?;
+            assert_eq!(round_trip.content, expected.content);
+        }
+    }
+}
+
+/// Native host conformance compares each host codec with the core encoder.
+#[cfg(feature = "conformance")]
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct StandardCodecSample {
+    pub value: StandardContent,
+    pub expected: EncodedContent,
+}
+
+#[cfg(feature = "conformance")]
+#[xmtp_macro::sdk_export(pure)]
+pub fn sdk_conformance_standard_samples() -> Vec<StandardCodecSample> {
+    pure_codec_tests::standard_codec_samples()
+        .expect("fixed standard codec samples")
+        .into_iter()
+        .map(|(value, expected)| StandardCodecSample {
+            value,
+            expected: expected.into(),
+        })
+        .collect()
 }

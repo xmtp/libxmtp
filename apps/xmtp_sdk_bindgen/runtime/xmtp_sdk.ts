@@ -35,6 +35,106 @@ export type ContentTypeID = {
   versionMinor: number;
 };
 export type EncodedContent = { type: ContentTypeID; content: ArrayBuffer };
+export type Attachment = object;
+export type RemoteAttachment = object;
+export type MultiRemoteAttachment = object;
+export type TransactionReference = object;
+export type GroupUpdated = object;
+export type LeaveRequest = object;
+export enum StandardContentKind {
+  Text,
+  ReadReceipt,
+  Reaction,
+  Attachment,
+  RemoteAttachment,
+  MultiRemoteAttachment,
+  TransactionReference,
+  Reply,
+  GroupUpdated,
+  DeleteMessage,
+  LeaveRequest,
+}
+export enum StandardContent_Tags {
+  Text = "Text",
+  ReadReceipt = "ReadReceipt",
+  Reaction = "Reaction",
+  Attachment = "Attachment",
+  RemoteAttachment = "RemoteAttachment",
+  MultiRemoteAttachment = "MultiRemoteAttachment",
+  TransactionReference = "TransactionReference",
+  Reply = "Reply",
+  GroupUpdated = "GroupUpdated",
+  DeleteMessage = "DeleteMessage",
+  LeaveRequest = "LeaveRequest",
+}
+export type StandardContent = {
+  tag: StandardContent_Tags;
+  inner: readonly unknown[] | object;
+};
+export const StandardContent = {
+  Text: class {
+    readonly tag = StandardContent_Tags.Text;
+    readonly inner: readonly [string];
+    constructor(value: string) {
+      this.inner = [value];
+    }
+  },
+  ReadReceipt: class {
+    readonly tag = StandardContent_Tags.ReadReceipt;
+    readonly inner: readonly [] = [];
+  },
+  Attachment: class {
+    readonly tag = StandardContent_Tags.Attachment;
+    readonly inner: readonly [Attachment];
+    constructor(value: Attachment) {
+      this.inner = [value];
+    }
+  },
+  RemoteAttachment: class {
+    readonly tag = StandardContent_Tags.RemoteAttachment;
+    readonly inner: readonly [RemoteAttachment];
+    constructor(value: RemoteAttachment) {
+      this.inner = [value];
+    }
+  },
+  MultiRemoteAttachment: class {
+    readonly tag = StandardContent_Tags.MultiRemoteAttachment;
+    readonly inner: readonly [MultiRemoteAttachment];
+    constructor(value: MultiRemoteAttachment) {
+      this.inner = [value];
+    }
+  },
+  TransactionReference: class {
+    readonly tag = StandardContent_Tags.TransactionReference;
+    readonly inner: readonly [TransactionReference];
+    constructor(value: TransactionReference) {
+      this.inner = [value];
+    }
+  },
+  GroupUpdated: class {
+    readonly tag = StandardContent_Tags.GroupUpdated;
+    readonly inner: readonly [GroupUpdated];
+    constructor(value: GroupUpdated) {
+      this.inner = [value];
+    }
+  },
+  LeaveRequest: class {
+    readonly tag = StandardContent_Tags.LeaveRequest;
+    readonly inner: readonly [LeaveRequest];
+    constructor(value: LeaveRequest) {
+      this.inner = [value];
+    }
+  },
+};
+export function standardContentType(_kind: StandardContentKind): ContentTypeID {
+  throw new Error("lint only");
+}
+export function encodeStandard(_value: StandardContent): EncodedContent {
+  throw new Error("lint only");
+}
+export function decodeStandard(_encoded: EncodedContent): StandardContent {
+  throw new Error("lint only");
+}
 export enum MessageContent_Tags {
   Text = "Text",
   Reply = "Reply",
