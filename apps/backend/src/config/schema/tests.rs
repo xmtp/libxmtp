@@ -45,6 +45,8 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
         toml::from_str(include_str!("../../../../../dev/backend/local.toml"))?;
     let example = serde_json::to_value(example)?;
     assert!(validator.is_valid(&example));
+    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    assert!(validator.is_valid(&serde_json::to_value(s3)?));
     for section in [
         "",
         "server",
@@ -66,6 +68,19 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
         }
         assert!(!validator.is_valid(&instance), "unknown key in {section}");
     }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn local_s3_config_only_adds_attachments() {
+    let base: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local.toml"))?;
+    let mut s3: toml::Value =
+        toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let removed = s3
+        .as_table_mut()
+        .expect("S3 config is a table")
+        .remove("attachments");
+    assert!(removed.is_some(), "S3 config must contain attachments");
+    assert_eq!(s3, base);
 }
 
 #[xmtp_common::test(unwrap_try = true)]
