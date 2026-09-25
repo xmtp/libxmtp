@@ -190,6 +190,13 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
 }
 
 impl MessageReaderControl {
+    #[cfg(test)]
+    pub(crate) fn notify_change_for_test(&self) {
+        if let Some(lease) = self.lease.lock().as_ref() {
+            lease.notify_change_for_test();
+        }
+    }
+
     /// Create a receiver before the caller reads its first status snapshot.
     pub fn observer(&self) -> MessageReaderObserver {
         MessageReaderObserver {
