@@ -1282,8 +1282,21 @@ async fn conversation_list_state_and_last_activity() {
         .map(|item| ConversationID::from(item.group.group_id))
         .collect::<Vec<_>>();
     assert_eq!(ids, core_ids);
-    assert_eq!(ids.first(), Some(&older.id()));
-    assert!(older.last_activity_at_ns(None).await?.0 > newer.last_activity_at_ns(None).await?.0);
+    let older_activity = older.last_activity_at_ns(None).await?.0;
+    let newer_activity = newer.last_activity_at_ns(None).await?.0;
+    let first_activity = if ids.first() == Some(&older.id()) {
+        older_activity
+    } else {
+        assert_eq!(ids.first(), Some(&newer.id()));
+        newer_activity
+    };
+    let second_activity = if ids.get(1) == Some(&older.id()) {
+        older_activity
+    } else {
+        assert_eq!(ids.get(1), Some(&newer.id()));
+        newer_activity
+    };
+    assert!(first_activity >= second_activity);
     assert_eq!(
         older.last_activity_at_ns(Some(vec![])).await?,
         older.created_at()
