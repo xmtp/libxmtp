@@ -53,6 +53,8 @@ let
     (src + /crates/xmtp_id/artifact)
     (src + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
     (src + /crates/xmtp_db/migrations)
+    # The attachment client reads the IANA special-purpose address snapshot at compile time.
+    (src + /crates/xmtp_attachments/src/address-registry.txt)
     (lib.fileset.maybeMissing (src + /apps/backend/migrations))
     (lib.fileset.maybeMissing (src + /apps/backend/.sqlx))
     (fileFilter (file: lib.hasSuffix ".sql" file.name) (src + /apps/backend/src))
