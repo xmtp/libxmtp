@@ -14,6 +14,13 @@ import java.lang.ref.WeakReference
 import java.nio.file.Files
 import java.nio.file.Path
 
+private fun sameEncoded(
+    actual: EncodedContent,
+    expected: EncodedContent,
+): Boolean =
+    actual.type == expected.type && actual.parameters == expected.parameters &&
+        actual.fallback == expected.fallback && actual.content.contentEquals(expected.content)
+
 private fun signCommand(
     action: String,
     text: String? = null,
@@ -119,9 +126,8 @@ fun main() =
                     is StandardContent.LeaveRequest -> LeaveRequestCodec() to content.v1
                 }
             val encoded = codec.encode(value)
-            check(encoded.content.contentEquals(sample.expected.content)) { "standard codec bytes differ from Rust" }
-            check(encoded.parameters == sample.expected.parameters && codec.type.typeID == sample.expected.type.typeID)
-            check(codec.encode(codec.decode(encoded)).content.contentEquals(sample.expected.content))
+            check(sameEncoded(encoded, sample.expected)) { "standard codec content differs from Rust" }
+            check(sameEncoded(codec.encode(codec.decode(encoded)), sample.expected))
         }
         println("Kotlin P69: all 15 standard codecs match Rust bytes")
 
@@ -254,8 +260,7 @@ fun main() =
                     }
                 }
             val wire = checkNotNull(client.conversations().getMessageByID(id))
-            check(wire.encoded.type.typeID == sample.expected.type.typeID)
-            check(wire.encoded.content.contentEquals(sample.expected.content)) { "typed send bytes differ from codec" }
+            check(sameEncoded(wire.encoded, sample.expected)) { "typed send content differs from codec" }
             typedSends++
         }
         check(typedSends == 12)

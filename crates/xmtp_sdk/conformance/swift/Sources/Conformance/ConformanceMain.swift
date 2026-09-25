@@ -9,6 +9,16 @@ struct ConformanceFailure: LocalizedError {
     }
 }
 
+private func sameEncoded(_ lhs: EncodedContent, _ rhs: EncodedContent) -> Bool {
+    lhs.type.authorityID == rhs.type.authorityID &&
+        lhs.type.typeID == rhs.type.typeID &&
+        lhs.type.versionMajor == rhs.type.versionMajor &&
+        lhs.type.versionMinor == rhs.type.versionMinor &&
+        lhs.parameters == rhs.parameters &&
+        lhs.fallback == rhs.fallback &&
+        lhs.content == rhs.content
+}
+
 final class TestSigner: Signer, @unchecked Sendable {
     private func run(_ action: String, _ text: String? = nil) throws -> String {
         let environment = ProcessInfo.processInfo.environment
@@ -122,10 +132,8 @@ struct Conformance {
             case let .leaveRequest(item): codec = LeaveRequestCodec(); value = item
             }
             let encoded = try codec.encode(value)
-            guard encoded.content == sample.expected.content,
-                  encoded.parameters == sample.expected.parameters,
-                  codec.type.typeID == sample.expected.type.typeID,
-                  try codec.encode(codec.decode(encoded)).content == sample.expected.content
+            guard sameEncoded(encoded, sample.expected),
+                  try sameEncoded(codec.encode(codec.decode(encoded)), sample.expected)
             else { throw ConformanceFailure("standard codec bytes differ from Rust") }
         }
         print("Swift P69: all 15 standard codecs match Rust bytes")
@@ -166,8 +174,7 @@ struct Conformance {
             default: continue
             }
             guard let wire = try await client.conversations().getMessageByID(id: id),
-                  wire.encoded.type.typeID == sample.expected.type.typeID,
-                  wire.encoded.content == sample.expected.content
+                  sameEncoded(wire.encoded, sample.expected)
             else { throw ConformanceFailure("typed send bytes differ from codec") }
             typedSends += 1
         }
