@@ -205,6 +205,8 @@ diesel::table! {
         failure_cause -> Nullable<Text>,
         failure_credential_kind -> Nullable<Text>,
         failure_retryable -> Nullable<Bool>,
+        failure_missing_scope -> Nullable<Bool>,
+        failure_http_status -> Nullable<Integer>,
         lease_id -> Nullable<Binary>,
         lease_expires_at_ns -> Nullable<BigInt>,
     }

@@ -6,7 +6,7 @@ use super::{
 };
 use crate::StorageError;
 use diesel::prelude::*;
-use diesel::sql_types::{BigInt, Binary, Bool, Nullable, Text};
+use diesel::sql_types::{BigInt, Binary, Bool, Integer, Nullable, Text};
 
 #[derive(Clone, Debug, PartialEq, Eq, Queryable, Selectable)]
 #[diesel(table_name = local_attachments)]
@@ -28,6 +28,8 @@ pub struct StoredPendingAttachment {
     pub failure_cause: Option<String>,
     pub failure_credential_kind: Option<String>,
     pub failure_retryable: Option<bool>,
+    pub failure_missing_scope: Option<bool>,
+    pub failure_http_status: Option<i32>,
     pub lease_id: Option<Vec<u8>>,
     pub lease_expires_at_ns: Option<i64>,
 }
@@ -51,6 +53,8 @@ pub enum PendingAttachmentOutcome {
         cause: &'static str,
         credential_kind: Option<&'static str>,
         retryable: Option<bool>,
+        missing_scope: Option<bool>,
+        http_status: Option<u16>,
     },
 }
 
@@ -64,6 +68,8 @@ impl PendingAttachmentOutcome {
             cause,
             credential_kind,
             retryable,
+            missing_scope: None,
+            http_status: None,
         }
     }
 }
@@ -377,7 +383,8 @@ impl<C: ConnectionExt> QueryPendingAttachment for DbConnection<C> {
         Ok(self.raw_query(|conn| {
             diesel::sql_query(
                 "UPDATE pending_attachments SET status = 'uploading', failure_cause = NULL, \
-                 failure_credential_kind = NULL, failure_retryable = NULL, lease_id = ?, \
+                 failure_credential_kind = NULL, failure_retryable = NULL, \
+                 failure_missing_scope = NULL, failure_http_status = NULL, lease_id = ?, \
                  lease_expires_at_ns = ? + ? WHERE content_digest = ? AND status != 'complete' \
                  AND NOT (status = 'failed' AND failure_cause = 'backend_rejected') \
                  AND (status != 'uploading' OR lease_expires_at_ns < ?)",
@@ -422,18 +429,35 @@ impl<C: ConnectionExt> QueryPendingAttachment for DbConnection<C> {
         now_ns: i64,
         outcome: PendingAttachmentOutcome,
     ) -> Result<usize, StorageError> {
-        let (status, failure_cause, failure_credential_kind, failure_retryable) = match outcome {
-            PendingAttachmentOutcome::Complete => ("complete", None, None, None),
+        let (
+            status,
+            failure_cause,
+            failure_credential_kind,
+            failure_retryable,
+            failure_missing_scope,
+            failure_http_status,
+        ) = match outcome {
+            PendingAttachmentOutcome::Complete => ("complete", None, None, None, None, None),
             PendingAttachmentOutcome::Failed {
                 cause,
                 credential_kind,
                 retryable,
-            } => ("failed", Some(cause), credential_kind, retryable),
+                missing_scope,
+                http_status,
+            } => (
+                "failed",
+                Some(cause),
+                credential_kind,
+                retryable,
+                missing_scope,
+                http_status.map(i32::from),
+            ),
         };
         Ok(self.raw_query(|conn| {
             diesel::sql_query(
                 "UPDATE pending_attachments SET status = ?, failure_cause = ?, \
-                 failure_credential_kind = ?, failure_retryable = ?, lease_id = NULL, \
+                 failure_credential_kind = ?, failure_retryable = ?, \
+                 failure_missing_scope = ?, failure_http_status = ?, lease_id = NULL, \
                  lease_expires_at_ns = NULL WHERE content_digest = ? AND lease_id = ? \
                  AND status = 'uploading' AND lease_expires_at_ns >= ?",
             )
@@ -441,6 +465,8 @@ impl<C: ConnectionExt> QueryPendingAttachment for DbConnection<C> {
             .bind::<Nullable<Text>, _>(failure_cause)
             .bind::<Nullable<Text>, _>(failure_credential_kind)
             .bind::<Nullable<Bool>, _>(failure_retryable)
+            .bind::<Nullable<Bool>, _>(failure_missing_scope)
+            .bind::<Nullable<Integer>, _>(failure_http_status)
             .bind::<Text, _>(content_digest)
             .bind::<Binary, _>(lease_id)
             .bind::<BigInt, _>(now_ns)
@@ -580,6 +606,8 @@ mod tests {
                 failure_cause: None,
                 failure_credential_kind: None,
                 failure_retryable: None,
+                failure_missing_scope: None,
+                failure_http_status: None,
                 lease_id: None,
                 lease_expires_at_ns: None,
             }]
