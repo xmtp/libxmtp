@@ -71,6 +71,22 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+fn published_schema_bounds_attachment_presign_ttl() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let baseline = serde_json::to_value(s3)?;
+    for (ttl, accepted) in [(299, false), (300, true), (3600, true), (3601, false)] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["target"]["S3"]["presign_ttl_seconds"] = json!(ttl);
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "presign_ttl_seconds = {ttl}"
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn local_s3_config_only_adds_attachments() {
     let base: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local.toml"))?;
     let mut s3: toml::Value =

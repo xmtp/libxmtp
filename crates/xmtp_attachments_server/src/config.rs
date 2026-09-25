@@ -73,6 +73,7 @@ pub struct S3Config {
     #[serde(default)]
     pub key_prefix: String,
     pub credentials: CredentialsConfig,
+    #[schemars(range(min = MIN_PRESIGN_TTL_SECONDS, max = MAX_PRESIGN_TTL_SECONDS))]
     pub presign_ttl_seconds: Option<u32>,
 }
 
