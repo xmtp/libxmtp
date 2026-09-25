@@ -319,7 +319,8 @@ The cause tells an app when a later attempt can succeed:
 | `credential` | After the app renews the credential of the kind ATCH-061 reports |
 | `backend_unavailable`, `network`, `http_status` | Yes, after a backoff |
 | `target_rejected` | Yes, for a new upload request, which gets a new signed URL; a target that rejects every signed request fails again |
-| `blocked_address`, `insecure_url` | Only when the URL names a loopback or private host and the app sets `allow_private_network`; otherwise no |
+| `blocked_address`, and `insecure_url` for a download | Only when the URL names a loopback or private host and the app sets `allow_private_network`; otherwise no |
+| `insecure_url` for an upload | No. The backend signed a URL that ATCH-071 forbids; it fails again until the operator fixes the storage endpoint |
 | `not_found` | Yes, while the sender has not completed the upload; no, after the target has deleted the object (ATCH-004) |
 | `deleted` | Yes. The app can download again |
 
