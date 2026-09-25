@@ -710,6 +710,11 @@ const customReplyID = await ownerWithCodec
 const customReply = await ownerWithCodec
   .conversations()
   .getMessageByID(customReplyID);
+const undecodedReply = await ownerWithoutCodec
+  .conversations()
+  .getMessageByID(customReplyID);
+assert.equal(undecoded?.content.tag, sdk.MessageContent_Tags.Unknown);
+assert.equal(undecodedReply?.replyContent?.tag, sdk.MessageBody_Tags.Unknown);
 assert.equal(
   (customReply?.replyContent as { inner?: { value?: string } })?.inner?.value,
   "reply codec value",
