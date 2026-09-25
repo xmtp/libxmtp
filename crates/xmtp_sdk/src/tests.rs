@@ -89,6 +89,43 @@ async fn standard_codec_bytes_match_typed_send_wire_bytes() {
     client.end().await?;
 }
 
+// verifies: CTYPE-010
+#[xmtp_common::test(unwrap_try = true)]
+async fn message_action_push_defaults_follow_content_type() {
+    use crate::{Reaction, ReactionAction, ReactionSchema, SendOptions};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let reference = group.send_text("reference".into(), None).await?;
+    let reaction = Reaction {
+        content: "👍".into(),
+        action: ReactionAction::Added,
+        schema: ReactionSchema::Unicode,
+    };
+    for options in [None, Some(SendOptions::default())] {
+        let id = client
+            .conversations()
+            .react_to_message(reference.clone(), reaction.clone(), options)
+            .await?;
+        assert!(!client.inner.message(hex::decode(&id.0)?)?.should_push);
+    }
+    let raw_text = group.send(crate::encode_text("raw".into())?, None).await?;
+    assert!(client.inner.message(hex::decode(&raw_text.0)?)?.should_push);
+    let overridden = client
+        .conversations()
+        .react_to_message(
+            reference,
+            reaction,
+            Some(SendOptions {
+                should_push: Some(true),
+                ..Default::default()
+            }),
+        )
+        .await?;
+    assert!(client.inner.message(hex::decode(&overridden.0)?)?.should_push);
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn reaction_with_compression_only_does_not_push() {
     use crate::{Compression, Reaction, ReactionAction, ReactionSchema, SendOptions};
