@@ -169,4 +169,104 @@ mod tests {
             assert_eq!(value, wide as u64);
         }
     }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn server_configuration_preserves_all_published_fields() {
+        let core = config::ServerConfiguration {
+            identifier: "test-backend".into(),
+            server_version: "2.3.4".into(),
+            min_libxmtp_version: "1.2.3".into(),
+            auth: config::AuthConfiguration {
+                enabled: true,
+                keys: vec![config::SigningKeyDescription {
+                    kid: "key".into(),
+                    alg: "EdDSA".into(),
+                }],
+                audiences: vec!["audience".into()],
+                issuers: vec!["issuer".into()],
+                required_scopes: vec!["message:write".into()],
+            },
+            retention: config::RetentionConfiguration {
+                group_message_seconds: 11,
+                welcome_seconds: 12,
+                key_package_seconds: 13,
+            },
+            mls: config::MlsConfiguration {
+                max_group_members: 321,
+                max_installations_per_inbox: 17,
+                commit_log_enabled: Some(false),
+            },
+            smart_contract_wallet_chains: vec!["eip155:1".into()],
+            ..Default::default()
+        };
+        let public = ServerConfiguration::from(&core);
+        assert_eq!(public.identifier, core.identifier);
+        assert_eq!(public.server_version, core.server_version);
+        assert_eq!(public.min_libxmtp_version, core.min_libxmtp_version);
+        assert_eq!(public.auth.enabled, core.auth.enabled);
+        assert_eq!(public.auth.keys.len(), 1);
+        assert_eq!(public.auth.keys[0].kid, core.auth.keys[0].kid);
+        assert_eq!(public.auth.keys[0].alg, core.auth.keys[0].alg);
+        assert_eq!(public.auth.audiences, core.auth.audiences);
+        assert_eq!(public.auth.issuers, core.auth.issuers);
+        assert_eq!(public.auth.required_scopes, core.auth.required_scopes);
+        assert_eq!(
+            public.retention.group_message_seconds,
+            core.retention.group_message_seconds
+        );
+        assert_eq!(
+            public.retention.welcome_seconds,
+            core.retention.welcome_seconds
+        );
+        assert_eq!(
+            public.retention.key_package_seconds,
+            core.retention.key_package_seconds
+        );
+        assert_eq!(
+            public.mls.max_group_members,
+            core.mls.max_group_members as u64
+        );
+        assert_eq!(
+            public.mls.max_installations_per_inbox,
+            core.mls.max_installations_per_inbox as u64
+        );
+        assert_eq!(public.mls.commit_log_enabled, core.mls.commit_log_enabled);
+        assert_eq!(
+            public.smart_contract_wallet_chains,
+            core.smart_contract_wallet_chains
+        );
+        macro_rules! limit {
+            ($($field:ident),+) => {
+                $(assert_eq!(public.limits.$field, core.limits.$field as u64);)+
+            };
+        }
+        limit!(
+            max_envelope_bytes,
+            max_request_bytes,
+            max_response_bytes,
+            max_publish_topics,
+            max_query_topics,
+            max_query_limit,
+            default_query_limit,
+            max_newest_metadata_topics,
+            max_newest_full_topics,
+            max_update_adds,
+            max_update_removes,
+            max_stream_topics,
+            max_static_topics,
+            max_lookup_identifiers,
+            max_scw_signatures,
+            max_identity_entries
+        );
+        assert_eq!(
+            public.limits.max_update_frames_per_second,
+            core.limits.max_update_frames_per_second
+        );
+        assert_eq!(public.limits.max_update_burst, core.limits.max_update_burst);
+        assert_eq!(
+            public.limits.max_ping_frames_per_second,
+            core.limits.max_ping_frames_per_second
+        );
+        assert_eq!(public.limits.max_ping_burst, core.limits.max_ping_burst);
+    }
 }

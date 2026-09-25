@@ -21,6 +21,8 @@ use crate::{
     credentials::AuthBridge, reader, signer,
 };
 
+mod binding_map;
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_signer_and_signature_request_register() {
     assert!(matches!(
@@ -147,6 +149,7 @@ fn standard_content_decodes_text() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn client_configuration_and_credential_update() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    assert_eq!(client.libxmtp_version(), env!("CARGO_PKG_VERSION"));
     let configured = client.server_configuration();
     let fetched =
         crate::client_identity::fetch_server_configuration(options().backend.unwrap()).await?;
@@ -467,6 +470,28 @@ fn out_of_range_installation_time_does_not_fail_inbox_state() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+fn inbox_state_preserves_member_creation_order() {
+    use xmtp_id::associations::{AssociationState, Identifier, Member};
+
+    let owner = Identifier::eth("0x1111111111111111111111111111111111111111")?;
+    let early = Identifier::eth("0x2222222222222222222222222222222222222222")?;
+    let late = Identifier::eth("0x3333333333333333333333333333333333333333")?;
+    let state = AssociationState::new(owner.clone(), 0, None)?
+        .add(Member::new(late.clone().into(), None, Some(20), None))
+        .add(Member::new(early.clone().into(), None, Some(10), None));
+    let exported = crate::InboxState::from_core(state, None)?;
+    let identifiers = exported
+        .identities
+        .into_iter()
+        .map(|identity| identity.identifier)
+        .collect::<Vec<_>>();
+    assert_eq!(
+        identifiers,
+        [early.to_string(), late.to_string(), owner.to_string()]
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn backend_only_identity_and_message_queries() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let Some(BackendSource::Options {
@@ -513,6 +538,31 @@ async fn backend_only_identity_and_message_queries() {
     )
     .await?;
     assert_eq!(metadata.len(), 1);
+    assert_eq!(metadata[0].conversation_id, group.id());
+    assert!(metadata[0].created_at.0 > 0);
+    let first_metadata = metadata[0].created_at.0;
+    let first_sequence_id = metadata[0].sequence_id;
+    group.send_text("newer metadata".into()).await?;
+    let updated_metadata = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            let metadata = crate::static_helpers::newest_message_metadata_with_backend(
+                source.clone(),
+                vec![group.id()],
+            )
+            .await?;
+            if metadata
+                .first()
+                .is_some_and(|entry| entry.sequence_id > first_sequence_id)
+            {
+                return Ok::<_, XmtpError>(metadata);
+            }
+            xmtp_common::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("new message metadata was not visible")?;
+    assert!(updated_metadata[0].created_at.0 >= first_metadata);
+    assert!(updated_metadata[0].sequence_id > first_sequence_id);
     let connected_client = Client::build(
         client.identity(),
         ClientOptions {
@@ -525,6 +575,254 @@ async fn backend_only_identity_and_message_queries() {
     assert_eq!(connected_client.inbox_id(), client.inbox_id());
     connected_client.end().await?;
     client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn facade_authorization_and_installation_signatures() {
+    let a = Client::create(crate::generate_local_signer().await, options()).await?;
+    let b = Client::create(crate::generate_local_signer().await, options()).await?;
+    let backend = options().backend.expect("backend options");
+    assert!(
+        crate::static_helpers::is_address_authorized_with_backend(
+            backend.clone(),
+            a.inbox_id(),
+            a.identity().identifier,
+        )
+        .await?
+    );
+    assert!(
+        !crate::static_helpers::is_address_authorized_with_backend(
+            backend.clone(),
+            a.inbox_id(),
+            b.identity().identifier,
+        )
+        .await?
+    );
+    assert!(
+        crate::static_helpers::is_installation_authorized_with_backend(
+            backend.clone(),
+            a.inbox_id(),
+            a.installation_id(),
+        )
+        .await?
+    );
+    assert!(
+        !crate::static_helpers::is_installation_authorized_with_backend(
+            backend,
+            a.inbox_id(),
+            b.installation_id(),
+        )
+        .await?
+    );
+
+    let text = "installation signature".to_owned();
+    let signature = a.sign_with_installation_key(text.clone()).await?;
+    assert!(
+        a.verify_signed_with_installation_key(text.clone(), signature.clone())
+            .await?
+    );
+    assert!(
+        crate::client_identity::verify_signed_with_public_key(
+            text,
+            signature.clone(),
+            a.installation_id_bytes(),
+        )
+        .await?
+    );
+    assert!(
+        !a.verify_signed_with_installation_key("different text".into(), signature)
+            .await?
+    );
+    a.end().await?;
+    b.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn facade_key_package_statuses_keep_missing_entries() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let missing = crate::InstallationID::try_from("00".repeat(32))?;
+    let own = client.installation_id();
+    let entries = client
+        .key_package_statuses(vec![own.clone(), missing.clone()])
+        .await?;
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].installation_id, own);
+    assert!(entries[0].status.lifetime.is_some());
+    assert!(entries[0].status.validation_error.is_none());
+    assert_eq!(entries[1].installation_id, missing);
+    assert!(entries[1].status.lifetime.is_none());
+    assert!(entries[1].status.validation_error.is_some());
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn facade_api_statistics_track_and_clear_requests() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let diagnostics = client.diagnostics();
+    diagnostics.clear_statistics().await?;
+    client.conversations().create_group(vec![], None).await?;
+    let can_message = client.can_message(vec![client.identity()]).await?;
+    assert_eq!(can_message.len(), 1);
+    assert!(can_message[0].can_message);
+    let api = diagnostics.api_statistics().await?;
+    let identity = diagnostics.identity_statistics().await?;
+    assert!(api.publish > 0);
+    assert!(identity.get_inbox_ids > 0);
+    let aggregate = diagnostics.aggregate_statistics().await?;
+    assert!(aggregate.contains("publish"));
+    assert!(aggregate.contains("get_inbox_ids"));
+    diagnostics.clear_statistics().await?;
+    assert_eq!(diagnostics.api_statistics().await?.publish, 0);
+    assert_eq!(diagnostics.identity_statistics().await?.get_inbox_ids, 0);
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn facade_message_counts_and_last_read_times() {
+    use xmtp_content_types::ContentCodec;
+
+    let a = Client::create(crate::generate_local_signer().await, options()).await?;
+    let b = Client::create(crate::generate_local_signer().await, options()).await?;
+    let a_dm = a.conversations().create_dm(b.inbox_id(), None).await?;
+    assert_eq!(a_dm.count_messages(None).await?, 0);
+    a_dm.send_text("counted".into()).await?;
+    assert_eq!(a_dm.count_messages(None).await?, 1);
+    b.conversations().sync_all(None).await?;
+    let b_dm = b
+        .conversations()
+        .get_dm_by_inbox_id(a.inbox_id())
+        .await?
+        .expect("peer DM");
+    let receipt = xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
+        xmtp_content_types::read_receipt::ReadReceipt {},
+    )?;
+    b_dm.send(receipt.into(), None).await?;
+    a.conversations().sync_all(None).await?;
+    let times = a_dm.last_read_times().await?;
+    assert_eq!(times.len(), 1);
+    assert_eq!(times[0].inbox_id, b.inbox_id());
+    assert!(times[0].read_at.0 > 0);
+    a.end().await?;
+    b.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn facade_long_text_message_round_trips() {
+    let a = Client::create(crate::generate_local_signer().await, options()).await?;
+    let b = Client::create(crate::generate_local_signer().await, options()).await?;
+    let dm = a.conversations().create_dm(b.inbox_id(), None).await?;
+    let text = "long message line\n".repeat(6_000);
+    let id = dm.send_text(text.clone()).await?;
+    b.conversations().sync_all(None).await?;
+    let received = b
+        .conversations()
+        .get_message_by_id(id)
+        .await?
+        .expect("long message");
+    assert!(matches!(received.0.content, MessageContent::Text(value) if value == text));
+    a.end().await?;
+    b.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn facade_hmac_keys_include_duplicate_dms() {
+    let a = Client::create(crate::generate_local_signer().await, options()).await?;
+    let b = Client::create(crate::generate_local_signer().await, options()).await?;
+    let first = a.conversations().create_dm(b.inbox_id(), None).await?;
+    let second = b.conversations().create_dm(a.inbox_id(), None).await?;
+    assert_ne!(first.id(), second.id());
+    a.conversations().sync_all(None).await?;
+    let keys = a.conversations().hmac_keys().await?;
+    for id in [first.id(), second.id()] {
+        let entry = keys
+            .iter()
+            .find(|entry| entry.conversation_id == id)
+            .expect("duplicate DM must have HMAC keys");
+        assert_eq!(entry.keys.len(), 3);
+        assert!(entry.keys.iter().all(|key| key.key.len() == 42));
+        assert!(entry.keys.iter().all(|key| key.epoch >= 1));
+    }
+    a.end().await?;
+    b.end().await?;
+}
+
+struct RecordingPreAuthenticate {
+    calls: Arc<std::sync::Mutex<Vec<&'static str>>>,
+    fail: bool,
+}
+
+#[xmtp_common::async_trait]
+impl crate::PreAuthenticate for RecordingPreAuthenticate {
+    async fn run(&self) -> Result<(), crate::PreAuthenticateError> {
+        self.calls.lock().expect("calls").push("pre-authenticate");
+        if self.fail {
+            Err(crate::PreAuthenticateError::Failed)
+        } else {
+            Ok(())
+        }
+    }
+}
+
+struct RecordingSigner {
+    key: PrivateKeySigner,
+    calls: Arc<std::sync::Mutex<Vec<&'static str>>>,
+}
+
+#[xmtp_common::async_trait]
+impl Signer for RecordingSigner {
+    async fn identity(&self) -> Result<PublicIdentity, SignerError> {
+        WalletSigner(self.key.clone()).identity().await
+    }
+
+    async fn kind(&self) -> Result<SignerKind, SignerError> {
+        Ok(SignerKind::Eoa)
+    }
+
+    async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError> {
+        self.calls.lock().expect("calls").push("sign");
+        WalletSigner(self.key.clone()).sign(request).await
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn pre_authenticate_runs_before_signing_and_propagates_failure() {
+    let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let mut settings = options();
+    settings.registration.auto = false;
+    settings.handlers = Some(crate::ClientHandlers {
+        pre_authenticate: Some(Arc::new(RecordingPreAuthenticate {
+            calls: calls.clone(),
+            fail: false,
+        })),
+    });
+    let signer = Arc::new(RecordingSigner {
+        key: PrivateKeySigner::random(),
+        calls: calls.clone(),
+    });
+    let client = Client::create(signer, settings).await?;
+    assert!(calls.lock().expect("calls").is_empty());
+    client.register().await?;
+    assert_eq!(*calls.lock().expect("calls"), ["pre-authenticate", "sign"]);
+    client.end().await?;
+
+    calls.lock().expect("calls").clear();
+    let mut settings = options();
+    settings.handlers = Some(crate::ClientHandlers {
+        pre_authenticate: Some(Arc::new(RecordingPreAuthenticate {
+            calls: calls.clone(),
+            fail: true,
+        })),
+    });
+    let result = Client::create(
+        Arc::new(RecordingSigner {
+            key: PrivateKeySigner::random(),
+            calls: calls.clone(),
+        }),
+        settings,
+    )
+    .await;
+    assert!(matches!(result, Err(XmtpError::CallbackFailed(_))));
+    assert_eq!(*calls.lock().expect("calls"), ["pre-authenticate"]);
 }
 
 struct WalletSigner(PrivateKeySigner);
@@ -1247,6 +1545,7 @@ async fn callback_errors_convert() {
     fn assert_from<T: From<uniffi::UnexpectedUniFFICallbackError>>() {}
     assert_from::<SignerError>();
     assert_from::<CredentialError>();
+    assert_from::<crate::PreAuthenticateError>();
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -1448,6 +1747,15 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
     assert_eq!(original.0.reply_count, 1);
     assert_eq!(original.0.reactions.len(), 1);
     assert_eq!(original.0.reactions[0].id, reaction_id);
+    assert_eq!(original.0.reactions[0].reaction.content, "👍");
+    assert!(matches!(
+        original.0.reactions[0].reaction.action,
+        ReactionAction::Added
+    ));
+    assert!(matches!(
+        original.0.reactions[0].reaction.schema,
+        ReactionSchema::Unicode
+    ));
     let answer = enriched
         .iter()
         .find(|value| value.0.id == reply_id)
@@ -1456,6 +1764,10 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
         answer.0.in_reply_to.as_ref().map(|parent| &parent.id),
         Some(&plain)
     );
+    assert!(matches!(
+        &answer.0.content,
+        MessageContent::Reply { reference_id, .. } if reference_id == &plain
+    ));
     assert!(
         !answer
             .0
@@ -1598,6 +1910,75 @@ async fn explicit_empty_archive_elements_export_nothing() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn archive_excludes_disappearing_messages_when_requested() {
+    let signer = crate::generate_local_signer().await;
+    let first = Client::create(signer.clone(), options()).await?;
+    let group = first.conversations().create_group(vec![], None).await?;
+    group.send_text("kept".into()).await?;
+    group
+        .update_disappearing_settings(Some(crate::DisappearingSettings {
+            from: crate::Timestamp(xmtp_common::time::now_ns()),
+            retention_ns: xmtp_common::NS_IN_MIN,
+        }))
+        .await?;
+    group.send_text("excluded".into()).await?;
+    let archives = first.archives();
+    let selection = |exclude_disappearing_messages| crate::ArchiveOptions {
+        start: None,
+        end: None,
+        elements: Some(vec![crate::ArchiveElement::Messages]),
+        exclude_disappearing_messages,
+    };
+    let filtered = archives
+        .export_to_bytes(vec![7; 32], Some(selection(true)))
+        .await?;
+    let second = Client::create(signer, options()).await?;
+    second
+        .archives()
+        .import_from_bytes(filtered, vec![7; 32])
+        .await?;
+    let crate::Conversation::Group { group: imported } = second
+        .conversations()
+        .get_by_id(group.id())
+        .await?
+        .expect("archived group")
+    else {
+        panic!("archive must restore a group");
+    };
+    let texts = imported
+        .messages(None)
+        .await?
+        .into_iter()
+        .filter_map(|message| match message.0.content {
+            MessageContent::Text(text) => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(texts, ["kept"]);
+
+    let complete = archives
+        .export_to_bytes(vec![8; 32], Some(selection(false)))
+        .await?;
+    second
+        .archives()
+        .import_from_bytes(complete, vec![8; 32])
+        .await?;
+    let texts = imported
+        .messages(None)
+        .await?
+        .into_iter()
+        .filter_map(|message| match message.0.content {
+            MessageContent::Text(text) => Some(text),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(texts.len(), 2);
+    assert!(texts.contains(&"excluded".to_string()));
+    first.end().await?;
+    second.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn group_options_metadata_members_and_message_filters() {
     use crate::{CreateGroupOptions, GroupPermissionMode, ListMessagesOptions, MessageOrder};
 
@@ -1673,6 +2054,20 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     let second = second_dm.send_text("second duplicate".into()).await?;
     b.conversations().sync_all(None).await?;
     a.conversations().sync_all(None).await?;
+    let a_thread = a
+        .conversations()
+        .get_dm_by_inbox_id(b.inbox_id())
+        .await?
+        .expect("A thread");
+    let b_thread = b
+        .conversations()
+        .get_dm_by_inbox_id(a.inbox_id())
+        .await?
+        .expect("B thread");
+    assert_eq!(a_thread.id(), b_thread.id());
+    let thread_messages = a_thread.messages(None).await?;
+    assert!(thread_messages.iter().any(|message| message.0.id == first));
+    assert!(thread_messages.iter().any(|message| message.0.id == second));
 
     let mut inactive = None;
     for id in [first.clone(), second.clone()] {

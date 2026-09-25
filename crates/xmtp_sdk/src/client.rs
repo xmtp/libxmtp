@@ -15,6 +15,7 @@ use crate::{
     Archives, BackendSource, Conversations, Diagnostics, InboxID, InstallationID, Preferences,
     PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError, signer,
 };
+use xmtp_common::{MaybeSend, MaybeSync};
 
 pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 
@@ -164,6 +165,32 @@ impl From<WorkerOptions> for xmtp_mls::worker::WorkerConfig {
     }
 }
 
+#[xmtp_macro::callback_error]
+#[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
+pub enum PreAuthenticateError {
+    #[error("pre-authenticate callback failed")]
+    Failed,
+}
+
+impl From<uniffi::UnexpectedUniFFICallbackError> for PreAuthenticateError {
+    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Failed
+    }
+}
+
+// Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
+#[uniffi::export(with_foreign)]
+#[xmtp_common::async_trait]
+pub trait PreAuthenticate: MaybeSend + MaybeSync + 'static {
+    async fn run(&self) -> Result<(), PreAuthenticateError>;
+}
+
+#[derive(Clone, Default, uniffi::Record)]
+pub struct ClientHandlers {
+    #[uniffi(default = None)]
+    pub pre_authenticate: Option<Arc<dyn PreAuthenticate>>,
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct ClientOptions {
     /// Omission uses empty connection options, as the old field default did.
@@ -172,12 +199,17 @@ pub struct ClientOptions {
     pub storage: StorageOptions,
     #[uniffi(default = true)]
     pub device_sync: bool,
+    /// Permit startup from stored state when the backend is unavailable.
+    #[uniffi(default = false)]
+    pub allow_offline: bool,
     #[uniffi(default)]
     pub registration: RegistrationOptions,
     #[uniffi(default = None)]
     pub fork_recovery: Option<ForkRecoveryOptions>,
     #[uniffi(default = None)]
     pub workers: Option<WorkerOptions>,
+    #[uniffi(default = None)]
+    pub handlers: Option<ClientHandlers>,
 }
 
 impl Default for ClientOptions {
@@ -186,9 +218,11 @@ impl Default for ClientOptions {
             backend: None,
             storage: StorageOptions::default(),
             device_sync: true,
+            allow_offline: false,
             registration: RegistrationOptions::default(),
             fork_recovery: None,
             workers: None,
+            handlers: None,
         }
     }
 }
@@ -211,6 +245,9 @@ impl Client {
     ) -> Result<Self, XmtpError> {
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
+        }
+        if options.allow_offline && inbox_id.is_none() {
+            return Err(XmtpError::invalid("allowOffline requires an inbox ID"));
         }
         let identifier = identity.to_core()?;
         let backend = options
@@ -249,6 +286,7 @@ impl Client {
             None,
         ))
         .api_client_with_streams(backend.api.clone())
+        .with_allow_offline(Some(options.allow_offline))
         .with_remote_verifier()
         .map_err(XmtpError::unknown)?
         .store(store)
@@ -288,6 +326,17 @@ impl Client {
         let Some(mut request) = self.inner.identity().signature_request() else {
             return Ok(());
         };
+        if let Some(handler) = self
+            .options
+            .handlers
+            .as_ref()
+            .and_then(|handlers| handlers.pre_authenticate.clone())
+        {
+            crate::foreign::call(async move { handler.run().await })
+                .await
+                .map_err(|_| XmtpError::callback_failed())?
+                .map_err(|_| XmtpError::callback_failed())?;
+        }
         let signature = signer::sign(
             signer,
             SigningRequest {
@@ -372,7 +421,8 @@ impl Client {
         Ok(client)
     }
 
-    /// Without an inbox ID, build queries the backend, so an offline app must pass the inbox ID.
+    /// Build fetches server configuration by default, including with an inbox ID.
+    /// Set `allowOffline` to true with a known inbox ID to use stored state offline.
     #[uniffi::constructor]
     pub async fn build(
         identity: PublicIdentity,

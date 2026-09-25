@@ -27,6 +27,67 @@ TS_ROOTS = {
     "Browser": ROOT / "sdks/browser/src",
 }
 OUT = ROOT / "docs/self-hosted/sdk-api-manifest.md"
+MOBILE_TEST_MAP = ROOT / "dev/sdk/binding-test-map.tsv"
+
+
+def mobile_test_map() -> list[str]:
+    """Render the reviewed map and require one row for each mobile test."""
+    rows = []
+    for line in MOBILE_TEST_MAP.read_text().splitlines()[1:]:
+        source, name, coverage = line.split("\t", 2)
+        rows.append((source, name, coverage))
+    source_tests = []
+    for source in sorted((ROOT / "bindings/mobile/src").rglob("*.rs")):
+        lines = source.read_text().splitlines()
+        for index, line in enumerate(lines):
+            if re.search(r"#\[(?:xmtp_common::)?(?:tokio::)?test\b", line):
+                match = re.search(
+                    r"(?m)^\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)\s*\(",
+                    "\n".join(lines[index + 1 : index + 9]),
+                )
+                if match is None:
+                    raise ValueError(
+                        f"mobile test has no function: {source}:{index + 1}"
+                    )
+                source_tests.append(
+                    (str(source.relative_to(ROOT / "bindings/mobile/src")), match[1])
+                )
+    mapped_tests = [(source, name) for source, name, _ in rows]
+    if sorted(source_tests) != sorted(mapped_tests):
+        raise ValueError("binding test map differs from bindings/mobile/src tests")
+    for source, name, coverage in rows:
+        if coverage.startswith(("façade:", "core:")):
+            match = re.fullmatch(r"(?:façade|core): `([^`]+)::(\w+)`", coverage)
+            if match is None:
+                raise ValueError(f"invalid test map reference: {source}::{name}")
+            target, function = match.groups()
+            target_path = ROOT / target
+            if (
+                not target_path.is_file()
+                or re.search(
+                    rf"\bfn\s+{re.escape(function)}\s*\(", target_path.read_text()
+                )
+                is None
+            ):
+                raise ValueError(f"test map target missing: {target}::{function}")
+        elif not coverage.startswith("binding only: "):
+            raise ValueError(f"invalid test map classification: {source}::{name}")
+    rendered = [
+        "## Binding logic test map",
+        "",
+        "Every mobile test has one row. Façade entries name the new or existing Rust test. "
+        "Core entries name the test for shared behavior. Binding-only entries give the reason "
+        "the façade has no counterpart. No mobile test is removed by this map.",
+        "",
+        "| Mobile source | Test | Coverage |",
+        "| --- | --- | --- |",
+    ]
+    rendered.extend(
+        f"| `bindings/mobile/src/{source}` | `{name}` | {coverage} |"
+        for source, name, coverage in rows
+    )
+    rendered.append("")
+    return rendered
 
 
 @dataclass(frozen=True)
@@ -922,6 +983,7 @@ def build() -> str:
     else:
         lines.append("None in the source inventory above.")
     lines.append("")
+    lines.extend(mobile_test_map())
     return "\n".join(lines)
 
 
