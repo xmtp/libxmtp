@@ -42,3 +42,4 @@ This file names things; it does not constrain them. Under SPEC-072 every obligat
 | Commit-log entry | A signed record of a commit that a client publishes for fork detection. Owned by the `FORK` spec. |
 | Consent | An inbox's or conversation's state of allowed, denied, or unknown. Owned by the `CONS` spec. |
 | Content type | The typed encoding of a message payload. Owned by the `CTYPE` spec. |
+| Remote attachment | The description of a file a message carries by reference: the URL of an encrypted object, with the key material and digest to fetch and decrypt it. Its encoding is owned by `CTYPE`; its storage, upload, and download by `ATCH`. |

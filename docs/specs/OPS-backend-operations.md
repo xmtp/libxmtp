@@ -108,6 +108,7 @@ Metrics are in-process counters, gauges, and histograms served in the Prometheus
 | `/xmtp.backend.v1.NotificationService/Register` | `xmtp.backend.v1.NotificationService` | `Register` | `unary` |
 | `/xmtp.backend.v1.NotificationService/Unregister` | `xmtp.backend.v1.NotificationService` | `Unregister` | `unary` |
 | `/xmtp.backend.v1.NotificationService/UpdateSubscriptions` | `xmtp.backend.v1.NotificationService` | `UpdateSubscriptions` | `unary` |
+| `/xmtp.backend.v1.AttachmentService/CreateUpload` | `xmtp.backend.v1.AttachmentService` | `CreateUpload` | `unary` |
 | `/grpc.health.v1.Health/Check` | `grpc.health.v1.Health` | `Check` | `unary` |
 | `/grpc.health.v1.Health/Watch` | `grpc.health.v1.Health` | `Watch` | `unary` |
 | `/grpc.health.v1.Health/List` | `grpc.health.v1.Health` | `List` | `unary` |
