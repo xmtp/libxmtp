@@ -24,29 +24,7 @@ pub fn sanitize_path_component(value: &str) -> String {
     if name.starts_with(['.', ' ']) || name.ends_with(['.', ' ']) {
         name = name.trim_matches(['.', ' ']).to_owned();
     }
-    let stem = if clean_ascii {
-        name[..name.len().min(8)]
-            .split('.')
-            .next()
-            .unwrap_or_default()
-    } else {
-        name.split('.').next().unwrap_or_default()
-    };
-    let reserved = if stem.len() <= 7 {
-        let upper = stem.to_ascii_uppercase();
-        matches!(
-            upper.as_str(),
-            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
-        ) || (upper.starts_with("COM") || upper.starts_with("LPT"))
-            && upper
-                .chars()
-                .nth(3)
-                .is_some_and(|c| matches!(c, '1'..='9' | '¹' | '²' | '³'))
-            && upper.chars().count() == 4
-    } else {
-        false
-    };
-    if reserved {
+    if is_reserved_device_name(&name) {
         name.insert(0, '_');
     }
     if name.len() > 255 {
@@ -68,6 +46,31 @@ pub fn sanitize_path_component(value: &str) -> String {
         "attachment".to_owned()
     } else {
         name.to_owned()
+    }
+}
+
+pub(crate) fn is_reserved_device_name(name: &str) -> bool {
+    let stem = if name.is_ascii() {
+        name[..name.len().min(8)]
+            .split('.')
+            .next()
+            .unwrap_or_default()
+    } else {
+        name.split('.').next().unwrap_or_default()
+    };
+    if stem.len() <= 7 {
+        let upper = stem.to_ascii_uppercase();
+        matches!(
+            upper.as_str(),
+            "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$"
+        ) || (upper.starts_with("COM") || upper.starts_with("LPT"))
+            && upper
+                .chars()
+                .nth(3)
+                .is_some_and(|c| matches!(c, '1'..='9' | '¹' | '²' | '³'))
+            && upper.chars().count() == 4
+    } else {
+        false
     }
 }
 

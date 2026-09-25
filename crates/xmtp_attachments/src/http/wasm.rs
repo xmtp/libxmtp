@@ -17,7 +17,8 @@ use web_sys::{
 };
 
 use super::{
-    IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, put_outcome, secure_upload_url,
+    IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, is_loopback_name, put_outcome,
+    secure_upload_url,
 };
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
@@ -29,7 +30,7 @@ fn validate_download_url(url: &str, options: &AttachmentOptions) -> Result<(), A
     let url = url::Url::parse(url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
     let host = url.host().ok_or(AttachmentError::new(Cause::InsecureUrl))?;
     let loopback = match host {
-        url::Host::Domain(name) => name.eq_ignore_ascii_case("localhost"),
+        url::Host::Domain(name) => is_loopback_name(name),
         url::Host::Ipv4(ip) => ip.is_loopback(),
         url::Host::Ipv6(ip) => ip.is_loopback(),
     };
@@ -71,7 +72,7 @@ fn set_upload_headers(request: &Request, upload: &UploadRequest) -> Result<(), A
     for (name, value) in &upload.headers {
         request
             .headers()
-            .set(name, value)
+            .append(name, value)
             .map_err(|_| AttachmentError::new(Cause::Malformed))?;
     }
     Ok(())
@@ -103,7 +104,9 @@ fn private_request(method: &str) -> RequestInit {
 }
 
 fn download_status(status: u16, response_type: ResponseType) -> Result<(), AttachmentError> {
-    if response_type == ResponseType::Opaqueredirect || (300..400).contains(&status) {
+    if response_type == ResponseType::Opaqueredirect
+        || matches!(status, 301 | 302 | 303 | 307 | 308)
+    {
         return Err(AttachmentError::new(Cause::TooManyRedirects));
     }
     match status {
@@ -338,16 +341,24 @@ mod tests {
         let upload = UploadRequest {
             method: "PUT".into(),
             url: request.url(),
-            headers: vec![(
-                "authorization".into(),
-                "AWS4-HMAC-SHA256 Credential=example".into(),
-            )],
+            headers: vec![
+                (
+                    "authorization".into(),
+                    "AWS4-HMAC-SHA256 Credential=example".into(),
+                ),
+                ("x-signed-meta".into(), "first".into()),
+                ("x-signed-meta".into(), "second".into()),
+            ],
             expires_in_seconds: 60,
         };
         set_upload_headers(&request, &upload)?;
         assert_eq!(
             request.headers().get("authorization").unwrap().as_deref(),
             Some("AWS4-HMAC-SHA256 Credential=example")
+        );
+        assert_eq!(
+            request.headers().get("x-signed-meta").unwrap().as_deref(),
+            Some("first, second")
         );
     }
 
@@ -428,6 +439,10 @@ mod tests {
                 Cause::TooManyRedirects
             );
         }
+        assert_eq!(
+            download_status(304, ResponseType::Basic).unwrap_err().cause,
+            Cause::HttpStatus
+        );
         download_status(200, ResponseType::Basic)?;
     }
 

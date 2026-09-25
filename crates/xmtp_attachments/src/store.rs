@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use crate::{AttachmentError, AttachmentFailureCause as Cause};
+use crate::{AttachmentError, AttachmentFailureCause as Cause, sanitize::is_reserved_device_name};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod native;
@@ -42,9 +42,13 @@ pub(crate) fn validate_relative(path: &str) -> Result<(), AttachmentError> {
     if path.is_empty()
         || path.starts_with('/')
         || path.contains('\\')
-        || path
-            .split('/')
-            .any(|part| part.is_empty() || part == "." || part == ".." || part.contains(':'))
+        || path.split('/').any(|part| {
+            part.is_empty()
+                || part == "."
+                || part == ".."
+                || part.contains(':')
+                || is_reserved_device_name(part)
+        })
     {
         return Err(AttachmentError::new(Cause::Malformed));
     }
@@ -147,6 +151,20 @@ mod tests {
                 Cause::Malformed,
                 "{path}"
             );
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn validate_relative_rejects_device_names() {
+        for path in ["CON", "key/nul.txt", "COM1", "lpt³.bin"] {
+            assert_eq!(
+                validate_relative(path).unwrap_err().cause,
+                Cause::Malformed,
+                "{path}"
+            );
+        }
+        for path in ["CONOUT$X", "COM0"] {
+            validate_relative(path)?;
         }
     }
 

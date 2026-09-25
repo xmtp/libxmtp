@@ -1,7 +1,11 @@
 //! Download address checks.
 //!
-//! `address-registry.txt` is the IANA special-purpose registry snapshot from
-//! 2025-10-09. A longer entry overrides its parent entry.
+//! `address-registry.txt` is a snapshot of the IANA IPv4 and IPv6 registries:
+//! <https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry.xhtml>
+//! <https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry.xhtml>
+//! Both `<updated>` values were 2025-10-09 when checked on 2026-09-25.
+//! Refresh the snapshot when either `<updated>` value changes. A longer entry
+//! overrides its parent entry.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 

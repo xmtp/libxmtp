@@ -12,6 +12,7 @@ use crate::{AttachmentError, AttachmentFailureCause};
 
 const CONTENT_FIELD_TAG: u8 = 0x22;
 const MAX_METADATA_BYTES: usize = 65_536;
+const MAX_PARAMETER_KEY_BYTES: usize = 256;
 const MAX_DECOMPRESSED_BYTES: usize = 16_777_216;
 const COPY_CHUNK_BYTES: usize = 8192;
 
@@ -54,7 +55,9 @@ pub fn encoded_prefix(filename: Option<&str>, mime_type: &str, content_len: u64)
 }
 
 pub fn ciphertext_len(prefix_len: usize, content_len: u64) -> u64 {
-    prefix_len as u64 + content_len + 16
+    (prefix_len as u64)
+        .saturating_add(content_len)
+        .saturating_add(16)
 }
 
 fn encode_varint(mut value: u64, output: &mut Vec<u8>) {
@@ -90,9 +93,163 @@ fn decode_varint(bytes: &[u8]) -> Result<Option<u64>, AttachmentError> {
 enum ParseState {
     Tag,
     Length { field: u64 },
-    Data { remaining: usize, content: bool },
-    OtherVarint,
+    Data { remaining: usize, kind: DataKind },
+    OtherVarint { retain: bool },
     Fixed { remaining: usize },
+}
+
+#[derive(Debug, Clone, Copy)]
+enum DataKind {
+    Content,
+    Type,
+    Parameter,
+    Skip,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum EntryState {
+    Tag,
+    Length { field: u64 },
+    Data { field: u64, remaining: usize },
+    Varint,
+    Fixed { remaining: usize },
+}
+
+/// Parse one map entry without keeping values for unknown keys.
+struct ParameterEntry {
+    state: EntryState,
+    header: Vec<u8>,
+    key: Vec<u8>,
+    value: Vec<u8>,
+    key_too_long: bool,
+    value_too_long: bool,
+}
+
+impl ParameterEntry {
+    fn new() -> Self {
+        Self {
+            state: EntryState::Tag,
+            header: Vec::new(),
+            key: Vec::new(),
+            value: Vec::new(),
+            key_too_long: false,
+            value_too_long: false,
+        }
+    }
+
+    fn relevant(&self) -> bool {
+        !self.key_too_long && matches!(self.key.as_slice(), b"mimeType" | b"filename")
+    }
+
+    fn push(&mut self, input: &[u8]) -> Result<(), AttachmentError> {
+        let mut at = 0;
+        while at < input.len() {
+            match self.state {
+                EntryState::Tag | EntryState::Length { .. } | EntryState::Varint => {
+                    self.header.push(input[at]);
+                    at += 1;
+                    let Some(value) = decode_varint(&self.header)? else {
+                        continue;
+                    };
+                    match self.state {
+                        EntryState::Tag => {
+                            if value == 0 || value >> 3 == 0 {
+                                return Err(invalid());
+                            }
+                            let field = value >> 3;
+                            let wire = value & 7;
+                            if matches!(field, 1 | 2) && wire != 2 {
+                                return Err(invalid());
+                            }
+                            self.state = match wire {
+                                0 => EntryState::Varint,
+                                1 => EntryState::Fixed { remaining: 8 },
+                                2 => EntryState::Length { field },
+                                5 => EntryState::Fixed { remaining: 4 },
+                                _ => return Err(invalid()),
+                            };
+                        }
+                        EntryState::Length { field } => {
+                            let remaining = usize::try_from(value).map_err(|_| invalid())?;
+                            match field {
+                                1 => {
+                                    self.key.clear();
+                                    self.key_too_long = remaining > MAX_PARAMETER_KEY_BYTES;
+                                }
+                                2 => {
+                                    self.value.clear();
+                                    self.value_too_long = remaining > MAX_METADATA_BYTES;
+                                }
+                                _ => {}
+                            }
+                            self.state = if remaining == 0 {
+                                EntryState::Tag
+                            } else {
+                                EntryState::Data { field, remaining }
+                            };
+                        }
+                        EntryState::Varint => self.state = EntryState::Tag,
+                        _ => unreachable!(),
+                    }
+                    self.header.clear();
+                }
+                EntryState::Data { field, remaining } => {
+                    let take = remaining.min(input.len() - at);
+                    let bytes = &input[at..at + take];
+                    match field {
+                        1 if !self.key_too_long => self.key.extend_from_slice(bytes),
+                        2 if !self.value_too_long && (self.key.is_empty() || self.relevant()) => {
+                            self.value.extend_from_slice(bytes);
+                        }
+                        _ => {}
+                    }
+                    at += take;
+                    self.state = if take == remaining {
+                        EntryState::Tag
+                    } else {
+                        EntryState::Data {
+                            field,
+                            remaining: remaining - take,
+                        }
+                    };
+                }
+                EntryState::Fixed { remaining } => {
+                    let take = remaining.min(input.len() - at);
+                    at += take;
+                    self.state = if take == remaining {
+                        EntryState::Tag
+                    } else {
+                        EntryState::Fixed {
+                            remaining: remaining - take,
+                        }
+                    };
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn finish(self) -> Result<Option<Vec<u8>>, AttachmentError> {
+        if !matches!(self.state, EntryState::Tag) || !self.header.is_empty() {
+            return Err(invalid());
+        }
+        if !self.relevant() {
+            return Ok(None);
+        }
+        if self.value_too_long {
+            return Err(invalid());
+        }
+        let mut entry = vec![0x0a];
+        encode_varint(self.key.len() as u64, &mut entry);
+        entry.extend_from_slice(&self.key);
+        entry.push(0x12);
+        encode_varint(self.value.len() as u64, &mut entry);
+        entry.extend_from_slice(&self.value);
+        let mut field = vec![0x12];
+        encode_varint(entry.len() as u64, &mut field);
+        field.extend_from_slice(&entry);
+        Ok(Some(field))
+    }
 }
 
 /// Metadata of an attachment envelope.
@@ -112,6 +269,7 @@ pub struct AttachmentDecoder {
     state: ParseState,
     header: Vec<u8>,
     metadata: Vec<u8>,
+    parameter: Option<ParameterEntry>,
     saw_content: bool,
 }
 
@@ -127,6 +285,7 @@ impl AttachmentDecoder {
             state: ParseState::Tag,
             header: Vec::new(),
             metadata: Vec::new(),
+            parameter: None,
             saw_content: false,
         }
     }
@@ -145,7 +304,7 @@ impl AttachmentDecoder {
         let mut content = Vec::new();
         while at < input.len() {
             match self.state {
-                ParseState::Tag | ParseState::Length { .. } | ParseState::OtherVarint => {
+                ParseState::Tag | ParseState::Length { .. } | ParseState::OtherVarint { .. } => {
                     self.header.push(input[at]);
                     at += 1;
                     let Some(value) = decode_varint(&self.header)? else {
@@ -158,18 +317,20 @@ impl AttachmentDecoder {
                             }
                             let field = value >> 3;
                             let wire = value & 7;
-                            if field == 4 && wire != 2 {
+                            if (matches!(field, 1..=4) && wire != 2) || (field == 5 && wire != 0) {
                                 return Err(invalid());
                             }
                             match wire {
                                 0 => {
+                                    let retain = field == 5;
                                     let header = std::mem::take(&mut self.header);
-                                    self.append_metadata(&header)?;
-                                    self.state = ParseState::OtherVarint;
+                                    if retain {
+                                        self.append_metadata(&header)?;
+                                    }
+                                    self.state = ParseState::OtherVarint { retain };
                                 }
                                 1 | 5 => {
-                                    let header = std::mem::take(&mut self.header);
-                                    self.append_metadata(&header)?;
+                                    self.header.clear();
                                     self.state = ParseState::Fixed {
                                         remaining: if wire == 1 { 8 } else { 4 },
                                     };
@@ -183,13 +344,18 @@ impl AttachmentDecoder {
                         }
                         ParseState::Length { field } => {
                             let remaining = usize::try_from(value).map_err(|_| invalid())?;
-                            let is_content = field == 4;
-                            if is_content {
+                            let kind = match field {
+                                1 => DataKind::Type,
+                                2 => DataKind::Parameter,
+                                4 => DataKind::Content,
+                                _ => DataKind::Skip,
+                            };
+                            if matches!(kind, DataKind::Content) {
                                 if self.saw_content {
                                     return Err(invalid());
                                 }
                                 self.saw_content = true;
-                            } else {
+                            } else if matches!(kind, DataKind::Type) {
                                 let mut header = Vec::new();
                                 encode_varint((field << 3) | 2, &mut header);
                                 header.extend_from_slice(&self.header);
@@ -199,49 +365,56 @@ impl AttachmentDecoder {
                                 {
                                     return Err(invalid());
                                 }
+                            } else if matches!(kind, DataKind::Parameter) {
+                                self.parameter = Some(ParameterEntry::new());
                             }
                             self.header.clear();
+                            if remaining == 0 && matches!(kind, DataKind::Parameter) {
+                                self.parameter.take().unwrap().finish()?;
+                            }
                             self.state = if remaining == 0 {
                                 ParseState::Tag
                             } else {
-                                ParseState::Data {
-                                    remaining,
-                                    content: is_content,
-                                }
+                                ParseState::Data { remaining, kind }
                             };
                         }
-                        ParseState::OtherVarint => {
+                        ParseState::OtherVarint { retain } => {
                             let header = std::mem::take(&mut self.header);
-                            self.append_metadata(&header)?;
+                            if retain {
+                                self.append_metadata(&header)?;
+                            }
                             self.state = ParseState::Tag;
                         }
                         _ => unreachable!(),
                     }
                 }
-                ParseState::Data {
-                    remaining,
-                    content: is_content,
-                } => {
+                ParseState::Data { remaining, kind } => {
                     let take = remaining.min(input.len() - at);
                     let bytes = &input[at..at + take];
-                    if is_content {
-                        content.push(bytes);
-                    } else {
-                        self.append_metadata(bytes)?;
+                    match kind {
+                        DataKind::Content => content.push(bytes),
+                        DataKind::Type => self.append_metadata(bytes)?,
+                        DataKind::Parameter => self.parameter.as_mut().unwrap().push(bytes)?,
+                        DataKind::Skip => {}
                     }
                     at += take;
+                    if take == remaining
+                        && matches!(kind, DataKind::Parameter)
+                        && let Some(field) = self.parameter.take().unwrap().finish()?
+                    {
+                        self.append_metadata(&field)?;
+                    }
                     self.state = if take == remaining {
                         ParseState::Tag
                     } else {
                         ParseState::Data {
                             remaining: remaining - take,
-                            content: is_content,
+                            kind,
                         }
                     };
                 }
                 ParseState::Fixed { remaining } => {
                     let take = remaining.min(input.len() - at);
-                    self.append_metadata(&input[at..at + take])?;
                     at += take;
                     self.state = if take == remaining {
                         ParseState::Tag
@@ -439,6 +612,12 @@ mod tests {
         }
     }
 
+    #[xmtp_common::test(unwrap_try = true)]
+    fn ciphertext_len_saturates() {
+        assert_eq!(ciphertext_len(1, u64::MAX), u64::MAX);
+        assert_eq!(ciphertext_len(usize::MAX, u64::MAX), u64::MAX);
+    }
+
     // verifies: ATCH-012
     #[xmtp_common::test(unwrap_try = true)]
     async fn decoder_any_field_order() {
@@ -486,8 +665,25 @@ mod tests {
         large
             .parameters
             .insert("junk".to_owned(), "a".repeat(65_537));
+        let (_, _, meta) = decode(&large.encode_to_vec())?;
+        assert_eq!(meta.mime_type, "application/pdf");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn decoder_skips_large_unknown_parameters() {
+        let mut value = envelope(b"file data".to_vec());
+        value.parameters.insert("junk".into(), "a".repeat(70_000));
+        value.fallback = Some("b".repeat(70_000));
+        let (stored, _, meta) = decode(&value.encode_to_vec())?;
+        assert_eq!(stored, b"file data");
+        assert_eq!(meta.mime_type, "application/pdf");
+        assert_eq!(meta.filename.as_deref(), Some("report.pdf"));
+
+        value
+            .parameters
+            .insert("filename".into(), "c".repeat(70_000));
         assert_eq!(
-            decode(&large.encode_to_vec()).unwrap_err().cause,
+            decode(&value.encode_to_vec()).unwrap_err().cause,
             AttachmentFailureCause::NotAnAttachment
         );
     }
