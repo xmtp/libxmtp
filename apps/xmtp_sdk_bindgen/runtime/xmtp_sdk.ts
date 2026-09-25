@@ -26,7 +26,7 @@ export type MessageData = {
   content: MessageContent;
   replyCount: bigint;
   reactions: object[];
-  inReplyTo?: { id: MessageID };
+  inReplyTo?: { id: MessageID; content: MessageBody };
 };
 export type ContentTypeID = {
   authorityID: string;
@@ -40,6 +40,15 @@ export enum MessageContent_Tags {
   Custom = "Custom",
   Unknown = "Unknown",
 }
+export enum MessageBody_Tags {
+  Text = "Text",
+  Custom = "Custom",
+  Unknown = "Unknown",
+}
+export type MessageBody = {
+  tag: MessageBody_Tags;
+  inner: { encoded: EncodedContent };
+};
 export type MessageContent = {
   tag: MessageContent_Tags;
   inner: { encoded: EncodedContent };
@@ -48,6 +57,7 @@ export type Reaction = object;
 export type SendOptions = object;
 
 export enum ErrorCategory {
+  Input,
   Lifecycle,
 }
 
@@ -60,6 +70,7 @@ export type ErrorDetails = {
 
 export declare const XmtpError: {
   ClientClosed: new (details: ErrorDetails) => Error;
+  InvalidArgument: new (details: ErrorDetails) => Error;
 };
 
 export enum StorageLocation_Tags {

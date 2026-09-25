@@ -16,6 +16,7 @@ crates/xmtp_sdk/dev/check-conformance-exports "$generated"
 crates/xmtp_sdk/dev/check-worker-kinds "$generated"
 crates/xmtp_sdk/dev/check-encoded-content-shape "$generated"
 python3 crates/xmtp_sdk/dev/check-storage-path-async "$generated"
+crates/xmtp_sdk/dev/check-message-lifts "$generated"
 crates/xmtp_sdk/dev/check-consumer-types-ts
 
 echo "Stock generated TypeScript is excluded from Oxlint and Oxfmt: upstream templates emit any and as casts (95 no-explicit-any findings)."
