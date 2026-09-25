@@ -90,6 +90,35 @@ enum EnvironmentError {
     EmptyName,
 }
 
+/// Name credential shape errors without showing values from the config file.
+fn credential_deserialize_key(
+    error: &serde_path_to_error::Error<toml::de::Error>,
+) -> Option<&'static str> {
+    const CREDENTIALS: &str = "attachments.target.S3.credentials";
+    if !error.path().to_string().starts_with(CREDENTIALS) {
+        return None;
+    }
+    let field = match error.inner().message() {
+        message if message.starts_with("unknown variant") => {
+            "attachments.target.S3.credentials.kind"
+        }
+        "missing field `kind`" => "attachments.target.S3.credentials.kind",
+        "missing field `access_key_id`" => "attachments.target.S3.credentials.access_key_id",
+        "missing field `secret_access_key`" => {
+            "attachments.target.S3.credentials.secret_access_key"
+        }
+        "missing field `name`" => "attachments.target.S3.credentials.name",
+        "missing field `account_id`" => "attachments.target.S3.credentials.account_id",
+        "missing field `region`" => "attachments.target.S3.credentials.region",
+        "missing field `role_name`" => "attachments.target.S3.credentials.role_name",
+        "missing field `start_url`" => "attachments.target.S3.credentials.start_url",
+        "missing field `command`" => "attachments.target.S3.credentials.command",
+        "missing field `role_arn`" => "attachments.target.S3.credentials.role_arn",
+        _ => CREDENTIALS,
+    };
+    Some(field)
+}
+
 /// Resolve one environment reference. Do not expand references in the resolved value.
 fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
     let Some(name) = value.strip_prefix("env:") else {
@@ -147,7 +176,16 @@ impl Config {
     pub fn load_str(contents: &str) -> Result<Self, ConfigError> {
         let mut value: toml::Value = toml::from_str(contents).map_err(|_| ConfigError::Parse)?;
         resolve_environment(&mut value)?;
-        let config: Self = value.try_into().map_err(|_| ConfigError::Parse)?;
+        let config: Self = serde_path_to_error::deserialize(value).map_err(|error| {
+            if let Some(field) = credential_deserialize_key(&error) {
+                ConfigError::Invalid {
+                    field,
+                    reason: "invalid credential source",
+                }
+            } else {
+                ConfigError::Parse
+            }
+        })?;
         config.validate()?;
         Ok(config)
     }

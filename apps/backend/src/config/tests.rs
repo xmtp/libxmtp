@@ -24,6 +24,28 @@ const IDENTIFIER: &str = "org.xmtp.test";
 const RESPONSE_TEST_ENVELOPE_BYTES: usize = 1_000_000;
 const RESPONSE_TEST_REQUEST_BYTES: usize = 2_000_000;
 
+// verifies: ATCH-073, CONF-065
+#[xmtp_common::test(unwrap_try = true)]
+fn invalid_attachment_credential_sources_name_the_key() {
+    let source = format!(
+        "{MINIMAL}\n[attachments]\nbase_url = 'https://example.com/attachments'\n\
+         [attachments.target.S3]\nendpoint = 'https://s3.example.com'\n\
+         region = 'us-east-1'\nbucket = 'attachments'\n\
+         [attachments.target.S3.credentials]\n"
+    );
+    for (fields, expected_key) in [
+        ("kind = 'unknown'", "attachments.target.S3.credentials.kind"),
+        ("kind = 'profile'", "attachments.target.S3.credentials.name"),
+    ] {
+        let error = Config::load_str(&format!("{source}{fields}\n")).unwrap_err();
+        assert!(
+            matches!(&error, ConfigError::Invalid { field, .. } if *field == expected_key),
+            "{error}"
+        );
+        assert!(error.to_string().contains(expected_key));
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 fn push_defaults_provider_fields_and_redaction() {
     let config = Config::load_str(MINIMAL)?;

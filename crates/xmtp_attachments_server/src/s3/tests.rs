@@ -142,6 +142,7 @@ async fn assert_resolves_to(
     Ok(())
 }
 
+// verifies: ATCH-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn every_credential_kind_builds() {
     set_test_env("AWS_EC2_METADATA_DISABLED", "true");
@@ -186,6 +187,7 @@ async fn every_credential_kind_builds() {
     }
 }
 
+// verifies: ATCH-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn environment_credentials_resolve() {
     set_test_env("AWS_ACCESS_KEY_ID", "ENV_KEY");
@@ -194,6 +196,7 @@ async fn environment_credentials_resolve() {
     assert_resolves_to(CredentialsConfig::Environment, "ENV_KEY").await?;
 }
 
+// verifies: ATCH-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn default_chain_credentials_resolve_from_environment() {
     set_test_env("AWS_EC2_METADATA_DISABLED", "true");
@@ -203,6 +206,7 @@ async fn default_chain_credentials_resolve_from_environment() {
     assert_resolves_to(CredentialsConfig::DefaultChain, "CHAIN_KEY").await?;
 }
 
+// verifies: ATCH-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn profile_credentials_resolve() {
     let directory = tempfile::tempdir()?;
@@ -224,6 +228,7 @@ async fn profile_credentials_resolve() {
     .await?;
 }
 
+// verifies: ATCH-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn process_credentials_resolve() {
     assert_resolves_to(
@@ -235,6 +240,7 @@ async fn process_credentials_resolve() {
     .await?;
 }
 
+// verifies: ATCH-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn container_credentials_resolve() {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
