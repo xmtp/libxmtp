@@ -22,6 +22,8 @@ pub struct MessageReader {
     client_key: u64,
     #[cfg(test)]
     pub(crate) handoff_gate: Arc<Mutex<Option<Arc<HandoffGate>>>>,
+    #[cfg(test)]
+    corrupt_next_message: std::sync::atomic::AtomicBool,
 }
 
 struct ReaderState {
@@ -68,6 +70,8 @@ impl MessageReader {
             client_key,
             #[cfg(test)]
             handoff_gate: Arc::new(Mutex::new(None)),
+            #[cfg(test)]
+            corrupt_next_message: std::sync::atomic::AtomicBool::new(false),
         }))
     }
 
@@ -84,6 +88,12 @@ impl MessageReader {
     #[cfg(test)]
     pub(crate) fn control_for_test(&self) -> MessageReaderControl {
         self.control.clone()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn corrupt_next_message_for_test(&self) {
+        self.corrupt_next_message
+            .store(true, std::sync::atomic::Ordering::Release);
     }
 }
 
@@ -106,6 +116,10 @@ impl MessageReader {
         let client_key = self.client_key;
         #[cfg(test)]
         let handoff_gate = self.handoff_gate.clone();
+        #[cfg(test)]
+        let corrupt_next_message = self
+            .corrupt_next_message
+            .swap(false, std::sync::atomic::Ordering::AcqRel);
         on_sdk_worker(self.context.clone(), async move {
             let mut reader = reader.lock().await;
             if request_cancel.is_cancelled() {
@@ -157,6 +171,12 @@ impl MessageReader {
                 };
                 let Some(item) = item else { return Ok(false) };
                 #[cfg(test)]
+                let mut item = item;
+                #[cfg(test)]
+                if corrupt_next_message {
+                    item.message.id.clear();
+                }
+                #[cfg(test)]
                 let gate = handoff_gate.lock().take();
                 #[cfg(test)]
                 if let Some(gate) = gate {
@@ -183,7 +203,15 @@ impl MessageReader {
                         return Err(super::delivery_error(error));
                     }
                 }
-                let message = Message::from_stored(item.message, client_key)?;
+                let message = match Message::from_stored(item.message, client_key) {
+                    Ok(message) => message,
+                    Err(error) => {
+                        state.lock().ended = true;
+                        control.close();
+                        item.acknowledgement.reject();
+                        return Err(error);
+                    }
+                };
                 let mut state = state.lock();
                 if state.ended {
                     item.acknowledgement.reject();
