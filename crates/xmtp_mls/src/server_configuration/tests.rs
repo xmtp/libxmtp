@@ -528,7 +528,7 @@ max_group_members = 23
 
     // An offline start with a stored copy uses it and
     // skips the URL check, so a client with no network still starts.
-    // verifies: CONF-034
+    // verifies: CONF-034, CONF-076
     #[xmtp_common::test(unwrap_try = true)]
     async fn an_offline_start_uses_the_stored_copy_without_checking_the_url() {
         let backend = EphemeralBackend::start(DISTINCT).await?;

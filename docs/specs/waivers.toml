@@ -549,70 +549,77 @@ id = "STORE-001"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+reason = "Current SDKs always put a label (`env`) in the file name, so the unlabeled `xmtp-<inbox id>.db3` is never produced; the façade SDKs implement both forms."
 
 [[waiver]]
 id = "STORE-002"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
 
 [[waiver]]
 id = "STORE-003"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+reason = "The current Android SDK already uses this directory, but no test asserts it; the façade's Android helper adds the test in the SDK migration."
 
 [[waiver]]
 id = "STORE-004"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
 
 [[waiver]]
 id = "STORE-005"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-006"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS SDK falls back to the Documents directory instead of failing when no location can be derived; the façade SDKs fail."
 
 [[waiver]]
 id = "STORE-007"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+reason = "Current SDK `build` can open a new database; the façade `build` fails with a typed error."
 
 [[waiver]]
 id = "STORE-008"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+reason = "Current SDKs do not reject separators and NUL in the label; the façade does."
 
 [[waiver]]
 id = "IDENT-073"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current iOS and Android SDKs call the handler on every create; the façade SDKs implement the rows."
+reason = "The current iOS and Android SDKs call the handler before signing, but no test asserts the order; the façade test that verifies it lands with the SDK migration."
 
 [[waiver]]
 id = "IDENT-074"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current iOS and Android SDKs call the handler on every create; the façade SDKs implement the rows."
+reason = "The current iOS and Android SDKs call the handler even when registration needs no signature; the façade SDKs call it only when a signature is needed."
 
 [[waiver]]
 id = "IDENT-075"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current iOS and Android SDKs call the handler on every create; the façade SDKs implement the rows."
+reason = "The current iOS and Android SDKs propagate a failing handler without reporting a typed callback failure; the façade SDKs report a callback failure."
 
 [[waiver]]
 id = "GMOD-035"

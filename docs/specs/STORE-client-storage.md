@@ -21,7 +21,7 @@ Out of scope: database contents, encryption, and locations the app names outside
 
 ## 1. Database location
 
-An SDK keeps each client's database in one SQLite file. When the app does not name a location, the SDK uses its platform's default directory below: private app storage that the platform keeps for the app, not a folder the user manages. `StorageLocation.Default` means this location. The defaults are not tied to earlier SDK releases, which used other directories.
+An SDK keeps each client's database in one database file. When the app does not name a location, the SDK uses its platform's default directory below: private app storage that the platform keeps for the app, not a folder the user manages. `StorageLocation.Default` means this location. The defaults are not tied to earlier SDK releases, which used other directories.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
