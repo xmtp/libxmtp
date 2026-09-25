@@ -132,7 +132,11 @@ fn pure_free_function_has_metadata_marker() {
         ),
     );
     assert!(output.contains("@xmtp-pure"));
-    assert!(output.contains("# [uniffi :: export]"));
+    let compact: String = output.split_whitespace().collect();
+    assert!(compact.contains(
+        "#[cfg_attr(any(not(target_arch=\"wasm32\"),feature=\"pure-only\"),uniffi::export)]"
+    ));
+    assert!(!output.contains("# [uniffi :: export]"));
     assert!(!output.contains("async_runtime"));
 }
 
