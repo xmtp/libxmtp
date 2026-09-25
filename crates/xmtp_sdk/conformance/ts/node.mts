@@ -585,6 +585,16 @@ const decoded = await ownerWithCodec.conversations().getMessageByID(customID);
 const undecoded = await ownerWithoutCodec
   .conversations()
   .getMessageByID(customID);
+const customReplyID = await ownerWithCodec
+  .conversations()
+  .replyToMessage(customID, customCodec.encode("reply codec value"), undefined);
+const customReply = await ownerWithCodec
+  .conversations()
+  .getMessageByID(customReplyID);
+assert.equal(
+  (customReply?.replyContent as { inner?: { value?: string } })?.inner?.value,
+  "reply codec value",
+);
 assert.equal(
   (decoded?.content as { inner?: { value?: string } }).inner?.value,
   "codec value",
