@@ -266,6 +266,9 @@ impl Client {
             }
             StorageLocation::Default | StorageLocation::InMemory => {}
         }
+        if options.allow_offline == Some(true) && inbox_id.is_none() {
+            return Err(XmtpError::invalid("allowOffline requires an inbox ID"));
+        }
         let allow_offline = options.allow_offline.unwrap_or(inbox_id.is_some());
         let identifier = identity.to_core()?;
         let backend = options

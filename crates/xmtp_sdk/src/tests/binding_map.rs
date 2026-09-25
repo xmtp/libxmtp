@@ -290,6 +290,10 @@ async fn backend_url_is_required_and_offline_choice_uses_inbox_id() {
     );
     client.end().await?;
     settings.allow_offline = Some(true);
+    assert!(matches!(
+        Client::build(identity.clone(), settings.clone(), None).await,
+        Err(XmtpError::InvalidInput(_))
+    ));
     let explicit = Client::build(identity, settings, Some(inbox_id.clone())).await?;
     assert_eq!(explicit.inbox_id(), inbox_id);
     assert!(
