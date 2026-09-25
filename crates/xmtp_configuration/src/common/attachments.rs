@@ -92,7 +92,7 @@ fn is_dot_segment(segment: &str) -> bool {
 }
 
 /// Check the published base URL without replacing its raw host, port, or path.
-// implements: ATCH-002, ATCH-008
+// implements: ATCH-008
 pub fn check_base_url(base_url: &str) -> Result<(), AttachmentConfigurationError> {
     if base_url.bytes().any(|byte| {
         !byte.is_ascii() || byte.is_ascii_control() || byte.is_ascii_whitespace() || byte == b'\\'
@@ -189,7 +189,7 @@ pub fn check_base_url(base_url: &str) -> Result<(), AttachmentConfigurationError
 }
 
 /// Check the effective upload limit after a missing wire value takes its default.
-// implements: ATCH-003, ATCH-008
+// implements: ATCH-008
 pub fn check_max_upload_bytes(value: u64) -> Result<(), AttachmentConfigurationError> {
     if value == 0 || value > MAX_ATTACHMENT_UPLOAD_BYTES {
         return Err(AttachmentConfigurationError::MaxUploadBytes {
@@ -200,7 +200,7 @@ pub fn check_max_upload_bytes(value: u64) -> Result<(), AttachmentConfigurationE
 }
 
 /// Check a configured or published retention value.
-// implements: ATCH-004, ATCH-008
+// implements: ATCH-008
 pub fn check_retention_seconds(value: u64) -> Result<(), AttachmentConfigurationError> {
     if value > MAX_ATTACHMENT_RETENTION_SECONDS {
         return Err(AttachmentConfigurationError::RetentionSeconds {
