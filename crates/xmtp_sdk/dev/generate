@@ -3,7 +3,6 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
 
 dev/agent-run cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen
 dev/agent-run cargo build --locked --release -p xmtp_sdk --target wasm32-unknown-unknown
