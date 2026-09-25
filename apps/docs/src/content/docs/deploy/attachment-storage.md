@@ -47,10 +47,12 @@ from the application origins. Permit the `content-length`, `host`,
 headers that the application needs. Use a specific origin list for a production
 application.
 
-`retention_seconds = 0` means the backend promises no expiry. For a positive
-value, set a target lifecycle rule that removes objects no earlier than that
-period after upload. Check the target's lifecycle timing and clock behavior.
-The backend publishes the retention value; it does not delete objects.
+The backend publishes the configured `retention_seconds`, or `0` when none is
+configured. A published `0` is the no-expiry value in the offer; it does not
+control the target. For positive retention, set the target's expiry rule to the
+same period after upload. When the target keeps objects without expiry,
+configure no retention. Check the target's lifecycle timing and clock behavior.
+The target applies its expiry rule; the backend does not delete objects.
 
 ## Credential kinds
 
@@ -70,7 +72,8 @@ The `credentials.kind` value selects how the backend gets signing credentials:
 | `assume_role`   | `role_arn`; optional `external_id`, `session_name`                        | AWS role assumption.                        |
 
 Use `env:NAME` for secret settings in TOML. Limit the credential to PUT on the
-attachment bucket. Give the public GET path a separate read policy. If a
-credential refresh fails, CreateUpload returns `UNAVAILABLE`. The backend logs
-only the provider error kind. The response does not contain the credential or
-the provider error text.
+attachment bucket. Give the public GET path a separate read policy. If the
+backend cannot obtain credentials or sign the request, CreateUpload returns
+`UNAVAILABLE`. The backend refuses to start if `credentials.kind` is unknown or
+a required field is missing. `GetConfigurationResponse` contains no storage
+credential, bucket name, or storage endpoint URL other than `base_url`.
