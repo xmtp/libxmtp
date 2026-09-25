@@ -74,12 +74,14 @@ async fn retention_rules() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_prefix_rules() {
     let mut config = config();
-    for value in ["", "a/", "a/b/"] {
+    for value in ["", "a/", "a/b/", "Ab_09-x.y/z/"] {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.key_prefix = value.into();
         assert!(config.validate().is_ok(), "{value}");
     }
-    for value in ["/lead/", "a//b/", "a/./b", "a/../b"] {
+    for value in [
+        "/lead/", "a//b/", "a/./b", "a/../b", "a b/", "a%2Fb/", "a+b/", "é/", "a\\b/",
+    ] {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.key_prefix = value.into();
         assert_eq!(
