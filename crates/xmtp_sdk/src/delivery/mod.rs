@@ -48,24 +48,7 @@ pub(crate) fn delivery_error(error: LocalDeliveryError) -> XmtpError {
         ));
     }
     if let Some(auth) = auth_cause(&error) {
-        let message = error.to_string();
-        return match auth {
-            AuthError::CredentialRejected { .. } => XmtpError::CredentialRejected(details(
-                "credentialRejected",
-                ErrorCategory::Stream,
-                false,
-                message,
-            )),
-            AuthError::Exhausted | AuthError::ExhaustedAfterAttempt => {
-                XmtpError::CredentialExhausted(details(
-                    "credentialExhausted",
-                    ErrorCategory::Stream,
-                    false,
-                    message,
-                ))
-            }
-            _ => XmtpError::unknown(error),
-        };
+        return XmtpError::from_auth(auth);
     }
     let message = error.to_string();
     match cause {
@@ -191,23 +174,47 @@ mod tests {
         );
         assert!(matches!(old, XmtpError::ClientVersionTooOld(ref details)
             if details.code == "clientVersionTooOld"));
-        for (auth, code) in [
+        for (auth, code, retryable) in [
+            (
+                AuthError::CredentialRejected { retryable: true },
+                "CredentialRejected",
+                true,
+            ),
             (
                 AuthError::CredentialRejected { retryable: false },
-                "credentialRejected",
+                "CredentialRejected",
+                false,
             ),
-            (AuthError::Exhausted, "credentialExhausted"),
+            (
+                AuthError::CallbackFailed { retryable: true },
+                "CredentialCallbackFailed",
+                true,
+            ),
+            (
+                AuthError::CallbackFailed { retryable: false },
+                "CredentialCallbackFailed",
+                false,
+            ),
+            (AuthError::Exhausted, "CredentialExhausted", false),
+            (
+                AuthError::ExhaustedAfterAttempt,
+                "CredentialExhausted",
+                false,
+            ),
+            (AuthError::MissingCredential, "CredentialMissing", false),
         ] {
             let failure = delivery_error(LocalDeliveryError::NetworkFailure(Arc::new(
                 IncomingError::Transport(NetworkError::new(ApiClientError::Auth(auth))),
             )));
             let actual = match failure {
                 XmtpError::CredentialRejected(details)
-                | XmtpError::CredentialExhausted(details) => details,
+                | XmtpError::CredentialCallbackFailed(details)
+                | XmtpError::CredentialExhausted(details)
+                | XmtpError::CredentialMissing(details) => details,
                 other => panic!("unexpected stream failure: {other}"),
             };
             assert_eq!(actual.code, code);
-            assert!(!actual.retryable);
+            assert_eq!(actual.retryable, retryable, "{code} retryability");
         }
     }
 }
