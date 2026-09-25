@@ -25,7 +25,7 @@ pub fn sanitize_path_component(value: &str) -> String {
         name = name.trim_matches(['.', ' ']).to_owned();
     }
     let stem = if clean_ascii {
-        name[..name.len().min(7)]
+        name[..name.len().min(8)]
             .split('.')
             .next()
             .unwrap_or_default()
@@ -102,6 +102,8 @@ mod tests {
             ("conin$.txt", "_conin$.txt"),
             ("CONOUT$.txt", "_CONOUT$.txt"),
             ("conout$", "_conout$"),
+            ("CONOUT$X.txt", "CONOUT$X.txt"),
+            ("CONOUT$1", "CONOUT$1"),
             ("COM¹.txt", "_COM¹.txt"),
             ("lpt³", "_lpt³"),
             ("COM0.txt", "COM0.txt"),
