@@ -33,6 +33,12 @@ impl<C: XmtpBackendClient> XmtpBackendClient for BoxedStreamsClient<C> {
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         self.inner.publish(request).await
     }
+    async fn create_upload(
+        &self,
+        request: CreateUploadRequest,
+    ) -> Result<CreateUploadResponse, Self::Error> {
+        self.inner.create_upload(request).await
+    }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         self.inner.query(request).await
     }

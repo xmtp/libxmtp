@@ -68,6 +68,13 @@ impl XmtpBackendClient for StalledApi {
         }
     }
 
+    async fn create_upload(
+        &self,
+        request: wire::CreateUploadRequest,
+    ) -> Result<wire::CreateUploadResponse, Self::Error> {
+        self.inner.create_upload(request).await
+    }
+
     async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse, Self::Error> {
         self.inner.query(request).await
     }

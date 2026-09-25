@@ -1,5 +1,6 @@
 #![warn(clippy::unwrap_used)]
 
+pub mod attachments;
 pub mod configuration;
 pub mod identity;
 pub mod mls;

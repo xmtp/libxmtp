@@ -12319,6 +12319,7 @@ dependencies = [
  "pin-project",
  "proptest",
  "prost",
+ "prost-types",
  "regex",
  "rstest",
  "thiserror 2.0.19",

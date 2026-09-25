@@ -12,6 +12,12 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Box<T> {
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         (**self).publish(request).await
     }
+    async fn create_upload(
+        &self,
+        request: CreateUploadRequest,
+    ) -> Result<CreateUploadResponse, Self::Error> {
+        (**self).create_upload(request).await
+    }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         (**self).query(request).await
     }
@@ -125,6 +131,12 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for Arc<T> {
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         (**self).publish(request).await
     }
+    async fn create_upload(
+        &self,
+        request: CreateUploadRequest,
+    ) -> Result<CreateUploadResponse, Self::Error> {
+        (**self).create_upload(request).await
+    }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         (**self).query(request).await
     }
@@ -237,6 +249,12 @@ impl<T: XmtpBackendClient + ?Sized> XmtpBackendClient for &T {
     }
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         (**self).publish(request).await
+    }
+    async fn create_upload(
+        &self,
+        request: CreateUploadRequest,
+    ) -> Result<CreateUploadResponse, Self::Error> {
+        (**self).create_upload(request).await
     }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         (**self).query(request).await
