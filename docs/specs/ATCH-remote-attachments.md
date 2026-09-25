@@ -49,7 +49,7 @@ Out of scope: the remote attachment encodings and the encryption of the payload 
 | Ciphertext | The bytes stored at a download URL: the CTYPE-015 encryption of an `xmtp.org/attachment:1.0` encoded content, with its tag. |
 | Content digest | The lowercase hexadecimal SHA-256 of a ciphertext, as CTYPE-015 defines it. On the wire of `CreateUpload`, the same 32 bytes unencoded. |
 | Storage target | The object storage the operator configures. It accepts the signed requests the backend issues and serves the objects at their download URLs. |
-| Object key | The name under which the storage target stores the ciphertext of one content digest. The backend derives it from the content digest. |
+| Object key | The name under which the storage target stores the ciphertext of one content digest: the operator's configured key prefix, which may be empty, followed by the lowercase hexadecimal content digest. The operator maps the base URL to that prefix, so the download URL of ATCH-010 serves the object. |
 | Base URL | `AttachmentsConfiguration.base_url`. |
 | Download URL | The URL ATCH-010 derives from a base URL and a content digest. |
 | Offered | A snapshot offers attachments when it carries an `AttachmentsConfiguration` to which ATCH-008 does not apply. |
@@ -136,7 +136,7 @@ The admission table adds the conditions of `CreateUpload` to the status table of
 | --- | --- |
 | No storage target is configured | `UNIMPLEMENTED` |
 | `content_digest` is not 32 bytes, or `content_length` is 0 or greater than the enforced `max_upload_bytes` | `INVALID_ARGUMENT` |
-| The backend cannot obtain a credential to sign with | `UNAVAILABLE` |
+| The backend cannot obtain a credential to sign with, or cannot sign the request | `UNAVAILABLE` |
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
