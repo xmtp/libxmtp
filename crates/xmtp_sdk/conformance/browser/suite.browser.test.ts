@@ -12,7 +12,7 @@ test.todo(
   "scenario 8: Task 20 adds event and listener methods to the bridge (O2)",
 );
 
-test("browser bridge scenarios 1 to 11 and worker smoke checks", async () => {
+test("browser bridge scenarios 1 to 11 including catchUpToLive and worker smoke checks", async () => {
   const results = await runBrowserBridgeConformance(__XMTP_BACKEND_URL__).catch(
     (error: unknown) => {
       console.error("browser conformance failed", error);

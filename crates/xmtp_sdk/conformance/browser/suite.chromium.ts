@@ -484,6 +484,15 @@ export async function runBrowserBridgeConformance(
       config.identifier,
       "server configuration changed",
     );
+    const catchUp = await reopened.catchUpToLive(10_000n);
+    equal(typeof catchUp.messages, "bigint", "catch-up message count is missing");
+    equal(
+      typeof catchUp.conversations,
+      "bigint",
+      "catch-up conversation count is missing",
+    );
+    equal(typeof catchUp.failed, "bigint", "catch-up failure count is missing");
+    equal(typeof catchUp.completed, "boolean", "catch-up result is missing");
     const backend = await Backend.connect(session, {
       url: backendURL,
       appVersion: undefined,
@@ -503,7 +512,7 @@ export async function runBrowserBridgeConformance(
       (error) => B.XmtpError.StorageLocationRequired.instanceOf(error),
       "missing typed storage error",
     );
-    results.push("scenario 10: configuration and typed error");
+    results.push("scenario 10: catch-up, configuration, and typed error");
 
     const unsignedSigner = signer(session);
     const unsigned = await Client.create(session, unsignedSigner, {
