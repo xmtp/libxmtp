@@ -1,31 +1,70 @@
-use parking_lot::Mutex;
+use parking_lot::{Mutex, ReentrantMutex};
 use std::{
+    cell::Cell,
     collections::HashMap,
+    future::Future,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
+    task::Poll,
 };
 use tokio::sync::watch;
 use xmtp_events::Subscription;
 use xmtp_mls::subscriptions::internal::InternalEvent;
 
-use super::{ClientEvent, EventListener, ListenerID};
+use super::{ClientEvent, EventListener, ListenerError, ListenerID};
 use crate::{XmtpError, foreign};
+
+type StartGate = ReentrantMutex<Cell<bool>>;
 
 struct ListenerControl {
     subscription: Arc<Subscription<InternalEvent>>,
     stopped: watch::Sender<bool>,
-    start_gate: Arc<Mutex<bool>>,
+    start_gate: Arc<StartGate>,
+}
+
+#[cfg(test)]
+pub(crate) struct StartHook {
+    pub(crate) arrived: tokio::sync::Notify,
+    release: Mutex<Option<std::sync::mpsc::Receiver<()>>>,
+}
+
+#[cfg(test)]
+impl StartHook {
+    pub(crate) fn new() -> (Arc<Self>, std::sync::mpsc::Sender<()>) {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        (
+            Arc::new(Self {
+                arrived: tokio::sync::Notify::new(),
+                release: Mutex::new(Some(receiver)),
+            }),
+            sender,
+        )
+    }
+
+    fn block_once(&self) {
+        if let Some(receiver) = self.release.lock().take() {
+            self.arrived.notify_one();
+            let _ = receiver.recv();
+        }
+    }
 }
 
 #[derive(Default)]
 pub(crate) struct ListenerRegistry {
     next_id: AtomicU64,
-    listeners: Mutex<HashMap<u64, ListenerControl>>,
+    listeners: Mutex<HashMap<u64, Arc<ListenerControl>>>,
+    #[cfg(test)]
+    start_hook: Mutex<Option<Arc<StartHook>>>,
 }
 
 impl ListenerRegistry {
+    #[cfg(test)]
+    pub(crate) fn set_start_hook_for_test(&self, hook: Arc<StartHook>) {
+        *self.start_hook.lock() = Some(hook);
+    }
+
     pub(crate) fn start(
         &self,
         subscription: Subscription<InternalEvent>,
@@ -37,32 +76,40 @@ impl ListenerRegistry {
             .map_err(|_| XmtpError::unknown("listener ID space exhausted"))?;
         let subscription = Arc::new(subscription);
         let (stopped, receiver) = watch::channel(false);
-        let start_gate = Arc::new(Mutex::new(false));
+        let start_gate = Arc::new(StartGate::new(Cell::new(false)));
         self.listeners.lock().insert(
             id,
-            ListenerControl {
+            Arc::new(ListenerControl {
                 subscription: subscription.clone(),
                 stopped,
                 start_gate: start_gate.clone(),
-            },
+            }),
         );
-        spawn_dispatch(subscription, listener, receiver, start_gate);
+        spawn_dispatch(
+            subscription,
+            listener,
+            receiver,
+            start_gate,
+            #[cfg(test)]
+            self.start_hook.lock().clone(),
+        );
         Ok(ListenerID(id))
     }
 
     pub(crate) fn stop(&self, id: ListenerID) {
-        if let Some(control) = self.listeners.lock().remove(&id.0) {
-            *control.start_gate.lock() = true;
+        let control = self.listeners.lock().get(&id.0).cloned();
+        if let Some(control) = control {
+            control.start_gate.lock().set(true);
             let _ = control.stopped.send(true);
             control.subscription.close();
+            self.listeners.lock().remove(&id.0);
         }
     }
 
     pub(crate) fn stop_all(&self) {
-        for (_, control) in self.listeners.lock().drain() {
-            *control.start_gate.lock() = true;
-            let _ = control.stopped.send(true);
-            control.subscription.close();
+        let ids: Vec<_> = self.listeners.lock().keys().copied().collect();
+        for id in ids {
+            self.stop(ListenerID(id));
         }
     }
 }
@@ -73,12 +120,40 @@ impl Drop for ListenerRegistry {
     }
 }
 
+/// Start the foreign call while the gate is held. The gate covers its first poll.
+async fn call_listener(
+    listener: Arc<dyn EventListener>,
+    event: ClientEvent,
+    start_gate: Arc<StartGate>,
+    #[cfg(test)] start_hook: Option<Arc<StartHook>>,
+) -> Result<(), ListenerError> {
+    let mut call = Box::pin(listener.on_event(event));
+    let first = futures::future::poll_fn(|cx| {
+        let stopped = start_gate.lock();
+        if stopped.get() {
+            return Poll::Ready(None);
+        }
+        #[cfg(test)]
+        if let Some(hook) = &start_hook {
+            hook.block_once();
+        }
+        Poll::Ready(Some(call.as_mut().poll(cx)))
+    })
+    .await;
+    match first {
+        None => Ok(()),
+        Some(Poll::Ready(result)) => result,
+        Some(Poll::Pending) => call.await,
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn spawn_dispatch(
     subscription: Arc<Subscription<InternalEvent>>,
     listener: Arc<dyn EventListener>,
     mut stopped: watch::Receiver<bool>,
-    start_gate: Arc<Mutex<bool>>,
+    start_gate: Arc<StartGate>,
+    #[cfg(test)] start_hook: Option<Arc<StartHook>>,
 ) {
     tokio::spawn(async move {
         loop {
@@ -95,17 +170,16 @@ fn spawn_dispatch(
             }
             let listener = listener.clone();
             let start_gate = start_gate.clone();
+            #[cfg(test)]
+            let start_hook = start_hook.clone();
             let call = tokio::spawn(async move {
-                foreign::call(async move {
-                    let call = {
-                        let stopped = start_gate.lock();
-                        if *stopped {
-                            return Ok(());
-                        }
-                        listener.on_event(event)
-                    };
-                    call.await
-                })
+                foreign::call(call_listener(
+                    listener,
+                    event,
+                    start_gate,
+                    #[cfg(test)]
+                    start_hook,
+                ))
                 .await
             });
             tokio::select! {
@@ -126,7 +200,8 @@ fn spawn_dispatch(
     subscription: Arc<Subscription<InternalEvent>>,
     listener: Arc<dyn EventListener>,
     mut stopped: watch::Receiver<bool>,
-    start_gate: Arc<Mutex<bool>>,
+    start_gate: Arc<StartGate>,
+    #[cfg(test)] start_hook: Option<Arc<StartHook>>,
 ) {
     wasm_bindgen_futures::spawn_local(async move {
         loop {
@@ -143,19 +218,18 @@ fn spawn_dispatch(
             }
             let listener = listener.clone();
             let start_gate = start_gate.clone();
+            #[cfg(test)]
+            let start_hook = start_hook.clone();
             let (sender, receiver) = futures::channel::oneshot::channel();
             wasm_bindgen_futures::spawn_local(async move {
                 let _ = sender.send(
-                    foreign::call(async move {
-                        let call = {
-                            let stopped = start_gate.lock();
-                            if *stopped {
-                                return Ok(());
-                            }
-                            listener.on_event(event)
-                        };
-                        call.await
-                    })
+                    foreign::call(call_listener(
+                        listener,
+                        event,
+                        start_gate,
+                        #[cfg(test)]
+                        start_hook,
+                    ))
                     .await,
                 );
             });

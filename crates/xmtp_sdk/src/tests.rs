@@ -403,23 +403,120 @@ async fn listener_reentrant_call_completes() {
 // verifies: EVENT-053
 #[xmtp_common::test(unwrap_try = true)]
 async fn no_call_after_stop_returns() {
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let release = Arc::new(Notify::new());
-    let (probe, mut started) = event_probe(Some(release.clone()), false, None, false);
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, options()).await?);
+    let (hook, release) = crate::events::dispatch::StartHook::new();
+    client.listeners.set_start_hook_for_test(hook.clone());
+    let (probe, mut started) = event_probe(None, false, None, false);
     let id = client
         .start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), probe)
         .await?;
     emit_hmac(&client);
+    tokio::time::timeout(Duration::from_secs(2), hook.arrived.notified()).await?;
+    let stopping_client = client.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let (attempted, ready) = std::sync::mpsc::channel();
+    let stopping = std::thread::spawn(move || {
+        let _ = attempted.send(());
+        runtime.block_on(stopping_client.stop_listener(id));
+    });
+    ready.recv_timeout(Duration::from_secs(2))?;
+    let stopping_client = client.clone();
+    let runtime = tokio::runtime::Handle::current();
+    let (attempted, ready) = std::sync::mpsc::channel();
+    let stopping_again = std::thread::spawn(move || {
+        let _ = attempted.send(());
+        runtime.block_on(stopping_client.stop_listener(id));
+    });
+    ready.recv_timeout(Duration::from_secs(2))?;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    let stopped_before_first_poll = stopping.is_finished() || stopping_again.is_finished();
+    release.send(())?;
     assert_eq!(
         tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
         Some(0)
     );
-    client.stop_listener(id).await;
+    assert!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::task::spawn_blocking(move || stopping.join().is_ok()),
+        )
+        .await??
+    );
+    assert!(
+        tokio::time::timeout(
+            Duration::from_secs(2),
+            tokio::task::spawn_blocking(move || stopping_again.join().is_ok()),
+        )
+        .await??
+    );
+    assert!(
+        !stopped_before_first_poll,
+        "stop returned before the host callback started"
+    );
     emit_hmac(&client);
-    release.notify_one();
     let later = tokio::time::timeout(Duration::from_millis(100), started.recv()).await;
-    release.notify_one();
     assert!(!matches!(later, Ok(Some(_))));
+    client.end().await?;
+}
+
+// verifies: EVENT-030
+#[xmtp_common::test(unwrap_try = true)]
+async fn blocked_listener_counts_running_event_in_queue_bound() {
+    use tokio::sync::{Semaphore, mpsc};
+
+    struct BoundListener {
+        started: mpsc::UnboundedSender<ClientEvent>,
+        release: Arc<Semaphore>,
+    }
+
+    #[xmtp_common::async_trait]
+    impl EventListener for BoundListener {
+        async fn on_event(&self, event: ClientEvent) -> Result<(), ListenerError> {
+            let _ = self.started.send(event);
+            self.release
+                .acquire()
+                .await
+                .map_err(|_| ListenerError::Failed)?
+                .forget();
+            Ok(())
+        }
+    }
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let (started, mut events) = mpsc::unbounded_channel();
+    let release = Arc::new(Semaphore::new(0));
+    let id = client
+        .start_listener(
+            event_filter(vec![EventKind::HmacKeysUpdated]),
+            Arc::new(BoundListener {
+                started,
+                release: release.clone(),
+            }),
+        )
+        .await?;
+    emit_hmac(&client);
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), events.recv()).await?,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    for _ in 0..1030 {
+        emit_hmac(&client);
+    }
+    release.add_permits(1026);
+    tokio::time::timeout(Duration::from_secs(30), async {
+        for _ in 0..1023 {
+            assert!(matches!(
+                events.recv().await,
+                Some(ClientEvent::HmacKeysUpdated)
+            ));
+        }
+        assert!(matches!(
+            events.recv().await,
+            Some(ClientEvent::Lagged { discarded: 7 })
+        ));
+    })
+    .await?;
+    client.stop_listener(id).await;
     client.end().await?;
 }
 
