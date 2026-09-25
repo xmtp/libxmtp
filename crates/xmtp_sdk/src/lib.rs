@@ -33,7 +33,10 @@ mod static_helpers;
 mod storage;
 
 pub use archives::{ArchiveElement, ArchiveMetadata, ArchiveOptions, Archives};
-pub use client::{Client, ClientOptions, StorageLocation, StorageOptions};
+pub use client::{
+    Client, ClientHandlers, ClientOptions, PreAuthenticate, PreAuthenticateError, StorageLocation,
+    StorageOptions,
+};
 pub use configuration::{
     AuthConfiguration, LimitsConfiguration, MlsConfiguration, RetentionConfiguration,
     ServerConfiguration, SigningKeyDescription,
