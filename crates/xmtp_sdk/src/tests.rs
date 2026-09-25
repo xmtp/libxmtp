@@ -1936,6 +1936,11 @@ async fn connection_state_across_toxiproxy_drop() {
         assert_eq!(message, ConnectionState::Connected);
         assert_eq!(conversation, ConnectionState::Connected);
 
+        // Keep the stream's shared observer busy while the state watcher waits.
+        let shared_wait = conversations
+            .lease_for_test()
+            .lock_change_receiver_for_test()
+            .await;
         let pending_conversation = conversations.clone();
         let pending_read = tokio::spawn(async move { pending_conversation.next().await });
         tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1958,9 +1963,16 @@ async fn connection_state_across_toxiproxy_drop() {
         );
 
         proxy.disable().await.expect("disable proxy");
+        xmtp_common::time::timeout(Duration::from_secs(30), async {
+            while conversations.connection_state() != ConnectionState::Reconnecting {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await
+        .expect("conversation reader saw reconnecting");
         let outage = AssertUnwindSafe(async {
             let (message, conversation) =
-                xmtp_common::time::timeout(Duration::from_secs(30), pending_states)
+                xmtp_common::time::timeout(Duration::from_secs(3), pending_states)
                     .await
                     .expect("connection drop")
                     .expect("state observer task");
@@ -1975,6 +1987,7 @@ async fn connection_state_across_toxiproxy_drop() {
         })
         .catch_unwind()
         .await;
+        drop(shared_wait);
         proxy.enable().await.expect("restore proxy");
         outage.expect("connection drop assertion");
 
