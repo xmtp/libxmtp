@@ -106,6 +106,10 @@ pub struct AttachmentClientError {
     pub cause: Cause,
     pub credential_kind: Option<CredentialFailureKind>,
     pub retryable: bool,
+    /// True when the backend rejected the credential's scope.
+    pub missing_scope: bool,
+    /// Final status from the storage target or download host.
+    pub http_status: Option<u16>,
 }
 
 impl AttachmentClientError {
@@ -114,13 +118,18 @@ impl AttachmentClientError {
             cause,
             credential_kind: None,
             retryable: false,
+            missing_scope: false,
+            http_status: None,
         }
     }
 }
 
 impl From<AttachmentError> for AttachmentClientError {
     fn from(error: AttachmentError) -> Self {
-        Self::new(error.cause)
+        Self {
+            http_status: error.http_status,
+            ..Self::new(error.cause)
+        }
     }
 }
 
@@ -139,6 +148,14 @@ fn api_error(error: xmtp_api::ApiError) -> AttachmentClientError {
             cause: Cause::Credential,
             credential_kind: Some(credential_kind),
             retryable: auth.is_retryable(),
+            missing_scope: false,
+            http_status: None,
+        };
+    }
+    if grpc_status(&error).is_some_and(|status| status.code() == tonic::Code::PermissionDenied) {
+        return AttachmentClientError {
+            missing_scope: true,
+            ..AttachmentClientError::new(Cause::Credential)
         };
     }
     let rejected = grpc_status(&error).is_some_and(|status| {
@@ -177,7 +194,7 @@ impl xmtp_attachments::DownloadSink for DecoderSink {
         let mut plaintext = Vec::with_capacity(bytes.len());
         self.cipher.update(bytes, &mut plaintext)?;
         for content in self.decoder.push(&plaintext)? {
-            self.writer.write(content).await?;
+            self.writer.write_content(content).await?;
         }
         Ok(())
     }
@@ -227,6 +244,10 @@ fn failure_from_row(row: &StoredPendingAttachment) -> AttachmentClientError {
         cause,
         credential_kind,
         retryable: row.failure_retryable.unwrap_or(false),
+        missing_scope: row.failure_missing_scope.unwrap_or(false),
+        http_status: row
+            .failure_http_status
+            .and_then(|status| u16::try_from(status).ok()),
     }
 }
 
@@ -1405,11 +1426,13 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
             let _event_guard = event_lock.lock().await;
             let recorded = match &result {
                 Ok(()) => PendingAttachmentOutcome::Complete,
-                Err(error) => PendingAttachmentOutcome::failed(
-                    error.cause.as_str(),
-                    error.credential_kind.map(credential_kind_name),
-                    Some(error.retryable),
-                ),
+                Err(error) => PendingAttachmentOutcome::Failed {
+                    cause: error.cause.as_str(),
+                    credential_kind: error.credential_kind.map(credential_kind_name),
+                    retryable: Some(error.retryable),
+                    missing_scope: Some(error.missing_scope),
+                    http_status: error.http_status,
+                },
             };
             let outcome = {
                 #[cfg(test)]
@@ -2600,6 +2623,111 @@ mod tests {
         assert_eq!(pending.upload().await.unwrap_err(), first_error);
     }
 
+    // verifies: ATCH-078
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn permission_denied_is_missing_scope_credential() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let mut denied = xmtp_api_backend::MockBackendClient::new();
+        denied.expect_create_upload().times(1).returning(|_| {
+            Err(xmtp_proto::api::ApiClientError::client(
+                xmtp_api_grpc::error::GrpcError::Status(tonic::Status::permission_denied(
+                    "missing attachment scope",
+                )),
+            ))
+        });
+        let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(denied))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let error = first
+            .attachments()
+            .pending(&remote)
+            .await?
+            .upload()
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::Credential);
+        assert!(error.missing_scope);
+        assert!(!error.retryable);
+        let row = alix
+            .client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .unwrap();
+        assert_eq!(row.status, "failed");
+        assert_eq!(row.failure_cause.as_deref(), Some("credential"));
+        assert_eq!(row.failure_missing_scope, Some(true));
+        drop(first);
+        let renewed = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let resumed = renewed.attachments().pending(&remote).await?;
+        assert_eq!(resumed.status(), PendingAttachmentStatus::Failed(error));
+        resumed.upload().await?;
+        assert_eq!(resumed.status(), PendingAttachmentStatus::Complete);
+    }
+
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn http_status_survives_restart() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let (url, entered, release) = paused_put(403).await;
+        let first = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let pending = first.attachments().pending(&remote).await?;
+        let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), entered).await??;
+        release.send(()).expect("release PUT response");
+        let error = tokio::time::timeout(Duration::from_secs(10), upload)
+            .await??
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::TargetRejected);
+        assert_eq!(error.http_status, Some(403));
+        let row = alix
+            .client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .unwrap();
+        assert_eq!(row.failure_http_status, Some(403));
+        drop(first);
+        let restarted = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert_eq!(
+            restarted.attachments().pending(&remote).await?.status(),
+            PendingAttachmentStatus::Failed(error)
+        );
+    }
+
     // verifies: ATCH-029, ATCH-066
     #[xmtp_common::test(unwrap_try = true)]
     async fn failed_status_survives_restart() {
@@ -2782,6 +2910,7 @@ mod tests {
                 cause: Cause::Credential,
                 credential_kind: Some(CredentialFailureKind::CallbackFailed),
                 retryable: true,
+                ..
             })
         ));
     }
@@ -3755,6 +3884,36 @@ mod tests {
         assert!(client.attachments().list_local().await?.is_empty());
     }
 
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn download_http_status_is_exposed() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let mut remote = pending.remote_attachment().clone();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        remote.url = format!("http://{}/file", listener.local_addr()?);
+        drop(xmtp_common::task::spawn(async move {
+            let (mut stream, _) = listener.accept().await.expect("accept GET");
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).await;
+            stream.write_all(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await.expect("send 503");
+        }));
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let error = client.attachments().download(&remote).await.unwrap_err();
+        assert_eq!(error.cause, Cause::HttpStatus);
+        assert_eq!(error.http_status, Some(503));
+    }
+
     // verifies: ATCH-058
     #[xmtp_common::test(unwrap_try = true)]
     async fn one_fetch_per_path() {
@@ -4347,6 +4506,47 @@ mod tests {
             .await?;
         let path = client.attachments().download(&remote).await?.path;
         assert_eq!(tokio::fs::read(path).await?, content);
+    }
+
+    // verifies: ATCH-051
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn repeated_content_download_keeps_last_field() {
+        use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let mut envelope =
+            EncodedContent::decode(encoded_prefix(None, "text/plain", 0).as_slice())?;
+        envelope.content = vec![b'f'; CHUNK * 2];
+        let mut plaintext = envelope.encode_to_vec();
+        plaintext.extend_from_slice(b"\x22\x04last");
+        let material = KeyMaterial::random();
+        let mut cipher = GcmEncryptor::new(&material);
+        let mut body = Vec::new();
+        cipher.update(&plaintext, &mut body)?;
+        body.extend_from_slice(&cipher.finish());
+        let digest = hex::encode(Sha256::digest(&body));
+        let (url, _) = serve_body(body.clone()).await;
+        let mut remote = remote_attachment(
+            "http://localhost",
+            &digest,
+            &material,
+            body.len() as u32,
+            None,
+        );
+        remote.url = url;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let path = client.attachments().download(&remote).await?.path;
+        assert!(
+            tokio::fs::read(path).await? == b"last",
+            "decoder kept earlier content"
+        );
     }
 
     // verifies: ATCH-025, ATCH-038, ATCH-047, ATCH-050, ATCH-051, P23
