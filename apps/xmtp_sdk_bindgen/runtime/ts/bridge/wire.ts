@@ -67,7 +67,7 @@ export function bridgeError(
       { code: "Lagged", category, retryable: true, message: code },
     ]);
   }
-  return new BridgeError(code, code, "lifecycle", false, code, details);
+  return new BridgeError(code, code, 6, false, code, details);
 }
 
 export function encodeError(error: unknown): ErrorWire {

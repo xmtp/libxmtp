@@ -1,0 +1,210 @@
+import * as Pure from "../typescript-pure/xmtp_sdk.js";
+import * as B from "./xmtp_sdk.js";
+import type { Client } from "./proxy.gen.js";
+import type { MainSession } from "./runtime/bridge/main/session.js";
+
+export interface ContentCodec<T = unknown> {
+  readonly type: B.ContentTypeID;
+  encode(value: T): B.EncodedContent;
+  decode(encoded: B.EncodedContent): T;
+}
+
+export type HostClientOptions = B.ClientOptions & {
+  codecs?: readonly ContentCodec[];
+};
+
+interface Owner {
+  client: WeakRef<Client>;
+  codecs: ReadonlyMap<string, ContentCodec>;
+}
+
+const owners = new WeakMap<MainSession, Map<bigint, Owner>>();
+
+function codecKey(type: B.ContentTypeID): string {
+  return `${type.authorityID}/${type.typeID}/${type.versionMajor}`;
+}
+
+export function registerClient(
+  session: MainSession,
+  client: Client,
+  codecs: readonly ContentCodec[],
+): void {
+  const entries = owners.get(session) ?? new Map<bigint, Owner>();
+  entries.set(client.clientKey(), {
+    client: new WeakRef(client),
+    codecs: new Map(codecs.map((codec) => [codecKey(codec.type), codec])),
+  });
+  owners.set(session, entries);
+}
+
+export function unregisterClient(session: MainSession, key: bigint): void {
+  owners.get(session)?.delete(key);
+}
+
+function closed(): B.XmtpError {
+  return B.XmtpError.ClientClosed.new({
+    code: "ClientClosed",
+    category: B.ErrorCategory.Lifecycle,
+    retryable: false,
+    message: "client is closed",
+  });
+}
+
+function owner(session: MainSession, key: bigint): Owner | undefined {
+  const entry = owners.get(session)?.get(key);
+  if (entry && !entry.client.deref()) {
+    owners.get(session)?.delete(key);
+    return undefined;
+  }
+  return entry;
+}
+
+type CustomContent = {
+  tag: B.MessageContent_Tags.Custom;
+  inner: { encoded: B.EncodedContent; value?: unknown; error?: string };
+};
+type CustomBody = {
+  tag: B.MessageBody_Tags.Custom;
+  inner: { encoded: B.EncodedContent; value?: unknown; error?: string };
+};
+type HostContent =
+  | Exclude<B.MessageContent, { tag: B.MessageContent_Tags.Custom }>
+  | CustomContent;
+
+function decodeCustom(
+  entry: Owner | undefined,
+  encoded: B.EncodedContent,
+): { value?: unknown; error?: string } | undefined {
+  const codec = entry?.codecs.get(codecKey(encoded.type));
+  if (!codec) return undefined;
+  try {
+    return { value: codec.decode(encoded) };
+  } catch (error) {
+    return { error: String(error) };
+  }
+}
+
+function decodeContent(
+  session: MainSession,
+  key: bigint,
+  content: B.MessageContent,
+  encoded: B.EncodedContent,
+): HostContent {
+  if (content.tag === B.MessageContent_Tags.Custom) {
+    const result = decodeCustom(owner(session, key), encoded);
+    return result === undefined
+      ? { tag: B.MessageContent_Tags.Custom, inner: { encoded } }
+      : { tag: B.MessageContent_Tags.Custom, inner: { encoded, ...result } };
+  }
+  if (content.tag === B.MessageContent_Tags.Unknown) return content;
+
+  // Standard bytes are decoded by the main-thread pure WASM module.
+  const standard = Pure.decodeStandard(encoded);
+  switch (standard.tag) {
+    case Pure.StandardContent_Tags.Text:
+      return B.MessageContent.Text.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.Markdown:
+      return B.MessageContent.Markdown.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.ReadReceipt:
+      return B.MessageContent.ReadReceipt.new();
+    case Pure.StandardContent_Tags.Reaction:
+      return B.MessageContent.Reaction.new(standard.inner.reaction);
+    case Pure.StandardContent_Tags.Attachment:
+      return B.MessageContent.Attachment.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.RemoteAttachment:
+      return B.MessageContent.RemoteAttachment.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.MultiRemoteAttachment:
+      return B.MessageContent.MultiRemoteAttachment.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.TransactionReference:
+      return B.MessageContent.TransactionReference.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.WalletSendCalls:
+      return B.MessageContent.WalletSendCalls.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.Actions:
+      return B.MessageContent.Actions.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.Intent:
+      return B.MessageContent.Intent.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.GroupUpdated:
+      return B.MessageContent.GroupUpdated.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.LeaveRequest:
+      return B.MessageContent.LeaveRequest.new(standard.inner[0]);
+    case Pure.StandardContent_Tags.Reply:
+    case Pure.StandardContent_Tags.DeleteMessage:
+      return content;
+  }
+}
+
+function decodeBody(
+  session: MainSession,
+  key: bigint,
+  body: B.MessageBody,
+): B.MessageBody | CustomBody {
+  if (body.tag !== B.MessageBody_Tags.Custom) return body;
+  const encoded = body.inner.encoded;
+  const result = decodeCustom(owner(session, key), encoded);
+  return result === undefined
+    ? { tag: B.MessageBody_Tags.Custom, inner: { encoded } }
+    : { tag: B.MessageBody_Tags.Custom, inner: { encoded, ...result } };
+}
+
+export class Message extends B.Message {
+  readonly content: HostContent;
+  readonly inReplyToContent?: B.MessageBody | CustomBody;
+  readonly replyContent?: B.MessageBody | CustomBody;
+
+  constructor(data: B.MessageData, private readonly session: MainSession) {
+    super(data);
+    this.content = decodeContent(session, data.clientKey, data.content, data.encoded);
+    this.inReplyToContent = data.inReplyTo
+      ? decodeBody(session, data.clientKey, data.inReplyTo.content)
+      : undefined;
+    this.replyContent =
+      data.content.tag === B.MessageContent_Tags.Reply
+        ? decodeBody(session, data.clientKey, data.content.inner.body)
+        : undefined;
+  }
+
+  get conversationID(): B.ConversationID { return this.data.conversationID; }
+  get topic(): string { return this.data.topic; }
+  get senderInboxID(): B.InboxID { return this.data.senderInboxID; }
+  get sentAt(): B.Timestamp { return this.data.sentAt; }
+  get contentType(): B.ContentTypeID { return this.data.contentType; }
+  get fallback(): string | undefined { return this.data.fallback; }
+  get replyCount(): bigint { return this.data.replyCount; }
+  get reactions(): B.ReactionMessage[] { return this.data.reactions; }
+  get insertedAt(): B.Timestamp { return this.data.insertedAt; }
+  get expiresAt(): B.Timestamp | undefined { return this.data.expiresAt; }
+  get inReplyTo(): B.ReplyParent | undefined { return this.data.inReplyTo; }
+
+  client(): Client {
+    const value = owner(this.session, this.data.clientKey)?.client.deref();
+    if (!value) throw closed();
+    return value;
+  }
+
+  async refresh(): Promise<Message | undefined> {
+    const value = await this.client().conversations().getMessageByID(this.id);
+    return value === undefined ? undefined : new Message(value.data, this.session);
+  }
+  delete(): Promise<B.MessageID> {
+    return this.client().conversations().deleteMessage(this.id);
+  }
+  deleteLocally(): Promise<void> {
+    return this.client().conversations().deleteMessageLocally(this.id);
+  }
+  react(reaction: B.Reaction, options?: B.SendOptions): Promise<B.MessageID> {
+    return this.client().conversations().reactToMessage(this.id, reaction, options);
+  }
+  reply(content: string | B.EncodedContent, options?: B.SendOptions): Promise<B.MessageID> {
+    const encoded = typeof content === "string" ? Pure.encodeText(content) : content;
+    return this.client().conversations().replyToMessage(this.id, encoded, options);
+  }
+  async parent(): Promise<Message | undefined> {
+    const id = this.inReplyTo?.id;
+    if (id === undefined) return undefined;
+    const value = await this.client().conversations().getMessageByID(id);
+    return value === undefined ? undefined : new Message(value.data, this.session);
+  }
+  conversation(): Promise<B.Conversation | undefined> {
+    return this.client().conversations().getByID(this.conversationID);
+  }
+}

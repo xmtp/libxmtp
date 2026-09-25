@@ -453,7 +453,8 @@ fn decode_expr(ty: &Type, raw: &str, session: &str) -> String {
         Type::Custom { name, builtin, .. } => {
             let inner = decode_expr(builtin, raw, session);
             match name.as_str() {
-                "Message" | "Timestamp" => format!("new B.{name}({inner})"),
+                "Message" => format!("new HostMessage({inner}, {session})"),
+                "Timestamp" => format!("new B.Timestamp({inner})"),
                 _ => format!("B.{name}.fromRust({inner})"),
             }
         }
@@ -852,7 +853,7 @@ fn render(
     result.insert("wire.gen.ts", wire);
 
     let mut proxy = String::from(
-        "import * as B from \"./xmtp_sdk.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
+        "import * as B from \"./xmtp_sdk.js\";\nimport { initPureWasm } from \"../typescript-pure/index.js\";\nimport { Message as HostMessage, registerClient, unregisterClient, type HostClientOptions } from \"./host-message.gen.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
     );
     for item in items {
         if let Metadata::Object(object) = item
@@ -870,13 +871,27 @@ fn render(
                 let params = op
                     .inputs
                     .iter()
-                    .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
+                    .map(|(name, ty)| {
+                        let ty = if object.name == "Client" && name == "options" {
+                            "HostClientOptions".into()
+                        } else {
+                            ts_type(ty)
+                        };
+                        format!("{name}: {ty}")
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let args = op
                     .inputs
                     .iter()
-                    .map(|(name, ty)| format!("encoder.convert({}, {name})", shape(ty)))
+                    .map(|(name, ty)| {
+                        let value = if object.name == "Client" && name == "options" {
+                            "bridgeOptions"
+                        } else {
+                            name
+                        };
+                        format!("encoder.convert({}, {value})", shape(ty))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let comma = if params.is_empty() { "" } else { ", " };
@@ -886,6 +901,9 @@ fn render(
                     op.name, object.name
                 )?;
                 if !op.inputs.is_empty() {
+                    if object.name == "Client" {
+                        proxy.push_str("    await initPureWasm();\n    const { codecs = [], ...bridgeOptions } = options;\n");
+                    }
                     proxy.push_str("    const encoder = mainEncoder(session);\n");
                 }
                 writeln!(
@@ -893,11 +911,15 @@ fn render(
                     "    installErrorDecoder(session);\n    const handle = bridgeHandle(await session.call(\"{}\", [{args}], undefined, asyncOpts_?.signal), \"{}\");",
                     op.key, object.name
                 )?;
-                writeln!(
-                    proxy,
-                    "    return decodeObject{}(session, handle);",
-                    object.name
-                )?;
+                if object.name == "Client" {
+                    proxy.push_str("    const client = decodeObjectClient(session, handle);\n    registerClient(session, client, codecs);\n    return client;\n");
+                } else {
+                    writeln!(
+                        proxy,
+                        "    return decodeObject{}(session, handle);",
+                        object.name
+                    )?;
+                }
                 proxy.push_str("  }\n");
             }
             for op in operations
@@ -935,7 +957,7 @@ fn render(
                 } else if object.name == "Client" && op.name == "end" {
                     writeln!(
                         proxy,
-                        "  private closing?: Promise<void>;\n  end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ this.endOwner(); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
+                        "  private closing?: Promise<void>;\n  end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const key = this.clientKey(); const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ this.endOwner(); unregisterClient(this.session, key); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
                     )?;
                 } else {
                     let comma = if params.is_empty() { "" } else { ", " };
@@ -993,6 +1015,10 @@ fn render(
         proxy.push_str("function installErrorDecoder(session: MainSession): void { session.setErrorDecoder(decodeError); }\n");
     }
     result.insert("proxy.gen.ts", proxy);
+    result.insert(
+        "host-message.gen.ts",
+        include_str!("../../templates/bridge/host-message.gen.ts").into(),
+    );
 
     let mut dispatch = String::from(
         "import * as B from \"./xmtp_sdk.js\";\nimport type { Calls } from \"./wire.gen.js\";\nimport type { Shape } from \"./runtime/bridge/codec.js\";\nimport { enumFactory } from \"./runtime/bridge/codec.js\";\nimport type { WorkerContext } from \"./runtime/bridge/worker/host.js\";\nimport { poolName } from \"./runtime/bridge/worker/host.js\";\nimport { workerDecoder, workerEncoder } from \"./codec.worker.gen.js\";\n\ninterface MethodEntry { owner: string | null; name: string; inputs: Shape[]; output: Shape; constructor: boolean; immutable: boolean }\nexport const METHOD_TABLE = {\n",
@@ -1092,6 +1118,22 @@ mod tests {
         ObjectMetadata, ObjectTraitImplMetadata, TraitMethodMetadata, UniffiTraitMetadata,
         VariantMetadata,
     };
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn message_lift_uses_browser_host_class() {
+        let message = Type::Custom {
+            module_path: "test".into(),
+            name: "Message".into(),
+            builtin: Box::new(Type::Record {
+                module_path: "test".into(),
+                name: "MessageData".into(),
+            }),
+        };
+        assert_eq!(
+            decode_expr(&message, "raw", "session"),
+            "new HostMessage(decodeRecordMessageData(session, raw), session)"
+        );
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn named_error_variant_uses_named_constructor() {
