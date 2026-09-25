@@ -107,11 +107,19 @@ impl std::fmt::Debug for S3Target {
 
 impl S3Target {
     pub async fn new(config: &S3Config) -> Result<Self, BuildError> {
-        Self::new_with_clock(config, Arc::new(SystemTime::now)).await
+        Self::build_with_clock(config, Arc::new(SystemTime::now)).await
     }
 
     /// Create a target with a supplied clock for deterministic signing.
+    #[cfg(any(test, feature = "test-utils"))]
     pub async fn new_with_clock(
+        config: &S3Config,
+        clock: Arc<dyn Fn() -> SystemTime + Send + Sync>,
+    ) -> Result<Self, BuildError> {
+        Self::build_with_clock(config, clock).await
+    }
+
+    async fn build_with_clock(
         config: &S3Config,
         clock: Arc<dyn Fn() -> SystemTime + Send + Sync>,
     ) -> Result<Self, BuildError> {
