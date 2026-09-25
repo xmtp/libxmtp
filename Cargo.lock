@@ -12820,6 +12820,7 @@ dependencies = [
  "http 1.4.2",
  "schemars 1.2.1",
  "serde",
+ "tempfile",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
