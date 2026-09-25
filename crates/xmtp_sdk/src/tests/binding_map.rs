@@ -409,11 +409,11 @@ async fn backend_url_is_required_and_offline_choice_is_explicit() {
     std::fs::remove_file(path)?;
 }
 
+// verifies: CONF-034
 #[xmtp_common::test(unwrap_try = true)]
 async fn offline_build_with_moved_url_uses_stored_copy() {
     use xmtp_db::prelude::QueryServerConfiguration;
 
-    // verifies: CONF-034
     let path = std::env::temp_dir().join(format!(
         "sdk-moved-backend-{}-{}.db3",
         std::process::id(),
