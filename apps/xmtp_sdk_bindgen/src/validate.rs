@@ -182,9 +182,10 @@ fn takes_message_record(ty: &Type) -> bool {
         {
             true
         }
-        Type::Custom { name, .. } if name == "Message" => true,
+        Type::Custom { name, builtin, .. } => name == "Message" || takes_message_record(builtin),
         Type::Optional { inner_type }
         | Type::Sequence { inner_type }
+        | Type::Set { inner_type }
         | Type::Box { inner_type } => takes_message_record(inner_type),
         Type::Map {
             key_type,
@@ -541,5 +542,36 @@ mod tests {
         value.inputs = vec![FnParamMetadata::simple("id", Type::String)];
         validate_items(&[valid])?;
         Ok(())
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_message_records_in_sets_and_custom_wrappers() {
+        let record = Type::Record {
+            module_path: "test".into(),
+            name: "MessageData".into(),
+        };
+        let wrapped = Type::Custom {
+            module_path: "test".into(),
+            name: "WrappedMessage".into(),
+            builtin: Box::new(record.clone()),
+        };
+        for ty in [
+            Type::Set {
+                inner_type: Box::new(record),
+            },
+            wrapped,
+        ] {
+            let mut action = method("Conversations", "delete_message", true);
+            let Metadata::Method(ref mut value) = action else {
+                unreachable!()
+            };
+            value.inputs = vec![FnParamMetadata::simple("messages", ty)];
+            assert!(
+                validate_items(&[action])
+                    .unwrap_err()
+                    .to_string()
+                    .contains("pass MessageID")
+            );
+        }
     }
 }
