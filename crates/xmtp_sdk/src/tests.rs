@@ -1011,7 +1011,9 @@ async fn late_reader_released() {
 async fn message_decode_error_closes_reader_and_releases_lease() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    group.send_text("invalid stored message".into(), None).await?;
+    group
+        .send_text("invalid stored message".into(), None)
+        .await?;
     let reader = group.message_reader().await?;
     reader.corrupt_next_message_for_test();
     assert!(

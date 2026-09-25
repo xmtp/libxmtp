@@ -33,7 +33,7 @@ final class TestFlag: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return open
-}
+    }
 }
 
 final class TestCounter: @unchecked Sendable {
