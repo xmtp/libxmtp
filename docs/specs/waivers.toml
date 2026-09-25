@@ -223,6 +223,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A token carrying kid whose algorithm no loaded key uses is answered unsupported_alg before key selection, rather than untrusted."
 
 [[waiver]]
+id = "AUTH-035"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test drives failures from two clients sharing one handle."
+
+[[waiver]]
 id = "AUTH-031"
 kind = "gap"
 owner = "backend"
@@ -598,7 +605,7 @@ id = "STORE-008"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs do not reject separators and NUL in the label; the façade does."
+reason = "Current SDKs do not reject separators, the colon, and NUL in the label; the façade does."
 
 [[waiver]]
 id = "IDENT-073"
@@ -734,13 +741,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "The specified event payload members and their source values are not implemented."
 
 [[waiver]]
-id = "EVENT-025"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
-
-[[waiver]]
 id = "EVENT-026"
 kind = "gap"
 owner = "protocol"
@@ -802,3 +802,17 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No SDK app event subscription is ended by closing its client."
+
+[[waiver]]
+id = "EVENT-055"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No test drives two client instances sharing one credential handle; the façade event test is planned (Task 20 follow-up)."
+
+[[waiver]]
+id = "EVENT-056"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
