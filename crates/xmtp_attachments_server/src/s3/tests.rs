@@ -2,11 +2,16 @@ use super::*;
 use aws_credential_types::provider::{Result as CredentialResult, future};
 use std::{
     collections::VecDeque,
+    ffi::OsStr,
     sync::{
         Mutex as StdMutex,
         atomic::{AtomicU64, AtomicUsize, Ordering},
     },
     time::UNIX_EPOCH,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt},
+    net::TcpListener,
 };
 
 const REFERENCE_TIME: u64 = 1_369_353_600; // 2013-05-24T00:00:00Z
@@ -107,6 +112,160 @@ fn target(
         SharedCredentialsProvider::from(provider as Arc<dyn ProvideCredentials>),
         clock,
     )
+}
+
+fn set_test_env(key: &str, value: impl AsRef<OsStr>) {
+    // SAFETY: Nextest runs each test in its own process. Set variables before creating providers.
+    unsafe { std::env::set_var(key, value) };
+}
+
+fn remove_test_env(key: &str) {
+    // SAFETY: Nextest runs each test in its own process. Remove variables before creating providers.
+    unsafe { std::env::remove_var(key) };
+}
+
+async fn assert_resolves_to(
+    credentials: CredentialsConfig,
+    access_key_id: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut config = config();
+    config.credentials = credentials;
+    let target = S3Target::new(&config).await?;
+    let signed = target.presign_put(&[1; 32], 1).await?;
+    let url = Url::parse(&signed.url)?;
+    let credential = url
+        .query_pairs()
+        .find(|(name, _)| name == "X-Amz-Credential")
+        .expect("signed URL has a credential scope")
+        .1;
+    assert_eq!(credential.split('/').next(), Some(access_key_id));
+    Ok(())
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn every_credential_kind_builds() {
+    set_test_env("AWS_EC2_METADATA_DISABLED", "true");
+    let kinds = [
+        CredentialsConfig::Static {
+            access_key_id: "STATIC_KEY".into(),
+            secret_access_key: "STATIC_SECRET".into(),
+            session_token: None,
+        },
+        CredentialsConfig::DefaultChain,
+        CredentialsConfig::Environment,
+        CredentialsConfig::Profile {
+            name: "fixture".into(),
+        },
+        CredentialsConfig::Sso {
+            account_id: "123456789012".into(),
+            region: "us-east-1".into(),
+            role_name: "attachments".into(),
+            start_url: "https://sso.example.com/start".into(),
+            session_name: None,
+        },
+        CredentialsConfig::Process {
+            command: "printf '{}'".into(),
+        },
+        CredentialsConfig::WebIdentity,
+        CredentialsConfig::Container,
+        CredentialsConfig::Instance,
+        CredentialsConfig::AssumeRole {
+            role_arn: "arn:aws:iam::123456789012:role/attachments".into(),
+            external_id: None,
+            session_name: Some("attachment-test".into()),
+        },
+    ];
+    for credentials in kinds {
+        let mut config = config();
+        config.credentials = credentials;
+        assert!(
+            S3Target::new(&config).await.is_ok(),
+            "could not build {:?}",
+            config.credentials
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn environment_credentials_resolve() {
+    set_test_env("AWS_ACCESS_KEY_ID", "ENV_KEY");
+    set_test_env("AWS_SECRET_ACCESS_KEY", "ENV_SECRET");
+    remove_test_env("AWS_SESSION_TOKEN");
+    assert_resolves_to(CredentialsConfig::Environment, "ENV_KEY").await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn default_chain_credentials_resolve_from_environment() {
+    set_test_env("AWS_EC2_METADATA_DISABLED", "true");
+    set_test_env("AWS_ACCESS_KEY_ID", "CHAIN_KEY");
+    set_test_env("AWS_SECRET_ACCESS_KEY", "CHAIN_SECRET");
+    remove_test_env("AWS_SESSION_TOKEN");
+    assert_resolves_to(CredentialsConfig::DefaultChain, "CHAIN_KEY").await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn profile_credentials_resolve() {
+    let directory = tempfile::tempdir()?;
+    let config_file = directory.path().join("config");
+    let credentials_file = directory.path().join("credentials");
+    std::fs::write(&config_file, "[profile fixture]\nregion = us-east-1\n")?;
+    std::fs::write(
+        &credentials_file,
+        "[fixture]\naws_access_key_id = PROFILE_KEY\naws_secret_access_key = PROFILE_SECRET\n",
+    )?;
+    set_test_env("AWS_CONFIG_FILE", &config_file);
+    set_test_env("AWS_SHARED_CREDENTIALS_FILE", &credentials_file);
+    assert_resolves_to(
+        CredentialsConfig::Profile {
+            name: "fixture".into(),
+        },
+        "PROFILE_KEY",
+    )
+    .await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn process_credentials_resolve() {
+    assert_resolves_to(
+        CredentialsConfig::Process {
+            command: r#"printf '%s' '{"Version":1,"AccessKeyId":"PROCESS_KEY","SecretAccessKey":"PROCESS_SECRET"}'"#.into(),
+        },
+        "PROCESS_KEY",
+    )
+    .await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn container_credentials_resolve() {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let url = format!("http://{}/credentials", listener.local_addr()?);
+    remove_test_env("AWS_CONTAINER_CREDENTIALS_RELATIVE_URI");
+    remove_test_env("AWS_CONTAINER_AUTHORIZATION_TOKEN");
+    remove_test_env("AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE");
+    set_test_env("AWS_CONTAINER_CREDENTIALS_FULL_URI", url);
+
+    let serve = async {
+        let (mut stream, _) = listener.accept().await?;
+        let mut request = [0; 2048];
+        let size = stream.read(&mut request).await?;
+        assert!(String::from_utf8_lossy(&request[..size]).starts_with("GET /credentials "));
+        let body = r#"{"AccessKeyId":"CONTAINER_KEY","SecretAccessKey":"CONTAINER_SECRET","Token":"CONTAINER_TOKEN","Expiration":"2099-01-01T00:00:00Z"}"#;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        stream.write_all(response.as_bytes()).await?;
+        Ok::<(), std::io::Error>(())
+    };
+    let (signed, served) = tokio::time::timeout(Duration::from_secs(10), async {
+        tokio::join!(
+            assert_resolves_to(CredentialsConfig::Container, "CONTAINER_KEY"),
+            serve
+        )
+    })
+    .await?;
+    signed?;
+    served?;
 }
 
 // verifies: ATCH-023
