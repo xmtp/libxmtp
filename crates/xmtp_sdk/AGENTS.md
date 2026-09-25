@@ -4,7 +4,7 @@ Run commands from the repository root in the Nix shell. Run
 `just backend status` to find this worktree's backend ports.
 
 - `just sdk generate` builds the SDK libraries and writes Swift, Kotlin, Node,
-  and WASM bindings to `target/sdk-generated/`.
+  worker WASM, and pure browser WASM bindings to `target/sdk-generated/`.
 - `just sdk lint` checks generated names and TypeScript source. It also
   rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
   benchmark exports in the default bindings and in
@@ -19,7 +19,8 @@ Run commands from the repository root in the Nix shell. Run
   `target/sdk-bench/`.
 - `just sdk check-isolation` rejects a façade branch that changes `sdks/` or
   `bindings/`.
-- `just sdk conformance-bridge` runs the bridge Vitest and real WASM worker proofs.
+- `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
+  and Chromium proofs for pure codecs, worker failure, and browser storage.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

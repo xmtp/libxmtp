@@ -88,6 +88,9 @@ fn contract_hash(groups: &MetadataGroupMap) -> String {
 
 fn validate_bridge(items: &[Metadata]) -> Result<()> {
     for item in items {
+        if pure_function(item) {
+            continue;
+        }
         match item {
             Metadata::Method(method) if !method.is_async => {
                 let immutable = method.inputs.is_empty()
@@ -144,6 +147,10 @@ fn validate_bridge(items: &[Metadata]) -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn pure_function(item: &Metadata) -> bool {
+    matches!(item, Metadata::Func(function) if function.docstring.as_deref().is_some_and(|doc| doc.contains("@xmtp-pure")))
 }
 
 fn item_types(item: &Metadata) -> Vec<&Type> {
@@ -219,7 +226,20 @@ fn validate_type(ty: &Type) -> Result<()> {
             validate_type(key_type)?;
             validate_type(value_type)
         }
-        Type::Custom { builtin, .. } => validate_type(builtin),
+        Type::Custom { name, builtin, .. } => {
+            if !matches!(
+                name.as_str(),
+                "Message"
+                    | "InboxID"
+                    | "InstallationID"
+                    | "ConversationID"
+                    | "MessageID"
+                    | "Timestamp"
+            ) {
+                bail!("{name}: unsupported custom type");
+            }
+            validate_type(builtin)
+        }
     }
 }
 
@@ -262,7 +282,7 @@ fn operations(items: &[Metadata], names: &BTreeMap<String, String>) -> Vec<Opera
                 constructor: true,
                 immutable: false,
             }),
-            Metadata::Func(value) => output.push(Operation {
+            Metadata::Func(value) if !pure_function(item) => output.push(Operation {
                 owner: None,
                 name: ts_name(&value.name, names),
                 key: ts_name(&value.name, names),
@@ -384,11 +404,13 @@ fn shape(ty: &Type) -> String {
         }
         Type::Record { name, .. } => format!("{{ kind: \"record\", name: \"{name}\" }}"),
         Type::Enum { name, .. } => format!("{{ kind: \"enum\", name: \"{name}\" }}"),
-        Type::Box { inner_type }
-        | Type::Custom {
-            builtin: inner_type,
-            ..
-        } => shape(inner_type),
+        Type::Box { inner_type } => shape(inner_type),
+        Type::Custom { name, builtin, .. } => {
+            format!(
+                "{{ kind: \"custom\", name: \"{name}\", inner: {} }}",
+                shape(builtin)
+            )
+        }
         Type::Optional { inner_type } => {
             format!("{{ kind: \"optional\", inner: {} }}", shape(inner_type))
         }
@@ -427,11 +449,14 @@ fn decode_expr(ty: &Type, raw: &str, session: &str) -> String {
         Type::CallbackInterface { name, .. } => format!("decodeObject{name}({session}, {raw})"),
         Type::Record { name, .. } => format!("decodeRecord{name}({session}, {raw})"),
         Type::Enum { name, .. } => format!("decodeEnum{name}({session}, {raw})"),
-        Type::Box { inner_type }
-        | Type::Custom {
-            builtin: inner_type,
-            ..
-        } => decode_expr(inner_type, raw, session),
+        Type::Box { inner_type } => decode_expr(inner_type, raw, session),
+        Type::Custom { name, builtin, .. } => {
+            let inner = decode_expr(builtin, raw, session);
+            match name.as_str() {
+                "Message" | "Timestamp" => format!("new B.{name}({inner})"),
+                _ => format!("B.{name}.fromRust({inner})"),
+            }
+        }
         Type::Optional { inner_type } => format!(
             "({raw} === undefined || {raw} === null ? undefined : {})",
             decode_expr(inner_type, raw, session)
@@ -755,18 +780,18 @@ fn render(
     wire.push_str("} } satisfies Layouts;\n");
     wire.push_str("export const BRIDGED_OBJECTS = [\n");
     for item in items {
-        if let Metadata::Object(object) = item {
-            if object.imp.has_struct() {
-                writeln!(wire, "  \"{}\",", object.name)?;
-            }
+        if let Metadata::Object(object) = item
+            && object.imp.has_struct()
+        {
+            writeln!(wire, "  \"{}\",", object.name)?;
         }
     }
     wire.push_str("];\nexport const FOREIGN_OBJECTS = [\n");
     for item in items {
-        if let Metadata::Object(object) = item {
-            if object.imp.has_callback_interface() {
-                writeln!(wire, "  \"{}\",", object.name)?;
-            }
+        if let Metadata::Object(object) = item
+            && object.imp.has_callback_interface()
+        {
+            writeln!(wire, "  \"{}\",", object.name)?;
         }
     }
     wire.push_str("];\n");
@@ -810,132 +835,132 @@ fn render(
         "import * as B from \"./xmtp_sdk.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
     );
     for item in items {
-        if let Metadata::Object(object) = item {
-            if object.imp.has_struct() {
+        if let Metadata::Object(object) = item
+            && object.imp.has_struct()
+        {
+            writeln!(
+                proxy,
+                "export class {} extends RemoteObject implements B.{}Like {{",
+                object.name, object.name
+            )?;
+            for op in operations
+                .iter()
+                .filter(|op| op.owner.as_deref() == Some(&object.name) && op.constructor)
+            {
+                let params = op
+                    .inputs
+                    .iter()
+                    .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let args = op
+                    .inputs
+                    .iter()
+                    .map(|(name, ty)| format!("encoder.convert({}, {name})", shape(ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let comma = if params.is_empty() { "" } else { ", " };
                 writeln!(
                     proxy,
-                    "export class {} extends RemoteObject implements B.{}Like {{",
-                    object.name, object.name
+                    "  static async {}(session: MainSession{comma}{params}, asyncOpts_?: {{ signal: AbortSignal }}): Promise<{}> {{",
+                    op.name, object.name
                 )?;
-                for op in operations
+                if !op.inputs.is_empty() {
+                    proxy.push_str("    const encoder = mainEncoder(session);\n");
+                }
+                writeln!(
+                    proxy,
+                    "    installErrorDecoder(session);\n    const handle = bridgeHandle(await session.call(\"{}\", [{args}], undefined, asyncOpts_?.signal), \"{}\");",
+                    op.key, object.name
+                )?;
+                writeln!(
+                    proxy,
+                    "    return decodeObject{}(session, handle);",
+                    object.name
+                )?;
+                proxy.push_str("  }\n");
+            }
+            for op in operations
+                .iter()
+                .filter(|op| op.owner.as_deref() == Some(&object.name) && !op.constructor)
+            {
+                let params = op
+                    .inputs
                     .iter()
-                    .filter(|op| op.owner.as_deref() == Some(&object.name) && op.constructor)
-                {
-                    let params = op
-                        .inputs
-                        .iter()
-                        .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let args = op
-                        .inputs
-                        .iter()
-                        .map(|(name, ty)| format!("encoder.convert({}, {name})", shape(ty)))
-                        .collect::<Vec<_>>()
-                        .join(", ");
+                    .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let args = op
+                    .inputs
+                    .iter()
+                    .map(|(name, ty)| format!("encoder.convert({}, {name})", shape(ty)))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let output = op
+                    .output
+                    .as_ref()
+                    .map(ts_type)
+                    .unwrap_or_else(|| "void".into());
+                if op.immutable {
+                    writeln!(
+                        proxy,
+                        "  {}(): {output} {{ return {}; }}",
+                        op.name,
+                        decode_expr(
+                            op.output.as_ref().expect("immutable result"),
+                            &format!("this.snapshot(\"{}\")", op.name),
+                            "this.session"
+                        )
+                    )?;
+                } else if object.name == "Client" && op.name == "end" {
+                    writeln!(
+                        proxy,
+                        "  private closing?: Promise<void>;\n  end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ this.endOwner(); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
+                    )?;
+                } else {
                     let comma = if params.is_empty() { "" } else { ", " };
                     writeln!(
                         proxy,
-                        "  static async {}(session: MainSession{comma}{params}, asyncOpts_?: {{ signal: AbortSignal }}): Promise<{}> {{",
-                        op.name, object.name
+                        "  async {}({params}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{",
+                        op.name
                     )?;
                     if !op.inputs.is_empty() {
-                        proxy.push_str("    const encoder = mainEncoder(session);\n");
+                        proxy.push_str("    const encoder = mainEncoder(this.session);\n");
                     }
+                    let binding = if op.output.is_some() {
+                        "const raw = "
+                    } else {
+                        ""
+                    };
                     writeln!(
                         proxy,
-                        "    installErrorDecoder(session);\n    const handle = bridgeHandle(await session.call(\"{}\", [{args}], undefined, asyncOpts_?.signal), \"{}\");",
-                        op.key, object.name
+                        "    installErrorDecoder(this.session);\n    {binding}await this.call(\"{}\", [{args}], asyncOpts_?.signal);",
+                        op.key
                     )?;
                     writeln!(
                         proxy,
-                        "    return decodeObject{}(session, handle);",
-                        object.name
+                        "    return {};",
+                        op.output
+                            .as_ref()
+                            .map(|ty| decode_expr(ty, "raw", "this.session"))
+                            .unwrap_or_else(|| "undefined".into())
                     )?;
                     proxy.push_str("  }\n");
                 }
-                for op in operations
-                    .iter()
-                    .filter(|op| op.owner.as_deref() == Some(&object.name) && !op.constructor)
-                {
-                    let params = op
-                        .inputs
-                        .iter()
-                        .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let args = op
-                        .inputs
-                        .iter()
-                        .map(|(name, ty)| format!("encoder.convert({}, {name})", shape(ty)))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let output = op
-                        .output
-                        .as_ref()
-                        .map(ts_type)
-                        .unwrap_or_else(|| "void".into());
-                    if op.immutable {
-                        writeln!(
-                            proxy,
-                            "  {}(): {output} {{ return {}; }}",
-                            op.name,
-                            decode_expr(
-                                op.output.as_ref().expect("immutable result"),
-                                &format!("this.snapshot(\"{}\")", op.name),
-                                "this.session"
-                            )
-                        )?;
-                    } else if object.name == "Client" && op.name == "end" {
-                        writeln!(
-                            proxy,
-                            "  private closing?: Promise<void>;\n  end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ this.endOwner(); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
-                        )?;
-                    } else {
-                        let comma = if params.is_empty() { "" } else { ", " };
-                        writeln!(
-                            proxy,
-                            "  async {}({params}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{",
-                            op.name
-                        )?;
-                        if !op.inputs.is_empty() {
-                            proxy.push_str("    const encoder = mainEncoder(this.session);\n");
-                        }
-                        let binding = if op.output.is_some() {
-                            "const raw = "
-                        } else {
-                            ""
-                        };
-                        writeln!(
-                            proxy,
-                            "    installErrorDecoder(this.session);\n    {binding}await this.call(\"{}\", [{args}], asyncOpts_?.signal);",
-                            op.key
-                        )?;
-                        writeln!(
-                            proxy,
-                            "    return {};",
-                            op.output
-                                .as_ref()
-                                .map(|ty| decode_expr(ty, "raw", "this.session"))
-                                .unwrap_or_else(|| "undefined".into())
-                        )?;
-                        proxy.push_str("  }\n");
-                    }
-                }
-                proxy.push_str("}\n");
             }
+            proxy.push_str("}\n");
         }
     }
     proxy.push_str("export function proxyFor(session: MainSession, handle: HandleWire): RemoteObject {\n  session.checkHandle(handle);\n  const existing = session.proxy(handle); if (existing) return existing;\n  switch (handle.type) {\n");
     for item in items {
-        if let Metadata::Object(object) = item {
-            if object.imp.has_struct() {
-                writeln!(
-                    proxy,
-                    "    case \"{}\": return new {}(session, handle);",
-                    object.name, object.name
-                )?;
-            }
+        if let Metadata::Object(object) = item
+            && object.imp.has_struct()
+        {
+            writeln!(
+                proxy,
+                "    case \"{}\": return new {}(session, handle);",
+                object.name, object.name
+            )?;
         }
     }
     proxy.push_str(
@@ -983,24 +1008,24 @@ fn render(
         "const immutable: Partial<Record<string, Array<{ name: string; shape: Shape }>>> = {\n",
     );
     for item in items {
-        if let Metadata::Object(object) = item {
-            if object.imp.has_struct() {
-                writeln!(dispatch, "  {}: [", object.name)?;
-                for op in operations
-                    .iter()
-                    .filter(|op| op.owner.as_deref() == Some(&object.name) && op.immutable)
-                {
-                    if let Some(ty) = &op.output {
-                        writeln!(
-                            dispatch,
-                            "    {{ name: \"{}\", shape: {} }},",
-                            op.name,
-                            shape(ty)
-                        )?;
-                    }
+        if let Metadata::Object(object) = item
+            && object.imp.has_struct()
+        {
+            writeln!(dispatch, "  {}: [", object.name)?;
+            for op in operations
+                .iter()
+                .filter(|op| op.owner.as_deref() == Some(&object.name) && op.immutable)
+            {
+                if let Some(ty) = &op.output {
+                    writeln!(
+                        dispatch,
+                        "    {{ name: \"{}\", shape: {} }},",
+                        op.name,
+                        shape(ty)
+                    )?;
                 }
-                dispatch.push_str("  ],\n");
             }
+            dispatch.push_str("  ],\n");
         }
     }
     dispatch.push_str("};\n\n");
@@ -1090,6 +1115,39 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    fn pure_function_stays_out_of_worker_dispatch() {
+        let item = Metadata::Func(FnMetadata {
+            module_path: "test".into(),
+            name: "encode_standard".into(),
+            orig_name: None,
+            is_async: false,
+            inputs: vec![],
+            return_type: Some(Type::String),
+            throws: None,
+            checksum: None,
+            docstring: Some("@xmtp-pure".into()),
+        });
+        validate_bridge(std::slice::from_ref(&item))?;
+        assert!(operations(&[item], &BTreeMap::new()).is_empty());
+    }
+
+    // verifies: P12
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_unreviewed_custom_type() {
+        let ty = Type::Custom {
+            module_path: "test".into(),
+            name: "UnknownHostValue".into(),
+            builtin: Box::new(Type::String),
+        };
+        assert!(
+            validate_type(&ty)
+                .unwrap_err()
+                .to_string()
+                .contains("UnknownHostValue")
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     fn rejects_sync_worker_method() {
         let item = Metadata::Method(MethodMetadata {
             module_path: "test".into(),
@@ -1127,7 +1185,7 @@ mod tests {
             checksum: None,
             docstring: None,
         });
-        assert!(validate_bridge(&[item.clone()]).is_ok());
+        assert!(validate_bridge(std::slice::from_ref(&item)).is_ok());
         assert!(operations(&[item], &BTreeMap::new())[0].immutable);
     }
 

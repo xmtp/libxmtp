@@ -122,11 +122,13 @@ export class BoundedListener {
       while (this.queue.length > 0) {
         const item = this.queue.shift();
         if (!item) continue;
-        if ("lagged" in item)
-          await this.callbacks.invoke(this.cb, "onLagged", [item.lagged]);
-        else {
-          this.queuedEvents--;
-          await this.callbacks.invoke(this.cb, "onEvent", [item.event]);
+        if ("event" in item) this.queuedEvents--;
+        try {
+          if ("lagged" in item)
+            await this.callbacks.invoke(this.cb, "onLagged", [item.lagged]);
+          else await this.callbacks.invoke(this.cb, "onEvent", [item.event]);
+        } catch {
+          // A failed callback does not stop later events.
         }
       }
     } finally {

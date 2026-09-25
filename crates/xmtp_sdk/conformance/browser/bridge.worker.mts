@@ -43,6 +43,16 @@ function sameIdentity(
   restored: unknown,
 ): boolean {
   if (shape.kind === "object") return original === restored;
+  if (shape.kind === "record" && shape.name === "ClientOptions") {
+    const source = Reflect.get(original as object, "backend");
+    const result = Reflect.get(restored as object, "backend");
+    return (
+      Reflect.get(source, "tag") === "Connected" &&
+      Reflect.get(result, "tag") === "Connected" &&
+      Reflect.get(Reflect.get(source, "inner"), "backend") ===
+        Reflect.get(Reflect.get(result, "inner"), "backend")
+    );
+  }
   if (shape.kind !== "record" || shape.name !== "BridgeProperty") return true;
   if (
     original === null ||

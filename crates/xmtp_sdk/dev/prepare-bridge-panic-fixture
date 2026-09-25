@@ -3,7 +3,6 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-export CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}"
 
 fixture=target/sdk-bridge-panic-fixture
 wasm="$fixture/xmtp_sdk.wasm"

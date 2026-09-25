@@ -94,6 +94,7 @@ pub enum XmtpError {
     Unknown(ErrorDetails),
 }
 
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
 impl XmtpError {
     fn details(
         code: &str,

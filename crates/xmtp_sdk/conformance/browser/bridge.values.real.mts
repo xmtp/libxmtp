@@ -68,6 +68,8 @@ async function sampleWire(shape: Shape, seed: number): Promise<unknown> {
         default:
           return seed + 17;
       }
+    case "custom":
+      return sampleWire(shape.inner, seed);
     case "object": {
       const existing = handles.get(shape.name);
       if (existing) return existing;
@@ -98,8 +100,17 @@ async function sampleWire(shape: Shape, seed: number): Promise<unknown> {
       const fields = LAYOUTS.records[shape.name]?.fields;
       if (!fields) throw new TypeError(`unknown record ${shape.name}`);
       const entries: Array<[string, unknown]> = [];
-      for (const [index, [name, field]] of Object.entries(fields).entries())
+      for (const [index, [name, field]] of Object.entries(fields).entries()) {
+        if (shape.name === "ClientOptions" && name === "backend") continue;
         entries.push([name, await sampleWire(field, seed + index)]);
+      }
+      if (shape.name === "ClientOptions") {
+        const backend = await sampleWire(
+          { kind: "object", name: "Backend" },
+          seed,
+        );
+        return { ...Object.fromEntries(entries), backend: { tag: "Connected", inner: { backend } } };
+      }
       return Object.fromEntries(entries);
     }
     case "enum": {
@@ -133,6 +144,8 @@ async function sampleWire(shape: Shape, seed: number): Promise<unknown> {
       return Object.keys(inner).length === 0 ? { tag } : { tag, inner };
     }
     case "optional":
+      if (shape.inner.kind === "foreign" || shape.inner.kind === "callback")
+        return undefined;
       return seed % 2 === 0 ? sampleWire(shape.inner, seed) : undefined;
     case "sequence":
       return [
@@ -256,6 +269,11 @@ const cases: Array<{ name: string; shape: Shape; seed: number }> = [
     name: "live objects inside a record",
     shape: { kind: "record", name: "BridgeProperty" },
     seed: 1,
+  },
+  {
+    name: "BackendSource.Connected object inside ClientOptions",
+    shape: { kind: "record", name: "ClientOptions" },
+    seed: 2,
   },
 ];
 

@@ -34,3 +34,14 @@ target/debug/xmtp-sdk-bindgen generate \
   --out "$generated/typescript-wasm" --config "$config"
 target/debug/xmtp-sdk-bindgen stage-wasm \
   --lib "$raw_wasm" --out "$generated/typescript-wasm"
+
+# The page loads a separate module with only synchronous pure exports.
+case "$wasm_profile" in
+  release) dev/agent-run cargo build --locked --release -p xmtp_sdk --target wasm32-unknown-unknown --features pure-only ;;
+  debug) dev/agent-run cargo build --locked -p xmtp_sdk --target wasm32-unknown-unknown --features pure-only ;;
+esac
+target/debug/xmtp-sdk-bindgen generate \
+  --lib "$raw_wasm" --language typescript-wasm --pure-only \
+  --out "$generated/typescript-pure" --config "$config"
+target/debug/xmtp-sdk-bindgen stage-wasm \
+  --lib "$raw_wasm" --out "$generated/typescript-pure"

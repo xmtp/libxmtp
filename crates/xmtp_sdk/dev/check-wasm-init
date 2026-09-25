@@ -11,6 +11,10 @@ package_dir=target/sdk-generated/typescript-wasm/node_modules/@ubjs
 mkdir -p "$package_dir"
 ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
 ln -sfn "$wasm/lib/node_modules/@ubjs/wasm" "$package_dir/wasm"
+pure_package_dir=target/sdk-generated/typescript-pure/node_modules/@ubjs
+mkdir -p "$pure_package_dir"
+ln -sfn "$core/lib/node_modules/@ubjs/core" "$pure_package_dir/core"
+ln -sfn "$wasm/lib/node_modules/@ubjs/wasm" "$pure_package_dir/wasm"
 
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--preserve-symlinks"
 sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/dev/check-wasm-init.mts

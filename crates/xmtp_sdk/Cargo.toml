@@ -17,6 +17,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 bench = []
 conformance = []
 bridge-panic-test = []
+pure-only = []
 
 [dependencies]
 alloy.workspace = true

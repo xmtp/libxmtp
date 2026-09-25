@@ -62,6 +62,13 @@ function sample(shape: Shape, seed: number): unknown {
         default:
           return seed + 17;
       }
+    case "custom": {
+      const inner = sample(shape.inner, seed);
+      const value = enumFactory(B).custom?.(shape.name, inner);
+      if (value === undefined)
+        throw new Error(`missing ${shape.name} custom factory`);
+      return value;
+    }
     case "object":
     case "foreign":
     case "callback":
@@ -95,6 +102,8 @@ function sample(shape: Shape, seed: number): unknown {
       return enumSample(shape.name, entry[0], entry[1], seed);
     }
     case "optional":
+      if (shape.inner.kind === "foreign" || shape.inner.kind === "callback")
+        return undefined;
       return seed % 2 === 0 ? sample(shape.inner, seed) : undefined;
     case "sequence":
       return [sample(shape.inner, seed), sample(shape.inner, seed + 2)];
@@ -193,6 +202,8 @@ async function roundTrip(
 function containsForeign(shape: Shape, value: unknown): boolean {
   if (value === undefined || value === null) return false;
   switch (shape.kind) {
+    case "custom":
+      return containsForeign(shape.inner, value);
     case "foreign":
     case "callback":
       return true;
@@ -384,14 +395,35 @@ describe("generated bridge value conformance", () => {
   });
   it("detects a codec that drops credentials", async () => {
     const shape: Shape = { kind: "record", name: "BackendOptions" };
-    const original = sample(shape, 2);
-    await expect(
-      roundTrip(shape, original, (wire) => {
-        if (wire && typeof wire === "object")
-          Reflect.deleteProperty(wire, "credentials");
-        return wire;
-      }),
-    ).rejects.toThrow();
+    const [main, worker] = endpoints();
+    const host = new WorkerHost(worker, 1, "credentials", async () => {}, async () => undefined);
+    const session = new MainSession(main, 1, "credentials");
+    await session.ready();
+    const original = {
+      url: "https://example.test",
+      appVersion: undefined,
+      credential: undefined,
+      credentials: {
+        async credential() {
+          return { name: undefined, value: "token", expiresAtSeconds: 9007199254740993n };
+        },
+      },
+    };
+    const wire = mainEncoder(session).convert(shape, original);
+    const invoke = async (value: unknown): Promise<unknown> => {
+      const decoded = workerDecoder(host.registry, host.callbacks, enumFactory(B)).convert(shape, value);
+      if (decoded === null || typeof decoded !== "object") throw new TypeError("missing options");
+      const source: unknown = Reflect.get(decoded, "credentials");
+      if (source === null || typeof source !== "object") throw new TypeError("missing credentials");
+      const callback: unknown = Reflect.get(source, "credential");
+      if (typeof callback !== "function") throw new TypeError("missing credential callback");
+      return Reflect.apply(callback, source, []);
+    };
+    expect(await invoke(structuredClone(wire))).toMatchObject({ value: "token" });
+    const dropped = structuredClone(wire);
+    if (dropped !== null && typeof dropped === "object")
+      Reflect.deleteProperty(dropped, "credentials");
+    await expect(invoke(dropped)).rejects.toThrow("missing credentials");
   });
   it("detects a spread codec that keeps an unknown field", async () => {
     const shape: Shape = { kind: "record", name: "BackendOptions" };
