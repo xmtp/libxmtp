@@ -206,6 +206,9 @@ pub struct ClientOptions {
     pub storage: StorageOptions,
     #[uniffi(default = true)]
     pub device_sync: bool,
+    /// Permit startup from stored state when the backend is unavailable.
+    #[uniffi(default = false)]
+    pub allow_offline: bool,
     #[uniffi(default)]
     pub registration: RegistrationOptions,
     #[uniffi(default = None)]
@@ -222,6 +225,7 @@ impl Default for ClientOptions {
             backend: None,
             storage: StorageOptions::default(),
             device_sync: true,
+            allow_offline: false,
             registration: RegistrationOptions::default(),
             fork_recovery: None,
             workers: None,
@@ -303,6 +307,7 @@ impl Client {
             None,
         ))
         .api_client_with_streams(backend.api.clone())
+        .with_allow_offline(Some(options.allow_offline))
         .with_remote_verifier()
         .map_err(XmtpError::unknown)?
         .store(store)
@@ -440,7 +445,8 @@ impl Client {
         Ok(client)
     }
 
-    /// Without an inbox ID, build queries the backend, so an offline app must pass the inbox ID.
+    /// To start offline, pass an inbox ID, use a database with its identity,
+    /// and enable the `allowOffline` option.
     #[uniffi::constructor]
     pub async fn build(
         identity: PublicIdentity,

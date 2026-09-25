@@ -233,7 +233,7 @@ async fn custom_permission_set_is_converted_and_invalid_set_is_rejected() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn backend_url_is_required_and_connection_is_network_free() {
+async fn backend_url_is_required_and_allow_offline_skips_network() {
     assert!(
         crate::Backend::connect(BackendOptions::default())
             .await
@@ -245,16 +245,49 @@ async fn backend_url_is_required_and_connection_is_network_free() {
     };
     let backend = Arc::new(crate::Backend::connect(unreachable.clone()).await?);
     assert_eq!(backend.options.url, unreachable.url);
+    let path = std::env::temp_dir().join(format!(
+        "xmtp-sdk-offline-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
     let signer = crate::generate_local_signer().await;
-    let identity = signer::identity(signer).await?;
-    let inbox_id = InboxID::try_from(identity.to_core()?.inbox_id(0)?)?;
     let mut settings = options();
-    settings.registration.auto = false;
+    settings.storage = StorageOptions {
+        location: StorageLocation::Path(path.to_string_lossy().into_owned()),
+        ..Default::default()
+    };
+    let online = Client::create(signer.clone(), settings.clone()).await?;
+    let inbox_id = online.inbox_id();
+    let group_id = online
+        .conversations()
+        .create_group(vec![], None)
+        .await?
+        .id();
+    online.end().await?;
+    let identity = signer::identity(signer).await?;
     settings.backend = Some(BackendSource::Connected { backend });
     assert!(matches!(
-        Client::build(identity, settings, Some(inbox_id)).await,
+        Client::build(identity.clone(), settings.clone(), Some(inbox_id.clone())).await,
         Err(XmtpError::ConfigurationUnavailable(_))
     ));
+    settings.allow_offline = true;
+    let client = Client::build(identity, settings, Some(inbox_id.clone())).await?;
+    assert_eq!(client.inbox_id(), inbox_id);
+    assert!(
+        client
+            .conversations()
+            .list(None)
+            .await?
+            .iter()
+            .any(|conversation| {
+                match conversation {
+                    crate::Conversation::Group { group } => group.id() == group_id,
+                    crate::Conversation::Dm { .. } => false,
+                }
+            })
+    );
+    client.end().await?;
+    std::fs::remove_file(path)?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
