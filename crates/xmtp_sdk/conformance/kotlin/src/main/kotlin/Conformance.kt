@@ -78,7 +78,7 @@ private suspend fun releasedMessage(
 ): Pair<Message, WeakReference<SDKClient>> {
     val host = SDKClient.build(identity, options, inboxID)
     val group = host.raw.conversations().createGroup(emptyList(), null)
-    val id = group.sendText("weak owner")
+    val id = group.sendText("weak owner", null)
     val message = group.messages(null).first { it.id == id }
     return message to WeakReference(host)
 }
@@ -98,17 +98,21 @@ fun main() =
         println("Kotlin scenario 1: load, checksums, version passed")
 
         val codecSamples = sdkConformanceStandardSamples()
-        check(codecSamples.size == 11) { "missing standard codec samples" }
+        check(codecSamples.size == 15) { "missing standard codec samples" }
         for (sample in codecSamples) {
             val (codec, value) =
                 when (val content = sample.value) {
                     is StandardContent.Text -> TextCodec() to content.v1
+                    is StandardContent.Markdown -> MarkdownCodec() to content.v1
                     StandardContent.ReadReceipt -> ReadReceiptCodec() to Unit
                     is StandardContent.Reaction -> ReactionV2Codec() to content
                     is StandardContent.Attachment -> AttachmentCodec() to content.v1
                     is StandardContent.RemoteAttachment -> RemoteAttachmentCodec() to content.v1
                     is StandardContent.MultiRemoteAttachment -> MultiRemoteAttachmentCodec() to content.v1
                     is StandardContent.TransactionReference -> TransactionReferenceCodec() to content.v1
+                    is StandardContent.WalletSendCalls -> WalletSendCallsCodec() to content.v1
+                    is StandardContent.Actions -> ActionsCodec() to content.v1
+                    is StandardContent.Intent -> IntentCodec() to content.v1
                     is StandardContent.Reply -> ReplyCodec() to content
                     is StandardContent.GroupUpdated -> GroupUpdatedCodec() to content.v1
                     is StandardContent.DeleteMessage -> DeleteMessageCodec() to content
@@ -119,7 +123,7 @@ fun main() =
             check(encoded.parameters == sample.expected.parameters && codec.type.typeID == sample.expected.type.typeID)
             check(codec.encode(codec.decode(encoded)).content.contentEquals(sample.expected.content))
         }
-        println("Kotlin P69: all 11 standard codecs match Rust bytes")
+        println("Kotlin P69: all 15 standard codecs match Rust bytes")
 
         val failingSigner =
             SDKForeign.signer(
@@ -183,7 +187,80 @@ fun main() =
         val storagePath = checkNotNull(host.storage().path())
         check(Files.isRegularFile(Path.of(storagePath))) { "storage path does not name the database file" }
         val group = client.conversations().createGroup(emptyList(), null)
-        val sentID = group.sendText("conformance message")
+        var typedSends = 0
+        for (sample in codecSamples) {
+            val id =
+                when (val value = sample.value) {
+                    is StandardContent.Text -> {
+                        group.sendText(value.v1, null)
+                    }
+
+                    is StandardContent.Markdown -> {
+                        group.sendMarkdown(value.v1, null)
+                    }
+
+                    is StandardContent.Reaction -> {
+                        group.sendReaction(
+                            value.reference,
+                            value.referenceInboxID,
+                            value.reaction,
+                            null,
+                        )
+                    }
+
+                    is StandardContent.Reply -> {
+                        group.sendReply(
+                            value.reference,
+                            value.referenceInboxID,
+                            value.content,
+                            null,
+                        )
+                    }
+
+                    StandardContent.ReadReceipt -> {
+                        group.sendReadReceipt(null)
+                    }
+
+                    is StandardContent.Attachment -> {
+                        group.sendAttachment(value.v1, null)
+                    }
+
+                    is StandardContent.RemoteAttachment -> {
+                        group.sendRemoteAttachment(value.v1, null)
+                    }
+
+                    is StandardContent.MultiRemoteAttachment -> {
+                        group.sendMultiRemoteAttachment(value.v1, null)
+                    }
+
+                    is StandardContent.TransactionReference -> {
+                        group.sendTransactionReference(value.v1, null)
+                    }
+
+                    is StandardContent.WalletSendCalls -> {
+                        group.sendWalletSendCalls(value.v1, null)
+                    }
+
+                    is StandardContent.Actions -> {
+                        group.sendActions(value.v1, null)
+                    }
+
+                    is StandardContent.Intent -> {
+                        group.sendIntent(value.v1, null)
+                    }
+
+                    else -> {
+                        continue
+                    }
+                }
+            val wire = checkNotNull(client.conversations().getMessageByID(id))
+            check(wire.encoded.type.typeID == sample.expected.type.typeID)
+            check(wire.encoded.content.contentEquals(sample.expected.content)) { "typed send bytes differ from codec" }
+            typedSends++
+        }
+        check(typedSends == 12)
+        println("Kotlin P69: typed send bytes match all 12 public codecs")
+        val sentID = group.sendText("conformance message", null)
         val sent = group.messages(null).first { it.id == sentID }
         check(sent.client() === host)
         host.end()
@@ -217,7 +294,7 @@ fun main() =
 
         val liveGroup = reopened.conversations().createGroup(emptyList(), null)
         val reader = liveGroup.messageReader()
-        val liveID = liveGroup.sendText("durable stream")
+        val liveID = liveGroup.sendText("durable stream", null)
         check(reader.next()?.id == liveID)
         reader.end()
         val replay = liveGroup.messageReader()
@@ -227,7 +304,7 @@ fun main() =
         pending.cancel()
         replay.end()
         runCatching { pending.await() }
-        val adapterID = liveGroup.sendText("adapter stream")
+        val adapterID = liveGroup.sendText("adapter stream", null)
         var delivered = false
         try {
             withTimeout(10_000) {
@@ -240,7 +317,7 @@ fun main() =
             check(delivered)
         }
         val protocolGroup = reopened.conversations().createGroup(emptyList(), null)
-        val firstID = protocolGroup.sendText("ack on request")
+        val firstID = protocolGroup.sendText("ack on request", null)
         check(
             reopenedHost
                 .messages(protocolGroup)
@@ -254,7 +331,7 @@ fun main() =
             "adapter prefetched and acknowledged a value"
         }
         reread.end()
-        val secondID = protocolGroup.sendText("second request")
+        val secondID = protocolGroup.sendText("second request", null)
         check(
             reopenedHost
                 .messages(protocolGroup)
@@ -439,7 +516,7 @@ fun main() =
         check(reopened.conversations().listGroups(null).any { it.id() == family.id() })
         println("Kotlin scenario 4: group options, state, and list passed")
 
-        val parentID = family.sendText("parent")
+        val parentID = family.sendText("parent", null)
         val reactionID =
             reopened.conversations().reactToMessage(
                 parentID,

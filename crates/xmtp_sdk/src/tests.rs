@@ -21,6 +21,74 @@ use crate::{
     credentials::AuthBridge, reader, signer,
 };
 
+// verifies: P69
+#[xmtp_common::test(unwrap_try = true)]
+async fn standard_codec_bytes_match_typed_send_wire_bytes() {
+    use crate::StandardContent;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let mut sent = 0;
+    for (value, expected) in crate::content::pure_codec_tests::standard_codec_samples()? {
+        let id = match value {
+            StandardContent::Text(text) => group.send_text(text, None).await?,
+            StandardContent::Markdown(markdown) => group.send_markdown(markdown, None).await?,
+            StandardContent::Reaction {
+                reference,
+                reference_inbox_id,
+                reaction,
+            } => {
+                group
+                    .send_reaction(reference, reference_inbox_id, reaction, None)
+                    .await?
+            }
+            StandardContent::Reply {
+                reference,
+                reference_inbox_id,
+                content,
+            } => {
+                group
+                    .send_reply(reference, reference_inbox_id, content, None)
+                    .await?
+            }
+            StandardContent::ReadReceipt => group.send_read_receipt(None).await?,
+            StandardContent::Attachment(attachment) => {
+                group.send_attachment(attachment, None).await?
+            }
+            StandardContent::RemoteAttachment(attachment) => {
+                group.send_remote_attachment(attachment, None).await?
+            }
+            StandardContent::MultiRemoteAttachment(attachment) => {
+                group.send_multi_remote_attachment(attachment, None).await?
+            }
+            StandardContent::TransactionReference(reference) => {
+                group.send_transaction_reference(reference, None).await?
+            }
+            StandardContent::WalletSendCalls(calls) => {
+                group.send_wallet_send_calls(calls, None).await?
+            }
+            StandardContent::Actions(actions) => group.send_actions(actions, None).await?,
+            StandardContent::Intent(intent) => group.send_intent(intent, None).await?,
+            StandardContent::GroupUpdated(_)
+            | StandardContent::DeleteMessage { .. }
+            | StandardContent::LeaveRequest(_) => continue,
+        };
+        let stored = client
+            .conversations()
+            .get_message_by_id(id)
+            .await?
+            .expect("sent message");
+        assert_eq!(
+            stored.0.encoded.r#type.type_id,
+            expected.r#type.expect("content type").type_id
+        );
+        assert_eq!(stored.0.encoded.content, expected.content);
+        sent += 1;
+    }
+    assert_eq!(sent, 12);
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_signer_and_signature_request_register() {
     assert!(matches!(
@@ -506,7 +574,7 @@ async fn backend_only_identity_and_message_queries() {
         .await?
     );
     let group = client.conversations().create_group(vec![], None).await?;
-    group.send_text("metadata".into()).await?;
+    group.send_text("metadata".into(), None).await?;
     let metadata = crate::static_helpers::newest_message_metadata_with_backend(
         source.clone(),
         vec![group.id()],
@@ -689,7 +757,7 @@ async fn slice_create_send_read_stream_end() {
         .await?;
     bo.inner.sync_welcomes().await?;
     let bo_group = crate::Group::from_core(bo.inner.group(&group.inner.group_id)?, bo.key).await?;
-    let id = group.send_text("hello from the slice".into()).await?;
+    let id = group.send_text("hello from the slice".into(), None).await?;
     let history = group.messages(None).await?;
     let sent = history
         .into_iter()
@@ -877,7 +945,7 @@ async fn group_actions_return_client_closed_after_end() {
     let group = client.conversations().create_group(vec![], None).await?;
     client.end().await?;
     assert!(matches!(
-        group.send_text("after end".into()).await,
+        group.send_text("after end".into(), None).await,
         Err(XmtpError::ClientClosed(_))
     ));
     assert!(matches!(
@@ -928,7 +996,7 @@ async fn send_text_racing_end_is_closed_and_persists_nothing() {
     let before = group.inner.find_messages(&MsgQueryArgs::default())?.len();
     begin_end(&client);
     assert!(matches!(
-        group.send_text("racing end".into()).await,
+        group.send_text("racing end".into(), None).await,
         Err(XmtpError::ClientClosed(_))
     ));
     assert_eq!(
@@ -969,7 +1037,7 @@ async fn reader_end_rejects_pending_handoff() {
         release: Notify::new(),
     });
     *reader.handoff_gate.lock() = Some(gate.clone());
-    group.send_text("pending".into()).await?;
+    group.send_text("pending".into(), None).await?;
     let pending_reader = reader.clone();
     let pending = tokio::spawn(async move { pending_reader.next().await });
     xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
@@ -1011,8 +1079,8 @@ async fn reader_skips_handoff_removed_from_scope() {
         release: Notify::new(),
     });
     *reader.handoff_gate.lock() = Some(gate.clone());
-    stale_group.send_text("stale".into()).await?;
-    live_group.send_text("live".into()).await?;
+    stale_group.send_text("stale".into(), None).await?;
+    live_group.send_text("live".into(), None).await?;
 
     let pending_reader = reader.clone();
     let pending = tokio::spawn(async move { pending_reader.next().await });
@@ -1270,7 +1338,7 @@ async fn conversation_list_state_and_last_activity() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let older = client.conversations().create_group(vec![], None).await?;
     let newer = client.conversations().create_group(vec![], None).await?;
-    let sent = older.send_text("most recent".into()).await?;
+    let sent = older.send_text("most recent".into(), None).await?;
     let stored_sent_at_ns = client.inner.message(hex::decode(&sent.0)?)?.sent_at_ns;
     let ordered = client
         .conversations()
@@ -2346,7 +2414,7 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
             .content
             .is_empty()
     );
-    let local_message = group.send_text("delete through group".into()).await?;
+    let local_message = group.send_text("delete through group".into(), None).await?;
     assert_ne!(
         group.delete_message(local_message.clone()).await?,
         local_message
@@ -2525,8 +2593,8 @@ async fn group_options_metadata_members_and_message_filters() {
     }));
     group.update_name("second name".into()).await?;
     assert_eq!(group.state().await?.name, "second name");
-    let first = group.send_text("first".into()).await?;
-    let second = group.send_text("second".into()).await?;
+    let first = group.send_text("first".into(), None).await?;
+    let second = group.send_text("second".into(), None).await?;
     let messages = group
         .messages(Some(ListMessagesOptions {
             limit: Some(1),
@@ -2548,9 +2616,9 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     let a = Client::create(crate::generate_local_signer().await, options()).await?;
     let b = Client::create(crate::generate_local_signer().await, options()).await?;
     let first_dm = a.conversations().create_dm(b.inbox_id(), None).await?;
-    let first = first_dm.send_text("first duplicate".into()).await?;
+    let first = first_dm.send_text("first duplicate".into(), None).await?;
     let second_dm = b.conversations().create_dm(a.inbox_id(), None).await?;
-    let second = second_dm.send_text("second duplicate".into()).await?;
+    let second = second_dm.send_text("second duplicate".into(), None).await?;
     b.conversations().sync_all(None).await?;
     a.conversations().sync_all(None).await?;
 
@@ -2590,7 +2658,7 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
         panic!("expected a DM");
     };
     active_dm
-        .send_text("keep other duplicate active".into())
+        .send_text("keep other duplicate active".into(), None)
         .await?;
     for message_id in [&id] {
         let bytes = hex::decode(&message_id.0)?;

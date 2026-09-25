@@ -11,3 +11,19 @@ func consumePositive(_ id: ConversationID, _ conversation: Conversation, _ conte
     }
     return narrowed == id ? id : narrowed
 }
+
+func consumeStandardIDs(_ content: StandardContent) -> MessageID? {
+    switch content {
+    case let .reaction(reference, inboxID, _):
+        let _: InboxID? = inboxID
+        return reference
+    case let .reply(reference, inboxID, _):
+        let _: InboxID? = inboxID
+        return reference
+    case let .deleteMessage(messageID):
+        let id: MessageID = messageID
+        return id
+    default:
+        return nil
+    }
+}
