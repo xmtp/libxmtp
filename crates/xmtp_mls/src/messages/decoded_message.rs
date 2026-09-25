@@ -190,7 +190,9 @@ impl MessageBody {
                 let transaction_reference = TransactionReferenceCodec::decode(value)?;
                 Ok(MessageBody::TransactionReference(transaction_reference))
             }
-            (GroupUpdatedCodec::TYPE_ID, GroupUpdatedCodec::MAJOR_VERSION) => {
+            (GroupUpdatedCodec::TYPE_ID, GroupUpdatedCodec::MAJOR_VERSION)
+                if content_type.authority_id == "xmtp.org" =>
+            {
                 let group_updated = GroupUpdatedCodec::decode(value)?;
                 Ok(MessageBody::GroupUpdated(group_updated))
             }
@@ -333,6 +335,18 @@ mod tests {
         let mut content = TextCodec::encode("custom payload".into()).unwrap();
         content.r#type.as_mut().unwrap().type_id = "custom".into();
         content
+    }
+
+    // verifies: CTYPE-001, CTYPE-008
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn custom_authority_group_updated_stays_custom() {
+        let mut content = GroupUpdatedCodec::encode(GroupUpdated::default())?;
+        content.r#type.as_mut().unwrap().authority_id = "custom.example".into();
+        let decoded = DecodedMessage::try_from(stored_message(content.clone()))?;
+        assert!(
+            matches!(decoded.content, MessageBody::Custom(actual) if actual == content),
+            "custom authority selected the standard group-updated codec"
+        );
     }
 
     // verifies: CTYPE-024

@@ -214,7 +214,10 @@ pub(crate) mod tests {
         });
         let output = capture.output();
         assert!(output.contains("capture active"));
-        assert!(!output.contains(marker), "reaction content reached Info logs");
+        assert!(
+            !output.contains(marker),
+            "reaction content reached Info logs"
+        );
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
