@@ -34,6 +34,9 @@ ghash.workspace = true
 subtle.workspace = true
 tempfile.workspace = true
 
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+xmtp_logging = { workspace = true, features = ["test-utils"] }
+
 [dev-dependencies]
 tokio.workspace = true
 xmtp_common = { workspace = true, features = ['test-utils'] }

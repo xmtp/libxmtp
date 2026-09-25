@@ -114,10 +114,6 @@ impl LegacyReaction {
     pub fn decode(content: &[u8]) -> Option<LegacyReaction> {
         // Try to decode the content as UTF-8 string first
         if let Ok(decoded_content) = String::from_utf8(content.to_vec()) {
-            tracing::info!(
-                "attempting legacy json deserialization: {}",
-                decoded_content
-            );
             // Try parsing as canonical JSON format
             if let Ok(reaction) = serde_json::from_str::<LegacyReaction>(&decoded_content) {
                 return Some(reaction);
@@ -197,6 +193,29 @@ pub(crate) mod tests {
     use xmtp_common::rand_string;
 
     use super::*;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn legacy_reaction_does_not_log_content_at_info() {
+        use xmtp_logging::{Level, test_logging::LogCapture};
+
+        let marker = "private-reaction-content-marker";
+        let content = json!({
+            "reference": "message-id",
+            "action": "added",
+            "content": marker,
+            "schema": "custom"
+        })
+        .to_string();
+        let capture = LogCapture::new(Level::Info);
+        tracing::dispatcher::with_default(&capture.dispatch(), || {
+            tracing::info!(target: "xmtp_content_types::reaction", "capture active");
+            assert!(LegacyReaction::decode(content.as_bytes()).is_some());
+        });
+        let output = capture.output();
+        assert!(output.contains("capture active"));
+        assert!(!output.contains(marker), "reaction content reached Info logs");
+    }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
     #[cfg_attr(not(target_arch = "wasm32"), test)]
