@@ -1106,6 +1106,85 @@ mod tests {
         );
     }
 
+    async fn changed_file_during_put(
+        truncate: bool,
+    ) -> Result<AttachmentError, Box<dyn Error + Send + Sync>> {
+        use std::io::Write;
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        const BODY_SIZE: usize = 8 * 1024 * 1024;
+        let socket = tokio::net::TcpSocket::new_v4()?;
+        socket.set_recv_buffer_size(8192)?;
+        socket.bind("127.0.0.1:0".parse()?)?;
+        let listener = socket.listen(1)?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let (headers_tx, headers_rx) = tokio::sync::oneshot::channel();
+        let (resume_tx, resume_rx) = tokio::sync::oneshot::channel();
+        let server = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut line = String::new();
+            loop {
+                line.clear();
+                assert!(reader.read_line(&mut line).await.unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+            }
+            reader
+                .get_mut()
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+                .await
+                .unwrap();
+            headers_tx.send(()).unwrap();
+            resume_rx.await.unwrap();
+            let mut buffer = [0_u8; 8192];
+            while reader.read(&mut buffer).await.unwrap() != 0 {}
+        });
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("body");
+        std::fs::write(&path, vec![0x5a; BODY_SIZE])?;
+        let upload_task = tokio::spawn({
+            let path = path.clone();
+            async move { allowed().put(&upload(url), StagedFile { path }).await }
+        });
+        tokio::time::timeout(Duration::from_secs(5), headers_rx).await??;
+        if truncate {
+            std::fs::OpenOptions::new()
+                .write(true)
+                .open(&path)?
+                .set_len(512 * 1024)?;
+        } else {
+            std::fs::OpenOptions::new()
+                .append(true)
+                .open(&path)?
+                .write_all(b"extra")?;
+        }
+        resume_tx.send(()).unwrap();
+        let result = tokio::time::timeout(Duration::from_secs(5), upload_task)
+            .await??
+            .unwrap_err();
+        server.abort();
+        let _ = server.await;
+        Ok(result)
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn staged_file_change_during_put_is_local_storage() {
+        assert_eq!(
+            changed_file_during_put(false).await?.cause,
+            Cause::LocalStorage
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn staged_file_truncation_during_put_is_local_storage() {
+        assert_eq!(
+            changed_file_during_put(true).await?.cause,
+            Cause::LocalStorage
+        );
+    }
+
     // verifies: ATCH-054
     #[xmtp_common::test(unwrap_try = true)]
     async fn downloads_ignore_proxy_environment() {
