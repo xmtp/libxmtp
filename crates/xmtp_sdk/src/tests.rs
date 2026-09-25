@@ -1508,12 +1508,12 @@ async fn conversation_list_lift_uses_bounded_queries() {
 async fn message_history_queries_do_not_grow_per_row() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let first = group.send_text("first".into()).await?;
+    let first = group.send_text("first".into(), None).await?;
     assert_eq!(group.messages(None).await?.len(), 1);
     let one_query_count = *group.history_query_count.lock();
 
     for number in 0..3 {
-        group.send_text(format!("more {number}")).await?;
+        group.send_text(format!("more {number}"), None).await?;
     }
     client
         .conversations()
@@ -2338,7 +2338,7 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reference = group.send_text("reference".into()).await?;
+    let reference = group.send_text("reference".into(), None).await?;
     let nested: EncodedContent = ReactionCodec::encode(
         Reaction {
             content: "👍".into(),
