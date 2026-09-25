@@ -187,6 +187,30 @@ struct DownloadShared {
     cancel: CancellationToken,
 }
 
+struct DeleteInProgress<'a> {
+    paths: &'a Mutex<HashMap<String, usize>>,
+    path: String,
+}
+
+impl<'a> DeleteInProgress<'a> {
+    fn new(paths: &'a Mutex<HashMap<String, usize>>, path: String) -> Self {
+        *paths.lock().entry(path.clone()).or_default() += 1;
+        Self { paths, path }
+    }
+}
+
+impl Drop for DeleteInProgress<'_> {
+    fn drop(&mut self) {
+        let mut paths = self.paths.lock();
+        if let Some(count) = paths.get_mut(&self.path) {
+            *count -= 1;
+            if *count == 0 {
+                paths.remove(&self.path);
+            }
+        }
+    }
+}
+
 impl DownloadShared {
     fn new() -> Self {
         let (outcome, _) = watch::channel(None);
@@ -204,9 +228,12 @@ pub struct AttachmentRuntime {
     pub(crate) options: AttachmentOptions,
     pending: Mutex<HashMap<String, Arc<PendingShared>>>,
     downloads: Mutex<HashMap<String, Arc<DownloadShared>>>,
+    deleting: Mutex<HashMap<String, usize>>,
     event_locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
     #[cfg(test)]
     sweep_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(test)]
+    delete_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
 }
 
 impl Default for AttachmentRuntime {
@@ -217,9 +244,12 @@ impl Default for AttachmentRuntime {
             options: AttachmentOptions::default(),
             pending: Mutex::new(HashMap::new()),
             downloads: Mutex::new(HashMap::new()),
+            deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
             #[cfg(test)]
             sweep_pause: Mutex::new(None),
+            #[cfg(test)]
+            delete_pause: Mutex::new(None),
         }
     }
 }
@@ -244,9 +274,12 @@ impl AttachmentRuntime {
             options,
             pending: Mutex::new(HashMap::new()),
             downloads: Mutex::new(HashMap::new()),
+            deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
             #[cfg(test)]
             sweep_pause: Mutex::new(None),
+            #[cfg(test)]
+            delete_pause: Mutex::new(None),
         })
     }
 
@@ -355,7 +388,15 @@ impl AttachmentRuntime {
                 if !pending.contains(digest) && file.modified_at_ns < cutoff {
                     store.remove_file(&file.path).await?;
                 }
-            } else if file.path.split('/').count() == 2 && !recorded.contains(file.path.as_str()) {
+            } else if file.path.split_once('/').is_some_and(|(key, name)| {
+                key.len() == 64
+                    && key
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                    && !name.is_empty()
+                    && !name.contains('/')
+            }) && !recorded.contains(file.path.as_str())
+            {
                 context
                     .db()
                     .insert_or_ignore_local_attachment(&file.path, file.modified_at_ns, None, None)
@@ -438,6 +479,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         let lock = self.runtime().event_lock(&key);
         let shared = {
             let _guard = lock.lock().await;
+            if self.runtime().deleting.lock().contains_key(&relative) {
+                return Err(AttachmentClientError::new(Cause::Deleted));
+            }
             if store.exists(&relative).await? {
                 self.context
                     .db()
@@ -584,8 +628,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         let staged = staged_path(&remote.content_digest)?;
         let store = self.runtime().store()?;
         let lock = self.runtime().event_lock(&key);
-        let (upload, download) = {
+        let (upload, download, _deleting) = {
             let _guard = lock.lock().await;
+            let deleting = DeleteInProgress::new(&self.runtime().deleting, relative.clone());
             let upload = self
                 .runtime()
                 .pending
@@ -599,8 +644,16 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             if let Some(shared) = &download {
                 shared.cancel.cancel();
             }
-            (upload, download)
+            (upload, download, deleting)
         };
+        #[cfg(test)]
+        {
+            let pause = self.runtime().delete_pause.lock().clone();
+            if let Some((entered, resume)) = pause {
+                entered.notify_one();
+                resume.notified().await;
+            }
+        }
         if let Some(shared) = upload {
             let mut status = shared.watch.subscribe();
             while matches!(
@@ -2416,6 +2469,51 @@ mod tests {
         );
     }
 
+    // verifies: ATCH-047
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn delete_refuses_download_started_during_deletion() {
+        let sender = tempfile::tempdir()?;
+        let recipient = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: sender.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let mut remote = pending.remote_attachment().clone();
+        let body =
+            tokio::fs::read(sender.path().join(staged_path(&remote.content_digest)?)).await?;
+        let (url, requests) = serve_body(body).await;
+        remote.url = url;
+        tester!(bo, attachments_dir: recipient.path(), disable_workers);
+        let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+            .attachment_options(AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            })
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        *client.context.attachments.delete_pause.lock() = Some((entered.clone(), resume.clone()));
+        let deleting_client = client.clone();
+        let deleting_remote = remote.clone();
+        let deletion = xmtp_common::task::spawn(async move {
+            deleting_client
+                .attachments()
+                .delete_local(&deleting_remote)
+                .await
+        });
+        tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+        let download = tokio::time::timeout(
+            Duration::from_secs(5),
+            client.attachments().download(&remote),
+        )
+        .await?;
+        resume.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), deletion).await???;
+        assert_eq!(download.unwrap_err().cause, Cause::Deleted);
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        assert!(!client.attachments().local_path(&remote)?.exists());
+    }
+
     // verifies: ATCH-047, EVENT-055
     #[xmtp_common::test(unwrap_try = true)]
     async fn delete_cancels_upload() {
@@ -2446,6 +2544,14 @@ mod tests {
                 ..
             })
         ));
+        assert!(
+            alix.client
+                .context
+                .db()
+                .list_pending_attachments_since(0)?
+                .iter()
+                .all(|row| row.content_digest != remote.content_digest)
+        );
         let emitted = events.drain();
         let key = attachment_key(&remote)?;
         assert_eq!(emitted.len(), 3);
@@ -2592,6 +2698,30 @@ mod tests {
             .await?;
         assert_eq!(adopted.mime_type, None);
         assert_eq!(adopted.filename, None);
+    }
+
+    // verifies: ATCH-063, P24
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn reconcile_ignores_stray_and_nested_files() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let valid = format!("{}/plain.txt", "a".repeat(64));
+        let nested = format!("{}/nested/extra.txt", "a".repeat(64));
+        for path in [&valid, &nested, "misc/file.txt", ".DS_Store"] {
+            let path = dir.path().join(path);
+            tokio::fs::create_dir_all(path.parent().unwrap()).await?;
+            tokio::fs::write(path, b"app file").await?;
+        }
+        let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let listed = next.attachments().list_local().await?;
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].path, valid);
+        assert!(dir.path().join(nested).exists());
+        assert!(dir.path().join("misc/file.txt").exists());
+        assert!(dir.path().join(".DS_Store").exists());
     }
 
     // verifies: ATCH-025, ATCH-037, P22

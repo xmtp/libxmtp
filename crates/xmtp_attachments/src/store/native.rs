@@ -13,32 +13,11 @@ use cap_std::fs::{Dir, OpenOptions};
 #[cfg(unix)]
 use cap_std::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 
-use super::{LocalStore, StagedFile, StoreFile, StoreWriter, validate_relative, validate_temp};
+use super::{
+    LocalStore, StagedFile, StoreFile, StoreWriter, is_reconcile_dir, validate_relative,
+    validate_temp,
+};
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
-
-async fn create_private_dir(path: &Path) -> Result<(), AttachmentError> {
-    #[cfg(unix)]
-    {
-        let path = path.to_path_buf();
-        xmtp_common::task::spawn_blocking(move || {
-            use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
-            std::fs::DirBuilder::new()
-                .recursive(true)
-                .mode(0o700)
-                .create(&path)?;
-            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700))
-        })
-        .await
-        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
-        .map_err(|_| AttachmentError::new(Cause::LocalStorage))
-    }
-    #[cfg(not(unix))]
-    {
-        tokio::fs::create_dir_all(path)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
-    }
-}
 
 /// Files below one native attachments directory.
 #[derive(Clone, Debug)]
@@ -52,6 +31,7 @@ pub struct NativeStore {
     forced_source_unlink_error: Option<std::io::ErrorKind>,
     #[cfg(test)]
     fallback_race_bytes: Option<Vec<u8>>,
+    forced_chmod_error: bool,
 }
 
 impl NativeStore {
@@ -81,6 +61,7 @@ impl NativeStore {
             forced_source_unlink_error: None,
             #[cfg(test)]
             fallback_race_bytes: None,
+            forced_chmod_error: false,
         })
     }
 
@@ -100,6 +81,22 @@ impl NativeStore {
     pub(crate) fn with_fallback_destination_race(mut self, bytes: Vec<u8>) -> Self {
         self.fallback_race_bytes = Some(bytes);
         self
+    }
+
+    pub(crate) fn with_forced_chmod_error(mut self) -> Self {
+        self.forced_chmod_error = true;
+        self
+    }
+
+    fn force_chmod_error(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.forced_chmod_error
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     fn remove_source(&self, parent: &Dir, name: &str) -> io::Result<()> {
@@ -147,7 +144,11 @@ impl NativeStore {
                         };
                         #[cfg(unix)]
                         if created {
-                            repair_created_child_mode(&directory, part)?;
+                            if self.force_chmod_error() {
+                                tracing::warn!(part, "could not set private attachment directory permissions");
+                            } else {
+                                repair_created_child_mode(&directory, part)?;
+                            }
                         }
                         #[cfg(not(unix))]
                         let _ = created;
@@ -553,6 +554,7 @@ impl LocalStore for NativeStore {
                 .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
             {
                 let name = entry.file_name().to_string_lossy().into_owned();
+                let descend = prefix.is_empty() && is_reconcile_dir(&name);
                 let path = if prefix.is_empty() {
                     name
                 } else {
@@ -563,8 +565,10 @@ impl LocalStore for NativeStore {
                     .await
                     .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
                 if kind.is_dir() {
-                    dirs.push((entry.path(), path));
-                } else if kind.is_file() {
+                    if descend {
+                        dirs.push((entry.path(), path));
+                    }
+                } else if kind.is_file() && !prefix.is_empty() {
                     let meta = entry
                         .metadata()
                         .await
