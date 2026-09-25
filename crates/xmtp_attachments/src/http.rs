@@ -57,7 +57,10 @@ pub(crate) fn put_outcome(status: u16) -> Result<PutOutcome, AttachmentError> {
     } else if (200..300).contains(&status) {
         Ok(PutOutcome::Stored)
     } else {
-        Err(AttachmentError::new(Cause::TargetRejected))
+        Err(AttachmentError::with_http_status(
+            Cause::TargetRejected,
+            status,
+        ))
     }
 }
 

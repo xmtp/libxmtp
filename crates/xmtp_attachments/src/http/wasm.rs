@@ -147,7 +147,7 @@ fn download_status(status: u16, response_type: ResponseType) -> Result<(), Attac
     match status {
         200 => Ok(()),
         404 | 410 => Err(AttachmentError::new(Cause::NotFound)),
-        _ => Err(AttachmentError::new(Cause::HttpStatus)),
+        _ => Err(AttachmentError::with_http_status(Cause::HttpStatus, status)),
     }
 }
 
@@ -296,9 +296,10 @@ impl Transfer {
         }
         response_headers_received(&deadline, self.idle_timeout);
         download_status(response.status(), response.type_())?;
-        let body = response
-            .body()
-            .ok_or(AttachmentError::new(Cause::HttpStatus))?;
+        let body = response.body().ok_or(AttachmentError::with_http_status(
+            Cause::HttpStatus,
+            response.status(),
+        ))?;
         let mut reader = wasm_streams::ReadableStream::from_raw(body).into_async_read();
         let cap = cap.min(self.options.max_download_bytes.unwrap_or(u64::MAX));
         read_body(&mut reader, cap, sink, &deadline, self.idle_timeout).await
@@ -497,6 +498,17 @@ mod tests {
             Cause::HttpStatus
         );
         download_status(200, ResponseType::Basic)?;
+    }
+
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    fn status_from_host_answer_is_kept() {
+        let upload = put_outcome(403).unwrap_err();
+        assert_eq!(upload.cause, Cause::TargetRejected);
+        assert_eq!(upload.http_status, Some(403));
+        let download = download_status(503, ResponseType::Basic).unwrap_err();
+        assert_eq!(download.cause, Cause::HttpStatus);
+        assert_eq!(download.http_status, Some(503));
     }
 
     // verifies: ATCH-070
