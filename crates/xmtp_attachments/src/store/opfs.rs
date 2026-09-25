@@ -356,6 +356,14 @@ impl Drop for StoreWriter {
 mod tests {
     use super::*;
     use crate::store::DownloadSink;
+    use std::io::SeekFrom;
+
+    fn test_path() -> String {
+        format!(
+            "attachment-tests/{}",
+            hex::encode(xmtp_common::rand_array::<16>())
+        )
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn opfs_lookup_errors_are_not_absence() {
@@ -384,7 +392,7 @@ mod tests {
             store.remove_dir_all(".tmp").await?;
         }
         let mut writer = store.create_temp(path).await?;
-        writer.write(b"OPFS").await?;
+        DownloadSink::write(&mut writer, b"OPFS").await?;
         store.sync(&mut writer).await?;
         drop(writer);
         assert!(store.exists(path).await?);
@@ -421,5 +429,94 @@ mod tests {
         let file = store.open_read(".tmp/repeated").await?.file;
         let bytes = JsFuture::from(file.array_buffer()).await?;
         assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"second");
+    }
+
+    // verifies: ATCH-046, ATCH-048
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_list_files_and_mtime() {
+        let store = OpfsStore::new(&test_path()).await?;
+        for path in [".tmp/one", ".tmp/two"] {
+            let mut writer = store.create_temp(path).await?;
+            DownloadSink::write(&mut writer, b"file").await?;
+            store.sync(&mut writer).await?;
+        }
+        store.rename(".tmp/two", "key/two").await?;
+        let expected = store.file_handle("key/two", false).await?;
+        let expected: web_sys::File = JsFuture::from(expected.get_file()).await?.dyn_into()?;
+        let files = store.list_files().await?;
+        assert_eq!(files.len(), 2);
+        let listed = files.iter().find(|file| file.path == "key/two").unwrap();
+        assert_eq!(
+            listed.modified_at_ns,
+            (expected.last_modified() as i64) * 1_000_000
+        );
+        assert!(files.iter().any(|file| file.path == ".tmp/one"));
+    }
+
+    // verifies: ATCH-043, ATCH-051
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_finish_decode_compressed_second_pass() {
+        use flate2::{Compression, write::GzEncoder};
+        use prost::Message as _;
+        use xmtp_proto::xmtp::mls::message_contents::{
+            Compression as WireCompression, EncodedContent,
+        };
+
+        let store = OpfsStore::new(&test_path()).await?;
+        let mut gzip = GzEncoder::new(Vec::new(), Compression::default());
+        std::io::Write::write_all(&mut gzip, b"decoded content")?;
+        let mut envelope = EncodedContent::decode(
+            crate::encoded_prefix(Some("file.txt"), "text/plain", 0).as_slice(),
+        )?;
+        envelope.compression = Some(WireCompression::Gzip as i32);
+        envelope.content = gzip.finish()?;
+        let mut decoder = AttachmentDecoder::new();
+        let mut content = store.create_temp(".tmp/content").await?;
+        for chunk in decoder.push(&envelope.encode_to_vec())? {
+            content.write_content(chunk).await?;
+        }
+        store.sync(&mut content).await?;
+        drop(content);
+        let meta = store
+            .finish_decode(decoder, ".tmp/content", ".tmp/decoded")
+            .await?;
+        assert!(meta.compressed);
+        assert_eq!(meta.mime_type, "text/plain");
+        assert_eq!(meta.filename.as_deref(), Some("file.txt"));
+        assert_eq!(
+            store
+                .open_read(".tmp/decoded")
+                .await?
+                .read_chunk(0, 64)
+                .await?,
+            b"decoded content"
+        );
+    }
+
+    // verifies: ATCH-048
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_reader_seek() {
+        let store = OpfsStore::new(&test_path()).await?;
+        let mut writer = store.create_temp(".tmp/reader").await?;
+        DownloadSink::write(&mut writer, b"abcdef").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        let file = store.file_handle(".tmp/reader", false).await?;
+        let mut reader = OpfsReader {
+            handle: JsFuture::from(file.create_sync_access_handle())
+                .await?
+                .dyn_into()?,
+            position: 0,
+        };
+        let mut bytes = [0u8; 2];
+        assert_eq!(std::io::Read::read(&mut reader, &mut bytes)?, 2);
+        assert_eq!(&bytes, b"ab");
+        assert_eq!(std::io::Seek::seek(&mut reader, SeekFrom::Current(2))?, 4);
+        assert_eq!(std::io::Read::read(&mut reader, &mut bytes)?, 2);
+        assert_eq!(&bytes, b"ef");
+        assert_eq!(std::io::Seek::seek(&mut reader, SeekFrom::Start(1))?, 1);
+        assert_eq!(std::io::Seek::seek(&mut reader, SeekFrom::End(-3))?, 3);
+        assert_eq!(std::io::Read::read(&mut reader, &mut bytes)?, 2);
+        assert_eq!(&bytes, b"de");
     }
 }
