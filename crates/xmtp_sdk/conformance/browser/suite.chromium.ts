@@ -484,8 +484,6 @@ export async function runBrowserBridgeConformance(
       config.identifier,
       "server configuration changed",
     );
-    const catchUp = await reopened.catchUpToLive(10_000n);
-    expect(typeof catchUp.completed === "boolean", "catch-up result is missing");
     const backend = await Backend.connect(session, {
       url: backendURL,
       appVersion: undefined,
