@@ -1367,6 +1367,61 @@ async fn conversation_list_lift_uses_bounded_queries() {
     client.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn nested_reaction_reply_body_keeps_nested_envelope() {
+    use crate::{EncodedContent, MessageBody, Reaction, ReactionAction, ReactionSchema};
+    use prost::Message as _;
+    use xmtp_content_types::{ContentCodec, reaction::ReactionCodec};
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let reference = group.send_text("reference".into()).await?;
+    let nested: EncodedContent = ReactionCodec::encode(
+        Reaction {
+            content: "👍".into(),
+            action: ReactionAction::Added,
+            schema: ReactionSchema::Unicode,
+        }
+        .into_proto(reference.clone(), client.inbox_id()),
+    )?
+    .into();
+    let reply_id = client
+        .conversations()
+        .reply_to_message(reference, nested, None)
+        .await?;
+    let stored = client.inner.message(hex::decode(&reply_id.0)?)?;
+    let decoded = client
+        .decode_content(
+            ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?.into(),
+        )
+        .await?;
+    let MessageContent::Reply {
+        body: MessageBody::Unknown { encoded },
+        ..
+    } = decoded
+    else {
+        panic!("expected an unknown nested reaction body");
+    };
+    assert_eq!(encoded.r#type.type_id, "reaction");
+
+    let reply = group
+        .messages(None)
+        .await?
+        .into_iter()
+        .find(|message| message.0.id == reply_id)
+        .expect("reply in history");
+    let MessageContent::Reply {
+        body: MessageBody::Unknown { encoded },
+        ..
+    } = reply.0.content
+    else {
+        panic!("expected an unknown nested reaction body in history");
+    };
+    assert_eq!(encoded.r#type.type_id, "reaction");
+    client.end().await?;
+}
+
 // verifies: CTYPE-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn message_actions_use_ids_and_compression_is_opt_in() {
