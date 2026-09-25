@@ -1,5 +1,7 @@
 //! Bounded transfer of staged ciphertext.
 
+use std::time::Duration;
+
 use crate::store::AttachmentOptions;
 use crate::{AttachmentError, AttachmentFailureCause as Cause};
 
@@ -12,6 +14,11 @@ mod wasm;
 pub use native::Transfer;
 #[cfg(target_arch = "wasm32")]
 pub use wasm::Transfer;
+
+/// Limit for establishing a connection to a storage target or download host.
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// Limit between bytes during a storage transfer.
+pub const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Values from the backend's signed upload response.
 #[derive(Clone, Debug)]

@@ -6,9 +6,11 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
+    time::Duration,
 };
 
 use bytes::Bytes;
+use futures_util::StreamExt;
 use reqwest::{
     Client, Method, StatusCode, Url,
     dns::{Addrs, Name, Resolve, Resolving},
@@ -16,9 +18,13 @@ use reqwest::{
     redirect::Policy,
 };
 use tokio::sync::mpsc;
+use tokio::time::{Instant, timeout};
 use tokio_util::io::ReaderStream;
 
-use super::{PutOutcome, UploadRequest, checked_count, put_outcome, sensitive_header};
+use super::{
+    CONNECT_TIMEOUT, IDLE_TIMEOUT, PutOutcome, UploadRequest, checked_count, put_outcome,
+    sensitive_header,
+};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
     address::is_private,
@@ -124,6 +130,7 @@ fn redirect_target(
 pub struct Transfer {
     client: Client,
     options: AttachmentOptions,
+    idle_timeout: Duration,
 }
 
 impl Transfer {
@@ -135,6 +142,15 @@ impl Transfer {
         options: AttachmentOptions,
         upstream: Arc<dyn Resolve>,
     ) -> Result<Self, AttachmentError> {
+        Self::with_resolver_and_timeouts(options, upstream, CONNECT_TIMEOUT, IDLE_TIMEOUT)
+    }
+
+    fn with_resolver_and_timeouts(
+        options: AttachmentOptions,
+        upstream: Arc<dyn Resolve>,
+        connect_timeout: Duration,
+        idle_timeout: Duration,
+    ) -> Result<Self, AttachmentError> {
         let resolver = Arc::new(GuardedResolver {
             upstream,
             allow_private: options.allow_private_network,
@@ -143,9 +159,23 @@ impl Transfer {
             .no_proxy()
             .dns_resolver(resolver)
             .redirect(Policy::none())
+            .connect_timeout(connect_timeout)
             .build()
             .map_err(reqwest_error)?;
-        Ok(Self { client, options })
+        Ok(Self {
+            client,
+            options,
+            idle_timeout,
+        })
+    }
+
+    #[cfg(test)]
+    fn with_timeouts(
+        options: AttachmentOptions,
+        connect: Duration,
+        idle: Duration,
+    ) -> Result<Self, AttachmentError> {
+        Self::with_resolver_and_timeouts(options, Arc::new(SystemResolver), connect, idle)
     }
 
     pub async fn put(
@@ -161,7 +191,13 @@ impl Transfer {
         let file = tokio::fs::File::open(body.path)
             .await
             .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
-        let stream = ReaderStream::with_capacity(file, CHUNK_SIZE);
+        let last_progress = Arc::new(std::sync::Mutex::new(Instant::now()));
+        let upload_progress = last_progress.clone();
+        let stream = ReaderStream::with_capacity(file, CHUNK_SIZE).inspect(move |chunk| {
+            if chunk.as_ref().is_ok_and(|bytes| !bytes.is_empty()) {
+                *upload_progress.lock().unwrap() = Instant::now();
+            }
+        });
         let mut builder = self
             .client
             .request(Method::PUT, url)
@@ -176,7 +212,19 @@ impl Transfer {
                 HeaderValue::from_str(value).map_err(|_| AttachmentError::new(Cause::Malformed))?;
             builder = builder.header(name, value);
         }
-        let status = builder.send().await.map_err(reqwest_error)?.status();
+        let mut send = Box::pin(builder.send());
+        let response = loop {
+            let deadline = *last_progress.lock().unwrap() + self.idle_timeout;
+            tokio::select! {
+                result = &mut send => break result.map_err(reqwest_error)?,
+                () = tokio::time::sleep_until(deadline) => {
+                    if Instant::now().duration_since(*last_progress.lock().unwrap()) >= self.idle_timeout {
+                        return Err(AttachmentError::new(Cause::Network));
+                    }
+                }
+            }
+        };
+        let status = response.status();
         put_outcome(status.as_u16())
     }
 
@@ -190,13 +238,16 @@ impl Transfer {
         let mut redirects = 0;
         let response = loop {
             validate_url(&url, &self.options)?;
-            let response = self
-                .client
-                .get(url.clone())
-                .header(ACCEPT_ENCODING, "identity")
-                .send()
-                .await
-                .map_err(reqwest_error)?;
+            let response = timeout(
+                self.idle_timeout,
+                self.client
+                    .get(url.clone())
+                    .header(ACCEPT_ENCODING, "identity")
+                    .send(),
+            )
+            .await
+            .map_err(|_| AttachmentError::new(Cause::Network))?
+            .map_err(reqwest_error)?;
             if !response.status().is_redirection() {
                 break response;
             }
@@ -222,9 +273,16 @@ impl Transfer {
             .map(|value| value.to_str().unwrap_or("invalid").to_ascii_lowercase());
         let cap = cap.min(self.options.max_download_bytes.unwrap_or(u64::MAX));
         match encoding.as_deref() {
-            None | Some("identity") => read_identity(response, cap, sink).await,
+            None | Some("identity") => read_identity(response, cap, sink, self.idle_timeout).await,
             Some("gzip" | "deflate") => {
-                read_compressed(response, encoding.as_deref().unwrap(), cap, sink).await
+                read_compressed(
+                    response,
+                    encoding.as_deref().unwrap(),
+                    cap,
+                    sink,
+                    self.idle_timeout,
+                )
+                .await
             }
             _ => Err(AttachmentError::new(Cause::HttpStatus)),
         }
@@ -235,9 +293,14 @@ async fn read_identity(
     mut response: reqwest::Response,
     cap: u64,
     sink: &mut dyn DownloadSink,
+    idle_timeout: Duration,
 ) -> Result<(), AttachmentError> {
     let mut count = 0;
-    while let Some(chunk) = response.chunk().await.map_err(reqwest_error)? {
+    while let Some(chunk) = timeout(idle_timeout, response.chunk())
+        .await
+        .map_err(|_| AttachmentError::new(Cause::Network))?
+        .map_err(reqwest_error)?
+    {
         count = checked_count(count, chunk.len(), cap)?;
         sink.write(&chunk).await?;
     }
@@ -278,6 +341,7 @@ async fn read_compressed(
     encoding: &str,
     cap: u64,
     sink: &mut dyn DownloadSink,
+    idle_timeout: Duration,
 ) -> Result<(), AttachmentError> {
     let (input_tx, input_rx) = mpsc::channel(1);
     let (consumed_tx, mut consumed_rx) = mpsc::channel(1);
@@ -288,10 +352,10 @@ async fn read_compressed(
     let gzip = encoding == "gzip";
     let producer = tokio::spawn(async move {
         loop {
-            let chunk = match response.chunk().await {
-                Ok(Some(chunk)) => chunk,
-                Ok(None) => break,
-                Err(_) => {
+            let chunk = match timeout(idle_timeout, response.chunk()).await {
+                Ok(Ok(Some(chunk))) => chunk,
+                Ok(Ok(None)) => break,
+                Err(_) | Ok(Err(_)) => {
                     producer_failed.store(true, Ordering::Release);
                     break;
                 }
@@ -817,5 +881,113 @@ mod tests {
                 .await?,
             PutOutcome::AlreadyStored
         );
+    }
+
+    fn short_timeout() -> Transfer {
+        Transfer::with_timeouts(
+            AttachmentOptions {
+                allow_private_network: true,
+                ..Default::default()
+            },
+            Duration::from_secs(1),
+            Duration::from_millis(400),
+        )
+        .unwrap()
+    }
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_stalls_after_body() {
+        use http_body_util::BodyExt;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let (body_received, received) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let sender = Arc::new(std::sync::Mutex::new(Some(body_received)));
+            let service = service_fn(move |request: Request<Incoming>| {
+                let sender = sender.clone();
+                async move {
+                    let body = request.into_body().collect().await.unwrap().to_bytes();
+                    assert_eq!(&body[..], b"upload body");
+                    sender.lock().unwrap().take().unwrap().send(()).unwrap();
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    Ok::<_, std::convert::Infallible>(answer(StatusCode::OK, ""))
+                }
+            });
+            let _ = http1::Builder::new()
+                .serve_connection(TokioIo::new(socket), service)
+                .await;
+        });
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let mut writer = store.create_temp(".tmp/body").await?;
+        writer.write(b"upload body").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        store.rename(".tmp/body", "body").await?;
+        let request = UploadRequest {
+            method: "PUT".into(),
+            url,
+            headers: vec![],
+            expires_in_seconds: 60,
+        };
+        let error = short_timeout()
+            .put(&request, store.open_read("body").await?)
+            .await
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::Network);
+        tokio::time::timeout(Duration::from_secs(1), received).await??;
+        task.abort();
+        let _ = task.await;
+    }
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn get_stalls_after_bytes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = socket.read(&mut request).await;
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\na")
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        });
+        let mut sink = MemorySink::default();
+        let error = short_timeout().get(&url, 5, &mut sink).await.unwrap_err();
+        assert_eq!(error.cause, Cause::Network);
+        assert_eq!(sink.0, b"a");
+        task.abort();
+        let _ = task.await;
+    }
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn get_trickle_has_no_total_deadline() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let task = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            let _ = socket.read(&mut request).await;
+            socket
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n")
+                .await
+                .unwrap();
+            for byte in b"abcde" {
+                tokio::time::sleep(Duration::from_millis(150)).await;
+                socket.write_all(&[*byte]).await.unwrap();
+            }
+        });
+        let mut sink = MemorySink::default();
+        short_timeout().get(&url, 5, &mut sink).await?;
+        assert_eq!(sink.0, b"abcde");
+        task.await?;
     }
 }
