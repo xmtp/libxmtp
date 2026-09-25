@@ -401,9 +401,11 @@ impl Conversations {
             .map_err(XmtpError::unknown)?;
             if let Some(value) = enriched.into_iter().next() {
                 let parent = parent_stored(&group, &value)?;
-                Ok(Message::from_enriched(stored, value, parent, client_key).ok())
+                Ok(Some(Message::from_enriched(
+                    stored, value, parent, client_key,
+                )?))
             } else {
-                Ok(Message::from_stored(stored, client_key).ok())
+                Ok(Some(Message::from_stored(stored, client_key)?))
             }
         })
         .await
@@ -1092,13 +1094,23 @@ macro_rules! common_conversation {
                             .map_err(XmtpError::unknown)?
                             .into_iter()
                             .filter_map(|enriched| {
-                                Message::from_enriched(
+                                let message_id = enriched.stored.id.clone();
+                                match Message::from_enriched(
                                     enriched.stored,
                                     enriched.decoded,
                                     enriched.parent_stored,
                                     client_key,
-                                )
-                                .ok()
+                                ) {
+                                    Ok(message) => Some(message),
+                                    Err(err) => {
+                                        tracing::warn!(
+                                            message_id = %hex::encode(&message_id),
+                                            error = %err,
+                                            "skipping stored message that failed to convert"
+                                        );
+                                        None
+                                    }
+                                }
                             })
                             .collect())
                     };
