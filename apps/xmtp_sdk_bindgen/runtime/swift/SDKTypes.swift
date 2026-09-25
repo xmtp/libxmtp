@@ -113,10 +113,26 @@ public struct Timestamp: Hashable, Sendable {
     }
 }
 
+private func decodeReplyBody(_ body: MessageBody, clientKey: UInt64) -> SDKReplyContent {
+    switch body {
+    case let .custom(encoded):
+        let decoded = ClientRegistry.get(clientKey)?.decodeCustom(encoded)
+            ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
+        switch decoded {
+        case let .custom(_, value, error): return .custom(encoded: encoded, value: value, error: error)
+        case .unknown: return .unknown(encoded)
+        case .standard: return .standard(body)
+        }
+    case let .unknown(encoded): return .unknown(encoded)
+    default: return .standard(body)
+    }
+}
+
 public final class Message: Identifiable, Hashable, @unchecked Sendable {
     public let data: MessageData
     public let content: SDKMessageContent
     public let inReplyToContent: SDKReplyContent?
+    public let replyContent: SDKReplyContent?
     public init(data: MessageData) {
         self.data = data
         if case let .custom(encoded) = data.content {
@@ -125,20 +141,11 @@ public final class Message: Identifiable, Hashable, @unchecked Sendable {
         } else {
             content = .standard(data.content)
         }
-        if let parent = data.inReplyTo {
-            switch parent.content {
-            case let .custom(encoded):
-                let decoded = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded)
-                    ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
-                switch decoded {
-                case let .custom(_, value, error): inReplyToContent = .custom(encoded: encoded, value: value, error: error)
-                case .unknown: inReplyToContent = .unknown(encoded)
-                case .standard: inReplyToContent = .standard(parent.content)
-                }
-            default: inReplyToContent = .standard(parent.content)
-            }
+        inReplyToContent = data.inReplyTo.map { decodeReplyBody($0.content, clientKey: data.clientKey) }
+        if case let .reply(_, body) = data.content {
+            replyContent = decodeReplyBody(body, clientKey: data.clientKey)
         } else {
-            inReplyToContent = nil
+            replyContent = nil
         }
     }
 

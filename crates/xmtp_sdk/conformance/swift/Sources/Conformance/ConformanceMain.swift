@@ -418,6 +418,13 @@ struct Conformance {
         guard case let .custom(_, value, nil) = decoded.content, value as? String == "codec value",
               case .unknown = undecoded.content
         else { throw ConformanceFailure("custom codec leaked between clients") }
+        let customReplyID = try await withCodec.raw.conversations().replyToMessage(
+            id: customID, content: codec.encode("reply codec value"), options: nil
+        )
+        guard let customReply = try await withCodec.raw.conversations().getMessageByID(id: customReplyID),
+              case let .some(.custom(_, value, nil)) = customReply.replyContent,
+              value as? String == "reply codec value"
+        else { throw ConformanceFailure("reply body custom codec did not run") }
         let failingHost = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxID: inboxID, codecs: [FailingCodec()]
         )

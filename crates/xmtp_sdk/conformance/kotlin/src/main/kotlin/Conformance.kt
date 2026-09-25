@@ -467,6 +467,16 @@ fun main() =
         val undecoded = checkNotNull(withoutCodec.raw.conversations().getMessageByID(customID))
         check((decoded.content as? SDKMessageContent.Custom)?.value == "codec value")
         check(undecoded.content is SDKMessageContent.Unknown)
+        val customReplyID =
+            withCodec.raw.conversations().replyToMessage(
+                customID,
+                codec.encode("reply codec value"),
+                null,
+            )
+        val customReply = checkNotNull(withCodec.raw.conversations().getMessageByID(customReplyID))
+        check((customReply.replyContent as? SDKReplyContent.Custom)?.value == "reply codec value") {
+            "reply body custom codec did not run"
+        }
         val failingHost = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(FailingCodec()))
         val failed = checkNotNull(failingHost.raw.conversations().getMessageByID(customID))
         check((failed.content as? SDKMessageContent.Custom)?.error is AssertionError)

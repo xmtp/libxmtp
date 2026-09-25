@@ -15,6 +15,28 @@ import {
 import { ClientRegistry, type Client, type ContentCodec } from "./client";
 import type { MessageID } from "./ids";
 
+type LiftedReplyBody =
+  | MessageBody
+  | {
+      tag: MessageBody_Tags.Custom;
+      inner: { encoded: EncodedContent; value?: unknown; error?: string };
+    };
+
+function decodeReplyBody(
+  body: MessageBody,
+  clientKey: bigint,
+): LiftedReplyBody {
+  if (body.tag !== MessageBody_Tags.Custom) return body;
+  const encoded = body.inner.encoded;
+  const owner = ClientRegistry.get(clientKey);
+  const decoded = owner?.decodeCustom(encoded);
+  if (decoded === undefined && owner !== undefined) return body;
+  return {
+    tag: MessageBody_Tags.Custom,
+    inner: { encoded, ...(decoded ?? { error: "clientClosed" }) },
+  };
+}
+
 export class Message {
   readonly content:
     | MessageContent
@@ -22,26 +44,20 @@ export class Message {
         tag: MessageContent_Tags.Custom;
         inner: { encoded: EncodedContent; value?: unknown; error?: string };
       };
-  readonly inReplyToContent?:
-    | MessageBody
-    | {
-        tag: MessageBody_Tags.Custom;
-        inner: { encoded: EncodedContent; value?: unknown; error?: string };
-      };
+  readonly inReplyToContent?: LiftedReplyBody;
+  readonly replyContent?: LiftedReplyBody;
 
   constructor(readonly data: MessageData) {
     const parent = data.inReplyTo?.content;
-    if (parent?.tag === MessageBody_Tags.Custom) {
-      const encoded = parent.inner.encoded;
-      const decoded = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded);
-      this.inReplyToContent = {
-        tag: MessageBody_Tags.Custom,
-        inner: { encoded, ...(decoded ?? { error: "clientClosed" }) },
-      };
-    } else {
-      this.inReplyToContent = parent;
-    }
+    this.inReplyToContent =
+      parent === undefined
+        ? undefined
+        : decodeReplyBody(parent, data.clientKey);
     const content = data.content;
+    this.replyContent =
+      content.tag === MessageContent_Tags.Reply
+        ? decodeReplyBody(content.inner.body, data.clientKey)
+        : undefined;
     if (content.tag !== MessageContent_Tags.Custom) {
       this.content = content;
       return;
