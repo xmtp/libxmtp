@@ -170,7 +170,7 @@ clean-incremental days="14":
     roots=$(git worktree list --porcelain | awk '/^worktree /{print $2}')
     total=0
     for root in $roots; do
-      for dir in $(find "$root/target" -maxdepth 2 -type d -name incremental -atime +{{ days }} 2>/dev/null); do
+      for dir in $(find "$root/target" -maxdepth 3 -type d -name incremental -atime +{{ days }} 2>/dev/null); do
         size=$(du -sk "$dir" | cut -f1)
         total=$((total + size))
         echo "removing $dir ($((size / 1024)) MB)"

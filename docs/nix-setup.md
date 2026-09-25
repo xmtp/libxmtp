@@ -159,6 +159,8 @@ directory. The helper does not change compiler flags, features, or profiles.
 The helper unsets `CARGO_INCREMENTAL`, including an inherited `0` or `1`.
 Cargo then uses the profile defaults: local dev crates use incremental builds,
 and the repository disables incremental builds for non-local dependencies.
+The WASM test profile and `just wasm check` disable incremental builds to limit
+the size of WASM build data. Repeat local WASM checks can take longer.
 sccache passes incremental builds through without caching them. Do not export
 `CARGO_INCREMENTAL=1` while this wrapper is active: sccache 0.16 rejects that
 explicit override before compilation.

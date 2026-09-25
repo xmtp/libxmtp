@@ -6,7 +6,7 @@ nix_system := arch() + "-" + if os() == "macos" { "darwin" } else { "linux" }
 
 # Verify WASM bindings compile
 check:
-    cargo check --locked --target wasm32-unknown-unknown --manifest-path Cargo.toml
+    CARGO_INCREMENTAL=0 cargo check --locked --target wasm32-unknown-unknown --manifest-path Cargo.toml
 
 # Check WASM Rust formatting and lint.
 lint:
