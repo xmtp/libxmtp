@@ -94,8 +94,11 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     this.closed = true;
     this.pending?.abort();
     this.stop();
-    this.notifyClose({ kind: "failed", error });
-    void this.active?.end().catch(() => undefined);
+    try {
+      this.notifyClose({ kind: "failed", error });
+    } finally {
+      void this.active?.end().catch(() => undefined);
+    }
   }
 
   private async watchConnection(reader: ReaderLike<T>): Promise<void> {
@@ -170,11 +173,14 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     this.closed = true;
     this.pending?.abort();
     this.stop();
-    this.notifyClose({ kind: "closed" });
     try {
-      await this.active?.end();
-    } catch {
-      // Client shutdown can close the reader first.
+      this.notifyClose({ kind: "closed" });
+    } finally {
+      try {
+        await this.active?.end();
+      } catch {
+        // Client shutdown can close the reader first.
+      }
     }
   }
 }
