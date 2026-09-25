@@ -607,10 +607,8 @@ async fn send_standard(
         value,
         StandardContent::Reaction { .. } | StandardContent::ReadReceipt
     );
-    let options = options.unwrap_or(SendOptions {
-        should_push: default_push,
-        ..SendOptions::default()
-    });
+    let mut options = options.unwrap_or_default();
+    options.should_push.get_or_insert(default_push);
     send_encoded(group, crate::encode_standard(value)?, options).await
 }
 
@@ -628,7 +626,7 @@ async fn send_encoded(
                     .map_err(XmtpError::unknown)?;
             let bytes = encoded_content_to_bytes(content);
             let opts = SendMessageOpts {
-                should_push: options.should_push,
+                should_push: options.should_push.unwrap_or(true),
                 idempotency_key: options.idempotency_key,
             };
             let id = if options.optimistic {

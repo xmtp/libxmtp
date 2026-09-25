@@ -832,8 +832,8 @@ impl From<Compression> for xmtp_proto::xmtp::mls::message_contents::Compression 
 
 #[derive(Clone, Debug, Default, uniffi::Record)]
 pub struct SendOptions {
-    #[uniffi(default = true)]
-    pub should_push: bool,
+    #[uniffi(default = None)]
+    pub should_push: Option<bool>,
     #[uniffi(default = false)]
     pub optimistic: bool,
     #[uniffi(default = None)]
