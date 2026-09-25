@@ -1008,6 +1008,20 @@ async fn late_reader_released() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn message_decode_error_closes_reader_and_releases_lease() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    group.send_text("invalid stored message".into()).await?;
+    let reader = group.message_reader().await?;
+    reader.corrupt_next_message_for_test();
+    assert!(reader.next().await.is_err(), "invalid ID must fail conversion");
+    assert!(reader.is_ended_for_test(), "decode error left reader open");
+    let replacement = group.message_reader().await?;
+    replacement.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn conversation_reader_rereads_after_fall_behind() {
     use std::collections::HashSet;
 
