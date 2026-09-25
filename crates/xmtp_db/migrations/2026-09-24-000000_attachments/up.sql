@@ -5,8 +5,16 @@ CREATE TABLE local_attachments (
   filename      TEXT
 );
 CREATE TABLE pending_attachments (
-  content_digest    TEXT PRIMARY KEY NOT NULL, -- lowercase hex
-  remote_attachment BLOB NOT NULL,             -- prost-encoded RemoteAttachmentInfo
-  created_at_ns     BIGINT NOT NULL
+  content_digest          TEXT PRIMARY KEY NOT NULL, -- lowercase hex
+  remote_attachment       BLOB NOT NULL,             -- prost-encoded RemoteAttachmentInfo
+  created_at_ns           BIGINT NOT NULL,
+  status                  TEXT NOT NULL DEFAULT 'waiting'
+                          CHECK (status IN ('waiting', 'uploading', 'complete', 'failed')),
+  failure_cause           TEXT,
+  failure_credential_kind TEXT,
+  failure_retryable       BOOLEAN,
+  lease_id                BLOB,
+  lease_expires_at_ns     BIGINT,
+  CHECK ((status = 'uploading') = (lease_id IS NOT NULL AND lease_expires_at_ns IS NOT NULL))
 );
 CREATE INDEX pending_attachments_created_at ON pending_attachments (created_at_ns);
