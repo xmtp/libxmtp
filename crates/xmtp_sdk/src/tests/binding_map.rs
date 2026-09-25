@@ -82,7 +82,20 @@ async fn catch_up_replays_once_and_preserves_bounded_progress() {
         group.send_text(text.clone()).await?;
     }
 
-    let _bounded = alix.catch_up_to_live(Some(1)).await;
+    match alix.catch_up_to_live(Some(1)).await {
+        Ok(bounded) => {
+            assert!(bounded.completed);
+            assert!(bounded.messages <= 5);
+        }
+        Err(XmtpError::Unknown(details)) => {
+            assert!(
+                details.message.starts_with("Catch-up did not complete:"),
+                "expected a catch-up failure: {}",
+                details.message
+            );
+        }
+        Err(error) => panic!("expected a catch-up failure: {error}"),
+    }
     let full = alix.catch_up_to_live(None).await?;
     assert!(full.completed);
     let received = alix
