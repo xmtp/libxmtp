@@ -29,6 +29,13 @@ import {
 import { EventStream } from "./events/reader";
 import type { ConversationID, InboxID, InstallationID } from "./ids";
 
+// Conformance uses this hook to pause delivery before the app callback starts.
+let eventStartHookForTest: (() => Promise<void>) | undefined;
+
+export function setEventStartHookForTest(hook?: () => Promise<void>): void {
+  eventStartHookForTest = hook;
+}
+
 declare const process: { cwd(): string } | undefined;
 
 function resolvedOptions(options: ClientOptions): ClientOptions {
@@ -68,6 +75,8 @@ export class ClientRegistry {
 
 export class Client {
   private readonly key: bigint;
+  private readonly listeners = new Map<bigint, { stopped: boolean }>();
+  private readonly pendingListeners = new Set<{ stopped: boolean }>();
 
   private constructor(readonly raw: ClientLike) {
     this.key = raw.clientKey();
@@ -182,26 +191,42 @@ export class Client {
     return new EventStream(await this.raw.events(filter));
   }
 
-  startListener(
+  async startListener(
     filter: EventFilter,
     callback: (event: ClientEvent) => void | Promise<void>,
   ): Promise<bigint> {
-    return this.raw.startListener(filter, {
-      async onEvent(event: ClientEvent): Promise<void> {
-        try {
-          await callback(event);
-        } catch {
-          throw new ListenerError.Failed();
-        }
-      },
-    });
+    const gate = { stopped: false };
+    this.pendingListeners.add(gate);
+    try {
+      const id = await this.raw.startListener(filter, {
+        async onEvent(event: ClientEvent): Promise<void> {
+          if (eventStartHookForTest) await eventStartHookForTest();
+          if (gate.stopped) return;
+          try {
+            await callback(event);
+          } catch {
+            throw new ListenerError.Failed();
+          }
+        },
+      });
+      this.listeners.set(id, gate);
+      return id;
+    } finally {
+      this.pendingListeners.delete(gate);
+    }
   }
 
   stopListener(id: bigint): Promise<void> {
+    const gate = this.listeners.get(id);
+    if (gate) gate.stopped = true;
+    this.listeners.delete(id);
     return this.raw.stopListener(id);
   }
 
   async end(): Promise<void> {
+    for (const gate of this.listeners.values()) gate.stopped = true;
+    for (const gate of this.pendingListeners) gate.stopped = true;
+    this.listeners.clear();
     try {
       await this.raw.end();
     } finally {

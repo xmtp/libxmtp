@@ -3,6 +3,7 @@ import Foundation
 /// The host client resolves storage and owns the weak message lookup entry.
 public final class SDKClient: @unchecked Sendable {
     public let raw: Client
+    let listenerGates = ListenerGates()
 
     private init(_ raw: Client) {
         self.raw = raw
@@ -75,6 +76,7 @@ public final class SDKClient: @unchecked Sendable {
     }
 
     public func end() async throws {
+        listenerGates.stopAll()
         defer { ClientRegistry.remove(self) }
         try await raw.end()
     }

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
 
 const viemRoot = realpathSync(
   fileURLToPath(
@@ -571,6 +572,78 @@ assert.equal(listenerCalls, 1);
 await reopened.stopListener(listenerID);
 await eventReader.end();
 console.log("Node scenario 8: event reader and listener passed");
+
+// verifies: EVENT-053
+let releaseStart!: () => void;
+let startArrived!: () => void;
+const startHeld = new Promise<void>((resolve) => {
+  releaseStart = resolve;
+});
+const startEntered = new Promise<void>((resolve) => {
+  startArrived = resolve;
+});
+setEventStartHookForTest(async () => {
+  startArrived();
+  await startHeld;
+});
+let lateCalls = 0;
+const delayedID = await reopened.startListener(eventFilter, () => {
+  lateCalls += 1;
+});
+await reopened.raw.conversations().createGroup([]);
+await startEntered;
+await reopened.stopListener(delayedID);
+releaseStart();
+setEventStartHookForTest();
+await new Promise((resolve) => setTimeout(resolve, 100));
+assert.equal(lateCalls, 0, "callback started after stop returned");
+console.log("Node delayed listener stop passed");
+
+// verifies: EVENT-052
+let resolveStopped!: () => void;
+const stoppedInside = new Promise<void>((resolve) => {
+  resolveStopped = resolve;
+});
+let reentrantID!: bigint;
+reentrantID = await reopened.startListener(eventFilter, async () => {
+  await reopened.stopListener(reentrantID);
+  resolveStopped();
+});
+await reopened.raw.conversations().createGroup([]);
+await Promise.race([
+  stoppedInside,
+  new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error("stop inside listener timed out")),
+      10_000,
+    ),
+  ),
+]);
+console.log("Node stop from inside listener passed");
+
+let resolveEnded!: () => void;
+const endedInside = new Promise<void>((resolve) => {
+  resolveEnded = resolve;
+});
+await reopened.startListener(eventFilter, async () => {
+  await reopened.end();
+  resolveEnded();
+});
+try {
+  await reopened.raw.conversations().createGroup([]);
+} catch {
+  /* end may close this call */
+}
+await Promise.race([
+  endedInside,
+  new Promise<never>((_, reject) =>
+    setTimeout(
+      () => reject(new Error("end inside listener timed out")),
+      10_000,
+    ),
+  ),
+]);
+console.log("Node end from inside listener passed");
 
 await reopened.end();
 console.log("Node scenario 7: durable stream and idle cancellation passed");

@@ -1,13 +1,10 @@
-use parking_lot::{Mutex, ReentrantMutex};
+use parking_lot::Mutex;
 use std::{
-    cell::Cell,
     collections::HashMap,
-    future::Future,
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
     },
-    task::Poll,
 };
 use tokio::sync::watch;
 use xmtp_events::Subscription;
@@ -16,7 +13,7 @@ use xmtp_mls::subscriptions::internal::InternalEvent;
 use super::{ClientEvent, EventListener, ListenerError, ListenerID};
 use crate::{XmtpError, foreign};
 
-type StartGate = ReentrantMutex<Cell<bool>>;
+type StartGate = Mutex<bool>;
 
 struct ListenerControl {
     subscription: Arc<Subscription<InternalEvent>>,
@@ -76,7 +73,7 @@ impl ListenerRegistry {
             .map_err(|_| XmtpError::unknown("listener ID space exhausted"))?;
         let subscription = Arc::new(subscription);
         let (stopped, receiver) = watch::channel(false);
-        let start_gate = Arc::new(StartGate::new(Cell::new(false)));
+        let start_gate = Arc::new(StartGate::new(false));
         self.listeners.lock().insert(
             id,
             Arc::new(ListenerControl {
@@ -99,7 +96,7 @@ impl ListenerRegistry {
     pub(crate) fn stop(&self, id: ListenerID) {
         let control = self.listeners.lock().get(&id.0).cloned();
         if let Some(control) = control {
-            control.start_gate.lock().set(true);
+            *control.start_gate.lock() = true;
             let _ = control.stopped.send(true);
             control.subscription.close();
             self.listeners.lock().remove(&id.0);
@@ -120,31 +117,21 @@ impl Drop for ListenerRegistry {
     }
 }
 
-/// Start the foreign call while the gate is held. The gate covers its first poll.
+/// Check for stop before the foreign call. The host checks again before the app callback.
 async fn call_listener(
     listener: Arc<dyn EventListener>,
     event: ClientEvent,
     start_gate: Arc<StartGate>,
     #[cfg(test)] start_hook: Option<Arc<StartHook>>,
 ) -> Result<(), ListenerError> {
-    let mut call = Box::pin(listener.on_event(event));
-    let first = futures::future::poll_fn(|cx| {
-        let stopped = start_gate.lock();
-        if stopped.get() {
-            return Poll::Ready(None);
-        }
-        #[cfg(test)]
-        if let Some(hook) = &start_hook {
-            hook.block_once();
-        }
-        Poll::Ready(Some(call.as_mut().poll(cx)))
-    })
-    .await;
-    match first {
-        None => Ok(()),
-        Some(Poll::Ready(result)) => result,
-        Some(Poll::Pending) => call.await,
+    #[cfg(test)]
+    if let Some(hook) = &start_hook {
+        hook.block_once();
     }
+    if *start_gate.lock() {
+        return Ok(());
+    }
+    listener.on_event(event).await
 }
 
 #[cfg(not(target_arch = "wasm32"))]

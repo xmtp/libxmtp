@@ -13,6 +13,7 @@ import kotlinx.coroutines.withTimeout
 import uniffi.xmtp_sdk.*
 import java.lang.ref.WeakReference
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
 
 private fun signCommand(
     action: String,
@@ -360,6 +361,36 @@ fun main() =
         withTimeout(10_000) { received.await() }
         reopenedHost.stopListener(listenerID)
         println("Kotlin scenario 8: event reader and listener passed")
+
+        // verifies: EVENT-053
+        val startEntered = CompletableDeferred<Unit>()
+        val releaseStart = CompletableDeferred<Unit>()
+        EventStartHookForTest.beforeCallback = {
+            startEntered.complete(Unit)
+            releaseStart.await()
+        }
+        val lateCalls = AtomicInteger()
+        val delayedID = reopenedHost.startListener(eventFilter) { lateCalls.incrementAndGet() }
+        reopened.conversations().createGroup(emptyList())
+        withTimeout(10_000) { startEntered.await() }
+        withTimeout(10_000) { reopenedHost.stopListener(delayedID) }
+        releaseStart.complete(Unit)
+        EventStartHookForTest.beforeCallback = null
+        delay(100)
+        check(lateCalls.get() == 0) { "callback started after stop returned" }
+        println("Kotlin delayed listener stop passed")
+
+        // verifies: EVENT-052
+        val stoppedFromCallback = CompletableDeferred<Unit>()
+        var reentrantID: ListenerID? = null
+        reentrantID =
+            reopenedHost.startListener(eventFilter) {
+                reopenedHost.stopListener(requireNotNull(reentrantID))
+                stoppedFromCallback.complete(Unit)
+            }
+        reopened.conversations().createGroup(emptyList())
+        withTimeout(10_000) { stoppedFromCallback.await() }
+        println("Kotlin stop_from_inside_listener passed")
 
         val endedFromCallback = CompletableDeferred<Unit>()
         reopenedHost.startListener(eventFilter) {

@@ -429,12 +429,8 @@ async fn no_call_after_stop_returns() {
     });
     ready.recv_timeout(Duration::from_secs(2))?;
     tokio::time::sleep(Duration::from_millis(100)).await;
-    let stopped_before_first_poll = stopping.is_finished() || stopping_again.is_finished();
+    let stopped_before_release = stopping.is_finished() && stopping_again.is_finished();
     release.send(())?;
-    assert_eq!(
-        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
-        Some(0)
-    );
     assert!(
         tokio::time::timeout(
             Duration::from_secs(2),
@@ -450,9 +446,11 @@ async fn no_call_after_stop_returns() {
         .await??
     );
     assert!(
-        !stopped_before_first_poll,
-        "stop returned before the host callback started"
+        stopped_before_release,
+        "stop waited for a callback that had not started"
     );
+    let first = tokio::time::timeout(Duration::from_millis(100), started.recv()).await;
+    assert!(!matches!(first, Ok(Some(_))), "callback started after stop");
     emit_hmac(&client);
     let later = tokio::time::timeout(Duration::from_millis(100), started.recv()).await;
     assert!(!matches!(later, Ok(Some(_))));
