@@ -1,0 +1,31 @@
+[package]
+name = "xmtp_attachments"
+description = "Streaming client attachment encoding and encryption"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+aes.workspace = true
+ctr.workspace = true
+flate2.workspace = true
+ghash.workspace = true
+hex.workspace = true
+prost.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+xmtp-workspace-hack.workspace = true
+xmtp_common.workspace = true
+xmtp_content_types.workspace = true
+xmtp_proto.workspace = true
+
+[dev-dependencies]
+aes-gcm.workspace = true
+tokio.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true
