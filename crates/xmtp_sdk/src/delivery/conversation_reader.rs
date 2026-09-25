@@ -28,12 +28,19 @@ pub struct ConversationReader {
     cancel: CancellationToken,
     context: xmtp_mls::MlsContext,
     client_key: u64,
+    #[cfg(test)]
+    fail_next_conversion: Arc<AtomicBool>,
 }
 
 impl ConversationReader {
     #[cfg(test)]
     pub(crate) fn lease_for_test(&self) -> &Arc<IncomingLease> {
         &self.lease
+    }
+
+    #[cfg(test)]
+    pub(crate) fn fail_next_conversion_for_test(&self) {
+        self.fail_next_conversion.store(true, Ordering::Release);
     }
 
     pub(crate) async fn open(
@@ -59,6 +66,8 @@ impl ConversationReader {
             cancel: CancellationToken::new(),
             context,
             client_key,
+            #[cfg(test)]
+            fail_next_conversion: Arc::new(AtomicBool::new(false)),
         }))
     }
 }
@@ -82,6 +91,8 @@ impl ConversationReader {
         let closed = self.closed.clone();
         let cancel = self.cancel.clone();
         let client_key = self.client_key;
+        #[cfg(test)]
+        let fail_next_conversion = self.fail_next_conversion.clone();
         on_sdk_worker(self.context.clone(), async move {
             if closed.load(Ordering::Acquire) {
                 return Ok(false);
@@ -105,9 +116,26 @@ impl ConversationReader {
                 }
                 match item {
                     Some(Ok(group)) => {
-                        if let Some(conversation) =
-                            Conversation::from_core(group, client_key).await?
-                        {
+                        #[cfg(test)]
+                        let conversion = if fail_next_conversion.swap(false, Ordering::AcqRel) {
+                            Err(XmtpError::unknown(
+                                "injected conversation conversion failure",
+                            ))
+                        } else {
+                            Conversation::from_core(group, client_key).await
+                        };
+                        #[cfg(not(test))]
+                        let conversion = Conversation::from_core(group, client_key).await;
+                        let conversation = match conversion {
+                            Ok(conversation) => conversation,
+                            Err(error) => {
+                                closed.store(true, Ordering::Release);
+                                cancel.cancel();
+                                lease.close();
+                                return Err(error);
+                            }
+                        };
+                        if let Some(conversation) = conversation {
                             let mut pending = pending.lock();
                             if closed.load(Ordering::Acquire) {
                                 return Ok(false);
