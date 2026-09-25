@@ -22,6 +22,8 @@ if_wasm! {
 pub struct ArchiveImporter {
     pub metadata: BackupMetadata,
     decoded: Vec<u8>,
+    element_len: Option<usize>,
+    finished: bool,
     decoder: ZstdDecoder<AsyncReader>,
 
     cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
@@ -39,22 +41,26 @@ impl Stream for ArchiveImporter {
     ) -> std::task::Poll<Option<Self::Item>> {
         let this = self.get_mut();
 
-        let mut buffer = [0u8; 1024];
-        let mut element_len = 0;
-        loop {
-            let amount = match this.decoder.read(&mut buffer).poll_unpin(cx) {
-                Poll::Ready(Ok(amt)) => amt,
-                Poll::Ready(Err(err)) => return Poll::Ready(Err(err)?),
-                Poll::Pending => return Poll::Pending,
-            };
-            this.decoded.extend_from_slice(&buffer[..amount]);
+        if this.finished {
+            return Poll::Ready(None);
+        }
 
-            if element_len == 0 && this.decoded.len() >= 4 {
+        let mut buffer = [0u8; 1024];
+        loop {
+            if this.element_len.is_none() && this.decoded.len() >= 4 {
                 let bytes = this.decoded.drain(..4).collect::<Vec<_>>();
-                element_len = u32::from_le_bytes(bytes.try_into().expect("is 4 bytes")) as usize;
+                let element_len =
+                    u32::from_le_bytes(bytes.try_into().expect("is 4 bytes")) as usize;
+                if element_len == 0 {
+                    this.finished = true;
+                    return Poll::Ready(Some(Err(ArchiveError::InvalidFrame("empty frame"))));
+                }
+                this.element_len = Some(element_len);
             }
 
-            if element_len != 0 && this.decoded.len() >= element_len {
+            if let Some(element_len) = this.element_len
+                && this.decoded.len() >= element_len
+            {
                 let decrypted_result = this
                     .cipher
                     .decrypt(&this.nonce, &this.decoded[..element_len]);
@@ -72,16 +78,26 @@ impl Stream for ArchiveImporter {
 
                 let element = BackupElement::decode(&*decrypted);
                 this.decoded.drain(..element_len);
+                this.element_len = None;
                 this.nonce.increment();
                 return Poll::Ready(Some(element.map_err(ArchiveError::from)));
             }
 
-            if amount == 0 && this.decoded.is_empty() {
-                break;
+            let amount = match this.decoder.read(&mut buffer).poll_unpin(cx) {
+                Poll::Ready(Ok(amt)) => amt,
+                Poll::Ready(Err(err)) => return Poll::Ready(Err(err)?),
+                Poll::Pending => return Poll::Pending,
+            };
+            if amount == 0 {
+                this.finished = true;
+                return if this.element_len.is_none() && this.decoded.is_empty() {
+                    Poll::Ready(None)
+                } else {
+                    Poll::Ready(Some(Err(ArchiveError::InvalidFrame("truncated frame"))))
+                };
             }
+            this.decoded.extend_from_slice(&buffer[..amount]);
         }
-
-        Poll::Ready(None)
     }
 }
 
@@ -97,6 +113,8 @@ impl ArchiveImporter {
         let mut importer = Self {
             decoder: ZstdDecoder::new(reader),
             decoded: vec![],
+            element_len: None,
+            finished: false,
             metadata: BackupMetadata::default(),
 
             #[allow(deprecated)]
@@ -105,11 +123,12 @@ impl ArchiveImporter {
             nonce: GenericArray::from(nonce),
         };
 
-        let Some(Ok(BackupElement {
-            element: Some(Element::Metadata(metadata)),
-        })) = importer.next().await
-        else {
-            return Err(ArchiveError::MissingMetadata)?;
+        let metadata = match importer.next().await {
+            Some(Ok(BackupElement {
+                element: Some(Element::Metadata(metadata)),
+            })) => metadata,
+            Some(Err(error)) => return Err(error),
+            _ => return Err(ArchiveError::MissingMetadata),
         };
 
         importer.metadata = BackupMetadata::from_metadata_save(metadata, version);
@@ -118,5 +137,52 @@ impl ArchiveImporter {
 
     pub fn metadata(&self) -> &BackupMetadata {
         &self.metadata
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod tests {
+    use super::*;
+    use async_compression::futures::write::ZstdEncoder;
+    use futures_util::{AsyncWriteExt, io::BufReader};
+    use std::sync::mpsc;
+    use xmtp_common::time::Duration;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn malformed_frames_return_errors_without_hanging() {
+        for frame in [vec![0, 0, 0, 0, 0xaa], vec![8, 0, 0, 0, 1, 2, 3]] {
+            let mut encoder = ZstdEncoder::new(Vec::new());
+            encoder.write_all(&frame).await?;
+            encoder.close().await?;
+            let reader = Box::pin(BufReader::new(futures::io::Cursor::new(
+                encoder.into_inner(),
+            ))) as AsyncReader;
+            let importer = ArchiveImporter {
+                metadata: BackupMetadata::default(),
+                decoded: Vec::new(),
+                element_len: None,
+                finished: false,
+                decoder: ZstdDecoder::new(reader),
+                #[allow(deprecated)]
+                cipher: Aes256Gcm::new(GenericArray::from_slice(&[0; crate::ENC_KEY_SIZE])),
+                #[allow(deprecated)]
+                nonce: GenericArray::from([0; NONCE_SIZE]),
+            };
+            let (sender, receiver) = mpsc::channel();
+            std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .build()
+                    .unwrap();
+                let result = runtime.block_on(async { importer.take(1).next().await });
+                let _ = sender.send(result);
+            });
+            let result = receiver
+                .recv_timeout(Duration::from_secs(2))
+                .expect("malformed frame import hung");
+            assert!(
+                matches!(result, Some(Err(ArchiveError::InvalidFrame(_)))),
+                "malformed frame was accepted: {result:?}"
+            );
+        }
     }
 }

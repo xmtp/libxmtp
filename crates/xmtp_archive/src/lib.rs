@@ -22,6 +22,8 @@ mod util;
 pub enum ArchiveError {
     #[error("Missing metadata")]
     MissingMetadata,
+    #[error("Invalid archive frame: {0}")]
+    InvalidFrame(&'static str),
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
     #[error("IO error: {0}")]

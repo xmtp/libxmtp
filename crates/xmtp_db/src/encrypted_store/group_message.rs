@@ -327,27 +327,36 @@ impl std::fmt::Display for ContentType {
     }
 }
 
-impl From<String> for ContentType {
-    fn from(type_id: String) -> Self {
-        match type_id.as_str() {
-            text::TextCodec::TYPE_ID => Self::Text,
-            markdown::MarkdownCodec::TYPE_ID => Self::Markdown,
-            membership_change::GroupMembershipChangeCodec::TYPE_ID => Self::GroupMembershipChange,
-            group_updated::GroupUpdatedCodec::TYPE_ID => Self::GroupUpdated,
-            reaction::ReactionCodec::TYPE_ID => Self::Reaction,
-            read_receipt::ReadReceiptCodec::TYPE_ID => Self::ReadReceipt,
-            reply::ReplyCodec::TYPE_ID => Self::Reply,
-            attachment::AttachmentCodec::TYPE_ID => Self::Attachment,
-            remote_attachment::RemoteAttachmentCodec::TYPE_ID => Self::RemoteAttachment,
-            transaction_reference::TransactionReferenceCodec::TYPE_ID => Self::TransactionReference,
-            wallet_send_calls::WalletSendCallsCodec::TYPE_ID => Self::WalletSendCalls,
-            leave_request::LeaveRequestCodec::TYPE_ID => Self::LeaveRequest,
-            actions::ActionsCodec::TYPE_ID => Self::Actions,
-            intent::IntentCodec::TYPE_ID => Self::Intent,
-            multi_remote_attachment::MultiRemoteAttachmentCodec::TYPE_ID => {
+impl ContentType {
+    /// Classify a catalogue identifier. A matching type name alone is not enough.
+    pub fn from_identifier(authority_id: &str, type_id: &str, version_major: u32) -> Self {
+        match (authority_id, type_id, version_major) {
+            ("xmtp.org", text::TextCodec::TYPE_ID, 1) => Self::Text,
+            ("xmtp.org", markdown::MarkdownCodec::TYPE_ID, 1) => Self::Markdown,
+            ("xmtp.org", membership_change::GroupMembershipChangeCodec::TYPE_ID, 1) => {
+                Self::GroupMembershipChange
+            }
+            ("xmtp.org", group_updated::GroupUpdatedCodec::TYPE_ID, 1) => Self::GroupUpdated,
+            ("xmtp.org", reaction::ReactionCodec::TYPE_ID, 1 | 2) => Self::Reaction,
+            ("xmtp.org", read_receipt::ReadReceiptCodec::TYPE_ID, 1) => Self::ReadReceipt,
+            ("xmtp.org", reply::ReplyCodec::TYPE_ID, 1) => Self::Reply,
+            ("xmtp.org", attachment::AttachmentCodec::TYPE_ID, 1) => Self::Attachment,
+            ("xmtp.org", remote_attachment::RemoteAttachmentCodec::TYPE_ID, 1) => {
+                Self::RemoteAttachment
+            }
+            ("xmtp.org", transaction_reference::TransactionReferenceCodec::TYPE_ID, 1) => {
+                Self::TransactionReference
+            }
+            ("xmtp.org", wallet_send_calls::WalletSendCallsCodec::TYPE_ID, 1) => {
+                Self::WalletSendCalls
+            }
+            ("xmtp.org", leave_request::LeaveRequestCodec::TYPE_ID, 1) => Self::LeaveRequest,
+            ("coinbase.com", actions::ActionsCodec::TYPE_ID, 1) => Self::Actions,
+            ("coinbase.com", intent::IntentCodec::TYPE_ID, 1) => Self::Intent,
+            ("xmtp.org", multi_remote_attachment::MultiRemoteAttachmentCodec::TYPE_ID, 1) => {
                 Self::MultiRemoteAttachment
             }
-            delete_message::DeleteMessageCodec::TYPE_ID => Self::DeleteMessage,
+            ("xmtp.org", delete_message::DeleteMessageCodec::TYPE_ID, 1) => Self::DeleteMessage,
             _ => Self::Unknown,
         }
     }

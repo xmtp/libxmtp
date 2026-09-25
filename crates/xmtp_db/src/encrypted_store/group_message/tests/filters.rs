@@ -6,6 +6,51 @@ use xmtp_common::assert_ok;
 
 use super::helpers::*;
 
+// verifies: CTYPE-001, CTYPE-018
+#[xmtp_common::test]
+fn catalogue_type_classification_checks_authority_and_major() {
+    for expected in ContentType::all() {
+        if expected == ContentType::Unknown {
+            continue;
+        }
+        let authority = match expected {
+            ContentType::Actions | ContentType::Intent => "coinbase.com",
+            _ => "xmtp.org",
+        };
+        let major = if expected == ContentType::Reaction {
+            2
+        } else {
+            1
+        };
+        let type_id = expected.to_string();
+        assert_eq!(
+            ContentType::from_identifier(authority, &type_id, major),
+            expected,
+            "{authority}/{type_id} was not classified"
+        );
+        assert_eq!(
+            ContentType::from_identifier("custom.example", &type_id, major),
+            ContentType::Unknown,
+            "custom.example/{type_id} was classified as standard"
+        );
+        assert_eq!(
+            ContentType::from_identifier(authority, &type_id, major + 1),
+            ContentType::Unknown,
+            "{authority}/{type_id} with a new major was classified as standard"
+        );
+        if authority == "coinbase.com" {
+            assert_eq!(
+                ContentType::from_identifier("xmtp.org", &type_id, major),
+                ContentType::Unknown
+            );
+        }
+    }
+    assert_eq!(
+        ContentType::from_identifier("xmtp.org", "reaction", 1),
+        ContentType::Reaction
+    );
+}
+
 #[xmtp_common::test]
 fn it_deletes_message_by_id() {
     with_connection(|conn| {

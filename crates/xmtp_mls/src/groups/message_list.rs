@@ -137,7 +137,7 @@ mod tests {
             .as_ref()
             .map(|ct| {
                 (
-                    DbContentType::from(ct.type_id.clone()),
+                    DbContentType::from_identifier(&ct.authority_id, &ct.type_id, ct.version_major),
                     ct.version_major as i32,
                     ct.version_minor as i32,
                     ct.authority_id.clone(),

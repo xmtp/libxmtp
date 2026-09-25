@@ -270,16 +270,19 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
         // decoding still exposes the original envelope to the app.
         let decoded = xmtp_content_types::compression::decompress(content).ok();
         let reference_id = decoded.and_then(|content| {
+            if content_type_id.authority_id != "xmtp.org" {
+                return None;
+            }
             match (type_id_str.as_str(), content_type_id.version_major) {
                 (ReplyCodec::TYPE_ID, 1) => ReplyCodec::decode(content)
                     .ok()
                     .and_then(|reply| hex::decode(reply.reference).ok()),
-                (ReactionCodec::TYPE_ID, major) if major >= 2 => {
+                (ReactionCodec::TYPE_ID, ReactionCodec::MAJOR_VERSION) => {
                     ReactionV2::decode(content.content.as_slice())
                         .ok()
                         .and_then(|reaction| hex::decode(reaction.reference).ok())
                 }
-                (ReactionCodec::TYPE_ID, _) => LegacyReaction::decode(&content.content)
+                (ReactionCodec::TYPE_ID, 1) => LegacyReaction::decode(&content.content)
                     .and_then(|legacy_reaction| hex::decode(legacy_reaction.reference).ok()),
                 (DeleteMessageCodec::TYPE_ID, DeleteMessageCodec::MAJOR_VERSION) => {
                     DeleteMessage::decode(content.content.as_slice())
@@ -291,7 +294,11 @@ impl TryFrom<EncodedContent> for QueryableContentFields {
         });
 
         Ok(QueryableContentFields {
-            content_type: content_type_id.type_id.into(),
+            content_type: ContentType::from_identifier(
+                &content_type_id.authority_id,
+                &content_type_id.type_id,
+                content_type_id.version_major,
+            ),
             version_major: content_type_id.version_major as i32,
             version_minor: content_type_id.version_minor as i32,
             authority_id: content_type_id.authority_id.to_string(),
