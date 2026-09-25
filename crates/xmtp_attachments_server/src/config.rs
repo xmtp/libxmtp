@@ -1,5 +1,5 @@
 use schemars::JsonSchema;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use url::Url;
 use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_UPLOAD_BYTES, check_base_url, check_max_upload_bytes,
@@ -11,7 +11,7 @@ pub const MIN_PRESIGN_TTL_SECONDS: u32 = 300;
 pub const MAX_PRESIGN_TTL_SECONDS: u32 = 3600;
 
 /// Operator settings for remote attachment storage.
-#[derive(Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AttachmentsConfig {
     pub base_url: String,
@@ -50,7 +50,7 @@ impl AttachmentsConfig {
 }
 
 /// A storage target. The variant name is an operator config key.
-#[derive(Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 pub enum TargetConfig {
     S3(S3Config),
 }
@@ -64,7 +64,7 @@ impl std::fmt::Debug for TargetConfig {
 }
 
 /// S3-compatible path-style target settings.
-#[derive(Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct S3Config {
     pub endpoint: String,
@@ -155,7 +155,7 @@ impl S3Config {
 }
 
 /// Credential source for signing. Debug never prints its fields.
-#[derive(Clone, Deserialize, JsonSchema)]
+#[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CredentialsConfig {
     Static {

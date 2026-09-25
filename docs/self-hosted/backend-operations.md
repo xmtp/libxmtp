@@ -11,6 +11,7 @@ Run commands from the repository root. Use the Nix shell and the project recipes
 just backend db-up
 just backend sql-prepare
 just backend test
+just backend minio-up
 ```
 
 In the main checkout the database listens on `127.0.0.1:55432`. Other worktrees
@@ -18,6 +19,11 @@ use other ports; see [Several worktrees](#several-worktrees). Run
 `just backend status` to print the ports for the checkout you are in.
 The credentials and database name are in `dev/docker/compose.yml`. These
 credentials are for disposable local tests only.
+The MinIO target uses the worktree port shown by `just backend status`.
+`minio-init` creates the `attachments` bucket and enables public GET. The
+MinIO server permits CORS for signed PUT requests. The MinIO integration test
+needs both services.
+The local configuration in `dev/backend/local.toml` uses this target.
 Set `DATABASE_URL` to select a different test database. The test user must be able
 to create and delete databases. Each service test uses a separate database.
 Tests live beside the modules they exercise and share one test-support module.

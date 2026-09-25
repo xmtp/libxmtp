@@ -260,6 +260,7 @@ jobs:
               - 'apps/backend/.sqlx/**'
               - 'dev/backend/**'
               - 'dev/docker/**'
+              - 'dev/worktree-env'
               - 'docs/schemas/backend-v1.json'
               - 'flake.nix'
               - 'dev/nix-shell'

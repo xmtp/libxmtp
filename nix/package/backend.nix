@@ -28,6 +28,7 @@ let
         (root + /crates/xmtp_id/src/scw_verifier/signature_validation.hex)
       ]
       ++ map (name: rust.fileset.commonCargoSources (root + "/crates/${name}")) [
+        "xmtp_attachments_server"
         "xmtp_common"
         "xmtp_configuration"
         "xmtp_cryptography"

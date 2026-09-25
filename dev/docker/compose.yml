@@ -43,13 +43,49 @@ services:
       timeout: 3s
       retries: 30
 
+  minio:
+    # Public mirror of the pinned MinIO release; official registry pulls are unavailable.
+    image: satantime/minio-server:RELEASE.2025-09-07T16-13-09Z
+    command: ["server", "/data", "--console-address", ":9001"]
+    # Community MinIO supports server-wide CORS, not PutBucketCors. Its
+    # built-in CORS handler permits PUT, GET, and the signed request headers.
+    environment:
+      MINIO_ROOT_USER: xmtpminio
+      MINIO_ROOT_PASSWORD: xmtpminiosecret
+      MINIO_API_CORS_ALLOW_ORIGIN: "*"
+    ports: ["127.0.0.1:${XMTP_MINIO_PORT:-9067}:9000"]
+    volumes: [minio-data:/data]
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://127.0.0.1:9000/minio/health/live"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
+  minio-init:
+    image: satantime/minio-server:RELEASE.2025-09-07T16-13-09Z
+    depends_on: { minio: { condition: service_healthy } }
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        mc alias set local http://minio:9000 xmtpminio xmtpminiosecret;
+        mc mb --ignore-existing local/attachments;
+        mc anonymous set download local/attachments;
+        touch /tmp/minio-ready;
+        exec sleep infinity
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/minio-ready"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
   backend:
     image: ghcr.io/xmtp/backend:self-hosted      # loaded from `nix build .#backend-image-<arch>` by `just backend up`
     depends_on:
       db: { condition: service_healthy }
       replica: { condition: service_healthy }
+      minio-init: { condition: service_healthy }
       tempo: { condition: service_started }
-    environment: { XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend, XMTP_CHAIN_31337_URL: http://anvil:8545, XMTP_REPLICA_URL: postgres://xmtp:xmtp@replica:5432/xmtp_backend, OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317 }
+    environment: { XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend, XMTP_CHAIN_31337_URL: http://anvil:8545, XMTP_REPLICA_URL: postgres://xmtp:xmtp@replica:5432/xmtp_backend, XMTP_MINIO_URL: "${XMTP_MINIO_URL:-http://127.0.0.1:9067}", XMTP_MINIO_BASE_URL: "${XMTP_MINIO_BASE_URL:-http://127.0.0.1:9067/attachments}", OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317 }
     volumes: ["../backend/local.toml:/config.toml:ro"]
     command: ["--config-file", "/config.toml"]
     # The backend binds all interfaces on purpose: the Android emulator reaches
@@ -144,3 +180,4 @@ services:
 
 volumes:
   tempo-data:
+  minio-data:

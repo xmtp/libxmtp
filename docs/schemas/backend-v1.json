@@ -5,6 +5,16 @@
   "description": "Complete backend configuration.",
   "type": "object",
   "properties": {
+    "attachments": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AttachmentsConfig"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
     "auth": {
       "anyOf": [
         {
@@ -142,6 +152,288 @@
     "database"
   ],
   "$defs": {
+    "AttachmentsConfig": {
+      "description": "Operator settings for remote attachment storage.",
+      "type": "object",
+      "properties": {
+        "base_url": {
+          "type": "string"
+        },
+        "max_upload_bytes": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "retention_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint64",
+          "minimum": 0
+        },
+        "target": {
+          "$ref": "#/$defs/TargetConfig"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "base_url",
+        "target"
+      ]
+    },
+    "TargetConfig": {
+      "description": "A storage target. The variant name is an operator config key.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "S3": {
+              "$ref": "#/$defs/S3Config"
+            }
+          },
+          "required": [
+            "S3"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "S3Config": {
+      "description": "S3-compatible path-style target settings.",
+      "type": "object",
+      "properties": {
+        "endpoint": {
+          "type": "string"
+        },
+        "region": {
+          "type": "string"
+        },
+        "bucket": {
+          "type": "string"
+        },
+        "key_prefix": {
+          "type": "string",
+          "default": ""
+        },
+        "credentials": {
+          "$ref": "#/$defs/CredentialsConfig"
+        },
+        "presign_ttl_seconds": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "endpoint",
+        "region",
+        "bucket",
+        "credentials"
+      ]
+    },
+    "CredentialsConfig": {
+      "description": "Credential source for signing. Debug never prints its fields.",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "access_key_id": {
+              "type": "string"
+            },
+            "secret_access_key": {
+              "type": "string"
+            },
+            "session_token": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "static"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "access_key_id",
+            "secret_access_key"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "default_chain"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "environment"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "profile"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "account_id": {
+              "type": "string"
+            },
+            "region": {
+              "type": "string"
+            },
+            "role_name": {
+              "type": "string"
+            },
+            "start_url": {
+              "type": "string"
+            },
+            "session_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "sso"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "account_id",
+            "region",
+            "role_name",
+            "start_url"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "command": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "process"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "command"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "web_identity"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "container"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "instance"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "role_arn": {
+              "type": "string"
+            },
+            "external_id": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "session_name": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "type": "string",
+              "const": "assume_role"
+            }
+          },
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "role_arn"
+          ]
+        }
+      ]
+    },
     "AuthConfig": {
       "type": "object",
       "properties": {

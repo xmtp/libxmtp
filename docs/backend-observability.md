@@ -4,7 +4,7 @@ See [Query local traces](querying-traces.md) for bounded Tempo API queries,
 SDK/backend correlation, and commands for agent investigations.
 
 The local stack contains `db`, `replica`, `backend`, `anvil`, `toxiproxy`,
-`tempo`, `prometheus`, and `grafana`. Tempo stores local traces on disk. The
+`tempo`, `prometheus`, `grafana`, `minio`, and `minio-init`. Tempo stores local traces on disk. The
 other services use temporary storage.
 
 ```sh
@@ -87,6 +87,12 @@ RPC means `grpc_type`, `grpc_service`, and `grpc_method`. Route labels use a fix
 route table. Unknown routes use `unknown`. Prometheus also adds `job` and
 `instance`. Histogram buckets add `le`; histogram families expose `_bucket`,
 `_sum`, and `_count`. No label contains a user, topic, or payload.
+
+CreateUpload uses `grpc_service="xmtp.backend.v1.AttachmentService"` and
+`grpc_method="CreateUpload"`. The standard RPC counters and latency histogram
+include this route. A signing failure returns `UNAVAILABLE` when credentials
+are unavailable and `INTERNAL` when signing fails. Logs record the credential
+provider error kind without its text or secret values.
 
 Backend metrics are in-process counters, gauges, and histograms. They do **not**
 depend on trace sampling. Tempo-derived `traces_spanmetrics_*` client counts and
