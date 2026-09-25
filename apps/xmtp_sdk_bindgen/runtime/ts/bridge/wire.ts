@@ -34,11 +34,37 @@ export function bridgeError(
   code: BridgeErrorCode,
   details?: unknown,
 ): BridgeError {
+  if (code === "clientClosed") {
+    // Keep these fields in sync with XmtpError::closed in the SDK façade.
+    const category = 6;
+    return new BridgeError(
+      "ClientClosed",
+      "ClientClosed",
+      category,
+      false,
+      code,
+      [
+        {
+          code: "ClientClosed",
+          category,
+          retryable: false,
+          message: "client is closed",
+        },
+      ],
+    );
+  }
   if (code === "storageBusy") {
     // ErrorCategory.Storage is the third variant in the UniFFI flat enum.
     const category = 2;
     return new BridgeError("StorageBusy", code, category, true, code, [
       { code, category, retryable: true, message: code },
+    ]);
+  }
+  if (code === "lagged") {
+    // ErrorCategory.Stream is the tenth variant in the UniFFI flat enum.
+    const category = 9;
+    return new BridgeError("Lagged", "Lagged", category, true, code, [
+      { code: "Lagged", category, retryable: true, message: code },
     ]);
   }
   return new BridgeError(code, code, "lifecycle", false, code, details);

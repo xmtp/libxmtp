@@ -91,6 +91,26 @@ export async function endOne(): Promise<void> {
   const client = clients.shift();
   if (!client) throw new Error("no client to close");
   await client.end();
+  let closed: unknown;
+  try {
+    client.conversations();
+  } catch (error) {
+    closed = error;
+  }
+  if (
+    closed === null ||
+    typeof closed !== "object" ||
+    !B.XmtpError.ClientClosed.instanceOf(closed)
+  )
+    throw new Error("Client.end did not raise XmtpError.ClientClosed");
+  const detail = closed.inner[0];
+  if (
+    detail.code !== "ClientClosed" ||
+    detail.category !== B.ErrorCategory.Lifecycle ||
+    detail.retryable !== false ||
+    detail.message !== "client is closed"
+  )
+    throw new Error("ClientClosed fields differ from the native binding");
 }
 
 export async function dropOne(): Promise<void> {

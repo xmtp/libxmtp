@@ -1,6 +1,8 @@
 import {
   bridgeError,
   decodeError,
+  encodeError,
+  type BridgeErrorCode,
   type HandleWire,
   type WireEndpoint,
   type WireMessage,
@@ -60,6 +62,10 @@ export class MainSession {
 
   setErrorDecoder(decode: (error: ErrorWire) => Error): void {
     this.errorDecoder = decode;
+  }
+
+  error(code: BridgeErrorCode, details?: unknown): Error {
+    return this.errorDecoder(encodeError(bridgeError(code, details)));
   }
 
   proxy(handle: HandleWire): RemoteObject | undefined {
@@ -148,7 +154,7 @@ export class MainSession {
       this.closedOwners.has(handle.owner) ||
       handle.epoch !== this.epoch
     ) {
-      throw bridgeError("clientClosed");
+      throw this.error("clientClosed");
     }
   }
 

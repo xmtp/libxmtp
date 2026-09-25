@@ -105,12 +105,14 @@ try {
         },
       },
       {
-        backend: new B.BackendSource.Options({ options: {
-          url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
-          appVersion: undefined,
-          credentials: undefined,
-          credential: undefined,
-        } }),
+        backend: new B.BackendSource.Options({
+          options: {
+            url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
+            appVersion: undefined,
+            credentials: undefined,
+            credential: undefined,
+          },
+        }),
         storage: {
           location: B.StorageLocation.Default.new(),
           label: undefined,
@@ -132,7 +134,11 @@ try {
       return true;
     },
   );
-  assert.equal(identities, 1, "real WASM must decode numeric PublicIdentityKind");
+  assert.equal(
+    identities,
+    1,
+    "real WASM must decode numeric PublicIdentityKind",
+  );
   assert.equal(kinds, 0, "storage failure occurs before signer kind");
 
   const account = privateKeyToAccount(`0x${randomBytes(32).toString("hex")}`);
@@ -160,12 +166,14 @@ try {
       },
     },
     {
-      backend: new B.BackendSource.Options({ options: {
-        url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
-        appVersion: undefined,
-        credentials: undefined,
-        credential: undefined,
-      } }),
+      backend: new B.BackendSource.Options({
+        options: {
+          url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
+          appVersion: undefined,
+          credentials: undefined,
+          credential: undefined,
+        },
+      }),
       storage: {
         location: B.StorageLocation.InMemory.new(),
         label: undefined,
@@ -179,7 +187,10 @@ try {
       workers: undefined,
     },
   );
-  assert.ok(liveIdentities > 0, "real WASM must decode numeric PublicIdentityKind");
+  assert.ok(
+    liveIdentities > 0,
+    "real WASM must decode numeric PublicIdentityKind",
+  );
   assert.ok(liveKinds > 0);
   assert.strictEqual(live.conversations(), live.conversations());
   if (typeof global.gc === "function") {
@@ -206,7 +217,19 @@ try {
   assert.equal(typeof streamed.deliveryStatus, "number");
   await reader.end();
   const ending = live.end();
-  assert.throws(() => live.conversations(), { code: "clientClosed" });
+  assert.throws(
+    () => live.conversations(),
+    (error: unknown) => {
+      assert.ok(B.XmtpError.ClientClosed.instanceOf(error));
+      assert.deepEqual(error.inner[0], {
+        code: "ClientClosed",
+        category: B.ErrorCategory.Lifecycle,
+        retryable: false,
+        message: "client is closed",
+      });
+      return true;
+    },
+  );
   await ending;
 
   console.log(

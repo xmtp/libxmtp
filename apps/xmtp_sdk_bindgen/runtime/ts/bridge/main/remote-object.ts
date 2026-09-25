@@ -1,4 +1,4 @@
-import { bridgeError, type HandleWire } from "../wire.js";
+import type { HandleWire } from "../wire.js";
 import type { MainSession } from "./session.js";
 
 const collected = new FinalizationRegistry<{
@@ -44,13 +44,13 @@ export class RemoteObject {
   }
 
   protected check(): void {
-    if (this.released) throw bridgeError("clientClosed");
+    if (this.released) throw this.session.error("clientClosed");
     this.session.checkHandle(this.handle);
   }
 
   checkLive(name: string, session?: MainSession): void {
     if (session !== this.session || this.handle.type !== name)
-      throw bridgeError("clientClosed");
+      throw this.session.error("clientClosed");
     this.check();
   }
 

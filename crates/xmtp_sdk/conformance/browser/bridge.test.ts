@@ -79,11 +79,36 @@ class TestProxy extends RemoteObject {
 }
 
 describe("browser bridge transport", () => {
+  it("uses the Rust ClientClosed fields for bridge lifecycle errors", () => {
+    expect(bridgeError("clientClosed")).toMatchObject({
+      variant: "ClientClosed",
+      code: "ClientClosed",
+      category: 6,
+      retryable: false,
+      details: [
+        {
+          code: "ClientClosed",
+          category: 6,
+          retryable: false,
+          message: "client is closed",
+        },
+      ],
+    });
+  });
+
   it("uses the Rust StorageBusy fields for bridge lock errors", () => {
     expect(bridgeError("storageBusy")).toMatchObject({
       variant: "StorageBusy",
       code: "storageBusy",
       category: 2,
+      retryable: true,
+    });
+  });
+  it("uses the XmtpError.Lagged variant for bridge stream errors", () => {
+    expect(bridgeError("lagged")).toMatchObject({
+      variant: "Lagged",
+      code: "Lagged",
+      category: 9,
       retryable: true,
     });
   });

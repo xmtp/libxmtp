@@ -64,7 +64,7 @@ try {
   await assert.rejects(trap, { code: "workerTerminated" });
   await assert.rejects(pending, { code: "workerTerminated" });
   assert.ok(sawFatal, "real WASM trap must send fatal");
-  assert.throws(() => session.checkHandle(handle), { code: "clientClosed" });
+  assert.throws(() => session.checkHandle(handle), { code: "ClientClosed" });
   await Promise.race([
     exited,
     new Promise<never>((_resolve, reject) =>
