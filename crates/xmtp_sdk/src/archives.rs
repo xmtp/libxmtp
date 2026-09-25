@@ -88,11 +88,10 @@ impl From<BackupMetadata> for ArchiveMetadata {
     }
 }
 
-fn key(mut value: Vec<u8>) -> Result<Vec<u8>, XmtpError> {
-    if value.len() < ENC_KEY_SIZE {
-        return Err(XmtpError::invalid("archive key must be at least 32 bytes"));
+fn key(value: Vec<u8>) -> Result<Vec<u8>, XmtpError> {
+    if value.len() != ENC_KEY_SIZE {
+        return Err(XmtpError::invalid("archive key must be exactly 32 bytes"));
     }
-    value.truncate(ENC_KEY_SIZE);
     Ok(value)
 }
 
@@ -166,6 +165,20 @@ impl Archives {
                 .map_err(XmtpError::unknown)
         })
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // verifies: ARCH-012
+    #[xmtp_common::test]
+    fn rejects_archive_key_with_extra_bytes() {
+        assert!(matches!(
+            key(vec![7; ENC_KEY_SIZE + 1]),
+            Err(XmtpError::InvalidInput(_))
+        ));
     }
 }
 
