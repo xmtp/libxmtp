@@ -71,8 +71,11 @@ rust.cargoNextest (
       ;
     doCheck = true;
     WASM_BINDGEN_TEST_NO_ORIGIN_ISOLATION = "1";
-    # chromedriver requires home to be editable/set, otherwise it SIGKILLS and fails tests.
-    preBuild = "export HOME=$TMPDIR";
+    # Chrome and Core Foundation need a writable home during browser tests.
+    preBuild = ''
+      export HOME=$TMPDIR
+      export CFFIXED_USER_HOME=$TMPDIR
+    '';
     buildInputs =
       base.commonArgs.buildInputs
       ++ [
