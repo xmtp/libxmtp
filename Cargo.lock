@@ -13205,6 +13205,7 @@ dependencies = [
  "tokio",
  "toml 1.1.3+spec-1.1.0",
  "tracing",
+ "uuid",
  "wasm-bindgen",
  "wasm-bindgen-test",
  "web-sys",
