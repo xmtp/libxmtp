@@ -374,3 +374,12 @@ export interface MessageReaderLike {
   next(options?: { signal: AbortSignal }): Promise<Message | undefined>;
   end(): Promise<void>;
 }
+
+export type Conversation = object;
+export enum ConnectionState {
+  Connecting,
+  Connected,
+  Reconnecting,
+  Failed,
+  Closed,
+}

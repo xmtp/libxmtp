@@ -7,7 +7,7 @@ swift_dir=crates/xmtp_sdk/conformance/swift
 rm -rf -- "$swift_dir/Sources/XmtpSdk" "$swift_dir/Sources/xmtp_sdkFFI"
 mkdir -p "$swift_dir/Sources/XmtpSdk" "$swift_dir/Sources/xmtp_sdkFFI"
 cp target/sdk-conformance/swift/xmtp_sdk.swift "$swift_dir/Sources/XmtpSdk/"
-cp target/sdk-conformance/swift/runtime/*.swift "$swift_dir/Sources/XmtpSdk/"
+cp -R target/sdk-conformance/swift/runtime/. "$swift_dir/Sources/XmtpSdk/"
 python3 crates/xmtp_sdk/conformance/inject_reader_gate.py swift "$swift_dir/Sources/XmtpSdk/SDKClient.swift"
 cp target/sdk-conformance/swift/xmtp_sdkFFI.h "$swift_dir/Sources/xmtp_sdkFFI/"
 cp target/sdk-conformance/swift/xmtp_sdkFFI.modulemap "$swift_dir/Sources/xmtp_sdkFFI/module.modulemap"

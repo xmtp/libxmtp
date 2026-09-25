@@ -1,0 +1,206 @@
+use parking_lot::Mutex;
+use std::sync::Arc;
+use tokio::sync::Mutex as AsyncMutex;
+use xmtp_mls::subscriptions::{
+    local_delivery::{
+        DeliveryAcknowledgement, DeliveryScope, LocalDeliveryError, LocalDeliveryFilter,
+    },
+    message_reader::{MessageReader as CoreMessageReader, MessageReaderControl},
+};
+use xmtp_proto::types::GroupId;
+
+use crate::{ConnectionState, Message, XmtpError, conversation::on_sdk_worker};
+
+#[derive(uniffi::Object)]
+pub struct MessageReader {
+    reader: Arc<AsyncMutex<CoreMessageReader<xmtp_mls::MlsContext>>>,
+    control: MessageReaderControl,
+    state: Arc<Mutex<ReaderState>>,
+    context: xmtp_mls::MlsContext,
+    client_key: u64,
+    #[cfg(test)]
+    pub(crate) handoff_gate: Arc<Mutex<Option<Arc<HandoffGate>>>>,
+}
+
+struct ReaderState {
+    ended: bool,
+    previous: Option<DeliveryAcknowledgement<xmtp_mls::MlsContext>>,
+}
+
+#[cfg(test)]
+pub(crate) struct HandoffGate {
+    pub(crate) arrived: tokio::sync::Notify,
+    pub(crate) release: tokio::sync::Notify,
+}
+
+impl MessageReader {
+    pub(crate) fn open(
+        context: xmtp_mls::MlsContext,
+        group_id: GroupId,
+        client_key: u64,
+    ) -> Result<Arc<Self>, XmtpError> {
+        let reader = CoreMessageReader::new(
+            context.clone(),
+            DeliveryScope::Groups(vec![group_id]),
+            LocalDeliveryFilter::default(),
+            None,
+        )
+        .map_err(super::delivery_error)?;
+        let control = reader.control();
+        Ok(Arc::new(Self {
+            reader: Arc::new(AsyncMutex::new(reader)),
+            control,
+            state: Arc::new(Mutex::new(ReaderState {
+                ended: false,
+                previous: None,
+            })),
+            context,
+            client_key,
+            #[cfg(test)]
+            handoff_gate: Arc::new(Mutex::new(None)),
+        }))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn is_ended_for_test(&self) -> bool {
+        self.state.lock().ended
+    }
+
+    #[cfg(test)]
+    pub(crate) fn update_scope_for_test(&self, group_ids: Vec<GroupId>) {
+        self.control.update_scope(DeliveryScope::Groups(group_ids));
+    }
+
+    #[cfg(test)]
+    pub(crate) fn control_for_test(&self) -> MessageReaderControl {
+        self.control.clone()
+    }
+}
+
+impl Drop for MessageReader {
+    fn drop(&mut self) {
+        self.control.close();
+    }
+}
+
+#[xmtp_macro::sdk_export]
+impl MessageReader {
+    /// Acknowledge the prior item only when this read starts.
+    pub async fn next(&self) -> Result<Option<Message>, XmtpError> {
+        let reader = self.reader.clone();
+        let state = self.state.clone();
+        let control = self.control.clone();
+        let client_key = self.client_key;
+        #[cfg(test)]
+        let handoff_gate = self.handoff_gate.clone();
+        on_sdk_worker(self.context.clone(), async move {
+            let mut reader = reader.lock().await;
+            {
+                let mut state = state.lock();
+                if state.ended {
+                    return Ok(None);
+                }
+                if let Some(previous) = state.previous.take()
+                    && let Err(error) = previous.acknowledge()
+                    && !selection_changed(&error)
+                {
+                    state.ended = true;
+                    control.close();
+                    return Err(super::delivery_error(error));
+                }
+            }
+            loop {
+                let item = match reader.next_delivery().await {
+                    Ok(item) => item,
+                    Err(_) if state.lock().ended => return Ok(None),
+                    Err(error) => {
+                        state.lock().ended = true;
+                        control.close();
+                        return Err(super::delivery_error(error));
+                    }
+                };
+                let Some(item) = item else { return Ok(None) };
+                #[cfg(test)]
+                let gate = handoff_gate.lock().take();
+                #[cfg(test)]
+                if let Some(gate) = gate {
+                    gate.arrived.notify_one();
+                    gate.release.notified().await;
+                }
+                if state.lock().ended {
+                    item.acknowledgement.reject();
+                    return Ok(None);
+                }
+                match item.acknowledgement.check_owner() {
+                    Ok(()) => {}
+                    Err(error) if selection_changed(&error) => {
+                        item.acknowledgement.reject();
+                        continue;
+                    }
+                    Err(_) if state.lock().ended => {
+                        item.acknowledgement.reject();
+                        return Ok(None);
+                    }
+                    Err(error) => {
+                        state.lock().ended = true;
+                        control.close();
+                        return Err(super::delivery_error(error));
+                    }
+                }
+                let message = Message::from_stored(item.message, client_key)?;
+                let mut state = state.lock();
+                if state.ended {
+                    item.acknowledgement.reject();
+                    return Ok(None);
+                }
+                state.previous = Some(item.acknowledgement);
+                return Ok(Some(message));
+            }
+        })
+        .await
+    }
+
+    pub async fn end(&self) -> Result<(), XmtpError> {
+        let reader = self.reader.clone();
+        let state = self.state.clone();
+        let control = self.control.clone();
+        on_sdk_worker(self.context.clone(), async move {
+            {
+                let mut state = state.lock();
+                state.ended = true;
+                control.close();
+                if let Some(previous) = state.previous.take() {
+                    previous.reject();
+                }
+            }
+            let _reader = reader.lock().await;
+            Ok(())
+        })
+        .await
+    }
+
+    pub fn connection_state(&self) -> ConnectionState {
+        self.control.catch_up_snapshot().connection.into()
+    }
+
+    pub async fn connection_state_changed(
+        &self,
+        previous: ConnectionState,
+    ) -> Result<ConnectionState, XmtpError> {
+        let control = self.control.clone();
+        on_sdk_worker(self.context.clone(), async move {
+            loop {
+                let current = control.catch_up_snapshot().connection.into();
+                if current != previous || current == ConnectionState::Closed {
+                    return Ok(current);
+                }
+                control.changed().await;
+            }
+        })
+        .await
+    }
+}
+
+pub(crate) fn selection_changed(error: &LocalDeliveryError) -> bool {
+    matches!(error, LocalDeliveryError::SelectionChanged)
+}

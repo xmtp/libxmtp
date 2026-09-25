@@ -24,10 +24,8 @@ if language == "kotlin":
     )
     source = replace_once(
         source,
-        "            val opening = CoroutineScope(Dispatchers.Default).async { group.messageReader() }",
-        "            val opening = CoroutineScope(Dispatchers.Default).async {\n"
-        "                group.messageReader().also { readerOpenedForTest?.invoke(it) }\n"
-        "            }",
+        "            open = { group.messageReader() },",
+        "            open = { group.messageReader().also { readerOpenedForTest?.invoke(it) } },",
     )
 elif language == "swift":
     source = replace_once(

@@ -105,61 +105,35 @@ public final class SDKClient: @unchecked Sendable {
     }
 
     /// The reader acknowledges a value when the next read starts.
-    public func messages(in group: Group) async throws -> SDKMessageStream {
+    public func messages(
+        in group: Group,
+        onClose: (@Sendable (SDKStreamCloseReason) -> Void)? = nil,
+        onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
+    ) async throws -> SDKMessageStream {
         let reader = try await group.messageReader()
         if Task.isCancelled {
             try? await reader.end()
             throw CancellationError()
         }
-        return SDKMessageStream(reader: reader, owner: self)
-    }
-}
-
-/// Each request reads one value. Releasing the iterator closes the reader.
-public struct SDKMessageStream: AsyncSequence {
-    public typealias Element = Message
-    private let reader: MessageReader
-    private let owner: SDKClient
-
-    fileprivate init(reader: MessageReader, owner: SDKClient) {
-        self.reader = reader
-        self.owner = owner
+        return makeSDKMessageStream(
+            reader: reader, owner: self, onClose: onClose,
+            onConnectionStateChange: onConnectionStateChange
+        )
     }
 
-    public func makeAsyncIterator() -> Iterator {
-        Iterator(reader: reader, owner: owner)
-    }
-
-    public final class Iterator: AsyncIteratorProtocol {
-        private let reader: MessageReader
-        private let owner: SDKClient
-        private var closed = false
-
-        fileprivate init(reader: MessageReader, owner: SDKClient) {
-            self.reader = reader
-            self.owner = owner
+    public func conversationStream(
+        kind: ConversationKind? = nil,
+        onClose: (@Sendable (SDKStreamCloseReason) -> Void)? = nil,
+        onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
+    ) async throws -> SDKConversationStream {
+        let reader = try await raw.conversations().conversationReader(kind: kind)
+        if Task.isCancelled {
+            try? await reader.end()
+            throw CancellationError()
         }
-
-        public func next() async throws -> Message? {
-            if closed {
-                return nil
-            }
-            return try await withTaskCancellationHandler {
-                _ = owner.raw
-                let value = try await reader.next()
-                if value == nil {
-                    closed = true
-                    try await reader.end()
-                }
-                return value
-            } onCancel: {
-                Task { try? await reader.end() }
-            }
-        }
-
-        deinit {
-            let reader = reader
-            Task { try? await reader.end() }
-        }
+        return makeSDKConversationStream(
+            reader: reader, owner: self, onClose: onClose,
+            onConnectionStateChange: onConnectionStateChange
+        )
     }
 }

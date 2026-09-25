@@ -363,12 +363,27 @@ fun main() =
             }
         val lateReader = withTimeout(10_000) { openedReader.await() }
         cancelledOpening.cancel(CancellationException("cancel during reader creation"))
+        withTimeout(3_000) { cancelledOpening.join() }
         releaseOpening.complete(Unit)
-        withTimeout(10_000) { cancelledOpening.join() }
         SDKClient.readerOpenedForTest = null
+        withTimeout(10_000) {
+            while (lateReader.connectionState() != ConnectionState.CLOSED) delay(10)
+        }
         check(withTimeout(10_000) { lateReader.next() } == null) { "late reader was not ended" }
         val reopenedReader = protocolGroup.messageReader()
         reopenedReader.end()
+        var conversationClose: SDKStreamCloseReason? = null
+        val conversationValues =
+            async {
+                reopenedHost
+                    .conversations(onClose = { conversationClose = it })
+                    .take(1)
+                    .toList()
+            }
+        delay(100)
+        reopened.conversations().createGroup(emptyList(), null)
+        check(withTimeout(15_000) { conversationValues.await() }.size == 1)
+        check(conversationClose == SDKStreamCloseReason.Closed)
         println("Kotlin scenario 7: durable stream and idle cancellation passed")
 
         val largeExpiry = 9_007_199_254_740_993L

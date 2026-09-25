@@ -29,6 +29,7 @@ prost.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
+tokio-util.workspace = true
 tracing.workspace = true
 xmtp-workspace-hack.workspace = true
 xmtp_api.workspace = true
@@ -56,7 +57,7 @@ wasm-bindgen-futures.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true
-xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_common = { workspace = true, features = ["test-utils-network"] }
 xmtp_configuration.workspace = true
 xmtp_db = { workspace = true, features = ["test-utils"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }

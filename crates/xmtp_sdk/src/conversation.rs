@@ -22,9 +22,9 @@ use xmtp_mls::mls_store::MlsStore;
 use xmtp_proto::types::{ConversationType, GroupId};
 
 use crate::{
-    ConsentState, ContentTypeId, ConversationHmacKeys, ConversationID, ConversationState,
-    CreateDmOptions, CreateGroupOptions, DisappearingSettings, EncodedContent, GroupState,
-    GroupSyncSummary, HmacKey, InboxID, LastReadTimeEntry, ListConversationsOptions,
+    ConsentState, ContentTypeId, ConversationHmacKeys, ConversationID, ConversationReader,
+    ConversationState, CreateDmOptions, CreateGroupOptions, DisappearingSettings, EncodedContent,
+    GroupState, GroupSyncSummary, HmacKey, InboxID, LastReadTimeEntry, ListConversationsOptions,
     ListMessagesOptions, Member, Message, MessageID, MessageReader, NotificationOverride,
     PublicIdentity, Reaction, SendOptions, StandardContent, Timestamp, XmtpError,
     client::CoreClient,
@@ -112,7 +112,7 @@ pub enum Conversation {
 }
 
 impl Conversation {
-    async fn from_core(
+    pub(crate) async fn from_core(
         group: MlsGroup<xmtp_mls::MlsContext>,
         client_key: u64,
     ) -> Result<Option<Self>, XmtpError> {
@@ -206,6 +206,18 @@ pub(crate) async fn list_local(
 
 #[xmtp_macro::sdk_export]
 impl Conversations {
+    pub async fn conversation_reader(
+        &self,
+        kind: Option<crate::ConversationKind>,
+    ) -> Result<Arc<ConversationReader>, XmtpError> {
+        let context = self.client.context.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(self.client.context.clone(), async move {
+            ConversationReader::open(context, kind, client_key).await
+        })
+        .await
+    }
+
     pub async fn create_group_optimistic(
         &self,
         options: Option<CreateGroupOptions>,

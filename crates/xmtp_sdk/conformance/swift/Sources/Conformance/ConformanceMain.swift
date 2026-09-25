@@ -257,7 +257,7 @@ struct Conformance {
         _ = try? await pending.value
         let stream = try await reopenedHost.messages(in: reopenedGroup)
         let adapterID = try await reopenedGroup.sendText(text: "adapter stream", options: nil)
-        let iterator = stream.makeAsyncIterator()
+        var iterator = stream.makeAsyncIterator()
         let fromAdapter = try await iterator.next()
         precondition(fromAdapter?.id == adapterID)
         let idle = Task { try await iterator.next() }
@@ -322,6 +322,14 @@ struct Conformance {
         }
         let reopenedReader = try await protocolGroup.messageReader()
         try await reopenedReader.end()
+        do {
+            let conversationStream = try await reopenedHost.conversationStream()
+            var conversationIterator = conversationStream.makeAsyncIterator()
+            _ = try await reopened.conversations().createGroup(members: [], options: nil)
+            guard try await conversationIterator.next() != nil else {
+                throw ConformanceFailure("conversation stream missed a stored group")
+            }
+        }
         print("Swift scenario 7: durable stream and idle cancellation passed")
 
         let largeExpiry: Int64 = 9_007_199_254_740_993

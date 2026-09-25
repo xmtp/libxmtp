@@ -865,7 +865,7 @@ async fn slice_create_send_read_stream_end() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn idle_read_cancel_settles() {
+async fn cancel_idle_read_settles() {
     let client = Arc::new(
         Client::create(
             Arc::new(WalletSigner(PrivateKeySigner::random())),
@@ -875,19 +875,224 @@ async fn idle_read_cancel_settles() {
     );
     let group = client.conversations().create_group(vec![], None).await?;
     let reader = group.message_reader().await?;
-    let mut cancelled = false;
-    for _ in 0..32 {
-        let pending =
-            xmtp_common::time::timeout(std::time::Duration::from_millis(100), reader.next()).await;
-        if pending.is_err() {
-            cancelled = true;
-            break;
-        }
-    }
-    assert!(cancelled, "reader did not reach an idle read");
-    reader.end().await?;
+    let pending_reader = reader.clone();
+    let pending = tokio::spawn(async move { pending_reader.next().await });
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(!pending.is_finished(), "reader did not reach an idle read");
+    xmtp_common::time::timeout(Duration::from_secs(2), reader.end()).await??;
+    assert!(
+        xmtp_common::time::timeout(Duration::from_secs(2), pending)
+            .await???
+            .is_none(),
+        "the idle read did not settle after end"
+    );
     assert!(reader.next().await?.is_none());
     client.end().await?;
+}
+
+// verifies: PROC-028
+#[xmtp_common::test(unwrap_try = true)]
+async fn stream_ack_only_on_next_request() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let first_id = group.send_text("first".into()).await?;
+    let reader = group.message_reader().await?;
+    assert_eq!(
+        xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+            .await??
+            .expect("first item")
+            .0
+            .id,
+        first_id
+    );
+    reader.end().await?;
+
+    let replay = group.message_reader().await?;
+    assert_eq!(
+        xmtp_common::time::timeout(Duration::from_secs(5), replay.next())
+            .await??
+            .expect("unacknowledged item")
+            .0
+            .id,
+        first_id
+    );
+    let second_id = group.send_text("second".into()).await?;
+    assert_eq!(
+        xmtp_common::time::timeout(Duration::from_secs(5), replay.next())
+            .await??
+            .expect("second item")
+            .0
+            .id,
+        second_id
+    );
+    replay.end().await?;
+
+    let remaining = group.message_reader().await?;
+    assert_eq!(
+        xmtp_common::time::timeout(Duration::from_secs(5), remaining.next())
+            .await??
+            .expect("last item")
+            .0
+            .id,
+        second_id
+    );
+    remaining.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn late_reader_released() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let reader = group.message_reader().await?;
+    let control = reader.control_for_test();
+    drop(reader);
+    assert_eq!(
+        crate::ConnectionState::from(control.catch_up_snapshot().connection),
+        crate::ConnectionState::Closed
+    );
+    let replacement = group.message_reader().await?;
+    replacement.end().await?;
+    client.end().await?;
+}
+
+// verifies: PROC-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_reader_rereads_after_fall_behind() {
+    use std::collections::HashSet;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let reader = client.conversations().conversation_reader(None).await?;
+    let mut expected = HashSet::new();
+    // The core event hint queue holds ten entries. Leave this reader idle
+    // while more groups are stored, then read every committed group.
+    for _ in 0..14 {
+        let group = client.conversations().create_group(vec![], None).await?;
+        expected.insert(group.id().0);
+    }
+    for _ in 0..expected.len() {
+        let conversation = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+            .await??
+            .expect("stored conversation");
+        let id = match conversation {
+            crate::Conversation::Group { group } => group.id().0,
+            crate::Conversation::Dm { dm } => dm.id().0,
+        };
+        assert!(expected.remove(&id), "duplicate or unrequested group");
+    }
+    assert!(expected.is_empty());
+    reader.end().await?;
+    client.end().await?;
+}
+
+// verifies: PROC-023
+#[xmtp_common::test(unwrap_try = true)]
+async fn connection_state_across_toxiproxy_drop() {
+    use crate::ConnectionState;
+    use futures::FutureExt;
+    use std::panic::AssertUnwindSafe;
+
+    // Set keepalive before the first transport starts in this test process.
+    unsafe {
+        std::env::set_var("XMTP_GRPC_KEEPALIVE_INTERVAL_SECS", "5");
+        std::env::set_var("XMTP_GRPC_KEEPALIVE_TIMEOUT_SECS", "5");
+    }
+    xmtp_common::toxiproxy_test(async || {
+        let proxy = xmtp_common::toxiproxy()
+            .find_proxy("backend")
+            .await
+            .expect("backend proxy");
+        let mut config = options();
+        if let Some(BackendSource::Options { options }) = &mut config.backend {
+            options.url = xmtp_configuration::backend_test_toxic_url();
+        }
+        let client = Client::create(crate::generate_local_signer().await, config)
+            .await
+            .expect("client");
+        let group = client
+            .conversations()
+            .create_group(vec![], None)
+            .await
+            .expect("group");
+        let messages = group.message_reader().await.expect("message reader");
+        let conversations = client
+            .conversations()
+            .conversation_reader(None)
+            .await
+            .expect("conversation reader");
+
+        for state in [
+            messages.connection_state(),
+            conversations.connection_state(),
+        ] {
+            assert!(matches!(
+                state,
+                ConnectionState::Connecting | ConnectionState::Connected
+            ));
+        }
+        let connected = async {
+            let (message, conversation) = tokio::join!(
+                messages.connection_state_changed(ConnectionState::Connecting),
+                conversations.connection_state_changed(ConnectionState::Connecting)
+            );
+            (
+                message.expect("message connected"),
+                conversation.expect("conversation connected"),
+            )
+        };
+        let (message, conversation) =
+            xmtp_common::time::timeout(Duration::from_secs(20), connected)
+                .await
+                .expect("initial connection");
+        assert_eq!(message, ConnectionState::Connected);
+        assert_eq!(conversation, ConnectionState::Connected);
+
+        proxy.disable().await.expect("disable proxy");
+        let outage = AssertUnwindSafe(async {
+            let (message, conversation) =
+                xmtp_common::time::timeout(Duration::from_secs(30), async {
+                    tokio::join!(
+                        messages.connection_state_changed(ConnectionState::Connected),
+                        conversations.connection_state_changed(ConnectionState::Connected)
+                    )
+                })
+                .await
+                .expect("connection drop");
+            assert_eq!(
+                message.expect("message drop"),
+                ConnectionState::Reconnecting
+            );
+            assert_eq!(
+                conversation.expect("conversation drop"),
+                ConnectionState::Reconnecting
+            );
+        })
+        .catch_unwind()
+        .await;
+        proxy.enable().await.expect("restore proxy");
+        outage.expect("connection drop assertion");
+
+        let (message, conversation) = xmtp_common::time::timeout(Duration::from_secs(30), async {
+            tokio::join!(
+                messages.connection_state_changed(ConnectionState::Reconnecting),
+                conversations.connection_state_changed(ConnectionState::Reconnecting)
+            )
+        })
+        .await
+        .expect("connection recovery");
+        assert_eq!(
+            message.expect("message recovery"),
+            ConnectionState::Connected
+        );
+        assert_eq!(
+            conversation.expect("conversation recovery"),
+            ConnectionState::Connected
+        );
+        messages.end().await.expect("end message reader");
+        conversations.end().await.expect("end conversation reader");
+        client.end().await.expect("end client");
+    })
+    .await;
 }
 
 #[xmtp_common::test(unwrap_try = true)]

@@ -298,16 +298,125 @@ const opening = new sdk.MessageStream(
   reopened,
 );
 const openingRead = opening.next();
-await opening.return();
+await opening.end();
+assert.equal((await openingRead).done, true, "opening read did not settle");
 resolveCreation({
   next: async () => undefined,
   end: async () => {
     endedLate = true;
   },
 });
-assert.equal((await openingRead).done, true);
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(endedLate, true, "late reader remained open");
+const closeReasons: sdk.StreamCloseReason[] = [];
+const explicitlyClosed = new sdk.MessageStream(
+  async () => ({ next: async () => undefined, end: async () => {} }),
+  reopened,
+  { onClose: (reason) => closeReasons.push(reason) },
+);
+await explicitlyClosed.end();
+assert.deepEqual(
+  closeReasons.map((reason) => reason.kind),
+  ["closed"],
+);
+for (const code of [
+  "recoveryExhausted",
+  "storage",
+  "lagged",
+  "credentialRejected",
+  "credentialExhausted",
+  "backendMismatch",
+  "clientVersionTooOld",
+  "consumerOwned",
+  "foreignCursor",
+]) {
+  const failure = Object.assign(new Error(code), { code });
+  const reasons: sdk.StreamCloseReason[] = [];
+  const failing = new sdk.MessageStream(
+    async () => ({
+      next: async () => {
+        throw failure;
+      },
+      end: async () => {},
+    }),
+    reopened,
+    { onClose: (reason) => reasons.push(reason) },
+  );
+  await assert.rejects(failing.next(), (error) => error === failure);
+  assert.equal(reasons.length, 1);
+  assert.equal(reasons[0].kind, "failed");
+  if (reasons[0].kind === "failed")
+    assert.equal((reasons[0].error as { code: string }).code, code);
+}
+for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
+  const states: sdk.ConnectionState[] = [];
+  const changes: Array<(state: sdk.ConnectionState) => void> = [];
+  const probe = new StreamType(
+    async () => ({
+      next: async () => undefined,
+      end: async () => {},
+      connectionState: () => sdk.ConnectionState.Connected,
+      connectionStateChanged: () =>
+        new Promise<sdk.ConnectionState>((resolve) => changes.push(resolve)),
+    }),
+    reopened,
+    { onConnectionStateChange: (_previous, current) => states.push(current) },
+  );
+  await probe.ready();
+  assert.deepEqual(states, [
+    sdk.ConnectionState.Connecting,
+    sdk.ConnectionState.Connected,
+  ]);
+  changes.shift()?.(sdk.ConnectionState.Reconnecting);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  changes.shift()?.(sdk.ConnectionState.Connected);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(states, [
+    sdk.ConnectionState.Connecting,
+    sdk.ConnectionState.Connected,
+    sdk.ConnectionState.Reconnecting,
+    sdk.ConnectionState.Connected,
+  ]);
+  await probe.end();
+}
+const callbackGroup = await reopened.conversations().createGroup([], undefined);
+const callbackID = await callbackGroup.sendText("callback acknowledgment");
+let releaseCallback!: () => void;
+const callbackGate = new Promise<void>((resolve) => {
+  releaseCallback = resolve;
+});
+let callbackEntered!: () => void;
+const entered = new Promise<void>((resolve) => {
+  callbackEntered = resolve;
+});
+const callbackStream = new sdk.MessageStream(
+  (signal) => callbackGroup.messageReader({ signal }),
+  reopened,
+);
+const consumption = callbackStream.onValue(async (value) => {
+  assert.equal(value.id.toString(), callbackID.toString());
+  callbackEntered();
+  await callbackGate;
+});
+await entered;
+await callbackStream.end();
+const callbackReplay = await callbackGroup.messageReader();
+assert.equal(
+  (await callbackReplay.next())?.id.toString(),
+  callbackID.toString(),
+);
+await callbackReplay.end();
+releaseCallback();
+await consumption;
+const conversationStream = new sdk.ConversationStream(
+  (signal) =>
+    reopened.conversations().conversationReader(undefined, { signal }),
+  reopened,
+);
+await conversationStream.ready();
+await reopened.conversations().createGroup([], undefined);
+assert.equal((await conversationStream.next()).done, false);
+await conversationStream.end();
 const rejectedOpening = new sdk.MessageStream(
   (signal) =>
     new Promise((_, reject) => {
@@ -320,6 +429,22 @@ const rejectedOpening = new sdk.MessageStream(
 const rejectedRead = rejectedOpening.next();
 await rejectedOpening.return();
 assert.equal((await rejectedRead).done, true);
+const creationFailure = Object.assign(new Error("reader creation failed"), {
+  code: "storage",
+});
+const creationReasons: sdk.StreamCloseReason[] = [];
+const failedOpening = new sdk.MessageStream(
+  async () => {
+    throw creationFailure;
+  },
+  reopened,
+  { onClose: (reason) => creationReasons.push(reason) },
+);
+await assert.rejects(
+  failedOpening.next(),
+  (error) => error === creationFailure,
+);
+assert.equal(creationReasons[0]?.kind, "failed");
 
 let readerLeaseHeld = false;
 const readFailure = new Error("injected reader failure");
@@ -773,6 +898,42 @@ assert.match(
   /codec decode failed/,
 );
 await ownerWithFailingCodec.end();
+const throwingCodec = {
+  ...customCodec,
+  decode(_value: sdk.EncodedContent): string {
+    throw new Error("codec exploded");
+  },
+};
+const ownerWithThrowingCodec = await sdk.Client.build(
+  identity,
+  { ...options, codecs: [throwingCodec] },
+  inboxID,
+);
+const throwingGroup = await ownerWithThrowingCodec
+  .conversations()
+  .createGroup([], undefined);
+const codecStream = new sdk.MessageStream(
+  (signal) => throwingGroup.messageReader({ signal }),
+  ownerWithThrowingCodec,
+);
+const brokenID = await throwingGroup.send(
+  customCodec.encode("bad decode"),
+  undefined,
+);
+const broken = (await codecStream.next()).value;
+assert.equal(broken?.id.toString(), brokenID.toString());
+assert.equal(broken?.content.tag, sdk.MessageContent_Tags.Custom);
+assert.match(
+  (broken?.content as { inner?: { error?: string } }).inner?.error ?? "",
+  /codec exploded/,
+);
+const continuedID = await throwingGroup.sendText("after codec error");
+assert.equal(
+  (await codecStream.next()).value?.id.toString(),
+  continuedID.toString(),
+);
+await codecStream.end();
+await ownerWithThrowingCodec.end();
 await ownerWithCodec.end();
 await ownerWithoutCodec.end();
 console.log("Node scenario 6: custom codec stayed with its client");
