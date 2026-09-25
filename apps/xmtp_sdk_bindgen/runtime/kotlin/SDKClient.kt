@@ -16,6 +16,8 @@ class SDKClient private constructor(
     internal val listenerGates = ListenerGates()
     private val codecs = codecs.associateBy { it.key }
 
+    fun storage(): Storage = raw.storage()
+
     fun decodeCustom(encoded: EncodedContent): SDKMessageContent {
         val codec = codecs[SDKContentCodecKey(encoded.type)] ?: return SDKMessageContent.Unknown(encoded)
         return try {

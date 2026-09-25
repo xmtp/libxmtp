@@ -251,6 +251,10 @@ export class Client {
     return this.raw.stopListener(id);
   }
 
+  storage() {
+    return this.raw.storage();
+  }
+
   decodeCustom(
     encoded: EncodedContent,
   ): { value?: unknown; error?: string } | undefined {

@@ -1,8 +1,5 @@
 use std::sync::Arc;
 
-#[cfg(target_arch = "wasm32")]
-use crate::StorageLocation;
-
 use crate::{ClientOptions, InboxID, XmtpError, client::CoreClient, conversation::on_sdk_worker};
 
 #[derive(uniffi::Object)]
@@ -14,23 +11,14 @@ pub struct Storage {
 
 #[xmtp_macro::sdk_export]
 impl Storage {
-    pub fn path(&self) -> Result<Option<String>, XmtpError> {
+    pub async fn path(&self) -> Result<Option<String>, XmtpError> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             crate::client::native_storage_path(&self.options.storage, &self.inbox_id.0)
         }
         #[cfg(target_arch = "wasm32")]
         {
-            Ok(match &self.options.storage.location {
-                StorageLocation::InMemory => None,
-                StorageLocation::Path(path) => Some(path.clone()),
-                StorageLocation::Directory(dir) => Some(format!(
-                    "{}/{}",
-                    dir.trim_end_matches('/'),
-                    crate::client::database_name(&self.options.storage, &self.inbox_id.0)?
-                )),
-                StorageLocation::Default => return Err(XmtpError::storage_location_required()),
-            })
+            crate::client::wasm_storage_path(&self.options.storage, &self.inbox_id.0)
         }
     }
 
@@ -48,7 +36,8 @@ impl Storage {
 impl Storage {
     pub async fn delete(&self) -> Result<(), XmtpError> {
         let path = self
-            .path()?
+            .path()
+            .await?
             .ok_or_else(|| XmtpError::invalid("in-memory storage has no file"))?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {

@@ -184,7 +184,12 @@ export interface ClientLike {
     listener: { onEvent(event: ClientEvent): Promise<void> },
   ): Promise<bigint>;
   stopListener(id: bigint): Promise<void>;
+  storage(): StorageLike;
   end(): Promise<void>;
+}
+
+export interface StorageLike {
+  path(): Promise<string | undefined>;
 }
 
 export declare const Client: {
