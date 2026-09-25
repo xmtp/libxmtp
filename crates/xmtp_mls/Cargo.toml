@@ -139,6 +139,7 @@ wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 
 [dev-dependencies]
+flate2.workspace = true
 alloy.workspace = true
 diesel = { workspace = true, features = [
   "returning_clauses_for_sqlite_3_35",

@@ -18,7 +18,7 @@ pub use store::NativeStore;
 #[cfg(target_arch = "wasm32")]
 pub use store::OpfsStore;
 pub use store::{
-    AttachmentOptions, DownloadSink, LocalStore, StagedFile, StoreWriter, staged_path,
+    AttachmentOptions, DownloadSink, LocalStore, StagedFile, StoreFile, StoreWriter, staged_path,
     temporary_path,
 };
 

@@ -13342,6 +13342,7 @@ dependencies = [
  "diesel",
  "dyn-clone",
  "fdlimit",
+ "flate2",
  "futures",
  "futures-executor",
  "futures-test",

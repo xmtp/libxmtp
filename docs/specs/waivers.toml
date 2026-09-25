@@ -703,12 +703,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
 
 [[waiver]]
-id = "EVENT-055"
-kind = "untested"
-owner = "protocol"
-reason = "ClientBuilder registers each client public event writer with its backend AuthHandle, and AuthInner::emit_lockout emits to every registered writer; no test drives two sharing clients."
-
-[[waiver]]
 id = "EVENT-056"
 kind = "gap"
 owner = "protocol"
@@ -1036,12 +1030,6 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "The storage location shape check is not tested yet."
-[[waiver]]
-id = "ATCH-059"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Download does not yet reject malformed key material before a request."
 [[waiver]]
 id = "ATCH-027"
 kind = "gap"
