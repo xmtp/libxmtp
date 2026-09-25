@@ -18,7 +18,7 @@ just test workspace -p xmtp_configuration common::   # one module
 
 - Constants that cross crate boundaries (URLs, page sizes, shared timeouts) live here. A private implementation constant stays in its own module (`crates/xmtp_mls/src/worker.rs:26`, `crates/xmtp_mls/src/groups/change_callbacks.rs:88`). Never copy a shared value locally.
 - Layout (`src/lib.rs`): `common/` is always compiled and re-exported. `test/` replaces `prod/` under `cfg(any(test, feature = "test-utils"))`, and both halves must export the same symbol names. Put a new constant in `common/<area>.rs` if one value fits every build, otherwise in both `prod/<area>.rs` and `test/<area>.rs` (example: `prod/mls.rs:KEYS_EXPIRATION_INTERVAL_NS` = 1 day, `test/mls.rs:KEYS_EXPIRATION_INTERVAL_NS` = 3 seconds).
-- Areas: `common/{api,backend,db,metadata,mls,scw,server,streams,tracing}.rs`. Add a new file plus a `mod` / `pub use` line, not more lines in one file.
+- Areas: `common/{api,attachments,backend,db,metadata,mls,scw,server,streams,tracing}.rs`. Add a new file plus a `mod` / `pub use` line, not more lines in one file.
 - `common/server.rs` holds `ServerConfiguration`, the `ConfigProvider` trait, and
   the two providers. These are the values one backend deployment publishes
   (spec 006), not compile-time constants, but every field falls back to a
