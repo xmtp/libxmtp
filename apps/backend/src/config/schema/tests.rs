@@ -71,7 +71,7 @@ fn published_schema_accepts_the_example_and_rejects_unknown_keys() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-fn published_schema_bounds_attachment_presign_ttl() {
+fn published_schema_bounds_attachment_settings() {
     let validator = validator();
     let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
     let baseline = serde_json::to_value(s3)?;
@@ -82,6 +82,19 @@ fn published_schema_bounds_attachment_presign_ttl() {
             validator.is_valid(&instance),
             accepted,
             "presign_ttl_seconds = {ttl}"
+        );
+    }
+    for (retention, accepted) in [
+        (0_u64, true),
+        (9_007_199_254_740_991, true),
+        (9_007_199_254_740_992, false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["retention_seconds"] = json!(retention);
+        assert_eq!(
+            validator.is_valid(&instance),
+            accepted,
+            "retention_seconds = {retention}"
         );
     }
 }

@@ -2,8 +2,8 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use url::Url;
 use xmtp_configuration::{
-    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, check_base_url, check_max_upload_bytes,
-    check_retention_seconds,
+    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, MAX_ATTACHMENT_RETENTION_SECONDS, check_base_url,
+    check_max_upload_bytes, check_retention_seconds,
 };
 
 pub const DEFAULT_PRESIGN_TTL_SECONDS: u32 = 900;
@@ -16,6 +16,7 @@ pub const MAX_PRESIGN_TTL_SECONDS: u32 = 3600;
 pub struct AttachmentsConfig {
     pub base_url: String,
     pub max_upload_bytes: Option<u64>,
+    #[schemars(range(min = 0, max = MAX_ATTACHMENT_RETENTION_SECONDS))]
     pub retention_seconds: Option<u64>,
     pub target: TargetConfig,
 }
