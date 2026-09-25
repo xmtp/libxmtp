@@ -224,6 +224,7 @@ An app may create a client that does no network work (CONF-034). A client told t
 | CONF-031 | A conflict is permanent | The client MUST NOT clear a recorded conflict, including when a later answer's `identifier` equals the stored one. | A database that has seen two deployments cannot be shown to hold consistent state for either. Only a database created for the deployment in use can. |
 | CONF-033 | A moved deployment is re-checked | When a client that may reach the backend is created on a database whose stored copy carries a backend URL that differs from the client's backend URL, the client MUST send `GetConfiguration`, apply CONF-071 and CONF-030, and store the answer with the new URL, before it sends any other request. | |
 | CONF-034 | Offline creation | Where an app creates a client that may not reach the backend, the client MUST use the stored copy when the database has one and the compiled defaults when it does not, and MUST NOT send `GetConfiguration`. | |
+| CONF-076 | Offline creation ignores a moved URL | Where an app creates a client that may not reach the backend, the client MUST NOT fail creation because the stored copy's backend URL differs from the client's backend URL. | An app that moved its backend URL must still open offline; CONF-033 re-checks on the next creation that may reach the backend. |
 
 ## 5. Refreshing
 

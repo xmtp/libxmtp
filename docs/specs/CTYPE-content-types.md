@@ -128,6 +128,7 @@ SEND-020 requires an SDK that accepts string content without an explicit content
 | CTYPE-008 | Undecodable content is kept | When a received application message has no matching codec, fails decoding, or is not a typed `EncodedContent`, the client MUST retain its original bytes and message id. The client and SDK MUST expose those bytes and that id to the app, with the actual content identifier and fallback when present, without replacing the identifier with a text or fallback type. | Dropping undecodable content gives installations different conversation histories. |
 | CTYPE-009 | Failures are distinguishable | When encoding, decoding, or selecting a codec, an SDK MUST let the app distinguish no matching codec, codec decode failure, codec encode failure, and a malformed or untyped envelope. On a lookup failure, the Kotlin and Swift SDK registries MUST report no matching codec and MUST NOT return a successful text decode instead. | Unknown UTF-8 content can otherwise appear to be ordinary text. |
 | CTYPE-017 | Apps supply custom codecs | An SDK MUST let an app register a codec for a custom type, use it for received custom content matched under CTYPE-001, and send typed envelopes that the app encodes with it. | An app-defined type must be usable without changing the client. |
+| CTYPE-026 | Standard codecs without a client | An SDK MUST expose, for each standard type except the reserved edit type, a codec that an app can call without a client and whose envelope for a value equals the client's own encoding of that value under CTYPE-014. | Apps build and inspect standard content outside a conversation, and a second encoder in a host language drifts from the client's. |
 
 ## 4. The push value
 
@@ -158,7 +159,7 @@ An incompatible encoding needs a different major version under CTYPE-016. A code
 
 The catalogue lists identifiers, encodings, parameters, push values, and deletion eligibility. CTYPE-018 binds deletion eligibility; it is authorization behavior, not a wire value. PROC-037 requires that a deletion affects only a target in the same group, passes CTYPE-018, and is sent by the target's sender or a current super admin; a rejected deletion leaves the target unchanged.
 
-Catalogue presence does not promise a codec class in every SDK. Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
+Every SDK exposes a codec for each standard type except the reserved edit type (CTYPE-026). Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
 
 JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.html#section-4). Section 7.2 states member names, types, and presence in tables, without using WebIDL for a wire format. SPEC-043 and [SPEC section 3.1](SPEC-spec-format.md#31-type-blocks) provide no notation for repository-defined JSON type blocks. The tables avoid claiming a WebIDL exception.
 

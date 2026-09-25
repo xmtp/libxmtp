@@ -538,6 +538,76 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
 
 [[waiver]]
+id = "CTYPE-026"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs ship host-language codec classes; the Rust-backed classes replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-004"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-005"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs use other default directories, and their `build` can open a new database; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "IDENT-073"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS and Android SDKs call the handler on every create; the façade SDKs implement the rows."
+
+[[waiver]]
+id = "IDENT-074"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS and Android SDKs call the handler on every create; the façade SDKs implement the rows."
+
+[[waiver]]
+id = "IDENT-075"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS and Android SDKs call the handler on every create; the façade SDKs implement the rows."
+
+[[waiver]]
 id = "GMOD-035"
 kind = "gap"
 owner = "protocol"
