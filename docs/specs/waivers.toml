@@ -717,7 +717,7 @@ id = "STORE-010"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No façade test proves that storage reconnect reopens the same database after a disconnect."
+reason = "No façade test proves that storage reconnect reopens the database file of a client that has not ended."
 
 [[waiver]]
 id = "STORE-011"

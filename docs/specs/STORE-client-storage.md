@@ -38,12 +38,12 @@ The SDK uses the storage label unchanged. On a file system that ignores letter c
 
 ## 2. Storage lifecycle
 
-The storage interface reports the file in use and controls its connection and removal. An in-memory client has no database file to report or remove. The browser exposes no storage reconnect or delete operation.
+The storage interface reports the file in use and controls its connection and removal. An in-memory client has no database file to report or remove. Storage reconnect fails after the app ends the client. The browser exposes no storage reconnect or delete operation.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | STORE-009 | Open database path | When an app reads a client's storage path, the SDK MUST return the path of the database file that client opened, or no path for in-memory storage. | A computed path that differs from the opened file can make an app back up the wrong database. |
-| STORE-010 | Reconnect the same database | When an app reconnects storage after a disconnect, the SDK MUST reopen the same database file that client used before the disconnect. | Reconnecting to another file changes the client's stored identity and history. |
+| STORE-010 | Reconnect the same database | When an app reconnects storage of a client it has not ended, the SDK MUST reopen the database file that client opened. | Reconnecting to another file changes the client's stored identity and history. |
 | STORE-011 | In-memory storage cannot be deleted | When an app asks to delete in-memory client storage, the SDK MUST fail with a typed invalid-input error. | In-memory storage has no database file to remove. |
 | STORE-012 | Browser storage operations | A browser SDK MUST NOT expose storage reconnect or delete operations. | Browser storage administration has a separate owner and lifecycle. |
 | STORE-017 | Close before file removal | When an app asks to delete file-backed client storage, the SDK MUST close the client before it removes the database file. | A live connection could otherwise write to a file after its name is removed. |
