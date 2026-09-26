@@ -171,7 +171,7 @@ mod native {
         assert_eq!(document["deployments"][backend.url()], identifier);
     }
 
-    // verifies: P19
+    // Covers plan P19.
     #[xmtp_common::test(unwrap_try = true)]
     async fn torn_file_treated_empty() {
         use crate::utils::test::backend::EphemeralBackend;
@@ -287,6 +287,91 @@ mod native {
                 StorageLocationError::InboxId
             ))
         ));
+    }
+
+    // verifies: ATCH-080
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn explicit_location_cached_only_empty_db_needs_identity() {
+        let dir = tempfile::tempdir()?;
+        let mut api = xmtp_api_backend::MockBackendClient::new();
+        api.expect_get_configuration().times(0);
+        let result = Client::builder(crate::identity::IdentityStrategy::CachedOnly)
+            .api_client(api)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::edited(|_| {}),
+            ))
+            .data_location(
+                StorageLocation::Explicit {
+                    db_path: dir.path().join("client.db3"),
+                    attachments_dir: dir.path().join("attachments"),
+                },
+                [0u8; 32].into(),
+            )
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::builder::ClientBuilderError::Identity(
+                crate::identity::IdentityError::RequiredIdentityNotFound
+            ))
+        ));
+    }
+
+    // verifies: ATCH-080
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn explicit_location_cached_only_reopens_same_inbox_without_request() {
+        use crate::utils::test::backend::EphemeralBackend;
+        let dir = tempfile::tempdir()?;
+        let location = StorageLocation::Explicit {
+            db_path: dir.path().join("client.db3"),
+            attachments_dir: dir.path().join("attachments"),
+        };
+        let owner = generate_local_wallet();
+        let backend = EphemeralBackend::start("").await?;
+        let mut first_api = xmtp_api_backend::MessageBackendBuilder::new();
+        first_api.host(backend.url());
+        let first = Client::builder(identity_setup(&owner))
+            .api_client_with_streams(first_api.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::edited(|_| {}),
+            ))
+            .data_location(location.clone(), [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let inbox = first.inbox_id().to_owned();
+        let mut request = first.context.signature_request().unwrap();
+        let signature = owner.sign(&request.signature_text())?;
+        request
+            .add_signature(signature, &MockSmartContractSignatureVerifier::new(true))
+            .await?;
+        first.register_identity(request).await?;
+        drop(first);
+        backend.stop().await?;
+
+        let mut second_api = xmtp_api_backend::MockBackendClient::new();
+        second_api.expect_get_configuration().times(0);
+        let second = Client::builder(crate::identity::IdentityStrategy::CachedOnly)
+            .api_client(second_api)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_allow_offline(Some(true))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::edited(|_| {}),
+            ))
+            .data_location(location, [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert_eq!(second.inbox_id(), inbox);
     }
 
     // verifies: ATCH-040
@@ -417,7 +502,7 @@ mod native {
         );
     }
 
-    // verifies: P19
+    // Covers plan P19.
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn failed_record_keeps_the_prior_file() {
