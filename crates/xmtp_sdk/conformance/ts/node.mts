@@ -32,6 +32,10 @@ assert.throws(
   sdk.XmtpError.InvalidArgument,
 );
 await sdk.uniffiInitAsync();
+assert.throws(
+  () => new sdk.ReadReceiptCodec().encode("wrong value" as never),
+  sdk.XmtpError.InvalidArgument,
+);
 assert.match(sdk.sdkVersion(), /^1\.12\.0/);
 console.log("Node scenario 1: load, checksums, version passed");
 

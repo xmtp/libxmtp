@@ -87,7 +87,10 @@ export class ReadReceiptCodec extends PureCodec<void> {
   constructor() {
     super(
       StandardContentKind.ReadReceipt,
-      () => new StandardContent.ReadReceipt(),
+      (value) => {
+        if (value !== undefined) wrongValue();
+        return new StandardContent.ReadReceipt();
+      },
       (value) => {
         matchingValue(value, StandardContent_Tags.ReadReceipt);
       },
