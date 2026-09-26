@@ -421,6 +421,47 @@ mod tests {
         assert!(store.exists("key/plaintext").await?);
     }
 
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn missing_native_root_is_private_with_zero_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreUmask(libc::mode_t);
+        impl Drop for RestoreUmask {
+            fn drop(&mut self) {
+                unsafe { libc::umask(self.0) };
+            }
+        }
+
+        let directory = tempfile::tempdir()?;
+        let root = directory.path().join("parent/root");
+        let previous = unsafe { libc::umask(0) };
+        let _restore = RestoreUmask(previous);
+        let _store = NativeStore::new(&root).await?;
+        for path in [&root, &directory.path().join("parent")] {
+            assert_eq!(std::fs::metadata(path)?.permissions().mode() & 0o777, 0o700);
+        }
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn existing_foreign_owned_directory_is_rejected() {
+        let directory = tempfile::tempdir()?;
+        tokio::fs::create_dir(directory.path().join(".tmp")).await?;
+        let store = NativeStore::new(directory.path())
+            .await?
+            .with_forced_foreign_owner();
+        let error = store
+            .create_temp(".tmp/file")
+            .await
+            .err()
+            .expect("foreign-owned directory must fail");
+        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(!directory.path().join(".tmp/file").exists());
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn native_reconcile_scan_stops_at_key_level() {

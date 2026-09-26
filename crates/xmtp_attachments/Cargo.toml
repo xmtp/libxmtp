@@ -53,6 +53,9 @@ xmtp_cryptography.workspace = true
 [target.'cfg(target_os = "android")'.dependencies]
 webpki-roots.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
 js-sys.workspace = true
