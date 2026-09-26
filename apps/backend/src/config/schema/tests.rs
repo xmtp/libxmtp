@@ -452,12 +452,70 @@ fn published_schema_checks_attachment_urls_and_environment_references() {
     instance["attachments"]["target"]["S3"]["key_prefix"] = json!("env:XMTP_PREFIX");
     assert!(validator.is_valid(&instance));
 
+    for (field, accepted, rejected) in [
+        (
+            "region",
+            ["us-east-1", "env:XMTP_S3_REGION"].as_slice(),
+            ["", "us east-1", "us-east-1\n"].as_slice(),
+        ),
+        (
+            "bucket",
+            ["attachments.v2", "env:XMTP_S3_BUCKET"].as_slice(),
+            ["", "a/b", ".", ".."].as_slice(),
+        ),
+    ] {
+        for (values, expected) in [(accepted, true), (rejected, false)] {
+            for value in values {
+                let mut row = instance.clone();
+                row["attachments"]["target"]["S3"][field] = json!(value);
+                assert_eq!(validator.is_valid(&row), expected, "{field} = {value:?}");
+            }
+        }
+    }
+
     let schema: Value =
         serde_json::from_str(include_str!("../../../../../docs/schemas/backend-v1.json"))?;
     assert_eq!(
         schema["$defs"]["S3Config"]["properties"]["key_prefix"]["default"],
         json!("")
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let mut baseline = serde_json::to_value(s3)?;
+    baseline["attachments"]["base_url"] = json!("https://files.example.com/a");
+    for endpoint in [
+        "https://s3.example.com",
+        "https://s3.example.com/prefix/",
+        "HTTPS://s3.example.com",
+        "Http://127.0.0.1:9000",
+        "http://localhost:9000",
+        "http://[::1]:9000",
+        "http://s3.example.com",
+        "https://h?x=1",
+        "https://h#f",
+        "https://u:p@h",
+        "ftp://h",
+        " https://s3.example.com",
+        "https://s3.example.com ",
+        r"https://s3.example.com\x",
+        "https://exa%6Dple.com",
+        "https://bücher.example",
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
+        let settings: xmtp_attachments_server::AttachmentsConfig =
+            serde_json::from_value(instance["attachments"].clone())?;
+        // AttachmentsConfig::validate calls S3Config::validate for this target.
+        assert_eq!(
+            validator.is_valid(&instance),
+            settings.validate().is_ok(),
+            "endpoint = {endpoint:?}"
+        );
+    }
 }
 
 // These are the URL vectors in xmtp_configuration/src/common/attachments/tests.rs.

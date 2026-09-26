@@ -51,9 +51,12 @@ fn url_shape(allow_trailing_slash: bool) -> Schema {
     } else {
         r"(?!.*[/]$)"
     };
-    let pattern = format!(
-        r"^{no_dot_segments}{no_trailing_slash}(?:https://{host}|http://{loopback}){port}{path}$(?![\s\S])"
-    );
+    let origin = if allow_trailing_slash {
+        format!(r"(?:[hH][tT][tT][pP][sS]://{host}|[hH][tT][tT][pP]://{loopback})")
+    } else {
+        format!(r"(?:https://{host}|http://{loopback})")
+    };
+    let pattern = format!(r"^{no_dot_segments}{no_trailing_slash}{origin}{port}{path}$(?![\s\S])");
     with_environment(json_schema!({"type": "string", "format": "uri", "pattern": pattern}))
 }
 
@@ -63,6 +66,16 @@ fn base_url_schema(_: &mut SchemaGenerator) -> Schema {
 
 fn endpoint_schema(_: &mut SchemaGenerator) -> Schema {
     url_shape(true)
+}
+
+fn region_schema(_: &mut SchemaGenerator) -> Schema {
+    with_environment(json_schema!({"type": "string", "pattern": r"^[^\s]+$(?![\s\S])"}))
+}
+
+fn bucket_schema(_: &mut SchemaGenerator) -> Schema {
+    with_environment(
+        json_schema!({"type": "string", "pattern": r"^(?!\.{1,2}$(?![\s\S]))[^/]+$(?![\s\S])"}),
+    )
 }
 
 fn key_prefix_schema(_: &mut SchemaGenerator) -> Schema {
@@ -140,7 +153,11 @@ pub struct S3Config {
     /// Storage URL. An `env:NAME` value is resolved before validation.
     #[schemars(schema_with = "endpoint_schema")]
     pub endpoint: String,
+    /// Region name. An `env:NAME` value is resolved before validation.
+    #[schemars(schema_with = "region_schema")]
     pub region: String,
+    /// Bucket name. An `env:NAME` value is resolved before validation.
+    #[schemars(schema_with = "bucket_schema")]
     pub bucket: String,
     /// The prefix can be empty. Other prefixes use ASCII letters, digits,
     /// `_`, `-`, `.`, and slash separators. A trailing slash is allowed.
@@ -173,6 +190,21 @@ impl S3Config {
     }
 
     pub(crate) fn validate(&self) -> Result<(), ConfigInvalid> {
+        if self.endpoint.bytes().any(|byte| {
+            !byte.is_ascii()
+                || byte.is_ascii_control()
+                || byte.is_ascii_whitespace()
+                || byte == b'\\'
+        }) || self.endpoint.split_once("://").is_some_and(|(_, rest)| {
+            rest.split('/')
+                .next()
+                .is_some_and(|host| host.contains('%'))
+        }) {
+            return Err(ConfigInvalid::new(
+                "attachments.target.S3.endpoint",
+                "is not a URL as written",
+            ));
+        }
         let url = Url::parse(&self.endpoint).map_err(|_| {
             ConfigInvalid::new("attachments.target.S3.endpoint", "must be an absolute URL")
         })?;
@@ -196,12 +228,14 @@ impl S3Config {
                 "must use HTTPS or HTTP on a loopback host",
             )
         })?;
+        // implements: ATCH-081
         if self.region.is_empty() || self.region.chars().any(char::is_whitespace) {
             return Err(ConfigInvalid::new(
                 "attachments.target.S3.region",
                 "must name a region",
             ));
         }
+        // implements: ATCH-081
         if self.bucket.is_empty()
             || self.bucket.contains('/')
             || self.bucket == "."
