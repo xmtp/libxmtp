@@ -42,7 +42,7 @@ async fn registration_event_waits_for_visibility_and_fires_once() {
     assert!(events.drain().is_empty());
 }
 
-// verifies: EVENT-054, EVENT-056
+// verifies: EVENT-054
 #[xmtp_common::test(unwrap_try = true)]
 async fn dropping_the_last_client_handle_closes_app_events() {
     tester!(alix, disable_workers);
