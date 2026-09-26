@@ -655,6 +655,27 @@ mod tests {
         }
     }
 
+    // verifies: ATCH-024
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn non_put_method_is_rejected_without_request() {
+        let requests = Arc::new(AtomicUsize::new(0));
+        let count = requests.clone();
+        let server = server(move |_| {
+            count.fetch_add(1, Ordering::Relaxed);
+            answer(StatusCode::OK, "")
+        })
+        .await;
+        for method in ["POST", "put"] {
+            let (_directory, body) = staged_body()?;
+            let mut request = upload(server.url.clone());
+            request.method = method.into();
+            let result = allowed().put(&request, body).await;
+            assert_eq!(requests.load(Ordering::Relaxed), 0, "{method}");
+            assert_eq!(result.unwrap_err().cause, Cause::TargetRejected, "{method}");
+        }
+        assert_eq!(requests.load(Ordering::Relaxed), 0);
+    }
+
     struct SeenTlsPut {
         method: Method,
         uri: String,

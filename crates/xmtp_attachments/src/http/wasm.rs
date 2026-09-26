@@ -428,6 +428,41 @@ mod tests {
         );
     }
 
+    // verifies: ATCH-024
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn non_put_method_is_rejected_before_fetch() {
+        let bits = js_sys::Array::new();
+        let file = web_sys::File::new_with_blob_sequence(bits.as_ref(), "body")
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        let transfer = Transfer::new(AttachmentOptions::default())?;
+        let mut request = UploadRequest {
+            method: "PUT".into(),
+            url: "not a URL".into(),
+            headers: vec![],
+            expires_in_seconds: 60,
+        };
+        assert_eq!(
+            transfer
+                .put(&request, StagedFile { file: file.clone() })
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::InsecureUrl
+        );
+        for method in ["POST", "put"] {
+            request.method = method.into();
+            assert_eq!(
+                transfer
+                    .put(&request, StagedFile { file: file.clone() })
+                    .await
+                    .unwrap_err()
+                    .cause,
+                Cause::TargetRejected,
+                "{method}"
+            );
+        }
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     fn put_abort_guard_aborts_on_drop() {
         let guard = PutAbortGuard::new()?;
