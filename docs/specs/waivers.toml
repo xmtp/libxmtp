@@ -643,6 +643,34 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Current SDKs do not reject separators, the colon, and NUL in the label; the façade does."
 
 [[waiver]]
+id = "STORE-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that the reported path is the file the client opened, including the absence of a path for in-memory storage."
+
+[[waiver]]
+id = "STORE-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that storage reconnect reopens the same database after a disconnect."
+
+[[waiver]]
+id = "STORE-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The façade delete operation closes an open client before removing one file; it does not refuse an open client or prove removal of all its database files."
+
+[[waiver]]
+id = "STORE-012"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade API test proves that browser storage omits reconnect and delete."
+
+[[waiver]]
 id = "IDENT-073"
 kind = "gap"
 owner = "protocol"

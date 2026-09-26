@@ -8,7 +8,7 @@ An SDK keeps each client's database at a location the app names or at the platfo
 
 ## Scope
 
-In scope: the database file name, default directories, and the identity needed to build a client from a stored database.
+In scope: the database file name, default directories, the identity needed to build a client from a stored database, storage lifecycle, and client diagnostics.
 
 Out of scope: database contents, encryption, and locations the app names outside the default.
 
@@ -35,3 +35,14 @@ An SDK keeps each client's database in one database file. When the app does not 
 | STORE-008 | Safe storage label | If a storage label contains a path separator (`/` or `\`), a colon (`:`), or a NUL character, then the SDK MUST fail with a typed error before it opens a file. | A label taken from outside the app could otherwise place the database outside the intended directory, or open another database. |
 
 The SDK uses the storage label unchanged. On a file system that ignores letter case, labels that differ only in case name the same file.
+
+## 2. Storage lifecycle
+
+The storage interface reports the file in use and controls its connection and removal. An in-memory client has no database file to report or remove. The browser exposes no storage reconnect or delete operation.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| STORE-009 | Open database path | When an app reads a client's storage path, the SDK MUST return the path of the database file that client opened, or no path for in-memory storage. | A computed path that differs from the opened file can make an app back up the wrong database. |
+| STORE-010 | Reconnect the same database | When an app reconnects storage after a disconnect, the SDK MUST reopen the same database file that client used before the disconnect. | Reconnecting to another file changes the client's stored identity and history. |
+| STORE-011 | Delete closed storage | When an app asks to delete a client's storage, the SDK MUST refuse with a typed error while that client is open, and otherwise remove that client's database files. | Deleting a file in use can leave a live client writing to storage that no longer has a name. |
+| STORE-012 | Browser storage operations | A browser SDK MUST NOT expose storage reconnect or delete operations. | Browser storage administration has a separate owner and lifecycle. |
