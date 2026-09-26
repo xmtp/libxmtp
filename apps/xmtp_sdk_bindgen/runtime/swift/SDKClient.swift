@@ -4,7 +4,7 @@ import Foundation
 public final class SDKClient: @unchecked Sendable {
     public let raw: Client
     let listenerGates = ListenerGates()
-    private let codecs: [String: any SDKContentCodec]
+    private let codecs: [SDKContentCodecKey: any SDKContentCodec]
 
     private init(_ raw: Client, codecs: [any SDKContentCodec]) {
         self.raw = raw

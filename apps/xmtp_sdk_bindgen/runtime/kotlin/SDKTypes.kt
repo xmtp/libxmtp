@@ -11,10 +11,16 @@ interface SDKContentCodec {
 
     fun decode(encoded: EncodedContent): Any
 
-    val key: String get() = SDKContentCodecKey(type)
+    val key: SDKContentCodecKey get() = SDKContentCodecKey(type)
 }
 
-fun SDKContentCodecKey(type: ContentTypeID): String = "${type.authorityID}/${type.typeID}/${type.versionMajor}"
+data class SDKContentCodecKey(
+    val authorityID: String,
+    val typeID: String,
+    val versionMajor: UInt,
+) {
+    constructor(type: ContentTypeID) : this(type.authorityID, type.typeID, type.versionMajor)
+}
 
 sealed class SDKMessageContent {
     data class Standard(
