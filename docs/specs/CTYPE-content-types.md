@@ -145,7 +145,9 @@ A reply carries the content it replies with as a complete `EncodedContent` insid
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CTYPE-011 | Nested content is complete | When the client or an SDK encodes nested content, it MUST require a complete protobuf `EncodedContent` with a present `type` and non-empty `authority_id` and `type_id`, and MUST fail encoding when these are absent. | An outer type cannot identify the nested payload. |
-| CTYPE-012 | Nested decode outcomes | When the client or an SDK decodes a reply with a complete typed nested envelope but no matching nested codec, it MUST return the reply reference and that envelope unchanged as custom content; the nested `type` MUST control over a conflicting `contentType` parameter. When nested bytes are malformed or untyped, or a matching nested codec fails, it MUST report a decode failure and preserve the outer bytes and fallback under CTYPE-008. | Malformed bytes do not supply an envelope to return as a valid custom value. |
+| CTYPE-027 | Unknown nested content | When the client or an SDK decodes a reply with a complete typed nested envelope but no matching nested codec, it MUST return the reply reference and unknown content with the nested type and raw nested envelope bytes kept under CTYPE-008. | A missing codec does not turn received content into app-defined custom content. |
+| CTYPE-028 | Nested type takes precedence | When a reply's nested envelope has a `type` that conflicts with its outer `contentType` parameter, the client or SDK MUST select the nested `type`. | The typed envelope identifies the bytes to decode. |
+| CTYPE-029 | Invalid nested content | When a reply's nested bytes are malformed or untyped, or a matching nested codec fails, the client or SDK MUST report a decode failure and preserve the outer bytes and fallback under CTYPE-008. | Malformed bytes do not supply a valid nested envelope. |
 
 ## 6. Content type versions
 

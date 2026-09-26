@@ -552,6 +552,27 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current SDKs ship host-language codec classes; the Rust-backed classes replace them in the SDK migration."
 
 [[waiver]]
+id = "CTYPE-027"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that a reply with no nested codec exposes unknown content with the nested type and raw envelope bytes."
+
+[[waiver]]
+id = "CTYPE-028"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that the nested type wins when a reply's outer contentType parameter conflicts with it."
+
+[[waiver]]
+id = "CTYPE-029"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that invalid nested bytes or a failed nested codec preserve the reply's outer bytes and fallback."
+
+[[waiver]]
 id = "STORE-001"
 kind = "gap"
 owner = "protocol"
