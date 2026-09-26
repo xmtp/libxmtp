@@ -969,7 +969,8 @@ id = "ATCH-079"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The final HTTP status is not carried with the failure yet; binding and SDK exposure pending."
+reason = "binding and SDK exposure pending"
+
 [[waiver]]
 id = "CONF-061"
 kind = "gap"
@@ -1006,12 +1007,6 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Missing-scope reporting for uploads is not implemented yet."
-[[waiver]]
-id = "ATCH-079"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The final HTTP status is not carried with the failure yet; binding and SDK exposure pending."
 [[waiver]]
 id = "ATCH-080"
 kind = "gap"
