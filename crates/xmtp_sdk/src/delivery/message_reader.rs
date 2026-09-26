@@ -2,6 +2,8 @@ use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
 use tokio_util::sync::CancellationToken;
+use xmtp_mls::context::XmtpSharedContext;
+use xmtp_mls::messages::enrichment::enrich_messages_with_stored;
 use xmtp_mls::subscriptions::{
     local_delivery::{
         DeliveryAcknowledgement, DeliveryScope, LocalDeliveryError, LocalDeliveryFilter,
@@ -114,10 +116,11 @@ impl MessageReader {
         let state = self.state.clone();
         let control = self.control.clone();
         let client_key = self.client_key;
+        let context = self.context.clone();
         #[cfg(test)]
         let handoff_gate = self.handoff_gate.clone();
         #[cfg(test)]
-        let corrupt_next_message = self
+        let mut corrupt_next_message = self
             .corrupt_next_message
             .swap(false, std::sync::atomic::Ordering::AcqRel);
         on_sdk_worker(self.context.clone(), async move {
@@ -175,6 +178,7 @@ impl MessageReader {
                 #[cfg(test)]
                 if corrupt_next_message {
                     item.message.id.clear();
+                    corrupt_next_message = false;
                 }
                 #[cfg(test)]
                 let gate = handoff_gate.lock().take();
@@ -203,13 +207,36 @@ impl MessageReader {
                         return Err(super::delivery_error(error));
                     }
                 }
-                let message = match Message::from_stored(item.message, client_key) {
-                    Ok(message) => message,
+                let enriched = match enrich_messages_with_stored(
+                    context.db(),
+                    &item.message.group_id,
+                    vec![item.message.clone()],
+                ) {
+                    Ok(enriched) => enriched,
                     Err(error) => {
                         state.lock().ended = true;
                         control.close();
                         item.acknowledgement.reject();
-                        return Err(error);
+                        return Err(XmtpError::unknown(error));
+                    }
+                };
+                let message = enriched.into_iter().next().and_then(|value| {
+                    Message::from_enriched(
+                        value.stored,
+                        value.decoded,
+                        value.parent_stored,
+                        client_key,
+                    )
+                    .ok()
+                });
+                let Some(message) = message else {
+                    match item.acknowledgement.acknowledge() {
+                        Ok(()) | Err(LocalDeliveryError::SelectionChanged) => continue,
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            return Err(super::delivery_error(error));
+                        }
                     }
                 };
                 let mut state = state.lock();
