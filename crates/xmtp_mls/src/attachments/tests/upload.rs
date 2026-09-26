@@ -649,6 +649,10 @@ fn credential_failure_kind_strings_round_trip() {
         assert_eq!(index(kind), expected);
         assert_eq!(CredentialFailureKind::parse(kind.as_str()), Some(kind));
     }
+    assert_eq!(
+        index(CredentialFailureKind::MissingCredential) + 1,
+        CredentialFailureKind::ALL.len()
+    );
     assert_eq!(CredentialFailureKind::parse("unknown"), None);
 }
 
