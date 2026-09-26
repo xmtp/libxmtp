@@ -430,7 +430,7 @@ id = "PROC-043"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test on this branch proves that stream errors from recovery exhaustion, storage, and lag are retryable while credential, blocked-connection, ownership, and cursor errors are not."
+reason = "No test on this branch proves that stream errors from recovery exhaustion and storage are retryable while credential, blocked-connection, ownership, and cursor errors are not."
 
 [[waiver]]
 id = "PROC-044"

@@ -38,7 +38,7 @@ The SDK uses the storage label unchanged. On a file system that ignores letter c
 
 ## 2. Storage lifecycle
 
-The storage interface reports the file in use and controls its connection and removal. An in-memory client has no database file to report or remove. Storage reconnect fails after the app ends the client. The browser exposes no storage reconnect or delete operation.
+The storage interface reports the file in use and controls its connection and removal. An in-memory client has no database file to report or remove. The browser exposes no storage reconnect or delete operation.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -47,3 +47,7 @@ The storage interface reports the file in use and controls its connection and re
 | STORE-011 | In-memory storage cannot be deleted | When an app asks to delete in-memory client storage, the SDK MUST fail with a typed invalid-input error. | In-memory storage has no database file to remove. |
 | STORE-017 | Close before file removal | When an app asks to delete file-backed client storage, the SDK MUST close the client before it removes the database file. | A live connection could otherwise write to a file after its name is removed. |
 | STORE-018 | Database file is gone after deletion | When deletion of file-backed client storage completes, the SDK MUST have removed the database file. | An app that deletes a client's storage expects that database file to be gone. |
+
+## Known limitations
+
+Storage reconnect fails after the app ends the client; the app builds a new client instead.
