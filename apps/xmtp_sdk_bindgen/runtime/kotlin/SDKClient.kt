@@ -147,12 +147,13 @@ class SDKClient private constructor(
 
     fun conversations(
         kind: ConversationKind? = null,
+        consentStates: List<ConsentState>? = null,
         onClose: ((SDKStreamCloseReason) -> Unit)? = null,
         onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
     ): Flow<Conversation> =
         conversationFlow(
             this,
-            open = { raw.conversations().conversationReader(kind) },
+            open = { raw.conversations().conversationReader(ConversationReaderOptions(kind, consentStates)) },
             onClose = onClose,
             onConnectionStateChange = onConnectionStateChange,
         )

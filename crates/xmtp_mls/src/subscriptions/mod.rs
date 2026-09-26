@@ -11,6 +11,9 @@ use xmtp_proto::api_client::XmtpMlsStreams;
 use stream_all::StreamAllMessages;
 use stream_conversations::StreamConversations;
 
+const DEFAULT_STREAM_CONSENT_STATES: [ConsentState; 2] =
+    [ConsentState::Allowed, ConsentState::Unknown];
+
 // Live backend tests require native full-duplex HTTP/2.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod bidi_tests;

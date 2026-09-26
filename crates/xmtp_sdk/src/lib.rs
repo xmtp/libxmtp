@@ -49,8 +49,9 @@ pub use content::{
 };
 pub use conversation::{Conversation, Conversations, Dm, Group};
 pub use conversations::{
-    ConversationKind, ConversationOrder, CreateDmOptions, CreateGroupOptions, GroupPermissionMode,
-    ListConversationsOptions, ListMessagesOptions, MessageOrder, MessageSortBy,
+    ConversationKind, ConversationOrder, ConversationReaderOptions, CreateDmOptions,
+    CreateGroupOptions, GroupPermissionMode, ListConversationsOptions, ListMessagesOptions,
+    MessageOrder, MessageSortBy,
 };
 pub use credentials::{
     Backend, BackendOptions, BackendSource, Credential, CredentialError, CredentialSource,

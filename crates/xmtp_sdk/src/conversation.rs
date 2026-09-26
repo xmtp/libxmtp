@@ -218,12 +218,12 @@ pub(crate) async fn list_local(
 impl Conversations {
     pub async fn conversation_reader(
         &self,
-        kind: Option<crate::ConversationKind>,
+        options: Option<crate::ConversationReaderOptions>,
     ) -> Result<Arc<ConversationReader>, XmtpError> {
         let context = self.client.context.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
-            ConversationReader::open(context, kind, client_key).await
+            ConversationReader::open(context, options.unwrap_or_default(), client_key).await
         })
         .await
     }

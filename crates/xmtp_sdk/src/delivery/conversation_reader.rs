@@ -15,8 +15,8 @@ use xmtp_mls::subscriptions::{
 use xmtp_proto::types::ConversationType;
 
 use crate::{
-    ConnectionState, Conversation, ConversationKind, ErrorCategory, ErrorDetails, XmtpError,
-    conversation::on_sdk_worker,
+    ConnectionState, Conversation, ConversationKind, ConversationReaderOptions, ErrorCategory,
+    ErrorDetails, XmtpError, conversation::on_sdk_worker,
 };
 
 /// A pull reader for new stored conversations.
@@ -54,17 +54,24 @@ impl ConversationReader {
 
     pub(crate) async fn open(
         context: xmtp_mls::MlsContext,
-        kind: Option<ConversationKind>,
+        options: ConversationReaderOptions,
         client_key: u64,
     ) -> Result<Arc<Self>, XmtpError> {
-        let conversation_type = kind.map(|kind| match kind {
+        let conversation_type = options.kind.map(|kind| match kind {
             ConversationKind::Group => ConversationType::Group,
             ConversationKind::Dm => ConversationType::Dm,
         });
-        let stream =
-            StreamConversations::new_owned(context.clone(), conversation_type, false, None)
-                .await
-                .map_err(subscribe_error)?;
+        let consent_states = options
+            .consent_states
+            .map(|states| states.into_iter().map(Into::into).collect());
+        let stream = StreamConversations::new_owned(
+            context.clone(),
+            conversation_type,
+            false,
+            consent_states,
+        )
+        .await
+        .map_err(subscribe_error)?;
         let lease = stream.lease().expect("new stream owns its lease");
         Ok(Arc::new(Self {
             stream: Arc::new(Mutex::new(stream)),

@@ -277,6 +277,25 @@ export type KeyPackageStatusEntry = object;
 export type MessageMetadataEntry = object;
 export type ServerConfiguration = object;
 export type Conversation = object;
+export enum ConsentState {
+  Unknown,
+  Allowed,
+  Denied,
+}
+export enum ConversationKind {
+  Group,
+  Dm,
+}
+export type ConversationReaderOptions = {
+  kind?: ConversationKind;
+  consentStates?: ConsentState[];
+};
+export interface ConversationReaderLike {
+  next(options?: { signal: AbortSignal }): Promise<Conversation | undefined>;
+  end(): Promise<void>;
+  connectionState(): ConnectionState;
+  connectionStateChanged(previous: ConnectionState): Promise<ConnectionState>;
+}
 export type LogRecord = {
   level: number;
   target: string;
@@ -293,6 +312,10 @@ export interface EventReaderLike {
   end(): Promise<void>;
 }
 export type ConversationsLike = {
+  conversationReader(
+    options: ConversationReaderOptions | undefined,
+    asyncOptions?: { signal: AbortSignal },
+  ): Promise<ConversationReaderLike>;
   getMessageByID(id: MessageID): Promise<Message | undefined>;
   getByID(id: ConversationID): Promise<Conversation | undefined>;
   deleteMessage(id: MessageID): Promise<MessageID>;

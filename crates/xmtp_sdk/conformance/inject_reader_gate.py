@@ -54,9 +54,13 @@ elif language == "swift":
     )
     readers_source = replace_once(
         readers_source,
-        "        let reader = try await owner.raw.conversations().conversationReader(kind: kind)\n",
+        "        let reader = try await owner.raw.conversations().conversationReader(\n"
+        "            options: ConversationReaderOptions(kind: kind, consentStates: consentStates)\n"
+        "        )\n",
         "        await SDKClient.conversationReaderOpeningForTest?()\n"
-        "        let reader = try await owner.raw.conversations().conversationReader(kind: kind)\n"
+        "        let reader = try await owner.raw.conversations().conversationReader(\n"
+        "            options: ConversationReaderOptions(kind: kind, consentStates: consentStates)\n"
+        "        )\n"
         "        await SDKClient.conversationReaderOpenedForTest?(reader)\n",
     )
     readers_source = replace_once(

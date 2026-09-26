@@ -121,12 +121,13 @@ public final class SDKClient: @unchecked Sendable {
 
     public func conversationStream(
         kind: ConversationKind? = nil,
+        consentStates: [ConsentState]? = nil,
         onClose: (@Sendable (SDKStreamCloseReason) -> Void)? = nil,
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
     ) async throws -> SDKConversationStream {
         try Task.checkCancellation()
         return makeSDKConversationStream(
-            kind: kind, owner: self, onClose: onClose,
+            kind: kind, consentStates: consentStates, owner: self, onClose: onClose,
             onConnectionStateChange: onConnectionStateChange
         )
     }

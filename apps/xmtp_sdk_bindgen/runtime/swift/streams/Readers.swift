@@ -267,13 +267,16 @@ func makeSDKMessageStream(
 
 func makeSDKConversationStream(
     kind: ConversationKind?,
+    consentStates: [ConsentState]?,
     owner: SDKClient,
     onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,
     onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
 ) -> SDKConversationStream {
     SDKReaderStream(open: { [weak owner] in
         guard let owner else { throw CancellationError() }
-        let reader = try await owner.raw.conversations().conversationReader(kind: kind)
+        let reader = try await owner.raw.conversations().conversationReader(
+            options: ConversationReaderOptions(kind: kind, consentStates: consentStates)
+        )
         return StreamHandle(
             owner: owner,
             next: { try await reader.next() },

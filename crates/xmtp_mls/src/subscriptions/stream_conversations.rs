@@ -1,7 +1,7 @@
 //! Live conversation notifications from committed group discovery.
 
 use super::{
-    Result,
+    DEFAULT_STREAM_CONSENT_STATES, Result,
     incoming::{IncomingCoordinator, IncomingLease, IncomingScope},
     internal::InternalEvent,
 };
@@ -124,7 +124,9 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
         ])));
         let query = GroupQueryArgs {
             conversation_type,
-            consent_states: Some(consent_states.unwrap_or_else(|| ALL_CONSENT_STATES.to_vec())),
+            consent_states: Some(
+                consent_states.unwrap_or_else(|| DEFAULT_STREAM_CONSENT_STATES.to_vec()),
+            ),
             include_duplicate_dms,
             ..Default::default()
         };
@@ -439,7 +441,7 @@ mod test {
 
     /// Consent filtering cannot turn a group from the live baseline into a new join.
     #[rstest::rstest]
-    #[case::unfiltered(None, 2)]
+    #[case::default(None, 1)]
     #[case::allowed_only(Some(vec![ConsentState::Allowed]), 1)]
     #[case::empty_filter(Some(Vec::new()), 0)]
     #[xmtp_common::test(unwrap_try = true)]

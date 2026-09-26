@@ -1,5 +1,5 @@
 import { ConnectionState } from "../../xmtp_sdk";
-import type { Conversation } from "../../xmtp_sdk";
+import type { Conversation, ConversationReaderOptions } from "../../xmtp_sdk";
 import type { Client } from "../client";
 import type { Message } from "../message";
 
@@ -211,6 +211,19 @@ export class MessageStream extends ReaderStream<Message> {
 }
 
 export class ConversationStream extends ReaderStream<Conversation> {
+  static open(
+    owner: Client,
+    selection?: ConversationReaderOptions,
+    options?: StreamOptions,
+  ): ConversationStream {
+    return new ConversationStream(
+      (signal) =>
+        owner.raw.conversations().conversationReader(selection, { signal }),
+      owner,
+      options,
+    );
+  }
+
   constructor(
     open: (signal: AbortSignal) => Promise<ReaderLike<Conversation>>,
     owner: Client,
