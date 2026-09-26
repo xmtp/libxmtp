@@ -13,7 +13,7 @@ use futures::StreamExt as _;
 use parking_lot::Mutex;
 use prost::Message as _;
 use sha2::{Digest as _, Sha256};
-use tokio::sync::{Mutex as AsyncMutex, watch};
+use tokio::sync::{Mutex as AsyncMutex, OnceCell, watch};
 use tokio_util::sync::CancellationToken;
 use xmtp_attachments::{
     AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, AttachmentOptions,
@@ -44,6 +44,8 @@ const CHUNK: usize = 64 * 1024;
 const LEASE_DURATION: Duration = Duration::from_secs(120);
 const LEASE_RENEW: Duration = Duration::from_secs(30);
 const LEASE_POLL: Duration = Duration::from_secs(1);
+#[cfg(test)]
+static FAIL_NEXT_RECONCILES: AtomicUsize = AtomicUsize::new(0);
 
 #[derive(Clone, Copy)]
 struct LeaseTiming {
@@ -387,6 +389,7 @@ pub struct AttachmentRuntime {
     downloads: Mutex<HashMap<String, Arc<DownloadShared>>>,
     deleting: Mutex<HashMap<String, usize>>,
     event_locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
+    reconciled: OnceCell<()>,
     lease_timing: Mutex<LeaseTiming>,
     #[cfg(test)]
     sweep_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
@@ -408,6 +411,7 @@ impl Default for AttachmentRuntime {
             downloads: Mutex::new(HashMap::new()),
             deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
+            reconciled: OnceCell::new(),
             lease_timing: Mutex::new(LeaseTiming::default()),
             #[cfg(test)]
             sweep_pause: Mutex::new(None),
@@ -422,6 +426,16 @@ impl Default for AttachmentRuntime {
 }
 
 impl AttachmentRuntime {
+    pub(crate) async fn ensure_reconciled<Context: XmtpSharedContext>(
+        &self,
+        context: &Context,
+    ) -> Result<(), AttachmentClientError> {
+        self.reconciled
+            .get_or_try_init(|| self.reconcile(context))
+            .await
+            .map(|_| ())
+    }
+
     pub(crate) async fn new(
         dir: Option<PathBuf>,
         options: AttachmentOptions,
@@ -443,6 +457,7 @@ impl AttachmentRuntime {
             downloads: Mutex::new(HashMap::new()),
             deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
+            reconciled: OnceCell::new(),
             lease_timing: Mutex::new(LeaseTiming::default()),
             #[cfg(test)]
             sweep_pause: Mutex::new(None),
@@ -532,6 +547,15 @@ impl AttachmentRuntime {
         &self,
         context: &Context,
     ) -> Result<(), AttachmentClientError> {
+        #[cfg(test)]
+        if FAIL_NEXT_RECONCILES
+            .fetch_update(AtomicOrdering::SeqCst, AtomicOrdering::SeqCst, |count| {
+                count.checked_sub(1)
+            })
+            .is_ok()
+        {
+            return Err(AttachmentClientError::new(Cause::LocalStorage));
+        }
         let Some(store) = &self.store else {
             return Ok(());
         };
@@ -628,6 +652,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
     }
 
     pub async fn list_local(&self) -> Result<Vec<LocalAttachment>, AttachmentClientError> {
+        self.runtime().ensure_reconciled(&self.context).await?;
         self.context
             .db()
             .list_local_attachments()
@@ -647,6 +672,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         &self,
         remote: &RemoteAttachment,
     ) -> Result<DownloadedAttachment, AttachmentClientError> {
+        self.runtime().ensure_reconciled(&self.context).await?;
         let relative = plaintext_rel_path(remote)?;
         let path = self.local_path(remote)?;
         let key = attachment_key(remote)?;
@@ -1130,6 +1156,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         &self,
         remote: &RemoteAttachment,
     ) -> Result<PendingAttachment<Context>, AttachmentClientError> {
+        self.runtime().ensure_reconciled(&self.context).await?;
         let row = self
             .context
             .db()
@@ -1153,6 +1180,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
     pub async fn list_pending(
         &self,
     ) -> Result<Vec<PendingAttachment<Context>>, AttachmentClientError> {
+        self.runtime().ensure_reconciled(&self.context).await?;
         self.context
             .db()
             .list_pending_attachments_since(0)
@@ -1652,10 +1680,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         if !store.exists(&path).await.map_err(storage_error)? {
             return Err(AttachmentClientError::new(Cause::StagedUnusable));
         }
-        let staged = store
-            .open_read(&path)
-            .await
-            .map_err(storage_error)?;
+        let staged = store.open_read(&path).await.map_err(storage_error)?;
         let (digest, length) = staged.sha256().await.map_err(storage_error)?;
         if hex::encode(digest) != self.remote.content_digest
             || Some(length as u32) != self.remote.content_length
@@ -2513,7 +2538,12 @@ mod tests {
         let error = pending.upload().await.unwrap_err();
         assert_eq!(error.cause, Cause::LocalStorage);
         assert!(error.retryable);
-        let row = alix.client.context.db().get_pending_attachment(digest)?.unwrap();
+        let row = alix
+            .client
+            .context
+            .db()
+            .get_pending_attachment(digest)?
+            .unwrap();
         assert_eq!(row.status, "failed");
         assert_eq!(row.failure_cause.as_deref(), Some("local_storage"));
         std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600))?;
@@ -2529,9 +2559,14 @@ mod tests {
                 mime_type: "text/plain".into(),
             })
             .await?;
-        let missing_path = dir.path().join(staged_path(&missing.remote_attachment().content_digest)?);
+        let missing_path = dir
+            .path()
+            .join(staged_path(&missing.remote_attachment().content_digest)?);
         tokio::fs::remove_file(missing_path).await?;
-        assert_eq!(missing.upload().await.unwrap_err().cause, Cause::StagedUnusable);
+        assert_eq!(
+            missing.upload().await.unwrap_err().cause,
+            Cause::StagedUnusable
+        );
     }
 
     // verifies: ATCH-026, ATCH-034
@@ -4774,6 +4809,63 @@ mod tests {
             .await?;
         assert_eq!(adopted.mime_type, None);
         assert_eq!(adopted.filename, None);
+    }
+
+    // verifies: ATCH-062, ATCH-076
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn list_local_retries_reconcile_after_build_error() {
+        use std::time::UNIX_EPOCH;
+
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let relative = format!("{}/adopted", "a".repeat(64));
+        let file = dir.path().join(&relative);
+        tokio::fs::create_dir_all(file.parent().unwrap()).await?;
+        tokio::fs::write(&file, b"adopt me").await?;
+        let modified = 1_234_567_000_000_000_i64;
+        std::fs::File::open(&file)?.set_modified(UNIX_EPOCH + Duration::from_secs(1_234_567))?;
+        FAIL_NEXT_RECONCILES.store(1, AtomicOrdering::SeqCst);
+        let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let listed = next.attachments().list_local().await?;
+        assert!(
+            listed
+                .iter()
+                .any(|row| row.path == relative && row.created_at_ns == modified)
+        );
+        FAIL_NEXT_RECONCILES.store(0, AtomicOrdering::SeqCst);
+    }
+
+    // verifies: ATCH-062, ATCH-076
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn reconcile_failure_blocks_reads_and_download() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let remote = alix
+            .client
+            .attachments()
+            .create(bytes())
+            .await?
+            .remote_attachment()
+            .clone();
+        let (url, requests) = serve_body(Vec::new()).await;
+        let mut remote = remote;
+        remote.url = url;
+        FAIL_NEXT_RECONCILES.store(3, AtomicOrdering::SeqCst);
+        let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert!(
+            matches!(next.attachments().list_local().await, Err(error) if error.cause == Cause::LocalStorage)
+        );
+        assert!(
+            matches!(next.attachments().download(&remote).await, Err(error) if error.cause == Cause::LocalStorage)
+        );
+        assert_eq!(requests.load(Ordering::SeqCst), 0);
+        FAIL_NEXT_RECONCILES.store(0, AtomicOrdering::SeqCst);
     }
 
     // verifies: ATCH-063, ATCH-076
