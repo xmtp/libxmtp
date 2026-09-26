@@ -329,6 +329,50 @@ async fn event_filter_matches_stitched_dm_identifier() {
     client.end().await?;
 }
 
+// verifies: EVENT-020
+#[xmtp_common::test(unwrap_try = true)]
+async fn consent_event_for_stitched_dm_reaches_group_filter() {
+    use xmtp_db::consent_record::{ConsentState, ConsentType, StoredConsentRecord};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let other = Client::create(crate::generate_local_signer().await, options()).await?;
+    let dm_a = client
+        .inner
+        .find_or_create_dm(other.inbox_id().0, None)
+        .await?;
+    let dm_b = other
+        .inner
+        .find_or_create_dm(client.inbox_id().0, None)
+        .await?;
+    assert_ne!(dm_a.group_id, dm_b.group_id);
+    client.inner.sync_welcomes().await?;
+    let stitched = client.inner.group(&dm_b.group_id)?;
+    assert_eq!(dm_a.dm_id, stitched.dm_id);
+
+    let reader = client
+        .events(EventFilter {
+            conversation_ids: Some(vec![dm_a.group_id.into()]),
+            ..event_filter(vec![EventKind::ConsentChanged])
+        })
+        .await?;
+    let entity = hex::encode(dm_b.group_id);
+    client
+        .inner
+        .set_consent_states(&[StoredConsentRecord::new(
+            ConsentType::ConversationId,
+            ConsentState::Denied,
+            entity.clone(),
+        )])
+        .await?;
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(5), reader.next()).await??,
+        Some(ClientEvent::ConsentChanged { entity: received, .. }) if received == entity
+    ));
+    reader.end().await?;
+    other.end().await?;
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn event_filter_accepts_unknown_conversation_id() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
