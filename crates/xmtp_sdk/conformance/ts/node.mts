@@ -455,15 +455,15 @@ await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(stateCallbackCalls, 1);
 await throwingState.end();
 for (const code of [
-  "recoveryExhausted",
-  "storage",
-  "lagged",
-  "credentialRejected",
-  "credentialExhausted",
-  "backendMismatch",
-  "clientVersionTooOld",
-  "consumerOwned",
-  "foreignCursor",
+  "RecoveryExhausted",
+  "Storage",
+  "Lagged",
+  "CredentialRejected",
+  "CredentialExhausted",
+  "BackendMismatch",
+  "ClientVersionTooOld",
+  "ConsumerOwned",
+  "ForeignCursor",
 ]) {
   const failure = Object.assign(new Error(code), { code });
   const reasons: sdk.StreamCloseReason[] = [];
@@ -584,7 +584,7 @@ const rejectedRead = rejectedOpening.next();
 await rejectedOpening.return();
 assert.equal((await rejectedRead).done, true);
 const creationFailure = Object.assign(new Error("reader creation failed"), {
-  code: "storage",
+  code: "Storage",
 });
 const creationReasons: sdk.StreamCloseReason[] = [];
 const failedOpening = new sdk.MessageStream(

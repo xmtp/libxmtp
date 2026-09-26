@@ -41,7 +41,7 @@ pub(crate) fn delivery_error(error: LocalDeliveryError) -> XmtpError {
     }
     if matches!(cause, LocalDeliveryError::NetworkRecoveryExhausted { .. }) {
         return XmtpError::RecoveryExhausted(details(
-            "recoveryExhausted",
+            "RecoveryExhausted",
             ErrorCategory::Stream,
             true,
             error.to_string(),
@@ -56,21 +56,21 @@ pub(crate) fn delivery_error(error: LocalDeliveryError) -> XmtpError {
         LocalDeliveryError::Storage(StorageError::Stream(
             StreamStorageError::AlreadyActive | StreamStorageError::NotCurrentOwner,
         )) => XmtpError::ConsumerOwned(details(
-            "consumerOwned",
+            "ConsumerOwned",
             ErrorCategory::Stream,
             false,
             message,
         )),
         LocalDeliveryError::Storage(StorageError::Stream(StreamStorageError::ForeignCursor)) => {
             XmtpError::ForeignCursor(details(
-                "foreignCursor",
+                "ForeignCursor",
                 ErrorCategory::Stream,
                 false,
                 message,
             ))
         }
         LocalDeliveryError::Storage(_) | LocalDeliveryError::AcknowledgementFailed => {
-            XmtpError::Storage(details("storage", ErrorCategory::Storage, true, message))
+            XmtpError::Storage(details("Storage", ErrorCategory::Storage, true, message))
         }
         _ => XmtpError::unknown(error),
     }
@@ -99,13 +99,13 @@ fn auth_cause(error: &(dyn Error + 'static)) -> Option<AuthError> {
 pub(crate) fn configuration_error(error: &ClientError, message: String) -> XmtpError {
     match error {
         ClientError::BackendMismatch { .. } => XmtpError::BackendMismatch(details(
-            "backendMismatch",
+            "BackendMismatch",
             ErrorCategory::Configuration,
             false,
             message,
         )),
         ClientError::ClientVersionTooOld { .. } => XmtpError::ClientVersionTooOld(details(
-            "clientVersionTooOld",
+            "ClientVersionTooOld",
             ErrorCategory::Configuration,
             false,
             message,
@@ -119,6 +119,69 @@ mod tests {
     use super::*;
 
     #[xmtp_common::test(unwrap_try = true)]
+    fn stream_close_codes_match_variants() {
+        let cases = [
+            (
+                delivery_error(LocalDeliveryError::NetworkRecoveryExhausted {
+                    attempts: 1,
+                    source: None,
+                }),
+                "RecoveryExhausted",
+            ),
+            (
+                delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
+                    StreamStorageError::LocalReadCapacity { bytes: 2, limit: 1 },
+                ))),
+                "Storage",
+            ),
+            (
+                delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
+                    StreamStorageError::AlreadyActive,
+                ))),
+                "ConsumerOwned",
+            ),
+            (
+                delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
+                    StreamStorageError::ForeignCursor,
+                ))),
+                "ForeignCursor",
+            ),
+            (
+                configuration_error(
+                    &ClientError::BackendMismatch {
+                        stored: "a".into(),
+                        received: "b".into(),
+                    },
+                    "mismatch".into(),
+                ),
+                "BackendMismatch",
+            ),
+            (
+                configuration_error(
+                    &ClientError::ClientVersionTooOld {
+                        client: "1".into(),
+                        minimum: "2".into(),
+                    },
+                    "old".into(),
+                ),
+                "ClientVersionTooOld",
+            ),
+        ];
+        for (error, expected) in cases {
+            let actual = match error {
+                XmtpError::RecoveryExhausted(details)
+                | XmtpError::Storage(details)
+                | XmtpError::ConsumerOwned(details)
+                | XmtpError::ForeignCursor(details)
+                | XmtpError::BackendMismatch(details)
+                | XmtpError::ClientVersionTooOld(details) => details.code,
+                other => panic!("unexpected close error: {other}"),
+            };
+            assert_eq!(actual, expected);
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     fn close_reason_closed_and_failed() {
         use std::sync::Arc;
         use xmtp_mls::subscriptions::incoming::IncomingError;
@@ -130,7 +193,7 @@ mod tests {
         });
         assert!(
             matches!(exhausted, XmtpError::RecoveryExhausted(ref details)
-            if details.code == "recoveryExhausted" && details.retryable)
+            if details.code == "RecoveryExhausted" && details.retryable)
         );
         let exhausted_with_auth = delivery_error(LocalDeliveryError::NetworkRecoveryExhausted {
             attempts: 10,
@@ -140,22 +203,22 @@ mod tests {
         });
         assert!(
             matches!(exhausted_with_auth, XmtpError::RecoveryExhausted(ref details)
-            if details.code == "recoveryExhausted" && details.retryable)
+            if details.code == "RecoveryExhausted" && details.retryable)
         );
         let storage = delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
             StreamStorageError::LocalReadCapacity { bytes: 2, limit: 1 },
         )));
-        assert!(matches!(storage, XmtpError::Storage(ref details) if details.code == "storage"));
+        assert!(matches!(storage, XmtpError::Storage(ref details) if details.code == "Storage"));
         let owned = delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
             StreamStorageError::AlreadyActive,
         )));
         assert!(matches!(owned, XmtpError::ConsumerOwned(ref details)
-            if details.code == "consumerOwned" && !details.retryable));
+            if details.code == "ConsumerOwned" && !details.retryable));
         let cursor = delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
             StreamStorageError::ForeignCursor,
         )));
         assert!(matches!(cursor, XmtpError::ForeignCursor(ref details)
-            if details.code == "foreignCursor" && !details.retryable));
+            if details.code == "ForeignCursor" && !details.retryable));
         let mismatch = configuration_error(
             &ClientError::BackendMismatch {
                 stored: "a".into(),
@@ -164,7 +227,7 @@ mod tests {
             "mismatch".into(),
         );
         assert!(matches!(mismatch, XmtpError::BackendMismatch(ref details)
-            if details.code == "backendMismatch"));
+            if details.code == "BackendMismatch"));
         let old = configuration_error(
             &ClientError::ClientVersionTooOld {
                 client: "1".into(),
@@ -173,7 +236,7 @@ mod tests {
             "old".into(),
         );
         assert!(matches!(old, XmtpError::ClientVersionTooOld(ref details)
-            if details.code == "clientVersionTooOld"));
+            if details.code == "ClientVersionTooOld"));
         for (auth, code, retryable) in [
             (
                 AuthError::CredentialRejected { retryable: true },
