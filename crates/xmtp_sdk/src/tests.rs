@@ -2280,7 +2280,7 @@ async fn reply_with_empty_nested_identifier_stays_unknown_on_all_read_paths() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let parent = group.send_text("parent".into()).await?;
+    let parent = group.send_text("parent".into(), None).await?;
     for empty_authority in [true, false] {
         let mut nested = TextCodec::encode("nested".into())?;
         let kind = nested.r#type.as_mut().expect("typed text");
