@@ -696,7 +696,7 @@ id = "STORE-011"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The façade delete operation closes an open client before removing one file; it does not refuse an open client or prove removal of all its database files."
+reason = "No façade test proves that deleting in-memory storage returns a typed invalid-input error; the façade test lands with #4245."
 
 [[waiver]]
 id = "STORE-012"
@@ -704,6 +704,20 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "No façade API test proves that browser storage omits reconnect and delete."
+
+[[waiver]]
+id = "STORE-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that deleting file-backed storage closes the client before removing the database file; the façade test lands with #4245."
+
+[[waiver]]
+id = "STORE-018"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that the database file is gone after deletion; the façade test lands with #4245."
 
 [[waiver]]
 id = "STORE-013"
