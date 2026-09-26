@@ -1982,7 +1982,9 @@ async fn reply_omits_bad_parent_and_warns_without_content() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let parent = group.send_text("sensitive-parent-content".into()).await?;
+    let parent = group
+        .send_text("sensitive-parent-content".into(), None)
+        .await?;
     let reply = client
         .conversations()
         .reply_to_message(parent.clone(), crate::encode_text("reply".into())?, None)
@@ -2043,7 +2045,7 @@ async fn reaction_message_keeps_its_target_on_single_read_and_reader() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let parent = group.send_text("parent".into()).await?;
+    let parent = group.send_text("parent".into(), None).await?;
     let parent_sender = client.inbox_id();
     let reader = group.message_reader().await?;
     let reaction_id = client

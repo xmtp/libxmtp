@@ -722,6 +722,20 @@ const reply = familyMessages.find(
 assert.equal(parent?.reactions[0]?.id.toString(), reactionID.toString());
 assert.equal(parent?.replyCount, 1n);
 assert.equal(reply?.inReplyTo?.id.toString(), parentID.toString());
+const reactionMessage = await reopened
+  .conversations()
+  .getMessageByID(reactionID);
+if (reactionMessage?.content.tag !== sdk.MessageContent_Tags.Reaction)
+  throw new Error("reaction message did not lift as a reaction");
+assert.equal(
+  reactionMessage.content.inner.reference.toString(),
+  parentID.toString(),
+);
+assert.equal(
+  reactionMessage.content.inner.referenceInboxID?.toString(),
+  inboxID.toString(),
+);
+assert.equal(reactionMessage.content.inner.reaction.content, "👍");
 console.log("Node scenario 5: message records, reaction, and reply passed");
 
 const customType = sdk.ContentTypeID.create({

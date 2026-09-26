@@ -463,6 +463,18 @@ struct Conformance {
               parent.replyCount == 1, parent.reactions.first?.id == reactionID,
               reply.inReplyTo?.id == parentID
         else { throw ConformanceFailure("message reaction or reply edge was not materialized") }
+        guard let reactionMessage = try await reopened.conversations().getMessageByID(id: reactionID),
+              case let .standard(.reaction(reference, referenceInboxID, reaction)) = reactionMessage.content,
+              reference == parentID, referenceInboxID == inboxID, reaction.content == "👍"
+        else { throw ConformanceFailure("reaction content lost its target") }
+        var changedReaction = reactionMessage.data
+        changedReaction.content = .reaction(
+            reference: reactionID, referenceInboxId: inboxID,
+            reaction: Reaction(content: "👍", action: .added, schema: .unicode)
+        )
+        guard reactionMessage != Message(data: changedReaction) else {
+            throw ConformanceFailure("reaction target did not affect message equality")
+        }
         let sameParent = try await reopened.conversations().getMessageByID(id: parentID)
         guard let sameParent, parent == sameParent else {
             throw ConformanceFailure("message_copies_compare_equal failed")
