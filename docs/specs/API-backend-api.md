@@ -18,7 +18,7 @@ flowchart LR
 
 ## Scope
 
-In scope: sequence ids, ordering, and visibility; the envelope wire format and the metadata the backend assigns; publish atomicity, idempotency, and admission, including what admission establishes and what it does not; query and paging; the subscribe frame contracts; identity lookups; request bounds; the status codes; and the transport.
+In scope: sequence ids, ordering, and visibility; the envelope wire format and the metadata the backend assigns; publish atomicity, idempotency, and admission, including what admission establishes and what it does not; query and paging; the subscribe frame contracts; identity lookups; connection statistics; request bounds; the status codes; and the transport.
 
 Out of scope: credentials and which requests need one ([AUTH section 1](AUTH-backend-auth.md#1-admission)); the values of the published limits and how a client sizes its requests to them (`CONF`); the topic layout (`TOPIC`); push registration and delivery ([PUSH](PUSH-push-subscriptions.md)); retention enforcement, readiness, and health ([OPS](OPS-backend-operations.md)); the association log an identity update is checked against (IDENT-004, IDENT-005); the MLS objects a key package and a Welcome carry (`JOIN`); the commit-log entry ([FORK section 2](FORK-fork-recovery.md#2-keys-and-signatures)); and what a client does with a frame once received, including its positions on a topic ([PROC](PROC-message-processing.md)).
 
@@ -463,6 +463,17 @@ The status table maps each failure a client can meet to the code it receives. A 
 | API-283 | A response is complete or fails | The backend MUST NOT omit an envelope, a result, or a response entry from a successful response to keep it under a byte limit. | A page that silently drops rows and reports `has_more` false is history the client never fetches. |
 | API-284 | Retry by code | A client MUST NOT resend a request unchanged after `INVALID_ARGUMENT`, `OUT_OF_RANGE`, or `UNIMPLEMENTED`, and after `ABORTED` on a publish MUST read the inbox's identity topic and rebuild the identity update before it resends. | A client that retries a permanent rejection loads the deployment with a request that can never succeed, and one that resends a stale identity update aborts again for ever. |
 | API-285 | One port for gRPC and gRPC-Web | The backend MUST serve every service on one port over both gRPC and gRPC-Web, and MUST expose the `grpc-status`, `grpc-message`, and `grpc-status-details-bin` headers to a cross-origin browser client. | A browser client cannot open an HTTP/2 gRPC connection, and without the exposed headers it cannot read the status or the `PublishError` detail. |
+
+## 8. Connection statistics
+
+A backend connection has one set of counts. Every client and static call that shares that connection shares its counts.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| API-292 | API call statistics | An SDK MUST expose call counts for the `Publish`, `Query`, `QueryNewest`, `Subscribe`, and `SubscribeStatic` RPCs of the client's backend connection. | An app needs to see which API operations use that connection. |
+| API-293 | Identity call statistics | An SDK MUST expose call counts for the `GetInboxIds` and `VerifySmartContractWalletSignatures` RPCs of the client's backend connection. | An app needs to see identity traffic on that connection. |
+| API-294 | Statistics summary | An SDK MUST expose a text summary of the API-292 and API-293 counts for the client's backend connection; the summary's format is not a contract. | An app can display the counts without relying on a fixed text format. |
+| API-295 | Clear connection statistics | When an app clears statistics, the SDK MUST set every count in API-292 and API-293 to 0 for the client's backend connection. | Later observations must start from a known count for every user of that connection. |
 
 ## Known limitations
 

@@ -258,6 +258,34 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A client half-close during the drain for an outstanding Ping ends the stream with UNAVAILABLE rather than completing cleanly."
 
 [[waiver]]
+id = "API-292"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that all five API RPC counts include calls from every client and static call sharing one backend connection."
+
+[[waiver]]
+id = "API-293"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that both identity RPC counts include calls from every client and static call sharing one backend connection."
+
+[[waiver]]
+id = "API-294"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that the text summary contains both counter sets for the shared backend connection."
+
+[[waiver]]
+id = "API-295"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that clearing statistics sets every API and identity count to 0 for all users of the shared backend connection."
+
+[[waiver]]
 id = "PUSH-257"
 kind = "gap"
 owner = "backend"
@@ -718,34 +746,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "No façade test proves that the database file is gone after deletion; the façade test lands with #4245."
-
-[[waiver]]
-id = "STORE-013"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test on this branch proves that client diagnostics expose counts for all five API operations."
-
-[[waiver]]
-id = "STORE-014"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test on this branch proves that client diagnostics expose both identity API call counts."
-
-[[waiver]]
-id = "STORE-015"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test on this branch proves that the aggregate statistics summarize both counter sets without a fixed display format."
-
-[[waiver]]
-id = "STORE-016"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test on this branch proves that clearing statistics resets both API and identity counters."
 
 [[waiver]]
 id = "IDENT-073"
