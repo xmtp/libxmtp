@@ -12,6 +12,7 @@ pub(crate) use message_reader::{HandoffGate, selection_changed};
 use crate::{ErrorCategory, ErrorDetails, XmtpError};
 use std::error::Error;
 use tokio_util::sync::CancellationToken;
+use xmtp_common::RetryableError;
 use xmtp_db::{StorageError, stream_storage::StreamStorageError};
 use xmtp_mls::{
     client::ClientError, messages::enrichment::EnrichMessageError,
@@ -72,7 +73,13 @@ pub(crate) fn delivery_error(error: LocalDeliveryError) -> XmtpError {
                 message,
             ))
         }
-        LocalDeliveryError::Storage(_) | LocalDeliveryError::AcknowledgementFailed => {
+        LocalDeliveryError::Storage(storage) => XmtpError::Storage(details(
+            "Storage",
+            ErrorCategory::Storage,
+            storage.is_retryable(),
+            message,
+        )),
+        LocalDeliveryError::AcknowledgementFailed => {
             XmtpError::Storage(details("Storage", ErrorCategory::Storage, true, message))
         }
         _ => XmtpError::unknown(error),
@@ -118,11 +125,12 @@ pub(crate) fn configuration_error(error: &ClientError, message: String) -> XmtpE
 }
 
 pub(crate) fn enrichment_error(error: EnrichMessageError) -> XmtpError {
+    let retryable = error.is_retryable();
     match error {
         EnrichMessageError::DbConnection(_) => XmtpError::Storage(details(
             "Storage",
             ErrorCategory::Storage,
-            true,
+            retryable,
             error.to_string(),
         )),
         _ => XmtpError::unknown(error),
@@ -143,6 +151,30 @@ mod tests {
             if details.code == "Storage"
                 && matches!(details.category, ErrorCategory::Storage)
                 && details.retryable));
+    }
+
+    // verifies: PROC-040
+    #[xmtp_common::test(unwrap_try = true)]
+    fn local_read_capacity_is_not_retryable() {
+        let error = delivery_error(LocalDeliveryError::Storage(StorageError::Stream(
+            StreamStorageError::LocalReadCapacity { bytes: 2, limit: 1 },
+        )));
+        assert!(matches!(error, XmtpError::Storage(details)
+            if details.code == "Storage"
+                && matches!(details.category, ErrorCategory::Storage)
+                && !details.retryable));
+    }
+
+    // verifies: PROC-040
+    #[xmtp_common::test(unwrap_try = true)]
+    fn invalid_enrichment_query_is_not_retryable() {
+        let error = enrichment_error(EnrichMessageError::DbConnection(
+            xmtp_db::ConnectionError::InvalidQuery("invalid".into()),
+        ));
+        assert!(matches!(error, XmtpError::Storage(details)
+            if details.code == "Storage"
+                && matches!(details.category, ErrorCategory::Storage)
+                && !details.retryable));
     }
 
     #[xmtp_common::test(unwrap_try = true)]
