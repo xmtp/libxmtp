@@ -5,6 +5,10 @@ import type { Message } from "../message";
 
 const done = { done: true, value: undefined } as const;
 
+function reportCallbackError(error: unknown): void {
+  console.error("XMTP stream close callback failed", error);
+}
+
 export type StreamCloseReason =
   | { kind: "closed" }
   | { kind: "failed"; error: unknown };
@@ -59,10 +63,13 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     void this.reader.catch(async (error: unknown) => {
       if (!this.closed) await this.fail(error);
     });
-    this.options.signal?.addEventListener("abort", () => void this.return(), {
-      once: true,
-    });
-    if (this.options.signal?.aborted) void this.return();
+    this.options.signal?.addEventListener(
+      "abort",
+      () => void this.return().catch(reportCallbackError),
+      { once: true },
+    );
+    if (this.options.signal?.aborted)
+      void this.return().catch(reportCallbackError);
   }
 
   [Symbol.asyncIterator](): AsyncIterableIterator<T> {

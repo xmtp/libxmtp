@@ -9,6 +9,21 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
 
+async function assertNoUnhandledRejection(action: () => Promise<void>): Promise<void> {
+  const unhandled: unknown[] = [];
+  const capture = (error: unknown): void => {
+    unhandled.push(error);
+  };
+  process.on("unhandledRejection", capture);
+  try {
+    await action();
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.deepEqual(unhandled, [], "stream left an unhandled rejection");
+  } finally {
+    process.off("unhandledRejection", capture);
+  }
+}
+
 const viemRoot = realpathSync(
   fileURLToPath(
     new URL("../../../../sdks/node/node_modules/viem", import.meta.url),
@@ -410,6 +425,35 @@ const throwingClose = new sdk.MessageStream(
 await throwingClose.ready();
 await assert.rejects(throwingClose.end(), /close callback failed/);
 assert.equal(endedAfterCloseThrow, true, "throwing onClose skipped reader.end");
+for (const abortBeforeOpen of [true, false]) {
+  const controller = new AbortController();
+  if (abortBeforeOpen) controller.abort();
+  let endedAfterAbort = false;
+  await assertNoUnhandledRejection(async () => {
+    const aborted = new sdk.MessageStream(
+      async () => ({
+        next: async () => undefined,
+        end: async () => {
+          endedAfterAbort = true;
+        },
+      }),
+      reopened,
+      {
+        signal: controller.signal,
+        onClose: () => {
+          throw new Error("abort close callback failed");
+        },
+      },
+    );
+    if (!abortBeforeOpen) {
+      await aborted.ready();
+      controller.abort();
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(endedAfterAbort, true, "aborted reader remained open");
+    assert.equal((await aborted.next()).done, true);
+  });
+}
 let endedAfterFailureCloseThrow = false;
 const throwingFailureClose = new sdk.MessageStream(
   async () => ({
