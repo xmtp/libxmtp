@@ -546,7 +546,7 @@ async fn reconcile_failure_blocks_reads_and_download() {
     let (url, requests) = serve_body(Vec::new()).await;
     let mut remote = remote;
     remote.url = url;
-    FAIL_NEXT_RECONCILES.store(3, AtomicOrdering::SeqCst);
+    FAIL_NEXT_RECONCILES.store(5, AtomicOrdering::SeqCst);
     let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
         .with_disable_workers(true)
         .build()
@@ -556,6 +556,12 @@ async fn reconcile_failure_blocks_reads_and_download() {
     );
     assert!(
         matches!(next.attachments().download(&remote).await, Err(error) if error.cause == Cause::LocalStorage)
+    );
+    assert!(
+        matches!(next.attachments().list_pending().await, Err(error) if error.cause == Cause::LocalStorage)
+    );
+    assert!(
+        matches!(next.attachments().pending(&remote).await, Err(error) if error.cause == Cause::LocalStorage)
     );
     assert_eq!(requests.load(Ordering::SeqCst), 0);
     FAIL_NEXT_RECONCILES.store(0, AtomicOrdering::SeqCst);
