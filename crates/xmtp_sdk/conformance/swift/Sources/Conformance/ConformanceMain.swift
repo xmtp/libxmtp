@@ -469,7 +469,7 @@ struct Conformance {
         else { throw ConformanceFailure("reaction content lost its target") }
         var changedReaction = reactionMessage.data
         changedReaction.content = .reaction(
-            reference: reactionID, referenceInboxId: inboxID,
+            reference: reactionID, referenceInboxID: inboxID,
             reaction: Reaction(content: "👍", action: .added, schema: .unicode)
         )
         guard reactionMessage != Message(data: changedReaction) else {

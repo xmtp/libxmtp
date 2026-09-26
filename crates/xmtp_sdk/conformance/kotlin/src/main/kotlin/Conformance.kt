@@ -553,7 +553,7 @@ fun main() =
         val reactionMessage = checkNotNull(reopened.conversations().getMessageByID(reactionID))
         val reactionContent = (reactionMessage.content as? SDKMessageContent.Standard)?.value as? MessageContent.Reaction
         check(
-            reactionContent?.reference == parentID && reactionContent.referenceInboxId == inboxID &&
+            reactionContent?.reference == parentID && reactionContent.referenceInboxID == inboxID &&
                 reactionContent.reaction.content == "👍",
         ) { "reaction content lost its target" }
         check(
