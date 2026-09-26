@@ -185,7 +185,7 @@ id = "CONS-042"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs stream every consent state by default; the façade implements the allowed-and-unknown default for cross-conversation streams."
+reason = "With no filter the client streams every consent state, including the façade conversation reader."
 
 [[waiver]]
 id = "CONS-043"
