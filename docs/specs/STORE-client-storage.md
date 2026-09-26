@@ -46,3 +46,14 @@ The storage interface reports the file in use and controls its connection and re
 | STORE-010 | Reconnect the same database | When an app reconnects storage after a disconnect, the SDK MUST reopen the same database file that client used before the disconnect. | Reconnecting to another file changes the client's stored identity and history. |
 | STORE-011 | Delete closed storage | When an app asks to delete a client's storage, the SDK MUST refuse with a typed error while that client is open, and otherwise remove that client's database files. | Deleting a file in use can leave a live client writing to storage that no longer has a name. |
 | STORE-012 | Browser storage operations | A browser SDK MUST NOT expose storage reconnect or delete operations. | Browser storage administration has a separate owner and lifecycle. |
+
+## 3. Client diagnostics
+
+Client diagnostics report activity for the client that owns them. They help an app inspect network use and clear counters between observations.
+
+| ID | Title | Requirement | Why |
+| --- | --- | --- | --- |
+| STORE-013 | API statistics | An SDK MUST expose client API call counts for publish, query, query-newest, subscribe, and static subscribe operations. | An app needs to see which API operations use its connection. |
+| STORE-014 | Identity statistics | An SDK MUST expose client identity API call counts for inbox-id lookup and smart-contract wallet signature verification. | Identity traffic must be visible apart from message traffic. |
+| STORE-015 | Aggregate statistics | An SDK MUST expose a human-readable summary of the client's API and identity statistics; the summary's text format is not a contract. | An app can show diagnostic data without relying on a fixed display format. |
+| STORE-016 | Clear statistics | When an app clears client statistics, the SDK MUST reset both the API and identity counters for that client. | Later observations must start from a known count. |

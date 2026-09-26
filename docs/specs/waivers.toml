@@ -671,6 +671,34 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "No façade API test proves that browser storage omits reconnect and delete."
 
 [[waiver]]
+id = "STORE-013"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that client diagnostics expose counts for all five API operations."
+
+[[waiver]]
+id = "STORE-014"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that client diagnostics expose both identity API call counts."
+
+[[waiver]]
+id = "STORE-015"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that the aggregate statistics summarize both counter sets without a fixed display format."
+
+[[waiver]]
+id = "STORE-016"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that clearing statistics resets both API and identity counters."
+
+[[waiver]]
 id = "IDENT-073"
 kind = "gap"
 owner = "protocol"
