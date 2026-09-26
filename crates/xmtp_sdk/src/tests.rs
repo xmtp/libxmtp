@@ -1894,6 +1894,63 @@ async fn reply_omits_bad_parent_and_warns_without_content() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn reaction_message_keeps_its_target_on_single_read_and_reader() {
+    use crate::{Reaction, ReactionAction, ReactionSchema};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent = group.send_text("parent".into()).await?;
+    let parent_sender = client.inbox_id();
+    let reader = group.message_reader().await?;
+    let reaction_id = client
+        .conversations()
+        .react_to_message(
+            parent.clone(),
+            Reaction {
+                content: "👍".into(),
+                action: ReactionAction::Added,
+                schema: ReactionSchema::Unicode,
+            },
+            None,
+        )
+        .await?;
+    let by_id = client
+        .conversations()
+        .get_message_by_id(reaction_id.clone())
+        .await?
+        .expect("reaction by ID");
+    let received = xmtp_common::time::timeout(std::time::Duration::from_secs(30), async {
+        loop {
+            if let Some(message) = reader.next().await?
+                && message.0.id == reaction_id
+            {
+                break Ok::<_, crate::XmtpError>(message);
+            }
+        }
+    })
+    .await??;
+    for (path, message) in [("by ID", by_id), ("reader", received)] {
+        let MessageContent::Reaction {
+            reference,
+            reference_inbox_id,
+            reaction,
+        } = message.0.content
+        else {
+            panic!("{path} did not return reaction content");
+        };
+        assert_eq!(reference, parent, "{path} lost the target message ID");
+        assert_eq!(
+            reference_inbox_id,
+            Some(parent_sender.clone()),
+            "{path} lost the target sender"
+        );
+        assert_eq!(reaction.content, "👍");
+    }
+    reader.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn query_filters_match_stored_catalogue_types() {
     use xmtp_content_types::{
         ContentCodec, actions::ActionsCodec, attachment::AttachmentCodec,

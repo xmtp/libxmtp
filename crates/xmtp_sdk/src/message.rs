@@ -36,7 +36,11 @@ pub enum MessageContent {
     Text(String),
     Markdown(String),
     ReadReceipt,
-    Reaction(crate::Reaction),
+    Reaction {
+        reference: MessageID,
+        reference_inbox_id: Option<InboxID>,
+        reaction: crate::Reaction,
+    },
     Attachment(crate::Attachment),
     RemoteAttachment(crate::RemoteAttachment),
     MultiRemoteAttachment(crate::MultiRemoteAttachment),
@@ -127,7 +131,17 @@ impl MessageContent {
             CoreBody::Text(value) => Ok(Self::Text(value.content)),
             CoreBody::Markdown(value) => Ok(Self::Markdown(value.content)),
             CoreBody::ReadReceipt(_) => Ok(Self::ReadReceipt),
-            CoreBody::Reaction(value) => Ok(Self::Reaction(crate::Reaction::from_proto(value))),
+            CoreBody::Reaction(value) => {
+                let reference = MessageID::try_from(value.reference.clone())?;
+                let reference_inbox_id = (!value.reference_inbox_id.is_empty())
+                    .then(|| InboxID::try_from(value.reference_inbox_id.clone()))
+                    .transpose()?;
+                Ok(Self::Reaction {
+                    reference,
+                    reference_inbox_id,
+                    reaction: crate::Reaction::from_proto(value),
+                })
+            }
             CoreBody::Reply(value) => Ok(Self::Reply {
                 reference_id: MessageID::try_from(value.reference_id)?,
                 body: MessageBody::from_core(
