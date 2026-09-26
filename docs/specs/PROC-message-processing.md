@@ -157,6 +157,8 @@ A deletion is an application message (CTYPE-014) that names a target message id.
 
 A database operation uses its normal retry and busy-wait policy. If a local read, acknowledgement write, or ownership operation then returns a storage error, that stream ends with the typed cause. There is no additional stream-level storage retry. The app decides when to open another stream. If the app completes an item but its acknowledgement write fails, a new stream can deliver the item again.
 
+An explicit end under PROC-042 gives the reason `closed`. It is not an error close.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | PROC-024 | Stable delivery identity | When a message first becomes deliverable, the client MUST assign it one delivery number greater than all previously assigned numbers in that database, with the change that makes it deliverable, and MUST NOT change or reuse it, including after deletion or duplicate insertion. Every repeat delivery MUST carry the same message id and delivery cursor. | A changed identity makes app deduplication and resume unreliable. |
@@ -172,7 +174,7 @@ A database operation uses its normal retry and busy-wait policy. If a local read
 | PROC-040 | End streams on storage failure | When a local read, acknowledgement write, or ownership operation returns a storage error, the SDK MUST end that stream with the typed cause, report the error once through the error callback when supplied, and reject iterator consumption with the cause. It MUST NOT perform another handoff or add a stream-level storage retry, and MUST preserve PROC-028 and PROC-031 when the app opens another stream. | The app must control retries without losing unacknowledged work. |
 | PROC-041 | One close notification | When a message or conversation stream ends for any reason, the SDK MUST deliver exactly one close notification with its close reason. | An app needs one final signal to release its stream state. |
 | PROC-042 | Explicit end is closed | When an app ends a message or conversation reader, the SDK MUST complete the end without an error and give its stream the close reason `closed`. | An intentional stop must not appear to be a failure. |
-| PROC-043 | Retryable close reason | When a message or conversation stream ends, its close reason MUST carry whether opening another stream can retry the cause. | An app needs to decide whether to reopen after PROC-038 or PROC-040 without retrying a terminal error. |
+| PROC-043 | Retryable error close | When a message or conversation stream ends with an error, the SDK MUST mark it retryable for PROC-038, PROC-040, and lag, and not retryable for AUTH-025, CONF-075, PROC-031, and PROC-033. | An app needs to decide whether to reopen without retrying a terminal error. |
 | PROC-045 | Codec failure keeps stream open | When a custom content codec fails while a message stream decodes an item, the SDK MUST expose that item as custom content with its error and continue the stream under CTYPE-008 and CTYPE-009. | One app codec failure must not hide later messages. |
 
 ## Known limitations
