@@ -715,7 +715,6 @@ async fn reconnect_keeps_worker_subscription_open_for_queued_facts() {
     assert!(!subscription.is_closed());
 }
 
-// verifies: EVENT-056
 #[xmtp_common::test(unwrap_try = true)]
 async fn clients_sharing_a_database_receive_only_their_own_events() {
     use xmtp_events::{EventFilter, EventKind};
