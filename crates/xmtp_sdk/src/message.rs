@@ -91,6 +91,12 @@ fn core_decodes_standard(content: &EncodedContent) -> bool {
     )
 }
 
+fn has_complete_type(content: &EncodedContent) -> bool {
+    content.r#type.as_ref().is_some_and(|kind| {
+        !kind.authority_id.is_empty() && !kind.type_id.is_empty()
+    })
+}
+
 impl MessageContent {
     pub(crate) fn decode(encoded: Vec<u8>) -> Result<Self, XmtpError> {
         let content = EncodedContent::decode(encoded.as_slice()).map_err(XmtpError::unknown)?;
@@ -109,6 +115,12 @@ impl MessageContent {
         content: EncodedContent,
         raw_bytes: &[u8],
     ) -> Result<Self, XmtpError> {
+        if !has_complete_type(&content) {
+            return Ok(Self::Unknown {
+                encoded: content.into(),
+                raw_bytes: raw_bytes.to_vec(),
+            });
+        }
         use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
         match body {
             CoreBody::Text(value) => Ok(Self::Text(value.content)),
@@ -290,7 +302,7 @@ impl Message {
             .map(|content| match decoded {
                 Some(xmtp_mls::messages::decoded_message::MessageBody::Custom(
                     ref core_content,
-                )) if content.r#type.is_none()
+                )) if !has_complete_type(&content)
                     || core_decodes_standard(&content)
                     || core_content.compression.is_some() =>
                 {
