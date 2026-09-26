@@ -1516,6 +1516,10 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         attempt: &Arc<PendingAttempt>,
     ) {
         let mut delay = Duration::from_millis(100);
+        let timing = *self.context.attachment_runtime().lease_timing.lock();
+        let mut renew = Box::pin(xmtp_common::time::interval_stream(timing.renew));
+        #[cfg(not(target_arch = "wasm32"))]
+        renew.next().await;
         loop {
             let event_lock = self
                 .context
@@ -1578,7 +1582,38 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 }
             }
             drop(_event_guard);
-            xmtp_common::time::sleep(delay).await;
+            let retry_delay = xmtp_common::time::sleep(delay);
+            tokio::pin!(retry_delay);
+            loop {
+                tokio::select! {
+                    _ = &mut retry_delay => break,
+                    _ = renew.next() => {
+                        let now = now_ns();
+                        let extension = self.context.db().extend_pending_attachment(
+                            &self.remote.content_digest,
+                            token,
+                            now,
+                            timing.duration_ns(),
+                        );
+                        match extension {
+                            Ok(1) => *self.shared.lease.lock() =
+                                Some((*token, now.saturating_add(timing.duration_ns()))),
+                            Ok(_) => {
+                                self.lost_lease(attempt).await;
+                                return;
+                            }
+                            Err(error) => {
+                                #[cfg(test)]
+                                self.context
+                                    .attachment_runtime()
+                                    .lease_extension_errors
+                                    .fetch_add(1, AtomicOrdering::SeqCst);
+                                tracing::warn!(%error, "attachment lease extension will be retried");
+                            }
+                        }
+                    }
+                }
+            }
             delay = delay.saturating_mul(2).min(Duration::from_secs(5));
         }
     }
@@ -2908,6 +2943,75 @@ mod tests {
             .get_pending_attachment(&remote.content_digest)?
             .unwrap();
         assert_eq!(row.status, "complete");
+    }
+
+    // verifies: ATCH-025, ATCH-074, EVENT-055
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn outcome_retry_renews_lease_without_another_upload() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let created = alix.client.attachments().create(bytes()).await?;
+        let remote = created.remote_attachment().clone();
+        let (url, entered, release) = paused_put(200).await;
+        let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .api_client(Arc::new(signed_put_api(url, 1)))
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                offer,
+            )))
+            .with_allow_offline(Some(true))
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        *client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+            Duration::from_millis(300),
+            Duration::from_millis(100),
+            Duration::from_millis(10),
+        );
+        let events = client
+            .context
+            .events()
+            .subscribe_app(EventFilter::new([EventKind::AttachmentUploadStarted]))?;
+        client.context.db().raw_query(|conn| {
+            xmtp_db::diesel::sql_query(
+                "CREATE TRIGGER lock_complete_outcome BEFORE UPDATE OF status ON pending_attachments \
+                 WHEN NEW.status = 'complete' \
+                 BEGIN SELECT RAISE(ABORT, 'database table is locked'); END",
+            )
+            .execute(conn)
+        })?;
+        let pending = client.attachments().pending(&remote).await?;
+        let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+        tokio::time::timeout(Duration::from_secs(5), entered).await??;
+        release.send(())?;
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while client
+                .context
+                .attachments
+                .outcome_write_errors
+                .load(AtomicOrdering::SeqCst)
+                == 0
+            {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        client.context.db().raw_query(|conn| {
+            xmtp_db::diesel::sql_query("DROP TRIGGER lock_complete_outcome").execute(conn)
+        })?;
+        tokio::time::timeout(Duration::from_secs(5), upload).await???;
+        let row = client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .unwrap();
+        assert_eq!(row.status, "complete");
+        let started = events
+            .drain()
+            .into_iter()
+            .filter(|event| matches!(event.client, Some(ClientEvent::AttachmentUploadStarted(_))))
+            .count();
+        assert_eq!(started, 1);
     }
 
     // verifies: ATCH-025, ATCH-074, EVENT-001
@@ -4632,7 +4736,8 @@ mod tests {
         assert_eq!(adopted.filename, None);
     }
 
-    // verifies: ATCH-063, ATCH-076, P24
+    // verifies: ATCH-063, ATCH-076
+    // Covers plan P24.
     #[xmtp_common::test(unwrap_try = true)]
     async fn reconcile_ignores_stray_and_nested_files() {
         let dir = tempfile::tempdir()?;
@@ -4923,7 +5028,8 @@ mod tests {
         );
     }
 
-    // verifies: ATCH-025, ATCH-038, ATCH-047, ATCH-050, ATCH-051, P23
+    // verifies: ATCH-025, ATCH-038, ATCH-047, ATCH-050, ATCH-051
+    // Covers plan P23.
     #[xmtp_common::test(unwrap_try = true)]
     async fn s3_end_to_end() {
         let sender = tempfile::tempdir()?;
