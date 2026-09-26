@@ -43,14 +43,53 @@ services:
       timeout: 3s
       retries: 30
 
+  s3:
+    image: ghcr.io/versity/versitygw:v1.8.0@sha256:30292fc2eeacc67a36993b01f7a7a5e3361a19cced0e80c1d71cfa2a4b0a2499
+    environment:
+      ROOT_ACCESS_KEY: xmtps3
+      ROOT_SECRET_KEY: xmtps3secret
+      VGW_BACKEND: posix
+      VGW_BACKEND_ARGS: /data
+      VGW_HEALTH: /health
+      VGW_CORS_ALLOW_ORIGIN: "*"
+    ports: ["127.0.0.1:${XMTP_S3_PORT:-9067}:7070"]
+    volumes: [s3-data:/data]
+
+  s3-init:
+    image: amazon/aws-cli:2.31.3@sha256:16c5b063e953c28a00ff2e4360de17fb8e0abba3c0c9088dd7e3bbe38ec60507
+    depends_on: { s3: { condition: service_started } }
+    environment:
+      AWS_ACCESS_KEY_ID: xmtps3
+      AWS_SECRET_ACCESS_KEY: xmtps3secret
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_PAGER: ""
+    volumes: ["./s3:/init:ro"]
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        until aws --endpoint-url http://s3:7070 s3api list-buckets >/dev/null 2>&1; do sleep 1; done;
+        aws --endpoint-url http://s3:7070 s3api head-bucket --bucket attachments >/dev/null 2>&1 ||
+          aws --endpoint-url http://s3:7070 s3api create-bucket --bucket attachments;
+        aws --endpoint-url http://s3:7070 s3api put-bucket-policy --bucket attachments --policy file:///init/public-read.json;
+        aws --endpoint-url http://s3:7070 s3api put-bucket-cors --bucket attachments --cors-configuration file:///init/cors.json;
+        touch /tmp/s3-ready;
+        exec sleep infinity
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/s3-ready"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+
   backend:
     image: ghcr.io/xmtp/backend:self-hosted      # loaded from `nix build .#backend-image-<arch>` by `just backend up`
     depends_on:
       db: { condition: service_healthy }
       replica: { condition: service_healthy }
+      s3-init: { condition: service_healthy }
       tempo: { condition: service_started }
-    environment: { XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend, XMTP_CHAIN_31337_URL: http://anvil:8545, XMTP_REPLICA_URL: postgres://xmtp:xmtp@replica:5432/xmtp_backend, OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317 }
-    volumes: ["../backend/local.toml:/config.toml:ro"]
+    environment: { XMTP_DATABASE_URL: postgres://xmtp:xmtp@db:5432/xmtp_backend, XMTP_CHAIN_31337_URL: http://anvil:8545, XMTP_REPLICA_URL: postgres://xmtp:xmtp@replica:5432/xmtp_backend, XMTP_S3_URL: "${XMTP_S3_URL:-http://127.0.0.1:9067}", XMTP_S3_BASE_URL: "${XMTP_S3_BASE_URL:-http://127.0.0.1:9067/attachments}", OTEL_EXPORTER_OTLP_ENDPOINT: http://tempo:4317 }
+    volumes: ["../backend/local-s3.toml:/config.toml:ro"]
     command: ["--config-file", "/config.toml"]
     # The backend binds all interfaces on purpose: the Android emulator reaches
     # the host at 10.0.2.2, which loopback-only publishing would not serve.
@@ -144,3 +183,4 @@ services:
 
 volumes:
   tempo-data:
+  s3-data:

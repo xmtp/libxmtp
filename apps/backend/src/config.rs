@@ -90,6 +90,35 @@ enum EnvironmentError {
     EmptyName,
 }
 
+/// Name credential shape errors without showing values from the config file.
+fn credential_deserialize_key(
+    error: &serde_path_to_error::Error<toml::de::Error>,
+) -> Option<&'static str> {
+    const CREDENTIALS: &str = "attachments.target.S3.credentials";
+    if !error.path().to_string().starts_with(CREDENTIALS) {
+        return None;
+    }
+    let field = match error.inner().message() {
+        message if message.starts_with("unknown variant") => {
+            "attachments.target.S3.credentials.kind"
+        }
+        "missing field `kind`" => "attachments.target.S3.credentials.kind",
+        "missing field `access_key_id`" => "attachments.target.S3.credentials.access_key_id",
+        "missing field `secret_access_key`" => {
+            "attachments.target.S3.credentials.secret_access_key"
+        }
+        "missing field `name`" => "attachments.target.S3.credentials.name",
+        "missing field `account_id`" => "attachments.target.S3.credentials.account_id",
+        "missing field `region`" => "attachments.target.S3.credentials.region",
+        "missing field `role_name`" => "attachments.target.S3.credentials.role_name",
+        "missing field `start_url`" => "attachments.target.S3.credentials.start_url",
+        "missing field `command`" => "attachments.target.S3.credentials.command",
+        "missing field `role_arn`" => "attachments.target.S3.credentials.role_arn",
+        _ => CREDENTIALS,
+    };
+    Some(field)
+}
+
 /// Resolve one environment reference. Do not expand references in the resolved value.
 fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
     let Some(name) = value.strip_prefix("env:") else {
@@ -107,6 +136,8 @@ fn resolve_env(value: &str) -> Result<String, EnvironmentError> {
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attachments: Option<xmtp_attachments_server::AttachmentsConfig>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth: Option<auth::AuthConfig>,
     #[serde(default)]
@@ -145,13 +176,30 @@ impl Config {
     pub fn load_str(contents: &str) -> Result<Self, ConfigError> {
         let mut value: toml::Value = toml::from_str(contents).map_err(|_| ConfigError::Parse)?;
         resolve_environment(&mut value)?;
-        let config: Self = value.try_into().map_err(|_| ConfigError::Parse)?;
+        let config: Self = serde_path_to_error::deserialize(value).map_err(|error| {
+            if let Some(field) = credential_deserialize_key(&error) {
+                ConfigError::Invalid {
+                    field,
+                    reason: "invalid credential source",
+                }
+            } else {
+                ConfigError::Parse
+            }
+        })?;
         config.validate()?;
         Ok(config)
     }
 
     /// Validate scalar values and relationships between values.
     pub fn validate(&self) -> Result<(), ConfigError> {
+        if let Some(attachments) = &self.attachments {
+            attachments
+                .validate()
+                .map_err(|error| ConfigError::Invalid {
+                    field: error.field,
+                    reason: error.reason,
+                })?;
+        }
         if let Some(auth) = &self.auth {
             auth.validate()?;
         }
@@ -270,7 +318,13 @@ impl Config {
                 commit_log_enabled: Some(self.mls.commit_log_enabled),
             }),
             smart_contract_wallet_chains: self.chains.keys().cloned().collect(),
-            attachments: None,
+            attachments: self.attachments.as_ref().map(|attachments| {
+                api::AttachmentsConfiguration {
+                    base_url: attachments.base_url.clone(),
+                    max_upload_bytes: attachments.upload_ceiling(),
+                    retention_seconds: attachments.retention_seconds.unwrap_or_default(),
+                }
+            }),
         }
     }
 
@@ -322,6 +376,7 @@ impl std::fmt::Debug for Config {
         formatter
             .debug_struct("Config")
             .field("auth", &self.auth)
+            .field("attachments", &self.attachments)
             .field("server", &self.server)
             .field("database", &self.database)
             .field("publishing", &self.publishing)

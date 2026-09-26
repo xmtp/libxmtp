@@ -1,6 +1,7 @@
 use crate::{
     Backend,
     api::{
+        attachment_service_server::AttachmentServiceServer,
         configuration_service_server::ConfigurationServiceServer,
         identity_service_server::IdentityServiceServer,
         notification_service_server::NotificationServiceServer,
@@ -74,6 +75,9 @@ pub async fn initialize(
     let streams =
         crate::stream::StreamHub::start(store.primary.clone(), store.read.clone(), &config).await?;
     let mut backend = Backend::new(store, config, verifier);
+    if let Some(attachments) = &backend.config.attachments {
+        backend.attachments = Some(xmtp_attachments_server::build_target(attachments).await?);
+    }
     let push = &backend.config.push;
     if push.http.is_some() || push.apns.is_some() || push.fcm.is_some() {
         backend.push = Some(crate::push::PushHub::start(
@@ -155,6 +159,9 @@ pub async fn serve(
     let configuration = ConfigurationServiceServer::new(backend.clone())
         .max_decoding_message_size(receive)
         .max_encoding_message_size(MAX_CONFIGURATION_RESPONSE_BYTES);
+    let attachment = AttachmentServiceServer::new(backend.clone())
+        .max_decoding_message_size(receive)
+        .max_encoding_message_size(send);
     let (reporter, health) = tonic_health::server::health_reporter();
     report_health(&reporter, tonic_health::ServingStatus::Serving).await;
     let cors = CorsLayer::new()
@@ -219,6 +226,7 @@ pub async fn serve(
         .layer(lifecycle::AdmissionLayer(lifecycle.clone()))
         .add_service(health)
         .add_service(configuration)
+        .add_service(attachment)
         .add_service(query)
         .add_service(publish)
         .add_service(identity)
@@ -276,6 +284,7 @@ async fn report_health(
     for service in [
         "",
         ConfigurationServiceServer::<Backend>::NAME,
+        AttachmentServiceServer::<Backend>::NAME,
         QueryServiceServer::<Backend>::NAME,
         PublishServiceServer::<Backend>::NAME,
         IdentityServiceServer::<Backend>::NAME,

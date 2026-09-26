@@ -23,8 +23,10 @@ jobs:
           cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
           sccache: "false"
       - uses: taiki-e/install-action@just
-      - name: Start backend database
-        run: just backend db-up
+      - name: Start backend database and VersityGW
+        run: |
+          just backend db-up
+          just backend s3-up
       - name: Check SQL cache
         run: just backend sql-check
       - name: Test backend, replica recovery, and HTTPS streaming

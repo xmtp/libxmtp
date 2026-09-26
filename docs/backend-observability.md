@@ -4,7 +4,7 @@ See [Query local traces](querying-traces.md) for bounded Tempo API queries,
 SDK/backend correlation, and commands for agent investigations.
 
 The local stack contains `db`, `replica`, `backend`, `anvil`, `toxiproxy`,
-`tempo`, `prometheus`, and `grafana`. Tempo stores local traces on disk. The
+`tempo`, `prometheus`, `grafana`, `s3`, and `s3-init`. Tempo stores local traces on disk. The
 other services use temporary storage.
 
 ```sh
@@ -88,6 +88,12 @@ route table. Unknown routes use `unknown`. Prometheus also adds `job` and
 `instance`. Histogram buckets add `le`; histogram families expose `_bucket`,
 `_sum`, and `_count`. No label contains a user, topic, or payload.
 
+CreateUpload uses `grpc_service="xmtp.backend.v1.AttachmentService"` and
+`grpc_method="CreateUpload"`. The standard RPC counters and latency histogram
+include this route. A signing failure returns `UNAVAILABLE`. In the current
+implementation, a credential provider failure log carries `credential_error_kind`;
+a signing failure log carries `signing_error_kind`.
+
 Backend metrics are in-process counters, gauges, and histograms. They do **not**
 depend on trace sampling. Tempo-derived `traces_spanmetrics_*` client counts and
 bucket populations **do** scale with `sample_ratio`. Their quantiles and error
@@ -167,7 +173,7 @@ also produce spans from shared crates. Two database helpers use `db.history`.
 - `tailer.bootstrap`, `tailer.poll`.
 - `stream.fetch`, `stream.update`.
 - `scw.verify`.
-- `rpc.get_inbox_ids`, `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.verify_smart_contract_wallet_signatures`.
+- `rpc.create_upload`, `rpc.get_inbox_ids`, `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.verify_smart_contract_wallet_signatures`.
 
 Transport spans have the tracing name `grpc_request`. Their exported name is
 `<service>/<method>` from the fixed route table. This includes Query, QueryNewest,

@@ -173,6 +173,10 @@ impl RunningServer {
         api::configuration_service_client::ConfigurationServiceClient::new(self.channel.clone())
     }
 
+    pub fn attachments(&self) -> api::attachment_service_client::AttachmentServiceClient<Channel> {
+        api::attachment_service_client::AttachmentServiceClient::new(self.channel.clone())
+    }
+
     pub fn query(&self) -> api::query_service_client::QueryServiceClient<Channel> {
         api::query_service_client::QueryServiceClient::new(self.channel.clone())
     }

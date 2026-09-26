@@ -727,41 +727,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Attachment event ordering is not implemented yet."
 
 [[waiver]]
-id = "ATCH-001"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
-id = "ATCH-002"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
-id = "ATCH-003"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
-id = "ATCH-004"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
-id = "ATCH-006"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
 id = "ATCH-009"
 kind = "gap"
 owner = "attachments"
@@ -788,34 +753,6 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Pending attachment creation and upload are not implemented yet."
-
-[[waiver]]
-id = "ATCH-020"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
-
-[[waiver]]
-id = "ATCH-021"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
-
-[[waiver]]
-id = "ATCH-023"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
-
-[[waiver]]
-id = "ATCH-028"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment upload request and signed response are not implemented yet."
 
 [[waiver]]
 id = "ATCH-024"
@@ -1158,23 +1095,11 @@ owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "No SDK exposes the attachments field of GetConfigurationResponse yet; binding and SDK exposure pending."
 [[waiver]]
-id = "ATCH-073"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The backend does not read storage signing credentials yet."
-[[waiver]]
 id = "ATCH-074"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "The upload lease and persisted pending status are not implemented yet."
-[[waiver]]
-id = "ATCH-075"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The backend does not check the key prefix form against this row yet."
 [[waiver]]
 id = "ATCH-076"
 kind = "gap"
@@ -1205,9 +1130,3 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "The explicit storage layout is not implemented and tested yet."
-[[waiver]]
-id = "ATCH-081"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The S3 region and bucket startup rules are not tested yet."
