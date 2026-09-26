@@ -634,6 +634,24 @@ fn causes_map() {
     assert_eq!(target.cause, Cause::TargetRejected);
 }
 
+// verifies: ATCH-061
+#[xmtp_common::test(unwrap_try = true)]
+fn credential_failure_kind_strings_round_trip() {
+    fn index(kind: CredentialFailureKind) -> usize {
+        match kind {
+            CredentialFailureKind::CredentialRejected => 0,
+            CredentialFailureKind::CallbackFailed => 1,
+            CredentialFailureKind::Exhausted => 2,
+            CredentialFailureKind::MissingCredential => 3,
+        }
+    }
+    for (expected, kind) in CredentialFailureKind::ALL.into_iter().enumerate() {
+        assert_eq!(index(kind), expected);
+        assert_eq!(CredentialFailureKind::parse(kind.as_str()), Some(kind));
+    }
+    assert_eq!(CredentialFailureKind::parse("unknown"), None);
+}
+
 // verifies: ATCH-029, ATCH-034
 #[xmtp_common::test(unwrap_try = true)]
 async fn permanent_rejection_not_resent() {

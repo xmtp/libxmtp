@@ -55,6 +55,30 @@ pub enum AttachmentFailureCause {
 }
 
 impl AttachmentFailureCause {
+    pub const ALL: [Self; 21] = [
+        Self::NotOffered,
+        Self::TooLarge,
+        Self::SourceUnreadable,
+        Self::LocalStorage,
+        Self::StagedUnusable,
+        Self::ConnectionBlocked,
+        Self::Credential,
+        Self::BackendRejected,
+        Self::BackendUnavailable,
+        Self::TargetRejected,
+        Self::Network,
+        Self::InsecureUrl,
+        Self::BlockedAddress,
+        Self::TooManyRedirects,
+        Self::NotFound,
+        Self::HttpStatus,
+        Self::Malformed,
+        Self::DigestMismatch,
+        Self::DecryptionFailed,
+        Self::NotAnAttachment,
+        Self::Deleted,
+    ];
+
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::NotOffered => "not_offered",
@@ -78,6 +102,33 @@ impl AttachmentFailureCause {
             Self::DecryptionFailed => "decryption_failed",
             Self::NotAnAttachment => "not_an_attachment",
             Self::Deleted => "deleted",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "not_offered" => Some(Self::NotOffered),
+            "too_large" => Some(Self::TooLarge),
+            "source_unreadable" => Some(Self::SourceUnreadable),
+            "local_storage" => Some(Self::LocalStorage),
+            "staged_unusable" => Some(Self::StagedUnusable),
+            "connection_blocked" => Some(Self::ConnectionBlocked),
+            "credential" => Some(Self::Credential),
+            "backend_rejected" => Some(Self::BackendRejected),
+            "backend_unavailable" => Some(Self::BackendUnavailable),
+            "target_rejected" => Some(Self::TargetRejected),
+            "network" => Some(Self::Network),
+            "insecure_url" => Some(Self::InsecureUrl),
+            "blocked_address" => Some(Self::BlockedAddress),
+            "too_many_redirects" => Some(Self::TooManyRedirects),
+            "not_found" => Some(Self::NotFound),
+            "http_status" => Some(Self::HttpStatus),
+            "malformed" => Some(Self::Malformed),
+            "digest_mismatch" => Some(Self::DigestMismatch),
+            "decryption_failed" => Some(Self::DecryptionFailed),
+            "not_an_attachment" => Some(Self::NotAnAttachment),
+            "deleted" => Some(Self::Deleted),
+            _ => None,
         }
     }
 }
@@ -104,5 +155,45 @@ impl AttachmentError {
             cause,
             http_status: Some(status),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AttachmentFailureCause as Cause;
+
+    // verifies: ATCH-060
+    #[xmtp_common::test(unwrap_try = true)]
+    fn failure_cause_strings_round_trip() {
+        fn index(cause: Cause) -> usize {
+            match cause {
+                Cause::NotOffered => 0,
+                Cause::TooLarge => 1,
+                Cause::SourceUnreadable => 2,
+                Cause::LocalStorage => 3,
+                Cause::StagedUnusable => 4,
+                Cause::ConnectionBlocked => 5,
+                Cause::Credential => 6,
+                Cause::BackendRejected => 7,
+                Cause::BackendUnavailable => 8,
+                Cause::TargetRejected => 9,
+                Cause::Network => 10,
+                Cause::InsecureUrl => 11,
+                Cause::BlockedAddress => 12,
+                Cause::TooManyRedirects => 13,
+                Cause::NotFound => 14,
+                Cause::HttpStatus => 15,
+                Cause::Malformed => 16,
+                Cause::DigestMismatch => 17,
+                Cause::DecryptionFailed => 18,
+                Cause::NotAnAttachment => 19,
+                Cause::Deleted => 20,
+            }
+        }
+        for (expected, cause) in Cause::ALL.into_iter().enumerate() {
+            assert_eq!(index(cause), expected);
+            assert_eq!(Cause::parse(cause.as_str()), Some(cause));
+        }
+        assert_eq!(Cause::parse("unknown"), None);
     }
 }
