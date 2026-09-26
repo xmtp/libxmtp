@@ -78,6 +78,15 @@ fn set_upload_headers(request: &Request, upload: &UploadRequest) -> Result<(), A
     Ok(())
 }
 
+fn check_signed_length(headers: &[(String, String)], size: u64) -> Result<(), AttachmentError> {
+    for (name, value) in headers {
+        if name.eq_ignore_ascii_case("content-length") && value.parse::<u64>() != Ok(size) {
+            return Err(AttachmentError::new(Cause::Malformed));
+        }
+    }
+    Ok(())
+}
+
 struct PutAbortGuard {
     controller: AbortController,
     armed: bool,
@@ -110,23 +119,38 @@ impl Drop for PutAbortGuard {
     }
 }
 
+fn put_response_outcome(
+    response_type: ResponseType,
+    status: u16,
+) -> Result<PutOutcome, AttachmentError> {
+    if response_type == ResponseType::Opaqueredirect {
+        return Err(AttachmentError::new(Cause::TargetRejected));
+    }
+    put_outcome(status)
+}
+
+fn settle_put(mut guard: PutAbortGuard, outcome: &Result<PutOutcome, AttachmentError>) {
+    if matches!(outcome, Ok(PutOutcome::Stored)) {
+        guard.disarm();
+    }
+}
+
 async fn blob_put(
     upload: &UploadRequest,
     file: &web_sys::File,
 ) -> Result<PutOutcome, AttachmentError> {
-    let mut guard = PutAbortGuard::new()?;
+    check_signed_length(&upload.headers, file.size() as u64)?;
+    let guard = PutAbortGuard::new()?;
     let init = guard.request_init();
     init.set_body_opt_blob(Some(file));
     let request = Request::new_with_str_and_init(&upload.url, &init)
         .map_err(|_| AttachmentError::new(Cause::Malformed))?;
     set_upload_headers(&request, upload)?;
-    let response = fetch(&request).await;
-    guard.disarm();
-    let response = response?;
-    if response.type_() == ResponseType::Opaqueredirect {
-        return Err(AttachmentError::new(Cause::TargetRejected));
-    }
-    put_outcome(response.status())
+    let outcome = fetch(&request)
+        .await
+        .and_then(|response| put_response_outcome(response.type_(), response.status()));
+    settle_put(guard, &outcome);
+    outcome
 }
 
 fn private_request(method: &str) -> RequestInit {
@@ -420,6 +444,60 @@ mod tests {
         guard.disarm();
         drop(guard);
         assert!(!settled_signal.aborted());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn put_guard_stays_armed_for_non_stored() {
+        for (response_type, status, aborted) in [
+            (ResponseType::Basic, 412, true),
+            (ResponseType::Basic, 403, true),
+            (ResponseType::Opaqueredirect, 0, true),
+            (ResponseType::Basic, 200, false),
+        ] {
+            let guard = PutAbortGuard::new()?;
+            let signal = guard.controller.signal();
+            let outcome = put_response_outcome(response_type, status);
+            settle_put(guard, &outcome);
+            assert_eq!(signal.aborted(), aborted, "status {status}");
+        }
+        assert_eq!(
+            put_response_outcome(ResponseType::Basic, 412)?,
+            PutOutcome::AlreadyStored
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn signed_content_length_must_match_blob() {
+        check_signed_length(&[], 5)?;
+        check_signed_length(&[("Content-Length".into(), "5".into())], 5)?;
+        for value in ["4", "bad", "-1", "18446744073709551616"] {
+            assert_eq!(
+                check_signed_length(&[("content-length".into(), value.into())], 5)
+                    .unwrap_err()
+                    .cause,
+                Cause::Malformed
+            );
+        }
+        assert_eq!(
+            check_signed_length(
+                &[
+                    ("content-length".into(), "5".into()),
+                    ("CONTENT-LENGTH".into(), "6".into()),
+                ],
+                5,
+            )
+            .unwrap_err()
+            .cause,
+            Cause::Malformed
+        );
+    }
+
+    // verifies: ATCH-079
+    #[xmtp_common::test(unwrap_try = true)]
+    fn opaque_upload_redirect_has_no_http_status() {
+        let error = put_response_outcome(ResponseType::Opaqueredirect, 0).unwrap_err();
+        assert_eq!(error.cause, Cause::TargetRejected);
+        assert_eq!(error.http_status, None);
     }
 
     // verifies: ATCH-071
