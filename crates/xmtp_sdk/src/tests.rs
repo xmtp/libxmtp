@@ -1689,12 +1689,12 @@ async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let reader = group.message_reader().await?;
-    assert!(
-        xmtp_common::time::timeout(Duration::from_millis(100), reader.next())
-            .await
-            .is_err(),
-        "first read must be idle before cancellation"
-    );
+    let idle = reader.idle_read_for_test();
+    let pending_reader = reader.clone();
+    let pending = tokio::spawn(async move { pending_reader.next().await });
+    xmtp_common::time::timeout(Duration::from_secs(5), idle.notified()).await?;
+    pending.abort();
+    assert!(matches!(pending.await, Err(error) if error.is_cancelled()));
 
     let message_id = group.send_text("after cancellation".into(), None).await?;
     let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
@@ -1716,12 +1716,12 @@ async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
 async fn cancelled_conversation_read_delivers_next_group() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let reader = client.conversations().conversation_reader(None).await?;
-    assert!(
-        xmtp_common::time::timeout(Duration::from_millis(100), reader.next())
-            .await
-            .is_err(),
-        "first read must be idle before cancellation"
-    );
+    let idle = reader.idle_read_for_test();
+    let pending_reader = reader.clone();
+    let pending = tokio::spawn(async move { pending_reader.next().await });
+    xmtp_common::time::timeout(Duration::from_secs(5), idle.notified()).await?;
+    pending.abort();
+    assert!(matches!(pending.await, Err(error) if error.is_cancelled()));
 
     let group = client.conversations().create_group(vec![], None).await?;
     let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())

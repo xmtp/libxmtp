@@ -6,6 +6,8 @@ use std::sync::{
 use futures::StreamExt;
 use parking_lot::Mutex as SyncMutex;
 use tokio::sync::Mutex;
+#[cfg(test)]
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use xmtp_mls::subscriptions::{
     SubscribeError, incoming::IncomingLease, stream_conversations::StreamConversations,
@@ -30,6 +32,8 @@ pub struct ConversationReader {
     client_key: u64,
     #[cfg(test)]
     fail_next_conversion: Arc<AtomicBool>,
+    #[cfg(test)]
+    idle_read: Arc<Notify>,
 }
 
 impl ConversationReader {
@@ -41,6 +45,11 @@ impl ConversationReader {
     #[cfg(test)]
     pub(crate) fn fail_next_conversion_for_test(&self) {
         self.fail_next_conversion.store(true, Ordering::Release);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn idle_read_for_test(&self) -> Arc<Notify> {
+        self.idle_read.clone()
     }
 
     pub(crate) async fn open(
@@ -68,6 +77,8 @@ impl ConversationReader {
             client_key,
             #[cfg(test)]
             fail_next_conversion: Arc::new(AtomicBool::new(false)),
+            #[cfg(test)]
+            idle_read: Arc::new(Notify::new()),
         }))
     }
 }
@@ -93,6 +104,8 @@ impl ConversationReader {
         let client_key = self.client_key;
         #[cfg(test)]
         let fail_next_conversion = self.fail_next_conversion.clone();
+        #[cfg(test)]
+        let idle_read = self.idle_read.clone();
         on_sdk_worker(self.context.clone(), async move {
             if closed.load(Ordering::Acquire) {
                 return Ok(false);
@@ -105,6 +118,8 @@ impl ConversationReader {
                 return Ok(true);
             }
             loop {
+                #[cfg(test)]
+                idle_read.notify_one();
                 let item = tokio::select! {
                     biased;
                     _ = cancel.cancelled() => return Ok(false),

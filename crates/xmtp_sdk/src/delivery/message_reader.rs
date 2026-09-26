@@ -1,6 +1,8 @@
 use parking_lot::Mutex;
 use std::sync::Arc;
 use tokio::sync::Mutex as AsyncMutex;
+#[cfg(test)]
+use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::messages::enrichment::enrich_messages_with_stored;
@@ -26,6 +28,8 @@ pub struct MessageReader {
     pub(crate) handoff_gate: Arc<Mutex<Option<Arc<HandoffGate>>>>,
     #[cfg(test)]
     corrupt_next_message: std::sync::atomic::AtomicBool,
+    #[cfg(test)]
+    idle_read: Arc<Notify>,
 }
 
 struct ReaderState {
@@ -74,6 +78,8 @@ impl MessageReader {
             handoff_gate: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             corrupt_next_message: std::sync::atomic::AtomicBool::new(false),
+            #[cfg(test)]
+            idle_read: Arc::new(Notify::new()),
         }))
     }
 
@@ -97,6 +103,11 @@ impl MessageReader {
         self.corrupt_next_message
             .store(true, std::sync::atomic::Ordering::Release);
     }
+
+    #[cfg(test)]
+    pub(crate) fn idle_read_for_test(&self) -> Arc<Notify> {
+        self.idle_read.clone()
+    }
 }
 
 impl Drop for MessageReader {
@@ -119,6 +130,8 @@ impl MessageReader {
         let context = self.context.clone();
         #[cfg(test)]
         let handoff_gate = self.handoff_gate.clone();
+        #[cfg(test)]
+        let idle_read = self.idle_read.clone();
         #[cfg(test)]
         let mut corrupt_next_message = self
             .corrupt_next_message
@@ -159,6 +172,8 @@ impl MessageReader {
                 }
             }
             loop {
+                #[cfg(test)]
+                idle_read.notify_one();
                 let item = match tokio::select! {
                     biased;
                     _ = request_cancel.cancelled() => return Ok(false),
