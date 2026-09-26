@@ -71,6 +71,7 @@ mock! {
         fn insert_or_ignore_local_attachment(&self, path: &str, created_at_ns: i64, mime_type: Option<String>, filename: Option<String>) -> Result<(), StorageError>;
         fn get_local_attachment(&self, path: &str) -> Result<Option<crate::attachments::StoredLocalAttachment>, StorageError>;
         fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError>;
+        fn delete_local_attachments_in_dir(&self, dir: &str) -> Result<usize, StorageError>;
         fn list_local_attachments(&self) -> Result<Vec<crate::attachments::StoredLocalAttachment>, StorageError>;
     }
 

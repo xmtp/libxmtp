@@ -87,6 +87,8 @@ pub trait QueryLocalAttachment {
         path: &str,
     ) -> Result<Option<StoredLocalAttachment>, StorageError>;
     fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError>;
+    /// Delete every record whose path is under the directory `dir`.
+    fn delete_local_attachments_in_dir(&self, dir: &str) -> Result<usize, StorageError>;
     fn list_local_attachments(&self) -> Result<Vec<StoredLocalAttachment>, StorageError>;
 }
 
@@ -110,6 +112,10 @@ impl<T: QueryLocalAttachment + ?Sized> QueryLocalAttachment for &T {
 
     fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError> {
         (**self).delete_local_attachment(path)
+    }
+
+    fn delete_local_attachments_in_dir(&self, dir: &str) -> Result<usize, StorageError> {
+        (**self).delete_local_attachments_in_dir(dir)
     }
 
     fn list_local_attachments(&self) -> Result<Vec<StoredLocalAttachment>, StorageError> {
@@ -160,6 +166,21 @@ impl<C: ConnectionExt> QueryLocalAttachment for DbConnection<C> {
     fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError> {
         Ok(self
             .raw_query(|conn| diesel::delete(local_attachments::table.find(path)).execute(conn))?)
+    }
+
+    #[xmtp_common::db_span]
+    fn delete_local_attachments_in_dir(&self, dir: &str) -> Result<usize, StorageError> {
+        // Paths under `dir` sort from "dir/" up to, but not including, "dir0",
+        // because '0' follows '/' in byte order.
+        let (start, end) = (format!("{dir}/"), format!("{dir}0"));
+        Ok(self.raw_query(|conn| {
+            diesel::delete(
+                local_attachments::table
+                    .filter(local_attachments::path.ge(start))
+                    .filter(local_attachments::path.lt(end)),
+            )
+            .execute(conn)
+        })?)
     }
 
     #[xmtp_common::db_span]
@@ -575,6 +596,29 @@ mod tests {
         assert_eq!(db.delete_local_attachment("a/file")?, 1);
         assert_eq!(db.delete_local_attachment("a/file")?, 0);
         assert_eq!(db.list_local_attachments()?[0].path, "b/file");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn delete_local_in_dir_removes_only_that_dir() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        for (index, path) in [
+            "a/one", "a/two", "a/", "a0/file", "ab/file", "a.b/file", "b/a/file",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            db.insert_or_ignore_local_attachment(path, index as i64, None, None)?;
+        }
+        assert_eq!(db.delete_local_attachments_in_dir("a")?, 3);
+        assert_eq!(db.delete_local_attachments_in_dir("a")?, 0);
+        assert_eq!(
+            db.list_local_attachments()?
+                .iter()
+                .map(|row| row.path.as_str())
+                .collect::<Vec<_>>(),
+            vec!["a0/file", "ab/file", "a.b/file", "b/a/file"]
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
