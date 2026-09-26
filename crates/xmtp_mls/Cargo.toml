@@ -189,6 +189,10 @@ wasm-bindgen-test.workspace = true
 name = "attachment_memory"
 required-features = ["test-utils"]
 
+[[test]]
+name = "attachment_opfs"
+required-features = ["test-utils"]
+
 [[bench]]
 harness = false
 name = "group_limit"

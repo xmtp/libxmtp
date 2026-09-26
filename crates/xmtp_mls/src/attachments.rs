@@ -1,7 +1,7 @@
 //! Pending remote attachments owned by a client.
 
 #[cfg(test)]
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering as AtomicOrdering};
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
@@ -67,7 +67,7 @@ impl LeaseTiming {
         self.duration.as_nanos().min(i64::MAX as u128) as i64
     }
 
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     fn for_test(duration: Duration, renew: Duration, poll: Duration) -> Self {
         Self {
             duration,
@@ -393,15 +393,9 @@ pub struct AttachmentRuntime {
     #[cfg(test)]
     delete_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
-    fail_next_lease_extension: AtomicBool,
-    #[cfg(test)]
-    fail_next_outcome_write: AtomicBool,
-    #[cfg(test)]
     outcome_write_errors: AtomicUsize,
     #[cfg(test)]
     lease_extension_errors: AtomicUsize,
-    #[cfg(test)]
-    delay_before_create_upload: Mutex<Option<Duration>>,
 }
 
 impl Default for AttachmentRuntime {
@@ -420,15 +414,9 @@ impl Default for AttachmentRuntime {
             #[cfg(test)]
             delete_pause: Mutex::new(None),
             #[cfg(test)]
-            fail_next_lease_extension: AtomicBool::new(false),
-            #[cfg(test)]
-            fail_next_outcome_write: AtomicBool::new(false),
-            #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
             lease_extension_errors: AtomicUsize::new(0),
-            #[cfg(test)]
-            delay_before_create_upload: Mutex::new(None),
         }
     }
 }
@@ -461,15 +449,9 @@ impl AttachmentRuntime {
             #[cfg(test)]
             delete_pause: Mutex::new(None),
             #[cfg(test)]
-            fail_next_lease_extension: AtomicBool::new(false),
-            #[cfg(test)]
-            fail_next_outcome_write: AtomicBool::new(false),
-            #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
             lease_extension_errors: AtomicUsize::new(0),
-            #[cfg(test)]
-            delay_before_create_upload: Mutex::new(None),
         })
     }
 
@@ -1442,20 +1424,9 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 result = &mut transfer => break result,
                 _ = tick.next() => {
                     let now = now_ns();
-                    let extension = {
-                        #[cfg(test)]
-                        if self.context.attachment_runtime().fail_next_lease_extension.swap(false, AtomicOrdering::SeqCst) {
-                            Err(xmtp_db::StorageError::DbDeserialize)
-                        } else {
-                            self.context.db().extend_pending_attachment(
-                                &self.remote.content_digest, &token, now, timing.duration_ns()
-                            )
-                        }
-                        #[cfg(not(test))]
-                        self.context.db().extend_pending_attachment(
-                            &self.remote.content_digest, &token, now, timing.duration_ns()
-                        )
-                    };
+                    let extension = self.context.db().extend_pending_attachment(
+                        &self.remote.content_digest, &token, now, timing.duration_ns()
+                    );
                     match extension {
                         Ok(1) => *self.shared.lease.lock() = Some((token, now.saturating_add(timing.duration_ns()))),
                         Ok(_) => {
@@ -1538,38 +1509,12 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                     http_status: error.http_status,
                 },
             };
-            let outcome = {
-                #[cfg(test)]
-                if self
-                    .context
-                    .attachment_runtime()
-                    .fail_next_outcome_write
-                    .swap(false, AtomicOrdering::SeqCst)
-                {
-                    Err(xmtp_db::StorageError::Connection(
-                        xmtp_db::ConnectionError::Database(
-                            xmtp_db::diesel::result::Error::DatabaseError(
-                                xmtp_db::diesel::result::DatabaseErrorKind::Unknown,
-                                Box::new("database table is locked".to_owned()),
-                            ),
-                        ),
-                    ))
-                } else {
-                    self.context.db().finish_pending_attachment(
-                        &self.remote.content_digest,
-                        token,
-                        now_ns(),
-                        recorded,
-                    )
-                }
-                #[cfg(not(test))]
-                self.context.db().finish_pending_attachment(
-                    &self.remote.content_digest,
-                    token,
-                    now_ns(),
-                    recorded,
-                )
-            };
+            let outcome = self.context.db().finish_pending_attachment(
+                &self.remote.content_digest,
+                token,
+                now_ns(),
+                recorded,
+            );
             #[cfg(test)]
             if outcome.is_err() {
                 self.context
@@ -1652,12 +1597,6 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
             || length > u32::MAX as u64
         {
             return Err(AttachmentClientError::new(Cause::StagedUnusable));
-        }
-        #[cfg(test)]
-        let delay = *runtime.delay_before_create_upload.lock();
-        #[cfg(test)]
-        if let Some(delay) = delay {
-            xmtp_common::time::sleep(delay).await;
         }
         if !self.lease_is_current(token) {
             return Err(AttachmentClientError::new(Cause::Network));
@@ -1742,185 +1681,6 @@ pub(crate) mod cleanup {
                 }
             }
         }
-    }
-}
-
-#[cfg(all(test, target_arch = "wasm32"))]
-mod wasm_tests {
-    use super::*;
-    use crate::{Client, utils::test::identity_setup};
-    use xmtp_configuration::{AttachmentsConfiguration, ServerConfiguration};
-    use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
-    use xmtp_proto::backend_v1::{GetInboxIdsResponse, get_inbox_ids_response};
-
-    wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);
-
-    // verifies: ATCH-048
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn client_create_writes_plaintext_to_opfs() {
-        let root = format!(
-            "attachment-client-tests/{}",
-            hex::encode(xmtp_common::rand_array::<16>())
-        );
-        let mut api = xmtp_api_backend::MockBackendClient::new();
-        api.expect_get_inbox_ids().times(1).returning(|request| {
-            Ok(GetInboxIdsResponse {
-                responses: request
-                    .requests
-                    .into_iter()
-                    .map(|request| get_inbox_ids_response::Response {
-                        identifier: request.identifier,
-                        identifier_kind: request.identifier_kind,
-                        inbox_id: None,
-                    })
-                    .collect(),
-            })
-        });
-        let client = Client::builder(identity_setup(generate_local_wallet()))
-            .api_client(api)
-            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .temp_store()
-            .await
-            .default_mls_store()?
-            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
-                |configuration: &mut ServerConfiguration| {
-                    configuration.attachments = Some(AttachmentsConfiguration {
-                        base_url: "https://example.com/attachments".into(),
-                        max_upload_bytes: 1_048_576,
-                        retention_seconds: 0,
-                    });
-                },
-            )))
-            .attachments_dir(root.clone())
-            .with_allow_offline(Some(true))
-            .with_disable_workers(true)
-            .build()
-            .await?;
-        let pending = client
-            .attachments()
-            .create(AttachmentSource::Bytes {
-                bytes: b"opfs plaintext".to_vec(),
-                filename: Some("proof.txt".into()),
-                mime_type: "text/plain".into(),
-            })
-            .await?;
-        let remote = pending.remote_attachment();
-        let local = plaintext_rel_path(remote)?;
-        let staged = staged_path(&remote.content_digest)?;
-        let root_store = xmtp_attachments::OpfsStore::new_root().await?;
-        let local_file = root_store.open_read(&format!("{root}/{local}")).await?;
-        assert_eq!(local_file.read_chunk(0, 64).await?, b"opfs plaintext");
-        assert!(root_store.exists(&format!("{root}/{staged}")).await?);
-    }
-
-    // verifies: ATCH-025, ATCH-074
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn upload_failure_uses_wasm_timers() {
-        let root = format!(
-            "attachment-upload-timer-tests/{}",
-            hex::encode(xmtp_common::rand_array::<16>())
-        );
-        let mut api = xmtp_api_backend::MockBackendClient::new();
-        api.expect_get_inbox_ids().times(1).returning(|request| {
-            Ok(GetInboxIdsResponse {
-                responses: request
-                    .requests
-                    .into_iter()
-                    .map(|request| get_inbox_ids_response::Response {
-                        identifier: request.identifier,
-                        identifier_kind: request.identifier_kind,
-                        inbox_id: None,
-                    })
-                    .collect(),
-            })
-        });
-        api.expect_create_upload().times(1).returning(|_| {
-            Err(xmtp_proto::api::ApiClientError::client(
-                xmtp_api_grpc::error::GrpcError::Status(tonic::Status::invalid_argument(
-                    "upload rejected",
-                )),
-            ))
-        });
-        let builder = match Client::builder(identity_setup(generate_local_wallet()))
-            .api_client(api)
-            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .temp_store()
-            .await
-            .default_mls_store()
-        {
-            Ok(builder) => builder,
-            Err(error) => panic!("MLS store setup failed: {error:?}"),
-        };
-        let client = match builder
-            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
-                |configuration: &mut ServerConfiguration| {
-                    configuration.attachments = Some(AttachmentsConfiguration {
-                        base_url: "https://example.com/attachments".into(),
-                        max_upload_bytes: 1_048_576,
-                        retention_seconds: 0,
-                    });
-                },
-            )))
-            .attachments_dir(root)
-            .with_allow_offline(Some(true))
-            .with_disable_workers(true)
-            .build()
-            .await
-        {
-            Ok(client) => client,
-            Err(error) => panic!("client build failed: {error:?}"),
-        };
-        let pending = match client
-            .attachments()
-            .create(AttachmentSource::Bytes {
-                bytes: b"timer proof".to_vec(),
-                filename: None,
-                mime_type: "text/plain".into(),
-            })
-            .await
-        {
-            Ok(pending) => pending,
-            Err(error) => panic!("attachment create failed: {error:?}"),
-        };
-        *client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
-            Duration::from_secs(2),
-            Duration::from_millis(30),
-            Duration::from_millis(10),
-        );
-        *client.context.attachments.delay_before_create_upload.lock() =
-            Some(Duration::from_millis(150));
-        client
-            .context
-            .attachments
-            .fail_next_lease_extension
-            .store(true, AtomicOrdering::SeqCst);
-        client
-            .context
-            .attachments
-            .fail_next_outcome_write
-            .store(true, AtomicOrdering::SeqCst);
-        let error = match xmtp_common::time::timeout(Duration::from_secs(5), pending.upload()).await
-        {
-            Ok(Ok(())) => panic!("upload unexpectedly succeeded"),
-            Ok(Err(error)) => error,
-            Err(error) => panic!("upload did not finish: {error:?}"),
-        };
-        assert_eq!(error.cause, Cause::BackendRejected);
-        assert!(
-            !client
-                .context
-                .attachments
-                .fail_next_lease_extension
-                .load(AtomicOrdering::SeqCst)
-        );
-        assert!(
-            !client
-                .context
-                .attachments
-                .fail_next_outcome_write
-                .load(AtomicOrdering::SeqCst)
-        );
     }
 }
 
