@@ -43,7 +43,8 @@ where
     T: Send + 'static,
     F: Future<Output = Result<T, XmtpError>> + Send + 'static,
 {
-    xmtp_common::spawn(None, while_open(context, work))
+    // Keep the spawn call small enough for Swift's cooperative worker stack.
+    xmtp_common::spawn(None, Box::pin(while_open(context, work)))
         .join()
         .await
         .map_err(XmtpError::unknown)?
