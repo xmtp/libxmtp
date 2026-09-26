@@ -2711,7 +2711,7 @@ mod tests {
         assert_eq!(row.status, "complete");
     }
 
-    // verifies: ATCH-025, ATCH-074, EVENT-055
+    // verifies: ATCH-025, ATCH-074, EVENT-001
     #[xmtp_common::test(unwrap_try = true)]
     async fn deterministic_outcome_error_fails_with_local_storage() {
         let dir = tempfile::tempdir()?;
