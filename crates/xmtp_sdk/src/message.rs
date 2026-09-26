@@ -92,9 +92,10 @@ fn core_decodes_standard(content: &EncodedContent) -> bool {
 }
 
 fn has_complete_type(content: &EncodedContent) -> bool {
-    content.r#type.as_ref().is_some_and(|kind| {
-        !kind.authority_id.is_empty() && !kind.type_id.is_empty()
-    })
+    content
+        .r#type
+        .as_ref()
+        .is_some_and(|kind| !kind.authority_id.is_empty() && !kind.type_id.is_empty())
 }
 
 impl MessageContent {

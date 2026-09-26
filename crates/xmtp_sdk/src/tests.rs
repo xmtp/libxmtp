@@ -1742,18 +1742,27 @@ async fn history_skips_bad_row_and_warns_without_content() {
     assert!(messages.iter().any(|message| message.0.id == good));
     assert!(!messages.iter().any(|message| message.0.id == bad));
 
-    let enriched = group.inner.find_messages_v2_with_stored(&MsgQueryArgs::default())?;
+    let enriched = group
+        .inner
+        .find_messages_v2_with_stored(&MsgQueryArgs::default())?;
     let capture = LogCapture::new(Level::Warn);
     let lifted = tracing::dispatcher::with_default(&capture.dispatch(), || {
         crate::conversation::lift_history_messages(enriched, client.client_key())
     });
     assert!(lifted.iter().any(|message| message.0.id == good));
     let warnings = capture.output();
-    let warnings = warnings.lines().filter(|line| line.contains("skipping stored message")).collect::<Vec<_>>();
+    let warnings = warnings
+        .lines()
+        .filter(|line| line.contains("skipping stored message"))
+        .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
     let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
     assert_eq!(warning["message_id"], bad.0);
-    assert!(warning["error"].as_str().is_some_and(|reason| !reason.is_empty()));
+    assert!(
+        warning["error"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty())
+    );
     assert!(!warnings[0].contains("sensitive-history-content"));
     client.end().await?;
 }
@@ -1761,26 +1770,22 @@ async fn history_skips_bad_row_and_warns_without_content() {
 #[xmtp_common::test(unwrap_try = true)]
 fn query_filters_match_stored_catalogue_types() {
     use xmtp_content_types::{
-        ContentCodec,
-        actions::ActionsCodec, attachment::AttachmentCodec,
-        delete_message::DeleteMessageCodec, group_updated::GroupUpdatedCodec,
-        intent::IntentCodec, leave_request::LeaveRequestCodec, markdown::MarkdownCodec,
+        ContentCodec, actions::ActionsCodec, attachment::AttachmentCodec,
+        delete_message::DeleteMessageCodec, group_updated::GroupUpdatedCodec, intent::IntentCodec,
+        leave_request::LeaveRequestCodec, markdown::MarkdownCodec,
         membership_change::GroupMembershipChangeCodec,
         multi_remote_attachment::MultiRemoteAttachmentCodec, reaction::ReactionCodec,
         read_receipt::ReadReceiptCodec, remote_attachment::RemoteAttachmentCodec,
-        reply::ReplyCodec, text::TextCodec,
-        transaction_reference::TransactionReferenceCodec, wallet_send_calls::WalletSendCallsCodec,
+        reply::ReplyCodec, text::TextCodec, transaction_reference::TransactionReferenceCodec,
+        wallet_send_calls::WalletSendCallsCodec,
     };
     use xmtp_db::group_message::ContentType;
 
     macro_rules! check_codec {
         ($codec:ty) => {{
             let kind = <$codec>::content_type();
-            let expected = ContentType::from_identifier(
-                &kind.authority_id,
-                &kind.type_id,
-                kind.version_major,
-            );
+            let expected =
+                ContentType::from_identifier(&kind.authority_id, &kind.type_id, kind.version_major);
             let actual = crate::conversation::query_content_types(vec![crate::ContentTypeId {
                 authority_id: kind.authority_id,
                 type_id: kind.type_id,
@@ -1899,13 +1904,24 @@ async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
                 .execute(conn)
         })?;
 
-        let direct = crate::Message::from_stored(client.inner.message(id_bytes)?, client.client_key())?;
-        let by_id = client.conversations().get_message_by_id(id.clone()).await?.expect("message by ID");
-        let history = group.messages(None).await?.into_iter()
-            .find(|message| message.0.id == id).expect("message in history");
+        let direct =
+            crate::Message::from_stored(client.inner.message(id_bytes)?, client.client_key())?;
+        let by_id = client
+            .conversations()
+            .get_message_by_id(id.clone())
+            .await?
+            .expect("message by ID");
+        let history = group
+            .messages(None)
+            .await?
+            .into_iter()
+            .find(|message| message.0.id == id)
+            .expect("message in history");
         for (path, message) in [("stored", direct), ("by ID", by_id), ("history", history)] {
-            assert!(matches!(message.0.content, MessageContent::Unknown { raw_bytes, .. } if raw_bytes == raw),
-                "{path} did not preserve an envelope with an empty identifier");
+            assert!(
+                matches!(message.0.content, MessageContent::Unknown { raw_bytes, .. } if raw_bytes == raw),
+                "{path} did not preserve an envelope with an empty identifier"
+            );
         }
     }
     client.end().await?;
@@ -1924,10 +1940,19 @@ async fn sends_reject_empty_content_identifiers() {
         } else {
             encoded.r#type.type_id.clear();
         }
-        assert!(matches!(group.send(encoded.clone(), None).await, Err(XmtpError::InvalidInput(_))));
-        assert!(matches!(group.prepare_message(encoded.clone(), None).await, Err(XmtpError::InvalidInput(_))));
         assert!(matches!(
-            client.conversations().reply_to_message(parent.clone(), encoded, None).await,
+            group.send(encoded.clone(), None).await,
+            Err(XmtpError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            group.prepare_message(encoded.clone(), None).await,
+            Err(XmtpError::InvalidInput(_))
+        ));
+        assert!(matches!(
+            client
+                .conversations()
+                .reply_to_message(parent.clone(), encoded, None)
+                .await,
             Err(XmtpError::InvalidInput(_))
         ));
     }
