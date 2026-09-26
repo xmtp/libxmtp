@@ -1875,6 +1875,29 @@ async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
     client.end().await?;
 }
 
+// verifies: CTYPE-003
+#[xmtp_common::test(unwrap_try = true)]
+async fn sends_reject_empty_content_identifiers() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent = group.send_text("parent".into()).await?;
+    for empty_authority in [true, false] {
+        let mut encoded = crate::encode_text("invalid".into())?;
+        if empty_authority {
+            encoded.r#type.authority_id.clear();
+        } else {
+            encoded.r#type.type_id.clear();
+        }
+        assert!(matches!(group.send(encoded.clone(), None).await, Err(XmtpError::InvalidInput(_))));
+        assert!(matches!(group.prepare_message(encoded.clone(), None).await, Err(XmtpError::InvalidInput(_))));
+        assert!(matches!(
+            client.conversations().reply_to_message(parent.clone(), encoded, None).await,
+            Err(XmtpError::InvalidInput(_))
+        ));
+    }
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn nested_reaction_reply_body_keeps_nested_envelope() {
     use crate::{EncodedContent, MessageBody, Reaction, ReactionAction, ReactionSchema};

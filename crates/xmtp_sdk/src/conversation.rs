@@ -460,6 +460,7 @@ impl Conversations {
         content: EncodedContent,
         options: Option<SendOptions>,
     ) -> Result<MessageID, XmtpError> {
+        require_content_type(&content)?;
         let (stored, group) = self.message_group(&id).await?;
         on_sdk_worker(self.client.context.clone(), async move {
             Box::pin(async move {
@@ -763,6 +764,7 @@ async fn send_encoded(
     content: EncodedContent,
     options: SendOptions,
 ) -> Result<MessageID, XmtpError> {
+    require_content_type(&content)?;
     on_sdk_worker(group.context.clone(), async move {
         // Build the send future on the worker. Swift cooperative threads have
         // a small stack and cannot hold this nested MLS future before spawn.
@@ -794,6 +796,13 @@ async fn send_encoded(
         .await
     })
     .await
+}
+
+fn require_content_type(content: &EncodedContent) -> Result<(), XmtpError> {
+    if content.r#type.authority_id.is_empty() || content.r#type.type_id.is_empty() {
+        return Err(XmtpError::invalid("content type identifier is empty"));
+    }
+    Ok(())
 }
 
 fn parent_stored(
