@@ -1919,7 +1919,7 @@ async fn history_skips_bad_reaction_and_warns_without_content() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let parent = group.send_text("parent row".into()).await?;
+    let parent = group.send_text("parent row".into(), None).await?;
     let reaction = client
         .conversations()
         .react_to_message(
