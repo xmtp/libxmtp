@@ -727,13 +727,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "No façade test proves that deleting in-memory storage returns a typed invalid-input error; the façade test lands with #4245."
 
 [[waiver]]
-id = "STORE-012"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No façade API test proves that browser storage omits reconnect and delete."
-
-[[waiver]]
 id = "STORE-017"
 kind = "gap"
 owner = "protocol"
