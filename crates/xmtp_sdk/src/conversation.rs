@@ -37,13 +37,18 @@ use crate::{
 // off the JavaScript thread, gives nested MLS work a fresh executor stack, and
 // lets work finish if the FFI call is cancelled. On wasm32, cancellation drops
 // the work because the target has no blocking thread pool.
+// Swift's cooperative threads have small stacks. Callers box large work
+// futures before this helper, and this helper boxes the spawn future.
+#[cfg(not(target_arch = "wasm32"))]
+const MAX_SDK_WORKER_FUTURE_BYTES: usize = 2 * 1024;
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) async fn on_sdk_worker<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
 where
     T: Send + 'static,
     F: Future<Output = Result<T, XmtpError>> + Send + 'static,
 {
-    // Keep the spawn call small enough for Swift's cooperative worker stack.
+    const { assert!(std::mem::size_of::<F>() <= MAX_SDK_WORKER_FUTURE_BYTES) };
     xmtp_common::spawn(None, Box::pin(while_open(context, work)))
         .join()
         .await
@@ -291,13 +296,16 @@ impl Conversations {
         let (permissions, metadata) = options.unwrap_or_default().into_core()?;
         let client = self.client.clone();
         let client_key = self.client_key;
-        on_sdk_worker(self.client.context.clone(), async move {
-            let group = client
-                .create_group_with_members(&members, permissions, Some(metadata))
-                .await
-                .map_err(XmtpError::unknown)?;
-            Ok(Arc::new(Group::from_core(group, client_key).await?))
-        })
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                let group = client
+                    .create_group_with_members(&members, permissions, Some(metadata))
+                    .await
+                    .map_err(XmtpError::unknown)?;
+                Ok(Arc::new(Group::from_core(group, client_key).await?))
+            }),
+        )
         .await
     }
 
@@ -309,13 +317,16 @@ impl Conversations {
         let client = self.client.clone();
         let metadata = options.unwrap_or_default().into();
         let client_key = self.client_key;
-        on_sdk_worker(self.client.context.clone(), async move {
-            let group = client
-                .find_or_create_dm(peer.0, Some(metadata))
-                .await
-                .map_err(XmtpError::unknown)?;
-            Ok(Arc::new(Dm::from_core(group, client_key).await?))
-        })
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                let group = client
+                    .find_or_create_dm(peer.0, Some(metadata))
+                    .await
+                    .map_err(XmtpError::unknown)?;
+                Ok(Arc::new(Dm::from_core(group, client_key).await?))
+            }),
+        )
         .await
     }
 
@@ -496,15 +507,18 @@ impl Conversations {
         consent_states: Option<Vec<ConsentState>>,
     ) -> Result<GroupSyncSummary, XmtpError> {
         let client = self.client.clone();
-        on_sdk_worker(self.client.context.clone(), async move {
-            client
-                .sync_all_welcomes_and_groups(
-                    consent_states.map(|states| states.into_iter().map(Into::into).collect()),
-                )
-                .await
-                .map(Into::into)
-                .map_err(XmtpError::unknown)
-        })
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                client
+                    .sync_all_welcomes_and_groups(
+                        consent_states.map(|states| states.into_iter().map(Into::into).collect()),
+                    )
+                    .await
+                    .map(Into::into)
+                    .map_err(XmtpError::unknown)
+            }),
+        )
         .await
     }
 
@@ -960,10 +974,13 @@ macro_rules! common_conversation {
 
             pub async fn sync(&self) -> Result<(), XmtpError> {
                 let group = self.inner.clone();
-                on_sdk_worker(self.inner.context.clone(), async move {
-                    group.sync().await.map_err(XmtpError::unknown)?;
-                    Ok(())
-                })
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    Box::pin(async move {
+                        group.sync().await.map_err(XmtpError::unknown)?;
+                        Ok(())
+                    }),
+                )
                 .await
             }
 
@@ -1029,21 +1046,26 @@ macro_rules! common_conversation {
                 settings: Option<DisappearingSettings>,
             ) -> Result<(), XmtpError> {
                 let group = self.inner.clone();
-                on_sdk_worker(self.inner.context.clone(), async move {
-                    match settings {
-                        Some(settings) => {
-                            group
-                                .update_conversation_message_disappearing_settings(settings.into())
-                                .await
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    Box::pin(async move {
+                        match settings {
+                            Some(settings) => {
+                                group
+                                    .update_conversation_message_disappearing_settings(
+                                        settings.into(),
+                                    )
+                                    .await
+                            }
+                            None => {
+                                group
+                                    .remove_conversation_message_disappearing_settings()
+                                    .await
+                            }
                         }
-                        None => {
-                            group
-                                .remove_conversation_message_disappearing_settings()
-                                .await
-                        }
-                    }
-                    .map_err(XmtpError::unknown)
-                })
+                        .map_err(XmtpError::unknown)
+                    }),
+                )
                 .await
             }
 
@@ -1062,21 +1084,27 @@ macro_rules! common_conversation {
 
             pub async fn publish_messages(&self) -> Result<(), XmtpError> {
                 let group = self.inner.clone();
-                on_sdk_worker(self.inner.context.clone(), async move {
-                    group.publish_messages().await.map_err(XmtpError::unknown)
-                })
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    Box::pin(
+                        async move { group.publish_messages().await.map_err(XmtpError::unknown) },
+                    ),
+                )
                 .await
             }
 
             pub async fn publish_message(&self, id: MessageID) -> Result<(), XmtpError> {
                 let group = self.inner.clone();
                 let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
-                on_sdk_worker(self.inner.context.clone(), async move {
-                    group
-                        .publish_stored_message(&bytes)
-                        .await
-                        .map_err(XmtpError::unknown)
-                })
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    Box::pin(async move {
+                        group
+                            .publish_stored_message(&bytes)
+                            .await
+                            .map_err(XmtpError::unknown)
+                    }),
+                )
                 .await
             }
 
@@ -1210,34 +1238,43 @@ impl Group {
 
     pub async fn update_name(&self, value: String) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        on_sdk_worker(self.inner.context.clone(), async move {
-            group
-                .update_group_name(value)
-                .await
-                .map_err(XmtpError::unknown)
-        })
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_group_name(value)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
         .await
     }
 
     pub async fn update_description(&self, value: String) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        on_sdk_worker(self.inner.context.clone(), async move {
-            group
-                .update_group_description(value)
-                .await
-                .map_err(XmtpError::unknown)
-        })
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_group_description(value)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
         .await
     }
 
     pub async fn update_image_url(&self, value: String) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        on_sdk_worker(self.inner.context.clone(), async move {
-            group
-                .update_group_image_url_square(value)
-                .await
-                .map_err(XmtpError::unknown)
-        })
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_group_image_url_square(value)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
         .await
     }
 
@@ -1247,12 +1284,15 @@ impl Group {
         expected: Option<String>,
     ) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        on_sdk_worker(self.inner.context.clone(), async move {
-            group
-                .update_app_data(value, expected)
-                .await
-                .map_err(XmtpError::unknown)
-        })
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_app_data(value, expected)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
         .await
     }
 
@@ -1277,27 +1317,30 @@ impl Group {
                 vec![field.into()]
             }
         });
-        on_sdk_worker(self.inner.context.clone(), async move {
-            match fields {
-                Some(fields) => {
-                    for field in fields {
-                        group
-                            .update_permission_policy(
-                                kind.clone().into(),
-                                policy.clone(),
-                                Some(field),
-                            )
-                            .await
-                            .map_err(XmtpError::unknown)?;
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                match fields {
+                    Some(fields) => {
+                        for field in fields {
+                            group
+                                .update_permission_policy(
+                                    kind.clone().into(),
+                                    policy.clone(),
+                                    Some(field),
+                                )
+                                .await
+                                .map_err(XmtpError::unknown)?;
+                        }
+                        Ok(())
                     }
-                    Ok(())
+                    None => group
+                        .update_permission_policy(kind.into(), policy, None)
+                        .await
+                        .map_err(XmtpError::unknown),
                 }
-                None => group
-                    .update_permission_policy(kind.into(), policy, None)
-                    .await
-                    .map_err(XmtpError::unknown),
-            }
-        })
+            }),
+        )
         .await
     }
 
@@ -1307,26 +1350,32 @@ impl Group {
     ) -> Result<crate::MembershipResult, XmtpError> {
         let group = self.inner.clone();
         let ids = members.into_iter().map(|id| id.0).collect::<Vec<_>>();
-        on_sdk_worker(self.inner.context.clone(), async move {
-            group
-                .add_members(&ids)
-                .await
-                .map_err(XmtpError::unknown)?
-                .try_into()
-        })
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .add_members(&ids)
+                    .await
+                    .map_err(XmtpError::unknown)?
+                    .try_into()
+            }),
+        )
         .await
     }
 
     pub async fn remove_members(&self, members: Vec<InboxID>) -> Result<(), XmtpError> {
         let group = self.inner.clone();
         let ids = members.into_iter().map(|id| id.0).collect::<Vec<_>>();
-        on_sdk_worker(self.inner.context.clone(), async move {
-            let refs = ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
-            group
-                .remove_members(&refs)
-                .await
-                .map_err(XmtpError::unknown)
-        })
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                let refs = ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+                group
+                    .remove_members(&refs)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
         .await
     }
 
@@ -1394,9 +1443,10 @@ impl Group {
 
     pub async fn request_removal(&self) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        on_sdk_worker(self.inner.context.clone(), async move {
-            group.leave_group().await.map_err(XmtpError::unknown)
-        })
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move { group.leave_group().await.map_err(XmtpError::unknown) }),
+        )
         .await
     }
 
@@ -1422,12 +1472,15 @@ impl Group {
         inbox_id: InboxID,
     ) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        on_sdk_worker(self.inner.context.clone(), async move {
-            group
-                .update_admin_list(action, inbox_id.0)
-                .await
-                .map_err(XmtpError::unknown)
-        })
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_admin_list(action, inbox_id.0)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
         .await
     }
 }
