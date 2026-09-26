@@ -212,21 +212,27 @@ impl ConversationReader {
         &self,
         previous: ConnectionState,
     ) -> Result<ConnectionState, XmtpError> {
+        let request_cancel = CancellationToken::new();
+        let _cancel_on_drop = super::CancelReadOnDrop(request_cancel.clone());
         let lease = self.lease.clone();
         let cancel = self.cancel.clone();
         let mut changes = lease.subscribe_changes();
-        on_sdk_worker(self.context.clone(), async move {
-            loop {
-                let current = lease.snapshot().connection.into();
-                if current != previous || current == ConnectionState::Closed {
-                    return Ok(current);
+        on_sdk_worker(
+            self.context.clone(),
+            Box::pin(async move {
+                loop {
+                    let current = lease.snapshot().connection.into();
+                    if current != previous || current == ConnectionState::Closed {
+                        return Ok(current);
+                    }
+                    tokio::select! {
+                        _ = cancel.cancelled() => return Ok(ConnectionState::Closed),
+                        _ = request_cancel.cancelled() => return Ok(ConnectionState::Closed),
+                        _ = changes.changed() => {},
+                    }
                 }
-                tokio::select! {
-                    _ = cancel.cancelled() => return Ok(ConnectionState::Closed),
-                    _ = changes.changed() => {},
-                }
-            }
-        })
+            }),
+        )
         .await
     }
 }

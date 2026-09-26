@@ -190,6 +190,11 @@ impl<C: XmtpSharedContext + 'static> MessageReader<C> {
 }
 
 impl MessageReaderControl {
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn lease_holder_count_for_test(&self) -> usize {
+        Arc::strong_count(&self.lease)
+    }
+
     #[cfg(test)]
     pub(crate) fn notify_change_for_test(&self) {
         if let Some(lease) = self.lease.lock().as_ref() {

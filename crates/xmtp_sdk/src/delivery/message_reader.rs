@@ -314,17 +314,25 @@ impl MessageReader {
         &self,
         previous: ConnectionState,
     ) -> Result<ConnectionState, XmtpError> {
+        let request_cancel = CancellationToken::new();
+        let _cancel_on_drop = super::CancelReadOnDrop(request_cancel.clone());
         let control = self.control.clone();
         let mut changes = control.observer();
-        on_sdk_worker(self.context.clone(), async move {
-            loop {
-                let current = control.catch_up_snapshot().connection.into();
-                if current != previous || current == ConnectionState::Closed {
-                    return Ok(current);
+        on_sdk_worker(
+            self.context.clone(),
+            Box::pin(async move {
+                loop {
+                    let current = control.catch_up_snapshot().connection.into();
+                    if current != previous || current == ConnectionState::Closed {
+                        return Ok(current);
+                    }
+                    tokio::select! {
+                        _ = request_cancel.cancelled() => return Ok(ConnectionState::Closed),
+                        _ = changes.changed() => {},
+                    }
                 }
-                changes.changed().await;
-            }
-        })
+            }),
+        )
         .await
     }
 }

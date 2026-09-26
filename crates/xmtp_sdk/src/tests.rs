@@ -2044,6 +2044,57 @@ async fn initial_connection_can_reconnect_before_connected() {
 
 // verifies: PROC-023
 #[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_connection_state_waits_release_reader_workers() {
+    use crate::ConnectionState;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let messages = group.message_reader().await?;
+    let conversations = client.conversations().conversation_reader(None).await?;
+    xmtp_common::time::timeout(Duration::from_secs(20), async {
+        tokio::try_join!(
+            wait_for_initial_connection(|previous| messages.connection_state_changed(previous)),
+            wait_for_initial_connection(|previous| conversations.connection_state_changed(previous))
+        )
+    })
+    .await??;
+
+    let control = messages.control_for_test();
+    let message_count = control.lease_holder_count_for_test();
+    let conversation_count = Arc::strong_count(conversations.lease_for_test());
+    for _ in 0..3 {
+        assert!(
+            xmtp_common::time::timeout(
+                Duration::from_millis(100),
+                messages.connection_state_changed(ConnectionState::Connected)
+            )
+            .await
+            .is_err()
+        );
+        assert!(
+            xmtp_common::time::timeout(
+                Duration::from_millis(100),
+                conversations.connection_state_changed(ConnectionState::Connected)
+            )
+            .await
+            .is_err()
+        );
+    }
+    xmtp_common::time::timeout(Duration::from_secs(1), async {
+        while control.lease_holder_count_for_test() != message_count
+            || Arc::strong_count(conversations.lease_for_test()) != conversation_count
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    messages.end().await?;
+    conversations.end().await?;
+    client.end().await?;
+}
+
+// verifies: PROC-023
+#[xmtp_common::test(unwrap_try = true)]
 async fn connection_state_across_toxiproxy_drop() {
     use crate::ConnectionState;
     use futures::FutureExt;
