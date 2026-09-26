@@ -930,11 +930,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No SDK app event callback dispatcher completes same-client operations called from a callback."
 
 [[waiver]]
-id = "EVENT-057"
+id = "EVENT-053"
 kind = "gap"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test proves that ending an SDK event subscription bars a callback at its start check and ends a pending iterator read."
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No SDK app event subscription end operation stops later handoffs and pending iterator reads."
 
 [[waiver]]
 id = "EVENT-054"
