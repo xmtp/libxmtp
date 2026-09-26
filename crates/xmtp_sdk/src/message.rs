@@ -411,13 +411,18 @@ impl Message {
         {
             let parent = parent.as_ref();
             if let Some(parent_data) = parent_stored.and_then(|parent_stored| {
-                Self::from_stored_with_content(
+                let parent_id = hex::encode(&parent_stored.id);
+                match Self::from_stored_with_content(
                     parent_stored,
                     client_key,
                     Some(parent.content.clone()),
-                )
-                .ok()
-                .map(|message| message.0)
+                ) {
+                    Ok(message) => Some(message.0),
+                    Err(error) => {
+                        tracing::warn!(%parent_id, %error, "omitting reply parent");
+                        None
+                    }
+                }
             }) {
                 let parent_content =
                     MessageBody::from_core(parent.content.clone(), parent_data.encoded.clone())
