@@ -54,6 +54,29 @@ pub fn encoded_prefix(filename: Option<&str>, mime_type: &str, content_len: u64)
     prefix
 }
 
+/// Check the fields that the streaming decoder keeps before content bytes.
+/// This uses the same envelope as `encoded_prefix` and the decoder's limit.
+pub fn retained_fields_fit(filename: Option<&str>, mime_type: &str) -> bool {
+    let value_bytes = mime_type.len().saturating_add(filename.map_or(0, str::len));
+    if value_bytes > MAX_METADATA_BYTES {
+        return false;
+    }
+    let envelope = AttachmentCodec::encode(Attachment {
+        filename: filename.map(str::to_owned),
+        mime_type: mime_type.to_owned(),
+        content: Vec::new(),
+    })
+    .expect("attachment encoding has no failure path");
+    EncodedContent {
+        r#type: envelope.r#type,
+        parameters: envelope.parameters,
+        compression: envelope.compression,
+        ..Default::default()
+    }
+    .encoded_len()
+        <= MAX_METADATA_BYTES
+}
+
 pub fn ciphertext_len(prefix_len: usize, content_len: u64) -> u64 {
     (prefix_len as u64)
         .saturating_add(content_len)
