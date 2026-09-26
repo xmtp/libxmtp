@@ -384,6 +384,41 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Client processing logs still contain full installation identifiers."
 
 [[waiver]]
+id = "PROC-041"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that every stream end sends exactly one close notification with its reason."
+
+[[waiver]]
+id = "PROC-042"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that ending a reader succeeds and closes its stream with the closed reason."
+
+[[waiver]]
+id = "PROC-043"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that a stream close reason tells the app whether the cause is retryable."
+
+[[waiver]]
+id = "PROC-044"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that connection-state notifications begin with the subscribed state and deliver later changes in order."
+
+[[waiver]]
+id = "PROC-045"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that a failed custom codec exposes a custom item with its error and leaves the stream open."
+
+[[waiver]]
 id = "SEND-003"
 kind = "gap"
 owner = "protocol"
