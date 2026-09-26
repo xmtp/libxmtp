@@ -6,6 +6,28 @@ use super::{
 };
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
+/// Create missing directory components with private permissions.
+/// Existing directories keep their permissions.
+pub async fn create_private_directory(path: &Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        let path = path.to_path_buf();
+        xmtp_common::task::spawn_blocking(move || {
+            use std::os::unix::fs::DirBuilderExt as _;
+            std::fs::DirBuilder::new()
+                .recursive(true)
+                .mode(0o700)
+                .create(path)
+        })
+        .await
+        .map_err(std::io::Error::other)?
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::fs::create_dir_all(path).await
+    }
+}
+
 async fn create_private_dir(
     path: &Path,
     force_chmod_error: bool,
@@ -67,22 +89,7 @@ impl NativeStore {
     pub async fn new(root: impl AsRef<Path>) -> Result<Self, AttachmentError> {
         let root = std::path::absolute(root.as_ref())
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        #[cfg(unix)]
-        {
-            let new_root = root.clone();
-            xmtp_common::task::spawn_blocking(move || {
-                use std::os::unix::fs::DirBuilderExt as _;
-                std::fs::DirBuilder::new()
-                    .recursive(true)
-                    .mode(0o700)
-                    .create(new_root)
-            })
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        }
-        #[cfg(not(unix))]
-        tokio::fs::create_dir_all(&root)
+        create_private_directory(&root)
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
         Ok(Self {

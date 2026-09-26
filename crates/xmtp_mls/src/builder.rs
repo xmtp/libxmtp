@@ -51,7 +51,7 @@ fn open_location_store(
                 .db_path
                 .parent()
                 .ok_or(crate::storage_location::StorageLocationError::InboxId)?;
-            tokio::fs::create_dir_all(parent)
+            xmtp_attachments::create_private_directory(parent)
                 .await
                 .map_err(crate::storage_location::StorageLocationError::from)?;
             xmtp_db::NativeDb::builder()

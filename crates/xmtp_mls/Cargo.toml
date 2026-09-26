@@ -181,6 +181,9 @@ mockito = "1.7.2"
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true
+
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 wasm-bindgen-test.workspace = true
