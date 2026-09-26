@@ -7,6 +7,9 @@ rust-version.workspace = true
 edition.workspace = true
 publish.workspace = true
 
+[lints]
+workspace = true
+
 [dependencies]
 aes.workspace = true
 async-trait.workspace = true
