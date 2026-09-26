@@ -633,7 +633,7 @@ id = "CTYPE-027"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test proves that a reply with no nested codec exposes unknown content with the nested type and raw envelope bytes."
+reason = "No test proves that a reply with no nested codec exposes an unknown body with the nested type and raw envelope bytes."
 
 [[waiver]]
 id = "CTYPE-028"

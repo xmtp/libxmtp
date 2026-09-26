@@ -44,6 +44,7 @@ Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an
 | Standard type | A type under authority `xmtp.org`, or one of the two `coinbase.com` types, in the catalogue in section 7. |
 | Custom type | A type outside the catalogue, whether or not an app has registered a codec for it. |
 | Unknown type | An identifier for which the client and SDK have no matching decoder under CTYPE-001. |
+| Unknown content | The `unknown` body for content with no matching decoder, with its raw encoded bytes kept under CTYPE-008. |
 | Fallback | The `fallback` string of an encoded content: text a client shows when it cannot decode the content. |
 | Nested content | An `EncodedContent` carried inside the `content` of another, as a reply carries the content it replies with. |
 | Push value | The boolean a codec supplies for a type, which the client publishes as `should_push` under PUSH-219. |
@@ -145,7 +146,7 @@ A reply carries the content it replies with as a complete `EncodedContent` insid
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CTYPE-011 | Nested content is complete | When the client or an SDK encodes nested content, it MUST require a complete protobuf `EncodedContent` with a present `type` and non-empty `authority_id` and `type_id`, and MUST fail encoding when these are absent. | An outer type cannot identify the nested payload. |
-| CTYPE-027 | Unknown nested content | When the client or an SDK decodes a reply with a complete typed nested envelope but no matching nested codec, it MUST return the reply reference and unknown content with the nested type and raw nested envelope bytes kept under CTYPE-008. | A missing codec does not turn received content into app-defined custom content. |
+| CTYPE-027 | Unknown nested content | When the client or an SDK decodes a reply with a complete typed nested envelope but no matching nested codec, it MUST return the reply reference and an `unknown` body under CTYPE-008, keeping the nested type and raw nested envelope bytes. | An app cannot tell undecoded bytes from a value its codec decoded. |
 | CTYPE-028 | Nested type takes precedence | When a reply's nested envelope has a `type` that conflicts with its outer `contentType` parameter, the client or SDK MUST select the nested `type`. | The typed envelope identifies the bytes to decode. |
 | CTYPE-029 | Invalid nested content | When a reply's nested bytes are malformed or untyped, or a matching nested codec fails, the client or SDK MUST report a decode failure and preserve the outer bytes and fallback under CTYPE-008. | Malformed bytes do not supply a valid nested envelope. |
 
