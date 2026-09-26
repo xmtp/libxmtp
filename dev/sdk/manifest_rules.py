@@ -61,6 +61,28 @@ def add(
 
 
 for sdk in ("Swift", "Kotlin"):
+    ref = f"11.4 {sdk}, Messages, codecs, preferences, values; 11.1-11.2"
+    add(
+        sdk,
+        "Reaction",
+        "reference",
+        "generated",
+        ref,
+        finals="MessageContent.Reaction.reference",
+        note="The message content keeps the target message ID.",
+    )
+    add(
+        sdk,
+        "Reaction",
+        "referenceInboxId",
+        "generated",
+        ref,
+        finals="MessageContent.Reaction.referenceInboxID",
+        note="The message content keeps the optional target sender inbox ID.",
+    )
+
+
+for sdk in ("Swift", "Kotlin"):
     client_owner = "Client" if sdk == "Swift" else "Client.Companion"
     ref = f"11.4 {sdk}, Client and options"
     add(
