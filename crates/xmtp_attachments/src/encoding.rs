@@ -115,7 +115,7 @@ enum EntryState {
     Fixed { remaining: usize },
 }
 
-/// Parse one map entry without keeping values for unknown keys.
+/// Parse one map entry with bounded key and value buffers.
 struct ParameterEntry {
     state: EntryState,
     header: Vec<u8>,
@@ -198,7 +198,7 @@ impl ParameterEntry {
                     let bytes = &input[at..at + take];
                     match field {
                         1 if !self.key_too_long => self.key.extend_from_slice(bytes),
-                        2 if !self.value_too_long && (self.key.is_empty() || self.relevant()) => {
+                        2 if !self.value_too_long => {
                             self.value.extend_from_slice(bytes);
                         }
                         _ => {}
@@ -869,6 +869,32 @@ mod tests {
         let filename = meta.filename.unwrap();
         assert_eq!(filename.len(), 60_000);
         assert!(filename.bytes().all(|byte| byte == b'b'));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn entry_value_before_final_key_is_kept() {
+        let mut envelope = envelope(b"content".to_vec());
+        envelope.parameters.remove("filename");
+        let mut bytes = envelope.encode_to_vec();
+        let mut entry = Vec::new();
+        for (field, value) in [(0x0a, "junk"), (0x12, "report.pdf"), (0x0a, "filename")] {
+            entry.push(field);
+            encode_varint(value.len() as u64, &mut entry);
+            entry.extend_from_slice(value.as_bytes());
+        }
+        bytes.push(0x12);
+        encode_varint(entry.len() as u64, &mut bytes);
+        bytes.extend_from_slice(&entry);
+
+        let expected = EncodedContent::decode(bytes.as_slice())?;
+        assert_eq!(expected.parameters["filename"], "report.pdf");
+        // decode feeds the streaming parser one byte at a time.
+        let (_, _, meta) = decode(&bytes)?;
+        assert_eq!(meta.filename.as_deref(), Some("report.pdf"));
+        assert_eq!(
+            meta.filename.as_deref(),
+            Some(expected.parameters["filename"].as_str())
+        );
     }
 
     // verifies: CTYPE-001, CTYPE-016

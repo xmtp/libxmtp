@@ -59,6 +59,7 @@ web-sys = { workspace = true, features = [
   "Blob",
   "AbortController",
   "AbortSignal",
+  "DomException",
   "File",
   "FileSystemDirectoryHandle",
   "FileSystemFileHandle",
