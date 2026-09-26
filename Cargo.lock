@@ -13235,6 +13235,7 @@ dependencies = [
  "hkdf 0.12.4",
  "hmac 0.12.1",
  "hpke-rs 0.6.1",
+ "http 1.4.2",
  "indicatif",
  "itertools 0.15.0",
  "libc",

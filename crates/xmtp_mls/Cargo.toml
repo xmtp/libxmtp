@@ -149,6 +149,7 @@ fdlimit.workspace = true
 flate2.workspace = true
 futures-executor = "0.3"
 futures-test = "0.3.33"
+http.workspace = true
 mockall.workspace = true
 once_cell.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
