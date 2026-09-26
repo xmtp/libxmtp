@@ -310,6 +310,8 @@ A subscription is read with an iterator or with a callback. With a callback, the
 
 Apps can keep several subscriptions for different kinds or conversations. They should end listeners they no longer use. An SDK may warn about duplicate listeners whose filters overlap.
 
+For EVENT-057, a callback is handed off when its subscription's start check admits it. The SDK holds no subscription lock while app code runs.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | EVENT-050 | One callback at a time | An SDK MUST NOT start a subscription's callback while an earlier callback of that subscription is running. | Two callbacks that run at the same time can finish in the wrong order and apply an older state last. |
