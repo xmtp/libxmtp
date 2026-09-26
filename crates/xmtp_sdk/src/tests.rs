@@ -21,7 +21,7 @@ use crate::{
     credentials::AuthBridge, reader, signer,
 };
 
-// verifies: P69
+// verifies: CTYPE-014
 #[xmtp_common::test(unwrap_try = true)]
 async fn standard_codec_bytes_match_typed_send_wire_bytes() {
     use crate::StandardContent;
