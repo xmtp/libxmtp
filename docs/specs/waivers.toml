@@ -181,6 +181,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
 
 [[waiver]]
+id = "CONS-042"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "With no filter the client streams every consent state, including the façade conversation reader."
+
+[[waiver]]
 id = "CONS-030"
 kind = "gap"
 owner = "protocol"
@@ -223,6 +230,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A token carrying kid whose algorithm no loaded key uses is answered unsupported_alg before key selection, rather than untrusted."
 
 [[waiver]]
+id = "AUTH-035"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test drives failures from two clients sharing one handle."
+
+[[waiver]]
 id = "AUTH-031"
 kind = "gap"
 owner = "backend"
@@ -235,6 +249,41 @@ kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A client half-close during the drain for an outstanding Ping ends the stream with UNAVAILABLE rather than completing cleanly."
+
+[[waiver]]
+id = "CONF-077"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Offline startup skips the URL check (`server_configuration.rs:365`), and no later request re-checks; the core fix is scheduled."
+
+[[waiver]]
+id = "API-292"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that all five API RPC counts include calls from every client and static call sharing one backend connection."
+
+[[waiver]]
+id = "API-293"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that both identity RPC counts include calls from every client and static call sharing one backend connection."
+
+[[waiver]]
+id = "API-294"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that the text summary contains both counter sets for the shared backend connection."
+
+[[waiver]]
+id = "API-295"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that clearing statistics sets every API and identity count to 0 for all users of the shared backend connection."
 
 [[waiver]]
 id = "PUSH-257"
@@ -361,6 +410,41 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Client processing logs still contain full installation identifiers."
+
+[[waiver]]
+id = "PROC-041"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that every stream end sends exactly one close notification with its reason."
+
+[[waiver]]
+id = "PROC-042"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that ending a reader succeeds and closes its stream with the closed reason."
+
+[[waiver]]
+id = "PROC-043"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that stream errors from recovery exhaustion and storage are retryable while credential, blocked-connection, ownership, and cursor errors are not."
+
+[[waiver]]
+id = "PROC-044"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that a connection-state subscriber gets the current state first and never receives an older state after a newer one."
+
+[[waiver]]
+id = "PROC-045"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that a failed custom codec exposes a custom item with its error and leaves the stream open."
 
 [[waiver]]
 id = "SEND-003"
@@ -538,6 +622,146 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
 
 [[waiver]]
+id = "CTYPE-026"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs ship host-language codec classes; the Rust-backed classes replace them in the SDK migration."
+
+[[waiver]]
+id = "CTYPE-027"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that a reply with no nested codec exposes an unknown body with the nested type and raw envelope bytes."
+
+[[waiver]]
+id = "CTYPE-028"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that the nested type wins when a reply's outer contentType parameter conflicts with it."
+
+[[waiver]]
+id = "CTYPE-029"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test proves that invalid nested bytes or a failed nested codec preserve the reply's outer bytes and fallback."
+
+[[waiver]]
+id = "STORE-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs always put a label (`env`) in the file name, so the unlabeled `xmtp-<inbox id>.db3` is never produced; the façade SDKs implement both forms."
+
+[[waiver]]
+id = "STORE-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current Android SDK already uses this directory, but no test asserts it; the façade's Android helper adds the test in the SDK migration."
+
+[[waiver]]
+id = "STORE-004"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-005"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-006"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS SDK falls back to the Documents directory instead of failing when no location can be derived; the façade SDKs fail."
+
+[[waiver]]
+id = "STORE-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDK `build` can open a new database; the façade `build` fails with a typed error."
+
+[[waiver]]
+id = "STORE-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs do not reject separators, the colon, and NUL in the label; the façade does."
+
+[[waiver]]
+id = "STORE-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that the reported path is the file the client opened, including the absence of a path for in-memory storage."
+
+[[waiver]]
+id = "STORE-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that storage reconnect reopens the database file of a client that has not ended."
+
+[[waiver]]
+id = "STORE-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that deleting in-memory storage returns a typed invalid-input error; the façade test lands with #4245."
+
+[[waiver]]
+id = "STORE-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that deleting file-backed storage closes the client before removing the database file; the façade test lands with #4245."
+
+[[waiver]]
+id = "STORE-018"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No façade test proves that the database file is gone after deletion; the façade test lands with #4245."
+
+[[waiver]]
+id = "IDENT-073"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS and Android SDKs call the handler before signing, but no test asserts the order; the façade test that verifies it lands with the SDK migration."
+
+[[waiver]]
+id = "IDENT-074"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS and Android SDKs call the handler even when registration needs no signature; the façade SDKs call it only when a signature is needed."
+
+[[waiver]]
+id = "IDENT-075"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS and Android SDKs propagate a failing handler without reporting a typed callback failure; the façade SDKs report a callback failure."
+
+[[waiver]]
 id = "GMOD-035"
 kind = "gap"
 owner = "protocol"
@@ -650,13 +874,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "The specified event payload members and their source values are not implemented."
 
 [[waiver]]
-id = "EVENT-025"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
-
-[[waiver]]
 id = "EVENT-026"
 kind = "gap"
 owner = "protocol"
@@ -718,3 +935,17 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No SDK app event subscription is ended by closing its client."
+
+[[waiver]]
+id = "EVENT-055"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No test drives two client instances sharing one credential handle; the façade event test is planned (Task 20 follow-up)."
+
+[[waiver]]
+id = "EVENT-056"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."

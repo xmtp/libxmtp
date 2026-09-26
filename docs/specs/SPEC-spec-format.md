@@ -223,6 +223,7 @@ This document is a spec about specs, so a few of its own rules cannot apply to i
 | SPEC-084 | Naming its own artefacts | This document MUST be exempt from SPEC-006 for the files, recipes, and keys it defines, which it MUST be able to name. | a format that may not write `docs/specs/waivers.toml` cannot say where a waiver goes. |
 | SPEC-085 | Test obligations about specs | This document's rules about evidence MUST be exempt from SPEC-025, which bars obligations about a capability's tests. | SPEC-025 keeps work planning out of a capability spec. Requiring a spec's own requirements to carry evidence is a rule about specs, not about a capability's test plan. |
 | SPEC-086 | Permissions in this document | A MAY in this document MUST be exempt from SPEC-029, which requires a permission to name the obligation it creates for a reader. | |
+| SPEC-093 | Default storage locations | The STORE spec MUST be exempt from SPEC-006, SPEC-007, and SPEC-025 for the default database directories, the platforms that select them, and the database file-name pattern it defines. | An app and its operators rely on `StorageLocation.Default` naming one location they can find, back up, and delete. |
 | SPEC-083 | No other exemptions | Every rule this document states that it does not list here MUST apply to it. | the format has to survive being read by a reviewer who follows it literally. |
 
 ## Known limitations

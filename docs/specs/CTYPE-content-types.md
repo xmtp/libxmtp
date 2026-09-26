@@ -44,6 +44,7 @@ Out of scope: the `PlaintextEnvelope` that carries an `EncodedContent` inside an
 | Standard type | A type under authority `xmtp.org`, or one of the two `coinbase.com` types, in the catalogue in section 7. |
 | Custom type | A type outside the catalogue, whether or not an app has registered a codec for it. |
 | Unknown type | An identifier for which the client and SDK have no matching decoder under CTYPE-001. |
+| Unknown content | The `unknown` body for content with no matching decoder, with its raw encoded bytes kept under CTYPE-008. |
 | Fallback | The `fallback` string of an encoded content: text a client shows when it cannot decode the content. |
 | Nested content | An `EncodedContent` carried inside the `content` of another, as a reply carries the content it replies with. |
 | Push value | The boolean a codec supplies for a type, which the client publishes as `should_push` under PUSH-219. |
@@ -128,6 +129,7 @@ SEND-020 requires an SDK that accepts string content without an explicit content
 | CTYPE-008 | Undecodable content is kept | When a received application message has no matching codec, fails decoding, or is not a typed `EncodedContent`, the client MUST retain its original bytes and message id. The client and SDK MUST expose those bytes and that id to the app, with the actual content identifier and fallback when present, without replacing the identifier with a text or fallback type. | Dropping undecodable content gives installations different conversation histories. |
 | CTYPE-009 | Failures are distinguishable | When encoding, decoding, or selecting a codec, an SDK MUST let the app distinguish no matching codec, codec decode failure, codec encode failure, and a malformed or untyped envelope. On a lookup failure, the Kotlin and Swift SDK registries MUST report no matching codec and MUST NOT return a successful text decode instead. | Unknown UTF-8 content can otherwise appear to be ordinary text. |
 | CTYPE-017 | Apps supply custom codecs | An SDK MUST let an app register a codec for a custom type, use it for received custom content matched under CTYPE-001, and send typed envelopes that the app encodes with it. | An app-defined type must be usable without changing the client. |
+| CTYPE-026 | Standard codecs without a client | An SDK MUST expose, for each standard type except the reserved edit type, a codec that an app can call without a client and whose envelope for a value equals the client's own encoding of that value under CTYPE-014. | Apps build and inspect standard content outside a conversation, and a second encoder in a host language drifts from the client's. |
 
 ## 4. The push value
 
@@ -144,7 +146,9 @@ A reply carries the content it replies with as a complete `EncodedContent` insid
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CTYPE-011 | Nested content is complete | When the client or an SDK encodes nested content, it MUST require a complete protobuf `EncodedContent` with a present `type` and non-empty `authority_id` and `type_id`, and MUST fail encoding when these are absent. | An outer type cannot identify the nested payload. |
-| CTYPE-012 | Nested decode outcomes | When the client or an SDK decodes a reply with a complete typed nested envelope but no matching nested codec, it MUST return the reply reference and that envelope unchanged as custom content; the nested `type` MUST control over a conflicting `contentType` parameter. When nested bytes are malformed or untyped, or a matching nested codec fails, it MUST report a decode failure and preserve the outer bytes and fallback under CTYPE-008. | Malformed bytes do not supply an envelope to return as a valid custom value. |
+| CTYPE-027 | Unknown nested content | When the client or an SDK decodes a reply with a complete typed nested envelope but no matching nested codec, it MUST return the reply reference and an `unknown` body under CTYPE-008, keeping the nested envelope: its type, parameters, and content bytes. | An app cannot tell undecoded bytes from a value its codec decoded. |
+| CTYPE-028 | Nested type takes precedence | When a reply's nested envelope has a `type` that conflicts with its outer `contentType` parameter, the client or SDK MUST select the nested `type`. | The typed envelope identifies the bytes to decode. |
+| CTYPE-029 | Invalid nested content | When a reply's nested bytes are malformed or untyped, or a matching nested codec fails, the client or SDK MUST report a decode failure and preserve the outer bytes and fallback under CTYPE-008. | Malformed bytes do not supply a valid nested envelope. |
 
 ## 6. Content type versions
 
@@ -158,7 +162,7 @@ An incompatible encoding needs a different major version under CTYPE-016. A code
 
 The catalogue lists identifiers, encodings, parameters, push values, and deletion eligibility. CTYPE-018 binds deletion eligibility; it is authorization behavior, not a wire value. PROC-037 requires that a deletion affects only a target in the same group, passes CTYPE-018, and is sent by the target's sender or a current super admin; a rejected deletion leaves the target unchanged.
 
-Catalogue presence does not promise a codec class in every SDK. Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
+Every SDK exposes a codec for each standard type except the reserved edit type (CTYPE-026). Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
 
 JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.html#section-4). Section 7.2 states member names, types, and presence in tables, without using WebIDL for a wire format. SPEC-043 and [SPEC section 3.1](SPEC-spec-format.md#31-type-blocks) provide no notation for repository-defined JSON type blocks. The tables avoid claiming a WebIDL exception.
 

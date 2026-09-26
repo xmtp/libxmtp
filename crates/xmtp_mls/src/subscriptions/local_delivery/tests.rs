@@ -93,6 +93,27 @@ async fn cancelling_a_pending_next_does_not_bypass_explicit_acknowledgement() {
     assert_eq!(reader.next_delivery().await?.unwrap().message.id, second.id);
 }
 
+// verifies: CONS-043
+#[xmtp_common::test(unwrap_try = true)]
+async fn denied_group_with_default_filter_is_delivered_when_scoped() {
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    group.update_consent_state(ConsentState::Denied)?;
+    let message = generate_stored_msg(Cursor(100), group.group_id);
+    message.store(&alix.context.db())?;
+    let mut reader = LocalDelivery::new(
+        alix.context.clone(),
+        DeliveryScope::Groups(vec![group.group_id]),
+        LocalDeliveryFilter::default(),
+        None,
+        LocalDeliveryConfig::default(),
+    )?;
+    let item = timeout(Duration::from_secs(5), reader.next_delivery())
+        .await??
+        .unwrap();
+    assert_eq!(item.message.id, message.id);
+}
+
 // verifies: PROC-032
 #[xmtp_common::test(unwrap_try = true)]
 async fn excluded_rows_stay_consumed_after_a_filter_change() {

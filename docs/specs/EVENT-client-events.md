@@ -268,7 +268,8 @@ An event subscription carries no network interest, so a server rejection does no
 | EVENT-014 | Live only | An SDK MUST register a subscription before the call that creates it returns, and MUST NOT hand off to it an event the client emitted before it was registered. | An app that also reads current state on start would handle every earlier change twice. |
 | EVENT-015 | Handoff order | An SDK MUST hand off each subscription's events in the order the client emitted them. | |
 | EVENT-016 | Rejection keeps subscriptions | While the server has rejected the client under CONF-075 and the app has not closed it, an SDK MUST keep every event subscription of that client open unless the app ends it. | A subscription closed by the rejection cannot hand off the `client.rejected_by_server` event that explains it. |
-| EVENT-025 | One client's events | An SDK MUST hand off to a subscription only the events emitted by the client instance on which the app created it, including when two client instances in one process share a database or a credential. | An app with two accounts open shows one account's messages and consent changes under the other. |
+| EVENT-055 | Shared lockout reaches every client | When client instances share one credential handle and that handle's lockout state changes, the client MUST emit `client.lockout_changed` on the event bus of every client instance that shares the handle. | Every client that shares the handle is locked out together; an app told about only one keeps retrying with the others. |
+| EVENT-056 | One client's events | An SDK MUST hand off to a subscription only the events emitted by the client instance on which the app created it, including when two client instances in one process share a database or a credential, other than the lockout event of EVENT-055. | An app with two accounts open shows one account's messages and consent changes under the other. |
 
 ## 3. Filters
 
@@ -308,6 +309,8 @@ The bound counts every event in the queue as the Terms define it: every event em
 A subscription is read with an iterator or with a callback. With a callback, the SDK calls the app's code for each event. The rules below keep callbacks in order, keep one callback's failure from affecting other work, and let an app end a subscription or close the client from inside a callback.
 
 Apps can keep several subscriptions for different kinds or conversations. They should end listeners they no longer use. An SDK may warn about duplicate listeners whose filters overlap.
+
+A callback is handed off when the SDK's start check for its subscription admits it.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
