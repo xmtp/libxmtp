@@ -349,7 +349,7 @@ A registration is published to the inbox's identity topic and confirmed by the p
 
 Every party that decides whether an installation belongs to an inbox does so at a sequence id: a Welcome names one per inbox (JOIN-052, JOIN-053), a group's membership component names one per inbox (GMOD-005), and GMOD-029 owns reconciliation with later identity state. The state at a sequence id is one value for every party, and the installations an inbox has at that point are the members of kind installation in it. A sequence id that no update in the log carries names no state (IDENT-070). A client caches states it has derived; a cached state is one it derived itself.
 
-An app can set a pre-authentication handler, which the SDK calls before it asks the signer to sign a registration, for example so the app can show its wallet or passkey prompt.
+A pre-authentication handler is an app callback that the SDK calls before it asks the signer to sign a registration, for example so the app can show its wallet or passkey prompt (IDENT-076).
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -359,6 +359,7 @@ An app can set a pre-authentication handler, which the SDK calls before it asks 
 | IDENT-073 | Pre-authentication before a registration signature | When an SDK registers an installation whose registration needs an identity-update signature and the app has set a pre-authentication handler, the SDK MUST call the handler and wait for it to return before it asks the signer to sign. | A signature request that arrives before the app's prompt reaches the user unexplained. |
 | IDENT-074 | No pre-authentication without a signature | When an SDK registers an installation whose registration needs no identity-update signature, it MUST NOT call the pre-authentication handler. | The app would show a signing prompt with nothing to sign. |
 | IDENT-075 | Failed pre-authentication stops registration | If the pre-authentication handler fails, then the SDK MUST end the registration without asking the signer to sign and MUST report the failure to the caller as a callback failure. | Continuing asks for a signature the app has refused to prepare for. |
+| IDENT-076 | The app can set a pre-authentication handler | An SDK that registers installations MUST let the app supply a pre-authentication handler when it creates a client. | Without the handler, IDENT-073 to IDENT-075 never apply, and the app cannot show its prompt before a signature request. |
 
 ## 9. Resolving an identifier
 

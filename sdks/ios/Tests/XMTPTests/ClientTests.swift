@@ -196,6 +196,7 @@ class ClientTests: XCTestCase {
 		sleep(10)
 	}
 
+	// verifies: IDENT-076
 	func testPreAuthenticateToInboxCallback() async throws {
 		let fakeWallet = try PrivateKey.generate()
 		let expectation = XCTestExpectation(
