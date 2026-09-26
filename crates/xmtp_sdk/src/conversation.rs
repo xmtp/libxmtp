@@ -20,6 +20,7 @@ use xmtp_mls::MlsContext;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
 use xmtp_mls::messages::decoded_message::{DecodedMessage, MessageBody as CoreMessageBody};
+use xmtp_mls::messages::enrichment::EnrichedStoredMessage;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls::mls_store::MlsStore;
 use xmtp_proto::types::{ConversationType, GroupId};
@@ -825,6 +826,34 @@ fn parent_stored(
         .map_err(XmtpError::unknown)
 }
 
+pub(crate) fn lift_history_messages(
+    enriched: Vec<EnrichedStoredMessage>,
+    client_key: u64,
+) -> Vec<Message> {
+    enriched
+        .into_iter()
+        .filter_map(|enriched| {
+            let message_id = enriched.stored.id.clone();
+            match Message::from_enriched(
+                enriched.stored,
+                enriched.decoded,
+                enriched.parent_stored,
+                client_key,
+            ) {
+                Ok(message) => Some(message),
+                Err(err) => {
+                    tracing::warn!(
+                        message_id = %hex::encode(&message_id),
+                        error = %err,
+                        "skipping stored message that failed to convert"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
 pub(crate) fn query_content_types(
     values: Vec<ContentTypeId>,
 ) -> Result<Vec<xmtp_db::group_message::ContentType>, XmtpError> {
@@ -1084,30 +1113,10 @@ macro_rules! common_conversation {
                 let history_query_count = self.history_query_count.clone();
                 on_sdk_worker(self.inner.context.clone(), async move {
                     let load = || -> Result<Vec<Message>, XmtpError> {
-                        Ok(group
+                        let enriched = group
                             .find_messages_v2_with_stored(&query)
-                            .map_err(XmtpError::unknown)?
-                            .into_iter()
-                            .filter_map(|enriched| {
-                                let message_id = enriched.stored.id.clone();
-                                match Message::from_enriched(
-                                    enriched.stored,
-                                    enriched.decoded,
-                                    enriched.parent_stored,
-                                    client_key,
-                                ) {
-                                    Ok(message) => Some(message),
-                                    Err(err) => {
-                                        tracing::warn!(
-                                            message_id = %hex::encode(&message_id),
-                                            error = %err,
-                                            "skipping stored message that failed to convert"
-                                        );
-                                        None
-                                    }
-                                }
-                            })
-                            .collect())
+                            .map_err(XmtpError::unknown)?;
+                        Ok(lift_history_messages(enriched, client_key))
                     };
                     #[cfg(test)]
                     {

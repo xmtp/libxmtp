@@ -1723,6 +1723,42 @@ async fn get_message_by_id_errors_on_unconvertible_row() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn history_skips_bad_row_and_warns_without_content() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_logging::{Level, test_logging::LogCapture};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let good = group.send_text("good row".into()).await?;
+    let bad = group.send_text("sensitive-history-content".into()).await?;
+    let bad_bytes = hex::decode(&bad.0)?;
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&bad_bytes)))
+            .set(dsl::sender_inbox_id.eq(""))
+            .execute(conn)
+    })?;
+
+    let messages = group.messages(None).await?;
+    assert!(messages.iter().any(|message| message.0.id == good));
+    assert!(!messages.iter().any(|message| message.0.id == bad));
+
+    let enriched = group.inner.find_messages_v2_with_stored(&MsgQueryArgs::default())?;
+    let capture = LogCapture::new(Level::Warn);
+    let lifted = tracing::dispatcher::with_default(&capture.dispatch(), || {
+        crate::conversation::lift_history_messages(enriched, client.client_key())
+    });
+    assert!(lifted.iter().any(|message| message.0.id == good));
+    let warnings = capture.output();
+    let warnings = warnings.lines().filter(|line| line.contains("skipping stored message")).collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
+    let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
+    assert_eq!(warning["message_id"], bad.0);
+    assert!(warning["error"].as_str().is_some_and(|reason| !reason.is_empty()));
+    assert!(!warnings[0].contains("sensitive-history-content"));
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn query_filters_match_stored_catalogue_types() {
     use xmtp_content_types::{
         ContentCodec,
