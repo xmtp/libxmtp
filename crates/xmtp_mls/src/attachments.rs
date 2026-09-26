@@ -654,7 +654,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         let lock = self.runtime().event_lock(&key);
         let shared = {
             let _guard = lock.lock().await;
-            if self.runtime().deleting.lock().contains_key(&relative) {
+            if self.runtime().deleting.lock().contains_key(&key) {
                 return Err(AttachmentClientError::new(Cause::Deleted));
             }
             if store.exists(&relative).await? {
@@ -799,30 +799,38 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         remote: &RemoteAttachment,
     ) -> Result<(), AttachmentClientError> {
         let key = attachment_key(remote)?;
-        let relative = plaintext_rel_path(remote)?;
         let staged = staged_path(&remote.content_digest)?;
         let store = self.runtime().store()?;
         let lock = self.runtime().event_lock(&key);
-        let (upload, owns_upload, download, _deleting) = {
+        let (upload, owns_upload, downloads, _deleting) = {
             let _guard = lock.lock().await;
-            let deleting = DeleteInProgress::new(&self.runtime().deleting, relative.clone());
+            // Marks the whole key directory, so no download into it can start.
+            let deleting = DeleteInProgress::new(&self.runtime().deleting, key.clone());
             let upload = self
                 .runtime()
                 .pending
                 .lock()
                 .get(&remote.content_digest)
                 .and_then(Weak::upgrade);
-            let download = self.runtime().downloads.lock().get(&relative).cloned();
+            let prefix = format!("{key}/");
+            let downloads: Vec<_> = self
+                .runtime()
+                .downloads
+                .lock()
+                .iter()
+                .filter(|(path, _)| path.starts_with(&prefix))
+                .map(|(_, shared)| shared.clone())
+                .collect();
             let owns_upload = upload
                 .as_ref()
                 .is_some_and(|shared| shared.lease.lock().is_some());
             if let Some(shared) = &upload {
                 shared.cancel.cancel();
             }
-            if let Some(shared) = &download {
+            for shared in &downloads {
                 shared.cancel.cancel();
             }
-            (upload, owns_upload, download, deleting)
+            (upload, owns_upload, downloads, deleting)
         };
         #[cfg(test)]
         {
@@ -844,7 +852,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     .map_err(|_| AttachmentClientError::new(Cause::Network))?;
             }
         }
-        if let Some(shared) = download {
+        for shared in downloads {
             let mut outcome = shared.outcome.subscribe();
             while outcome.borrow_and_update().clone().is_none() {
                 outcome
@@ -874,7 +882,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         changed |= self
             .context
             .db()
-            .delete_local_attachment(&relative)
+            .delete_local_attachments_in_dir(&key)
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
             != 0;
         self.runtime().pending.lock().remove(&remote.content_digest);
@@ -3970,6 +3978,44 @@ mod tests {
             .await?;
         assert!(!one.local_path()?.exists());
         assert_eq!(alix.client.attachments().list_local().await?.len(), 1);
+    }
+
+    // verifies: ATCH-047, ATCH-063
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn delete_removes_every_record_in_key_directory() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let created = alix
+            .client
+            .attachments()
+            .create(AttachmentSource::Bytes {
+                bytes: b"shared".to_vec(),
+                filename: Some("one.txt".into()),
+                mime_type: "text/plain".into(),
+            })
+            .await?;
+        let unrelated = alix.client.attachments().create(bytes()).await?;
+        let first = created.remote_attachment().clone();
+        let mut second = first.clone();
+        second.filename = Some("two.txt".into());
+        let key = attachment_key(&first)?;
+        assert_eq!(attachment_key(&second)?, key);
+        let second_relative = plaintext_rel_path(&second)?;
+        assert_ne!(second_relative, plaintext_rel_path(&first)?);
+        std::fs::write(dir.path().join(&second_relative), b"shared")?;
+        // A file already in place is recorded without a request.
+        alix.client.attachments().download(&second).await?;
+        assert_eq!(alix.client.attachments().list_local().await?.len(), 3);
+        alix.client.attachments().delete_local(&first).await?;
+        let listed = alix.client.attachments().list_local().await?;
+        assert_eq!(
+            listed
+                .iter()
+                .map(|row| row.path.as_str())
+                .collect::<Vec<_>>(),
+            vec![plaintext_rel_path(unrelated.remote_attachment())?]
+        );
+        assert!(!dir.path().join(&key).exists());
     }
 
     // verifies: ATCH-051, ATCH-056, ATCH-060
