@@ -413,9 +413,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
         if let Some((location, key)) = data_location {
             use crate::storage_location::StorageLocationError;
-            let inbox_id = identity_strategy
-                .inbox_id()
-                .ok_or(StorageLocationError::InboxId)?;
+            let inbox_id = match location {
+                crate::storage_location::StorageLocation::DataDir(_) => identity_strategy
+                    .inbox_id()
+                    .ok_or(StorageLocationError::InboxId)?,
+                crate::storage_location::StorageLocation::Explicit { .. } => "",
+            };
             let backend_url = api_client.backend_url().unwrap_or_default().to_owned();
             if matches!(
                 location,
