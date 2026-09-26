@@ -108,6 +108,7 @@ Metrics are in-process counters, gauges, and histograms served in the Prometheus
 | `/xmtp.backend.v1.NotificationService/Register` | `xmtp.backend.v1.NotificationService` | `Register` | `unary` |
 | `/xmtp.backend.v1.NotificationService/Unregister` | `xmtp.backend.v1.NotificationService` | `Unregister` | `unary` |
 | `/xmtp.backend.v1.NotificationService/UpdateSubscriptions` | `xmtp.backend.v1.NotificationService` | `UpdateSubscriptions` | `unary` |
+| `/xmtp.backend.v1.AttachmentService/CreateUpload` | `xmtp.backend.v1.AttachmentService` | `CreateUpload` | `unary` |
 | `/grpc.health.v1.Health/Check` | `grpc.health.v1.Health` | `Check` | `unary` |
 | `/grpc.health.v1.Health/Watch` | `grpc.health.v1.Health` | `Watch` | `unary` |
 | `/grpc.health.v1.Health/List` | `grpc.health.v1.Health` | `List` | `unary` |
@@ -160,7 +161,7 @@ The span catalogue names the operation spans an operator measures: the request s
 | Group | Span names |
 | --- | --- |
 | Request | `<grpc_service>/<grpc_method>` from the route table; `unknown/unknown` for any other path |
-| RPC handler | `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.get_inbox_ids`, `rpc.verify_smart_contract_wallet_signatures`, `rpc.get_configuration`, `rpc.register`, `rpc.unregister`, `rpc.update_subscriptions` |
+| RPC handler | `rpc.publish`, `rpc.query`, `rpc.query_newest`, `rpc.get_inbox_ids`, `rpc.verify_smart_contract_wallet_signatures`, `rpc.get_configuration`, `rpc.register`, `rpc.unregister`, `rpc.update_subscriptions`, `rpc.create_upload` |
 | Publish stages | `publish.parse_publish`, `publish.validate_publish`, `publish.locks`, `db.commit_publish` |
 | Streams | `tailer.bootstrap`, `tailer.poll`, `stream.fetch`, `stream.update` |
 | Verification | `scw.verify` |

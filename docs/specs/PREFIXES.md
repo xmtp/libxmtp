@@ -28,6 +28,7 @@ A prefix appears exactly once. A prefix whose document was deleted is removed fr
 | `SYNC` | Device sync | `docs/specs/SYNC-device-sync.md` |
 | `ARCH` | Archive format | `docs/specs/ARCH-archive-format.md` |
 | `CTYPE` | Content types | `docs/specs/CTYPE-content-types.md` |
+| `ATCH` | Remote attachments | `docs/specs/ATCH-remote-attachments.md` |
 | `EVENT` | Client events | `docs/specs/EVENT-client-events.md` |
 
 ## Reused prefixes and their floors

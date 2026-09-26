@@ -201,7 +201,7 @@ The Remote attachment parameters table gives the map values for a single remote 
 | `secret` | required | Lowercase hexadecimal, 32 bytes |
 | `salt` | required | Lowercase hexadecimal, 32 bytes |
 | `nonce` | required | Lowercase hexadecimal, 12 bytes |
-| `scheme` | required | `https://` |
+| `scheme` | required | `https://`, or `http://` when the URL's host is `localhost` or a loopback address |
 | `contentLength` | optional | Decimal unsigned integer, 0 through 4294967295; ciphertext and tag length |
 | `filename` | optional | String |
 
@@ -255,7 +255,7 @@ message RemoteAttachmentInfo {
   bytes nonce = 3;
   // A byte array for the salt used to encrypt the remote content payload
   bytes salt = 4;
-  // The scheme of the URL. Must be "https://"
+  // The scheme of the URL: "https://", or "http://" for a loopback host
   string scheme = 5;
   // The URL of the remote content
   string url = 6;

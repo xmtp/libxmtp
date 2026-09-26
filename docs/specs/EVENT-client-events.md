@@ -45,6 +45,7 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), cat
 | `PUSH` | Owns the notification state (PUSH-262). |
 | `SYNC` | Owns the HMAC root key (SYNC-015, SYNC-022) and SYNC-005, which hides sync groups from an app. |
 | `ARCH` | Owns archive import (section 4, ARCH-021). |
+| `ATCH` | Owns pending attachment status (ATCH-034), downloads (section 6), local deletion (ATCH-047), attachment keys (ATCH-041), and the failure causes (ATCH-060). |
 
 ## Terms
 
@@ -89,6 +90,13 @@ One act can produce events of more than one kind. A commit that removes the own 
 | `notifications.failed` | The notification state becomes failed under PUSH-262 | Failure | `notifications_failed` |
 | `archive.restored` | An archive import ends, with or without an error, after it stored at least one element (ARCH-021) | Import | `archive_restored` |
 | `connection.state_changed` | The client-wide state of open app streams that hold network interest changes under EVENT-027 | Transition | `connection_state_changed` |
+| `attachment.upload_started` | A pending attachment's status becomes `uploading` (ATCH-034) | Transition | `attachment_upload_started` |
+| `attachment.upload_completed` | A pending attachment's status becomes `complete` (ATCH-025) | Transition | `attachment_upload_completed` |
+| `attachment.upload_failed` | A pending attachment's status becomes `failed` (ATCH-024, ATCH-025, ATCH-026, ATCH-036, ATCH-047, ATCH-071, ATCH-078) | Transition | `attachment_upload_failed` |
+| `attachment.download_started` | The client begins a download that neither ATCH-052 nor ATCH-058 ends | Download | `attachment_download_started` |
+| `attachment.download_completed` | A download makes a plaintext file readable at its path under ATCH-051 | Download | `attachment_download_completed` |
+| `attachment.download_failed` | A download that emitted `attachment.download_started` ends without a plaintext file | Download | `attachment_download_failed` |
+| `attachment.deleted` | An app's request under ATCH-047 deletes at least one of the attachment key directory, the staged ciphertext, and the local attachment record | Request | `attachment_deleted` |
 
 The payload of every event, including `lagged`, is the `ClientEvent` below. The client and SDK use the typed `EventKind` set in this section.
 
@@ -115,6 +123,13 @@ dictionary ClientEvent {
   NotificationsFailed notifications_failed;
   ArchiveRestored archive_restored;
   ConnectionStateChanged connection_state_changed;
+  AttachmentRef attachment_upload_started;
+  AttachmentRef attachment_upload_completed;
+  AttachmentFailed attachment_upload_failed;
+  AttachmentRef attachment_download_started;
+  AttachmentRef attachment_download_completed;
+  AttachmentFailed attachment_download_failed;
+  AttachmentRef attachment_deleted;
   Lagged lagged;
 };
 
@@ -125,7 +140,9 @@ enum EventKind {
   "hmac_keys.updated", "identity.registered", "identity.own_installation_added",
   "identity.own_installation_revoked", "client.rejected_by_server", "client.lockout_changed",
   "conversation.fork_detected", "notifications.failed", "archive.restored",
-  "connection.state_changed", "lagged"
+  "connection.state_changed", "attachment.upload_started", "attachment.upload_completed",
+  "attachment.upload_failed", "attachment.download_started", "attachment.download_completed",
+  "attachment.download_failed", "attachment.deleted", "lagged"
 };
 enum ConversationType { "group", "dm" };
 enum JoinOrigin { "created", "welcomed" };
@@ -208,6 +225,17 @@ dictionary ConnectionStateChanged {
   required ConnectionState previous;
   required ConnectionState current;
 };
+dictionary AttachmentRef {
+  required DOMString attachment_key;              // ATCH-041
+  required DOMString url;                         // the remote attachment's url
+  required DOMString content_digest;              // lowercase hexadecimal (ATCH terms)
+};
+dictionary AttachmentFailed {
+  required DOMString attachment_key;
+  required DOMString url;
+  required DOMString content_digest;
+  required DOMString cause;                       // an AttachmentFailureCause value (ATCH-060)
+};
 dictionary Lagged { required unsigned long long discarded; };
 
 ```
@@ -230,6 +258,8 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 | `cause` in `NotificationsFailed` | The failure cause PUSH-262 records |
 | `change` in `LockoutChanged` | `entered` or `left`, per the kind table's trigger |
 | `discarded` in `Lagged` | The count EVENT-031 names |
+| `attachment_key`, `url`, `content_digest` in `AttachmentRef` and `AttachmentFailed` | The attachment key under ATCH-041, the `url`, and the `content_digest` of the remote attachment the transition, download, or deletion is about |
+| `cause` in `AttachmentFailed` | The `AttachmentFailureCause` the SDK reports for the failure under ATCH-060 |
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -254,7 +284,7 @@ The member source table, which EVENT-024 makes binding. Members that other rows 
 
 An event for a change to stored state is emitted after the change is stored, so an app that reads again on an event sees the change. A change that is not stored, because a transaction failed or was retried, has no event.
 
-Order is kept where an app depends on it: within one group, and within one consent entity. Events for two groups, including two groups of one stitched DM, and a group's events relative to its consent events, can be emitted in either order, because the client changes them independently.
+Order is kept where an app depends on it: within one group, within one consent entity, and within one attachment key. Events for two groups, including two groups of one stitched DM, and a group's events relative to its consent events, can be emitted in either order, because the client changes them independently.
 
 Emission does not depend on why the change happened: a message stream, a sync call, a push-driven fetch, a background worker, or an app act all produce the same events.
 
@@ -268,6 +298,7 @@ An event subscription carries no network interest, so a server rejection does no
 | EVENT-014 | Live only | An SDK MUST register a subscription before the call that creates it returns, and MUST NOT hand off to it an event the client emitted before it was registered. | An app that also reads current state on start would handle every earlier change twice. |
 | EVENT-015 | Handoff order | An SDK MUST hand off each subscription's events in the order the client emitted them. | |
 | EVENT-016 | Rejection keeps subscriptions | While the server has rejected the client under CONF-075 and the app has not closed it, an SDK MUST keep every event subscription of that client open unless the app ends it. | A subscription closed by the rejection cannot hand off the `client.rejected_by_server` event that explains it. |
+| EVENT-055 | Attachment event order | The client MUST emit the `attachment.*` events whose payloads carry the same `attachment_key` in the order it made the changes they report. | An app that receives `attachment.upload_completed` before `attachment.upload_started` shows a finished upload as running. |
 | EVENT-025 | One client's events | An SDK MUST hand off to a subscription only the events emitted by the client instance on which the app created it, including when two client instances in one process share a database or a credential. | An app with two accounts open shows one account's messages and consent changes under the other. |
 
 ## 3. Filters
