@@ -1,4 +1,4 @@
-use schemars::JsonSchema;
+use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
 use url::Url;
 use xmtp_configuration::{
@@ -10,10 +10,77 @@ pub const DEFAULT_PRESIGN_TTL_SECONDS: u32 = 900;
 pub const MIN_PRESIGN_TTL_SECONDS: u32 = 300;
 pub const MAX_PRESIGN_TTL_SECONDS: u32 = 3600;
 
+/// Accept a literal value or an environment reference resolved before validation.
+fn with_environment(literal: Schema) -> Schema {
+    json_schema!({"anyOf": [literal, {"type": "string", "pattern": "^env:[^=\\x00]+$(?![\\s\\S])"}]})
+}
+
+/// Match all text forms of the IPv6 loopback address, with or without `::`.
+fn ipv6_loopback_pattern() -> String {
+    let zero = "0{1,4}";
+    let mut forms = vec![format!("(?:{zero}:){{7}}0{{0,3}}1")];
+    for left in 0..=6 {
+        for right in 0..=6 - left {
+            let before = vec![zero; left].join(":");
+            let after = vec![zero; right].join(":");
+            let separator = if right == 0 { "" } else { ":" };
+            forms.push(format!("{before}::{after}{separator}0{{0,3}}1"));
+        }
+    }
+    forms.join("|")
+}
+
+/// Constrain the public URL shape. The runtime performs the final RFC 3986 check.
+fn url_shape(allow_trailing_slash: bool) -> Schema {
+    let octet = r"(?:0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])";
+    let localhost = r"[lL][oO][cC][aA][lL][hH][oO][sS][tT]";
+    let loopback = format!(
+        r"(?:{localhost}|127\.(?:{octet}\.){{2}}{octet}|\[(?:{})\])",
+        ipv6_loopback_pattern()
+    );
+    let host = r"(?:[A-Za-z0-9._~!$&'()*+,;=-]+|\[[0-9A-Fa-f:.]+\])";
+    let port = r"(?::(?:0*(?:[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)?";
+    let path = r"(?:/[A-Za-z0-9._~!$&'()*+,;=:@/%-]*)*";
+    let no_dot_segments = if allow_trailing_slash {
+        ""
+    } else {
+        r"(?!.*(?:/)(?:\.|%2[eE]){1,2}(?:/|$))"
+    };
+    let no_trailing_slash = if allow_trailing_slash {
+        ""
+    } else {
+        r"(?!.*[/]$)"
+    };
+    let pattern = format!(
+        r"^{no_dot_segments}{no_trailing_slash}(?:https://{host}|http://{loopback}){port}{path}$(?![\s\S])"
+    );
+    with_environment(json_schema!({"type": "string", "format": "uri", "pattern": pattern}))
+}
+
+fn base_url_schema(_: &mut SchemaGenerator) -> Schema {
+    url_shape(false)
+}
+
+fn endpoint_schema(_: &mut SchemaGenerator) -> Schema {
+    url_shape(true)
+}
+
+fn key_prefix_schema(_: &mut SchemaGenerator) -> Schema {
+    let literal = json_schema!({
+        "type": "string",
+        "pattern": r"^(?!/)(?!.*//)(?!.*(?:^|/)\.{1,2}(?:/|$))[A-Za-z0-9_./-]*(?![\s\S])"
+    });
+    let mut schema = with_environment(literal);
+    schema.insert("default".to_owned(), "".into());
+    schema
+}
+
 /// Operator settings for remote attachment storage.
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AttachmentsConfig {
+    /// Public download URL. An `env:NAME` value is resolved before validation.
+    #[schemars(schema_with = "base_url_schema")]
     pub base_url: String,
     #[schemars(range(min = 1, max = MAX_ATTACHMENT_UPLOAD_BYTES))]
     pub max_upload_bytes: Option<u64>,
@@ -70,16 +137,17 @@ impl std::fmt::Debug for TargetConfig {
 #[derive(Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct S3Config {
+    /// Storage URL. An `env:NAME` value is resolved before validation.
+    #[schemars(schema_with = "endpoint_schema")]
     pub endpoint: String,
     pub region: String,
     pub bucket: String,
     /// The prefix can be empty. Other prefixes use ASCII letters, digits,
     /// `_`, `-`, `.`, and slash separators. A trailing slash is allowed.
     /// Leading slashes, empty interior segments, and `.` or `..` segments are invalid.
+    /// An `env:NAME` value is resolved before validation.
     #[serde(default)]
-    #[schemars(regex(
-        pattern = r"^(?!/)(?!.*//)(?!.*(?:^|/)\.{1,2}(?:/|$))[A-Za-z0-9_./-]*(?![\s\S])"
-    ))]
+    #[schemars(schema_with = "key_prefix_schema")]
     pub key_prefix: String,
     pub credentials: CredentialsConfig,
     #[schemars(range(min = MIN_PRESIGN_TTL_SECONDS, max = MAX_PRESIGN_TTL_SECONDS))]

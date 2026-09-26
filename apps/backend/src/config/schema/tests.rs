@@ -390,6 +390,135 @@ fn published_schema_checks_urls_chain_keys_and_environment_references() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_attachment_urls_and_environment_references() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let baseline = serde_json::to_value(s3)?;
+
+    for (field, accepted, rejected) in [
+        (
+            "base_url",
+            vec![
+                "https://files.example.com/a",
+                "https://files.example.com",
+                "http://localhost:9000/a",
+                "http://127.0.0.1:9000/a",
+                "http://[::1]:9000/a",
+                "env:XMTP_S3_BASE_URL",
+            ],
+            vec![
+                "",
+                "env:",
+                "http://files.example.com/a",
+                "ftp://h/a",
+                "https://h/a/",
+                "https://h/a?x=1",
+                "https://h/a#f",
+                "https://u:p@h/a",
+                "https://h/a b",
+                "https:h/a",
+            ],
+        ),
+        (
+            "endpoint",
+            vec![
+                "https://s3.example.com",
+                "https://s3.example.com/prefix/",
+                "http://127.0.0.1:9067",
+                "env:XMTP_S3_URL",
+            ],
+            vec!["http://s3.example.com", "https://h?x=1", "ftp://h"],
+        ),
+    ] {
+        for (values, expected) in [(accepted, true), (rejected, false)] {
+            for value in values {
+                let mut instance = baseline.clone();
+                let field_ref = if field == "base_url" {
+                    &mut instance["attachments"]["base_url"]
+                } else {
+                    &mut instance["attachments"]["target"]["S3"]["endpoint"]
+                };
+                *field_ref = json!(value);
+                assert_eq!(
+                    validator.is_valid(&instance),
+                    expected,
+                    "{field} = {value:?}"
+                );
+            }
+        }
+    }
+
+    let mut instance = baseline;
+    instance["attachments"]["target"]["S3"]["key_prefix"] = json!("env:XMTP_PREFIX");
+    assert!(validator.is_valid(&instance));
+
+    let schema: Value =
+        serde_json::from_str(include_str!("../../../../../docs/schemas/backend-v1.json"))?;
+    assert_eq!(
+        schema["$defs"]["S3Config"]["properties"]["key_prefix"]["default"],
+        json!("")
+    );
+}
+
+// These are the URL vectors in xmtp_configuration/src/common/attachments/tests.rs.
+// Environment references are the one exception: the loader resolves them before
+// the runtime check, while the published schema accepts the reference itself.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_attachment_base_url_schema_agrees_with_runtime_vectors() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let baseline = serde_json::to_value(s3)?;
+    for value in [
+        "https://example.com/attachments",
+        "https://example.com",
+        "https://CDN.example.com/att",
+        "https://example.com:443/att",
+        "https://example.com/att%20file",
+        "http://LOCALHOST/files",
+        "http://127.0.0.1:9000",
+        "http://127.0.0.1/attachments",
+        "http://[::1]/attachments",
+        "http://[0:0:0:0:0:0:0:1]/att",
+        "http://example.com/attachments",
+        "HTTPS://example.com/a",
+        "Http://127.0.0.1/a",
+        "https://example.com/attachments?key=value",
+        "https://example.com/attachments#section",
+        "https://example.com/attachments/",
+        "https://example.com/attachments/ ",
+        "https://example.com/attachments/\n",
+        "https://example.com/a/..",
+        "https://example.com/x/../files",
+        "https://example.com/./files",
+        "https://example.com/%2e/files",
+        " https://example.com/a",
+        "https://example.com/files ",
+        "https://example.com/fi les",
+        "https://example.com/fi\tles",
+        r"https:\\example.com\a",
+        "https:example.com/a",
+        "https:example.com/files",
+        "https:/example.com/files",
+        "https://bücher.example/att",
+        "https://exa%6Dple.com/att",
+        "http://2130706433/att",
+        "http://0x7f.1/att",
+        "http://127.1/att",
+        "https://user:secret@example.com/attachments",
+        "https://user@example.com/attachments",
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["base_url"] = json!(value);
+        let runtime = xmtp_configuration::check_base_url(value).is_ok();
+        assert_eq!(
+            validator.is_valid(&instance),
+            runtime,
+            "base_url = {value:?}"
+        );
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn keepalive_interval_fits_the_started_wire_field() {
     let mut config: Config = toml::from_str(
         "[database]\nurl = 'postgres://localhost/xmtp'\n[server]\nidentifier = 'org.xmtp.test'",
