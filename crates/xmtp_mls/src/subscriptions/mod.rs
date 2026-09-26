@@ -31,7 +31,7 @@ pub mod message_reader;
 pub(crate) mod policy;
 pub(crate) mod recovery;
 mod stream_all;
-mod stream_conversations;
+pub mod stream_conversations;
 pub mod stream_failure;
 pub mod stream_messages;
 // Live integration tests for the router (v3 wire; same gating rationale as

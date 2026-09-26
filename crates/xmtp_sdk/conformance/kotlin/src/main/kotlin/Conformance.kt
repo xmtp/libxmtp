@@ -3,8 +3,11 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -13,6 +16,8 @@ import uniffi.xmtp_sdk.*
 import java.lang.ref.WeakReference
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 private fun sameEncoded(
     actual: EncodedContent,
@@ -351,6 +356,68 @@ fun main() =
         val afterAck = protocolGroup.messageReader()
         check(afterAck.next()?.id == secondID) { "adapter did not acknowledge on next request" }
         afterAck.end()
+        val breakGroup = reopened.conversations().createGroup(emptyList(), null)
+        val breakID = breakGroup.sendText("close after take", null)
+        val breakReasons = mutableListOf<SDKStreamCloseReason>()
+        val retainedFlow = reopenedHost.messages(breakGroup, onClose = { breakReasons.add(it) })
+        check(
+            retainedFlow
+                .take(1)
+                .toList()
+                .single()
+                .id == breakID,
+        )
+        check(breakReasons == listOf(SDKStreamCloseReason.Closed)) { "take did not close the stored flow" }
+        val breakReplay = breakGroup.messageReader()
+        check(withTimeout(3_000) { breakReplay.next() }?.id == breakID) {
+            "take acknowledged the last message"
+        }
+        breakReplay.end()
+        val firstReasons = mutableListOf<SDKStreamCloseReason>()
+        val retainedFirst = reopenedHost.messages(breakGroup, onClose = { firstReasons.add(it) })
+        check(retainedFirst.first().id == breakID)
+        check(firstReasons == listOf(SDKStreamCloseReason.Closed)) { "first did not close the stored flow" }
+        val thrownReasons = mutableListOf<SDKStreamCloseReason>()
+        val retainedThrown = reopenedHost.messages(breakGroup, onClose = { thrownReasons.add(it) })
+        try {
+            retainedThrown.collect { throw IllegalStateException("collector stopped") }
+            error("collector exception did not leave the flow")
+        } catch (error: IllegalStateException) {
+            check(error.message == "collector stopped")
+        }
+        check(thrownReasons == listOf(SDKStreamCloseReason.Closed)) {
+            "collector exception did not close the stored flow"
+        }
+        val thrownReplay = breakGroup.messageReader()
+        check(withTimeout(3_000) { thrownReplay.next() }?.id == breakID) {
+            "collector exception acknowledged the last message"
+        }
+        thrownReplay.end()
+        val stateGroup = reopened.conversations().createGroup(emptyList(), null)
+        val stateID = stateGroup.sendText("throwing state callback", null)
+        val uncaughtStateError = AtomicReference<Throwable?>()
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { _, error -> uncaughtStateError.compareAndSet(null, error) }
+        try {
+            val stateFlow =
+                reopenedHost.messages(
+                    stateGroup,
+                    onConnectionStateChange = { _, _ -> throw IllegalStateException("state callback failed") },
+                )
+            check(
+                withTimeout(3_000) {
+                    stateFlow
+                        .take(1)
+                        .toList()
+                        .single()
+                        .id
+                } == stateID,
+            )
+            delay(100)
+            check(uncaughtStateError.get() == null) { "state callback crashed its coroutine" }
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
+        }
         val openedReader = CompletableDeferred<MessageReader>()
         val releaseOpening = CompletableDeferred<Unit>()
         SDKClient.readerOpenedForTest = { opened ->
@@ -363,12 +430,55 @@ fun main() =
             }
         val lateReader = withTimeout(10_000) { openedReader.await() }
         cancelledOpening.cancel(CancellationException("cancel during reader creation"))
+        withTimeout(3_000) { cancelledOpening.join() }
         releaseOpening.complete(Unit)
-        withTimeout(10_000) { cancelledOpening.join() }
         SDKClient.readerOpenedForTest = null
+        withTimeout(10_000) {
+            while (lateReader.connectionState() != ConnectionState.CLOSED) delay(10)
+        }
         check(withTimeout(10_000) { lateReader.next() } == null) { "late reader was not ended" }
         val reopenedReader = protocolGroup.messageReader()
         reopenedReader.end()
+        var conversationClose: SDKStreamCloseReason? = null
+        val conversationValues =
+            async {
+                reopenedHost
+                    .conversations(onClose = { conversationClose = it })
+                    .take(1)
+                    .toList()
+            }
+        delay(100)
+        reopened.conversations().createGroup(emptyList(), null)
+        check(withTimeout(15_000) { conversationValues.await() }.size == 1)
+        check(conversationClose == SDKStreamCloseReason.Closed)
+        val monitorCalls = AtomicInteger()
+        val monitorClosed = CompletableDeferred<Unit>()
+        val fakeMonitor =
+            async {
+                readerFlow<Unit, Unit>(
+                    owner = reopenedHost,
+                    open = { Unit },
+                    next = { awaitCancellation() },
+                    end = {},
+                    connectionState = { ConnectionState.CONNECTING },
+                    connectionStateChanged = { _, _ ->
+                        monitorCalls.incrementAndGet()
+                        ConnectionState.CLOSED
+                    },
+                    onClose = null,
+                    onConnectionStateChange = { _, current ->
+                        if (current == ConnectionState.CLOSED) monitorClosed.complete(Unit)
+                    },
+                ).collect {}
+            }
+        try {
+            withTimeout(5_000) { monitorClosed.await() }
+            val callsAtClosed = monitorCalls.get()
+            delay(100)
+            check(monitorCalls.get() == callsAtClosed) { "state monitor kept reading after Closed" }
+        } finally {
+            fakeMonitor.cancelAndJoin()
+        }
         println("Kotlin scenario 7: durable stream and idle cancellation passed")
 
         val largeExpiry = 9_007_199_254_740_993L

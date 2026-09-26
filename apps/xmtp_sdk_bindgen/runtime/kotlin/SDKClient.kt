@@ -1,12 +1,6 @@
 package uniffi.xmtp_sdk
 
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.withContext
 
 private class CodecRegistry(
     codecs: List<SDKContentCodec>,
@@ -137,22 +131,27 @@ class SDKClient private constructor(
     }
 
     /** A value is acknowledged only when the next collection request starts. */
-    fun messages(group: Group): Flow<Message> =
-        flow {
-            val owner = this@SDKClient
-            val opening = CoroutineScope(Dispatchers.Default).async { group.messageReader() }
-            var reader: MessageReader? = null
-            try {
-                reader = opening.await()
-                while (true) {
-                    owner.raw.clientKey()
-                    val value = reader.next() ?: break
-                    emit(value)
-                }
-            } finally {
-                withContext(NonCancellable) {
-                    runCatching { (reader ?: opening.await()).end() }
-                }
-            }
-        }
+    fun messages(
+        group: Group,
+        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
+        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
+    ): Flow<Message> =
+        messageFlow(
+            this,
+            open = { group.messageReader() },
+            onClose = onClose,
+            onConnectionStateChange = onConnectionStateChange,
+        )
+
+    fun conversations(
+        kind: ConversationKind? = null,
+        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
+        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
+    ): Flow<Conversation> =
+        conversationFlow(
+            this,
+            open = { raw.conversations().conversationReader(kind) },
+            onClose = onClose,
+            onConnectionStateChange = onConnectionStateChange,
+        )
 }

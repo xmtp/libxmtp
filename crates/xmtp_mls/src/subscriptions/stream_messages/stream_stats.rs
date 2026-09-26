@@ -13,6 +13,8 @@ use std::{
     task::{Context, Poll},
 };
 use tokio::sync::Notify;
+#[cfg(test)]
+use tokio::sync::oneshot;
 use xmtp_common::{StreamHandle, time::now_ns};
 use xmtp_db::group_message::StoredGroupMessage;
 
@@ -56,16 +58,35 @@ pub struct StreamStatsWrapper {
     watch: Box<dyn StreamHandle<StreamOutput = ()>>,
 }
 
+#[cfg(test)]
+struct WaitGate {
+    observed: oneshot::Sender<bool>,
+}
+
 impl StreamStatsWrapper {
     pub fn new(inner: StreamAllMessages) -> Self {
+        #[cfg(test)]
+        {
+            Self::new_inner(inner, None)
+        }
+        #[cfg(not(test))]
+        {
+            Self::new_inner(inner)
+        }
+    }
+
+    fn new_inner(inner: StreamAllMessages, #[cfg(test)] wait_gate: Option<WaitGate>) -> Self {
         let stats = Arc::new(StreamStats {
             pending: parking_lot::Mutex::new(Vec::new()),
         });
         let control = inner.control.clone();
+        let mut changes = control.observer();
         let events = stats.clone();
         let watch = xmtp_common::spawn(None, async move {
             let mut previous = StreamState::Unknown;
             let mut reconnect = None;
+            #[cfg(test)]
+            let mut wait_gate = wait_gate;
             loop {
                 let status = control.catch_up_snapshot();
                 let state = if status.connection == IncomingConnection::Closed {
@@ -101,7 +122,29 @@ impl StreamStatsWrapper {
                     pending.push(StreamStat::ChangeState { state });
                     previous = state;
                 }
-                control.changed().await;
+                #[cfg(test)]
+                {
+                    let probe = if state == StreamState::Waiting {
+                        wait_gate.take()
+                    } else {
+                        None
+                    };
+                    if probe.is_some() {
+                        control.notify_change_for_test();
+                    }
+                    let changed = changes.changed();
+                    futures::pin_mut!(changed);
+                    if let Some(probe) = probe {
+                        let ready = futures::poll!(&mut changed).is_ready();
+                        let _ = probe.observed.send(ready);
+                        if ready {
+                            continue;
+                        }
+                    }
+                    changed.await;
+                }
+                #[cfg(not(test))]
+                changes.changed().await;
             }
         });
         Self {
@@ -146,6 +189,20 @@ mod tests {
     use super::*;
     use crate::tester;
     use xmtp_common::wait_for_some;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn stream_stats_observes_change_between_snapshot_and_wait() {
+        tester!(alix, disable_workers);
+        let stream = StreamAllMessages::new_owned(alix.context.clone(), None, None).await?;
+        let (observed, ready) = oneshot::channel();
+        let wrapper = StreamStatsWrapper::new_inner(stream, Some(WaitGate { observed }));
+
+        assert!(
+            xmtp_common::time::timeout(std::time::Duration::from_secs(5), ready).await??,
+            "the stats loop subscribed after its snapshot and missed the change"
+        );
+        drop(wrapper);
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_stream_stats() {

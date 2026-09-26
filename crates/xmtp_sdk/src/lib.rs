@@ -15,6 +15,7 @@ mod conversation;
 mod conversations;
 mod credentials;
 mod crypto;
+mod delivery;
 mod diagnostics;
 mod error;
 mod foreign;
@@ -25,7 +26,6 @@ mod message;
 #[cfg(not(target_arch = "wasm32"))]
 mod notifications;
 mod preferences;
-mod reader;
 mod signer;
 mod state;
 mod static_helpers;
@@ -55,6 +55,9 @@ pub use credentials::{
     Backend, BackendOptions, BackendSource, Credential, CredentialError, CredentialSource,
 };
 pub use crypto::{EncryptedEncodedContent, EncryptionKeys};
+#[cfg(test)]
+use delivery as reader;
+pub use delivery::{ConnectionState, ConversationReader, MessageReader};
 pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
 pub use error::{ErrorCategory, ErrorDetails, XmtpError};
 pub use identity::{
@@ -74,7 +77,6 @@ pub use notifications::{
     NotificationChannel, NotificationConfig, NotificationFailure, NotificationState,
 };
 pub use preferences::{ConsentEntity, ConsentRecord, ConsentState, Preferences};
-pub use reader::MessageReader;
 pub use signer::{
     PublicIdentity, PublicIdentityKind, Signature, Signer, SignerError, SignerKind, SigningRequest,
     generate_local_signer, local_signer_from_private_key,

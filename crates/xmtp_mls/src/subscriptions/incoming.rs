@@ -377,6 +377,24 @@ impl IncomingLease {
         let _ = changes.changed().await;
     }
 
+    /// Subscribe before reading a status so an update cannot be missed.
+    pub fn subscribe_changes(&self) -> watch::Receiver<u64> {
+        self.coordinator.state.changed.subscribe()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn notify_change_for_test(&self) {
+        self.coordinator.state.notify();
+    }
+
+    /// Hold the shared observer to test that another reader uses its own observer.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn lock_change_receiver_for_test(
+        &self,
+    ) -> tokio::sync::MutexGuard<'_, watch::Receiver<u64>> {
+        self.changes.lock().await
+    }
+
     /// Release interest even if another task still holds this lease to watch status.
     pub fn close(&self) {
         let mut statuses = self.coordinator.state.statuses.lock();
@@ -399,5 +417,46 @@ impl IncomingLease {
 impl Drop for IncomingLease {
     fn drop(&mut self) {
         self.close();
+    }
+}
+
+#[cfg(test)]
+mod lease_observer_tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn lease_change_after_snapshot_is_not_lost() {
+        let (commands, _receiver) = mpsc::unbounded_channel();
+        let coordinator = Arc::new(IncomingCoordinator {
+            commands,
+            generations: AtomicU64::new(0),
+            state: Arc::new(SharedState::default()),
+        });
+        let lease = coordinator.acquire(IncomingScope::AllGroups);
+        let _status = lease.snapshot();
+        coordinator.state.notify();
+        xmtp_common::time::timeout(std::time::Duration::from_secs(1), lease.changed()).await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn lease_change_wakes_independent_observers() {
+        let (commands, _receiver) = mpsc::unbounded_channel();
+        let coordinator = Arc::new(IncomingCoordinator {
+            commands,
+            generations: AtomicU64::new(0),
+            state: Arc::new(SharedState::default()),
+        });
+        let lease = coordinator.acquire(IncomingScope::AllGroups);
+        let mut first_changes = lease.subscribe_changes();
+        let mut second_changes = lease.subscribe_changes();
+        let _status = lease.snapshot();
+        coordinator.state.notify();
+        let (first, second) =
+            xmtp_common::time::timeout(std::time::Duration::from_secs(1), async {
+                futures::join!(first_changes.changed(), second_changes.changed())
+            })
+            .await?;
+        first?;
+        second?;
     }
 }

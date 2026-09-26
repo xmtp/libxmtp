@@ -284,6 +284,30 @@ assert.equal(
   "first item was not acknowledged on next request",
 );
 await afterAck.end();
+const breakGroup = await reopened.conversations().createGroup([], undefined);
+const breakID = await breakGroup.sendText("close after break");
+const breakReasons: sdk.StreamCloseReason[] = [];
+const retainedStream = new sdk.MessageStream(
+  (signal) => breakGroup.messageReader({ signal }),
+  reopened,
+  { onClose: (reason) => breakReasons.push(reason) },
+);
+for await (const value of retainedStream) {
+  assert.equal(value.id.toString(), breakID.toString());
+  break;
+}
+assert.deepEqual(
+  breakReasons.map((reason) => reason.kind),
+  ["closed"],
+  "break did not close the stored stream",
+);
+const breakReplay = await breakGroup.messageReader();
+assert.equal(
+  (await breakReplay.next())?.id.toString(),
+  breakID.toString(),
+  "break acknowledged the last message",
+);
+await breakReplay.end();
 
 let resolveCreation!: (reader: {
   next: () => Promise<undefined>;
@@ -298,16 +322,206 @@ const opening = new sdk.MessageStream(
   reopened,
 );
 const openingRead = opening.next();
-await opening.return();
+await opening.end();
+assert.equal((await openingRead).done, true, "opening read did not settle");
 resolveCreation({
   next: async () => undefined,
   end: async () => {
     endedLate = true;
   },
 });
-assert.equal((await openingRead).done, true);
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(endedLate, true, "late reader remained open");
+const closeReasons: sdk.StreamCloseReason[] = [];
+const explicitlyClosed = new sdk.MessageStream(
+  async () => ({ next: async () => undefined, end: async () => {} }),
+  reopened,
+  { onClose: (reason) => closeReasons.push(reason) },
+);
+await explicitlyClosed.end();
+assert.deepEqual(
+  closeReasons.map((reason) => reason.kind),
+  ["closed"],
+);
+let endedAfterCloseThrow = false;
+const throwingClose = new sdk.MessageStream(
+  async () => ({
+    next: async () => undefined,
+    end: async () => {
+      endedAfterCloseThrow = true;
+    },
+  }),
+  reopened,
+  {
+    onClose: () => {
+      throw new Error("close callback failed");
+    },
+  },
+);
+await throwingClose.ready();
+await assert.rejects(throwingClose.end(), /close callback failed/);
+assert.equal(endedAfterCloseThrow, true, "throwing onClose skipped reader.end");
+let endedAfterFailureCloseThrow = false;
+const throwingFailureClose = new sdk.MessageStream(
+  async () => ({
+    next: async () => {
+      throw new Error("reader failed");
+    },
+    end: async () => {
+      endedAfterFailureCloseThrow = true;
+    },
+  }),
+  reopened,
+  {
+    onClose: () => {
+      throw new Error("failure callback failed");
+    },
+  },
+);
+await throwingFailureClose.ready();
+await assert.rejects(throwingFailureClose.next(), /failure callback failed/);
+assert.equal(
+  endedAfterFailureCloseThrow,
+  true,
+  "throwing failure callback skipped reader.end",
+);
+let stateCallbackCalls = 0;
+const throwingState = new sdk.MessageStream(
+  async () => ({
+    next: async () => undefined,
+    end: async () => {},
+    connectionState: () => sdk.ConnectionState.Connected,
+    connectionStateChanged: async () => sdk.ConnectionState.Closed,
+  }),
+  reopened,
+  {
+    onConnectionStateChange: () => {
+      stateCallbackCalls += 1;
+      throw new Error("state callback failed");
+    },
+  },
+);
+await throwingState.ready();
+await new Promise((resolve) => setTimeout(resolve, 10));
+assert.equal(stateCallbackCalls, 1);
+await throwingState.end();
+for (const code of [
+  "RecoveryExhausted",
+  "Storage",
+  "Lagged",
+  "CredentialRejected",
+  "CredentialExhausted",
+  "BackendMismatch",
+  "ClientVersionTooOld",
+  "ConsumerOwned",
+  "ForeignCursor",
+]) {
+  const failure = Object.assign(new Error(code), { code });
+  const reasons: sdk.StreamCloseReason[] = [];
+  const failing = new sdk.MessageStream(
+    async () => ({
+      next: async () => {
+        throw failure;
+      },
+      end: async () => {},
+    }),
+    reopened,
+    { onClose: (reason) => reasons.push(reason) },
+  );
+  await assert.rejects(failing.next(), (error) => error === failure);
+  assert.equal(reasons.length, 1);
+  assert.equal(reasons[0].kind, "failed");
+  if (reasons[0].kind === "failed")
+    assert.equal((reasons[0].error as { code: string }).code, code);
+}
+for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
+  const states: sdk.ConnectionState[] = [];
+  const changes: Array<(state: sdk.ConnectionState) => void> = [];
+  const probe = new StreamType(
+    async () => ({
+      next: async () => undefined,
+      end: async () => {},
+      connectionState: () => sdk.ConnectionState.Connected,
+      connectionStateChanged: () =>
+        new Promise<sdk.ConnectionState>((resolve) => changes.push(resolve)),
+    }),
+    reopened,
+    { onConnectionStateChange: (_previous, current) => states.push(current) },
+  );
+  await probe.ready();
+  assert.deepEqual(states, [
+    sdk.ConnectionState.Connecting,
+    sdk.ConnectionState.Connected,
+  ]);
+  changes.shift()?.(sdk.ConnectionState.Reconnecting);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  changes.shift()?.(sdk.ConnectionState.Connected);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(states, [
+    sdk.ConnectionState.Connecting,
+    sdk.ConnectionState.Connected,
+    sdk.ConnectionState.Reconnecting,
+    sdk.ConnectionState.Connected,
+  ]);
+  await probe.end();
+}
+let closedStatePolls = 0;
+const closedStateProbe = new sdk.MessageStream(
+  async () => ({
+    next: async () => undefined,
+    end: async () => {},
+    connectionState: () => sdk.ConnectionState.Closed,
+    connectionStateChanged: async () => {
+      closedStatePolls += 1;
+      if (closedStatePolls > 2) throw new Error("closed state loop");
+      return sdk.ConnectionState.Closed;
+    },
+  }),
+  reopened,
+  { onConnectionStateChange: () => {} },
+);
+await closedStateProbe.ready();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(closedStatePolls, 0, "closed state kept the monitor running");
+await closedStateProbe.end();
+const callbackGroup = await reopened.conversations().createGroup([], undefined);
+const callbackID = await callbackGroup.sendText("callback acknowledgment");
+let releaseCallback!: () => void;
+const callbackGate = new Promise<void>((resolve) => {
+  releaseCallback = resolve;
+});
+let callbackEntered!: () => void;
+const entered = new Promise<void>((resolve) => {
+  callbackEntered = resolve;
+});
+const callbackStream = new sdk.MessageStream(
+  (signal) => callbackGroup.messageReader({ signal }),
+  reopened,
+);
+const consumption = callbackStream.onValue(async (value) => {
+  assert.equal(value.id.toString(), callbackID.toString());
+  callbackEntered();
+  await callbackGate;
+});
+await entered;
+await callbackStream.end();
+const callbackReplay = await callbackGroup.messageReader();
+assert.equal(
+  (await callbackReplay.next())?.id.toString(),
+  callbackID.toString(),
+);
+await callbackReplay.end();
+releaseCallback();
+await consumption;
+const conversationStream = new sdk.ConversationStream(
+  (signal) =>
+    reopened.conversations().conversationReader(undefined, { signal }),
+  reopened,
+);
+await conversationStream.ready();
+await reopened.conversations().createGroup([], undefined);
+assert.equal((await conversationStream.next()).done, false);
+await conversationStream.end();
 const rejectedOpening = new sdk.MessageStream(
   (signal) =>
     new Promise((_, reject) => {
@@ -320,6 +534,22 @@ const rejectedOpening = new sdk.MessageStream(
 const rejectedRead = rejectedOpening.next();
 await rejectedOpening.return();
 assert.equal((await rejectedRead).done, true);
+const creationFailure = Object.assign(new Error("reader creation failed"), {
+  code: "Storage",
+});
+const creationReasons: sdk.StreamCloseReason[] = [];
+const failedOpening = new sdk.MessageStream(
+  async () => {
+    throw creationFailure;
+  },
+  reopened,
+  { onClose: (reason) => creationReasons.push(reason) },
+);
+await assert.rejects(
+  failedOpening.next(),
+  (error) => error === creationFailure,
+);
+assert.equal(creationReasons[0]?.kind, "failed");
 
 let readerLeaseHeld = false;
 const readFailure = new Error("injected reader failure");
@@ -331,6 +561,7 @@ const failedStream = new sdk.MessageStream(async () => {
       throw readFailure;
     },
     end: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
       readerLeaseHeld = false;
     },
   };
@@ -773,6 +1004,42 @@ assert.match(
   /codec decode failed/,
 );
 await ownerWithFailingCodec.end();
+const throwingCodec = {
+  ...customCodec,
+  decode(_value: sdk.EncodedContent): string {
+    throw new Error("codec exploded");
+  },
+};
+const ownerWithThrowingCodec = await sdk.Client.build(
+  identity,
+  { ...options, codecs: [throwingCodec] },
+  inboxID,
+);
+const throwingGroup = await ownerWithThrowingCodec
+  .conversations()
+  .createGroup([], undefined);
+const codecStream = new sdk.MessageStream(
+  (signal) => throwingGroup.messageReader({ signal }),
+  ownerWithThrowingCodec,
+);
+const brokenID = await throwingGroup.send(
+  customCodec.encode("bad decode"),
+  undefined,
+);
+const broken = (await codecStream.next()).value;
+assert.equal(broken?.id.toString(), brokenID.toString());
+assert.equal(broken?.content.tag, sdk.MessageContent_Tags.Custom);
+assert.match(
+  (broken?.content as { inner?: { error?: string } }).inner?.error ?? "",
+  /codec exploded/,
+);
+const continuedID = await throwingGroup.sendText("after codec error");
+assert.equal(
+  (await codecStream.next()).value?.id.toString(),
+  continuedID.toString(),
+);
+await codecStream.end();
+await ownerWithThrowingCodec.end();
 await ownerWithCodec.end();
 await ownerWithoutCodec.end();
 console.log("Node scenario 6: custom codec stayed with its client");
