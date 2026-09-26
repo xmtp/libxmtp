@@ -1,5 +1,7 @@
 use std::future::Future;
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_common::StreamHandle;
 use xmtp_content_types::{
     ContentCodec,
     compression::compress_if_requested,
@@ -40,7 +42,8 @@ where
     T: Send + 'static,
     F: Future<Output = Result<T, XmtpError>> + Send + 'static,
 {
-    tokio::spawn(while_open(context, work))
+    xmtp_common::spawn(None, while_open(context, work))
+        .join()
         .await
         .map_err(XmtpError::unknown)?
 }
