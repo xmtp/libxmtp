@@ -1768,6 +1768,70 @@ async fn history_skips_bad_row_and_warns_without_content() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn history_skips_bad_reaction_and_warns_without_content() {
+    use crate::{Reaction, ReactionAction, ReactionSchema};
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_logging::{Level, test_logging::LogCapture};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent = group.send_text("parent row".into()).await?;
+    let reaction = client
+        .conversations()
+        .react_to_message(
+            parent.clone(),
+            Reaction {
+                content: "sensitive-reaction-content".into(),
+                action: ReactionAction::Added,
+                schema: ReactionSchema::Unicode,
+            },
+            None,
+        )
+        .await?;
+    let reaction_bytes = hex::decode(&reaction.0)?;
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&reaction_bytes)))
+            .set(dsl::sender_inbox_id.eq(""))
+            .execute(conn)
+    })?;
+
+    let history = group.messages(None).await?;
+    let parent_message = history
+        .iter()
+        .find(|message| message.0.id == parent)
+        .expect("parent in history");
+    assert!(parent_message.0.reactions.is_empty());
+
+    let enriched = group
+        .inner
+        .find_messages_v2_with_stored(&MsgQueryArgs::default())?;
+    let capture = LogCapture::new(Level::Warn);
+    let lifted = tracing::dispatcher::with_default(&capture.dispatch(), || {
+        crate::conversation::lift_history_messages(enriched, client.client_key())
+    });
+    let parent_message = lifted
+        .iter()
+        .find(|message| message.0.id == parent)
+        .expect("lifted parent");
+    assert!(parent_message.0.reactions.is_empty());
+    let warnings = capture.output();
+    let warnings = warnings
+        .lines()
+        .filter(|line| line.contains("skipping stored reaction"))
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
+    let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
+    assert_eq!(warning["reaction_id"], reaction.0);
+    assert!(
+        warning["error"]
+            .as_str()
+            .is_some_and(|reason| !reason.is_empty())
+    );
+    assert!(!warnings[0].contains("sensitive-reaction-content"));
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 fn query_filters_match_stored_catalogue_types() {
     use xmtp_content_types::{
         ContentCodec, actions::ActionsCodec, attachment::AttachmentCodec,

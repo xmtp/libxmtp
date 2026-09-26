@@ -387,13 +387,23 @@ impl Message {
                 let CoreBody::Reaction(value) = reaction.content else {
                     return None;
                 };
-                Some(ReactionMessage {
-                    id: MessageID::from_bytes(&reaction.metadata.id).ok()?,
-                    sender_inbox_id: InboxID::try_from(reaction.metadata.sender_inbox_id).ok()?,
-                    sent_at: Timestamp(reaction.metadata.sent_at_ns),
-                    delivery_status: reaction.metadata.delivery_status.into(),
-                    reaction: crate::Reaction::from_proto(value),
-                })
+                let reaction_id = hex::encode(&reaction.metadata.id);
+                let converted: Result<ReactionMessage, XmtpError> = (|| {
+                    Ok(ReactionMessage {
+                        id: MessageID::from_bytes(&reaction.metadata.id)?,
+                        sender_inbox_id: InboxID::try_from(reaction.metadata.sender_inbox_id)?,
+                        sent_at: Timestamp(reaction.metadata.sent_at_ns),
+                        delivery_status: reaction.metadata.delivery_status.into(),
+                        reaction: crate::Reaction::from_proto(value),
+                    })
+                })();
+                match converted {
+                    Ok(reaction) => Some(reaction),
+                    Err(error) => {
+                        tracing::warn!(%reaction_id, %error, "skipping stored reaction");
+                        None
+                    }
+                }
             })
             .collect();
         if let CoreBody::Reply(reply) = &enriched.content
