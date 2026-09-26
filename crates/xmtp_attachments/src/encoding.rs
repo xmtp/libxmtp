@@ -61,20 +61,8 @@ pub fn retained_fields_fit(filename: Option<&str>, mime_type: &str) -> bool {
     if value_bytes > MAX_METADATA_BYTES {
         return false;
     }
-    let envelope = AttachmentCodec::encode(Attachment {
-        filename: filename.map(str::to_owned),
-        mime_type: mime_type.to_owned(),
-        content: Vec::new(),
-    })
-    .expect("attachment encoding has no failure path");
-    EncodedContent {
-        r#type: envelope.r#type,
-        parameters: envelope.parameters,
-        compression: envelope.compression,
-        ..Default::default()
-    }
-    .encoded_len()
-        <= MAX_METADATA_BYTES
+    let prefix = encoded_prefix(filename, mime_type, 0);
+    AttachmentDecoder::new().push(&prefix).is_ok()
 }
 
 pub fn ciphertext_len(prefix_len: usize, content_len: u64) -> u64 {
