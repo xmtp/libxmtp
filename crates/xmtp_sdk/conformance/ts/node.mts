@@ -644,6 +644,28 @@ await assert.rejects(
 );
 assert.equal(creationReasons[0]?.kind, "failed");
 
+const openFailureWithCloseThrow = new Error("reader open failed");
+let failedOpenCloseCalls = 0;
+await assertNoUnhandledRejection(async () => {
+  const stream = new sdk.MessageStream(
+    async () => {
+      throw openFailureWithCloseThrow;
+    },
+    reopened,
+    {
+      onClose: () => {
+        failedOpenCloseCalls += 1;
+        throw new Error("open failure close callback failed");
+      },
+    },
+  );
+  await assert.rejects(
+    stream.next(),
+    (error) => error === openFailureWithCloseThrow,
+  );
+});
+assert.equal(failedOpenCloseCalls, 1);
+
 let readerLeaseHeld = false;
 const readFailure = new Error("injected reader failure");
 const failedStream = new sdk.MessageStream(async () => {

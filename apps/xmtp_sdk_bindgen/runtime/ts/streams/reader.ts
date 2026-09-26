@@ -60,8 +60,8 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
         void this.watchConnection(reader);
         return reader;
       });
-    void this.reader.catch(async (error: unknown) => {
-      if (!this.closed) await this.fail(error);
+    void this.reader.catch((error: unknown) => {
+      if (!this.closed) void this.fail(error).catch(reportCallbackError);
     });
     this.options.signal?.addEventListener(
       "abort",
