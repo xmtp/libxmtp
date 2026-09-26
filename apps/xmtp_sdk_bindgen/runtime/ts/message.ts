@@ -16,7 +16,7 @@ import { ClientRegistry, type Client, type ContentCodec } from "./client";
 import type { MessageID } from "./ids";
 
 type LiftedReplyBody =
-  | MessageBody
+  | Exclude<MessageBody, { tag: MessageBody_Tags.Custom }>
   | {
       tag: MessageBody_Tags.Custom;
       inner: { encoded: EncodedContent; value?: unknown; error?: string };
@@ -40,7 +40,7 @@ function decodeReplyBody(
 
 export class Message {
   readonly content:
-    | MessageContent
+    | Exclude<MessageContent, { tag: MessageContent_Tags.Custom }>
     | {
         tag: MessageContent_Tags.Custom;
         inner: {

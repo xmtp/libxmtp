@@ -46,8 +46,14 @@ const standardCodecs = new Map([
   [sdk.StandardContent_Tags.Reaction, new sdk.ReactionV2Codec()],
   [sdk.StandardContent_Tags.Attachment, new sdk.AttachmentCodec()],
   [sdk.StandardContent_Tags.RemoteAttachment, new sdk.RemoteAttachmentCodec()],
-  [sdk.StandardContent_Tags.MultiRemoteAttachment, new sdk.MultiRemoteAttachmentCodec()],
-  [sdk.StandardContent_Tags.TransactionReference, new sdk.TransactionReferenceCodec()],
+  [
+    sdk.StandardContent_Tags.MultiRemoteAttachment,
+    new sdk.MultiRemoteAttachmentCodec(),
+  ],
+  [
+    sdk.StandardContent_Tags.TransactionReference,
+    new sdk.TransactionReferenceCodec(),
+  ],
   [sdk.StandardContent_Tags.WalletSendCalls, new sdk.WalletSendCallsCodec()],
   [sdk.StandardContent_Tags.Actions, new sdk.ActionsCodec()],
   [sdk.StandardContent_Tags.Intent, new sdk.IntentCodec()],
@@ -58,7 +64,10 @@ const standardCodecs = new Map([
 ]);
 const codecSamples = sdk.sdkConformanceStandardSamples();
 assert.equal(codecSamples.length, 15);
-function assertEncodedEqual(actual: sdk.EncodedContent, expected: sdk.EncodedContent): void {
+function assertEncodedEqual(
+  actual: sdk.EncodedContent,
+  expected: sdk.EncodedContent,
+): void {
   assert.deepEqual(actual.type, expected.type);
   assert.deepEqual(actual.parameters, expected.parameters);
   assert.equal(actual.fallback, expected.fallback);
@@ -137,19 +146,54 @@ for (const sample of codecSamples) {
   const value = sample.value;
   let id: sdk.MessageID;
   switch (value.tag) {
-    case sdk.StandardContent_Tags.Text: id = await group.sendText(value.inner[0], undefined); break;
-    case sdk.StandardContent_Tags.Markdown: id = await group.sendMarkdown(value.inner[0], undefined); break;
-    case sdk.StandardContent_Tags.Reaction: id = await group.sendReaction(value.inner.reference, value.inner.referenceInboxID, value.inner.reaction, undefined); break;
-    case sdk.StandardContent_Tags.Reply: id = await group.sendReply(value.inner.reference, value.inner.referenceInboxID, value.inner.content, undefined); break;
-    case sdk.StandardContent_Tags.ReadReceipt: id = await group.sendReadReceipt(undefined); break;
-    case sdk.StandardContent_Tags.Attachment: id = await group.sendAttachment(value.inner[0], undefined); break;
-    case sdk.StandardContent_Tags.RemoteAttachment: id = await group.sendRemoteAttachment(value.inner[0], undefined); break;
-    case sdk.StandardContent_Tags.MultiRemoteAttachment: id = await group.sendMultiRemoteAttachment(value.inner[0], undefined); break;
-    case sdk.StandardContent_Tags.TransactionReference: id = await group.sendTransactionReference(value.inner[0], undefined); break;
-    case sdk.StandardContent_Tags.WalletSendCalls: id = await group.sendWalletSendCalls(value.inner[0], undefined); break;
-    case sdk.StandardContent_Tags.Actions: id = await group.sendActions(value.inner[0], undefined); break;
-    case sdk.StandardContent_Tags.Intent: id = await group.sendIntent(value.inner[0], undefined); break;
-    default: continue;
+    case sdk.StandardContent_Tags.Text:
+      id = await group.sendText(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.Markdown:
+      id = await group.sendMarkdown(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.Reaction:
+      id = await group.sendReaction(
+        value.inner.reference,
+        value.inner.referenceInboxID,
+        value.inner.reaction,
+        undefined,
+      );
+      break;
+    case sdk.StandardContent_Tags.Reply:
+      id = await group.sendReply(
+        value.inner.reference,
+        value.inner.referenceInboxID,
+        value.inner.content,
+        undefined,
+      );
+      break;
+    case sdk.StandardContent_Tags.ReadReceipt:
+      id = await group.sendReadReceipt(undefined);
+      break;
+    case sdk.StandardContent_Tags.Attachment:
+      id = await group.sendAttachment(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.RemoteAttachment:
+      id = await group.sendRemoteAttachment(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.MultiRemoteAttachment:
+      id = await group.sendMultiRemoteAttachment(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.TransactionReference:
+      id = await group.sendTransactionReference(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.WalletSendCalls:
+      id = await group.sendWalletSendCalls(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.Actions:
+      id = await group.sendActions(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.Intent:
+      id = await group.sendIntent(value.inner[0], undefined);
+      break;
+    default:
+      continue;
   }
   const wire = await client.conversations().getMessageByID(id);
   assert.ok(wire);
@@ -770,35 +814,40 @@ const syntheticUnknown = new sdk.Message({
   clientKey: ownerWithoutCodec.raw.clientKey(),
   content: {
     tag: sdk.MessageContent_Tags.Custom,
-    inner: { encoded: customCodec.encode("codec value"), rawBytes: serializedCustom },
+    inner: {
+      encoded: customCodec.encode("codec value"),
+      rawBytes: serializedCustom,
+    },
   },
   inReplyTo: undefined,
 } as sdk.MessageData);
+if (syntheticUnknown.content.tag !== sdk.MessageContent_Tags.Unknown)
+  throw new Error("synthetic content was not unknown");
 assert.deepEqual(
-  new Uint8Array((syntheticUnknown.content as { inner: { rawBytes: ArrayBuffer } }).inner.rawBytes),
+  new Uint8Array(syntheticUnknown.content.inner.rawBytes),
   new Uint8Array(serializedCustom),
 );
-const rustRawBytes = (
-  undecoded?.data.content as { inner: { rawBytes: ArrayBuffer } }
-).inner.rawBytes;
-assert.ok(new Uint8Array(rustRawBytes).byteLength > new Uint8Array(undecoded!.encoded.content).byteLength);
+if (
+  undecoded?.data.content.tag !== sdk.MessageContent_Tags.Custom ||
+  undecoded.content.tag !== sdk.MessageContent_Tags.Unknown
+)
+  throw new Error("stored custom content was not unknown");
+const rustRawBytes = undecoded.data.content.inner.rawBytes;
+assert.ok(
+  new Uint8Array(rustRawBytes).byteLength >
+    new Uint8Array(undecoded!.encoded.content).byteLength,
+);
 assert.deepEqual(
-  new Uint8Array((undecoded?.content as { inner: { rawBytes: ArrayBuffer } }).inner.rawBytes),
+  new Uint8Array(undecoded.content.inner.rawBytes),
   new Uint8Array(rustRawBytes),
 );
 assert.equal(undecodedReply?.replyContent?.tag, sdk.MessageBody_Tags.Unknown);
-assert.equal(
-  (customReply?.replyContent as { inner?: { value?: string } })?.inner?.value,
-  "reply codec value",
-);
-assert.equal(
-  (decoded?.content as { inner?: { value?: string } }).inner?.value,
-  "codec value",
-);
-assert.equal(
-  (undecoded?.content as { inner?: { value?: string } }).inner?.value,
-  undefined,
-);
+if (customReply?.replyContent?.tag !== sdk.MessageBody_Tags.Custom)
+  throw new Error("custom reply was not decoded");
+assert.equal(customReply.replyContent.inner.value, "reply codec value");
+if (decoded?.content.tag !== sdk.MessageContent_Tags.Custom)
+  throw new Error("custom message was not decoded");
+assert.equal(decoded.content.inner.value, "codec value");
 const failingCodec = {
   ...customCodec,
   decode(_value: sdk.EncodedContent): string {
@@ -813,12 +862,9 @@ const ownerWithFailingCodec = await sdk.Client.build(
 const failedDecode = await ownerWithFailingCodec
   .conversations()
   .getMessageByID(customID);
-assert.match(
-  String(
-    (failedDecode?.content as { inner?: { error?: string } }).inner?.error,
-  ),
-  /codec decode failed/,
-);
+if (failedDecode?.content.tag !== sdk.MessageContent_Tags.Custom)
+  throw new Error("failed custom decode did not keep its content");
+assert.match(String(failedDecode.content.inner.error), /codec decode failed/);
 await ownerWithFailingCodec.end();
 await ownerWithCodec.end();
 await ownerWithoutCodec.end();
