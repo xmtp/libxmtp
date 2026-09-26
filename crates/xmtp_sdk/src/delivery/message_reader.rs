@@ -220,23 +220,23 @@ impl MessageReader {
                         return Err(XmtpError::unknown(error));
                     }
                 };
-                let message = enriched.into_iter().next().and_then(|value| {
-                    Message::from_enriched(
+                let message = match enriched.into_iter().next() {
+                    Some(value) => Message::from_enriched(
                         value.stored,
                         value.decoded,
                         value.parent_stored,
                         client_key,
                     )
-                    .ok()
-                });
-                let Some(message) = message else {
-                    match item.acknowledgement.acknowledge() {
-                        Ok(()) | Err(LocalDeliveryError::SelectionChanged) => continue,
-                        Err(error) => {
-                            state.lock().ended = true;
-                            control.close();
-                            return Err(super::delivery_error(error));
-                        }
+                    .or_else(|_| Message::from_stored(item.message.clone(), client_key)),
+                    None => Message::from_stored(item.message.clone(), client_key),
+                };
+                let message = match message {
+                    Ok(message) => message,
+                    Err(error) => {
+                        state.lock().ended = true;
+                        control.close();
+                        item.acknowledgement.reject();
+                        return Err(error);
                     }
                 };
                 let mut state = state.lock();

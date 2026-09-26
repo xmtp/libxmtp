@@ -1073,23 +1073,55 @@ async fn late_reader_released() {
     client.end().await?;
 }
 
+// verifies: CTYPE-008, PROC-028
 #[xmtp_common::test(unwrap_try = true)]
-async fn message_decode_error_skips_bad_row_and_keeps_reader_open() {
+async fn raw_message_bytes_are_delivered_and_replayed_until_acknowledged() {
+    use xmtp_mls::groups::send_message_opts::SendMessageOpts;
+
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let invalid_id = group
+    let raw = b"\xff\x00 not an EncodedContent protobuf";
+    let id = MessageID::from_bytes(
+        &group
+            .inner
+            .send_message(raw, SendMessageOpts::default())
+            .await?,
+    )?;
+    let reader = group.message_reader().await?;
+    let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+        .await??
+        .expect("raw message handoff");
+    assert_eq!(delivered.0.id, id);
+    assert!(matches!(&delivered.0.content,
+        MessageContent::Unknown { raw_bytes, .. } if raw_bytes == raw));
+    reader.end().await?;
+
+    let replacement = group.message_reader().await?;
+    let replayed = xmtp_common::time::timeout(Duration::from_secs(5), replacement.next())
+        .await??
+        .expect("unacknowledged raw message replay");
+    assert_eq!(replayed.0.id, id);
+    assert!(matches!(&replayed.0.content,
+        MessageContent::Unknown { raw_bytes, .. } if raw_bytes == raw));
+    replacement.end().await?;
+    client.end().await?;
+}
+
+// verifies: PROC-028
+#[xmtp_common::test(unwrap_try = true)]
+async fn message_decode_error_closes_reader_and_releases_lease() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    group
         .send_text("invalid stored message".into(), None)
         .await?;
-    let valid_id = group.send_text("valid stored message".into(), None).await?;
     let reader = group.message_reader().await?;
     reader.corrupt_next_message_for_test();
-    let received = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
-        .await??
-        .expect("valid message after bad row");
-    assert_ne!(received.0.id, invalid_id);
-    assert_eq!(received.0.id, valid_id);
-    assert!(!reader.is_ended_for_test(), "bad row closed the reader");
-    reader.end().await?;
+    assert!(
+        reader.next().await.is_err(),
+        "invalid ID must fail conversion"
+    );
+    assert!(reader.is_ended_for_test(), "decode error left reader open");
     let replacement = group.message_reader().await?;
     replacement.end().await?;
     client.end().await?;
