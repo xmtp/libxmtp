@@ -19,6 +19,22 @@ use super::{
 };
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
+/// Create missing directory components with private permissions.
+/// Existing directories keep their permissions.
+pub async fn create_private_directory(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let path = path.to_path_buf();
+        xmtp_common::task::spawn_blocking(move || create_private_directories(&path))
+            .await
+            .map_err(io::Error::other)?
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::fs::create_dir_all(path).await
+    }
+}
+
 /// Files below one native attachments directory.
 #[derive(Clone, Debug)]
 pub struct NativeStore {

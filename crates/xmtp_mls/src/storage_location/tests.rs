@@ -563,4 +563,61 @@ mod native {
             serde_json::from_slice(&tokio::fs::read(dir.path().join("deployments.json")).await?)?;
         assert_eq!(document["deployments"][backend_url.as_str()], identifier);
     }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn fresh_data_dir_uses_private_modes() {
+        use crate::utils::test::backend::EphemeralBackend;
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct UmaskGuard(libc::mode_t);
+        impl Drop for UmaskGuard {
+            fn drop(&mut self) {
+                unsafe { libc::umask(self.0) };
+            }
+        }
+
+        let dir = tempfile::tempdir()?;
+        let data_dir = dir.path().join("new-data-dir");
+        let backend = EphemeralBackend::start("").await?;
+        let owner = generate_local_wallet();
+        let inbox = identity_setup(&owner).inbox_id().unwrap().to_string();
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(backend.url());
+        let _umask = UmaskGuard(unsafe { libc::umask(0) });
+        let client = Client::builder(identity_setup(owner))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .data_location(StorageLocation::DataDir(data_dir.clone()), [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let deployment = data_dir.join(deployment_component(
+            &client.server_configuration().identifier,
+        ));
+        let inbox_dir = deployment.join(inbox);
+        for path in [
+            &data_dir,
+            &deployment,
+            &inbox_dir,
+            &inbox_dir.join("attachments"),
+        ] {
+            assert_eq!(
+                std::fs::metadata(path)?.permissions().mode() & 0o777,
+                0o700,
+                "{}",
+                path.display()
+            );
+        }
+        assert_eq!(
+            std::fs::metadata(data_dir.join("deployments.json"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
 }

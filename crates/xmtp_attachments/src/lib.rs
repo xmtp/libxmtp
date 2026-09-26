@@ -16,14 +16,14 @@ pub use encoding::{
 };
 pub use http::{PutOutcome, Transfer, UploadRequest, download_cap};
 pub use sanitize::{local_file_name, sanitize_path_component, sanitize_path_component_with_limit};
-#[cfg(not(target_arch = "wasm32"))]
-pub use store::NativeStore;
 #[cfg(target_arch = "wasm32")]
 pub use store::OpfsStore;
 pub use store::{
     AttachmentOptions, DownloadSink, LocalStore, StagedFile, StoreFile, StoreWriter, staged_path,
     temporary_path,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use store::{NativeStore, create_private_directory};
 
 #[cfg(all(test, target_arch = "wasm32"))]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_dedicated_worker);

@@ -176,13 +176,27 @@ async fn read_file(data_dir: &Path) -> Result<DeploymentFile, StorageLocationErr
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocationError> {
-    tokio::fs::create_dir_all(data_dir).await?;
+    use tokio::io::AsyncWriteExt as _;
+
+    xmtp_attachments::create_private_directory(data_dir).await?;
     let path = data_dir.join("deployments.json");
     let temp = data_dir.join(format!(
         ".deployments-{}.tmp",
         xmtp_common::rand_string::<16>()
     ));
-    tokio::fs::write(&temp, bytes).await?;
+    let write = async {
+        let mut options = tokio::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        options.mode(0o600);
+        let mut file = options.open(&temp).await?;
+        file.write_all(bytes).await
+    }
+    .await;
+    if let Err(error) = write {
+        let _ = tokio::fs::remove_file(&temp).await;
+        return Err(error.into());
+    }
     if let Err(error) = tokio::fs::rename(&temp, &path).await {
         let _ = tokio::fs::remove_file(&temp).await;
         return Err(error.into());

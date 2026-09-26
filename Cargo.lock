@@ -13354,6 +13354,7 @@ dependencies = [
  "hpke-rs 0.6.1",
  "indicatif",
  "itertools 0.15.0",
+ "libc",
  "mockall",
  "mockito",
  "once_cell",

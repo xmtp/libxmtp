@@ -13,7 +13,7 @@ mod native;
 mod opfs;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::NativeStore;
+pub use native::{NativeStore, create_private_directory};
 #[cfg(target_arch = "wasm32")]
 pub use opfs::OpfsStore;
 
