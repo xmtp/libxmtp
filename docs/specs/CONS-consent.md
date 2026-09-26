@@ -132,6 +132,8 @@ A message listing within one conversation is not filtered: the app named the con
 | --- | --- | --- | --- |
 | CONS-030 | The filter is on conversation consent | When an app lists or streams conversations, or streams messages across conversations, with a consent filter, the client MUST include only conversations whose conversation consent is in the filter, so that an empty filter includes none, and MUST NOT read inbox consent to decide. | |
 | CONS-031 | Default listing excludes denied | When an app lists conversations with no consent filter, the client MUST return the conversations whose conversation consent is allowed or unknown and MUST NOT return one whose consent is denied. | A denied conversation that appears is the block failing; an unknown one that disappears can never be decided on. |
+| CONS-042 | Default cross-conversation streams | When an app streams conversations or messages across conversations with no consent filter, the client MUST deliver only conversations whose conversation consent is allowed or unknown, as CONS-031 does for listings. | A denied conversation must not enter a stream that uses the default consent choice. |
+| CONS-043 | One conversation stream | When an app streams messages from one named conversation, the client MUST NOT filter that stream by the conversation's consent state. | The app has selected that conversation explicitly. |
 
 ## 5. What an app can read and set
 

@@ -181,6 +181,20 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
 
 [[waiver]]
+id = "CONS-042"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDKs stream every consent state by default; the façade implements the allowed-and-unknown default for cross-conversation streams."
+
+[[waiver]]
+id = "CONS-043"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "No test on this branch proves that a stream of one named conversation remains available when its consent is denied."
+
+[[waiver]]
 id = "CONS-030"
 kind = "gap"
 owner = "protocol"
