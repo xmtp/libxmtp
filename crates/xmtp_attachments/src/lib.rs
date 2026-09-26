@@ -194,6 +194,7 @@ mod tests {
             assert_eq!(index(cause), expected);
             assert_eq!(Cause::parse(cause.as_str()), Some(cause));
         }
+        assert_eq!(index(Cause::Deleted) + 1, Cause::ALL.len());
         assert_eq!(Cause::parse("unknown"), None);
     }
 }

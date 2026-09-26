@@ -563,11 +563,23 @@ async fn staged_orphan_older_than_pending_age_is_removed() {
         .delete_pending_attachment(default_digest)?;
     std::fs::File::open(&default_path)?
         .set_modified(std::time::SystemTime::now() - Duration::from_secs(1_800))?;
+    let expired_default = bo.client.attachments().create(bytes()).await?;
+    let expired_default_digest = &expired_default.remote_attachment().content_digest;
+    let expired_default_path = default_dir
+        .path()
+        .join(staged_path(expired_default_digest)?);
+    bo.client
+        .context
+        .db()
+        .delete_pending_attachment(expired_default_digest)?;
+    std::fs::File::open(&expired_default_path)?
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(7_200))?;
     let _next_default = crate::builder::ClientBuilder::from_client(bo.client.clone())
         .with_disable_workers(true)
         .build()
         .await?;
     assert!(default_path.exists());
+    assert!(!expired_default_path.exists());
 }
 
 // verifies: ATCH-062, ATCH-076
