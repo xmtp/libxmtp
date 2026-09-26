@@ -1645,14 +1645,18 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         let runtime = self.context.attachment_runtime();
         let store = runtime.store()?;
         let path = staged_path(&self.remote.content_digest)?;
+        let storage_error = |_| AttachmentClientError {
+            retryable: true,
+            ..AttachmentClientError::new(Cause::LocalStorage)
+        };
+        if !store.exists(&path).await.map_err(storage_error)? {
+            return Err(AttachmentClientError::new(Cause::StagedUnusable));
+        }
         let staged = store
             .open_read(&path)
             .await
-            .map_err(|_| AttachmentClientError::new(Cause::StagedUnusable))?;
-        let (digest, length) = staged
-            .sha256()
-            .await
-            .map_err(|_| AttachmentClientError::new(Cause::StagedUnusable))?;
+            .map_err(storage_error)?;
+        let (digest, length) = staged.sha256().await.map_err(storage_error)?;
         if hex::encode(digest) != self.remote.content_digest
             || Some(length as u32) != self.remote.content_length
             || length > u32::MAX as u64
@@ -2492,6 +2496,42 @@ mod tests {
             &emitted[1].client,
             Some(ClientEvent::AttachmentUploadFailed(failed)) if failed.attachment_key == key
         ));
+    }
+
+    // verifies: ATCH-036, ATCH-060
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn staged_read_error_is_retryable_local_storage() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let digest = &pending.remote_attachment().content_digest;
+        let staged = dir.path().join(staged_path(digest)?);
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o000))?;
+        let error = pending.upload().await.unwrap_err();
+        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(error.retryable);
+        let row = alix.client.context.db().get_pending_attachment(digest)?.unwrap();
+        assert_eq!(row.status, "failed");
+        assert_eq!(row.failure_cause.as_deref(), Some("local_storage"));
+        std::fs::set_permissions(&staged, std::fs::Permissions::from_mode(0o600))?;
+        pending.upload().await?;
+        assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
+
+        let missing = alix
+            .client
+            .attachments()
+            .create(AttachmentSource::Bytes {
+                bytes: b"missing staged file".to_vec(),
+                filename: Some("missing.txt".into()),
+                mime_type: "text/plain".into(),
+            })
+            .await?;
+        let missing_path = dir.path().join(staged_path(&missing.remote_attachment().content_digest)?);
+        tokio::fs::remove_file(missing_path).await?;
+        assert_eq!(missing.upload().await.unwrap_err().cause, Cause::StagedUnusable);
     }
 
     // verifies: ATCH-026, ATCH-034
