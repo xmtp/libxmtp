@@ -258,6 +258,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A client half-close during the drain for an outstanding Ping ends the stream with UNAVAILABLE rather than completing cleanly."
 
 [[waiver]]
+id = "CONF-077"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Offline startup skips the URL check (`server_configuration.rs:365`), and no later request re-checks; the core fix is scheduled."
+
+[[waiver]]
 id = "API-292"
 kind = "gap"
 owner = "protocol"
