@@ -816,33 +816,16 @@ fn parent_stored(
 pub(crate) fn query_content_types(
     values: Vec<ContentTypeId>,
 ) -> Result<Vec<xmtp_db::group_message::ContentType>, XmtpError> {
-    use xmtp_db::group_message::ContentType as C;
-    values
+    Ok(values
         .into_iter()
         .map(|value| {
-            if value.authority_id != "xmtp.org" {
-                return Err(XmtpError::invalid("unsupported content type authority"));
-            }
-            Ok(match value.type_id.as_str() {
-                "text" => C::Text,
-                "markdown" => C::Markdown,
-                "reaction" => C::Reaction,
-                "reply" => C::Reply,
-                "attachment" => C::Attachment,
-                "remoteAttachment" => C::RemoteAttachment,
-                "multiRemoteAttachment" => C::MultiRemoteAttachment,
-                "readReceipt" => C::ReadReceipt,
-                "groupUpdated" => C::GroupUpdated,
-                "transactionReference" => C::TransactionReference,
-                "walletSendCalls" => C::WalletSendCalls,
-                "actions" => C::Actions,
-                "intent" => C::Intent,
-                "leaveRequest" => C::LeaveRequest,
-                "deleteMessage" => C::DeleteMessage,
-                _ => C::Unknown,
-            })
+            xmtp_db::group_message::ContentType::from_identifier(
+                &value.authority_id,
+                &value.type_id,
+                value.version_major,
+            )
         })
-        .collect()
+        .collect())
 }
 
 // One block defines the shared Group and Dm methods.
