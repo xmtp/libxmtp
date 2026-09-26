@@ -6,12 +6,20 @@ public protocol SDKContentCodec: Sendable {
     func decode(_ encoded: EncodedContent) throws -> any Sendable
 }
 
-public func SDKContentCodecKey(_ type: ContentTypeID) -> String {
-    "\(type.authorityID)/\(type.typeID)/\(type.versionMajor)"
+public struct SDKContentCodecKey: Hashable, Sendable {
+    public let authorityID: String
+    public let typeID: String
+    public let versionMajor: UInt32
+
+    public init(_ type: ContentTypeID) {
+        authorityID = type.authorityID
+        typeID = type.typeID
+        versionMajor = type.versionMajor
+    }
 }
 
 public extension SDKContentCodec {
-    var key: String {
+    var key: SDKContentCodecKey {
         SDKContentCodecKey(type)
     }
 }

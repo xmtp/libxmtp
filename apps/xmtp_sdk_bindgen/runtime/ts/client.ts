@@ -46,7 +46,7 @@ export type SDKClientOptions = ClientOptions & {
 };
 
 function codecKey(type: ContentTypeID): string {
-  return `${type.authorityID}/${type.typeID}/${type.versionMajor}`;
+  return JSON.stringify([type.authorityID, type.typeID, type.versionMajor]);
 }
 
 class CodecRegistry {

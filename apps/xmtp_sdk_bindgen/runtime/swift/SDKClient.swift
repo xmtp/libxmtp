@@ -1,7 +1,7 @@
 import Foundation
 
 private struct CodecRegistry {
-    private let codecs: [String: any SDKContentCodec]
+    private let codecs: [SDKContentCodecKey: any SDKContentCodec]
 
     init(_ codecs: [any SDKContentCodec]) {
         self.codecs = Dictionary(codecs.map { ($0.key, $0) }, uniquingKeysWith: { _, newer in newer })

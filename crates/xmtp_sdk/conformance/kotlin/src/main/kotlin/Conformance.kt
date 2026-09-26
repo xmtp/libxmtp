@@ -590,6 +590,22 @@ fun main() =
         val codec = SampleCodec()
         val withCodec = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(codec))
         val withoutCodec = SDKClient.build(signer.identity(), options, inboxID)
+        val slashType = ContentTypeID("example.org", "a/b", 1u, 0u)
+        val slashCodec =
+            object : SDKContentCodec {
+                override val type = slashType
+
+                override fun encode(value: Any) =
+                    EncodedContent(type, emptyMap(), null, (value as String).toByteArray())
+
+                override fun decode(encoded: EncodedContent): Any = "wrong codec"
+            }
+        val slashHost = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(slashCodec))
+        val colliding = EncodedContent(ContentTypeID("example.org/a", "b", 1u, 0u), emptyMap(), null, byteArrayOf(1))
+        check(slashHost.decodeCustom(colliding) is SDKMessageContent.Unknown) {
+            "codec key collision selected the wrong codec"
+        }
+        slashHost.end()
         val customID = family.send(codec.encode("codec value"), null)
         val decoded = checkNotNull(withCodec.raw.conversations().getMessageByID(customID))
         val undecoded = checkNotNull(withoutCodec.raw.conversations().getMessageByID(customID))

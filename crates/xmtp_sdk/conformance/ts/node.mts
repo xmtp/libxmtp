@@ -704,6 +704,49 @@ const ownerWithCodec = await sdk.Client.build(
   inboxID,
 );
 const ownerWithoutCodec = await sdk.Client.build(identity, options, inboxID);
+const slashType = sdk.ContentTypeID.create({
+  authorityID: "example.org",
+  typeID: "a/b",
+  versionMajor: 1,
+  versionMinor: 0,
+});
+const slashCodec = {
+  ...customCodec,
+  type: slashType,
+  encode(value: string) {
+    return sdk.EncodedContent.create({
+      type: slashType,
+      content: new TextEncoder().encode(value).buffer,
+    });
+  },
+  decode() {
+    return "wrong codec";
+  },
+};
+const slashHost = await sdk.Client.build(
+  identity,
+  { ...options, codecs: [slashCodec] },
+  inboxID,
+);
+const colliding = sdk.EncodedContent.create({
+  type: sdk.ContentTypeID.create({
+    authorityID: "example.org/a",
+    typeID: "b",
+    versionMajor: 1,
+    versionMinor: 0,
+  }),
+  content: new Uint8Array([1]).buffer,
+});
+const collidingMessage = new sdk.Message({
+  clientKey: slashHost.raw.clientKey(),
+  content: {
+    tag: sdk.MessageContent_Tags.Custom,
+    inner: { encoded: colliding, rawBytes: new ArrayBuffer(0) },
+  },
+  inReplyTo: undefined,
+} as sdk.MessageData);
+assert.equal(collidingMessage.content.tag, sdk.MessageContent_Tags.Unknown);
+await slashHost.end();
 const customID = await familyGroup.send(
   customCodec.encode("codec value"),
   undefined,

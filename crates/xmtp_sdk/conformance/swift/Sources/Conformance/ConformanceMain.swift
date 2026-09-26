@@ -97,6 +97,19 @@ struct FailingCodec: SDKContentCodec {
     }
 }
 
+struct SlashCodec: SDKContentCodec {
+    let type = ContentTypeID(authorityID: "example.org", typeID: "a/b", versionMajor: 1, versionMinor: 0)
+
+    func encode(_ value: any Sendable) throws -> EncodedContent {
+        guard let text = value as? String else { throw ConformanceFailure("custom value was not text") }
+        return EncodedContent(type: type, content: Data(text.utf8))
+    }
+
+    func decode(_: EncodedContent) throws -> any Sendable {
+        "wrong codec"
+    }
+}
+
 @main
 struct Conformance {
     static func main() async throws {
@@ -475,6 +488,17 @@ struct Conformance {
         let withoutCodec = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxID: inboxID
         )
+        let slashHost = try await SDKClient.build(
+            identity: await signer.identity(), options: options, inboxID: inboxID, codecs: [SlashCodec()]
+        )
+        let colliding = EncodedContent(
+            type: ContentTypeID(authorityID: "example.org/a", typeID: "b", versionMajor: 1, versionMinor: 0),
+            content: Data([1])
+        )
+        guard case .unknown = slashHost.decodeCustom(colliding) else {
+            throw ConformanceFailure("codec key collision selected the wrong codec")
+        }
+        try await slashHost.end()
         let customID = try await family.send(encoded: codec.encode("codec value"), options: nil)
         guard let decoded = try await withCodec.raw.conversations().getMessageByID(id: customID),
               let undecoded = try await withoutCodec.raw.conversations().getMessageByID(id: customID)
