@@ -2675,6 +2675,34 @@ mod tests {
 
     // verifies: ATCH-068
     #[xmtp_common::test(unwrap_try = true)]
+    async fn disabled_workers_still_sweep_on_next_client_creation() {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let digest = &pending.remote_attachment().content_digest;
+        let staged = dir.path().join(staged_path(digest)?);
+        assert!(staged.exists());
+        let db = alix.client.context.db();
+        db.delete_pending_attachment(digest)?;
+        db.insert_or_ignore_pending_attachment(
+            digest,
+            &pending.remote_attachment().encode_to_vec(),
+            now_ns() - 172_800_000_000_000,
+        )?;
+        let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert!(next.context.db().get_pending_attachment(digest)?.is_none());
+        assert!(!staged.exists());
+        assert!(!next
+            .workers
+            .registered_kinds()
+            .contains(&crate::worker::WorkerKind::AttachmentCleanup));
+    }
+
+    // verifies: ATCH-068
+    #[xmtp_common::test(unwrap_try = true)]
     async fn sweep_holds_upload_state_until_expired_file_is_removed() {
         let dir = tempfile::tempdir()?;
         tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
