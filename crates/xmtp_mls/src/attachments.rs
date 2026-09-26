@@ -2249,6 +2249,106 @@ mod tests {
         }
     }
 
+    // verifies: ATCH-030
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn empty_retained_values_use_decoder_limit() {
+        let allowed_dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: allowed_dir.path(), configured: offer, disable_workers);
+        let denied_dir = tempfile::tempdir()?;
+        tester!(bo, attachments_dir: denied_dir.path(), configured: offer, disable_workers);
+
+        for empty_mime in [false, true] {
+            let fields = |length: usize| {
+                if empty_mime {
+                    (Some("f".repeat(length)), String::new())
+                } else {
+                    (Some(String::new()), "m".repeat(length))
+                }
+            };
+            let fits = |length| {
+                let (filename, mime_type) = fields(length);
+                AttachmentDecoder::new()
+                    .push(&encoded_prefix(filename.as_deref(), &mime_type, 0))
+                    .is_ok()
+            };
+            let mut low = 0usize;
+            let mut high = 65_536usize;
+            while low < high {
+                let middle = (low + high).div_ceil(2);
+                if fits(middle) {
+                    low = middle;
+                } else {
+                    high = middle - 1;
+                }
+            }
+            assert!(fits(low));
+            assert!(!fits(low + 1));
+
+            let (filename, mime_type) = fields(low);
+            let pending = alix
+                .client
+                .attachments()
+                .create(AttachmentSource::Bytes {
+                    bytes: b"x".to_vec(),
+                    filename: filename.clone(),
+                    mime_type: mime_type.clone(),
+                })
+                .await?;
+            let remote = pending.remote_attachment();
+            let staged = tokio::fs::read(
+                allowed_dir
+                    .path()
+                    .join(staged_path(&remote.content_digest)?),
+            )
+            .await?;
+            let mut decrypted = Vec::new();
+            let mut decryptor = GcmDecryptor::new(&KeyMaterial::from_remote(remote)?);
+            decryptor.update(&staged, &mut decrypted)?;
+            decryptor.finish()?;
+            let mut decoder = AttachmentDecoder::new();
+            let mut content = Vec::new();
+            for bytes in decrypted.chunks(8192) {
+                for event in decoder.push(bytes)? {
+                    match event {
+                        xmtp_attachments::ContentChunk::Reset => content.clear(),
+                        xmtp_attachments::ContentChunk::Bytes(bytes) => {
+                            content.extend_from_slice(bytes);
+                        }
+                    }
+                }
+            }
+            let decoded = decoder.finish(&mut std::io::Cursor::new(&content), &mut Vec::new())?;
+            assert_eq!(decoded.filename, filename);
+            assert_eq!(decoded.mime_type, mime_type);
+            assert_eq!(content, b"x");
+
+            let (filename, mime_type) = fields(low + 1);
+            let error = bo
+                .client
+                .attachments()
+                .create(AttachmentSource::Bytes {
+                    bytes: b"x".to_vec(),
+                    filename,
+                    mime_type,
+                })
+                .await
+                .err()
+                .expect("oversized retained fields must fail");
+            assert_eq!(error.cause, Cause::TooLarge);
+            assert!(bo.client.attachments().list_pending().await?.is_empty());
+            assert!(bo.client.attachments().list_local().await?.is_empty());
+            assert!(
+                bo.client
+                    .attachments()
+                    .runtime()
+                    .store()?
+                    .list_files()
+                    .await?
+                    .is_empty()
+            );
+        }
+    }
+
     // verifies: ATCH-032, ATCH-011
     #[xmtp_common::test(unwrap_try = true)]
     async fn source_moved_after_create() {
