@@ -1871,8 +1871,10 @@ async fn history_skips_bad_row_and_warns_without_content() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let good = group.send_text("good row".into()).await?;
-    let bad = group.send_text("sensitive-history-content".into()).await?;
+    let good = group.send_text("good row".into(), None).await?;
+    let bad = group
+        .send_text("sensitive-history-content".into(), None)
+        .await?;
     let bad_bytes = hex::decode(&bad.0)?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&bad_bytes)))
@@ -2227,7 +2229,7 @@ async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     for empty_authority in [true, false] {
-        let id = group.send_text("valid".into()).await?;
+        let id = group.send_text("valid".into(), None).await?;
         let id_bytes = hex::decode(&id.0)?;
         let stored = client.inner.message(id_bytes.clone())?;
         let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
@@ -2322,7 +2324,7 @@ async fn reply_with_empty_nested_identifier_stays_unknown_on_all_read_paths() {
 async fn sends_reject_empty_content_identifiers() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let parent = group.send_text("parent".into()).await?;
+    let parent = group.send_text("parent".into(), None).await?;
     for empty_authority in [true, false] {
         let mut encoded = crate::encode_text("invalid".into())?;
         if empty_authority {
