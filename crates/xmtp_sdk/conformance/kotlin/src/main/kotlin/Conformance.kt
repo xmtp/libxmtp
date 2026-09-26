@@ -178,6 +178,17 @@ fun main() =
                 failingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), 0, 0uL))
             }.exceptionOrNull() is LogSinkException.Failed,
         )
+        val cancellingSink =
+            SDKForeign.logSink(
+                object : LogSink {
+                    override fun log(record: LogRecord): Unit = throw CancellationException("x")
+                },
+            )
+        check(
+            runCatching {
+                cancellingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), 0, 0uL))
+            }.exceptionOrNull() is LogSinkException.Failed,
+        )
         println("Kotlin P37 foreign trait wrappers passed")
 
         val signer = TestSigner()
