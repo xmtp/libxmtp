@@ -1911,7 +1911,10 @@ async fn message_decode_error_closes_reader_and_releases_lease() {
     let reader = group.message_reader().await?;
     reader.corrupt_next_message_for_test();
     assert!(
-        reader.next().await.is_err(),
+        xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+            .await
+            .expect("invalid message read timed out")
+            .is_err(),
         "invalid ID must fail conversion"
     );
     assert!(reader.is_ended_for_test(), "decode error left reader open");
