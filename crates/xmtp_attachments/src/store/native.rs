@@ -31,7 +31,10 @@ pub struct NativeStore {
     forced_source_unlink_error: Option<std::io::ErrorKind>,
     #[cfg(test)]
     fallback_race_bytes: Option<Vec<u8>>,
+    #[cfg(test)]
     forced_chmod_error: bool,
+    #[cfg(test)]
+    forced_foreign_owner: bool,
 }
 
 impl NativeStore {
@@ -61,7 +64,10 @@ impl NativeStore {
             forced_source_unlink_error: None,
             #[cfg(test)]
             fallback_race_bytes: None,
+            #[cfg(test)]
             forced_chmod_error: false,
+            #[cfg(test)]
+            forced_foreign_owner: false,
         })
     }
 
@@ -83,9 +89,27 @@ impl NativeStore {
         self
     }
 
+    #[cfg(test)]
     pub(crate) fn with_forced_chmod_error(mut self) -> Self {
         self.forced_chmod_error = true;
         self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_forced_foreign_owner(mut self) -> Self {
+        self.forced_foreign_owner = true;
+        self
+    }
+
+    fn force_foreign_owner(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.forced_foreign_owner
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
     }
 
     fn force_chmod_error(&self) -> bool {
@@ -97,6 +121,16 @@ impl NativeStore {
         {
             false
         }
+    }
+
+    #[cfg(unix)]
+    fn check_existing_owner(&self, child: &Dir) -> io::Result<()> {
+        use std::os::unix::fs::MetadataExt as _;
+        let owner = child.try_clone()?.into_std_file().metadata()?.uid();
+        if self.force_foreign_owner() || owner != unsafe { libc::geteuid() } {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+        Ok(())
     }
 
     fn remove_source(&self, parent: &Dir, name: &str) -> io::Result<()> {
@@ -127,7 +161,11 @@ impl NativeStore {
         if !parent.is_empty() {
             for part in parent.split('/') {
                 directory = match directory.open_dir_nofollow(part) {
-                    Ok(child) => child,
+                    Ok(child) => {
+                        #[cfg(unix)]
+                        self.check_existing_owner(&child)?;
+                        child
+                    }
                     Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
                         #[cfg(unix)]
                         let mut builder = cap_std::fs::DirBuilder::new();
@@ -152,7 +190,12 @@ impl NativeStore {
                         }
                         #[cfg(not(unix))]
                         let _ = created;
-                        directory.open_dir_nofollow(part)?
+                        let child = directory.open_dir_nofollow(part)?;
+                        #[cfg(unix)]
+                        if !created {
+                            self.check_existing_owner(&child)?;
+                        }
+                        child
                     }
                     Err(error) => return Err(error),
                 };

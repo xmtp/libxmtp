@@ -12937,6 +12937,7 @@ dependencies = [
  "hyper 1.11.0",
  "hyper-util",
  "js-sys",
+ "libc",
  "prost",
  "rcgen",
  "reqwest 0.13.4",
