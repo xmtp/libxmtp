@@ -19,7 +19,7 @@ use xmtp_attachments::{
     AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, AttachmentOptions,
     DownloadSink as _, GcmDecryptor, GcmEncryptor, KeyMaterial, LocalStore, StoreWriter, Transfer,
     UploadRequest, attachment_key, ciphertext_len, download_cap, encoded_prefix,
-    plaintext_rel_path, remote_attachment, staged_path, temporary_path,
+    plaintext_rel_path, remote_attachment, retained_fields_fit, staged_path, temporary_path,
 };
 use xmtp_common::{RetryableError as _, time::now_ns};
 use xmtp_content_types::remote_attachment::RemoteAttachment;
@@ -910,44 +910,59 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             .as_ref()
             .ok_or_else(|| AttachmentClientError::new(Cause::NotOffered))?;
         let store = self.runtime().store()?;
-        let (filename, mime_type, size) = match &source {
+        let fallback = match &source {
             AttachmentSource::Path {
                 path,
+                filename: None,
+                ..
+            } => path
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned()),
+            _ => None,
+        };
+        let (source_filename, source_mime_type) = match &source {
+            AttachmentSource::Path {
                 filename,
                 mime_type,
-            } => {
+                ..
+            }
+            | AttachmentSource::Bytes {
+                filename,
+                mime_type,
+                ..
+            } => (
+                filename.as_deref().or(fallback.as_deref()),
+                mime_type.as_str(),
+            ),
+        };
+        if !retained_fields_fit(source_filename, source_mime_type) {
+            return Err(AttachmentClientError::new(Cause::TooLarge));
+        }
+        let filename = source_filename.map(str::to_owned);
+        let mime_type = source_mime_type.to_owned();
+        let size = match &source {
+            AttachmentSource::Path { path, .. } => {
                 #[cfg(target_arch = "wasm32")]
                 {
                     let source_store = xmtp_attachments::OpfsStore::new_root()
                         .await
                         .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
                     let source_path = path.to_string_lossy().into_owned();
-                    let file = source_store
+                    source_store
                         .open_read(&source_path)
                         .await
-                        .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
-                    let fallback = path
-                        .file_name()
-                        .map(|name| name.to_string_lossy().into_owned());
-                    (filename.clone().or(fallback), mime_type.clone(), file.len())
+                        .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?
+                        .len()
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    let size = tokio::fs::metadata(path)
+                    tokio::fs::metadata(path)
                         .await
                         .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?
-                        .len();
-                    let fallback = path
-                        .file_name()
-                        .map(|name| name.to_string_lossy().into_owned());
-                    (filename.clone().or(fallback), mime_type.clone(), size)
+                        .len()
                 }
             }
-            AttachmentSource::Bytes {
-                bytes,
-                filename,
-                mime_type,
-            } => (filename.clone(), mime_type.clone(), bytes.len() as u64),
+            AttachmentSource::Bytes { bytes, .. } => bytes.len() as u64,
         };
         let prefix = encoded_prefix(filename.as_deref(), &mime_type, size);
         let length = ciphertext_len(prefix.len(), size);
@@ -2148,6 +2163,90 @@ mod tests {
             pending.remote_attachment().content_length,
             Some(limit as u32)
         );
+    }
+
+    // verifies: ATCH-030
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn create_retained_fields_limit() {
+        use xmtp_content_types::{
+            ContentCodec as _,
+            attachment::{Attachment, AttachmentCodec},
+        };
+        use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
+
+        let retained_len = |filename: Option<&str>, mime_type: &str| {
+            let encoded = AttachmentCodec::encode(Attachment {
+                filename: filename.map(str::to_owned),
+                mime_type: mime_type.to_owned(),
+                content: Vec::new(),
+            })
+            .expect("attachment encoding has no failure path");
+            EncodedContent {
+                r#type: encoded.r#type,
+                parameters: encoded.parameters,
+                compression: encoded.compression,
+                ..Default::default()
+            }
+            .encoded_len()
+        };
+        let mut low: usize = 0;
+        let mut high: usize = 65_536;
+        while low < high {
+            let middle = (low + high).div_ceil(2);
+            if retained_len(Some(&"f".repeat(middle)), "text/plain") <= 65_536 {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        let filename = "f".repeat(low);
+        assert_eq!(retained_len(Some(&filename), "text/plain"), 65_536);
+        assert_eq!(
+            retained_len(Some(&format!("{filename}f")), "text/plain"),
+            65_537
+        );
+
+        let allowed_dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: allowed_dir.path(), configured: offer, disable_workers);
+        alix.client
+            .attachments()
+            .create(AttachmentSource::Bytes {
+                bytes: b"x".to_vec(),
+                filename: Some(filename.clone()),
+                mime_type: "text/plain".into(),
+            })
+            .await?;
+
+        let denied_dir = tempfile::tempdir()?;
+        tester!(bo, attachments_dir: denied_dir.path(), configured: offer, disable_workers);
+        for (filename, mime_type) in [
+            (Some(format!("{filename}f")), "text/plain".to_owned()),
+            (None, "m".repeat(65_536)),
+        ] {
+            let error = bo
+                .client
+                .attachments()
+                .create(AttachmentSource::Bytes {
+                    bytes: b"x".to_vec(),
+                    filename,
+                    mime_type,
+                })
+                .await
+                .err()
+                .expect("oversized retained fields must fail");
+            assert_eq!(error.cause, Cause::TooLarge);
+            assert!(bo.client.attachments().list_pending().await?.is_empty());
+            assert!(bo.client.attachments().list_local().await?.is_empty());
+            assert!(
+                bo.client
+                    .attachments()
+                    .runtime()
+                    .store()?
+                    .list_files()
+                    .await?
+                    .is_empty()
+            );
+        }
     }
 
     // verifies: ATCH-032, ATCH-011
@@ -4349,7 +4448,8 @@ mod tests {
         assert!(!client.attachments().local_path(&remote)?.exists());
     }
 
-    // verifies: ATCH-046, ATCH-063, ATCH-076, P22, P24
+    // verifies: ATCH-046, ATCH-063, ATCH-076
+    // Covers plan P22 and P24.
     #[xmtp_common::test(unwrap_try = true)]
     async fn reconcile_after_crash_points() {
         use std::time::UNIX_EPOCH;
@@ -4456,7 +4556,8 @@ mod tests {
         assert!(dir.path().join(".DS_Store").exists());
     }
 
-    // verifies: ATCH-025, ATCH-037, P22
+    // verifies: ATCH-025, ATCH-037
+    // Covers plan P22.
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn complete_recorded_before_staged_file() {
