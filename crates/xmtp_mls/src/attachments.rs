@@ -1554,8 +1554,11 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 }
                 Err(error) => {
                     tracing::error!(%error, "attachment outcome write cannot be retried");
+                    // Nothing was recorded, so no event is sent. The record
+                    // stays `uploading` until its lease expires.
                     *self.shared.lease.lock() = None;
-                    self.end_local_attempt(attempt, Some(&result));
+                    let failed = Err(AttachmentClientError::new(Cause::LocalStorage));
+                    self.end_local_attempt(attempt, Some(&failed));
                     return;
                 }
             }
@@ -2710,7 +2713,7 @@ mod tests {
 
     // verifies: ATCH-025, ATCH-074, EVENT-055
     #[xmtp_common::test(unwrap_try = true)]
-    async fn deterministic_outcome_error_is_not_retried() {
+    async fn deterministic_outcome_error_fails_with_local_storage() {
         let dir = tempfile::tempdir()?;
         tester!(alix, attachments_dir: dir.path(), disable_workers);
         let pending = alix.client.attachments().create(bytes()).await?;
@@ -2743,7 +2746,10 @@ mod tests {
             )
             .execute(conn)
         })?;
-        tokio::time::timeout(Duration::from_secs(5), pending.upload()).await??;
+        let error = tokio::time::timeout(Duration::from_secs(5), pending.upload())
+            .await?
+            .unwrap_err();
+        assert_eq!(error.cause, Cause::LocalStorage);
         let row = alix
             .client
             .context
