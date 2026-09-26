@@ -2001,6 +2001,47 @@ async fn conversation_reader_rereads_after_fall_behind() {
     client.end().await?;
 }
 
+async fn wait_for_initial_connection<F, Fut>(
+    mut changed: F,
+) -> Result<crate::ConnectionState, XmtpError>
+where
+    F: FnMut(crate::ConnectionState) -> Fut,
+    Fut: Future<Output = Result<crate::ConnectionState, XmtpError>>,
+{
+    use crate::ConnectionState;
+
+    let mut previous = ConnectionState::Connecting;
+    loop {
+        let current = changed(previous).await?;
+        match current {
+            ConnectionState::Connected => return Ok(current),
+            ConnectionState::Connecting | ConnectionState::Reconnecting => previous = current,
+            ConnectionState::Failed | ConnectionState::Closed => {
+                panic!("initial connection stopped at {current:?}")
+            }
+        }
+    }
+}
+
+// verifies: PROC-023
+#[xmtp_common::test(unwrap_try = true)]
+async fn initial_connection_can_reconnect_before_connected() {
+    use crate::ConnectionState;
+
+    let mut previous_states = Vec::new();
+    let mut states = [ConnectionState::Reconnecting, ConnectionState::Connected].into_iter();
+    let connected = wait_for_initial_connection(|previous| {
+        previous_states.push(previous);
+        std::future::ready(Ok(states.next().expect("next initial state")))
+    })
+    .await?;
+    assert_eq!(connected, ConnectionState::Connected);
+    assert_eq!(
+        previous_states,
+        [ConnectionState::Connecting, ConnectionState::Reconnecting]
+    );
+}
+
 // verifies: PROC-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn connection_state_across_toxiproxy_drop() {
@@ -2048,8 +2089,10 @@ async fn connection_state_across_toxiproxy_drop() {
         }
         let connected = async {
             let (message, conversation) = tokio::join!(
-                messages.connection_state_changed(ConnectionState::Connecting),
-                conversations.connection_state_changed(ConnectionState::Connecting)
+                wait_for_initial_connection(|previous| messages.connection_state_changed(previous)),
+                wait_for_initial_connection(
+                    |previous| conversations.connection_state_changed(previous)
+                )
             );
             (
                 message.expect("message connected"),
