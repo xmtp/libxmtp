@@ -13,6 +13,18 @@ fn storage_error(_: impl Sized) -> AttachmentError {
     AttachmentError::new(Cause::LocalStorage)
 }
 
+fn lookup_absent(error: &JsValue) -> Result<bool, AttachmentError> {
+    match error
+        .dyn_ref::<web_sys::DomException>()
+        .map(|e| e.name())
+        .as_deref()
+    {
+        Some("NotFoundError") => Ok(true),
+        Some("TypeMismatchError") => Ok(false),
+        _ => Err(storage_error(())),
+    }
+}
+
 /// Files below one OPFS attachments directory. Call from a dedicated worker.
 #[derive(Clone)]
 pub struct OpfsStore {
@@ -145,18 +157,30 @@ impl LocalStore for OpfsStore {
 
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError> {
         validate_relative(path)?;
-        if let Ok((parent, name)) = self.parent(path, false).await {
-            if JsFuture::from(parent.get_file_handle(&name)).await.is_ok() {
-                return Ok(true);
-            }
-            if JsFuture::from(parent.get_directory_handle(&name))
-                .await
-                .is_ok()
-            {
-                return Ok(true);
+        let (parent_path, name) = path.rsplit_once('/').unwrap_or(("", path));
+        let mut parent = self.root.clone();
+        if !parent_path.is_empty() {
+            for part in parent_path.split('/') {
+                parent = match JsFuture::from(parent.get_directory_handle(part)).await {
+                    Ok(handle) => handle.dyn_into().map_err(storage_error)?,
+                    Err(error) => {
+                        lookup_absent(&error)?;
+                        return Ok(false);
+                    }
+                };
             }
         }
-        Ok(false)
+
+        let file_is_other_kind = match JsFuture::from(parent.get_file_handle(name)).await {
+            Ok(_) => return Ok(true),
+            Err(error) => !lookup_absent(&error)?,
+        };
+        let directory_is_other_kind = match JsFuture::from(parent.get_directory_handle(name)).await
+        {
+            Ok(_) => return Ok(true),
+            Err(error) => !lookup_absent(&error)?,
+        };
+        Ok(file_is_other_kind || directory_is_other_kind)
     }
 
     async fn sync(&self, writer: &mut StoreWriter) -> Result<(), AttachmentError> {
@@ -174,6 +198,23 @@ impl Drop for StoreWriter {
 mod tests {
     use super::*;
     use crate::store::DownloadSink;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn opfs_lookup_errors_are_not_absence() {
+        let error = |name| {
+            web_sys::DomException::new_with_message_and_name("lookup failed", name)
+                .map_err(storage_error)
+        };
+        assert!(lookup_absent(error("NotFoundError")?.as_ref())?);
+        assert!(!lookup_absent(error("TypeMismatchError")?.as_ref())?);
+        for name in ["UnknownError", "InvalidStateError"] {
+            assert_eq!(
+                lookup_absent(error(name)?.as_ref()).unwrap_err().cause,
+                Cause::LocalStorage,
+                "{name}"
+            );
+        }
+    }
 
     // verifies: ATCH-048
     #[xmtp_common::test(unwrap_try = true)]
