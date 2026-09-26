@@ -16,6 +16,9 @@ import {
   type CanMessageEntry,
   type ClientLike,
   type ClientOptions,
+  type ClientEvent,
+  type EventFilter,
+  ListenerError,
   type InboxState,
   type KeyPackageStatusEntry,
   type MessageMetadataEntry,
@@ -23,6 +26,7 @@ import {
   type ServerConfiguration,
   type Signer,
 } from "../xmtp_sdk";
+import { EventStream } from "./events/reader";
 import type { ConversationID, InboxID, InstallationID } from "./ids";
 
 declare const process: { cwd(): string } | undefined;
@@ -64,6 +68,8 @@ export class ClientRegistry {
 
 export class Client {
   private readonly key: bigint;
+  private readonly listeners = new Map<bigint, { stopped: boolean }>();
+  private readonly pendingListeners = new Set<{ stopped: boolean }>();
 
   private constructor(readonly raw: ClientLike) {
     this.key = raw.clientKey();
@@ -174,7 +180,45 @@ export class Client {
     return this.raw.conversations();
   }
 
+  async events(filter: EventFilter): Promise<EventStream> {
+    return new EventStream(await this.raw.events(filter));
+  }
+
+  async startListener(
+    filter: EventFilter,
+    callback: (event: ClientEvent) => void | Promise<void>,
+  ): Promise<bigint> {
+    const gate = { stopped: false };
+    this.pendingListeners.add(gate);
+    try {
+      const id = await this.raw.startListener(filter, {
+        async onEvent(event: ClientEvent): Promise<void> {
+          if (gate.stopped) return;
+          try {
+            await callback(event);
+          } catch {
+            throw new ListenerError.Failed();
+          }
+        },
+      });
+      this.listeners.set(id, gate);
+      return id;
+    } finally {
+      this.pendingListeners.delete(gate);
+    }
+  }
+
+  stopListener(id: bigint): Promise<void> {
+    const gate = this.listeners.get(id);
+    if (gate) gate.stopped = true;
+    this.listeners.delete(id);
+    return this.raw.stopListener(id);
+  }
+
   async end(): Promise<void> {
+    for (const gate of this.listeners.values()) gate.stopped = true;
+    for (const gate of this.pendingListeners) gate.stopped = true;
+    this.listeners.clear();
     try {
       await this.raw.end();
     } finally {

@@ -7,8 +7,8 @@ use xmtp_proto::types::GroupId;
 use crate::worker::device_sync::preference_sync::PreferenceUpdate;
 use xmtp_db::consent_record::{ConsentState as StoredConsentState, ConsentType};
 use xmtp_events::{
-    ClientEvent, ConsentChanged, ConsentEntityKind, ConsentState, DeletionCause, EventWriter,
-    HmacKeysUpdated, MessageDeleted, MessageRef,
+    ClientEvent, ConsentChanged, ConsentEntityKind, ConsentState, DeletionCause, EventContext,
+    EventWriter, HmacKeysUpdated, MessageDeleted, MessageRef,
 };
 
 #[derive(Clone, Debug)]
@@ -80,22 +80,26 @@ pub(crate) fn emit_preference_updates_with_public(
         .collect();
     public_updates.reverse();
     for update in public_updates {
+        let mut context = EventContext::default();
         let client = match update {
             PreferenceUpdate::Consent(record) => {
-                let is_sync_group = if record.entity_type == ConsentType::ConversationId {
+                let group = if record.entity_type == ConsentType::ConversationId {
                     hex::decode(&record.entity)
                         .ok()
                         .and_then(|raw| GroupId::try_from(raw.as_slice()).ok())
                         .map(|id| db.find_group(&id))
                         .transpose()?
                         .flatten()
-                        .is_some_and(|group| group.conversation_type.is_virtual())
                 } else {
-                    false
+                    None
                 };
-                if is_sync_group {
+                if group
+                    .as_ref()
+                    .is_some_and(|group| group.conversation_type.is_virtual())
+                {
                     continue;
                 }
+                context.dm_identifier = group.and_then(|group| group.dm_id.map(String::into_bytes));
                 ClientEvent::ConsentChanged(ConsentChanged {
                     entity_kind: match record.entity_type {
                         ConsentType::ConversationId => ConsentEntityKind::Conversation,
@@ -111,7 +115,7 @@ pub(crate) fn emit_preference_updates_with_public(
             }
             PreferenceUpdate::Hmac { .. } => ClientEvent::HmacKeysUpdated(HmacKeysUpdated),
         };
-        writer.emit(Some(client), None);
+        writer.emit_with_context(Some(client), None, context);
     }
     writer.emit(
         None,

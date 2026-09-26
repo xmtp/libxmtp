@@ -1,5 +1,5 @@
 use std::sync::{
-    Arc,
+    Arc, Weak,
     atomic::{AtomicU64, Ordering},
 };
 use xmtp_id::associations::{
@@ -8,6 +8,7 @@ use xmtp_id::associations::{
 };
 use xmtp_mls::{
     builder::{DeviceSyncMode, ForkRecoveryOpts},
+    context::XmtpSharedContext,
     identity::IdentityStrategy,
 };
 
@@ -19,6 +20,12 @@ use crate::{
 pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 
 static NEXT_CLIENT_KEY: AtomicU64 = AtomicU64::new(1);
+
+#[derive(Default)]
+struct EventReaderRegistry {
+    closing: bool,
+    readers: Vec<Weak<crate::EventReader>>,
+}
 
 #[derive(Clone, Debug, Default, uniffi::Enum)]
 pub enum StorageLocation {
@@ -201,6 +208,8 @@ pub struct Client {
     pub(crate) options: ClientOptions,
     pub(crate) signer: Option<Arc<dyn Signer>>,
     pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
+    pub(crate) listeners: crate::events::dispatch::ListenerRegistry,
+    event_readers: parking_lot::Mutex<EventReaderRegistry>,
 }
 
 impl Client {
@@ -277,6 +286,8 @@ impl Client {
             options,
             signer: None,
             auth_handle,
+            listeners: crate::events::dispatch::ListenerRegistry::default(),
+            event_readers: parking_lot::Mutex::new(EventReaderRegistry::default()),
         })
     }
 
@@ -403,7 +414,70 @@ impl Client {
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
+        let readers: Vec<_> = {
+            let mut registry = self.event_readers.lock();
+            registry.closing = true;
+            registry.readers.iter().filter_map(Weak::upgrade).collect()
+        };
+        self.listeners.stop_all();
+        for reader in &readers {
+            reader.close();
+        }
+        for reader in &readers {
+            reader.wait_for_reads().await;
+        }
         self.inner.close().await.map_err(XmtpError::from_client)
+    }
+
+    // implements: EVENT-014
+    // implements: EVENT-015
+    // implements: EVENT-016
+    pub async fn events(
+        &self,
+        filter: crate::EventFilter,
+    ) -> Result<Arc<crate::EventReader>, XmtpError> {
+        let filter = filter.to_core(&self.inner)?;
+        let subscription = self
+            .inner
+            .context
+            .events()
+            .subscribe_app(filter)
+            .ok_or_else(XmtpError::closed)?;
+        let reader = crate::EventReader::new(subscription);
+        {
+            let mut registry = self.event_readers.lock();
+            if registry.closing {
+                reader.close();
+                return Err(XmtpError::closed());
+            }
+            registry.readers.retain(|weak| weak.strong_count() > 0);
+            registry.readers.push(Arc::downgrade(&reader));
+        }
+        Ok(reader)
+    }
+
+    // implements: EVENT-050
+    // implements: EVENT-051
+    // implements: EVENT-052
+    pub async fn start_listener(
+        &self,
+        filter: crate::EventFilter,
+        listener: Arc<dyn crate::EventListener>,
+    ) -> Result<crate::ListenerID, XmtpError> {
+        let filter = filter.to_core(&self.inner)?;
+        let subscription = self
+            .inner
+            .context
+            .events()
+            .subscribe_app(filter)
+            .ok_or_else(XmtpError::closed)?;
+        self.listeners.start(subscription, listener)
+    }
+
+    // implements: EVENT-053
+    // implements: EVENT-054
+    pub async fn stop_listener(&self, id: crate::ListenerID) {
+        self.listeners.stop(id);
     }
 }
 

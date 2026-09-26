@@ -61,6 +61,58 @@ final class OrderedLogSink: LogSink, @unchecked Sendable {
     }
 }
 
+actor EventSignal {
+    private var seen = false
+
+    func mark() {
+        seen = true
+    }
+
+    func wait() async throws {
+        for _ in 0 ..< 100 {
+            if seen {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw ConformanceFailure("event listener did not run")
+    }
+
+    func hasRun() -> Bool {
+        seen
+    }
+}
+
+actor EventStartPause {
+    private var entered = false
+    private var released = false
+
+    func hold() async {
+        entered = true
+        while !released {
+            do {
+                try await Task.sleep(nanoseconds: 10_000_000)
+            } catch {
+                return
+            }
+        }
+    }
+
+    func waitUntilEntered() async throws {
+        for _ in 0 ..< 1000 {
+            if entered {
+                return
+            }
+            try await Task.sleep(nanoseconds: 10_000_000)
+        }
+        throw ConformanceFailure("event listener start hook did not run")
+    }
+
+    func release() {
+        released = true
+    }
+}
+
 @main
 struct Conformance {
     static func main() async throws {
@@ -319,6 +371,47 @@ struct Conformance {
         }
         try clearLogSink()
         print("Swift logging: inline records stayed in order")
+
+        // verifies: EVENT-014
+        // verifies: EVENT-050
+        // verifies: EVENT-053
+        let eventFilter = EventFilter(
+            kinds: [.conversationJoined], conversationIDs: nil,
+            contentTypes: nil, referencesOwnMessages: false
+        )
+        let eventReader = try await reopened.events(filter: eventFilter)
+        let eventSignal = EventSignal()
+        let listenerID = try await reopenedHost.startListener(eventFilter) { _ in
+            await eventSignal.mark()
+        }
+        _ = try await reopened.conversations().createGroup(members: [])
+        guard try await eventReader.next() != nil else {
+            throw ConformanceFailure("event reader ended before event")
+        }
+        try await eventSignal.wait()
+        await reopenedHost.stopListener(listenerID)
+        try await eventReader.end()
+        print("Swift scenario 8: event reader and listener passed")
+
+        // verifies: EVENT-053
+        let startPause = EventStartPause()
+        await EventStartHookForTest.shared.set {
+            await startPause.hold()
+        }
+        let lateCalls = EventSignal()
+        let delayedID = try await reopenedHost.startListener(eventFilter) { _ in
+            await lateCalls.mark()
+        }
+        _ = try await reopened.conversations().createGroup(members: [])
+        try await startPause.waitUntilEntered()
+        await reopenedHost.stopListener(delayedID)
+        await startPause.release()
+        await EventStartHookForTest.shared.set(nil)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        guard !(await lateCalls.hasRun()) else {
+            throw ConformanceFailure("callback started after stop returned")
+        }
+        print("Swift delayed listener stop passed")
 
         try await reopenedHost.end()
     }

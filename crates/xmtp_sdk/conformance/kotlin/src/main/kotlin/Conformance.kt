@@ -5,6 +5,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
@@ -12,6 +13,7 @@ import kotlinx.coroutines.withTimeout
 import uniffi.xmtp_sdk.*
 import java.lang.ref.WeakReference
 import java.nio.file.Files
+import java.util.concurrent.atomic.AtomicInteger
 
 private fun signCommand(
     action: String,
@@ -339,6 +341,65 @@ fun main() =
             failedCredential is XmtpException.CredentialCallbackFailed,
         ) { "credential Error became $failedCredential" }
         println("Kotlin signer Error: call failed without a hang")
+
+        // verifies: EVENT-014
+        // verifies: EVENT-050
+        // verifies: EVENT-052
+        // verifies: EVENT-054
+        val eventFilter =
+            EventFilter(
+                kinds = listOf(EventKind.CONVERSATION_JOINED),
+                conversationIDs = null,
+                contentTypes = null,
+                referencesOwnMessages = false,
+            )
+        val eventReader = reopenedHost.events(eventFilter)
+        val received = CompletableDeferred<Unit>()
+        val listenerID = reopenedHost.startListener(eventFilter) { received.complete(Unit) }
+        reopened.conversations().createGroup(emptyList())
+        withTimeout(10_000) { eventReader.first() }
+        withTimeout(10_000) { received.await() }
+        reopenedHost.stopListener(listenerID)
+        println("Kotlin scenario 8: event reader and listener passed")
+
+        // verifies: EVENT-053
+        val startEntered = CompletableDeferred<Unit>()
+        val releaseStart = CompletableDeferred<Unit>()
+        EventStartHookForTest.beforeCallback = {
+            startEntered.complete(Unit)
+            releaseStart.await()
+        }
+        val lateCalls = AtomicInteger()
+        val delayedID = reopenedHost.startListener(eventFilter) { lateCalls.incrementAndGet() }
+        reopened.conversations().createGroup(emptyList())
+        withTimeout(10_000) { startEntered.await() }
+        withTimeout(10_000) { reopenedHost.stopListener(delayedID) }
+        releaseStart.complete(Unit)
+        EventStartHookForTest.beforeCallback = null
+        delay(100)
+        check(lateCalls.get() == 0) { "callback started after stop returned" }
+        println("Kotlin delayed listener stop passed")
+
+        // verifies: EVENT-052
+        val stoppedFromCallback = CompletableDeferred<Unit>()
+        var reentrantID: ListenerID? = null
+        reentrantID =
+            reopenedHost.startListener(eventFilter) {
+                reopenedHost.stopListener(requireNotNull(reentrantID))
+                stoppedFromCallback.complete(Unit)
+            }
+        reopened.conversations().createGroup(emptyList())
+        withTimeout(10_000) { stoppedFromCallback.await() }
+        println("Kotlin stop_from_inside_listener passed")
+
+        val endedFromCallback = CompletableDeferred<Unit>()
+        reopenedHost.startListener(eventFilter) {
+            reopenedHost.end()
+            endedFromCallback.complete(Unit)
+        }
+        runCatching { reopened.conversations().createGroup(emptyList()) }
+        withTimeout(10_000) { endedFromCallback.await() }
+        println("Kotlin end_from_inside_listener passed")
 
         reopenedHost.end()
     }
