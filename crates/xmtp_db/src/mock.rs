@@ -67,6 +67,26 @@ mock! {
         fn disable_readonly(&self) -> Result<(), StorageError>;
     }
 
+    impl QueryLocalAttachment for DbQuery {
+        fn insert_or_ignore_local_attachment(&self, path: &str, created_at_ns: i64, mime_type: Option<String>, filename: Option<String>) -> Result<(), StorageError>;
+        fn get_local_attachment(&self, path: &str) -> Result<Option<crate::attachments::StoredLocalAttachment>, StorageError>;
+        fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError>;
+        fn delete_local_attachments_in_dir(&self, dir: &str) -> Result<usize, StorageError>;
+        fn list_local_attachments(&self) -> Result<Vec<crate::attachments::StoredLocalAttachment>, StorageError>;
+    }
+
+    impl QueryPendingAttachment for DbQuery {
+        fn insert_or_ignore_pending_attachment(&self, content_digest: &str, remote_attachment: &[u8], created_at_ns: i64) -> Result<(), StorageError>;
+        fn delete_pending_attachment(&self, content_digest: &str) -> Result<usize, StorageError>;
+        fn get_pending_attachment(&self, content_digest: &str) -> Result<Option<crate::attachments::StoredPendingAttachment>, StorageError>;
+        fn list_pending_attachments_since(&self, since_ns: i64) -> Result<Vec<crate::attachments::StoredPendingAttachment>, StorageError>;
+        fn pending_attachment_sweep_candidates(&self, older_than_ns: i64) -> Result<Vec<String>, StorageError>;
+        fn claim_pending_attachment(&self, content_digest: &str, lease_id: &[u8], now_ns: i64, lease_duration_ns: i64) -> Result<usize, StorageError>;
+        fn extend_pending_attachment(&self, content_digest: &str, lease_id: &[u8], now_ns: i64, lease_duration_ns: i64) -> Result<usize, StorageError>;
+        fn finish_pending_attachment(&self, content_digest: &str, lease_id: &[u8], now_ns: i64, outcome: crate::attachments::PendingAttachmentOutcome) -> Result<usize, StorageError>;
+        fn sweep_pending_attachment(&self, content_digest: &str, older_than_ns: i64, now_ns: i64) -> Result<usize, StorageError>;
+    }
+
     impl QueryConsentRecord for DbQuery {
         fn get_consent_record(
             &self,

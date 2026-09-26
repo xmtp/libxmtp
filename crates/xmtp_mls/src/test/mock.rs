@@ -68,6 +68,7 @@ mock! {
 impl Clone for NewMockContext {
     fn clone(&self) -> Self {
         Self {
+            attachments: self.attachments.clone(),
             identity: self.identity.clone(),
             api_client: self.api_client.clone(),
             store: self.store.clone(),
@@ -110,6 +111,10 @@ impl XmtpSharedContext for NewMockContext {
 
     fn db(&self) -> <Self::Db as xmtp_db::XmtpDb>::DbQuery {
         self.store.db()
+    }
+
+    fn attachment_runtime(&self) -> &Arc<crate::attachments::AttachmentRuntime> {
+        &self.attachments
     }
 
     fn api(&self) -> &ApiClientWrapper<Self::ApiClient> {

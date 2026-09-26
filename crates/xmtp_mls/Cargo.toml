@@ -94,6 +94,7 @@ xmtp_api.workspace = true
 xmtp_api_backend.workspace = true
 xmtp_api_grpc.workspace = true
 xmtp_archive.workspace = true
+xmtp_attachments.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_content_types.workspace = true
@@ -133,6 +134,7 @@ dyn-clone.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
+uuid = { workspace = true, features = ["js"] }
 wasm-bindgen-futures.workspace = true
 web-sys.workspace = true
 
@@ -144,8 +146,10 @@ diesel = { workspace = true, features = [
   "32-column-tables",
 ] }
 fdlimit.workspace = true
+flate2.workspace = true
 futures-executor = "0.3"
 futures-test = "0.3.33"
+http.workspace = true
 mockall.workspace = true
 once_cell.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
@@ -178,9 +182,20 @@ mockito = "1.7.2"
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
 
+[target.'cfg(unix)'.dev-dependencies]
+libc.workspace = true
+
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
 wasm-bindgen-test.workspace = true
+
+[[test]]
+name = "attachment_memory"
+required-features = ["test-utils"]
+
+[[test]]
+name = "attachment_opfs"
+required-features = ["test-utils"]
 
 [[bench]]
 harness = false

@@ -36,6 +36,7 @@ hyper-util = { workspace = true, features = ["tokio"] }
 reqwest.workspace = true
 rustls.workspace = true
 rustls-platform-verifier = "0.7"
+tracing.workspace = true
 tokio = { workspace = true, features = [
   "fs",
   "io-util",
@@ -51,6 +52,9 @@ xmtp_cryptography.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 webpki-roots.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-timers = { workspace = true, features = ["futures"] }
@@ -99,4 +103,5 @@ rcgen = { version = "0.14.10", default-features = false, features = ["ring"] }
 tempfile.workspace = true
 
 [target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+uuid = { workspace = true, features = ["js"] }
 wasm-bindgen-test.workspace = true

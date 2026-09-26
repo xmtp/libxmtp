@@ -553,7 +553,7 @@ mod tests {
                 schema.insert(table.name, columns);
             }
             diesel::sql_query("SELECT * FROM conversation_list").execute(conn)?;
-            assert_eq!(conn.applied_migrations().unwrap().len(), 1);
+            assert_eq!(conn.applied_migrations().unwrap().len(), 2);
             Ok(schema)
         })?;
 
@@ -609,9 +609,72 @@ mod tests {
         std::fs::remove_file(path)?;
     }
 
+    // Covers plan P13.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn init_accepts_later_self_hosted_version() {
+        use crate::{ConnectionExt, TestDb, XmtpDb, XmtpTestDb};
+        use diesel::migration::MigrationSource;
+        use diesel::sql_types::Text;
+
+        let database = TestDb::create_database(None).await;
+        let connection = database.conn();
+        connection.raw_query(|conn| {
+            let migrations =
+                MigrationSource::<diesel::sqlite::Sqlite>::migrations(&crate::MIGRATIONS)
+                    .map_err(diesel::result::Error::QueryBuilderError)?;
+            let baseline = migrations
+                .iter()
+                .min_by_key(|migration| migration.name().to_string())
+                .expect("baseline migration exists");
+            conn.batch_execute("CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)")?;
+            baseline.run(conn)
+                .map_err(diesel::result::Error::QueryBuilderError)?;
+            let version: String = baseline.name().to_string().chars().filter(|c| c.is_numeric()).collect();
+            diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
+                .bind::<Text, _>(version)
+                .execute(conn)?;
+            diesel::sql_query("UPDATE user_preferences SET push_generation = 7 WHERE id = 0")
+                .execute(conn)?;
+            Ok(())
+        })?;
+        assert_eq!(
+            connection.raw_query(|conn| {
+                conn.applied_migrations()
+                    .map(|versions| versions.len())
+                    .map_err(diesel::result::Error::QueryBuilderError)
+            })?,
+            1
+        );
+
+        let store = EncryptedMessageStore::new(database)?;
+        assert_eq!(
+            store.db().raw_query(|conn| {
+                conn.applied_migrations()
+                    .map(|versions| versions.len())
+                    .map_err(diesel::result::Error::QueryBuilderError)
+            })?,
+            2
+        );
+        store.init()?;
+        #[derive(QueryableByName)]
+        struct Generation {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            push_generation: i64,
+        }
+        let generation = store.db().raw_query(|conn| {
+            diesel::sql_query("SELECT push_generation FROM user_preferences WHERE id = 0")
+                .get_result::<Generation>(conn)
+        })?;
+        assert_eq!(generation.push_generation, 7);
+        store.db().raw_query(|conn| {
+            diesel::sql_query("SELECT * FROM local_attachments").execute(conn)?;
+            diesel::sql_query("SELECT * FROM pending_attachments").execute(conn)?;
+            Ok(())
+        })?;
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn rejects_old_self_hosted_format_without_changing_data() {
-        use crate::encrypted_store::EmbeddedMigrationsExt;
         use crate::{ConnectionExt, StorageError, TestDb, XmtpDb, XmtpTestDb};
         use diesel::sql_types::Text;
 
@@ -622,7 +685,7 @@ mod tests {
                 "CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE refresh_state (entity_id BLOB NOT NULL, entity_kind INTEGER NOT NULL, sequence_id BIGINT NOT NULL, PRIMARY KEY(entity_id, entity_kind)); INSERT INTO refresh_state VALUES (x'01', 2, 42);",
             )?;
             diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
-                .bind::<Text, _>(crate::MIGRATIONS.final_migration()).execute(conn)?;
+                .bind::<Text, _>(crate::encrypted_store::BASELINE_MIGRATION).execute(conn)?;
             Ok(())
         })?;
         let result = EncryptedMessageStore::new(database);
@@ -649,7 +712,6 @@ mod tests {
     /// "no such table: server_configuration" at client build.
     #[xmtp_common::test(unwrap_try = true)]
     async fn rejects_a_database_missing_the_server_configuration_table() {
-        use crate::encrypted_store::EmbeddedMigrationsExt;
         use crate::{ConnectionExt, StorageError, TestDb, XmtpDb, XmtpTestDb};
         use diesel::sql_types::Text;
 
@@ -660,7 +722,7 @@ mod tests {
                 "CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE refresh_state (entity_id BLOB NOT NULL, entity_kind INTEGER NOT NULL, sequence_id BIGINT NOT NULL, received_sequence_id BIGINT NOT NULL DEFAULT 0, PRIMARY KEY(entity_id, entity_kind));",
             )?;
             diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
-                .bind::<Text, _>(crate::MIGRATIONS.final_migration())
+                .bind::<Text, _>(crate::encrypted_store::BASELINE_MIGRATION)
                 .execute(conn)?;
             Ok(())
         })?;

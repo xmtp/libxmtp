@@ -112,6 +112,7 @@ hyper-util = "0.1"
 indicatif = "0.18"
 itertools = "0.15"
 js-sys = "0.3"
+libc = "0.2"
 libcrux-ed25519 = "0.0.9"
 lru = "0.18"
 mockall = { version = "0.15" }
