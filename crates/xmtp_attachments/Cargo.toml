@@ -1,0 +1,102 @@
+[package]
+name = "xmtp_attachments"
+description = "Streaming client attachment encoding and encryption"
+license.workspace = true
+version.workspace = true
+rust-version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+aes.workspace = true
+async-trait.workspace = true
+ctr.workspace = true
+flate2.workspace = true
+futures-util.workspace = true
+ghash.workspace = true
+hex.workspace = true
+prost.workspace = true
+sha2.workspace = true
+subtle.workspace = true
+thiserror.workspace = true
+url.workspace = true
+xmtp-workspace-hack.workspace = true
+xmtp_common.workspace = true
+xmtp_content_types.workspace = true
+xmtp_proto.workspace = true
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bytes.workspace = true
+http-body-util.workspace = true
+hyper = { workspace = true, features = ["client", "http1"] }
+hyper-util = { workspace = true, features = ["tokio"] }
+reqwest.workspace = true
+rustls.workspace = true
+rustls-platform-verifier = "0.7"
+tokio = { workspace = true, features = [
+  "fs",
+  "io-util",
+  "net",
+  "rt-multi-thread",
+] }
+tokio-rustls = { version = "0.26", default-features = false, features = [
+  "ring",
+  "tls12",
+] }
+tokio-util = { workspace = true, features = ["io"] }
+xmtp_cryptography.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+webpki-roots.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+gloo-timers = { workspace = true, features = ["futures"] }
+js-sys.workspace = true
+wasm-bindgen.workspace = true
+wasm-bindgen-futures.workspace = true
+wasm-streams.workspace = true
+web-sys = { workspace = true, features = [
+  "Blob",
+  "AbortController",
+  "AbortSignal",
+  "DomException",
+  "File",
+  "FileSystemDirectoryHandle",
+  "FileSystemFileHandle",
+  "FileSystemGetDirectoryOptions",
+  "FileSystemGetFileOptions",
+  "FileSystemHandle",
+  "FileSystemRemoveOptions",
+  "FileSystemReadWriteOptions",
+  "FileSystemSyncAccessHandle",
+  "Headers",
+  "Navigator",
+  "Performance",
+  "ReadableStream",
+  "Request",
+  "RequestCredentials",
+  "RequestInit",
+  "RequestRedirect",
+  "ReferrerPolicy",
+  "Response",
+  "ResponseType",
+  "StorageManager",
+  "WorkerGlobalScope",
+  "WorkerNavigator",
+] }
+
+[dev-dependencies]
+aes-gcm.workspace = true
+tokio.workspace = true
+xmtp_common = { workspace = true, features = ["test-utils"] }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+hyper = { workspace = true, features = ["server", "http1"] }
+rcgen = { version = "0.14.10", default-features = false, features = ["ring"] }
+tempfile.workspace = true
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test.workspace = true

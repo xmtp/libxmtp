@@ -25,11 +25,18 @@ pub enum EventKind {
     NotificationsFailed,
     ArchiveRestored,
     ConnectionStateChanged,
+    AttachmentUploadStarted,
+    AttachmentUploadCompleted,
+    AttachmentUploadFailed,
+    AttachmentDownloadStarted,
+    AttachmentDownloadCompleted,
+    AttachmentDownloadFailed,
+    AttachmentDeleted,
     Lagged,
 }
 
 impl EventKind {
-    pub const ALL: [Self; 21] = [
+    pub const ALL: [Self; 28] = [
         Self::ConversationJoined,
         Self::ConversationRemoved,
         Self::ConversationMembershipChanged,
@@ -50,6 +57,13 @@ impl EventKind {
         Self::NotificationsFailed,
         Self::ArchiveRestored,
         Self::ConnectionStateChanged,
+        Self::AttachmentUploadStarted,
+        Self::AttachmentUploadCompleted,
+        Self::AttachmentUploadFailed,
+        Self::AttachmentDownloadStarted,
+        Self::AttachmentDownloadCompleted,
+        Self::AttachmentDownloadFailed,
+        Self::AttachmentDeleted,
         Self::Lagged,
     ];
 
@@ -75,6 +89,13 @@ impl EventKind {
             Self::NotificationsFailed => "notifications.failed",
             Self::ArchiveRestored => "archive.restored",
             Self::ConnectionStateChanged => "connection.state_changed",
+            Self::AttachmentUploadStarted => "attachment.upload_started",
+            Self::AttachmentUploadCompleted => "attachment.upload_completed",
+            Self::AttachmentUploadFailed => "attachment.upload_failed",
+            Self::AttachmentDownloadStarted => "attachment.download_started",
+            Self::AttachmentDownloadCompleted => "attachment.download_completed",
+            Self::AttachmentDownloadFailed => "attachment.download_failed",
+            Self::AttachmentDeleted => "attachment.deleted",
             Self::Lagged => "lagged",
         }
     }
@@ -238,6 +259,19 @@ pub struct ConnectionStateChanged {
     pub current: ConnectionState,
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttachmentRef {
+    pub attachment_key: String,
+    pub url: String,
+    pub content_digest: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttachmentFailed {
+    pub attachment_key: String,
+    pub url: String,
+    pub content_digest: String,
+    pub cause: String,
+}
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Lagged {
     pub discarded: u64,
 }
@@ -264,6 +298,13 @@ pub enum ClientEvent {
     NotificationsFailed(NotificationsFailed),
     ArchiveRestored(ArchiveRestored),
     ConnectionStateChanged(ConnectionStateChanged),
+    AttachmentUploadStarted(AttachmentRef),
+    AttachmentUploadCompleted(AttachmentRef),
+    AttachmentUploadFailed(AttachmentFailed),
+    AttachmentDownloadStarted(AttachmentRef),
+    AttachmentDownloadCompleted(AttachmentRef),
+    AttachmentDownloadFailed(AttachmentFailed),
+    AttachmentDeleted(AttachmentRef),
     Lagged(Lagged),
 }
 
@@ -290,6 +331,13 @@ impl ClientEvent {
             Self::NotificationsFailed(_) => EventKind::NotificationsFailed,
             Self::ArchiveRestored(_) => EventKind::ArchiveRestored,
             Self::ConnectionStateChanged(_) => EventKind::ConnectionStateChanged,
+            Self::AttachmentUploadStarted(_) => EventKind::AttachmentUploadStarted,
+            Self::AttachmentUploadCompleted(_) => EventKind::AttachmentUploadCompleted,
+            Self::AttachmentUploadFailed(_) => EventKind::AttachmentUploadFailed,
+            Self::AttachmentDownloadStarted(_) => EventKind::AttachmentDownloadStarted,
+            Self::AttachmentDownloadCompleted(_) => EventKind::AttachmentDownloadCompleted,
+            Self::AttachmentDownloadFailed(_) => EventKind::AttachmentDownloadFailed,
+            Self::AttachmentDeleted(_) => EventKind::AttachmentDeleted,
             Self::Lagged(_) => EventKind::Lagged,
         }
     }
