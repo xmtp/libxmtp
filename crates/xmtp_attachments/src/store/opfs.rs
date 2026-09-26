@@ -442,7 +442,8 @@ mod tests {
         assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"second");
     }
 
-    // verifies: ATCH-046, ATCH-048, P24
+    // verifies: ATCH-046, ATCH-048
+    // Covers plan P24.
     #[xmtp_common::test(unwrap_try = true)]
     async fn opfs_list_files_and_mtime() {
         let store = OpfsStore::new(&test_path()).await?;
