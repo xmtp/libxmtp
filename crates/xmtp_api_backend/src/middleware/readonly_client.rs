@@ -4,6 +4,7 @@ xmtp_common::if_test! {
     mod test;
 }
 
+use crate::backend::CREATE_UPLOAD_PATH;
 use derive_builder::Builder;
 use prost::bytes::Bytes;
 use xmtp_proto::api::{ApiClientError, Client};
@@ -45,7 +46,7 @@ where
         body: Bytes,
     ) -> Result<http::Response<Bytes>, ApiClientError> {
         let p = path.path();
-        if p == PUBLISH_PATH {
+        if p == PUBLISH_PATH || p == CREATE_UPLOAD_PATH {
             return Err(ApiClientError::WritesDisabled);
         }
 
@@ -59,7 +60,7 @@ where
         body: Bytes,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         let p = path.path();
-        if p == PUBLISH_PATH {
+        if p == PUBLISH_PATH || p == CREATE_UPLOAD_PATH {
             return Err(ApiClientError::WritesDisabled);
         }
 
@@ -73,7 +74,7 @@ where
         body: xmtp_common::BoxDynStream<'static, Bytes>,
     ) -> Result<http::Response<BytesStream>, ApiClientError> {
         let p = path.path();
-        if p == PUBLISH_PATH {
+        if p == PUBLISH_PATH || p == CREATE_UPLOAD_PATH {
             return Err(ApiClientError::WritesDisabled);
         }
 
@@ -116,7 +117,7 @@ xmtp_common::if_test! {
 
 #[cfg(test)]
 mod tests {
-    use crate::backend::{GetInboxIds, Publish};
+    use crate::backend::{CreateUpload, GetInboxIds, Publish};
 
     use super::*;
     use rstest::*;
@@ -147,6 +148,14 @@ mod tests {
     async fn test_errors_on_write(ro: MockClient) {
         let mut e = Publish(Default::default());
         let result = e.query(&ro).await;
+        assert!(matches!(result, Err(ApiClientError::WritesDisabled)));
+    }
+
+    #[rstest]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn readonly_blocks_create_upload(ro: MockClient) {
+        let mut endpoint = CreateUpload(Default::default());
+        let result = endpoint.query(&ro).await;
         assert!(matches!(result, Err(ApiClientError::WritesDisabled)));
     }
 }

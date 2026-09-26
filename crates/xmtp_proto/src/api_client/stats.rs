@@ -6,6 +6,7 @@ use std::sync::{
 #[derive(Clone, Default, Debug)]
 pub struct ApiStats {
     pub publish: Arc<EndpointStats>,
+    pub create_upload: Arc<EndpointStats>,
     pub query: Arc<EndpointStats>,
     pub query_newest: Arc<EndpointStats>,
     pub subscribe: Arc<EndpointStats>,
@@ -15,6 +16,7 @@ pub struct ApiStats {
 impl ApiStats {
     pub fn clear(&self) {
         self.publish.clear();
+        self.create_upload.clear();
         self.query.clear();
         self.query_newest.clear();
         self.subscribe.clear();

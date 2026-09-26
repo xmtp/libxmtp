@@ -25,6 +25,67 @@ mod incoming;
 mod integration;
 mod limits;
 
+#[rstest]
+#[case(tonic::Code::InvalidArgument)]
+#[case(tonic::Code::OutOfRange)]
+#[case(tonic::Code::Unimplemented)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_upload_does_not_retry_permanent_rejections(
+    #[case] code: tonic::Code,
+) -> crate::Result<()> {
+    let mut mock = MockBackendClient::new();
+    mock.expect_create_upload()
+        .times(1)
+        .returning(move |_| Err(status(code)));
+
+    let error = wrapper(mock)
+        .create_upload(wire::CreateUploadRequest {
+            content_digest: vec![7; 32],
+            content_length: 42,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(grpc_status(&error).map(tonic::Status::code), Some(code));
+    Ok(())
+}
+
+#[rstest]
+#[case(tonic::Code::Unavailable)]
+#[case(tonic::Code::DeadlineExceeded)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_upload_retries_transient_rejections(
+    #[case] code: tonic::Code,
+) -> crate::Result<()> {
+    let mut mock = MockBackendClient::new();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let count = attempts.clone();
+    mock.expect_create_upload()
+        .times(2)
+        .returning(move |request| {
+            assert_eq!(request.content_digest, vec![7; 32]);
+            assert_eq!(request.content_length, 42);
+            if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err(status(code));
+            }
+            Ok(wire::CreateUploadResponse {
+                method: "PUT".to_owned(),
+                url: "https://storage.example/upload".to_owned(),
+                headers: vec![],
+                expires_in_seconds: 300,
+            })
+        });
+
+    let response = wrapper(mock)
+        .create_upload(wire::CreateUploadRequest {
+            content_digest: vec![7; 32],
+            content_length: 42,
+        })
+        .await?;
+    assert_eq!(response.method, "PUT");
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
 fn wrapper(mock: MockBackendClient) -> ApiClientWrapper<MockBackendClient> {
     let strategy = ExponentialBackoff::builder()
         .duration(Duration::ZERO)

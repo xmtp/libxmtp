@@ -302,6 +302,9 @@ impl RpcLabels {
             "/xmtp.backend.v1.ConfigurationService/GetConfiguration" => {
                 ("xmtp.backend.v1.ConfigurationService", "GetConfiguration")
             }
+            "/xmtp.backend.v1.AttachmentService/CreateUpload" => {
+                ("xmtp.backend.v1.AttachmentService", "CreateUpload")
+            }
             "/grpc.health.v1.Health/Check" => ("grpc.health.v1.Health", "Check"),
             "/xmtp.backend.v1.NotificationService/Register" => {
                 ("xmtp.backend.v1.NotificationService", "Register")

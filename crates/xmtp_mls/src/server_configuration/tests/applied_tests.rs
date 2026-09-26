@@ -8,7 +8,10 @@
 
 use std::sync::Arc;
 
-use xmtp_configuration::{ConfigProvider, ServerConfiguration, StaticConfigProvider};
+use xmtp_configuration::{
+    AttachmentsConfiguration, BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ConfigProvider,
+    ServerConfiguration, StaticConfigProvider,
+};
 use xmtp_cryptography::utils::generate_local_wallet;
 use xmtp_db::XmtpTestDb;
 use xmtp_db::prelude::*;
@@ -27,6 +30,14 @@ use super::distinct_snapshot;
 
 fn provider(edit: impl FnOnce(&mut ServerConfiguration)) -> Arc<dyn ConfigProvider> {
     Arc::new(StaticConfigProvider::edited(edit))
+}
+
+fn attachment_offer() -> AttachmentsConfiguration {
+    AttachmentsConfiguration {
+        base_url: "https://CDN.example.com/att".to_owned(),
+        max_upload_bytes: 1024,
+        retention_seconds: 0,
+    }
 }
 
 /// Build against the shared backend with a caller-supplied snapshot, without
@@ -55,6 +66,75 @@ async fn every_published_field_round_trips_to_the_client() {
     crate::tester!(alix, config_provider: provider(move |c| *c = snapshot));
 
     assert_eq!(alix.server_configuration(), &expected);
+}
+
+// A Rust provider bypasses proto conversion, but the client must still hide
+// every unusable attachment offer.
+// verifies: ATCH-008
+#[xmtp_common::test(unwrap_try = true)]
+async fn provider_attachment_invalid_offers_are_ignored() {
+    crate::tester!(invalid_url, config_provider: provider(|configuration| {
+        configuration.attachments = Some(AttachmentsConfiguration {
+            base_url: "https://x/a/".to_owned(),
+            ..attachment_offer()
+        });
+    }));
+    assert!(invalid_url.server_configuration().attachments.is_none());
+
+    crate::tester!(invalid_size, config_provider: provider(|configuration| {
+        configuration.attachments = Some(AttachmentsConfiguration {
+            max_upload_bytes: 4_294_967_296,
+            ..attachment_offer()
+        });
+    }));
+    assert!(invalid_size.server_configuration().attachments.is_none());
+
+    crate::tester!(invalid_retention, config_provider: provider(|configuration| {
+        configuration.attachments = Some(AttachmentsConfiguration {
+            retention_seconds: 9_007_199_254_740_992,
+            ..attachment_offer()
+        });
+    }));
+    assert!(
+        invalid_retention
+            .server_configuration()
+            .attachments
+            .is_none()
+    );
+}
+
+// A usable offer stays intact, including the published URL string. A zero
+// ceiling takes the same compiled default that proto conversion applies.
+// verifies: ATCH-008, CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+async fn provider_attachment_valid_offer_and_default_limit_are_kept() {
+    let expected = AttachmentsConfiguration {
+        retention_seconds: 9_007_199_254_740_991,
+        ..attachment_offer()
+    };
+    let offered = expected.clone();
+    crate::tester!(valid_offer, config_provider: provider(move |configuration| {
+        configuration.attachments = Some(offered);
+    }));
+    assert_eq!(
+        valid_offer.server_configuration().attachments,
+        Some(expected)
+    );
+
+    crate::tester!(default_limit, config_provider: provider(|configuration| {
+        configuration.attachments = Some(AttachmentsConfiguration {
+            max_upload_bytes: 0,
+            ..attachment_offer()
+        });
+    }));
+    assert_eq!(
+        default_limit
+            .server_configuration()
+            .attachments
+            .as_ref()
+            .map(|offer| offer.max_upload_bytes),
+        Some(BACKEND_DEFAULT_MAX_UPLOAD_BYTES)
+    );
 }
 
 // The deployment's ceiling is checked before the commit is built and

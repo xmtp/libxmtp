@@ -41,6 +41,13 @@ impl<C: XmtpBackendClient> XmtpBackendClient for TrackedStatsClient<C> {
         self.stats.publish.count_request();
         self.inner.publish(request).await
     }
+    async fn create_upload(
+        &self,
+        request: CreateUploadRequest,
+    ) -> Result<CreateUploadResponse, Self::Error> {
+        self.stats.create_upload.count_request();
+        self.inner.create_upload(request).await
+    }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         self.stats.query.count_request();
         self.inner.query(request).await

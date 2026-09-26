@@ -1,10 +1,10 @@
 use crate::api::IsConnectedCheck;
 pub use crate::backend_v1::{
-    GetConfigurationRequest, GetConfigurationResponse, GetInboxIdsRequest, GetInboxIdsResponse,
-    PublishRequest, PublishResponse, QueryNewestRequest, QueryNewestResponse, QueryRequest,
-    QueryResponse, RecipientState, RegisterRequest, ServerEnvelope, UnregisterRequest,
-    UnregisterResponse, UpdateSubscriptionsRequest, VerifySmartContractWalletSignaturesRequest,
-    VerifySmartContractWalletSignaturesResponse,
+    CreateUploadRequest, CreateUploadResponse, GetConfigurationRequest, GetConfigurationResponse,
+    GetInboxIdsRequest, GetInboxIdsResponse, PublishRequest, PublishResponse, QueryNewestRequest,
+    QueryNewestResponse, QueryRequest, QueryResponse, RecipientState, RegisterRequest,
+    ServerEnvelope, UnregisterRequest, UnregisterResponse, UpdateSubscriptionsRequest,
+    VerifySmartContractWalletSignaturesRequest, VerifySmartContractWalletSignaturesResponse,
 };
 use crate::types::{
     GroupId, GroupMessage, IncomingBatchLimits, IncomingEvent, IncomingSubscription,
@@ -87,6 +87,10 @@ pub trait XmtpBackendClient: MaybeSend + MaybeSync {
     fn register_client_event_writer(&self, _writer: &Arc<dyn xmtp_events::EventWriter<()>>) {}
     fn unregister_client_event_writer(&self, _writer: &Arc<dyn xmtp_events::EventWriter<()>>) {}
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error>;
+    async fn create_upload(
+        &self,
+        request: CreateUploadRequest,
+    ) -> Result<CreateUploadResponse, Self::Error>;
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error>;
     async fn query_newest(
         &self,

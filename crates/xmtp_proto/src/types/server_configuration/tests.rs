@@ -1,7 +1,8 @@
 use super::*;
 use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_PUBLISH_TOPICS, BACKEND_DEFAULT_MAX_QUERY_LIMIT,
-    BACKEND_DEFAULT_WELCOME_SECONDS, ENABLE_COMMIT_LOG, MAX_GROUP_SIZE,
+    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, BACKEND_DEFAULT_WELCOME_SECONDS, ENABLE_COMMIT_LOG,
+    MAX_ATTACHMENT_RETENTION_SECONDS, MAX_ATTACHMENT_UPLOAD_BYTES, MAX_GROUP_SIZE,
 };
 
 /// A response with every published field set, so a test can prove each one
@@ -54,6 +55,7 @@ fn populated() -> backend_v1::GetConfigurationResponse {
             commit_log_enabled: Some(false),
         }),
         smart_contract_wallet_chains: vec!["eip155:1".to_owned(), "eip155:8453".to_owned()],
+        attachments: None,
     }
 }
 
@@ -175,4 +177,119 @@ fn the_stored_bytes_round_trip_through_prost() {
         ServerConfiguration::from(decoded),
         ServerConfiguration::from(populated())
     );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn attachments_absent_is_none() {
+    let configuration = ServerConfiguration::from(populated());
+    assert!(configuration.attachments.is_none());
+    configuration.validate()?;
+}
+
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn attachments_zero_max_reads_default() {
+    let mut response = populated();
+    response.attachments = Some(backend_v1::AttachmentsConfiguration {
+        base_url: "http://localhost/attachments".to_owned(),
+        max_upload_bytes: 0,
+        retention_seconds: 86_400,
+    });
+
+    let configuration = ServerConfiguration::from(response);
+    let attachments = configuration.attachments.as_ref()?;
+    assert_eq!(
+        attachments.base_url.as_str(),
+        "http://localhost/attachments"
+    );
+    assert_eq!(
+        attachments.max_upload_bytes,
+        BACKEND_DEFAULT_MAX_UPLOAD_BYTES
+    );
+    assert_eq!(attachments.retention_seconds, 86_400);
+    configuration.validate()?;
+}
+
+// verifies: ATCH-008
+#[xmtp_common::test(unwrap_try = true)]
+fn unusable_attachments_is_none() {
+    for (base_url, max_upload_bytes, retention_seconds) in [
+        ("http://example.com/attachments", 1, 0),
+        ("HTTPS://example.com/a", 1, 0),
+        ("Http://127.0.0.1/a", 1, 0),
+        ("https://example.com/attachments?key=value", 1, 0),
+        ("https://example.com/attachments#section", 1, 0),
+        ("https://example.com/attachments/", 1, 0),
+        ("https://example.com/attachments/ ", 1, 0),
+        ("https://example.com/attachments/\n", 1, 0),
+        ("https://example.com/a/..", 1, 0),
+        ("https://example.com/x/../files", 1, 0),
+        ("https://example.com/./files", 1, 0),
+        (" https://example.com/a", 1, 0),
+        ("https://example.com/files ", 1, 0),
+        ("https://example.com/fi les", 1, 0),
+        ("https://example.com/fi\tles", 1, 0),
+        (r"https:\\example.com\a", 1, 0),
+        ("https:example.com/a", 1, 0),
+        ("https:example.com/files", 1, 0),
+        ("https:/example.com/files", 1, 0),
+        ("https://bücher.example/att", 1, 0),
+        ("https://exa%6Dple.com/att", 1, 0),
+        ("http://2130706433/att", 1, 0),
+        ("http://0x7f.1/att", 1, 0),
+        ("http://127.1/att", 1, 0),
+        ("https://user:secret@example.com/attachments", 1, 0),
+        ("https://user@example.com/attachments", 1, 0),
+        (
+            "https://example.com/attachments",
+            MAX_ATTACHMENT_UPLOAD_BYTES + 1,
+            0,
+        ),
+        (
+            "https://example.com/attachments",
+            1,
+            MAX_ATTACHMENT_RETENTION_SECONDS + 1,
+        ),
+    ] {
+        let mut response = populated();
+        response.attachments = Some(backend_v1::AttachmentsConfiguration {
+            base_url: base_url.to_owned(),
+            max_upload_bytes,
+            retention_seconds,
+        });
+        let configuration = ServerConfiguration::from(response);
+        assert!(configuration.attachments.is_none(), "{base_url}");
+        configuration.validate()?;
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn usable_attachments_keep_the_offer() {
+    for (base_url, retention_seconds) in [
+        (
+            "https://example.com/attachments",
+            MAX_ATTACHMENT_RETENTION_SECONDS,
+        ),
+        ("https://example.com", 0),
+        ("https://CDN.example.com/att", 0),
+        ("https://example.com:443/att", 0),
+        ("http://LOCALHOST/files", 0),
+        ("http://127.0.0.1:9000", 0),
+        ("http://127.0.0.1/attachments", 0),
+        ("http://[::1]/attachments", 0),
+        ("http://[0:0:0:0:0:0:0:1]/att", 0),
+    ] {
+        let mut response = populated();
+        response.attachments = Some(backend_v1::AttachmentsConfiguration {
+            base_url: base_url.to_owned(),
+            max_upload_bytes: MAX_ATTACHMENT_UPLOAD_BYTES,
+            retention_seconds,
+        });
+        let configuration = ServerConfiguration::from(response);
+        let attachments = configuration.attachments.as_ref()?;
+        assert_eq!(attachments.base_url, base_url);
+        assert_eq!(attachments.max_upload_bytes, MAX_ATTACHMENT_UPLOAD_BYTES);
+        assert_eq!(attachments.retention_seconds, retention_seconds);
+        configuration.validate()?;
+    }
 }

@@ -762,13 +762,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Attachment storage configuration is not published or validated yet."
 
 [[waiver]]
-id = "ATCH-008"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment storage configuration is not published or validated yet."
-
-[[waiver]]
 id = "ATCH-009"
 kind = "gap"
 owner = "attachments"
@@ -1152,12 +1145,6 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Secure storage endpoint and upload PUT URL checks are not implemented yet."
-[[waiver]]
-id = "CONF-017"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The public configuration schema does not carry the pending attachments field 9 yet."
 [[waiver]]
 id = "CONF-061"
 kind = "gap"

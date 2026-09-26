@@ -7,8 +7,13 @@
 //! `Some(false)`.
 
 use xmtp_configuration::{
-    AuthConfiguration, LimitsConfiguration, MlsConfiguration, RetentionConfiguration,
-    ServerConfiguration, SigningKeyDescription,
+    AttachmentsConfiguration, AuthConfiguration, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
+    LimitsConfiguration, MlsConfiguration, RetentionConfiguration, ServerConfiguration,
+    SigningKeyDescription,
+    attachments::{
+        AttachmentConfigurationError, check_base_url, check_max_upload_bytes,
+        check_retention_seconds,
+    },
 };
 
 use crate::backend_v1;
@@ -127,8 +132,41 @@ impl From<backend_v1::MlsConfiguration> for MlsConfiguration {
     }
 }
 
+// implements: ATCH-008, CONF-025
+impl TryFrom<backend_v1::AttachmentsConfiguration> for AttachmentsConfiguration {
+    type Error = AttachmentConfigurationError;
+
+    fn try_from(attachments: backend_v1::AttachmentsConfiguration) -> Result<Self, Self::Error> {
+        let max_upload_bytes = or_default(
+            attachments.max_upload_bytes,
+            BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
+        );
+        check_base_url(&attachments.base_url)?;
+        check_max_upload_bytes(max_upload_bytes)?;
+        check_retention_seconds(attachments.retention_seconds)?;
+        Ok(Self {
+            base_url: attachments.base_url,
+            max_upload_bytes,
+            retention_seconds: attachments.retention_seconds,
+        })
+    }
+}
+
 impl From<backend_v1::GetConfigurationResponse> for ServerConfiguration {
     fn from(response: backend_v1::GetConfigurationResponse) -> Self {
+        let attachments = response.attachments.and_then(|message| {
+            match AttachmentsConfiguration::try_from(message) {
+                Ok(attachments) => Some(attachments),
+                Err(reason) => {
+                    tracing::warn!(
+                        field = reason.field(),
+                        reason = reason.reason(),
+                        "ignoring unusable attachment storage offer"
+                    );
+                    None
+                }
+            }
+        });
         Self {
             identifier: response.identifier,
             server_version: response.server_version,
@@ -137,6 +175,7 @@ impl From<backend_v1::GetConfigurationResponse> for ServerConfiguration {
             retention: response.retention.unwrap_or_default().into(),
             limits: response.limits.unwrap_or_default().into(),
             mls: response.mls.unwrap_or_default().into(),
+            attachments,
             smart_contract_wallet_chains: response.smart_contract_wallet_chains,
         }
     }

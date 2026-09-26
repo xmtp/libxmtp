@@ -289,6 +289,7 @@ pub(crate) fn distinct_snapshot() -> ServerConfiguration {
             commit_log_enabled: Some(false),
         },
         smart_contract_wallet_chains: vec!["eip155:1".to_owned(), "eip155:8453".to_owned()],
+        attachments: None,
     }
 }
 
