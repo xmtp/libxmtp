@@ -504,6 +504,72 @@ async fn reconcile_after_crash_points() {
     assert_eq!(adopted.filename, None);
 }
 
+// verifies: ATCH-068, ATCH-076
+#[xmtp_common::test(unwrap_try = true)]
+async fn staged_orphan_older_than_pending_age_is_removed() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let old = alix.client.attachments().create(bytes()).await?;
+    let old_digest = &old.remote_attachment().content_digest;
+    let old_path = dir.path().join(staged_path(old_digest)?);
+    alix.client
+        .context
+        .db()
+        .delete_pending_attachment(old_digest)?;
+    std::fs::File::open(&old_path)?
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(120))?;
+
+    let recent = alix.client.attachments().create(bytes()).await?;
+    let recent_digest = &recent.remote_attachment().content_digest;
+    let recent_path = dir.path().join(staged_path(recent_digest)?);
+    alix.client
+        .context
+        .db()
+        .delete_pending_attachment(recent_digest)?;
+    std::fs::File::open(&recent_path)?
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(10))?;
+
+    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .attachment_options(AttachmentOptions {
+            max_pending_age: Some(Duration::from_secs(60)),
+            ..Default::default()
+        })
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    assert!(!old_path.exists());
+    assert!(recent_path.exists());
+    assert!(
+        next.context
+            .db()
+            .get_pending_attachment(old_digest)?
+            .is_none()
+    );
+    assert!(
+        next.context
+            .db()
+            .get_pending_attachment(recent_digest)?
+            .is_none()
+    );
+
+    let default_dir = tempfile::tempdir()?;
+    tester!(bo, attachments_dir: default_dir.path(), configured: offer, disable_workers);
+    let default_pending = bo.client.attachments().create(bytes()).await?;
+    let default_digest = &default_pending.remote_attachment().content_digest;
+    let default_path = default_dir.path().join(staged_path(default_digest)?);
+    bo.client
+        .context
+        .db()
+        .delete_pending_attachment(default_digest)?;
+    std::fs::File::open(&default_path)?
+        .set_modified(std::time::SystemTime::now() - Duration::from_secs(1_800))?;
+    let _next_default = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    assert!(default_path.exists());
+}
+
 // verifies: ATCH-062, ATCH-076
 #[xmtp_common::test(unwrap_try = true)]
 async fn list_local_retries_reconcile_after_build_error() {

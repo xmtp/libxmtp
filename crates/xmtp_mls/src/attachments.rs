@@ -576,7 +576,14 @@ impl AttachmentRuntime {
         let recorded: HashSet<_> = records.iter().map(|row| row.path.as_str()).collect();
         let files = store.list_files().await?;
         let present: HashSet<_> = files.iter().map(|file| file.path.as_str()).collect();
-        let cutoff = now_ns().saturating_sub(RECONCILE_AGE.as_nanos() as i64);
+        let now = now_ns();
+        let cutoff = now.saturating_sub(RECONCILE_AGE.as_nanos() as i64);
+        let staged_age = self
+            .options
+            .max_pending_age
+            .unwrap_or(DEFAULT_MAX_PENDING_AGE)
+            .min(RECONCILE_AGE);
+        let staged_cutoff = now.saturating_sub(staged_age.as_nanos() as i64);
         for file in &files {
             if file.path.starts_with(".tmp/") {
                 if file.modified_at_ns < cutoff {
@@ -586,7 +593,7 @@ impl AttachmentRuntime {
                 if pending
                     .get(digest)
                     .is_some_and(|status| status == "complete")
-                    || (!pending.contains_key(digest) && file.modified_at_ns < cutoff)
+                    || (!pending.contains_key(digest) && file.modified_at_ns < staged_cutoff)
                 {
                     store.remove_file(&file.path).await?;
                 }
