@@ -279,29 +279,38 @@ impl S3Config {
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum CredentialsConfig {
     Static {
+        #[schemars(length(min = 1))]
         access_key_id: String,
+        #[schemars(length(min = 1))]
         secret_access_key: String,
         session_token: Option<String>,
     },
     DefaultChain,
     Environment,
     Profile {
+        #[schemars(length(min = 1))]
         name: String,
     },
     Sso {
+        #[schemars(length(min = 1))]
         account_id: String,
+        #[schemars(length(min = 1))]
         region: String,
+        #[schemars(length(min = 1))]
         role_name: String,
+        #[schemars(length(min = 1))]
         start_url: String,
         session_name: Option<String>,
     },
     Process {
+        #[schemars(length(min = 1))]
         command: String,
     },
     WebIdentity,
     Container,
     Instance,
     AssumeRole {
+        #[schemars(length(min = 1))]
         role_arn: String,
         external_id: Option<String>,
         session_name: Option<String>,
@@ -330,13 +339,29 @@ impl std::fmt::Debug for CredentialsConfig {
 
 impl CredentialsConfig {
     fn validate(&self) -> Result<(), ConfigInvalid> {
-        let valid = match self {
+        let required = |field: &'static str, value: &str| {
+            if value.is_empty() {
+                Err(ConfigInvalid::new(field, "must not be empty"))
+            } else {
+                Ok(())
+            }
+        };
+        match self {
             Self::Static {
                 access_key_id,
                 secret_access_key,
                 ..
-            } => !access_key_id.is_empty() && !secret_access_key.is_empty(),
-            Self::Profile { name } => !name.is_empty(),
+            } => {
+                required(
+                    "attachments.target.S3.credentials.access_key_id",
+                    access_key_id,
+                )?;
+                required(
+                    "attachments.target.S3.credentials.secret_access_key",
+                    secret_access_key,
+                )
+            }
+            Self::Profile { name } => required("attachments.target.S3.credentials.name", name),
             Self::Sso {
                 account_id,
                 region,
@@ -344,22 +369,18 @@ impl CredentialsConfig {
                 start_url,
                 ..
             } => {
-                !account_id.is_empty()
-                    && !region.is_empty()
-                    && !role_name.is_empty()
-                    && !start_url.is_empty()
+                required("attachments.target.S3.credentials.account_id", account_id)?;
+                required("attachments.target.S3.credentials.region", region)?;
+                required("attachments.target.S3.credentials.role_name", role_name)?;
+                required("attachments.target.S3.credentials.start_url", start_url)
             }
-            Self::Process { command } => !command.is_empty(),
-            Self::AssumeRole { role_arn, .. } => !role_arn.is_empty(),
-            _ => true,
-        };
-        if valid {
-            Ok(())
-        } else {
-            Err(ConfigInvalid::new(
-                "attachments.target.S3.credentials",
-                "required field is empty",
-            ))
+            Self::Process { command } => {
+                required("attachments.target.S3.credentials.command", command)
+            }
+            Self::AssumeRole { role_arn, .. } => {
+                required("attachments.target.S3.credentials.role_arn", role_arn)
+            }
+            _ => Ok(()),
         }
     }
 }

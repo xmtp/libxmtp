@@ -301,10 +301,12 @@
           "type": "object",
           "properties": {
             "access_key_id": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "secret_access_key": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "session_token": {
               "type": [
@@ -354,7 +356,8 @@
           "type": "object",
           "properties": {
             "name": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "kind": {
               "type": "string",
@@ -371,16 +374,20 @@
           "type": "object",
           "properties": {
             "account_id": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "region": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "role_name": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "start_url": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "session_name": {
               "type": [
@@ -406,7 +413,8 @@
           "type": "object",
           "properties": {
             "command": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "kind": {
               "type": "string",
@@ -462,7 +470,8 @@
           "type": "object",
           "properties": {
             "role_arn": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1
             },
             "external_id": {
               "type": [
