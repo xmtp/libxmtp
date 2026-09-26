@@ -609,7 +609,7 @@ mod tests {
         std::fs::remove_file(path)?;
     }
 
-    // verifies: P13
+    // Covers plan P13.
     #[xmtp_common::test(unwrap_try = true)]
     async fn init_accepts_later_self_hosted_version() {
         use crate::{ConnectionExt, TestDb, XmtpDb, XmtpTestDb};
