@@ -23,6 +23,35 @@ fn prefix_matches(address: IpAddr, prefix: IpAddr, bits: u32) -> bool {
     }
 }
 
+fn parse_row(line: &str) -> Option<(IpAddr, u32, bool)> {
+    let mut fields = line.split_whitespace();
+    let block = fields.next()?;
+    let value = fields.next()?;
+    if fields.next().is_some() {
+        return None;
+    }
+    let (prefix, bits) = block.split_once('/')?;
+    let prefix: IpAddr = prefix.parse().ok()?;
+    let bits: u32 = bits.parse().ok()?;
+    let aligned = match prefix {
+        IpAddr::V4(ip) if bits <= 32 => {
+            let mask = u32::MAX.checked_shl(32 - bits).unwrap_or(0);
+            u32::from(ip) & mask == u32::from(ip)
+        }
+        IpAddr::V6(ip) if bits <= 128 => {
+            let mask = u128::MAX.checked_shl(128 - bits).unwrap_or(0);
+            u128::from(ip) & mask == u128::from(ip)
+        }
+        _ => return None,
+    };
+    let reachable = match value {
+        "true" => true,
+        "false" => false,
+        _ => return None,
+    };
+    aligned.then_some((prefix, bits, reachable))
+}
+
 /// Return true for an address that must not be reached by a default client.
 pub(crate) fn is_private(address: IpAddr) -> bool {
     match address {
@@ -37,21 +66,12 @@ pub(crate) fn is_private(address: IpAddr) -> bool {
     let mut longest = 0;
     let mut reachable = true;
     for line in include_str!("address-registry.txt").lines() {
-        if line.starts_with('#') {
-            continue;
-        }
-        let Some((block, value)) = line.split_once(' ') else {
-            continue;
-        };
-        let Some((prefix, bits)) = block.split_once('/') else {
-            continue;
-        };
-        let (Ok(prefix), Ok(bits)) = (prefix.parse(), bits.parse::<u32>()) else {
+        let Some((prefix, bits, row_reachable)) = parse_row(line) else {
             continue;
         };
         if bits >= longest && prefix_matches(address, prefix, bits) {
             longest = bits;
-            reachable = value == "true";
+            reachable = row_reachable;
         }
     }
     !reachable
@@ -80,31 +100,32 @@ mod tests {
             if line.is_empty() || line.starts_with('#') {
                 continue;
             }
-            let fields: Vec<_> = line.split_whitespace().collect();
-            assert_eq!(fields.len(), 2, "line {}: {line}", index + 1);
-            let (address, bits) = fields[0]
-                .split_once('/')
-                .expect("registry row has a prefix length");
-            let address: IpAddr = address.parse()?;
-            let bits: u32 = bits.parse()?;
-            let aligned = match address {
-                IpAddr::V4(ip) => {
-                    assert!(bits <= 32, "line {}: {line}", index + 1);
-                    let mask = u32::MAX.checked_shl(32 - bits).unwrap_or(0);
-                    u32::from(ip) & mask == u32::from(ip)
-                }
-                IpAddr::V6(ip) => {
-                    assert!(bits <= 128, "line {}: {line}", index + 1);
-                    let mask = u128::MAX.checked_shl(128 - bits).unwrap_or(0);
-                    u128::from(ip) & mask == u128::from(ip)
-                }
-            };
-            assert!(aligned, "line {} has host bits: {line}", index + 1);
-            assert!(
-                matches!(fields[1], "true" | "false"),
-                "line {}: {line}",
-                index + 1
-            );
+            assert!(parse_row(line).is_some(), "line {}: {line}", index + 1);
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn parse_row_accepts_tab_separator() {
+        assert_eq!(
+            parse_row("10.0.0.0/8\tfalse"),
+            Some(("10.0.0.0".parse()?, 8, false))
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn parse_row_rejects_malformed() {
+        for row in [
+            "10.0.0.0/8",
+            "10.0.0.0/8 true extra",
+            "bad/8 true",
+            "10.0.0.0 true",
+            "10.0.0.0/33 true",
+            "2001:db8::/129 true",
+            "10.1.0.0/8 true",
+            "2001:db8::1/32 true",
+            "10.0.0.0/8 TRUE",
+        ] {
+            assert_eq!(parse_row(row), None, "{row}");
         }
     }
 
