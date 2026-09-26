@@ -437,7 +437,7 @@ id = "PROC-044"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test on this branch proves that connection-state notifications begin with the subscribed state and deliver later changes in order."
+reason = "No test on this branch proves that a connection-state subscriber gets the current state first and never receives an older state after a newer one."
 
 [[waiver]]
 id = "PROC-045"
