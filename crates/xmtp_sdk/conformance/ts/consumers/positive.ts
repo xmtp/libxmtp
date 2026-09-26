@@ -1,5 +1,6 @@
 import {
   Conversation_Tags,
+  MessageBody_Tags,
   MessageContent_Tags,
   type Conversation,
   type ConversationID,
@@ -46,7 +47,9 @@ export async function consumeOmittedSendOptions(
   await conversations.replyToMessage(id, encoded);
 }
 
-export function consumeStandardIDs(content: StandardContent): MessageID | undefined {
+export function consumeStandardIDs(
+  content: StandardContent,
+): MessageID | undefined {
   if (content.tag === StandardContent_Tags.Reaction) {
     const reference: MessageID = content.inner.reference;
     const inbox: InboxID | undefined = content.inner.referenceInboxID;
@@ -68,4 +71,15 @@ export async function consumeMessageConversation(
   message: Message,
 ): Promise<Conversation | undefined> {
   return message.conversation();
+}
+
+export function consumeLiftedCustomValues(message: Message): unknown[] {
+  const values: unknown[] = [];
+  if (message.content.tag === MessageContent_Tags.Custom) {
+    values.push(message.content.inner.value);
+  }
+  if (message.replyContent?.tag === MessageBody_Tags.Custom) {
+    values.push(message.replyContent.inner.value);
+  }
+  return values;
 }
