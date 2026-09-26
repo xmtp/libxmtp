@@ -222,7 +222,7 @@ fn subscribe_error(error: SubscribeError) -> XmtpError {
         SubscribeError::Configuration(cause) => super::configuration_error(&cause, message),
         SubscribeError::LocalDelivery(cause) => super::delivery_error(cause),
         SubscribeError::Db(_) | SubscribeError::Storage(_) => XmtpError::Storage(ErrorDetails {
-            code: "storage".into(),
+            code: "Storage".into(),
             category: ErrorCategory::Storage,
             retryable: true,
             message,
