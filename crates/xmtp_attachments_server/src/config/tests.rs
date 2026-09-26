@@ -97,19 +97,68 @@ async fn storage_endpoint_requires_https_or_loopback_http() {
     let mut config = config();
     for endpoint in [
         "https://s3.example.com",
+        "https://s3.example.com/prefix/",
+        "HTTPS://s3.example.com",
+        "Http://127.0.0.1:9000",
         "http://127.0.0.1:9000",
         "http://localhost:9000",
+        "http://[::1]:9000",
     ] {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.endpoint = endpoint.into();
         assert!(config.validate().is_ok(), "{endpoint}");
     }
-    let TargetConfig::S3(s3) = &mut config.target;
-    s3.endpoint = "http://s3.example.com".into();
-    assert_eq!(
-        config.validate().unwrap_err().field,
-        "attachments.target.S3.endpoint"
-    );
+    for endpoint in [
+        "http://s3.example.com",
+        "https://h?x=1",
+        "https://h#f",
+        "https://u:p@h",
+        "ftp://h",
+        " https://s3.example.com",
+        "https://s3.example.com ",
+        r"https://s3.example.com\x",
+        "https://exa%6Dple.com",
+        "https://bücher.example",
+    ] {
+        let TargetConfig::S3(s3) = &mut config.target;
+        s3.endpoint = endpoint.into();
+        assert_eq!(
+            config.validate().unwrap_err().field,
+            "attachments.target.S3.endpoint",
+            "{endpoint:?}"
+        );
+    }
+}
+
+// verifies: ATCH-081
+#[xmtp_common::test(unwrap_try = true)]
+async fn s3_names_rules() {
+    let mut settings = config();
+    let TargetConfig::S3(s3) = &mut settings.target;
+    s3.region = "us-east-1".into();
+    s3.bucket = "attachments.v2".into();
+    assert!(settings.validate().is_ok());
+
+    for region in ["", "us east-1", "us-east-1\n"] {
+        let mut settings = config();
+        let TargetConfig::S3(s3) = &mut settings.target;
+        s3.region = region.into();
+        assert_eq!(
+            settings.validate().unwrap_err().field,
+            "attachments.target.S3.region",
+            "{region:?}"
+        );
+    }
+    for bucket in ["", "a/b", ".", ".."] {
+        let mut settings = config();
+        let TargetConfig::S3(s3) = &mut settings.target;
+        s3.bucket = bucket.into();
+        assert_eq!(
+            settings.validate().unwrap_err().field,
+            "attachments.target.S3.bucket",
+            "{bucket:?}"
+        );
+    }
 }
 
 // verifies: ATCH-003
