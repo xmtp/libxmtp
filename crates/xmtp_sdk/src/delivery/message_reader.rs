@@ -217,7 +217,7 @@ impl MessageReader {
                         state.lock().ended = true;
                         control.close();
                         item.acknowledgement.reject();
-                        return Err(XmtpError::unknown(error));
+                        return Err(super::enrichment_error(error));
                     }
                 };
                 let message = match enriched.into_iter().next() {
