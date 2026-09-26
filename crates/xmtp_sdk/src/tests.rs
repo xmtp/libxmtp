@@ -992,6 +992,72 @@ async fn stream_ack_only_on_next_request() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn streamed_reply_has_the_same_context_as_message_by_id() {
+    use crate::{Reaction, ReactionAction, ReactionSchema};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent_id = group.send_text("parent".into(), None).await?;
+    let reaction = Reaction {
+        content: "👍".into(),
+        action: ReactionAction::Added,
+        schema: ReactionSchema::Unicode,
+    };
+    client
+        .conversations()
+        .react_to_message(parent_id.clone(), reaction.clone(), None)
+        .await?;
+    let reply_id = client
+        .conversations()
+        .reply_to_message(parent_id.clone(), crate::encode_text("reply".into())?, None)
+        .await?;
+    let reaction_id = client
+        .conversations()
+        .react_to_message(reply_id.clone(), reaction, None)
+        .await?;
+    client
+        .conversations()
+        .reply_to_message(reply_id.clone(), crate::encode_text("child".into())?, None)
+        .await?;
+
+    let reader = group.message_reader().await?;
+    assert_eq!(
+        reader.next().await?.expect("parent handoff").0.id,
+        parent_id
+    );
+    let streamed = xmtp_common::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let item = reader.next().await?.expect("reply handoff");
+            if item.0.id == reply_id {
+                break Ok::<_, XmtpError>(item);
+            }
+        }
+    })
+    .await??;
+    assert_eq!(streamed.0.id, reply_id);
+    let direct = client
+        .conversations()
+        .get_message_by_id(reply_id)
+        .await?
+        .expect("reply by ID");
+    assert_eq!(direct.0.reply_count, 1);
+    assert_eq!(direct.0.reactions[0].id, reaction_id);
+    assert_eq!(
+        direct.0.in_reply_to.as_ref().map(|parent| &parent.id),
+        Some(&parent_id)
+    );
+    assert_eq!(streamed.0.reply_count, direct.0.reply_count);
+    assert_eq!(streamed.0.reactions.len(), direct.0.reactions.len());
+    assert_eq!(streamed.0.reactions[0].id, direct.0.reactions[0].id);
+    assert_eq!(
+        streamed.0.in_reply_to.as_ref().map(|parent| &parent.id),
+        direct.0.in_reply_to.as_ref().map(|parent| &parent.id)
+    );
+    reader.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn late_reader_released() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
@@ -1008,19 +1074,22 @@ async fn late_reader_released() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn message_decode_error_closes_reader_and_releases_lease() {
+async fn message_decode_error_skips_bad_row_and_keeps_reader_open() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    group
+    let invalid_id = group
         .send_text("invalid stored message".into(), None)
         .await?;
+    let valid_id = group.send_text("valid stored message".into(), None).await?;
     let reader = group.message_reader().await?;
     reader.corrupt_next_message_for_test();
-    assert!(
-        reader.next().await.is_err(),
-        "invalid ID must fail conversion"
-    );
-    assert!(reader.is_ended_for_test(), "decode error left reader open");
+    let received = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+        .await??
+        .expect("valid message after bad row");
+    assert_ne!(received.0.id, invalid_id);
+    assert_eq!(received.0.id, valid_id);
+    assert!(!reader.is_ended_for_test(), "bad row closed the reader");
+    reader.end().await?;
     let replacement = group.message_reader().await?;
     replacement.end().await?;
     client.end().await?;
@@ -2068,7 +2137,7 @@ async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
 
 // verifies: CTYPE-008, CTYPE-009
 #[xmtp_common::test(unwrap_try = true)]
-async fn invalid_reply_parent_body_does_not_break_history() {
+async fn invalid_reply_parent_body_does_not_break_reads() {
     use crate::MessageBody;
     use xmtp_content_types::{
         ContentCodec,
@@ -2093,6 +2162,7 @@ async fn invalid_reply_parent_body_does_not_break_history() {
         ),
         ("actions", ActionsCodec::encode(actions)?.into()),
     ];
+    let reader = group.message_reader().await?;
     for (kind, content) in parents {
         let parent_id = group.send(content, None).await?;
         let reply_id = client
@@ -2110,7 +2180,16 @@ async fn invalid_reply_parent_body_does_not_break_history() {
             .into_iter()
             .find(|message| message.0.id == reply_id)
             .expect("reply in history");
-        for (path, message) in [("by ID", by_id), ("history", history)] {
+        let streamed = xmtp_common::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let item = reader.next().await?.expect("reply in stream");
+                if item.0.id == reply_id {
+                    break Ok::<_, XmtpError>(item);
+                }
+            }
+        })
+        .await??;
+        for (path, message) in [("by ID", by_id), ("history", history), ("stream", streamed)] {
             assert!(
                 matches!(&message.0.content, MessageContent::Reply { body: MessageBody::Text(text), .. } if text == "reply"),
                 "{path} changed the reply body for {kind}"
@@ -2121,6 +2200,7 @@ async fn invalid_reply_parent_body_does_not_break_history() {
             );
         }
     }
+    reader.end().await?;
     client.end().await?;
 }
 
