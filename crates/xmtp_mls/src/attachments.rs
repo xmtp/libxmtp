@@ -101,6 +101,34 @@ pub enum CredentialFailureKind {
     MissingCredential,
 }
 
+impl CredentialFailureKind {
+    pub const ALL: [Self; 4] = [
+        Self::CredentialRejected,
+        Self::CallbackFailed,
+        Self::Exhausted,
+        Self::MissingCredential,
+    ];
+
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::CredentialRejected => "credential_rejected",
+            Self::CallbackFailed => "callback_failed",
+            Self::Exhausted => "exhausted",
+            Self::MissingCredential => "missing_credential",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "credential_rejected" => Some(Self::CredentialRejected),
+            "callback_failed" => Some(Self::CallbackFailed),
+            "exhausted" => Some(Self::Exhausted),
+            "missing_credential" => Some(Self::MissingCredential),
+            _ => None,
+        }
+    }
+}
+
 /// A stable attachment cause with the credential detail, when applicable.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error("attachment failure: {}", cause.as_str())]
@@ -211,37 +239,21 @@ pub enum PendingAttachmentStatus {
 }
 
 fn failure_from_row(row: &StoredPendingAttachment) -> AttachmentClientError {
-    let cause = match row.failure_cause.as_deref() {
-        Some("not_offered") => Cause::NotOffered,
-        Some("too_large") => Cause::TooLarge,
-        Some("source_unreadable") => Cause::SourceUnreadable,
-        Some("local_storage") => Cause::LocalStorage,
-        Some("staged_unusable") => Cause::StagedUnusable,
-        Some("connection_blocked") => Cause::ConnectionBlocked,
-        Some("credential") => Cause::Credential,
-        Some("backend_rejected") => Cause::BackendRejected,
-        Some("backend_unavailable") => Cause::BackendUnavailable,
-        Some("target_rejected") => Cause::TargetRejected,
-        Some("network") => Cause::Network,
-        Some("insecure_url") => Cause::InsecureUrl,
-        Some("blocked_address") => Cause::BlockedAddress,
-        Some("too_many_redirects") => Cause::TooManyRedirects,
-        Some("not_found") => Cause::NotFound,
-        Some("http_status") => Cause::HttpStatus,
-        Some("malformed") => Cause::Malformed,
-        Some("digest_mismatch") => Cause::DigestMismatch,
-        Some("decryption_failed") => Cause::DecryptionFailed,
-        Some("not_an_attachment") => Cause::NotAnAttachment,
-        Some("deleted") => Cause::Deleted,
-        _ => Cause::LocalStorage,
-    };
-    let credential_kind = match row.failure_credential_kind.as_deref() {
-        Some("credential_rejected") => Some(CredentialFailureKind::CredentialRejected),
-        Some("callback_failed") => Some(CredentialFailureKind::CallbackFailed),
-        Some("exhausted") => Some(CredentialFailureKind::Exhausted),
-        Some("missing_credential") => Some(CredentialFailureKind::MissingCredential),
-        _ => None,
-    };
+    let cause = row
+        .failure_cause
+        .as_deref()
+        .and_then(Cause::parse)
+        .unwrap_or_else(|| {
+            tracing::warn!(stored = ?row.failure_cause, "unknown stored attachment failure cause");
+            Cause::LocalStorage
+        });
+    let credential_kind = row.failure_credential_kind.as_deref().and_then(|stored| {
+        let parsed = CredentialFailureKind::parse(stored);
+        if parsed.is_none() {
+            tracing::warn!(stored, "unknown stored attachment credential failure kind");
+        }
+        parsed
+    });
     AttachmentClientError {
         cause,
         credential_kind,
@@ -285,15 +297,6 @@ fn outcome_write_is_retryable(error: &xmtp_db::StorageError) -> bool {
             _
         ))
     )
-}
-
-fn credential_kind_name(kind: CredentialFailureKind) -> &'static str {
-    match kind {
-        CredentialFailureKind::CredentialRejected => "credential_rejected",
-        CredentialFailureKind::CallbackFailed => "callback_failed",
-        CredentialFailureKind::Exhausted => "exhausted",
-        CredentialFailureKind::MissingCredential => "missing_credential",
-    }
 }
 
 struct PendingShared {
@@ -1558,7 +1561,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 Ok(()) => PendingAttachmentOutcome::Complete,
                 Err(error) => PendingAttachmentOutcome::Failed {
                     cause: error.cause.as_str(),
-                    credential_kind: error.credential_kind.map(credential_kind_name),
+                    credential_kind: error.credential_kind.map(CredentialFailureKind::as_str),
                     retryable: Some(error.retryable),
                     missing_scope: Some(error.missing_scope),
                     http_status: error.http_status,
