@@ -193,19 +193,26 @@ impl Archives {
     ) -> Result<ArchiveMetadata, XmtpError> {
         let key = key(key_bytes)?;
         let client = self.client.clone();
-        on_sdk_worker(self.client.context.clone(), async move {
-            let options = options.unwrap_or(ArchiveOptions {
-                start: None,
-                end: None,
-                elements: None,
-                exclude_disappearing_messages: false,
-            });
-            let saved =
-                ArchiveExporter::export_to_file(options.into(), client.context.db(), path, &key)
-                    .await
-                    .map_err(XmtpError::unknown)?;
-            Ok(BackupMetadata::from_metadata_save(saved, BACKUP_VERSION).into())
-        })
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                let options = options.unwrap_or(ArchiveOptions {
+                    start: None,
+                    end: None,
+                    elements: None,
+                    exclude_disappearing_messages: false,
+                });
+                let saved = ArchiveExporter::export_to_file(
+                    options.into(),
+                    client.context.db(),
+                    path,
+                    &key,
+                )
+                .await
+                .map_err(XmtpError::unknown)?;
+                Ok(BackupMetadata::from_metadata_save(saved, BACKUP_VERSION).into())
+            }),
+        )
         .await
     }
 

@@ -55,13 +55,16 @@ pub struct Preferences {
 impl Preferences {
     pub async fn sync(&self) -> Result<(), XmtpError> {
         let client = self.client.clone();
-        on_sdk_worker(self.client.context.clone(), async move {
-            client
-                .sync_all_welcomes_and_groups(None)
-                .await
-                .map_err(XmtpError::unknown)?;
-            Ok(())
-        })
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                client
+                    .sync_all_welcomes_and_groups(None)
+                    .await
+                    .map_err(XmtpError::unknown)?;
+                Ok(())
+            }),
+        )
         .await
     }
 
