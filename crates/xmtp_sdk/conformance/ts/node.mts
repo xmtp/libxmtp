@@ -23,9 +23,72 @@ const { toBytes } = await import(
 assert.equal(typeof sdk.Client.create, "function");
 assert.equal(typeof sdk.Message, "function");
 assert.equal(typeof sdk.Timestamp, "function");
+assert.throws(
+  () => new sdk.MarkdownCodec().decode(sdk.encodeText("wrong codec")),
+  sdk.XmtpError.InvalidArgument,
+);
+assert.throws(
+  () => sdk.MessageID.fromString("bad"),
+  sdk.XmtpError.InvalidArgument,
+);
 await sdk.uniffiInitAsync();
+assert.throws(
+  () => new sdk.ReadReceiptCodec().encode("wrong value" as never),
+  sdk.XmtpError.InvalidArgument,
+);
 assert.match(sdk.sdkVersion(), /^1\.12\.0/);
 console.log("Node scenario 1: load, checksums, version passed");
+
+const standardCodecs = new Map([
+  [sdk.StandardContent_Tags.Text, new sdk.TextCodec()],
+  [sdk.StandardContent_Tags.Markdown, new sdk.MarkdownCodec()],
+  [sdk.StandardContent_Tags.ReadReceipt, new sdk.ReadReceiptCodec()],
+  [sdk.StandardContent_Tags.Reaction, new sdk.ReactionV2Codec()],
+  [sdk.StandardContent_Tags.Attachment, new sdk.AttachmentCodec()],
+  [sdk.StandardContent_Tags.RemoteAttachment, new sdk.RemoteAttachmentCodec()],
+  [
+    sdk.StandardContent_Tags.MultiRemoteAttachment,
+    new sdk.MultiRemoteAttachmentCodec(),
+  ],
+  [
+    sdk.StandardContent_Tags.TransactionReference,
+    new sdk.TransactionReferenceCodec(),
+  ],
+  [sdk.StandardContent_Tags.WalletSendCalls, new sdk.WalletSendCallsCodec()],
+  [sdk.StandardContent_Tags.Actions, new sdk.ActionsCodec()],
+  [sdk.StandardContent_Tags.Intent, new sdk.IntentCodec()],
+  [sdk.StandardContent_Tags.Reply, new sdk.ReplyCodec()],
+  [sdk.StandardContent_Tags.GroupUpdated, new sdk.GroupUpdatedCodec()],
+  [sdk.StandardContent_Tags.DeleteMessage, new sdk.DeleteMessageCodec()],
+  [sdk.StandardContent_Tags.LeaveRequest, new sdk.LeaveRequestCodec()],
+]);
+const codecSamples = sdk.sdkConformanceStandardSamples();
+assert.equal(codecSamples.length, 15);
+function assertEncodedEqual(
+  actual: sdk.EncodedContent,
+  expected: sdk.EncodedContent,
+): void {
+  assert.deepEqual(actual.type, expected.type);
+  assert.deepEqual(actual.parameters, expected.parameters);
+  assert.equal(actual.fallback, expected.fallback);
+  assert.deepEqual(Buffer.from(actual.content), Buffer.from(expected.content));
+}
+for (const sample of codecSamples) {
+  const codec = standardCodecs.get(sample.value.tag);
+  assert.ok(codec, `missing codec for ${sample.value.tag}`);
+  const value =
+    sample.value.tag === sdk.StandardContent_Tags.ReadReceipt
+      ? undefined
+      : sample.value.tag === sdk.StandardContent_Tags.Reaction ||
+          sample.value.tag === sdk.StandardContent_Tags.Reply ||
+          sample.value.tag === sdk.StandardContent_Tags.DeleteMessage
+        ? sample.value
+        : sample.value.inner[0];
+  const encoded = codec.encode(value);
+  assertEncodedEqual(encoded, sample.expected);
+  assertEncodedEqual(codec.encode(codec.decode(encoded)), sample.expected);
+}
+console.log("Node P69: all 15 standard codecs match Rust bytes");
 
 const account = privateKeyToAccount(generatePrivateKey());
 const identity = {
@@ -78,7 +141,68 @@ const storagePath = await client.storage().path();
 assert.ok(storagePath);
 assert.ok((await stat(storagePath)).isFile());
 const group = await client.conversations().createGroup([], undefined);
-const sentID = await group.sendText("conformance message");
+let typedSends = 0;
+for (const sample of codecSamples) {
+  const value = sample.value;
+  let id: sdk.MessageID;
+  switch (value.tag) {
+    case sdk.StandardContent_Tags.Text:
+      id = await group.sendText(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.Markdown:
+      id = await group.sendMarkdown(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.Reaction:
+      id = await group.sendReaction(
+        value.inner.reference,
+        value.inner.referenceInboxID,
+        value.inner.reaction,
+        undefined,
+      );
+      break;
+    case sdk.StandardContent_Tags.Reply:
+      id = await group.sendReply(
+        value.inner.reference,
+        value.inner.referenceInboxID,
+        value.inner.content,
+        undefined,
+      );
+      break;
+    case sdk.StandardContent_Tags.ReadReceipt:
+      id = await group.sendReadReceipt(undefined);
+      break;
+    case sdk.StandardContent_Tags.Attachment:
+      id = await group.sendAttachment(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.RemoteAttachment:
+      id = await group.sendRemoteAttachment(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.MultiRemoteAttachment:
+      id = await group.sendMultiRemoteAttachment(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.TransactionReference:
+      id = await group.sendTransactionReference(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.WalletSendCalls:
+      id = await group.sendWalletSendCalls(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.Actions:
+      id = await group.sendActions(value.inner[0], undefined);
+      break;
+    case sdk.StandardContent_Tags.Intent:
+      id = await group.sendIntent(value.inner[0], undefined);
+      break;
+    default:
+      continue;
+  }
+  const wire = await client.conversations().getMessageByID(id);
+  assert.ok(wire);
+  assertEncodedEqual(wire.encoded, sample.expected);
+  typedSends++;
+}
+assert.equal(typedSends, 12);
+console.log("Node P69: typed send bytes match all 12 public codecs");
+const sentID = await group.sendText("conformance message", undefined);
 const history = await group.messages(undefined);
 const sent = history.find(
   (message) => message.id.toString() === sentID.toString(),
@@ -123,7 +247,7 @@ const weak = await (async () => {
   const shortGroup = await shortLived
     .conversations()
     .createGroup([], undefined);
-  const id = await shortGroup.sendText("weak owner");
+  const id = await shortGroup.sendText("weak owner", undefined);
   releasedMessage = (await shortGroup.messages(undefined)).find(
     (value) => value.id.toString() === id.toString(),
   )!;
@@ -148,7 +272,7 @@ console.log("Node scenario 2: create, reopen, end passed");
 
 const reopenedGroup = await reopened.conversations().createGroup([], undefined);
 const reader = await reopenedGroup.messageReader();
-const messageID = await reopenedGroup.sendText("durable stream");
+const messageID = await reopenedGroup.sendText("durable stream", undefined);
 const first = await reader.next();
 assert.equal(first?.id.toString(), messageID.toString());
 await reader.end();
@@ -166,7 +290,7 @@ setTimeout(() => void stream.return(), 50);
 assert.equal((await pending).done, true);
 await stream.return();
 const protocolGroup = await reopened.conversations().createGroup([], undefined);
-const firstID = await protocolGroup.sendText("ack on request");
+const firstID = await protocolGroup.sendText("ack on request", undefined);
 const firstStream = new sdk.MessageStream(
   (signal) => protocolGroup.messageReader({ signal }),
   reopened,
@@ -195,7 +319,7 @@ assert.equal(
   firstID.toString(),
   "item was prefetched and acknowledged",
 );
-const secondID = await protocolGroup.sendText("second request");
+const secondID = await protocolGroup.sendText("second request", undefined);
 assert.equal(
   (await secondStream.next()).value?.id.toString(),
   secondID.toString(),
@@ -418,7 +542,7 @@ await assert.rejects(
 );
 console.log("Node scenario 10: configuration and typed error passed");
 
-sdk.initLogging({
+await sdk.initLogging({
   level: sdk.LogLevel.Error,
   structured: true,
   performance: false,
@@ -571,7 +695,7 @@ assert.ok(
 );
 console.log("Node scenario 4: group options, state, and list passed");
 
-const parentID = await familyGroup.sendText("parent");
+const parentID = await familyGroup.sendText("parent", undefined);
 const reactionID = await reopened.conversations().reactToMessage(
   parentID,
   {
@@ -584,7 +708,10 @@ const reactionID = await reopened.conversations().reactToMessage(
 const replyID = await reopened
   .conversations()
   .replyToMessage(parentID, sdk.encodeText("reply"), undefined);
-assert.equal((await reopened.raw.decodeContent(sdk.encodeText("decoded"))).tag, sdk.MessageContent_Tags.Text);
+assert.equal(
+  (await reopened.raw.decodeContent(sdk.encodeText("decoded"))).tag,
+  sdk.MessageContent_Tags.Text,
+);
 const familyMessages = await familyGroup.messages(undefined);
 const parent = familyMessages.find(
   (value) => value.id.toString() === parentID.toString(),
@@ -595,6 +722,20 @@ const reply = familyMessages.find(
 assert.equal(parent?.reactions[0]?.id.toString(), reactionID.toString());
 assert.equal(parent?.replyCount, 1n);
 assert.equal(reply?.inReplyTo?.id.toString(), parentID.toString());
+const reactionMessage = await reopened
+  .conversations()
+  .getMessageByID(reactionID);
+if (reactionMessage?.content.tag !== sdk.MessageContent_Tags.Reaction)
+  throw new Error("reaction message did not lift as a reaction");
+assert.equal(
+  reactionMessage.content.inner.reference.toString(),
+  parentID.toString(),
+);
+assert.equal(
+  reactionMessage.content.inner.referenceInboxID?.toString(),
+  inboxID.toString(),
+);
+assert.equal(reactionMessage.content.inner.reaction.content, "👍");
 console.log("Node scenario 5: message records, reaction, and reply passed");
 
 const customType = sdk.ContentTypeID.create({
@@ -621,6 +762,49 @@ const ownerWithCodec = await sdk.Client.build(
   inboxID,
 );
 const ownerWithoutCodec = await sdk.Client.build(identity, options, inboxID);
+const slashType = sdk.ContentTypeID.create({
+  authorityID: "example.org",
+  typeID: "a/b",
+  versionMajor: 1,
+  versionMinor: 0,
+});
+const slashCodec = {
+  ...customCodec,
+  type: slashType,
+  encode(value: string) {
+    return sdk.EncodedContent.create({
+      type: slashType,
+      content: new TextEncoder().encode(value).buffer,
+    });
+  },
+  decode() {
+    return "wrong codec";
+  },
+};
+const slashHost = await sdk.Client.build(
+  identity,
+  { ...options, codecs: [slashCodec] },
+  inboxID,
+);
+const colliding = sdk.EncodedContent.create({
+  type: sdk.ContentTypeID.create({
+    authorityID: "example.org/a",
+    typeID: "b",
+    versionMajor: 1,
+    versionMinor: 0,
+  }),
+  content: new Uint8Array([1]).buffer,
+});
+const collidingMessage = new sdk.Message({
+  clientKey: slashHost.raw.clientKey(),
+  content: {
+    tag: sdk.MessageContent_Tags.Custom,
+    inner: { encoded: colliding, rawBytes: new ArrayBuffer(0) },
+  },
+  inReplyTo: undefined,
+} as sdk.MessageData);
+assert.equal(collidingMessage.content.tag, sdk.MessageContent_Tags.Unknown);
+await slashHost.end();
 const customID = await familyGroup.send(
   customCodec.encode("codec value"),
   undefined,
@@ -629,14 +813,73 @@ const decoded = await ownerWithCodec.conversations().getMessageByID(customID);
 const undecoded = await ownerWithoutCodec
   .conversations()
   .getMessageByID(customID);
-assert.equal(
-  (decoded?.content as { inner?: { value?: string } }).inner?.value,
-  "codec value",
+const customReplyID = await ownerWithCodec
+  .conversations()
+  .replyToMessage(customID, customCodec.encode("reply codec value"), undefined);
+const customReply = await ownerWithCodec
+  .conversations()
+  .getMessageByID(customReplyID);
+const undecodedReply = await ownerWithoutCodec
+  .conversations()
+  .getMessageByID(customReplyID);
+assert.equal(undecoded?.content.tag, sdk.MessageContent_Tags.Unknown);
+const serializedCustom = new Uint8Array([10, 3, 1, 2, 3]).buffer;
+const syntheticUnknown = new sdk.Message({
+  clientKey: ownerWithoutCodec.raw.clientKey(),
+  content: {
+    tag: sdk.MessageContent_Tags.Custom,
+    inner: {
+      encoded: customCodec.encode("codec value"),
+      rawBytes: serializedCustom,
+    },
+  },
+  inReplyTo: undefined,
+} as sdk.MessageData);
+if (syntheticUnknown.content.tag !== sdk.MessageContent_Tags.Unknown)
+  throw new Error("synthetic content was not unknown");
+assert.deepEqual(
+  new Uint8Array(syntheticUnknown.content.inner.rawBytes),
+  new Uint8Array(serializedCustom),
 );
-assert.equal(
-  (undecoded?.content as { inner?: { value?: string } }).inner?.value,
-  undefined,
+if (
+  undecoded?.data.content.tag !== sdk.MessageContent_Tags.Custom ||
+  undecoded.content.tag !== sdk.MessageContent_Tags.Unknown
+)
+  throw new Error("stored custom content was not unknown");
+const rustRawBytes = undecoded.data.content.inner.rawBytes;
+assert.ok(
+  new Uint8Array(rustRawBytes).byteLength >
+    new Uint8Array(undecoded!.encoded.content).byteLength,
 );
+assert.deepEqual(
+  new Uint8Array(undecoded.content.inner.rawBytes),
+  new Uint8Array(rustRawBytes),
+);
+assert.equal(undecodedReply?.replyContent?.tag, sdk.MessageBody_Tags.Unknown);
+if (customReply?.replyContent?.tag !== sdk.MessageBody_Tags.Custom)
+  throw new Error("custom reply was not decoded");
+assert.equal(customReply.replyContent.inner.value, "reply codec value");
+if (decoded?.content.tag !== sdk.MessageContent_Tags.Custom)
+  throw new Error("custom message was not decoded");
+assert.equal(decoded.content.inner.value, "codec value");
+const failingCodec = {
+  ...customCodec,
+  decode(_value: sdk.EncodedContent): string {
+    throw new Error("codec decode failed");
+  },
+};
+const ownerWithFailingCodec = await sdk.Client.build(
+  identity,
+  { ...options, codecs: [failingCodec] },
+  inboxID,
+);
+const failedDecode = await ownerWithFailingCodec
+  .conversations()
+  .getMessageByID(customID);
+if (failedDecode?.content.tag !== sdk.MessageContent_Tags.Custom)
+  throw new Error("failed custom decode did not keep its content");
+assert.match(String(failedDecode.content.inner.error), /codec decode failed/);
+await ownerWithFailingCodec.end();
 await ownerWithCodec.end();
 await ownerWithoutCodec.end();
 console.log("Node scenario 6: custom codec stayed with its client");

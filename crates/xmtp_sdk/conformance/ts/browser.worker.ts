@@ -74,7 +74,7 @@ async function run(): Promise<void> {
   console.log("browser client created");
   const inboxID = client.inboxID();
   const group = await client.conversations().createGroup([], undefined);
-  const sentID = await group.sendText("browser conformance");
+  const sentID = await group.sendText("browser conformance", undefined);
   const sent = (await group.messages(undefined)).find(
     (message) => message.id.toString() === sentID.toString(),
   );
@@ -106,7 +106,7 @@ async function run(): Promise<void> {
 
   const liveGroup = await reopened.conversations().createGroup([], undefined);
   const reader = await liveGroup.messageReader();
-  const liveID = await liveGroup.sendText("durable stream");
+  const liveID = await liveGroup.sendText("durable stream", undefined);
   if ((await reader.next())?.id.toString() !== liveID.toString())
     throw new Error("first delivery missing");
   await reader.end();
@@ -127,7 +127,7 @@ async function run(): Promise<void> {
   const protocolGroup = await reopened
     .conversations()
     .createGroup([], undefined);
-  const firstID = await protocolGroup.sendText("ack on request");
+  const firstID = await protocolGroup.sendText("ack on request", undefined);
   const firstStream = new sdk.MessageStream(
     (signal) => protocolGroup.messageReader({ signal }),
     reopened,
@@ -151,7 +151,7 @@ async function run(): Promise<void> {
   ]).finally(() => clearTimeout(replayTimer));
   if (replayedItem.value?.id.toString() !== firstID.toString())
     throw new Error("adapter prefetched and acknowledged a value");
-  const secondID = await protocolGroup.sendText("second request");
+  const secondID = await protocolGroup.sendText("second request", undefined);
   if ((await secondStream.next()).value?.id.toString() !== secondID.toString())
     throw new Error("second adapter delivery missing");
   await secondStream.return();

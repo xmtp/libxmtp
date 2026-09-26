@@ -14,6 +14,13 @@ import java.lang.ref.WeakReference
 import java.nio.file.Files
 import java.nio.file.Path
 
+private fun sameEncoded(
+    actual: EncodedContent,
+    expected: EncodedContent,
+): Boolean =
+    actual.type == expected.type && actual.parameters == expected.parameters &&
+        actual.fallback == expected.fallback && actual.content.contentEquals(expected.content)
+
 private fun signCommand(
     action: String,
     text: String? = null,
@@ -63,6 +70,14 @@ private class SampleCodec : SDKContentCodec {
     override fun decode(encoded: EncodedContent): Any = encoded.content.decodeToString()
 }
 
+private class FailingCodec : SDKContentCodec {
+    override val type = SampleCodec().type
+
+    override fun encode(value: Any) = SampleCodec().encode(value)
+
+    override fun decode(encoded: EncodedContent): Any = throw AssertionError("codec decode failed")
+}
+
 private suspend fun releasedMessage(
     identity: PublicIdentity,
     options: ClientOptions,
@@ -70,7 +85,7 @@ private suspend fun releasedMessage(
 ): Pair<Message, WeakReference<SDKClient>> {
     val host = SDKClient.build(identity, options, inboxID)
     val group = host.raw.conversations().createGroup(emptyList(), null)
-    val id = group.sendText("weak owner")
+    val id = group.sendText("weak owner", null)
     val message = group.messages(null).first { it.id == id }
     return message to WeakReference(host)
 }
@@ -79,6 +94,7 @@ fun main() =
     runBlocking {
         check(sdkVersion().startsWith("1.12.0"))
         check(MessageID.fromString("a".repeat(64)).toString().length == 64)
+        check(runCatching { MessageID.fromString("bad") }.exceptionOrNull() is XmtpException.InvalidArgument)
         for (id in listOf(InboxID::class, InstallationID::class, ConversationID::class, MessageID::class)) {
             // Kotlin adds a synthetic constructor so the companion can call the private one.
             val callable = id.java.constructors.filterNot { it.isSynthetic }
@@ -87,6 +103,93 @@ fun main() =
             }
         }
         println("Kotlin scenario 1: load, checksums, version passed")
+
+        val codecSamples = sdkConformanceStandardSamples()
+        check(codecSamples.size == 15) { "missing standard codec samples" }
+        for (sample in codecSamples) {
+            val (codec, value) =
+                when (val content = sample.value) {
+                    is StandardContent.Text -> TextCodec() to content.v1
+                    is StandardContent.Markdown -> MarkdownCodec() to content.v1
+                    StandardContent.ReadReceipt -> ReadReceiptCodec() to Unit
+                    is StandardContent.Reaction -> ReactionV2Codec() to content
+                    is StandardContent.Attachment -> AttachmentCodec() to content.v1
+                    is StandardContent.RemoteAttachment -> RemoteAttachmentCodec() to content.v1
+                    is StandardContent.MultiRemoteAttachment -> MultiRemoteAttachmentCodec() to content.v1
+                    is StandardContent.TransactionReference -> TransactionReferenceCodec() to content.v1
+                    is StandardContent.WalletSendCalls -> WalletSendCallsCodec() to content.v1
+                    is StandardContent.Actions -> ActionsCodec() to content.v1
+                    is StandardContent.Intent -> IntentCodec() to content.v1
+                    is StandardContent.Reply -> ReplyCodec() to content
+                    is StandardContent.GroupUpdated -> GroupUpdatedCodec() to content.v1
+                    is StandardContent.DeleteMessage -> DeleteMessageCodec() to content
+                    is StandardContent.LeaveRequest -> LeaveRequestCodec() to content.v1
+                }
+            val encoded = codec.encode(value)
+            check(runCatching { codec.encode(Any()) }.exceptionOrNull() is XmtpException.InvalidArgument) {
+                "${codec.javaClass.simpleName} did not reject a wrong value with InvalidArgument"
+            }
+            check(sameEncoded(encoded, sample.expected)) { "standard codec content differs from Rust" }
+            check(sameEncoded(codec.encode(codec.decode(encoded)), sample.expected))
+        }
+        println("Kotlin P69: all 15 standard codecs match Rust bytes")
+
+        val failingSigner =
+            SDKForeign.signer(
+                object : Signer {
+                    override suspend fun identity(): PublicIdentity = throw AssertionError("host failure")
+
+                    override suspend fun kind(): SignerKind = throw AssertionError("host failure")
+
+                    override suspend fun sign(request: SigningRequest): Signature = throw AssertionError("host failure")
+                },
+            )
+        check(runCatching { withTimeout(5_000) { failingSigner.kind() } }.exceptionOrNull() is SignerException.Failed)
+        val failingCredentials =
+            SDKForeign.credentials(
+                object : CredentialSource {
+                    override suspend fun credential(): Credential = throw AssertionError("host failure")
+                },
+            )
+        check(
+            runCatching { withTimeout(5_000) { failingCredentials.credential() } }.exceptionOrNull()
+                is CredentialException.Failed,
+        )
+        val cancelled = CancellationException("real cancellation")
+        val cancelledSigner =
+            SDKForeign.signer(
+                object : Signer {
+                    override suspend fun identity(): PublicIdentity = throw cancelled
+
+                    override suspend fun kind(): SignerKind = throw cancelled
+
+                    override suspend fun sign(request: SigningRequest): Signature = throw cancelled
+                },
+            )
+        check(runCatching { cancelledSigner.kind() }.exceptionOrNull() === cancelled)
+        val failingSink =
+            SDKForeign.logSink(
+                object : LogSink {
+                    override fun log(record: LogRecord): Unit = throw AssertionError("host failure")
+                },
+            )
+        check(
+            runCatching {
+                failingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), 0, 0uL))
+            }.exceptionOrNull() is LogSinkException.Failed,
+        )
+        val cancellingSink =
+            SDKForeign.logSink(
+                object : LogSink {
+                    override fun log(record: LogRecord): Unit = throw CancellationException("x")
+                },
+            )
+        check(
+            runCatching {
+                cancellingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), 0, 0uL))
+            }.exceptionOrNull() is LogSinkException.Failed,
+        )
+        println("Kotlin P37 foreign trait wrappers passed")
 
         val signer = TestSigner()
         val directory = Files.createTempDirectory("xmtp-sdk-conformance-")
@@ -104,11 +207,84 @@ fun main() =
         val storagePath = checkNotNull(host.storage().path())
         check(Files.isRegularFile(Path.of(storagePath))) { "storage path does not name the database file" }
         val group = client.conversations().createGroup(emptyList(), null)
-        val sentID = group.sendText("conformance message")
+        var typedSends = 0
+        for (sample in codecSamples) {
+            val id =
+                when (val value = sample.value) {
+                    is StandardContent.Text -> {
+                        group.sendText(value.v1, null)
+                    }
+
+                    is StandardContent.Markdown -> {
+                        group.sendMarkdown(value.v1, null)
+                    }
+
+                    is StandardContent.Reaction -> {
+                        group.sendReaction(
+                            value.reference,
+                            value.referenceInboxID,
+                            value.reaction,
+                            null,
+                        )
+                    }
+
+                    is StandardContent.Reply -> {
+                        group.sendReply(
+                            value.reference,
+                            value.referenceInboxID,
+                            value.content,
+                            null,
+                        )
+                    }
+
+                    StandardContent.ReadReceipt -> {
+                        group.sendReadReceipt(null)
+                    }
+
+                    is StandardContent.Attachment -> {
+                        group.sendAttachment(value.v1, null)
+                    }
+
+                    is StandardContent.RemoteAttachment -> {
+                        group.sendRemoteAttachment(value.v1, null)
+                    }
+
+                    is StandardContent.MultiRemoteAttachment -> {
+                        group.sendMultiRemoteAttachment(value.v1, null)
+                    }
+
+                    is StandardContent.TransactionReference -> {
+                        group.sendTransactionReference(value.v1, null)
+                    }
+
+                    is StandardContent.WalletSendCalls -> {
+                        group.sendWalletSendCalls(value.v1, null)
+                    }
+
+                    is StandardContent.Actions -> {
+                        group.sendActions(value.v1, null)
+                    }
+
+                    is StandardContent.Intent -> {
+                        group.sendIntent(value.v1, null)
+                    }
+
+                    else -> {
+                        continue
+                    }
+                }
+            val wire = checkNotNull(client.conversations().getMessageByID(id))
+            check(sameEncoded(wire.encoded, sample.expected)) { "typed send content differs from codec" }
+            typedSends++
+        }
+        check(typedSends == 12)
+        println("Kotlin P69: typed send bytes match all 12 public codecs")
+        val sentID = group.sendText("conformance message", null)
         val sent = group.messages(null).first { it.id == sentID }
         check(sent.client() === host)
         host.end()
         check(runCatching { sent.client() }.exceptionOrNull() is XmtpException.ClientClosed)
+        check(runCatching { sent.refresh() }.exceptionOrNull() is XmtpException.ClientClosed)
         check(Message(sent.data.copy(clientKey = sent.data.clientKey + 1uL)) != sent)
         val reopenedHost = SDKClient.build(signer.identity(), options, inboxID)
         val reopened = reopenedHost.raw
@@ -124,6 +300,7 @@ fun main() =
         check(Files.list(defaultDirectory).use { paths -> paths.anyMatch { it.fileName.toString().endsWith(".db3") } })
         defaultClient.end()
         val (orphan, weak) = releasedMessage(signer.identity(), options, inboxID)
+        // The run task uses SerialGC with explicit GC enabled, so System.gc() runs a full collection.
         repeat(50) {
             if (weak.get() == null) return@repeat
             System.gc()
@@ -131,11 +308,13 @@ fun main() =
         }
         check(weak.get() == null) { "the registry kept the host client alive" }
         check(runCatching { orphan.client() }.exceptionOrNull() is XmtpException.ClientClosed)
+        check(runCatching { orphan.refresh() }.exceptionOrNull() is XmtpException.ClientClosed)
+        println("Kotlin client_closed_after_end_and_release passed")
         println("Kotlin scenario 2: create, reopen, end passed")
 
         val liveGroup = reopened.conversations().createGroup(emptyList(), null)
         val reader = liveGroup.messageReader()
-        val liveID = liveGroup.sendText("durable stream")
+        val liveID = liveGroup.sendText("durable stream", null)
         check(reader.next()?.id == liveID)
         reader.end()
         val replay = liveGroup.messageReader()
@@ -145,7 +324,7 @@ fun main() =
         pending.cancel()
         replay.end()
         runCatching { pending.await() }
-        val adapterID = liveGroup.sendText("adapter stream")
+        val adapterID = liveGroup.sendText("adapter stream", null)
         var delivered = false
         try {
             withTimeout(10_000) {
@@ -158,7 +337,7 @@ fun main() =
             check(delivered)
         }
         val protocolGroup = reopened.conversations().createGroup(emptyList(), null)
-        val firstID = protocolGroup.sendText("ack on request")
+        val firstID = protocolGroup.sendText("ack on request", null)
         check(
             reopenedHost
                 .messages(protocolGroup)
@@ -172,7 +351,7 @@ fun main() =
             "adapter prefetched and acknowledged a value"
         }
         reread.end()
-        val secondID = protocolGroup.sendText("second request")
+        val secondID = protocolGroup.sendText("second request", null)
         check(
             reopenedHost
                 .messages(protocolGroup)
@@ -357,7 +536,7 @@ fun main() =
         check(reopened.conversations().listGroups(null).any { it.id() == family.id() })
         println("Kotlin scenario 4: group options, state, and list passed")
 
-        val parentID = family.sendText("parent")
+        val parentID = family.sendText("parent", null)
         val reactionID =
             reopened.conversations().reactToMessage(
                 parentID,
@@ -371,22 +550,95 @@ fun main() =
         val reply = familyMessages.first { it.id == replyID }
         check(parent.replyCount == 1uL && parent.reactions.firstOrNull()?.id == reactionID)
         check(reply.inReplyTo?.id == parentID)
+        val reactionMessage = checkNotNull(reopened.conversations().getMessageByID(reactionID))
+        val reactionContent =
+            (reactionMessage.content as? SDKMessageContent.Standard)?.value as? MessageContent.Reaction
+        check(
+            reactionContent?.reference == parentID && reactionContent.referenceInboxID == inboxID &&
+                reactionContent.reaction.content == "👍",
+        ) { "reaction content lost its target" }
+        check(
+            reactionMessage !=
+                Message(
+                    reactionMessage.data.copy(content = reactionContent.copy(reference = reactionID)),
+                ),
+        ) { "reaction target did not affect message equality" }
         val changedEnvelope =
             Message(parent.data.copy(encoded = parent.encoded.copy(parameters = mapOf("key" to "different"))))
         check(parent != changedEnvelope) { "EncodedContent parameters must affect message equality" }
         val copiedBytes =
             Message(parent.data.copy(encoded = parent.encoded.copy(content = parent.encoded.content.copyOf())))
         check(parent == copiedBytes && parent.hashCode() == copiedBytes.hashCode())
+        val sameParent = checkNotNull(reopened.conversations().getMessageByID(parentID))
+        check(parent == sameParent) { "message_copies_compare_equal failed" }
+        check(parent != Message(parent.data.copy(reactions = emptyList()))) {
+            "reaction_change_compares_unequal failed"
+        }
+        val replyParent = checkNotNull(reply.data.inReplyTo)
+        check(reply != Message(reply.data.copy(inReplyTo = replyParent.copy(content = MessageBody.Text("changed"))))) {
+            "reply_parent_change_compares_unequal failed"
+        }
+        val changedStatus =
+            parent.data.copy(
+                deliveryStatus =
+                    if (parent.deliveryStatus ==
+                        DeliveryStatus.FAILED
+                    ) {
+                        DeliveryStatus.PUBLISHED
+                    } else {
+                        DeliveryStatus.FAILED
+                    },
+            )
+        check(parent != Message(changedStatus)) { "status_change_compares_unequal failed" }
+        val encodedCopyA = encodeText("value equality")
+        val encodedCopyB = encodeText("value equality")
+        check(encodedCopyA == encodedCopyB && encodedCopyA.hashCode() == encodedCopyB.hashCode()) {
+            "generated byte record equality failed"
+        }
+        val forwarded: Conversation = Conversation.Group(family)
+        check(forwarded.id() == family.id() && forwarded.lastMessage()?.id == family.lastMessage()?.id)
+        println("Kotlin message_copies_compare_equal and status_change_compares_unequal passed")
         println("Kotlin scenario 5: message records, reaction, and reply passed")
 
         val codec = SampleCodec()
         val withCodec = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(codec))
         val withoutCodec = SDKClient.build(signer.identity(), options, inboxID)
+        val slashType = ContentTypeID("example.org", "a/b", 1u, 0u)
+        val slashCodec =
+            object : SDKContentCodec {
+                override val type = slashType
+
+                override fun encode(value: Any) =
+                    EncodedContent(type, emptyMap(), null, (value as String).toByteArray())
+
+                override fun decode(encoded: EncodedContent): Any = "wrong codec"
+            }
+        val slashHost = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(slashCodec))
+        val colliding = EncodedContent(ContentTypeID("example.org/a", "b", 1u, 0u), emptyMap(), null, byteArrayOf(1))
+        check(slashHost.decodeCustom(colliding) is SDKMessageContent.Unknown) {
+            "codec key collision selected the wrong codec"
+        }
+        slashHost.end()
         val customID = family.send(codec.encode("codec value"), null)
         val decoded = checkNotNull(withCodec.raw.conversations().getMessageByID(customID))
         val undecoded = checkNotNull(withoutCodec.raw.conversations().getMessageByID(customID))
         check((decoded.content as? SDKMessageContent.Custom)?.value == "codec value")
         check(undecoded.content is SDKMessageContent.Unknown)
+        val customReplyID =
+            withCodec.raw.conversations().replyToMessage(
+                customID,
+                codec.encode("reply codec value"),
+                null,
+            )
+        val customReply = checkNotNull(withCodec.raw.conversations().getMessageByID(customReplyID))
+        check((customReply.replyContent as? SDKReplyContent.Custom)?.value == "reply codec value") {
+            "reply body custom codec did not run"
+        }
+        val failingHost = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(FailingCodec()))
+        val failed = checkNotNull(failingHost.raw.conversations().getMessageByID(customID))
+        check((failed.content as? SDKMessageContent.Custom)?.error is AssertionError)
+        failingHost.end()
+        println("Kotlin codec_scoped_to_client passed")
         withCodec.end()
         withoutCodec.end()
         println("Kotlin scenario 6: custom codec stayed with its client")

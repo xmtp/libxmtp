@@ -9,6 +9,16 @@ struct ConformanceFailure: LocalizedError {
     }
 }
 
+private func sameEncoded(_ lhs: EncodedContent, _ rhs: EncodedContent) -> Bool {
+    lhs.type.authorityID == rhs.type.authorityID &&
+        lhs.type.typeID == rhs.type.typeID &&
+        lhs.type.versionMajor == rhs.type.versionMajor &&
+        lhs.type.versionMinor == rhs.type.versionMinor &&
+        lhs.parameters == rhs.parameters &&
+        lhs.fallback == rhs.fallback &&
+        lhs.content == rhs.content
+}
+
 final class TestSigner: Signer, @unchecked Sendable {
     private func run(_ action: String, _ text: String? = nil) throws -> String {
         let environment = ProcessInfo.processInfo.environment
@@ -63,16 +73,40 @@ final class OrderedLogSink: LogSink, @unchecked Sendable {
 
 struct SampleCodec: SDKContentCodec {
     let type = ContentTypeID(authorityID: "example.org", typeID: "sample", versionMajor: 1, versionMinor: 0)
-    func encode(_ value: Any) throws -> EncodedContent {
+    func encode(_ value: any Sendable) throws -> EncodedContent {
         guard let text = value as? String else { throw ConformanceFailure("custom value was not text") }
         return EncodedContent(type: type, content: Data(text.utf8))
     }
 
-    func decode(_ encoded: EncodedContent) throws -> Any {
+    func decode(_ encoded: EncodedContent) throws -> any Sendable {
         guard let text = String(data: encoded.content, encoding: .utf8) else {
             throw ConformanceFailure("custom content was not UTF-8")
         }
         return text
+    }
+}
+
+struct FailingCodec: SDKContentCodec {
+    let type = SampleCodec().type
+    func encode(_ value: any Sendable) throws -> EncodedContent {
+        try SampleCodec().encode(value)
+    }
+
+    func decode(_: EncodedContent) throws -> any Sendable {
+        throw ConformanceFailure("codec decode failed")
+    }
+}
+
+struct SlashCodec: SDKContentCodec {
+    let type = ContentTypeID(authorityID: "example.org", typeID: "a/b", versionMajor: 1, versionMinor: 0)
+
+    func encode(_ value: any Sendable) throws -> EncodedContent {
+        guard let text = value as? String else { throw ConformanceFailure("custom value was not text") }
+        return EncodedContent(type: type, content: Data(text.utf8))
+    }
+
+    func decode(_: EncodedContent) throws -> any Sendable {
+        "wrong codec"
     }
 }
 
@@ -82,7 +116,40 @@ struct Conformance {
         precondition(sdkVersion().hasPrefix("1.12.0"))
         let messageID = try MessageID.fromString(String(repeating: "a", count: 64))
         precondition(messageID.description.count == 64)
+        do {
+            _ = try MessageID.fromString("bad")
+            throw ConformanceFailure("malformed ID was accepted")
+        } catch XmtpError.InvalidArgument {}
         print("Swift scenario 1: load, checksums, version passed")
+
+        let codecSamples = sdkConformanceStandardSamples()
+        guard codecSamples.count == 15 else { throw ConformanceFailure("missing standard codec samples") }
+        for sample in codecSamples {
+            let codec: any SDKContentCodec
+            let value: any Sendable
+            switch sample.value {
+            case let .text(item): codec = TextCodec(); value = item
+            case let .markdown(item): codec = MarkdownCodec(); value = item
+            case .readReceipt: codec = ReadReceiptCodec(); value = ()
+            case .reaction: codec = ReactionV2Codec(); value = sample.value
+            case let .attachment(item): codec = AttachmentCodec(); value = item
+            case let .remoteAttachment(item): codec = RemoteAttachmentCodec(); value = item
+            case let .multiRemoteAttachment(item): codec = MultiRemoteAttachmentCodec(); value = item
+            case let .transactionReference(item): codec = TransactionReferenceCodec(); value = item
+            case let .walletSendCalls(item): codec = WalletSendCallsCodec(); value = item
+            case let .actions(item): codec = ActionsCodec(); value = item
+            case let .intent(item): codec = IntentCodec(); value = item
+            case .reply: codec = ReplyCodec(); value = sample.value
+            case let .groupUpdated(item): codec = GroupUpdatedCodec(); value = item
+            case .deleteMessage: codec = DeleteMessageCodec(); value = sample.value
+            case let .leaveRequest(item): codec = LeaveRequestCodec(); value = item
+            }
+            let encoded = try codec.encode(value)
+            guard sameEncoded(encoded, sample.expected),
+                  try sameEncoded(codec.encode(codec.decode(encoded)), sample.expected)
+            else { throw ConformanceFailure("standard codec bytes differ from Rust") }
+        }
+        print("Swift P69: all 15 standard codecs match Rust bytes")
 
         let signer = TestSigner()
         let directory = FileManager.default.temporaryDirectory
@@ -101,7 +168,32 @@ struct Conformance {
               FileManager.default.fileExists(atPath: storagePath)
         else { throw ConformanceFailure("storage path does not name the database file") }
         let group = try await client.conversations().createGroup(members: [], options: nil)
-        let sentID = try await group.sendText(text: "conformance message")
+        var typedSends = 0
+        for sample in codecSamples {
+            let id: MessageID
+            switch sample.value {
+            case let .text(text): id = try await group.sendText(text: text, options: nil)
+            case let .markdown(markdown): id = try await group.sendMarkdown(markdown: markdown, options: nil)
+            case let .reaction(reference, inboxID, reaction): id = try await group.sendReaction(reference: reference, referenceInboxID: inboxID, reaction: reaction, options: nil)
+            case let .reply(reference, inboxID, content): id = try await group.sendReply(reference: reference, referenceInboxID: inboxID, content: content, options: nil)
+            case .readReceipt: id = try await group.sendReadReceipt(options: nil)
+            case let .attachment(attachment): id = try await group.sendAttachment(attachment: attachment, options: nil)
+            case let .remoteAttachment(attachment): id = try await group.sendRemoteAttachment(attachment: attachment, options: nil)
+            case let .multiRemoteAttachment(attachment): id = try await group.sendMultiRemoteAttachment(attachment: attachment, options: nil)
+            case let .transactionReference(reference): id = try await group.sendTransactionReference(reference: reference, options: nil)
+            case let .walletSendCalls(calls): id = try await group.sendWalletSendCalls(calls: calls, options: nil)
+            case let .actions(actions): id = try await group.sendActions(actions: actions, options: nil)
+            case let .intent(intent): id = try await group.sendIntent(intent: intent, options: nil)
+            default: continue
+            }
+            guard let wire = try await client.conversations().getMessageByID(id: id),
+                  sameEncoded(wire.encoded, sample.expected)
+            else { throw ConformanceFailure("typed send bytes differ from codec") }
+            typedSends += 1
+        }
+        guard typedSends == 12 else { throw ConformanceFailure("missing typed send cases") }
+        print("Swift P69: typed send bytes match all 12 public codecs")
+        let sentID = try await group.sendText(text: "conformance message", options: nil)
         let sent = try await group.messages(options: nil).first { $0.id == sentID }
         precondition(sent != nil)
         let owningClient = try sent?.client()
@@ -110,6 +202,10 @@ struct Conformance {
         do {
             _ = try sent?.client()
             preconditionFailure("ended client remained in the registry")
+        } catch XmtpError.ClientClosed {}
+        do {
+            _ = try await sent?.refresh()
+            throw ConformanceFailure("message action after end did not fail")
         } catch XmtpError.ClientClosed {}
         let reopenedHost = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxID: inboxID
@@ -143,7 +239,7 @@ struct Conformance {
             )
             weakHost = shortLived
             let shortGroup = try await shortLived.raw.conversations().createGroup(members: [], options: nil)
-            let orphanID = try await shortGroup.sendText(text: "weak owner")
+            let orphanID = try await shortGroup.sendText(text: "weak owner", options: nil)
             orphan = try await shortGroup.messages(options: nil).first { $0.id == orphanID }
         }
         precondition(weakHost == nil, "the registry kept the host client alive")
@@ -151,11 +247,16 @@ struct Conformance {
             _ = try orphan.client()
             preconditionFailure("released client remained in the registry")
         } catch XmtpError.ClientClosed {}
+        do {
+            _ = try await orphan.refresh()
+            throw ConformanceFailure("message action after release did not fail")
+        } catch XmtpError.ClientClosed {}
+        print("Swift client_closed_after_end_and_release passed")
         print("Swift scenario 2: create, reopen, end passed")
 
         let reopenedGroup = try await reopened.conversations().createGroup(members: [], options: nil)
         let reader = try await reopenedGroup.messageReader()
-        let liveID = try await reopenedGroup.sendText(text: "durable stream")
+        let liveID = try await reopenedGroup.sendText(text: "durable stream", options: nil)
         let first = try await reader.next()
         precondition(first?.id == liveID)
         try await reader.end()
@@ -168,7 +269,7 @@ struct Conformance {
         try await replay.end()
         _ = try? await pending.value
         let stream = try await reopenedHost.messages(in: reopenedGroup)
-        let adapterID = try await reopenedGroup.sendText(text: "adapter stream")
+        let adapterID = try await reopenedGroup.sendText(text: "adapter stream", options: nil)
         let iterator = stream.makeAsyncIterator()
         let fromAdapter = try await iterator.next()
         precondition(fromAdapter?.id == adapterID)
@@ -177,7 +278,7 @@ struct Conformance {
         idle.cancel()
         _ = try? await idle.value
         let protocolGroup = try await reopened.conversations().createGroup(members: [], options: nil)
-        let firstID = try await protocolGroup.sendText(text: "ack on request")
+        let firstID = try await protocolGroup.sendText(text: "ack on request", options: nil)
         do {
             let protocolStream = try await reopenedHost.messages(in: protocolGroup)
             for try await value in protocolStream {
@@ -195,7 +296,7 @@ struct Conformance {
         stopReplay.cancel()
         precondition(replayed?.id == firstID, "adapter prefetched and acknowledged a value")
         try await reread.end()
-        let secondID = try await protocolGroup.sendText(text: "second request")
+        let secondID = try await protocolGroup.sendText(text: "second request", options: nil)
         do {
             let protocolStream = try await reopenedHost.messages(in: protocolGroup)
             var protocolIterator: SDKMessageStream.Iterator? = protocolStream.makeAsyncIterator()
@@ -328,7 +429,7 @@ struct Conformance {
         } catch XmtpError.InvalidArgument {}
         print("Swift scenario 12: notification state and typed error passed")
 
-        try initLogging(options: LoggingOptions(level: .error))
+        try await initLogging(options: LoggingOptions(level: .error))
         let orderedSink = OrderedLogSink()
         try setLogSink(sink: orderedSink)
         try await sdkConformanceEmit(count: 32)
@@ -347,7 +448,7 @@ struct Conformance {
         else { throw ConformanceFailure("group options, immutable fields, or list failed") }
         print("Swift scenario 4: group options, state, and list passed")
 
-        let parentID = try await family.sendText(text: "parent")
+        let parentID = try await family.sendText(text: "parent", options: nil)
         let reactionID = try await reopened.conversations().reactToMessage(
             id: parentID, reaction: Reaction(content: "👍", action: .added, schema: .unicode), options: nil
         )
@@ -362,6 +463,34 @@ struct Conformance {
               parent.replyCount == 1, parent.reactions.first?.id == reactionID,
               reply.inReplyTo?.id == parentID
         else { throw ConformanceFailure("message reaction or reply edge was not materialized") }
+        guard let reactionMessage = try await reopened.conversations().getMessageByID(id: reactionID),
+              case let .standard(.reaction(reference, referenceInboxID, reaction)) = reactionMessage.content,
+              reference == parentID, referenceInboxID == inboxID, reaction.content == "👍"
+        else { throw ConformanceFailure("reaction content lost its target") }
+        var changedReaction = reactionMessage.data
+        changedReaction.content = .reaction(
+            reference: reactionID, referenceInboxID: inboxID,
+            reaction: Reaction(content: "👍", action: .added, schema: .unicode)
+        )
+        guard reactionMessage != Message(data: changedReaction) else {
+            throw ConformanceFailure("reaction target did not affect message equality")
+        }
+        let sameParent = try await reopened.conversations().getMessageByID(id: parentID)
+        guard let sameParent, parent == sameParent else {
+            throw ConformanceFailure("message_copies_compare_equal failed")
+        }
+        var changedStatus = parent.data
+        changedStatus.deliveryStatus = parent.deliveryStatus == .failed ? .published : .failed
+        guard parent != Message(data: changedStatus) else {
+            throw ConformanceFailure("status_change_compares_unequal failed")
+        }
+        let forwarded: Conversation = .group(group: family)
+        let forwardedLast = try await forwarded.lastMessage()
+        let directLast = try await family.lastMessage()
+        guard forwarded.id() == family.id(),
+              forwardedLast?.id == directLast?.id
+        else { throw ConformanceFailure("Conversation forwarding failed") }
+        print("Swift message_copies_compare_equal and status_change_compares_unequal passed")
         print("Swift scenario 5: message records, reaction, and reply passed")
 
         let codec = SampleCodec()
@@ -371,6 +500,17 @@ struct Conformance {
         let withoutCodec = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxID: inboxID
         )
+        let slashHost = try await SDKClient.build(
+            identity: await signer.identity(), options: options, inboxID: inboxID, codecs: [SlashCodec()]
+        )
+        let colliding = EncodedContent(
+            type: ContentTypeID(authorityID: "example.org/a", typeID: "b", versionMajor: 1, versionMinor: 0),
+            content: Data([1])
+        )
+        guard case .unknown = slashHost.decodeCustom(colliding) else {
+            throw ConformanceFailure("codec key collision selected the wrong codec")
+        }
+        try await slashHost.end()
         let customID = try await family.send(encoded: codec.encode("codec value"), options: nil)
         guard let decoded = try await withCodec.raw.conversations().getMessageByID(id: customID),
               let undecoded = try await withoutCodec.raw.conversations().getMessageByID(id: customID)
@@ -378,6 +518,21 @@ struct Conformance {
         guard case let .custom(_, value, nil) = decoded.content, value as? String == "codec value",
               case .unknown = undecoded.content
         else { throw ConformanceFailure("custom codec leaked between clients") }
+        let customReplyID = try await withCodec.raw.conversations().replyToMessage(
+            id: customID, content: codec.encode("reply codec value"), options: nil
+        )
+        guard let customReply = try await withCodec.raw.conversations().getMessageByID(id: customReplyID),
+              case let .some(.custom(_, value, nil)) = customReply.replyContent,
+              value as? String == "reply codec value"
+        else { throw ConformanceFailure("reply body custom codec did not run") }
+        let failingHost = try await SDKClient.build(
+            identity: await signer.identity(), options: options, inboxID: inboxID, codecs: [FailingCodec()]
+        )
+        guard let failed = try await failingHost.raw.conversations().getMessageByID(id: customID),
+              case let .custom(_, nil, error) = failed.content, error != nil
+        else { throw ConformanceFailure("throwing custom codec was not recorded") }
+        try await failingHost.end()
+        print("Swift codec_scoped_to_client passed")
         try await withCodec.end()
         try await withoutCodec.end()
         print("Swift scenario 6: custom codec stayed with its client")

@@ -21,4 +21,5 @@ fi
 grep -q "TS2322.*ConversationID" "$log"
 grep -q "TS2322.*EncodedContent" "$log"
 grep -q "TS2339.*group" "$log"
+grep -q "TS2322.*MessageID" "$log"
 echo "TypeScript ID, content, and Group/Dm consumer checks passed"

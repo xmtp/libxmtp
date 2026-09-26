@@ -122,6 +122,47 @@ fn sync_free_function_uses_plain_export() {
 }
 
 #[test]
+fn pure_free_function_has_metadata_marker() {
+    let output = export(
+        quote!(pure),
+        quote!(
+            pub fn version() -> String {
+                String::new()
+            }
+        ),
+    );
+    assert!(output.contains("@xmtp-pure"));
+    assert!(output.contains("# [uniffi :: export]"));
+    assert!(!output.contains("async_runtime"));
+}
+
+#[test]
+fn pure_rejects_async_and_methods() {
+    let error = sdk_export(
+        quote!(pure),
+        quote!(
+            pub async fn invalid() {}
+        ),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("pure export must be synchronous")
+    );
+    let error = sdk_export(
+        quote!(pure),
+        quote!(impl Client { pub fn invalid(&self) {} }),
+    )
+    .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("pure export must be a free function")
+    );
+}
+
+#[test]
 fn async_trait_selects_runtime() {
     let output = export(
         quote!(),
@@ -139,7 +180,11 @@ fn async_trait_selects_runtime() {
 fn export_rejects_unknown_argument_and_wrong_item() {
     let item = quote!(impl Client {});
     let error = sdk_export(quote!(other), item).unwrap_err();
-    assert!(error.to_string().contains("native_only or wasm_only"));
+    assert!(
+        error
+            .to_string()
+            .contains("native_only, wasm_only, or pure")
+    );
 
     let error = sdk_export(
         quote!(),

@@ -37,11 +37,14 @@ pub use configuration::{
     AuthConfiguration, LimitsConfiguration, MlsConfiguration, RetentionConfiguration,
     ServerConfiguration, SigningKeyDescription,
 };
+#[cfg(feature = "conformance")]
+pub use content::StandardCodecSample;
 pub use content::{
     Action, ActionStyle, Actions, Attachment, Compression, DeletedBy, DeletedMessage,
     EncodedContent, GroupUpdated, Intent, LeaveRequest, MetadataFieldChange, MultiRemoteAttachment,
-    Reaction, ReactionAction, ReactionSchema, RemoteAttachment, SendOptions, TransactionMetadata,
-    TransactionReference, WalletCall, WalletCallMetadata, WalletSendCalls, encode_text,
+    Reaction, ReactionAction, ReactionSchema, RemoteAttachment, SendOptions, StandardContent,
+    StandardContentKind, TransactionMetadata, TransactionReference, WalletCall, WalletCallMetadata,
+    WalletSendCalls, decode_standard, encode_standard, encode_text, standard_content_type,
 };
 pub use conversation::{Conversation, Conversations, Dm, Group};
 pub use conversations::{
@@ -88,7 +91,7 @@ pub use storage::Storage;
 
 uniffi::setup_scaffolding!();
 
-#[xmtp_macro::sdk_export]
+#[xmtp_macro::sdk_export(pure)]
 pub fn sdk_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }

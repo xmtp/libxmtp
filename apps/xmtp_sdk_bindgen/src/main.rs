@@ -1,6 +1,8 @@
 mod callback_cursor;
+mod forwarding;
 mod id_names;
 mod kotlin_callbacks;
+mod kotlin_records;
 mod validate;
 
 use std::{fs, path::Path};
@@ -112,10 +114,8 @@ fn generate(
             })?;
             if matches!(language, Language::Kotlin) {
                 let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
-                fs::write(
-                    &binding,
-                    kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?,
-                )?;
+                let callbacks = kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?;
+                fs::write(&binding, kotlin_records::rewrite(&callbacks, &metadata)?)?;
             }
         }
         Language::TypescriptNapi | Language::TypescriptWasm => {
@@ -187,7 +187,7 @@ fn generate(
             )?;
             let index = out.join("index.ts");
             let mut source = fs::read_to_string(&index)?;
-            source.push_str("\nexport { Client, Message, InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream, setLogSink } from './runtime';\n");
+            source.push_str("\nexport { Client, Message, InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
             fs::write(index, source)?;
             for stale in [".bindgen-manifest", "abi"] {
                 let stale_dir = out.join(stale);
@@ -197,6 +197,14 @@ fn generate(
             }
         }
     }
+
+    // The metadata marker validates pure exports. It is not public API text.
+    let binding = match language {
+        Language::Swift => out.join("xmtp_sdk.swift"),
+        Language::Kotlin => out.join("uniffi/xmtp_sdk/xmtp_sdk.kt"),
+        Language::TypescriptNapi | Language::TypescriptWasm => out.join("xmtp_sdk.ts"),
+    };
+    strip_pure_doc_marker(&binding)?;
 
     let runtime_name = match language {
         Language::Swift => "swift",
@@ -209,6 +217,15 @@ fn generate(
         .join("runtime")
         .join(runtime_name);
     copy_tree(runtime.as_std_path(), out.join("runtime").as_std_path())?;
+    if matches!(language, Language::Swift | Language::Kotlin) {
+        forwarding::generate(&metadata, language, out)?;
+    }
+    Ok(())
+}
+
+fn strip_pure_doc_marker(path: &Utf8Path) -> Result<()> {
+    let source = fs::read_to_string(path)?;
+    fs::write(path, source.replace("@xmtp-pure", ""))?;
     Ok(())
 }
 
@@ -224,4 +241,21 @@ fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pure_marker_does_not_reach_generated_docs() -> Result<()> {
+        let dir = tempfile::tempdir()?;
+        let path = Utf8Path::from_path(dir.path())
+            .context("test directory is not UTF-8")?
+            .join("binding.swift");
+        fs::write(&path, "/// @xmtp-pure\npublic func encodeText() {}\n")?;
+        strip_pure_doc_marker(&path)?;
+        assert!(!fs::read_to_string(path)?.contains("@xmtp-pure"));
+        Ok(())
+    }
 }

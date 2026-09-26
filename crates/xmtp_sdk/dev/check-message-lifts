@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+generated="${1:-target/sdk-generated}"
+swift="$generated/swift/xmtp_sdk.swift"
+kotlin="$generated/kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt"
+node="$generated/typescript-napi/xmtp_sdk.ts"
+wasm="$generated/typescript-wasm/xmtp_sdk.ts"
+
+grep -Fq 'return Message(data: builtinValue)' "$swift"
+grep -Fq 'return Message(builtinValue)' "$kotlin"
+for binding in "$node" "$wasm"; do
+  grep -Fq 'const FfiConverterTypeMessage = ' "$binding"
+  grep -Fq 'return new Message(intermediate)' "$binding"
+  grep -Fq 'new FfiConverterArray(FfiConverterTypeMessage)' "$binding"
+done
+echo 'Message lifts use the host class in Swift, Kotlin, Node, and WASM'

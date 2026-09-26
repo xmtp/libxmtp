@@ -1,30 +1,47 @@
 import Foundation
 
-public protocol SDKContentCodec {
+public protocol SDKContentCodec: Sendable {
     var type: ContentTypeID { get }
-    func encode(_ value: Any) throws -> EncodedContent
-    func decode(_ encoded: EncodedContent) throws -> Any
+    func encode(_ value: any Sendable) throws -> EncodedContent
+    func decode(_ encoded: EncodedContent) throws -> any Sendable
 }
 
-public func SDKContentCodecKey(_ type: ContentTypeID) -> String {
-    "\(type.authorityID)/\(type.typeID)/\(type.versionMajor)"
+public struct SDKContentCodecKey: Hashable, Sendable {
+    public let authorityID: String
+    public let typeID: String
+    public let versionMajor: UInt32
+
+    public init(_ type: ContentTypeID) {
+        authorityID = type.authorityID
+        typeID = type.typeID
+        versionMajor = type.versionMajor
+    }
 }
 
 public extension SDKContentCodec {
-    var key: String {
+    var key: SDKContentCodecKey {
         SDKContentCodecKey(type)
     }
 }
 
-public enum SDKMessageContent {
+public enum SDKMessageContent: Sendable {
     case standard(MessageContent)
-    case custom(encoded: EncodedContent, value: Any?, error: Error?)
+    case custom(encoded: EncodedContent, value: (any Sendable)?, error: Error?)
     case unknown(EncodedContent)
 }
 
-public enum SDKValueError: Error {
-    case invalidID
-    case clientClosed
+public enum SDKReplyContent: Sendable {
+    case standard(MessageBody)
+    case custom(encoded: EncodedContent, value: (any Sendable)?, error: Error?)
+    case unknown(EncodedContent)
+}
+
+private func invalidID(_ message: String) -> XmtpError {
+    .InvalidArgument(ErrorDetails(code: "InvalidArgument", category: .input, retryable: false, message: message))
+}
+
+private func clientClosedError() -> XmtpError {
+    .ClientClosed(ErrorDetails(code: "ClientClosed", category: .lifecycle, retryable: false, message: "client is closed"))
 }
 
 private func validHex(_ value: String, bytes: Int) -> Bool {
@@ -40,7 +57,7 @@ public struct InboxID: Hashable, Sendable, CustomStringConvertible {
     }
 
     public static func fromString(_ value: String) throws -> Self {
-        guard !value.isEmpty else { throw SDKValueError.invalidID }
+        guard !value.isEmpty else { throw invalidID("inbox ID is empty") }
         return unchecked(value)
     }
 
@@ -56,7 +73,7 @@ public struct InstallationID: Hashable, Sendable, CustomStringConvertible {
     }
 
     public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 32) else { throw SDKValueError.invalidID }
+        guard validHex(value, bytes: 32) else { throw invalidID("invalid lowercase hex ID") }
         return unchecked(value)
     }
 
@@ -72,7 +89,7 @@ public struct ConversationID: Hashable, Sendable, CustomStringConvertible {
     }
 
     public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 16) else { throw SDKValueError.invalidID }
+        guard validHex(value, bytes: 16) else { throw invalidID("invalid lowercase hex ID") }
         return unchecked(value)
     }
 
@@ -88,7 +105,7 @@ public struct MessageID: Hashable, Sendable, CustomStringConvertible {
     }
 
     public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 32) else { throw SDKValueError.invalidID }
+        guard validHex(value, bytes: 32) else { throw invalidID("invalid lowercase hex ID") }
         return unchecked(value)
     }
 
@@ -104,16 +121,39 @@ public struct Timestamp: Hashable, Sendable {
     }
 }
 
-public final class Message: Identifiable, Hashable {
+private func decodeReplyBody(_ body: MessageBody, clientKey: UInt64) -> SDKReplyContent {
+    switch body {
+    case let .custom(encoded):
+        let decoded = ClientRegistry.get(clientKey)?.decodeCustom(encoded)
+            ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
+        switch decoded {
+        case let .custom(_, value, error): return .custom(encoded: encoded, value: value, error: error)
+        case .unknown: return .unknown(encoded)
+        case .standard: return .standard(body)
+        }
+    case let .unknown(encoded): return .unknown(encoded)
+    default: return .standard(body)
+    }
+}
+
+public final class Message: Identifiable, Hashable, Sendable {
     public let data: MessageData
     public let content: SDKMessageContent
+    public let inReplyToContent: SDKReplyContent?
+    public let replyContent: SDKReplyContent?
     public init(data: MessageData) {
         self.data = data
-        if case let .custom(encoded) = data.content {
+        if case let .custom(encoded, _) = data.content {
             content = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded)
-                ?? .custom(encoded: encoded, value: nil, error: SDKValueError.clientClosed)
+                ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
         } else {
             content = .standard(data.content)
+        }
+        inReplyToContent = data.inReplyTo.map { decodeReplyBody($0.content, clientKey: data.clientKey) }
+        if case let .reply(_, body) = data.content {
+            replyContent = decodeReplyBody(body, clientKey: data.clientKey)
+        } else {
+            replyContent = nil
         }
     }
 
@@ -201,6 +241,10 @@ public final class Message: Identifiable, Hashable {
         try await client().raw.conversations().replyToMessage(id: id, content: content, options: options)
     }
 
+    public func reply(_ codec: any SDKContentCodec, value: any Sendable, options: SendOptions? = nil) async throws -> MessageID {
+        try await reply(codec.encode(value), options: options)
+    }
+
     public func parent() async throws -> Message? {
         guard let id = data.inReplyTo?.id else { return nil }
         return try await client().raw.conversations().getMessageByID(id: id)
@@ -212,10 +256,7 @@ public final class Message: Identifiable, Hashable {
 
     public func client() throws -> SDKClient {
         guard let client = ClientRegistry.get(data.clientKey) else {
-            throw XmtpError.ClientClosed(ErrorDetails(
-                code: "ClientClosed", category: .lifecycle,
-                retryable: false, message: "client is closed"
-            ))
+            throw clientClosedError()
         }
         return client
     }

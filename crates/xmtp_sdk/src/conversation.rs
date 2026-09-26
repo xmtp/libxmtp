@@ -8,7 +8,6 @@ use xmtp_content_types::{
     encoded_content_to_bytes,
     reaction::ReactionCodec,
     reply::{Reply, ReplyCodec},
-    text::TextCodec,
 };
 use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::MsgQueryArgs;
@@ -30,7 +29,8 @@ use crate::{
     CreateDmOptions, CreateGroupOptions, DisappearingSettings, EncodedContent, GroupState,
     GroupSyncSummary, HmacKey, InboxID, LastReadTimeEntry, ListConversationsOptions,
     ListMessagesOptions, Member, Message, MessageID, MessageReader, NotificationOverride,
-    PublicIdentity, Reaction, SendOptions, Timestamp, XmtpError, client::CoreClient,
+    PublicIdentity, Reaction, SendOptions, StandardContent, Timestamp, XmtpError,
+    client::CoreClient,
 };
 
 // Native calls run on an owned task in every profile. This keeps SQLite work
@@ -778,6 +778,19 @@ mod push_default_tests {
     }
 }
 
+async fn send_standard(
+    group: MlsGroup<xmtp_mls::MlsContext>,
+    value: StandardContent,
+    options: Option<SendOptions>,
+) -> Result<MessageID, XmtpError> {
+    send_encoded(
+        group,
+        crate::encode_standard(value)?,
+        options.unwrap_or_default(),
+    )
+    .await
+}
+
 async fn send_encoded(
     group: MlsGroup<xmtp_mls::MlsContext>,
     content: EncodedContent,
@@ -1126,9 +1139,156 @@ macro_rules! common_conversation {
                 send_encoded(self.inner.clone(), encoded, options.unwrap_or_default()).await
             }
 
-            pub async fn send_text(&self, text: String) -> Result<MessageID, XmtpError> {
-                let content = TextCodec::encode(text).map_err(XmtpError::unknown)?;
-                send_encoded(self.inner.clone(), content.into(), SendOptions::default()).await
+            pub async fn send_text(
+                &self,
+                text: String,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(self.inner.clone(), StandardContent::Text(text), options).await
+            }
+
+            pub async fn send_markdown(
+                &self,
+                markdown: String,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::Markdown(markdown),
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_reaction(
+                &self,
+                reference: MessageID,
+                reference_inbox_id: Option<InboxID>,
+                reaction: Reaction,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::Reaction {
+                        reference,
+                        reference_inbox_id,
+                        reaction,
+                    },
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_reply(
+                &self,
+                reference: MessageID,
+                reference_inbox_id: Option<InboxID>,
+                content: EncodedContent,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::Reply {
+                        reference,
+                        reference_inbox_id,
+                        content,
+                    },
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_read_receipt(
+                &self,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(self.inner.clone(), StandardContent::ReadReceipt, options).await
+            }
+
+            pub async fn send_attachment(
+                &self,
+                attachment: crate::Attachment,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::Attachment(attachment),
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_remote_attachment(
+                &self,
+                attachment: crate::RemoteAttachment,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::RemoteAttachment(attachment),
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_multi_remote_attachment(
+                &self,
+                attachment: crate::MultiRemoteAttachment,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::MultiRemoteAttachment(attachment),
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_transaction_reference(
+                &self,
+                reference: crate::TransactionReference,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::TransactionReference(reference),
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_wallet_send_calls(
+                &self,
+                calls: crate::WalletSendCalls,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::WalletSendCalls(calls),
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_actions(
+                &self,
+                actions: crate::Actions,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(
+                    self.inner.clone(),
+                    StandardContent::Actions(actions),
+                    options,
+                )
+                .await
+            }
+
+            pub async fn send_intent(
+                &self,
+                intent: crate::Intent,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_standard(self.inner.clone(), StandardContent::Intent(intent), options).await
             }
 
             pub async fn messages(

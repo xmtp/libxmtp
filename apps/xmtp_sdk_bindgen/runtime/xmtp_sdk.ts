@@ -26,7 +26,7 @@ export type MessageData = {
   content: MessageContent;
   replyCount: bigint;
   reactions: object[];
-  inReplyTo?: { id: MessageID };
+  inReplyTo?: { id: MessageID; content: MessageBody };
 };
 export type ContentTypeID = {
   authorityID: string;
@@ -35,19 +35,199 @@ export type ContentTypeID = {
   versionMinor: number;
 };
 export type EncodedContent = { type: ContentTypeID; content: ArrayBuffer };
+export type Attachment = object;
+export type RemoteAttachment = object;
+export type MultiRemoteAttachment = object;
+export type TransactionReference = object;
+export type WalletSendCalls = object;
+export type Actions = object;
+export type Intent = object;
+export type GroupUpdated = object;
+export type LeaveRequest = object;
+export enum StandardContentKind {
+  Text,
+  Markdown,
+  ReadReceipt,
+  Reaction,
+  Attachment,
+  RemoteAttachment,
+  MultiRemoteAttachment,
+  TransactionReference,
+  WalletSendCalls,
+  Actions,
+  Intent,
+  Reply,
+  GroupUpdated,
+  DeleteMessage,
+  LeaveRequest,
+}
+export enum StandardContent_Tags {
+  Text = "Text",
+  Markdown = "Markdown",
+  ReadReceipt = "ReadReceipt",
+  Reaction = "Reaction",
+  Attachment = "Attachment",
+  RemoteAttachment = "RemoteAttachment",
+  MultiRemoteAttachment = "MultiRemoteAttachment",
+  TransactionReference = "TransactionReference",
+  WalletSendCalls = "WalletSendCalls",
+  Actions = "Actions",
+  Intent = "Intent",
+  Reply = "Reply",
+  GroupUpdated = "GroupUpdated",
+  DeleteMessage = "DeleteMessage",
+  LeaveRequest = "LeaveRequest",
+}
+export type StandardContent = {
+  tag: StandardContent_Tags;
+  inner: readonly unknown[] | object;
+};
+export const StandardContent = {
+  Text: class {
+    readonly tag = StandardContent_Tags.Text;
+    readonly inner: readonly [string];
+    constructor(value: string) {
+      this.inner = [value];
+    }
+  },
+  Markdown: class {
+    readonly tag = StandardContent_Tags.Markdown;
+    readonly inner: readonly [string];
+    constructor(value: string) {
+      this.inner = [value];
+    }
+  },
+  ReadReceipt: class {
+    readonly tag = StandardContent_Tags.ReadReceipt;
+    readonly inner: readonly [] = [];
+  },
+  Attachment: class {
+    readonly tag = StandardContent_Tags.Attachment;
+    readonly inner: readonly [Attachment];
+    constructor(value: Attachment) {
+      this.inner = [value];
+    }
+  },
+  RemoteAttachment: class {
+    readonly tag = StandardContent_Tags.RemoteAttachment;
+    readonly inner: readonly [RemoteAttachment];
+    constructor(value: RemoteAttachment) {
+      this.inner = [value];
+    }
+  },
+  MultiRemoteAttachment: class {
+    readonly tag = StandardContent_Tags.MultiRemoteAttachment;
+    readonly inner: readonly [MultiRemoteAttachment];
+    constructor(value: MultiRemoteAttachment) {
+      this.inner = [value];
+    }
+  },
+  TransactionReference: class {
+    readonly tag = StandardContent_Tags.TransactionReference;
+    readonly inner: readonly [TransactionReference];
+    constructor(value: TransactionReference) {
+      this.inner = [value];
+    }
+  },
+  WalletSendCalls: class {
+    readonly tag = StandardContent_Tags.WalletSendCalls;
+    readonly inner: readonly [WalletSendCalls];
+    constructor(value: WalletSendCalls) {
+      this.inner = [value];
+    }
+  },
+  Actions: class {
+    readonly tag = StandardContent_Tags.Actions;
+    readonly inner: readonly [Actions];
+    constructor(value: Actions) {
+      this.inner = [value];
+    }
+  },
+  Intent: class {
+    readonly tag = StandardContent_Tags.Intent;
+    readonly inner: readonly [Intent];
+    constructor(value: Intent) {
+      this.inner = [value];
+    }
+  },
+  GroupUpdated: class {
+    readonly tag = StandardContent_Tags.GroupUpdated;
+    readonly inner: readonly [GroupUpdated];
+    constructor(value: GroupUpdated) {
+      this.inner = [value];
+    }
+  },
+  LeaveRequest: class {
+    readonly tag = StandardContent_Tags.LeaveRequest;
+    readonly inner: readonly [LeaveRequest];
+    constructor(value: LeaveRequest) {
+      this.inner = [value];
+    }
+  },
+};
+export function standardContentType(_kind: StandardContentKind): ContentTypeID {
+  throw new Error("lint only");
+}
+export function encodeStandard(_value: StandardContent): EncodedContent {
+  throw new Error("lint only");
+}
+export function decodeStandard(_encoded: EncodedContent): StandardContent {
+  throw new Error("lint only");
+}
 export enum MessageContent_Tags {
+  Text = "Text",
+  Reply = "Reply",
+  Custom = "Custom",
+  Unknown = "Unknown",
+}
+export enum MessageBody_Tags {
   Text = "Text",
   Custom = "Custom",
   Unknown = "Unknown",
 }
-export type MessageContent = {
-  tag: MessageContent_Tags;
+export type MessageBody = {
+  tag: MessageBody_Tags;
   inner: { encoded: EncodedContent };
+};
+export const MessageBody = {
+  Unknown: {
+    new(inner: { encoded: EncodedContent }): MessageBody {
+      return { tag: MessageBody_Tags.Unknown, inner };
+    },
+  },
+};
+export type MessageContent =
+  | {
+      tag: MessageContent_Tags.Reply;
+      inner: { referenceID: MessageID; body: MessageBody };
+    }
+  | {
+      tag: MessageContent_Tags.Text;
+      inner: { encoded: EncodedContent };
+    }
+  | {
+      tag: MessageContent_Tags.Custom;
+      inner: { encoded: EncodedContent; rawBytes: ArrayBuffer };
+    }
+  | {
+      tag: MessageContent_Tags.Unknown;
+      inner: { encoded: EncodedContent; rawBytes: ArrayBuffer };
+    };
+export const MessageContent = {
+  Unknown: {
+    new(inner: {
+      encoded: EncodedContent;
+      rawBytes: ArrayBuffer;
+    }): MessageContent {
+      return { tag: MessageContent_Tags.Unknown, inner };
+    },
+  },
 };
 export type Reaction = object;
 export type SendOptions = object;
 
 export enum ErrorCategory {
+  Input,
   Lifecycle,
 }
 
@@ -60,6 +240,7 @@ export type ErrorDetails = {
 
 export declare const XmtpError: {
   ClientClosed: new (details: ErrorDetails) => Error;
+  InvalidArgument: new (details: ErrorDetails) => Error;
 };
 
 export enum StorageLocation_Tags {
@@ -95,6 +276,7 @@ export type InboxState = object;
 export type KeyPackageStatusEntry = object;
 export type MessageMetadataEntry = object;
 export type ServerConfiguration = object;
+export type Conversation = object;
 export type LogRecord = {
   level: number;
   target: string;
@@ -105,7 +287,7 @@ export type LogRecord = {
 };
 export type ConversationsLike = {
   getMessageByID(id: MessageID): Promise<Message | undefined>;
-  getByID(id: ConversationID): Promise<object | undefined>;
+  getByID(id: ConversationID): Promise<Conversation | undefined>;
   deleteMessage(id: MessageID): Promise<MessageID>;
   deleteMessageLocally(id: MessageID): Promise<void>;
   reactToMessage(
