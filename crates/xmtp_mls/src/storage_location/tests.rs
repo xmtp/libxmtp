@@ -568,8 +568,14 @@ mod native {
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn fresh_data_dir_uses_private_modes() {
-        use crate::utils::test::backend::EphemeralBackend;
         use std::os::unix::fs::PermissionsExt as _;
+        use xmtp_proto::{
+            api::mock::MockNetworkClient,
+            backend_v1::{
+                GetConfigurationResponse, GetInboxIdsRequest, GetInboxIdsResponse,
+                get_inbox_ids_response,
+            },
+        };
 
         struct UmaskGuard(libc::mode_t);
         impl Drop for UmaskGuard {
@@ -580,14 +586,52 @@ mod native {
 
         let dir = tempfile::tempdir()?;
         let data_dir = dir.path().join("new-data-dir");
-        let backend = EphemeralBackend::start("").await?;
         let owner = generate_local_wallet();
         let inbox = identity_setup(&owner).inbox_id().unwrap().to_string();
-        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
-        api_builder.host(backend.url());
+        let configuration_requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let observed = configuration_requests.clone();
+        let mut mock = MockNetworkClient::new();
+        mock.expect_host()
+            .return_const("http://config.test".to_owned());
+        mock.expect_request().returning(move |_, path, body| {
+            let bytes = match path.as_str() {
+                "/xmtp.backend.v1.ConfigurationService/GetConfiguration" => {
+                    observed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                    GetConfigurationResponse {
+                        identifier: "org.xmtp.test".into(),
+                        ..Default::default()
+                    }
+                    .encode_to_vec()
+                }
+                "/xmtp.backend.v1.IdentityService/GetInboxIds" => {
+                    let request = GetInboxIdsRequest::decode(body)?;
+                    GetInboxIdsResponse {
+                        responses: request
+                            .requests
+                            .into_iter()
+                            .map(|entry| get_inbox_ids_response::Response {
+                                identifier: entry.identifier,
+                                identifier_kind: entry.identifier_kind,
+                                inbox_id: None,
+                            })
+                            .collect(),
+                    }
+                    .encode_to_vec()
+                }
+                "/xmtp.backend.v1.QueryService/Query" => xmtp_proto::backend_v1::QueryResponse {
+                    continuation: Some(Default::default()),
+                    ..Default::default()
+                }
+                .encode_to_vec(),
+                other => panic!("unexpected backend request: {other}"),
+            };
+            Ok(http::Response::new(bytes.into()))
+        });
         let _umask = UmaskGuard(unsafe { libc::umask(0) });
         let client = Client::builder(identity_setup(owner))
-            .api_client_with_streams(api_builder.build()?)
+            .api_client_with_streams(std::sync::Arc::new(xmtp_api_backend::BackendClient::new(
+                mock,
+            )))
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
             .data_location(StorageLocation::DataDir(data_dir.clone()), [0u8; 32].into())
             .await?
@@ -595,6 +639,10 @@ mod native {
             .with_disable_workers(true)
             .build()
             .await?;
+        assert_eq!(
+            configuration_requests.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
         let deployment = data_dir.join(deployment_component(
             &client.server_configuration().identifier,
         ));
