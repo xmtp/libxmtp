@@ -561,6 +561,7 @@ const failedStream = new sdk.MessageStream(async () => {
       throw readFailure;
     },
     end: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
       readerLeaseHeld = false;
     },
   };

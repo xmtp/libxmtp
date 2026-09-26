@@ -56,8 +56,8 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
         void this.watchConnection(reader);
         return reader;
       });
-    void this.reader.catch((error: unknown) => {
-      if (!this.closed) this.fail(error);
+    void this.reader.catch(async (error: unknown) => {
+      if (!this.closed) await this.fail(error);
     });
     this.options.signal?.addEventListener("abort", () => void this.return(), {
       once: true,
@@ -89,7 +89,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     this.options.onClose?.(reason);
   }
 
-  private fail(error: unknown): void {
+  private async fail(error: unknown): Promise<void> {
     if (this.closed) return;
     this.closed = true;
     this.pending?.abort();
@@ -97,7 +97,11 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     try {
       this.notifyClose({ kind: "failed", error });
     } finally {
-      void this.active?.end().catch(() => undefined);
+      try {
+        await this.active?.end();
+      } catch {
+        // The read error remains the stream's close reason.
+      }
     }
   }
 
@@ -152,7 +156,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
         if (this.pending === read) this.pending = undefined;
       }
     } catch (error) {
-      if (!this.isClosed()) this.fail(error);
+      if (!this.isClosed()) await this.fail(error);
       return this.closedResult();
     }
   }
@@ -162,7 +166,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     try {
       for await (const value of this) await callback(value);
     } catch (error) {
-      this.fail(error);
+      await this.fail(error);
       throw error;
     }
   }
