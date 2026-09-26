@@ -188,9 +188,16 @@ impl MessageBody {
                     deleted_by: deleted_by.try_into()?,
                 })
             }
-            CoreBody::Custom(value) => Self::Custom {
-                encoded: value.into(),
-            },
+            CoreBody::Custom(value) => {
+                if !has_complete_type(&value) {
+                    return Err(XmtpError::invalid(
+                        "nested content type identifier is incomplete",
+                    ));
+                }
+                Self::Custom {
+                    encoded: value.into(),
+                }
+            }
             _ => Self::Unknown { encoded },
         })
     }

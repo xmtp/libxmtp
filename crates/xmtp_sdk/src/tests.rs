@@ -1927,6 +1927,56 @@ async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
     client.end().await?;
 }
 
+// verifies: CTYPE-003, CTYPE-012
+#[xmtp_common::test(unwrap_try = true)]
+async fn reply_with_empty_nested_identifier_stays_unknown_on_all_read_paths() {
+    use xmtp_content_types::{
+        ContentCodec,
+        reply::{Reply, ReplyCodec},
+        text::TextCodec,
+    };
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent = group.send_text("parent".into()).await?;
+    for empty_authority in [true, false] {
+        let mut nested = TextCodec::encode("nested".into())?;
+        let kind = nested.r#type.as_mut().expect("typed text");
+        if empty_authority {
+            kind.authority_id.clear();
+        } else {
+            kind.type_id.clear();
+        }
+        let outer = ReplyCodec::encode(Reply {
+            reference: parent.0.clone(),
+            reference_inbox_id: Some(client.inbox_id().0.clone()),
+            content: nested,
+        })?;
+        let id = group.send(outer.into(), None).await?;
+        let stored = client.inner.message(hex::decode(&id.0)?)?;
+        let raw = stored.decrypted_message_bytes.clone();
+        let direct = crate::Message::from_stored(stored, client.client_key())?;
+        let by_id = client
+            .conversations()
+            .get_message_by_id(id.clone())
+            .await?
+            .expect("reply by ID");
+        let history = group
+            .messages(None)
+            .await?
+            .into_iter()
+            .find(|message| message.0.id == id)
+            .expect("reply in history");
+        for (path, message) in [("stored", direct), ("by ID", by_id), ("history", history)] {
+            assert!(
+                matches!(message.0.content, MessageContent::Unknown { raw_bytes, .. } if raw_bytes == raw),
+                "{path} did not preserve the outer reply bytes"
+            );
+        }
+    }
+    client.end().await?;
+}
+
 // verifies: CTYPE-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn sends_reject_empty_content_identifiers() {
