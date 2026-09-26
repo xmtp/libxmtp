@@ -551,15 +551,17 @@ fun main() =
         check(parent.replyCount == 1uL && parent.reactions.firstOrNull()?.id == reactionID)
         check(reply.inReplyTo?.id == parentID)
         val reactionMessage = checkNotNull(reopened.conversations().getMessageByID(reactionID))
-        val reactionContent = (reactionMessage.content as? SDKMessageContent.Standard)?.value as? MessageContent.Reaction
+        val reactionContent =
+            (reactionMessage.content as? SDKMessageContent.Standard)?.value as? MessageContent.Reaction
         check(
             reactionContent?.reference == parentID && reactionContent.referenceInboxID == inboxID &&
                 reactionContent.reaction.content == "👍",
         ) { "reaction content lost its target" }
         check(
-            reactionMessage != Message(
-                reactionMessage.data.copy(content = reactionContent.copy(reference = reactionID)),
-            ),
+            reactionMessage !=
+                Message(
+                    reactionMessage.data.copy(content = reactionContent.copy(reference = reactionID)),
+                ),
         ) { "reaction target did not affect message equality" }
         val changedEnvelope =
             Message(parent.data.copy(encoded = parent.encoded.copy(parameters = mapOf("key" to "different"))))
