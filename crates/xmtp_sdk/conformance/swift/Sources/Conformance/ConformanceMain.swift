@@ -61,6 +61,21 @@ final class OrderedLogSink: LogSink, @unchecked Sendable {
     }
 }
 
+struct SampleCodec: SDKContentCodec {
+    let type = ContentTypeID(authorityID: "example.org", typeID: "sample", versionMajor: 1, versionMinor: 0)
+    func encode(_ value: Any) throws -> EncodedContent {
+        guard let text = value as? String else { throw ConformanceFailure("custom value was not text") }
+        return EncodedContent(type: type, content: Data(text.utf8))
+    }
+
+    func decode(_ encoded: EncodedContent) throws -> Any {
+        guard let text = String(data: encoded.content, encoding: .utf8) else {
+            throw ConformanceFailure("custom content was not UTF-8")
+        }
+        return text
+    }
+}
+
 @main
 struct Conformance {
     static func main() async throws {
@@ -82,9 +97,12 @@ struct Conformance {
         let host = try await SDKClient.create(signer: signer, options: options)
         let client = host.raw
         let inboxID = client.inboxID()
-        let group = try await client.conversations().createGroup(members: [])
+        guard let storagePath = try await host.storage().path(),
+              FileManager.default.fileExists(atPath: storagePath)
+        else { throw ConformanceFailure("storage path does not name the database file") }
+        let group = try await client.conversations().createGroup(members: [], options: nil)
         let sentID = try await group.sendText(text: "conformance message")
-        let sent = try await group.messages().first { $0.id == sentID }
+        let sent = try await group.messages(options: nil).first { $0.id == sentID }
         precondition(sent != nil)
         let owningClient = try sent?.client()
         precondition(owningClient === host)
@@ -124,9 +142,9 @@ struct Conformance {
                 identity: await signer.identity(), options: options, inboxID: inboxID
             )
             weakHost = shortLived
-            let shortGroup = try await shortLived.raw.conversations().createGroup(members: [])
+            let shortGroup = try await shortLived.raw.conversations().createGroup(members: [], options: nil)
             let orphanID = try await shortGroup.sendText(text: "weak owner")
-            orphan = try await shortGroup.messages().first { $0.id == orphanID }
+            orphan = try await shortGroup.messages(options: nil).first { $0.id == orphanID }
         }
         precondition(weakHost == nil, "the registry kept the host client alive")
         do {
@@ -135,7 +153,7 @@ struct Conformance {
         } catch XmtpError.ClientClosed {}
         print("Swift scenario 2: create, reopen, end passed")
 
-        let reopenedGroup = try await reopened.conversations().createGroup(members: [])
+        let reopenedGroup = try await reopened.conversations().createGroup(members: [], options: nil)
         let reader = try await reopenedGroup.messageReader()
         let liveID = try await reopenedGroup.sendText(text: "durable stream")
         let first = try await reader.next()
@@ -158,7 +176,7 @@ struct Conformance {
         try await Task.sleep(for: .milliseconds(50))
         idle.cancel()
         _ = try? await idle.value
-        let protocolGroup = try await reopened.conversations().createGroup(members: [])
+        let protocolGroup = try await reopened.conversations().createGroup(members: [], options: nil)
         let firstID = try await protocolGroup.sendText(text: "ack on request")
         do {
             let protocolStream = try await reopenedHost.messages(in: protocolGroup)
@@ -319,6 +337,63 @@ struct Conformance {
         }
         try clearLogSink()
         print("Swift logging: inline records stayed in order")
+
+        let family = try await reopened.conversations().createGroup(
+            members: [], options: CreateGroupOptions(name: "family group")
+        )
+        guard try await family.state().name == "family group",
+              family.creatorInboxID() == inboxID,
+              try await reopened.conversations().listGroups(options: nil).contains(where: { $0.id() == family.id() })
+        else { throw ConformanceFailure("group options, immutable fields, or list failed") }
+        print("Swift scenario 4: group options, state, and list passed")
+
+        let parentID = try await family.sendText(text: "parent")
+        let reactionID = try await reopened.conversations().reactToMessage(
+            id: parentID, reaction: Reaction(content: "👍", action: .added, schema: .unicode), options: nil
+        )
+        let replyID = try await reopened.conversations().replyToMessage(
+            id: parentID, content: encodeText(text: "reply"), options: nil
+        )
+        guard case .text = try await reopened.decodeContent(encoded: encodeText(text: "decoded"))
+        else { throw ConformanceFailure("standard content did not decode") }
+        let familyMessages = try await family.messages(options: nil)
+        guard let parent = familyMessages.first(where: { $0.id == parentID }),
+              let reply = familyMessages.first(where: { $0.id == replyID }),
+              parent.replyCount == 1, parent.reactions.first?.id == reactionID,
+              reply.inReplyTo?.id == parentID
+        else { throw ConformanceFailure("message reaction or reply edge was not materialized") }
+        print("Swift scenario 5: message records, reaction, and reply passed")
+
+        let codec = SampleCodec()
+        let withCodec = try await SDKClient.build(
+            identity: await signer.identity(), options: options, inboxID: inboxID, codecs: [codec]
+        )
+        let withoutCodec = try await SDKClient.build(
+            identity: await signer.identity(), options: options, inboxID: inboxID
+        )
+        let customID = try await family.send(encoded: codec.encode("codec value"), options: nil)
+        guard let decoded = try await withCodec.raw.conversations().getMessageByID(id: customID),
+              let undecoded = try await withoutCodec.raw.conversations().getMessageByID(id: customID)
+        else { throw ConformanceFailure("custom message was not found") }
+        guard case let .custom(_, value, nil) = decoded.content, value as? String == "codec value",
+              case .unknown = undecoded.content
+        else { throw ConformanceFailure("custom codec leaked between clients") }
+        try await withCodec.end()
+        try await withoutCodec.end()
+        print("Swift scenario 6: custom codec stayed with its client")
+
+        let archive = try await reopened.archives().exportToBytes(keyBytes: Data(repeating: 7, count: 32), options: nil)
+        guard !archive.isEmpty,
+              try await reopened.archives().metadataFromBytes(data: archive, keyBytes: Data(repeating: 7, count: 32)).backupVersion == 0
+        else { throw ConformanceFailure("archive byte export or metadata failed") }
+        let archiveFolder = FileManager.default.temporaryDirectory.appendingPathComponent("xmtp-sdk-archive-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: archiveFolder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: archiveFolder) }
+        let archivePath = archiveFolder.appendingPathComponent("snapshot.xmtp").path
+        _ = try await reopened.archives().exportToFile(path: archivePath, keyBytes: Data(repeating: 7, count: 32), options: nil)
+        guard try await reopened.archives().metadataFromFile(path: archivePath, keyBytes: Data(repeating: 7, count: 32)).backupVersion == 0
+        else { throw ConformanceFailure("archive file export or metadata failed") }
+        print("Swift scenario 9: archive bytes and file passed")
 
         try await reopenedHost.end()
     }

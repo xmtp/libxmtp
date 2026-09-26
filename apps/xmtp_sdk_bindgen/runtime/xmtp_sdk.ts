@@ -13,14 +13,39 @@ export type MessageData = {
   id: MessageID;
   clientKey: bigint;
   conversationID: ConversationID;
+  topic: string;
   senderInboxID: InboxID;
   sentAt: Timestamp;
+  insertedAt: Timestamp;
+  expiresAt?: Timestamp;
   kind: string;
   deliveryStatus: string;
   contentType: object;
   fallback?: string;
-  content: object;
+  encoded: EncodedContent;
+  content: MessageContent;
+  replyCount: bigint;
+  reactions: object[];
+  inReplyTo?: { id: MessageID };
 };
+export type ContentTypeID = {
+  authorityID: string;
+  typeID: string;
+  versionMajor: number;
+  versionMinor: number;
+};
+export type EncodedContent = { type: ContentTypeID; content: ArrayBuffer };
+export enum MessageContent_Tags {
+  Text = "Text",
+  Custom = "Custom",
+  Unknown = "Unknown",
+}
+export type MessageContent = {
+  tag: MessageContent_Tags;
+  inner: { encoded: EncodedContent };
+};
+export type Reaction = object;
+export type SendOptions = object;
 
 export enum ErrorCategory {
   Lifecycle,
@@ -78,7 +103,23 @@ export type LogRecord = {
   timestampNs: bigint;
   droppedRecords: bigint;
 };
-export type ConversationsLike = object;
+export type ConversationsLike = {
+  getMessageByID(id: MessageID): Promise<Message | undefined>;
+  getByID(id: ConversationID): Promise<object | undefined>;
+  deleteMessage(id: MessageID): Promise<MessageID>;
+  deleteMessageLocally(id: MessageID): Promise<void>;
+  reactToMessage(
+    id: MessageID,
+    reaction: Reaction,
+    options?: SendOptions,
+  ): Promise<MessageID>;
+  replyToMessage(
+    id: MessageID,
+    content: EncodedContent,
+    options?: SendOptions,
+  ): Promise<MessageID>;
+};
+export declare function encodeText(text: string): EncodedContent;
 
 export declare function fetchServerConfiguration(
   options: BackendOptions,
@@ -130,7 +171,12 @@ export interface ClientLike {
   inboxID(): InboxID;
   installationID(): InstallationID;
   conversations(): ConversationsLike;
+  storage(): StorageLike;
   end(): Promise<void>;
+}
+
+export interface StorageLike {
+  path(): Promise<string | undefined>;
 }
 
 export declare const Client: {

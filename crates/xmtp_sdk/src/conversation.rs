@@ -1,41 +1,69 @@
 use std::future::Future;
 use std::sync::Arc;
-use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
+#[cfg(not(target_arch = "wasm32"))]
+use xmtp_common::StreamHandle;
+use xmtp_content_types::{
+    ContentCodec,
+    compression::compress_if_requested,
+    encoded_content_to_bytes,
+    reaction::ReactionCodec,
+    reply::{Reply, ReplyCodec},
+    text::TextCodec,
+};
+use xmtp_db::group::GroupQueryArgs;
 use xmtp_db::group_message::MsgQueryArgs;
+use xmtp_db::group_message::StoredGroupMessage;
+use xmtp_db::prelude::QueryDms;
+use xmtp_db::prelude::QueryGroup;
+use xmtp_db::prelude::QueryGroupMessage;
 use xmtp_mls::MlsContext;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
+use xmtp_mls::messages::decoded_message::{DecodedMessage, MessageBody as CoreMessageBody};
+use xmtp_mls::messages::enrichment::EnrichedStoredMessage;
+use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
+use xmtp_mls::mls_store::MlsStore;
+use xmtp_proto::types::{ConversationType, GroupId};
 
 use crate::{
-    ConversationID, InboxID, Message, MessageID, MessageReader, XmtpError, client::CoreClient,
+    ConsentState, ContentTypeId, ConversationHmacKeys, ConversationID, ConversationState,
+    CreateDmOptions, CreateGroupOptions, DisappearingSettings, EncodedContent, GroupState,
+    GroupSyncSummary, HmacKey, InboxID, LastReadTimeEntry, ListConversationsOptions,
+    ListMessagesOptions, Member, Message, MessageID, MessageReader, NotificationOverride,
+    PublicIdentity, Reaction, SendOptions, Timestamp, XmtpError, client::CoreClient,
 };
 
 // Native calls run on an owned task in every profile. This keeps SQLite work
 // off the JavaScript thread, gives nested MLS work a fresh executor stack, and
 // lets work finish if the FFI call is cancelled. On wasm32, cancellation drops
 // the work because the target has no blocking thread pool.
+// Swift's cooperative threads have small stacks. Callers box large work
+// futures before this helper, and this helper boxes the spawn future.
 #[cfg(not(target_arch = "wasm32"))]
-async fn on_sdk_worker<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
+const MAX_SDK_WORKER_FUTURE_BYTES: usize = 2 * 1024;
+
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) async fn on_sdk_worker<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
 where
     T: Send + 'static,
     F: Future<Output = Result<T, XmtpError>> + Send + 'static,
 {
-    tokio::spawn(while_open(context, work))
+    const { assert!(std::mem::size_of::<F>() <= MAX_SDK_WORKER_FUTURE_BYTES) };
+    xmtp_common::spawn(None, Box::pin(while_open(context, work)))
+        .join()
         .await
         .map_err(XmtpError::unknown)?
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn on_sdk_worker<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
+pub(crate) async fn on_sdk_worker<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
 where
     F: Future<Output = Result<T, XmtpError>>,
 {
     while_open(context, work).await
 }
 
-// `end()` can start while the task waits to run, so check the closed state in
-// the task. `end()` only cancels a token: work that passes this check can still
-// finish after `end()` starts. A failure after that point is `ClientClosed`.
+// Check the closed state in the task because end() can run before it starts.
 async fn while_open<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
 where
     F: Future<Output = Result<T, XmtpError>>,
@@ -52,28 +80,496 @@ where
     })
 }
 
+fn deletion_group(
+    group: MlsGroup<MlsContext>,
+    stored: &StoredGroupMessage,
+) -> Result<MlsGroup<MlsContext>, XmtpError> {
+    if group.conversation_type == ConversationType::Dm
+        && stored.sender_inbox_id != group.context.inbox_id()
+    {
+        return Err(XmtpError::conversation_permission_denied(
+            "not your message",
+        ));
+    }
+    if stored.group_id == group.group_id {
+        return Ok(group);
+    }
+    let stitched = group
+        .context
+        .db()
+        .fetch_stitched(&stored.group_id)
+        .map_err(XmtpError::unknown)?;
+    if stitched.is_none_or(|winner| winner.id != group.group_id) {
+        return Err(XmtpError::conversation_permission_denied(
+            "message belongs to another conversation",
+        ));
+    }
+    MlsStore::new(group.context.clone())
+        .group(&stored.group_id)
+        .map_err(XmtpError::unknown)
+}
+
 #[derive(uniffi::Object)]
 pub struct Conversations {
     pub(crate) client: Arc<CoreClient>,
     pub(crate) client_key: u64,
 }
 
+#[derive(Clone, uniffi::Enum)]
+pub enum Conversation {
+    Group { group: Arc<Group> },
+    Dm { dm: Arc<Dm> },
+}
+
+impl Conversation {
+    async fn from_core(
+        group: MlsGroup<xmtp_mls::MlsContext>,
+        client_key: u64,
+    ) -> Result<Option<Self>, XmtpError> {
+        Ok(match group.conversation_type {
+            ConversationType::Group => Some(Self::Group {
+                group: Arc::new(Group::from_core(group, client_key).await?),
+            }),
+            ConversationType::Dm => Some(Self::Dm {
+                dm: Arc::new(Dm::from_core(group, client_key).await?),
+            }),
+            ConversationType::Sync | ConversationType::Oneshot => None,
+        })
+    }
+
+    fn from_preloaded(
+        group: MlsGroup<MlsContext>,
+        client_key: u64,
+        identity: ConversationIdentity,
+        metadata: xmtp_mls::mls_common::group_metadata::GroupMetadata,
+    ) -> Result<Option<Self>, XmtpError> {
+        Ok(match group.conversation_type {
+            ConversationType::Group => Some(Self::Group {
+                group: Arc::new(Group {
+                    inner: group,
+                    client_key,
+                    identity,
+                    #[cfg(test)]
+                    state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
+                    #[cfg(test)]
+                    history_query_count: Arc::new(parking_lot::Mutex::new(0)),
+                }),
+            }),
+            ConversationType::Dm => Some(Self::Dm {
+                dm: Arc::new(Dm::from_metadata(group, client_key, identity, metadata)?),
+            }),
+            ConversationType::Sync | ConversationType::Oneshot => None,
+        })
+    }
+}
+
+pub(crate) async fn list_local(
+    client: Arc<crate::client::CoreClient>,
+    client_key: u64,
+    args: GroupQueryArgs,
+) -> Result<Vec<Conversation>, XmtpError> {
+    use xmtp_mls::mls_common::app_data::component_source::read_group_metadata_from_extensions;
+    use xmtp_mls::mls_common::group_metadata::GroupMetadata;
+    use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1;
+
+    let items = client
+        .list_conversations(args)
+        .map_err(XmtpError::unknown)?;
+    let ids = items
+        .iter()
+        .map(|item| item.group.group_id)
+        .collect::<Vec<_>>();
+    let contexts = client
+        .context
+        .mls_storage()
+        .read_group_contexts(&ids)
+        .map_err(XmtpError::unknown)?;
+    let mut result = Vec::with_capacity(items.len());
+    for item in items {
+        let context = contexts
+            .get(&item.group.group_id)
+            .ok_or_else(|| XmtpError::unknown("conversation group context is missing"))?;
+        let seed = read_group_metadata_from_extensions(context.extensions())
+            .map_err(XmtpError::unknown)?
+            .ok_or_else(|| XmtpError::unknown("conversation metadata is missing"))?;
+        let metadata = GroupMetadata::try_from(GroupMetadataV1 {
+            conversation_type: seed.conversation_type,
+            creator_inbox_id: seed.creator_inbox_id,
+            creator_account_address: String::new(),
+            dm_members: seed.dm_members,
+            oneshot_message: seed.oneshot,
+        })
+        .map_err(XmtpError::unknown)?;
+        let identity = ConversationIdentity::from_metadata(
+            item.added_by_inbox_id,
+            &metadata,
+            client.inbox_id(),
+        )?;
+        if let Some(conversation) =
+            Conversation::from_preloaded(item.group, client_key, identity, metadata)?
+        {
+            result.push(conversation);
+        }
+    }
+    Ok(result)
+}
+
 #[xmtp_macro::sdk_export]
 impl Conversations {
-    pub async fn create_group(&self, members: Vec<InboxID>) -> Result<Arc<Group>, XmtpError> {
-        let members: Vec<String> = members.into_iter().map(|member| member.0).collect();
+    pub async fn create_group_optimistic(
+        &self,
+        options: Option<CreateGroupOptions>,
+    ) -> Result<Arc<Group>, XmtpError> {
+        let (permissions, metadata) = options.unwrap_or_default().into_core()?;
         let client = self.client.clone();
-        let group = on_sdk_worker(self.client.context.clone(), async move {
-            client
-                .create_group_with_members(&members, None, None)
-                .await
-                .map_err(XmtpError::unknown)
+        let client_key = self.client_key;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let group = client
+                .create_group(permissions, Some(metadata))
+                .map_err(XmtpError::unknown)?;
+            Ok(Arc::new(Group::from_core(group, client_key).await?))
         })
-        .await?;
-        Ok(Arc::new(Group {
-            inner: group,
-            client_key: self.client_key,
-        }))
+        .await
+    }
+
+    pub async fn get_dm_by_inbox_id(&self, peer: InboxID) -> Result<Option<Arc<Dm>>, XmtpError> {
+        let client = self.client.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let members = xmtp_mls::mls_common::group_metadata::DmMembers {
+                member_one_inbox_id: client.inbox_id(),
+                member_two_inbox_id: peer.0.as_str(),
+            };
+            let Some(stored) = client
+                .context
+                .db()
+                .find_active_dm_group(&members)
+                .map_err(XmtpError::unknown)?
+            else {
+                return Ok(None);
+            };
+            let group = client.group(&stored.id).map_err(XmtpError::unknown)?;
+            Ok(Some(Arc::new(Dm::from_core(group, client_key).await?)))
+        })
+        .await
+    }
+
+    pub async fn get_dm_by_identity(
+        &self,
+        identity: PublicIdentity,
+    ) -> Result<Option<Arc<Dm>>, XmtpError> {
+        let client = self.client.clone();
+        let identifier = identity.to_core()?;
+        let client_key = self.client_key;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let Some(peer) = client
+                .find_inbox_id_from_identifier(&client.context.db(), identifier)
+                .await
+                .map_err(XmtpError::from_client)?
+            else {
+                return Ok(None);
+            };
+            let members = xmtp_mls::mls_common::group_metadata::DmMembers {
+                member_one_inbox_id: client.inbox_id(),
+                member_two_inbox_id: peer.as_str(),
+            };
+            let Some(stored) = client
+                .context
+                .db()
+                .find_active_dm_group(&members)
+                .map_err(XmtpError::unknown)?
+            else {
+                return Ok(None);
+            };
+            let group = client.group(&stored.id).map_err(XmtpError::unknown)?;
+            Ok(Some(Arc::new(Dm::from_core(group, client_key).await?)))
+        })
+        .await
+    }
+
+    pub async fn create_group(
+        &self,
+        members: Vec<InboxID>,
+        options: Option<CreateGroupOptions>,
+    ) -> Result<Arc<Group>, XmtpError> {
+        let members: Vec<String> = members.into_iter().map(|member| member.0).collect();
+        let (permissions, metadata) = options.unwrap_or_default().into_core()?;
+        let client = self.client.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                let group = client
+                    .create_group_with_members(&members, permissions, Some(metadata))
+                    .await
+                    .map_err(XmtpError::unknown)?;
+                Ok(Arc::new(Group::from_core(group, client_key).await?))
+            }),
+        )
+        .await
+    }
+
+    pub async fn create_dm(
+        &self,
+        peer: InboxID,
+        options: Option<CreateDmOptions>,
+    ) -> Result<Arc<Dm>, XmtpError> {
+        let client = self.client.clone();
+        let metadata = options.unwrap_or_default().into();
+        let client_key = self.client_key;
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                let group = client
+                    .find_or_create_dm(peer.0, Some(metadata))
+                    .await
+                    .map_err(XmtpError::unknown)?;
+                Ok(Arc::new(Dm::from_core(group, client_key).await?))
+            }),
+        )
+        .await
+    }
+
+    pub async fn get_by_id(&self, id: ConversationID) -> Result<Option<Conversation>, XmtpError> {
+        let client = self.client.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let id: GroupId = id.try_into()?;
+            if client
+                .context
+                .db()
+                .find_group(&id)
+                .map_err(XmtpError::unknown)?
+                .is_none()
+            {
+                return Ok(None);
+            }
+            let group = client.stitched_group(&id).map_err(XmtpError::unknown)?;
+            Conversation::from_core(group, client_key).await
+        })
+        .await
+    }
+
+    pub async fn list(
+        &self,
+        options: Option<ListConversationsOptions>,
+    ) -> Result<Vec<Conversation>, XmtpError> {
+        let client = self.client.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let args: GroupQueryArgs = options.unwrap_or_default().into();
+            list_local(client, client_key, args).await
+        })
+        .await
+    }
+
+    pub async fn list_groups(
+        &self,
+        options: Option<ListConversationsOptions>,
+    ) -> Result<Vec<Arc<Group>>, XmtpError> {
+        let mut options = options.unwrap_or_default();
+        options.kind = Some(crate::ConversationKind::Group);
+        Ok(self
+            .list(Some(options))
+            .await?
+            .into_iter()
+            .filter_map(|item| match item {
+                Conversation::Group { group } => Some(group),
+                Conversation::Dm { .. } => None,
+            })
+            .collect())
+    }
+
+    pub async fn list_dms(
+        &self,
+        options: Option<ListConversationsOptions>,
+    ) -> Result<Vec<Arc<Dm>>, XmtpError> {
+        let mut options = options.unwrap_or_default();
+        options.kind = Some(crate::ConversationKind::Dm);
+        Ok(self
+            .list(Some(options))
+            .await?
+            .into_iter()
+            .filter_map(|item| match item {
+                Conversation::Dm { dm } => Some(dm),
+                Conversation::Group { .. } => None,
+            })
+            .collect())
+    }
+
+    pub async fn get_message_by_id(&self, id: MessageID) -> Result<Option<Message>, XmtpError> {
+        let client = self.client.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
+            let Some((stored, group)) = client
+                .message_with_group(&bytes)
+                .await
+                .map_err(XmtpError::unknown)?
+            else {
+                return Ok(None);
+            };
+            let enriched = xmtp_mls::messages::enrichment::enrich_messages(
+                group.context.db(),
+                &stored.group_id,
+                vec![stored.clone()],
+            )
+            .map_err(XmtpError::unknown)?;
+            if let Some(value) = enriched.into_iter().next() {
+                let parent = parent_stored(&group, &value)?;
+                Ok(Some(Message::from_enriched(
+                    stored, value, parent, client_key,
+                )?))
+            } else {
+                Ok(Some(Message::from_stored(stored, client_key)?))
+            }
+        })
+        .await
+    }
+
+    pub async fn delete_message_locally(&self, id: MessageID) -> Result<(), XmtpError> {
+        let client = self.client.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            client
+                .delete_message(hex::decode(id.0).map_err(XmtpError::unknown)?)
+                .map_err(XmtpError::unknown)?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn delete_message(&self, id: MessageID) -> Result<MessageID, XmtpError> {
+        let (stored, group) = self.message_group(&id).await?;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let group = deletion_group(group, &stored)?;
+            let deletion_id = group
+                .delete_message(stored.id)
+                .map_err(XmtpError::unknown)?;
+            MessageID::from_bytes(&deletion_id)
+        })
+        .await
+    }
+
+    pub async fn react_to_message(
+        &self,
+        id: MessageID,
+        reaction: Reaction,
+        options: Option<SendOptions>,
+    ) -> Result<MessageID, XmtpError> {
+        let (stored, group) = self.message_group(&id).await?;
+        on_sdk_worker(self.client.context.clone(), async move {
+            Box::pin(async move {
+                let content = ReactionCodec::encode(
+                    reaction.into_proto(id, InboxID::try_from(stored.sender_inbox_id)?),
+                )
+                .map_err(XmtpError::unknown)?;
+                send_encoded(group, content.into(), options.unwrap_or_default()).await
+            })
+            .await
+        })
+        .await
+    }
+
+    pub async fn reply_to_message(
+        &self,
+        id: MessageID,
+        content: EncodedContent,
+        options: Option<SendOptions>,
+    ) -> Result<MessageID, XmtpError> {
+        require_content_type(&content)?;
+        let (stored, group) = self.message_group(&id).await?;
+        on_sdk_worker(self.client.context.clone(), async move {
+            Box::pin(async move {
+                let reply = Reply {
+                    reference: id.0,
+                    reference_inbox_id: Some(stored.sender_inbox_id),
+                    content: content.into(),
+                };
+                let encoded = ReplyCodec::encode(reply).map_err(XmtpError::unknown)?;
+                send_encoded(group, encoded.into(), options.unwrap_or_default()).await
+            })
+            .await
+        })
+        .await
+    }
+
+    pub async fn sync(&self) -> Result<(), XmtpError> {
+        let client = self.client.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            client.sync_welcomes().await.map_err(XmtpError::unknown)?;
+            Ok(())
+        })
+        .await
+    }
+
+    pub async fn sync_all(
+        &self,
+        consent_states: Option<Vec<ConsentState>>,
+    ) -> Result<GroupSyncSummary, XmtpError> {
+        let client = self.client.clone();
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                client
+                    .sync_all_welcomes_and_groups(
+                        consent_states.map(|states| states.into_iter().map(Into::into).collect()),
+                    )
+                    .await
+                    .map(Into::into)
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+
+    pub async fn hmac_keys(&self) -> Result<Vec<ConversationHmacKeys>, XmtpError> {
+        let client = self.client.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            let mut groups = client
+                .find_groups(GroupQueryArgs {
+                    include_duplicate_dms: true,
+                    ..Default::default()
+                })
+                .map_err(XmtpError::unknown)?;
+            let mut entries = Vec::with_capacity(groups.len());
+            for group in groups.drain(..) {
+                entries.push(ConversationHmacKeys {
+                    conversation_id: group.group_id.into(),
+                    keys: group
+                        .hmac_keys(-1..=1)
+                        .map_err(XmtpError::unknown)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect(),
+                });
+            }
+            Ok(entries)
+        })
+        .await
+    }
+}
+
+impl Conversations {
+    async fn message_group(
+        &self,
+        id: &MessageID,
+    ) -> Result<
+        (
+            xmtp_db::group_message::StoredGroupMessage,
+            MlsGroup<xmtp_mls::MlsContext>,
+        ),
+        XmtpError,
+    > {
+        let client = self.client.clone();
+        let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
+        on_sdk_worker(self.client.context.clone(), async move {
+            client
+                .message_with_group(&bytes)
+                .await
+                .map_err(XmtpError::unknown)?
+                .ok_or_else(|| XmtpError::invalid("message not found"))
+        })
+        .await
     }
 }
 
@@ -81,17 +577,16 @@ impl Conversations {
 #[xmtp_macro::sdk_export]
 impl Conversations {
     /// Open a group already stored in this client's database for the benchmark.
-    pub fn get_group(&self, id: ConversationID) -> Result<Arc<Group>, XmtpError> {
-        if self.client.context.is_closed() {
-            return Err(XmtpError::closed());
-        }
+    pub async fn get_group(&self, id: ConversationID) -> Result<Arc<Group>, XmtpError> {
         let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
         let group_id = xmtp_proto::types::GroupId::try_from(bytes).map_err(XmtpError::unknown)?;
-        let group = self.client.group(&group_id).map_err(XmtpError::unknown)?;
-        Ok(Arc::new(Group {
-            inner: group,
-            client_key: self.client_key,
-        }))
+        let client = self.client.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(self.client.context.clone(), async move {
+            let group = client.group(&group_id).map_err(XmtpError::unknown)?;
+            Ok(Arc::new(Group::from_core(group, client_key).await?))
+        })
+        .await
     }
 }
 
@@ -99,54 +594,913 @@ impl Conversations {
 pub struct Group {
     pub(crate) inner: MlsGroup<xmtp_mls::MlsContext>,
     pub(crate) client_key: u64,
+    identity: ConversationIdentity,
+    #[cfg(test)]
+    pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
+    #[cfg(test)]
+    pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
 }
+
+#[derive(uniffi::Object)]
+pub struct Dm {
+    pub(crate) inner: MlsGroup<xmtp_mls::MlsContext>,
+    pub(crate) client_key: u64,
+    identity: ConversationIdentity,
+    peer_inbox_id: InboxID,
+    #[cfg(test)]
+    pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
+    #[cfg(test)]
+    pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
+}
+
+struct ConversationIdentity {
+    added_by_inbox_id: InboxID,
+    creator_inbox_id: InboxID,
+    is_creator: bool,
+}
+
+impl ConversationIdentity {
+    fn from_metadata(
+        added_by_inbox_id: String,
+        metadata: &xmtp_mls::mls_common::group_metadata::GroupMetadata,
+        own_inbox_id: &str,
+    ) -> Result<Self, XmtpError> {
+        Ok(Self {
+            added_by_inbox_id: InboxID::try_from(added_by_inbox_id)?,
+            creator_inbox_id: InboxID::try_from(metadata.creator_inbox_id.clone())?,
+            is_creator: metadata.creator_inbox_id == own_inbox_id,
+        })
+    }
+
+    async fn from_core(
+        group: &MlsGroup<xmtp_mls::MlsContext>,
+    ) -> Result<(Self, xmtp_mls::mls_common::group_metadata::GroupMetadata), XmtpError> {
+        let added_by_inbox_id =
+            InboxID::try_from(group.added_by_inbox_id().map_err(XmtpError::unknown)?)?;
+        let metadata = group.metadata().await.map_err(XmtpError::unknown)?;
+        Ok((
+            Self::from_metadata(added_by_inbox_id.0, &metadata, group.context.inbox_id())?,
+            metadata,
+        ))
+    }
+}
+
+impl Group {
+    pub(crate) async fn from_core(
+        inner: MlsGroup<xmtp_mls::MlsContext>,
+        client_key: u64,
+    ) -> Result<Self, XmtpError> {
+        let (identity, _) = ConversationIdentity::from_core(&inner).await?;
+        Ok(Self {
+            inner,
+            client_key,
+            identity,
+            #[cfg(test)]
+            state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
+            #[cfg(test)]
+            history_query_count: Arc::new(parking_lot::Mutex::new(0)),
+        })
+    }
+}
+
+impl Dm {
+    fn from_metadata(
+        inner: MlsGroup<xmtp_mls::MlsContext>,
+        client_key: u64,
+        identity: ConversationIdentity,
+        metadata: xmtp_mls::mls_common::group_metadata::GroupMetadata,
+    ) -> Result<Self, XmtpError> {
+        let members = metadata
+            .dm_members
+            .ok_or_else(|| XmtpError::invalid("DM has no peer metadata"))?;
+        let peer = if members.member_one_inbox_id == inner.context.inbox_id() {
+            members.member_two_inbox_id
+        } else {
+            members.member_one_inbox_id
+        };
+        let peer_inbox_id = InboxID::try_from(peer.to_string())?;
+        Ok(Self {
+            inner,
+            client_key,
+            identity,
+            peer_inbox_id,
+            #[cfg(test)]
+            state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
+            #[cfg(test)]
+            history_query_count: Arc::new(parking_lot::Mutex::new(0)),
+        })
+    }
+
+    async fn from_core(
+        inner: MlsGroup<xmtp_mls::MlsContext>,
+        client_key: u64,
+    ) -> Result<Self, XmtpError> {
+        let (identity, metadata) = ConversationIdentity::from_core(&inner).await?;
+        Self::from_metadata(inner, client_key, identity, metadata)
+    }
+}
+
+fn catalogue_push_default(content_type: &ContentTypeId) -> bool {
+    !matches!(
+        (
+            content_type.authority_id.as_str(),
+            content_type.type_id.as_str(),
+            content_type.version_major,
+        ),
+        ("xmtp.org", "reaction", 2)
+            | ("xmtp.org", "readReceipt", 1)
+            | ("xmtp.org", "group_updated", 1)
+            | ("xmtp.org", "group_membership_change", 1)
+            | ("xmtp.org", "leave_request", 1)
+            | ("xmtp.org", "deleteMessage", 1)
+            | ("xmtp.org", "editMessage", 1)
+    )
+}
+
+#[cfg(test)]
+mod push_default_tests {
+    use super::*;
+    use xmtp_content_types::ContentCodec;
+
+    // verifies: CTYPE-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn catalogue_push_defaults_match_standard_codecs() {
+        use xmtp_content_types::{
+            actions::ActionsCodec, attachment::AttachmentCodec, delete_message::DeleteMessageCodec,
+            group_updated::GroupUpdatedCodec, intent::IntentCodec,
+            leave_request::LeaveRequestCodec, markdown::MarkdownCodec,
+            membership_change::GroupMembershipChangeCodec,
+            multi_remote_attachment::MultiRemoteAttachmentCodec, reaction::ReactionCodec,
+            read_receipt::ReadReceiptCodec, remote_attachment::RemoteAttachmentCodec,
+            reply::ReplyCodec, text::TextCodec, transaction_reference::TransactionReferenceCodec,
+            wallet_send_calls::WalletSendCallsCodec,
+        };
+
+        macro_rules! check_codec {
+            ($codec:ty) => {{
+                let codec_type = <$codec>::content_type();
+                let content_type = ContentTypeId {
+                    authority_id: codec_type.authority_id,
+                    type_id: codec_type.type_id,
+                    version_major: codec_type.version_major,
+                    version_minor: codec_type.version_minor,
+                };
+                assert_eq!(
+                    catalogue_push_default(&content_type),
+                    <$codec>::should_push(),
+                    "push default differs for {:?}",
+                    content_type
+                );
+            }};
+        }
+        check_codec!(TextCodec);
+        check_codec!(MarkdownCodec);
+        check_codec!(ReadReceiptCodec);
+        check_codec!(ReactionCodec);
+        check_codec!(AttachmentCodec);
+        check_codec!(RemoteAttachmentCodec);
+        check_codec!(MultiRemoteAttachmentCodec);
+        check_codec!(TransactionReferenceCodec);
+        check_codec!(WalletSendCallsCodec);
+        check_codec!(ActionsCodec);
+        check_codec!(IntentCodec);
+        check_codec!(ReplyCodec);
+        check_codec!(GroupUpdatedCodec);
+        check_codec!(DeleteMessageCodec);
+        check_codec!(LeaveRequestCodec);
+        check_codec!(GroupMembershipChangeCodec);
+        assert!(!catalogue_push_default(&ContentTypeId {
+            authority_id: "xmtp.org".into(),
+            type_id: "editMessage".into(),
+            version_major: 1,
+            version_minor: 0,
+        }));
+    }
+}
+
+async fn send_encoded(
+    group: MlsGroup<xmtp_mls::MlsContext>,
+    content: EncodedContent,
+    options: SendOptions,
+) -> Result<MessageID, XmtpError> {
+    require_content_type(&content)?;
+    on_sdk_worker(group.context.clone(), async move {
+        // Build the send future on the worker. Swift cooperative threads have
+        // a small stack and cannot hold this nested MLS future before spawn.
+        Box::pin(async move {
+            // implements: CTYPE-010
+            let should_push = options
+                .should_push
+                .unwrap_or_else(|| catalogue_push_default(&content.r#type));
+            let content =
+                compress_if_requested(content.into(), options.compression.map(Into::into))
+                    .map_err(XmtpError::unknown)?;
+            let bytes = encoded_content_to_bytes(content);
+            let opts = SendMessageOpts {
+                should_push,
+                idempotency_key: options.idempotency_key,
+            };
+            let id = if options.optimistic {
+                group
+                    .send_message_optimistic(&bytes, opts)
+                    .map_err(XmtpError::unknown)?
+            } else {
+                group
+                    .send_message(&bytes, opts)
+                    .await
+                    .map_err(XmtpError::unknown)?
+            };
+            MessageID::from_bytes(&id)
+        })
+        .await
+    })
+    .await
+}
+
+fn require_content_type(content: &EncodedContent) -> Result<(), XmtpError> {
+    if content.r#type.authority_id.is_empty() || content.r#type.type_id.is_empty() {
+        return Err(XmtpError::invalid("content type identifier is empty"));
+    }
+    Ok(())
+}
+
+fn parent_stored(
+    group: &MlsGroup<xmtp_mls::MlsContext>,
+    message: &DecodedMessage,
+) -> Result<Option<StoredGroupMessage>, XmtpError> {
+    let CoreMessageBody::Reply(reply) = &message.content else {
+        return Ok(None);
+    };
+    let Some(parent) = &reply.in_reply_to else {
+        return Ok(None);
+    };
+    group
+        .context
+        .db()
+        .get_group_message(&parent.metadata.id)
+        .map_err(XmtpError::unknown)
+}
+
+pub(crate) fn lift_history_messages(
+    enriched: Vec<EnrichedStoredMessage>,
+    client_key: u64,
+) -> Vec<Message> {
+    enriched
+        .into_iter()
+        .filter_map(|enriched| {
+            let message_id = enriched.stored.id.clone();
+            match Message::from_enriched(
+                enriched.stored,
+                enriched.decoded,
+                enriched.parent_stored,
+                client_key,
+            ) {
+                Ok(message) => Some(message),
+                Err(err) => {
+                    tracing::warn!(
+                        message_id = %hex::encode(&message_id),
+                        error = %err,
+                        "skipping stored message that failed to convert"
+                    );
+                    None
+                }
+            }
+        })
+        .collect()
+}
+
+pub(crate) fn query_content_types(
+    values: Vec<ContentTypeId>,
+) -> Result<Vec<xmtp_db::group_message::ContentType>, XmtpError> {
+    Ok(values
+        .into_iter()
+        .map(|value| {
+            xmtp_db::group_message::ContentType::from_identifier(
+                &value.authority_id,
+                &value.type_id,
+                value.version_major,
+            )
+        })
+        .collect())
+}
+
+// One block defines the shared Group and Dm methods.
+macro_rules! common_conversation {
+    ($name:ident, $state:ty, $map:expr) => {
+        #[xmtp_macro::sdk_export]
+        impl $name {
+            pub fn id(&self) -> ConversationID {
+                self.inner.group_id.into()
+            }
+
+            pub fn created_at(&self) -> Timestamp {
+                Timestamp(self.inner.created_at_ns)
+            }
+
+            pub fn topic(&self) -> String {
+                xmtp_proto::types::Topic::new_group_message(self.inner.group_id).to_string()
+            }
+
+            pub fn kind(&self) -> crate::ConversationKind {
+                match self.inner.conversation_type {
+                    ConversationType::Dm => crate::ConversationKind::Dm,
+                    _ => crate::ConversationKind::Group,
+                }
+            }
+
+            pub fn added_by_inbox_id(&self) -> InboxID {
+                self.identity.added_by_inbox_id.clone()
+            }
+
+            pub fn creator_inbox_id(&self) -> InboxID {
+                self.identity.creator_inbox_id.clone()
+            }
+
+            pub fn is_creator(&self) -> bool {
+                self.identity.is_creator
+            }
+
+            pub async fn state(&self) -> Result<$state, XmtpError> {
+                let group = self.inner.clone();
+                #[cfg(test)]
+                let counts = self.state_counts.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    #[cfg(test)]
+                    {
+                        let ((state, key_reads), queries, writes) =
+                            xmtp_db::count_sql_queries(|| {
+                                xmtp_db::sql_key_store::count_kv_reads(|| {
+                                    let snapshot =
+                                        group.state_snapshot().map_err(XmtpError::unknown)?;
+                                    ($map)(snapshot)
+                                })
+                            });
+                        *counts.lock() = (queries.saturating_sub(key_reads), key_reads, writes);
+                        return state;
+                    }
+                    #[cfg(not(test))]
+                    {
+                        let snapshot = group.state_snapshot().map_err(XmtpError::unknown)?;
+                        ($map)(snapshot)
+                    }
+                })
+                .await
+            }
+
+            pub async fn last_activity_at_ns(
+                &self,
+                content_types: Option<Vec<ContentTypeId>>,
+            ) -> Result<Timestamp, XmtpError> {
+                let types = content_types.map(query_content_types).transpose()?;
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    group
+                        .last_activity_ns(types.as_deref())
+                        .map(Timestamp)
+                        .map_err(XmtpError::unknown)
+                })
+                .await
+            }
+
+            pub async fn update_consent_state(&self, state: ConsentState) -> Result<(), XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    group
+                        .update_consent_state(state.into())
+                        .map_err(XmtpError::unknown)
+                })
+                .await
+            }
+
+            pub async fn sync(&self) -> Result<(), XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    Box::pin(async move {
+                        group.sync().await.map_err(XmtpError::unknown)?;
+                        Ok(())
+                    }),
+                )
+                .await
+            }
+
+            pub async fn members(&self) -> Result<Vec<Member>, XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    group
+                        .members()
+                        .await
+                        .map_err(XmtpError::unknown)?
+                        .into_iter()
+                        .map(Member::try_from)
+                        .collect()
+                })
+                .await
+            }
+
+            pub async fn debug_info(&self) -> Result<crate::ConversationDebugInfo, XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    group
+                        .debug_info()
+                        .await
+                        .map(Into::into)
+                        .map_err(XmtpError::unknown)
+                })
+                .await
+            }
+
+            pub async fn hmac_keys(&self) -> Result<Vec<HmacKey>, XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    Ok(group
+                        .hmac_keys(-1..=1)
+                        .map_err(XmtpError::unknown)?
+                        .into_iter()
+                        .map(Into::into)
+                        .collect())
+                })
+                .await
+            }
+
+            pub async fn last_read_times(&self) -> Result<Vec<LastReadTimeEntry>, XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    group
+                        .get_last_read_times()
+                        .map_err(XmtpError::unknown)?
+                        .into_iter()
+                        .map(|(inbox_id, ns)| {
+                            Ok(LastReadTimeEntry {
+                                inbox_id: InboxID::try_from(inbox_id)?,
+                                read_at: Timestamp(ns),
+                            })
+                        })
+                        .collect()
+                })
+                .await
+            }
+
+            pub async fn update_disappearing_settings(
+                &self,
+                settings: Option<DisappearingSettings>,
+            ) -> Result<(), XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    Box::pin(async move {
+                        match settings {
+                            Some(settings) => {
+                                group
+                                    .update_conversation_message_disappearing_settings(
+                                        settings.into(),
+                                    )
+                                    .await
+                            }
+                            None => {
+                                group
+                                    .remove_conversation_message_disappearing_settings()
+                                    .await
+                            }
+                        }
+                        .map_err(XmtpError::unknown)
+                    }),
+                )
+                .await
+            }
+
+            pub async fn set_notifications(
+                &self,
+                value: NotificationOverride,
+            ) -> Result<(), XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    group
+                        .set_notifications(value.into())
+                        .map_err(XmtpError::unknown)
+                })
+                .await
+            }
+
+            pub async fn publish_messages(&self) -> Result<(), XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    Box::pin(
+                        async move { group.publish_messages().await.map_err(XmtpError::unknown) },
+                    ),
+                )
+                .await
+            }
+
+            pub async fn publish_message(&self, id: MessageID) -> Result<(), XmtpError> {
+                let group = self.inner.clone();
+                let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
+                on_sdk_worker(
+                    self.inner.context.clone(),
+                    Box::pin(async move {
+                        group
+                            .publish_stored_message(&bytes)
+                            .await
+                            .map_err(XmtpError::unknown)
+                    }),
+                )
+                .await
+            }
+
+            pub async fn prepare_message(
+                &self,
+                encoded: EncodedContent,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                let mut options = options.unwrap_or_default();
+                options.optimistic = true;
+                send_encoded(self.inner.clone(), encoded, options).await
+            }
+
+            pub async fn send(
+                &self,
+                encoded: EncodedContent,
+                options: Option<SendOptions>,
+            ) -> Result<MessageID, XmtpError> {
+                send_encoded(self.inner.clone(), encoded, options.unwrap_or_default()).await
+            }
+
+            pub async fn send_text(&self, text: String) -> Result<MessageID, XmtpError> {
+                let content = TextCodec::encode(text).map_err(XmtpError::unknown)?;
+                send_encoded(self.inner.clone(), content.into(), SendOptions::default()).await
+            }
+
+            pub async fn messages(
+                &self,
+                options: Option<ListMessagesOptions>,
+            ) -> Result<Vec<Message>, XmtpError> {
+                let query: MsgQueryArgs = options.unwrap_or_default().try_into()?;
+                let group = self.inner.clone();
+                let client_key = self.client_key;
+                #[cfg(test)]
+                let history_query_count = self.history_query_count.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    let load = || -> Result<Vec<Message>, XmtpError> {
+                        let enriched = group
+                            .find_messages_v2_with_stored(&query)
+                            .map_err(XmtpError::unknown)?;
+                        Ok(lift_history_messages(enriched, client_key))
+                    };
+                    #[cfg(test)]
+                    {
+                        let (messages, queries, _) = xmtp_db::count_sql_queries(load);
+                        *history_query_count.lock() = queries;
+                        messages
+                    }
+                    #[cfg(not(test))]
+                    {
+                        load()
+                    }
+                })
+                .await
+            }
+
+            pub async fn count_messages(
+                &self,
+                options: Option<ListMessagesOptions>,
+            ) -> Result<u64, XmtpError> {
+                let query: MsgQueryArgs = options.unwrap_or_default().try_into()?;
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    group
+                        .count_messages(&query)
+                        .map(|count| count as u64)
+                        .map_err(XmtpError::unknown)
+                })
+                .await
+            }
+
+            pub async fn last_message(&self) -> Result<Option<Message>, XmtpError> {
+                Ok(self
+                    .messages(Some(ListMessagesOptions {
+                        limit: Some(1),
+                        direction: Some(crate::MessageOrder::Descending),
+                        ..Default::default()
+                    }))
+                    .await?
+                    .into_iter()
+                    .next())
+            }
+
+            pub async fn delete_message(&self, id: MessageID) -> Result<MessageID, XmtpError> {
+                let group = self.inner.clone();
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
+                    let stored = group
+                        .context
+                        .db()
+                        .get_group_message(&bytes)
+                        .map_err(XmtpError::unknown)?
+                        .ok_or_else(|| XmtpError::invalid("message not found"))?;
+                    let group = deletion_group(group, &stored)?;
+                    let deletion_id = group.delete_message(bytes).map_err(XmtpError::unknown)?;
+                    MessageID::from_bytes(&deletion_id)
+                })
+                .await
+            }
+
+            pub async fn message_reader(&self) -> Result<Arc<MessageReader>, XmtpError> {
+                let context = self.inner.context.clone();
+                let group_id = self.inner.group_id;
+                let client_key = self.client_key;
+                on_sdk_worker(self.inner.context.clone(), async move {
+                    MessageReader::open(context, group_id, client_key)
+                })
+                .await
+            }
+        }
+    };
+}
+
+common_conversation!(Group, GroupState, GroupState::from_snapshot);
+common_conversation!(Dm, ConversationState, |snapshot| Ok(
+    ConversationState::from_snapshot(&snapshot)
+));
 
 #[xmtp_macro::sdk_export]
 impl Group {
-    pub fn id(&self) -> ConversationID {
-        self.inner.group_id.into()
+    pub async fn peer_inbox_ids(&self) -> Result<Vec<InboxID>, XmtpError> {
+        let own = self.inner.context.inbox_id().to_string();
+        Ok(self
+            .members()
+            .await?
+            .into_iter()
+            .map(|member| member.inbox_id)
+            .filter(|id| id.0 != own)
+            .collect())
     }
 
-    pub async fn send_text(&self, text: String) -> Result<MessageID, XmtpError> {
-        let content = TextCodec::encode(text).map_err(XmtpError::unknown)?;
-        let bytes = encoded_content_to_bytes(content);
+    pub async fn update_name(&self, value: String) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        on_sdk_worker(group.context.clone(), async move {
-            let id = group
-                .send_message(
-                    &bytes,
-                    SendMessageOpts {
-                        should_push: true,
-                        idempotency_key: None,
-                    },
-                )
-                .await
-                .map_err(XmtpError::unknown)?;
-            MessageID::from_bytes(&id)
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_group_name(value)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+
+    pub async fn update_description(&self, value: String) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_group_description(value)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+
+    pub async fn update_image_url(&self, value: String) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_group_image_url_square(value)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+
+    pub async fn update_app_data(
+        &self,
+        value: String,
+        expected: Option<String>,
+    ) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_app_data(value, expected)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+
+    pub async fn update_permission(
+        &self,
+        kind: crate::PermissionUpdateKind,
+        policy: crate::PermissionPolicy,
+        metadata_field: Option<crate::MetadataFieldKind>,
+    ) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        let policy: xmtp_mls::groups::intents::PermissionPolicyOption = policy.try_into()?;
+        // The disappearing-message setting is stored as two metadata fields
+        // (from and retention). Apply the policy to both so they cannot
+        // diverge.
+        let fields: Option<Vec<MetadataField>> = metadata_field.map(|field| {
+            if matches!(field, crate::MetadataFieldKind::Disappearing) {
+                vec![
+                    MetadataField::MessageDisappearFromNS,
+                    MetadataField::MessageDisappearInNS,
+                ]
+            } else {
+                vec![field.into()]
+            }
+        });
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                match fields {
+                    Some(fields) => {
+                        for field in fields {
+                            group
+                                .update_permission_policy(
+                                    kind.clone().into(),
+                                    policy.clone(),
+                                    Some(field),
+                                )
+                                .await
+                                .map_err(XmtpError::unknown)?;
+                        }
+                        Ok(())
+                    }
+                    None => group
+                        .update_permission_policy(kind.into(), policy, None)
+                        .await
+                        .map_err(XmtpError::unknown),
+                }
+            }),
+        )
+        .await
+    }
+
+    pub async fn add_members(
+        &self,
+        members: Vec<InboxID>,
+    ) -> Result<crate::MembershipResult, XmtpError> {
+        let group = self.inner.clone();
+        let ids = members.into_iter().map(|id| id.0).collect::<Vec<_>>();
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .add_members(&ids)
+                    .await
+                    .map_err(XmtpError::unknown)?
+                    .try_into()
+            }),
+        )
+        .await
+    }
+
+    pub async fn remove_members(&self, members: Vec<InboxID>) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        let ids = members.into_iter().map(|id| id.0).collect::<Vec<_>>();
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                let refs = ids.iter().map(AsRef::as_ref).collect::<Vec<&str>>();
+                group
+                    .remove_members(&refs)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+
+    pub async fn add_admin(&self, inbox_id: InboxID) -> Result<(), XmtpError> {
+        self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::Add, inbox_id)
+            .await
+    }
+
+    pub async fn remove_admin(&self, inbox_id: InboxID) -> Result<(), XmtpError> {
+        self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::Remove, inbox_id)
+            .await
+    }
+
+    pub async fn add_super_admin(&self, inbox_id: InboxID) -> Result<(), XmtpError> {
+        self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::AddSuper, inbox_id)
+            .await
+    }
+
+    pub async fn remove_super_admin(&self, inbox_id: InboxID) -> Result<(), XmtpError> {
+        self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::RemoveSuper, inbox_id)
+            .await
+    }
+
+    pub async fn is_admin(&self, inbox_id: InboxID) -> Result<bool, XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(self.inner.context.clone(), async move {
+            group.is_admin(inbox_id.0).map_err(XmtpError::unknown)
         })
         .await
     }
 
-    pub async fn messages(&self) -> Result<Vec<Message>, XmtpError> {
+    pub async fn is_super_admin(&self, inbox_id: InboxID) -> Result<bool, XmtpError> {
         let group = self.inner.clone();
-        let client_key = self.client_key;
-        on_sdk_worker(group.context.clone(), async move {
+        on_sdk_worker(self.inner.context.clone(), async move {
+            group.is_super_admin(inbox_id.0).map_err(XmtpError::unknown)
+        })
+        .await
+    }
+
+    pub async fn list_admins(&self) -> Result<Vec<InboxID>, XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(self.inner.context.clone(), async move {
             group
-                .find_messages(&MsgQueryArgs::default())
+                .admin_list()
                 .map_err(XmtpError::unknown)?
                 .into_iter()
-                .map(|message| Message::from_stored(message, client_key))
+                .map(InboxID::try_from)
                 .collect()
         })
         .await
     }
 
-    pub async fn message_reader(&self) -> Result<Arc<MessageReader>, XmtpError> {
-        let context = self.inner.context.clone();
-        let group_id = self.inner.group_id;
+    pub async fn list_super_admins(&self) -> Result<Vec<InboxID>, XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(self.inner.context.clone(), async move {
+            group
+                .super_admin_list()
+                .map_err(XmtpError::unknown)?
+                .into_iter()
+                .map(InboxID::try_from)
+                .collect()
+        })
+        .await
+    }
+
+    pub async fn request_removal(&self) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move { group.leave_group().await.map_err(XmtpError::unknown) }),
+        )
+        .await
+    }
+
+    pub async fn membership_capabilities(
+        &self,
+    ) -> Result<crate::GroupMembershipCapabilities, XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(self.inner.context.clone(), async move {
+            group
+                .membership_capabilities()
+                .await
+                .map_err(XmtpError::unknown)?
+                .try_into()
+        })
+        .await
+    }
+}
+
+impl Group {
+    async fn update_admin_list(
+        &self,
+        action: xmtp_mls::groups::UpdateAdminListType,
+        inbox_id: InboxID,
+    ) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .update_admin_list(action, inbox_id.0)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+}
+
+#[xmtp_macro::sdk_export]
+impl Dm {
+    pub fn peer_inbox_id(&self) -> InboxID {
+        self.peer_inbox_id.clone()
+    }
+
+    pub async fn duplicate_dms(&self) -> Result<Vec<Arc<Dm>>, XmtpError> {
+        let group = self.inner.clone();
         let client_key = self.client_key;
-        on_sdk_worker(context.clone(), async move {
-            MessageReader::open(context, group_id, client_key)
+        on_sdk_worker(self.inner.context.clone(), async move {
+            let groups = group.find_duplicate_dms().map_err(XmtpError::unknown)?;
+            let mut result = Vec::with_capacity(groups.len());
+            for inner in groups {
+                result.push(Arc::new(Dm::from_core(inner, client_key).await?));
+            }
+            Ok(result)
         })
         .await
     }

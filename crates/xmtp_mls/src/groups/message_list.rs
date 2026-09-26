@@ -1,7 +1,9 @@
 use crate::context::XmtpSharedContext;
 use crate::groups::MlsGroup;
 use crate::messages::decoded_message::DecodedMessage;
-use crate::messages::enrichment::{EnrichMessageError, enrich_messages};
+use crate::messages::enrichment::{
+    EnrichMessageError, EnrichedStoredMessage, enrich_messages, enrich_messages_with_stored,
+};
 use xmtp_db::DbQuery;
 use xmtp_db::group_message::{ContentType as DbContentType, MsgQueryArgs};
 use xmtp_db::prelude::QueryGroupMessage;
@@ -17,6 +19,19 @@ where
     ) -> Result<Vec<DecodedMessage>, EnrichMessageError> {
         let conn = self.context.db();
         self.find_messages_v2_with_conn(query, conn)
+    }
+
+    #[xmtp_common::mls_span]
+    pub fn find_messages_v2_with_stored(
+        &self,
+        query: &MsgQueryArgs,
+    ) -> Result<Vec<EnrichedStoredMessage>, EnrichMessageError> {
+        let conn = self.context.db();
+        let initial_messages = conn.get_group_messages(
+            &self.group_id,
+            &filter_out_hidden_message_types_from_query(query),
+        )?;
+        enrich_messages_with_stored(conn, &self.group_id, initial_messages)
     }
 
     #[xmtp_common::mls_span]

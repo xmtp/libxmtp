@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+nix build --no-link .#ubjs-core .#ubjs-node
+core="$(nix path-info .#ubjs-core)"
+node="$(nix path-info .#ubjs-node)"
+package_dir=target/sdk-generated/typescript-napi/node_modules/@ubjs
+mkdir -p "$package_dir"
+ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
+ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
+args=(--noEmit --module esnext --moduleResolution bundler --target es2022 --allowImportingTsExtensions --skipLibCheck)
+node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/consumers/positive.ts
+log="$(mktemp)"
+trap 'rm -f "$log"' EXIT
+if node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/consumers/negative.ts >"$log" 2>&1; then
+  echo "TypeScript negative consumer compiled" >&2
+  exit 1
+fi
+grep -q "TS2322.*ConversationID" "$log"
+grep -q "TS2322.*EncodedContent" "$log"
+grep -q "TS2339.*group" "$log"
+echo "TypeScript ID, content, and Group/Dm consumer checks passed"
