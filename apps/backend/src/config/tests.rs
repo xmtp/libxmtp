@@ -36,6 +36,10 @@ fn invalid_attachment_credential_sources_name_the_key() {
     for (fields, expected_key) in [
         ("kind = 'unknown'", "attachments.target.S3.credentials.kind"),
         ("kind = 'profile'", "attachments.target.S3.credentials.name"),
+        (
+            "kind = 'profile'\nname = ''",
+            "attachments.target.S3.credentials.name",
+        ),
     ] {
         let error = Config::load_str(&format!("{source}{fields}\n")).unwrap_err();
         assert!(

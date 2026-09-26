@@ -265,6 +265,57 @@ fn published_schema_requires_provider_credentials_and_names_valid_environments()
     assert!(!validator.is_valid(&invalid));
 }
 
+// verifies: ATCH-073
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_requires_nonempty_signing_credential_fields() {
+    let validator = validator();
+    let s3: toml::Value = toml::from_str(include_str!("../../../../../dev/backend/local-s3.toml"))?;
+    let baseline = serde_json::to_value(s3)?;
+    for (field, mut credentials) in [
+        (
+            "access_key_id",
+            json!({"kind": "static", "access_key_id": "key", "secret_access_key": "secret"}),
+        ),
+        (
+            "secret_access_key",
+            json!({"kind": "static", "access_key_id": "key", "secret_access_key": "secret"}),
+        ),
+        ("name", json!({"kind": "profile", "name": "profile"})),
+        (
+            "account_id",
+            json!({"kind": "sso", "account_id": "account", "region": "region", "role_name": "role", "start_url": "https://sso.example.com"}),
+        ),
+        (
+            "region",
+            json!({"kind": "sso", "account_id": "account", "region": "region", "role_name": "role", "start_url": "https://sso.example.com"}),
+        ),
+        (
+            "role_name",
+            json!({"kind": "sso", "account_id": "account", "region": "region", "role_name": "role", "start_url": "https://sso.example.com"}),
+        ),
+        (
+            "start_url",
+            json!({"kind": "sso", "account_id": "account", "region": "region", "role_name": "role", "start_url": "https://sso.example.com"}),
+        ),
+        ("command", json!({"kind": "process", "command": "command"})),
+        (
+            "role_arn",
+            json!({"kind": "assume_role", "role_arn": "arn:aws:iam::123:role/test"}),
+        ),
+    ] {
+        for (value, accepted) in [("", false), ("present", true), ("env:NAME", true)] {
+            credentials[field] = json!(value);
+            let mut instance = baseline.clone();
+            instance["attachments"]["target"]["S3"]["credentials"] = credentials.clone();
+            assert_eq!(
+                validator.is_valid(&instance),
+                accepted,
+                "credentials.{field} = {value:?}"
+            );
+        }
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 fn published_schema_checks_socket_addresses_with_the_runtime_parser() {
     let validator = validator();

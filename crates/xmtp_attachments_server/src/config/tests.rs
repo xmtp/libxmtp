@@ -161,6 +161,103 @@ async fn s3_names_rules() {
     }
 }
 
+// verifies: ATCH-073, CONF-065
+#[xmtp_common::test(unwrap_try = true)]
+async fn empty_required_credential_fields_name_the_key() {
+    for (credentials, field) in [
+        (
+            CredentialsConfig::Static {
+                access_key_id: "".into(),
+                secret_access_key: "secret".into(),
+                session_token: None,
+            },
+            "access_key_id",
+        ),
+        (
+            CredentialsConfig::Static {
+                access_key_id: "key".into(),
+                secret_access_key: "".into(),
+                session_token: None,
+            },
+            "secret_access_key",
+        ),
+        (CredentialsConfig::Profile { name: "".into() }, "name"),
+        (
+            CredentialsConfig::Sso {
+                account_id: "".into(),
+                region: "region".into(),
+                role_name: "role".into(),
+                start_url: "url".into(),
+                session_name: None,
+            },
+            "account_id",
+        ),
+        (
+            CredentialsConfig::Sso {
+                account_id: "account".into(),
+                region: "".into(),
+                role_name: "role".into(),
+                start_url: "url".into(),
+                session_name: None,
+            },
+            "region",
+        ),
+        (
+            CredentialsConfig::Sso {
+                account_id: "account".into(),
+                region: "region".into(),
+                role_name: "".into(),
+                start_url: "url".into(),
+                session_name: None,
+            },
+            "role_name",
+        ),
+        (
+            CredentialsConfig::Sso {
+                account_id: "account".into(),
+                region: "region".into(),
+                role_name: "role".into(),
+                start_url: "".into(),
+                session_name: None,
+            },
+            "start_url",
+        ),
+        (CredentialsConfig::Process { command: "".into() }, "command"),
+        (
+            CredentialsConfig::AssumeRole {
+                role_arn: "".into(),
+                external_id: None,
+                session_name: None,
+            },
+            "role_arn",
+        ),
+    ] {
+        let mut settings = config();
+        let TargetConfig::S3(s3) = &mut settings.target;
+        s3.credentials = credentials;
+        let error = settings.validate().unwrap_err();
+        assert_eq!(
+            error.field,
+            format!("attachments.target.S3.credentials.{field}"),
+            "{field}"
+        );
+        assert_eq!(error.reason, "must not be empty", "{field}");
+    }
+
+    for credentials in [
+        CredentialsConfig::DefaultChain,
+        CredentialsConfig::Environment,
+        CredentialsConfig::WebIdentity,
+        CredentialsConfig::Container,
+        CredentialsConfig::Instance,
+    ] {
+        let mut settings = config();
+        let TargetConfig::S3(s3) = &mut settings.target;
+        s3.credentials = credentials;
+        assert!(settings.validate().is_ok());
+    }
+}
+
 // verifies: ATCH-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn upload_ceiling_rules() {
