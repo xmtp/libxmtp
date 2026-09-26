@@ -188,13 +188,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "With no filter the client streams every consent state, including the façade conversation reader."
 
 [[waiver]]
-id = "CONS-043"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No test on this branch proves that a stream of one named conversation with no consent filter remains available when its consent is denied."
-
-[[waiver]]
 id = "CONS-030"
 kind = "gap"
 owner = "protocol"
