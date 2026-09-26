@@ -13,7 +13,10 @@ use crate::{ErrorCategory, ErrorDetails, XmtpError};
 use std::error::Error;
 use tokio_util::sync::CancellationToken;
 use xmtp_db::{StorageError, stream_storage::StreamStorageError};
-use xmtp_mls::{client::ClientError, subscriptions::local_delivery::LocalDeliveryError};
+use xmtp_mls::{
+    client::ClientError, messages::enrichment::EnrichMessageError,
+    subscriptions::local_delivery::LocalDeliveryError,
+};
 use xmtp_proto::api::{ApiClientError, AuthError};
 
 /// Stop a detached read when its caller leaves, including on cancellation.
@@ -114,9 +117,33 @@ pub(crate) fn configuration_error(error: &ClientError, message: String) -> XmtpE
     }
 }
 
+pub(crate) fn enrichment_error(error: EnrichMessageError) -> XmtpError {
+    match error {
+        EnrichMessageError::DbConnection(_) => XmtpError::Storage(details(
+            "Storage",
+            ErrorCategory::Storage,
+            true,
+            error.to_string(),
+        )),
+        _ => XmtpError::unknown(error),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // verifies: PROC-040
+    #[xmtp_common::test(unwrap_try = true)]
+    fn enrichment_connection_error_is_storage_close_reason() {
+        let error = enrichment_error(EnrichMessageError::DbConnection(
+            xmtp_db::ConnectionError::DisconnectInTransaction,
+        ));
+        assert!(matches!(error, XmtpError::Storage(details)
+            if details.code == "Storage"
+                && matches!(details.category, ErrorCategory::Storage)
+                && details.retryable));
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn stream_close_codes_match_variants() {
