@@ -76,6 +76,14 @@ impl IncomingRuntime {
     pub(crate) fn policy(&self) -> &super::policy::StreamPolicy {
         &self.policy
     }
+
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn active_lease_count_for_test(&self) -> usize {
+        self.coordinator
+            .lock()
+            .as_ref()
+            .map_or(0, |coordinator| coordinator.state.statuses.lock().len())
+    }
 }
 
 impl<F> SubscriptionFactory for F

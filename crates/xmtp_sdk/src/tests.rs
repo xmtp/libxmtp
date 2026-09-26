@@ -135,6 +135,67 @@ async fn events_registered_before_return() {
     client.end().await?;
 }
 
+// verifies: EVENT-013
+#[xmtp_common::test(unwrap_try = true)]
+async fn event_reader_and_listener_create_no_network_interest() {
+    use xmtp_proto::api::HasStats;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let api = &client.inner.context.api().api_client;
+    let mls = api.as_ref().mls_stats();
+    let identity = api.as_ref().identity_stats();
+    let api_counts = || {
+        [
+            mls.publish.get_count(),
+            mls.query.get_count(),
+            mls.query_newest.get_count(),
+            mls.subscribe.get_count(),
+            mls.subscribe_static.get_count(),
+            identity.get_inbox_ids.get_count(),
+            identity.verify_smart_contract_wallet_signatures.get_count(),
+        ]
+    };
+    let lease_count = || {
+        client
+            .inner
+            .context
+            .incoming_runtime()
+            .active_lease_count_for_test()
+    };
+    let baseline = (api_counts(), lease_count());
+
+    let reader = client
+        .events(event_filter(vec![EventKind::HmacKeysUpdated]))
+        .await?;
+    assert_eq!((api_counts(), lease_count()), baseline, "reader start");
+    let (listener, mut started) = event_probe(None, false, None, false);
+    let listener_id = client
+        .start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), listener)
+        .await?;
+    assert_eq!((api_counts(), lease_count()), baseline, "listener start");
+
+    emit_hmac(&client);
+    assert!(matches!(
+        reader.next().await?,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
+        Some(0)
+    );
+    tokio::time::sleep(Duration::from_millis(25)).await;
+    assert_eq!(
+        (api_counts(), lease_count()),
+        baseline,
+        "held subscriptions"
+    );
+
+    client.stop_listener(listener_id).await;
+    reader.end().await?;
+    assert_eq!((api_counts(), lease_count()), baseline, "subscription end");
+    client.end().await?;
+}
+
 // verifies: EVENT-016
 // verifies: EVENT-053
 // verifies: EVENT-054

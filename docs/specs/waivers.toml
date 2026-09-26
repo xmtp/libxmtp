@@ -580,13 +580,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "Current event channels do not preserve the specified per-group, per-entity, and transaction event order."
 
 [[waiver]]
-id = "EVENT-013"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No local app event subscription API exists to establish that starting, holding, or ending one creates no network interest."
-
-[[waiver]]
 id = "EVENT-018"
 kind = "gap"
 owner = "protocol"
