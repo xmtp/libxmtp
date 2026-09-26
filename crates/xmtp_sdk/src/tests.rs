@@ -1836,6 +1836,45 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
     client.end().await?;
 }
 
+// verifies: CTYPE-003, CTYPE-008
+#[xmtp_common::test(unwrap_try = true)]
+async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
+    use prost::Message as _;
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    for empty_authority in [true, false] {
+        let id = group.send_text("valid".into()).await?;
+        let id_bytes = hex::decode(&id.0)?;
+        let stored = client.inner.message(id_bytes.clone())?;
+        let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
+        let kind = encoded.r#type.as_mut().expect("typed text");
+        if empty_authority {
+            kind.authority_id.clear();
+        } else {
+            kind.type_id.clear();
+        }
+        let raw = encoded.encode_to_vec();
+        client.inner.context.db().raw_query(|conn| {
+            xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&id_bytes)))
+                .set(dsl::decrypted_message_bytes.eq(&raw))
+                .execute(conn)
+        })?;
+
+        let direct = crate::Message::from_stored(client.inner.message(id_bytes)?, client.client_key())?;
+        let by_id = client.conversations().get_message_by_id(id.clone()).await?.expect("message by ID");
+        let history = group.messages(None).await?.into_iter()
+            .find(|message| message.0.id == id).expect("message in history");
+        for (path, message) in [("stored", direct), ("by ID", by_id), ("history", history)] {
+            assert!(matches!(message.0.content, MessageContent::Unknown { raw_bytes, .. } if raw_bytes == raw),
+                "{path} did not preserve an envelope with an empty identifier");
+        }
+    }
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn nested_reaction_reply_body_keeps_nested_envelope() {
     use crate::{EncodedContent, MessageBody, Reaction, ReactionAction, ReactionSchema};
