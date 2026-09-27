@@ -1169,12 +1169,6 @@ owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "The storage location shape check is not tested yet."
 [[waiver]]
-id = "CONF-025"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The attachment defaults in the CONF-025 table wait for GetConfigurationResponse field 9 and its default tests."
-[[waiver]]
 id = "ATCH-083"
 kind = "gap"
 owner = "attachments"

@@ -57,7 +57,6 @@ fn base_url_rejects_non_rfc_or_disallowed_forms() {
     }
 }
 
-// verifies: ATCH-002
 #[xmtp_common::test(unwrap_try = true)]
 fn base_url_rejects_zero_port() {
     for base_url in [

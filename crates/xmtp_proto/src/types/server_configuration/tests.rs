@@ -179,6 +179,7 @@ fn the_stored_bytes_round_trip_through_prost() {
     );
 }
 
+// verifies: CONF-025
 #[xmtp_common::test(unwrap_try = true)]
 fn attachments_absent_is_none() {
     let configuration = ServerConfiguration::from(populated());
@@ -210,11 +211,34 @@ fn attachments_zero_max_reads_default() {
     configuration.validate()?;
 }
 
+// verifies: CONF-025
+#[xmtp_common::test(unwrap_try = true)]
+fn attachment_fields_use_compiled_defaults_when_zero() {
+    let mut response = populated();
+    response.attachments = Some(backend_v1::AttachmentsConfiguration {
+        base_url: "https://example.com/attachments".to_owned(),
+        max_upload_bytes: 0,
+        retention_seconds: 0,
+    });
+
+    let configuration = ServerConfiguration::from(response);
+    let attachments = configuration
+        .attachments
+        .as_ref()
+        .expect("present attachment offer");
+    assert_eq!(BACKEND_DEFAULT_MAX_UPLOAD_BYTES, 104_857_600);
+    assert_eq!(attachments.max_upload_bytes, 104_857_600);
+    assert_eq!(attachments.retention_seconds, 0);
+    configuration.validate()?;
+}
+
 // verifies: ATCH-008
 #[xmtp_common::test(unwrap_try = true)]
 fn unusable_attachments_is_none() {
     for (base_url, max_upload_bytes, retention_seconds) in [
         ("http://example.com/attachments", 1, 0),
+        ("https://h:0", 1, 0),
+        ("http://127.0.0.1:0", 1, 0),
         ("HTTPS://example.com/a", 1, 0),
         ("Http://127.0.0.1/a", 1, 0),
         ("https://example.com/attachments?key=value", 1, 0),
