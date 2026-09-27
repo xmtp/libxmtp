@@ -1736,11 +1736,52 @@ async fn cancelled_conversation_read_delivers_next_group() {
 
 // verifies: CONS-030
 #[xmtp_common::test(unwrap_try = true)]
-async fn conversation_reader_default_excludes_denied() {
+async fn conversation_reader_default_includes_denied() {
     use crate::{ConsentEntity, ConsentRecord, ConsentState};
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let reader = client.conversations().conversation_reader(None).await?;
+    let denied = client.conversations().create_group(vec![], None).await?;
+    client
+        .preferences()
+        .set_consent_states(vec![ConsentRecord {
+            entity: ConsentEntity::Conversation {
+                conversation_id: denied.id(),
+            },
+            state: ConsentState::Denied,
+        }])
+        .await?;
+    let allowed = client.conversations().create_group(vec![], None).await?;
+    let first = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+        .await??
+        .expect("denied group");
+    assert!(matches!(first, crate::Conversation::Group { group } if group.id() == denied.id()));
+    let second = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+        .await??
+        .expect("allowed group");
+    assert!(matches!(second, crate::Conversation::Group { group } if group.id() == allowed.id()));
+    assert!(
+        xmtp_common::time::timeout(Duration::from_millis(100), reader.next())
+            .await
+            .is_err()
+    );
+    reader.end().await?;
+    client.end().await?;
+}
+
+// verifies: CONS-030
+#[xmtp_common::test(unwrap_try = true)]
+async fn conversation_reader_explicit_allowed_selection() {
+    use crate::{ConsentEntity, ConsentRecord, ConsentState, ConversationReaderOptions};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let reader = client
+        .conversations()
+        .conversation_reader(Some(ConversationReaderOptions {
+            consent_states: Some(vec![ConsentState::Allowed]),
+            ..Default::default()
+        }))
+        .await?;
     let denied = client.conversations().create_group(vec![], None).await?;
     client
         .preferences()
@@ -1758,43 +1799,6 @@ async fn conversation_reader_default_excludes_denied() {
     assert!(
         matches!(delivered, crate::Conversation::Group { group } if group.id() == allowed.id())
     );
-    assert!(
-        xmtp_common::time::timeout(Duration::from_millis(100), reader.next())
-            .await
-            .is_err()
-    );
-    reader.end().await?;
-    client.end().await?;
-}
-
-// verifies: CONS-030
-#[xmtp_common::test(unwrap_try = true)]
-async fn conversation_reader_explicit_denied_selection() {
-    use crate::{ConsentEntity, ConsentRecord, ConsentState, ConversationReaderOptions};
-
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let reader = client
-        .conversations()
-        .conversation_reader(Some(ConversationReaderOptions {
-            consent_states: Some(vec![ConsentState::Denied]),
-            ..Default::default()
-        }))
-        .await?;
-    let _allowed = client.conversations().create_group(vec![], None).await?;
-    let denied = client.conversations().create_group(vec![], None).await?;
-    client
-        .preferences()
-        .set_consent_states(vec![ConsentRecord {
-            entity: ConsentEntity::Conversation {
-                conversation_id: denied.id(),
-            },
-            state: ConsentState::Denied,
-        }])
-        .await?;
-    let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
-        .await??
-        .expect("denied group");
-    assert!(matches!(delivered, crate::Conversation::Group { group } if group.id() == denied.id()));
     assert!(
         xmtp_common::time::timeout(Duration::from_millis(100), reader.next())
             .await

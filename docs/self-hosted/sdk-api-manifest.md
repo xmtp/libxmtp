@@ -467,7 +467,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.newGroupOptimistic` | func | `Conversations.createGroupOptimistic` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.newGroupWithIdentities` | func | `Conversations.createGroupWithIdentities` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.stream` | func | `Conversations.stream` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.streamAllMessages` | func | `Conversations.streamAllMessages` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.streamAllMessages` | func | `Conversations.streamAllMessages` | generated | 11.4 Swift, Conversations | Behavior change: no consent list now selects allowed and unknown conversations. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.streamMessageDeletions` | func | — | approved removal | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.sync` | func | `Conversations.sync` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.syncAllConversations` | func | `Conversations.syncAll` | alias | 11.4 Swift, Conversations | Deprecated name for one major release (11.5). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
@@ -1583,7 +1583,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.newGroupOptimistic` | fun | `Conversations.createGroupOptimistic` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.newGroupWithIdentities` | fun | `Conversations.createGroupWithIdentities` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.stream` | fun | `Conversations.stream` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.streamAllMessages` | fun | `Conversations.streamAllMessages` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.streamAllMessages` | fun | `Conversations.streamAllMessages` | generated | 11.4 Kotlin, Conversations | Behavior change: no consent list now selects allowed and unknown conversations. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.streamMessageDeletions` | fun | — | approved removal | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.sync` | fun | `Conversations.sync` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.syncAllConversations` | fun | `Conversations.syncAll` | alias | 11.4 Kotlin, Conversations | Deprecated name for one major release (11.5). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
@@ -2590,7 +2590,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.stream` | member | `Conversations.stream` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.streamAllDmMessages` | member | `Conversations.streamAllDmMessages` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.streamAllGroupMessages` | member | `Conversations.streamAllGroupMessages` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.streamAllMessages` | member | `Conversations.streamAllMessages` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.streamAllMessages` | member | `Conversations.streamAllMessages` | generated | 11.4 Node, Conversations | Behavior change: no consent list now selects allowed and unknown conversations. Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.streamDeletedMessages` | member | — | approved removal | 11.8, live events; 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.streamDms` | member | `Conversations.streamDms` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.streamGroups` | member | `Conversations.streamGroups` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts`. |
@@ -3075,7 +3075,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.stream` | member | `Conversations.stream` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.streamAllDmMessages` | member | `Conversations.streamAllDmMessages` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.streamAllGroupMessages` | member | `Conversations.streamAllGroupMessages` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.streamAllMessages` | member | `Conversations.streamAllMessages` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.streamAllMessages` | member | `Conversations.streamAllMessages` | generated | 11.4 Browser; 11.4 Node, Conversations | Behavior change: no consent list now selects allowed and unknown conversations. Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.streamDeletedMessages` | member | — | approved removal | 11.8, live events; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.streamDms` | member | `Conversations.streamDms` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.streamGroups` | member | `Conversations.streamGroups` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts`. |

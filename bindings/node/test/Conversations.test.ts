@@ -831,6 +831,74 @@ describe("Conversations", () => {
     expectStreamedMessages(messages4, [[message3, "gm3!"]], [dm.id()]);
   });
 
+  it("defaults all-message streams to allowed and unknown consent", async () => {
+    const sender = await createRegisteredClient(createUser());
+    const recipientUser = createUser();
+    const recipient = await createRegisteredClient(recipientUser);
+    const member = {
+      identifier: recipientUser.account.address,
+      identifierKind: IdentifierKind.Ethereum,
+    };
+    const deniedGroup = await sender
+      .conversations()
+      .createGroupByIdentity([member]);
+    const allowedGroup = await sender
+      .conversations()
+      .createGroupByIdentity([member]);
+    await recipient.conversations().sync();
+    recipient
+      .conversations()
+      .getConversationById(deniedGroup.id())!
+      .updateConsentState(ConsentState.Denied);
+
+    const messages: Message[] = [];
+    const errors: Error[] = [];
+    const stream = recipient.conversations().streamAllMessages(
+      (err, message) => {
+        if (err) errors.push(err);
+        if (message) messages.push(message);
+      },
+      () => {},
+    );
+    const deniedId = await deniedGroup.sendText("denied");
+    const allowedId = await allowedGroup.sendText("allowed");
+    await expect
+      .poll(
+        () =>
+          messages
+            .filter((message) => message.kind === GroupMessageKind.Application)
+            .map((message) => message.id),
+        { timeout: 15_000 },
+      )
+      .toEqual([allowedId]);
+    await stream.endAndWait();
+
+    const deniedMessages: Message[] = [];
+    const deniedStream = recipient.conversations().streamAllMessages(
+      (err, message) => {
+        if (err) errors.push(err);
+        if (message) deniedMessages.push(message);
+      },
+      () => {},
+      undefined,
+      [ConsentState.Denied],
+    );
+    const secondDeniedId = await deniedGroup.sendText("denied again");
+    await recipient
+      .conversations()
+      .getConversationById(deniedGroup.id())!
+      .sync();
+    await expect
+      .poll(
+        () => deniedMessages.some((message) => message.id === secondDeniedId),
+        { timeout: 15_000 },
+      )
+      .toBe(true);
+    expect(deniedId).not.toBe(secondDeniedId);
+    await deniedStream.endAndWait();
+    expect(errors).toEqual([]);
+  });
+
   it("should only stream group chat messages", async () => {
     const user1 = createUser();
     const user2 = createUser();
