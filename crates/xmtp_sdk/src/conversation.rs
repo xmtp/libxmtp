@@ -450,6 +450,7 @@ impl Conversations {
         .await
     }
 
+    #[uniffi::method(default(options = None))]
     pub async fn react_to_message(
         &self,
         id: MessageID,
@@ -470,6 +471,7 @@ impl Conversations {
         .await
     }
 
+    #[uniffi::method(default(options = None))]
     pub async fn reply_to_message(
         &self,
         id: MessageID,
@@ -1108,6 +1110,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn prepare_message(
                 &self,
                 encoded: EncodedContent,
@@ -1118,6 +1121,7 @@ macro_rules! common_conversation {
                 send_encoded(self.inner.clone(), encoded, options).await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send(
                 &self,
                 encoded: EncodedContent,

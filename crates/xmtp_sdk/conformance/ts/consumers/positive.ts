@@ -3,8 +3,12 @@ import {
   MessageContent_Tags,
   type Conversation,
   type ConversationID,
+  type Conversations,
   type EncodedContent,
+  type Group,
   type MessageContent,
+  type MessageID,
+  type Reaction,
 } from "../../../../../target/sdk-generated/typescript-napi/index.ts";
 
 export function consume(
@@ -23,4 +27,17 @@ export function consume(
     return [id, content.inner.encoded];
   }
   return [id, undefined];
+}
+
+export async function consumeOmittedSendOptions(
+  group: Group,
+  conversations: Conversations,
+  id: MessageID,
+  reaction: Reaction,
+  encoded: EncodedContent,
+): Promise<void> {
+  await group.send(encoded);
+  await group.prepareMessage(encoded);
+  await conversations.reactToMessage(id, reaction);
+  await conversations.replyToMessage(id, encoded);
 }

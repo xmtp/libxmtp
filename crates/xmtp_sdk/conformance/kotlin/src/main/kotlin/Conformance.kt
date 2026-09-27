@@ -16,6 +16,20 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
 
+@Suppress("unused")
+private suspend fun consumeOmittedSendOptions(
+    group: Group,
+    conversations: Conversations,
+    id: MessageID,
+    reaction: Reaction,
+    encoded: EncodedContent,
+) {
+    group.send(encoded)
+    group.prepareMessage(encoded)
+    conversations.reactToMessage(id, reaction)
+    conversations.replyToMessage(id, encoded)
+}
+
 private fun signCommand(
     action: String,
     text: String? = null,
