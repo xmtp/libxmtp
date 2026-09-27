@@ -1752,6 +1752,16 @@ async fn conversation_reader_default_includes_denied() {
         }])
         .await?;
     let allowed = client.conversations().create_group(vec![], None).await?;
+    let unknown = client.conversations().create_group(vec![], None).await?;
+    client
+        .preferences()
+        .set_consent_states(vec![ConsentRecord {
+            entity: ConsentEntity::Conversation {
+                conversation_id: unknown.id(),
+            },
+            state: ConsentState::Unknown,
+        }])
+        .await?;
     let first = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
         .await??
         .expect("denied group");
@@ -1760,6 +1770,10 @@ async fn conversation_reader_default_includes_denied() {
         .await??
         .expect("allowed group");
     assert!(matches!(second, crate::Conversation::Group { group } if group.id() == allowed.id()));
+    let third = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
+        .await??
+        .expect("unknown group");
+    assert!(matches!(third, crate::Conversation::Group { group } if group.id() == unknown.id()));
     assert!(
         xmtp_common::time::timeout(Duration::from_millis(100), reader.next())
             .await
