@@ -27,7 +27,7 @@ interface Owner {
 const owners = new WeakMap<MainSession, Map<bigint, Owner>>();
 
 function codecKey(type: B.ContentTypeID): string {
-  return `${type.authorityID}/${type.typeID}/${type.versionMajor}`;
+  return JSON.stringify([type.authorityID, type.typeID, type.versionMajor]);
 }
 
 export function registerClient(
