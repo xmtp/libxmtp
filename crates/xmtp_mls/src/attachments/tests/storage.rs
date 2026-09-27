@@ -1,5 +1,56 @@
 use super::*;
 
+// verifies: ATCH-047, ATCH-062, ATCH-063
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn deletion_cannot_race_reconciliation_snapshot() {
+    for separate_client in [false, true] {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let pending = alix.client.attachments().create(bytes()).await?;
+        let remote = pending.remote_attachment().clone();
+        let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let relative = plaintext_rel_path(&remote)?;
+        alix.client.context.db().delete_local_attachment(&relative)?;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        *alix.client.context.attachments.reconcile_snapshot_pause.lock() =
+            Some((entered.clone(), resume.clone()));
+        let context = alix.client.context.clone();
+        let reconcile = tokio::spawn(async move {
+            context.attachments.reconcile(&context).await
+        });
+        tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+        let deleting_client = if separate_client {
+            second.clone()
+        } else {
+            alix.client.clone()
+        };
+        let deleting_remote = remote.clone();
+        let mut deletion = tokio::spawn(async move {
+            deleting_client.attachments().delete_local(&deleting_remote).await
+        });
+        let finished_early = match tokio::time::timeout(Duration::from_millis(250), &mut deletion).await {
+            Ok(result) => {
+                result??;
+                true
+            }
+            Err(_) => false,
+        };
+        resume.notify_one();
+        tokio::time::timeout(Duration::from_secs(5), reconcile).await???;
+        if !finished_early {
+            tokio::time::timeout(Duration::from_secs(5), deletion).await???;
+        }
+        assert!(!alix.client.attachments().local_path(&remote)?.exists());
+        assert!(alix.client.context.db().get_local_attachment(&relative)?.is_none());
+        assert!(alix.client.attachments().list_local().await?.is_empty());
+    }
+}
+
 // verifies: ATCH-067, ATCH-068
 #[xmtp_common::test(unwrap_try = true)]
 async fn pending_expire() {

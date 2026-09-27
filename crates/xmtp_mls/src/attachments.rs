@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::{
     collections::{HashMap, HashSet},
     path::PathBuf,
-    sync::{Arc, Weak},
+    sync::{Arc, LazyLock, Weak},
     time::Duration,
 };
 
@@ -47,6 +47,26 @@ const LEASE_RENEW: Duration = Duration::from_secs(30);
 const LEASE_POLL: Duration = Duration::from_secs(1);
 #[cfg(test)]
 static FAIL_NEXT_RECONCILES: AtomicUsize = AtomicUsize::new(0);
+static PUBLICATION_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Weak<AsyncMutex<()>>>>> =
+    LazyLock::new(|| Mutex::new(HashMap::new()));
+
+fn shared_publication_lock(dir: Option<&PathBuf>) -> Arc<AsyncMutex<()>> {
+    let Some(dir) = dir else {
+        return Arc::new(AsyncMutex::new(()));
+    };
+    #[cfg(not(target_arch = "wasm32"))]
+    let path = std::path::absolute(dir).unwrap_or_else(|_| dir.clone());
+    #[cfg(target_arch = "wasm32")]
+    let path = dir.clone();
+    let mut locks = PUBLICATION_LOCKS.lock();
+    if let Some(lock) = locks.get(&path).and_then(Weak::upgrade) {
+        return lock;
+    }
+    locks.retain(|_, lock| lock.strong_count() != 0);
+    let lock = Arc::new(AsyncMutex::new(()));
+    locks.insert(path, Arc::downgrade(&lock));
+    lock
+}
 
 #[derive(Clone, Copy)]
 struct LeaseTiming {
@@ -621,6 +641,8 @@ pub struct AttachmentRuntime {
     download_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     download_move_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    reconcile_snapshot_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
     outcome_write_errors: AtomicUsize,
     #[cfg(test)]
@@ -673,6 +695,8 @@ impl Default for AttachmentRuntime {
             download_panic_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_move_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            reconcile_snapshot_pause: Mutex::new(None),
             #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
@@ -696,6 +720,7 @@ impl AttachmentRuntime {
         dir: Option<PathBuf>,
         options: AttachmentOptions,
     ) -> Result<Self, AttachmentClientError> {
+        let publication_lock = shared_publication_lock(dir.as_ref());
         let store: Option<Arc<dyn LocalStore>> = match dir.as_ref() {
             None => None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -713,7 +738,7 @@ impl AttachmentRuntime {
             downloads: Mutex::new(HashMap::new()),
             deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
-            publication_lock: Arc::new(AsyncMutex::new(())),
+            publication_lock,
             reconciled: OnceCell::new(),
             lease_timing: Mutex::new(LeaseTiming::default()),
             #[cfg(test)]
@@ -732,6 +757,8 @@ impl AttachmentRuntime {
             download_panic_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_move_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            reconcile_snapshot_pause: Mutex::new(None),
             #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
@@ -843,6 +870,14 @@ impl AttachmentRuntime {
         let recorded: HashSet<_> = records.iter().map(|row| row.path.as_str()).collect();
         let files = store.list_files().await?;
         let present: HashSet<_> = files.iter().map(|file| file.path.as_str()).collect();
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        {
+            let pause = self.reconcile_snapshot_pause.lock().clone();
+            if let Some((entered, resume)) = pause {
+                entered.notify_one();
+                resume.notified().await;
+            }
+        }
         let now = now_ns();
         let cutoff = now.saturating_sub(RECONCILE_AGE.as_nanos() as i64);
         let staged_age = self
@@ -1196,6 +1231,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     .map_err(|_| AttachmentClientError::new(Cause::Network))?;
             }
         }
+        let _publication = self.runtime().publication_lock.lock().await;
         let _guard = lock.lock().await;
         let mut emitted = false;
         let mut emit_deleted = || {
