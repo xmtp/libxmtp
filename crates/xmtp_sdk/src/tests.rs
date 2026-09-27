@@ -3039,10 +3039,10 @@ fn query_filters_match_stored_catalogue_types() {
         version_major: 99,
         version_minor: 0,
     };
-    assert_eq!(
-        crate::conversation::query_content_types(vec![wrong_major])?,
-        vec![ContentType::Unknown]
-    );
+    assert!(matches!(
+        crate::conversation::query_content_types(vec![wrong_major]),
+        Err(XmtpError::InvalidArgument(_))
+    ));
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -3072,6 +3072,45 @@ async fn group_updated_message_filter_finds_stored_row() {
         .await?;
     assert!(messages.iter().any(|message| message.0.id == id));
     client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn custom_content_type_filter_rejects_unknown_storage_type() {
+    use crate::{ContentTypeId, EncodedContent, ListMessagesOptions};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let sent = group
+        .send(
+            EncodedContent {
+                r#type: ContentTypeId {
+                    authority_id: "example.com".into(),
+                    type_id: "b".into(),
+                    version_major: 1,
+                    version_minor: 0,
+                },
+                parameters: Default::default(),
+                fallback: None,
+                content: vec![42],
+            },
+            None,
+        )
+        .await?;
+    assert!(group.messages(None).await?.iter().any(|message| message.0.id == sent));
+
+    let result = group
+        .messages(Some(ListMessagesOptions {
+            content_types: Some(vec![ContentTypeId {
+                authority_id: "example.com".into(),
+                type_id: "a".into(),
+                version_major: 1,
+                version_minor: 0,
+            }]),
+            ..Default::default()
+        }))
+        .await;
+    client.end().await?;
+    assert!(matches!(result, Err(XmtpError::InvalidArgument(_))));
 }
 
 // verifies: CTYPE-008, CTYPE-024

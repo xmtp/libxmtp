@@ -874,16 +874,23 @@ pub(crate) fn lift_history_messages(
 pub(crate) fn query_content_types(
     values: Vec<ContentTypeId>,
 ) -> Result<Vec<xmtp_db::group_message::ContentType>, XmtpError> {
-    Ok(values
+    values
         .into_iter()
         .map(|value| {
-            xmtp_db::group_message::ContentType::from_identifier(
+            let kind = xmtp_db::group_message::ContentType::from_identifier(
                 &value.authority_id,
                 &value.type_id,
                 value.version_major,
-            )
+            );
+            if matches!(kind, xmtp_db::group_message::ContentType::Unknown) {
+                Err(XmtpError::invalid_argument(
+                    "content type cannot be used as a message filter",
+                ))
+            } else {
+                Ok(kind)
+            }
         })
-        .collect())
+        .collect()
 }
 
 // One block defines the shared Group and Dm methods.

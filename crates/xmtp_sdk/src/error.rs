@@ -58,7 +58,7 @@ pub enum XmtpError {
     CredentialMissing(ErrorDetails),
     #[error("permission denied: {0:?}")]
     PermissionDenied(ErrorDetails),
-    #[error("notification argument invalid: {0:?}")]
+    #[error("invalid argument: {0:?}")]
     InvalidArgument(ErrorDetails),
     #[error("notification value out of range: {0:?}")]
     OutOfRange(ErrorDetails),
@@ -116,6 +116,15 @@ impl XmtpError {
             retryable: false,
             message: message.into(),
         })
+    }
+
+    pub(crate) fn invalid_argument(message: impl Into<String>) -> Self {
+        Self::InvalidArgument(Self::details(
+            "InvalidArgument",
+            ErrorCategory::Input,
+            false,
+            message,
+        ))
     }
 
     pub(crate) fn closed() -> Self {
