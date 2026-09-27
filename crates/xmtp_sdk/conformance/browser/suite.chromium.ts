@@ -368,13 +368,37 @@ export async function runBrowserBridgeConformance(
         throw new Error("bad custom payload");
       },
     };
+    const collisionRegisteredType = B.ContentTypeID.create({
+      authorityID: "example.org",
+      typeID: "a/b",
+      versionMajor: 1,
+      versionMinor: 0,
+    });
+    const collisionOtherType = B.ContentTypeID.create({
+      authorityID: "example.org/a",
+      typeID: "b",
+      versionMajor: 1,
+      versionMinor: 0,
+    });
+    const collisionCodec = {
+      type: collisionRegisteredType,
+      encode(value: string): B.EncodedContent {
+        return B.EncodedContent.create({
+          type: collisionRegisteredType,
+          content: new TextEncoder().encode(value).buffer,
+        });
+      },
+      decode(): string {
+        return "wrong collision codec";
+      },
+    };
     const customOptions = {
       ...clientOptions,
       storage: {
         ...clientOptions.storage,
         location: B.StorageLocation.InMemory.new(),
       },
-      codecs: [customCodec, failingCodec],
+      codecs: [customCodec, failingCodec, collisionCodec],
     };
     const customOwner = await Client.create(session, signer(session), customOptions);
     const customGroup = await customOwner.conversations().createGroup([], undefined);
@@ -451,6 +475,19 @@ export async function runBrowserBridgeConformance(
     if (failed.content.tag === B.MessageContent_Tags.Custom)
       expect(failed.content.inner.error?.includes("bad custom payload"), "codec error was lost");
     else throw new Error("failed custom content changed tag");
+    const collisionID = await customGroup.send(
+      B.EncodedContent.create({
+        type: collisionOtherType,
+        content: new Uint8Array([9]).buffer,
+      }),
+      undefined,
+    );
+    const collision = await customOwner.conversations().getMessageByID(collisionID);
+    expect(collision, "colliding content was not read");
+    expect(collision instanceof Message, "colliding content was not lifted");
+    equal(collision.content.tag, B.MessageContent_Tags.Custom, "colliding content changed tag");
+    if (collision.content.tag === B.MessageContent_Tags.Custom)
+      equal(collision.content.inner.value, undefined, "codec decoded a different content identifier");
     await customOwner.end();
     results.push("scenario 6: custom codec registry, unknown codec, and error");
 
