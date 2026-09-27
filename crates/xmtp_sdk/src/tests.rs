@@ -479,6 +479,45 @@ async fn event_filter_reports_storage_error_when_resolving_dm() {
     client.end().await?;
 }
 
+// A failed create discards its client. When close fails, the store must still
+// disconnect, because the browser host releases the storage lock next.
+#[xmtp_common::test(unwrap_try = true)]
+async fn discard_disconnects_store_when_close_fails() {
+    use xmtp_db::ConnectionExt;
+    use xmtp_db::diesel::{RunQueryDsl, sql_query};
+
+    let mut settings = options();
+    let path = std::env::temp_dir().join(format!(
+        "xmtp-sdk-discard-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    // The reader holds the delivery lease that close must release.
+    let _reader = group.message_reader().await?;
+    client.inner.context.db().raw_query(|conn| {
+        sql_query(
+            "CREATE TRIGGER fail_delivery_release BEFORE UPDATE OF delivery_owner \
+             ON user_preferences WHEN NEW.delivery_owner IS NULL \
+             BEGIN SELECT RAISE(ABORT, 'injected release failure'); END",
+        )
+        .execute(conn)
+    })?;
+    assert!(client.end().await.is_err(), "close did not fail");
+
+    client.discard().await;
+
+    let query = client
+        .inner
+        .context
+        .db()
+        .raw_query(|conn| sql_query("SELECT 1").execute(conn));
+    assert!(query.is_err(), "discard left the store connected");
+    let _ = std::fs::remove_file(&path);
+}
+
 // verifies: EVENT-022
 // verifies: EVENT-030
 // verifies: EVENT-031

@@ -248,6 +248,23 @@ pub struct Client {
 }
 
 impl Client {
+    /// End a client that a failed create does not return. The built client
+    /// already runs background work on its store. The browser host releases
+    /// the storage lock when create fails, so the store must not stay
+    /// connected, even when close fails and keeps it connected for a retry.
+    pub(crate) async fn discard(&self) {
+        use xmtp_db::ConnectionExt;
+
+        if let Err(error) = self.end().await {
+            tracing::warn!(%error, "closing the client of a failed create");
+            if let Err(error) = self.inner.context.db().disconnect() {
+                tracing::warn!(%error, "disconnecting the client of a failed create");
+            }
+            #[cfg(target_arch = "wasm32")]
+            xmtp_db::pause_sqlite_if_idle();
+        }
+    }
+
     async fn build_inner(
         identity: PublicIdentity,
         mut options: ClientOptions,
@@ -500,9 +517,7 @@ impl Client {
                 Err(error) => Err(error),
             };
             if let Err(error) = registered {
-                // The built client already runs background work on its store.
-                // End it, so a failed create leaves no work and no open store.
-                let _ = client.end().await;
+                client.discard().await;
                 return Err(error);
             }
         }
