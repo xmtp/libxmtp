@@ -909,9 +909,9 @@ class Checker:
                     "SPEC-055",
                     f"the waiver for {rid} does not name a current requirement",
                 )
-            elif (
-                self.requirements[rid].verifies
-                and self.waivers[rid].get("kind") in ("analysis", "untested")
+            elif self.requirements[rid].verifies and self.waivers[rid].get("kind") in (
+                "analysis",
+                "untested",
             ):
                 # A gap waiver records missing behaviour. Evidence for one
                 # path does not close it. A link makes other waivers stale.
