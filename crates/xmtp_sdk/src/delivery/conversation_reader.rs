@@ -9,6 +9,7 @@ use tokio::sync::Mutex;
 #[cfg(test)]
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
+use xmtp_common::RetryableError;
 use xmtp_mls::subscriptions::{
     SubscribeError, incoming::IncomingLease, stream_conversations::StreamConversations,
 };
@@ -246,15 +247,40 @@ impl ConversationReader {
 
 fn subscribe_error(error: SubscribeError) -> XmtpError {
     let message = error.to_string();
+    let retryable = error.is_retryable();
     match error {
         SubscribeError::Configuration(cause) => super::configuration_error(&cause, message),
         SubscribeError::LocalDelivery(cause) => super::delivery_error(cause),
         SubscribeError::Db(_) | SubscribeError::Storage(_) => XmtpError::Storage(ErrorDetails {
             code: "Storage".into(),
             category: ErrorCategory::Storage,
-            retryable: true,
+            retryable,
             message,
         }),
         other => XmtpError::unknown(other),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use xmtp_db::{
+        StorageError,
+        stream_storage::{BudgetScope, StreamStorageError},
+    };
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn subscribe_storage_error_uses_cause_retryability() {
+        let invalid_query = subscribe_error(SubscribeError::Db(
+            xmtp_db::ConnectionError::InvalidQuery("bad query".into()),
+        ));
+        assert!(matches!(invalid_query, XmtpError::Storage(details) if !details.retryable));
+
+        let capacity = subscribe_error(SubscribeError::Storage(StorageError::Stream(
+            StreamStorageError::Capacity {
+                scope: BudgetScope::Batch,
+            },
+        )));
+        assert!(matches!(capacity, XmtpError::Storage(details) if details.retryable));
     }
 }
