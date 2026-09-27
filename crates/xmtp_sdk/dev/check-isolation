@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-base_branch=${GITHUB_BASE_REF:-self-hosted}
+base_branch=${SDK_ISOLATION_BASE:-${GITHUB_BASE_REF:-self-hosted}}
 base_ref="refs/remotes/origin/$base_branch"
 if ! git show-ref --verify --quiet "$base_ref"; then
   git fetch origin "refs/heads/$base_branch:$base_ref"
