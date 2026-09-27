@@ -637,19 +637,30 @@ export async function runBrowserBridgeConformance(
       credential: undefined,
     });
     equal(backend.handle.type, "Backend", "backend handle type changed");
-    await checkError(
-      () =>
-        Client.create(session, signer(session), {
-          ...clientOptions,
-          storage: {
-            ...clientOptions.storage,
-            location: B.StorageLocation.Default.new(),
-          },
-        }),
-      (error) => B.XmtpError.StorageLocationRequired.instanceOf(error),
-      "missing typed storage error",
+    // verifies: STORE-005
+    const defaultSigner = signer(session);
+    const defaultIdentity = await defaultSigner.identity();
+    const defaultOptions = {
+      ...clientOptions,
+      storage: {
+        ...clientOptions.storage,
+        location: B.StorageLocation.Default.new(),
+      },
+    };
+    const defaultClient = await Client.create(session, defaultSigner, defaultOptions);
+    const defaultInboxID = defaultClient.inboxID();
+    const defaultPath = await defaultClient.storage().path();
+    expect(defaultPath?.startsWith("xmtp-sdk/"), "default browser database is outside xmtp-sdk/");
+    await defaultClient.end();
+    const reopenedDefault = await Client.build(
+      session,
+      defaultIdentity,
+      defaultOptions,
+      defaultInboxID,
     );
-    results.push("scenario 10: catch-up, configuration, and typed error");
+    equal(await reopenedDefault.storage().path(), defaultPath, "default browser database path changed on reopen");
+    await reopenedDefault.end();
+    results.push("scenario 10: catch-up, configuration, and default storage");
 
     const unsignedSigner = signer(session);
     const unsigned = await Client.create(session, unsignedSigner, {
