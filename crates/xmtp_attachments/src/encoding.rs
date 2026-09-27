@@ -123,10 +123,11 @@ struct ParameterEntry {
     value: Vec<u8>,
     key_too_long: bool,
     value_too_long: bool,
+    serialized_len: usize,
 }
 
 impl ParameterEntry {
-    fn new() -> Self {
+    fn new(prefix_len: usize) -> Self {
         Self {
             state: EntryState::Tag,
             header: Vec::new(),
@@ -134,6 +135,7 @@ impl ParameterEntry {
             value: Vec::new(),
             key_too_long: false,
             value_too_long: false,
+            serialized_len: prefix_len,
         }
     }
 
@@ -142,6 +144,7 @@ impl ParameterEntry {
     }
 
     fn push(&mut self, input: &[u8]) -> Result<(), AttachmentError> {
+        self.serialized_len = self.serialized_len.saturating_add(input.len());
         let mut at = 0;
         while at < input.len() {
             match self.state {
@@ -229,7 +232,7 @@ impl ParameterEntry {
         Ok(())
     }
 
-    fn finish(self) -> Result<Option<Vec<u8>>, AttachmentError> {
+    fn finish(self) -> Result<Option<(Vec<u8>, usize)>, AttachmentError> {
         if !matches!(self.state, EntryState::Tag) || !self.header.is_empty() {
             return Err(invalid());
         }
@@ -248,7 +251,7 @@ impl ParameterEntry {
         let mut field = vec![0x12];
         encode_varint(entry.len() as u64, &mut field);
         field.extend_from_slice(&entry);
-        Ok(Some(field))
+        Ok(Some((field, self.serialized_len)))
     }
 }
 
@@ -279,6 +282,7 @@ pub struct AttachmentDecoder {
     state: ParseState,
     header: Vec<u8>,
     metadata: Vec<u8>,
+    retained_bytes: usize,
     parameter: Option<ParameterEntry>,
     content_fields: usize,
     sink_has_content: bool,
@@ -296,6 +300,7 @@ impl AttachmentDecoder {
             state: ParseState::Tag,
             header: Vec::new(),
             metadata: Vec::new(),
+            retained_bytes: 0,
             parameter: None,
             content_fields: 0,
             sink_has_content: false,
@@ -303,9 +308,18 @@ impl AttachmentDecoder {
     }
 
     fn append_metadata(&mut self, bytes: &[u8]) -> Result<(), AttachmentError> {
-        if bytes.len() > MAX_METADATA_BYTES.saturating_sub(self.metadata.len()) {
+        self.append_retained(bytes, bytes.len())
+    }
+
+    fn append_retained(
+        &mut self,
+        bytes: &[u8],
+        serialized_len: usize,
+    ) -> Result<(), AttachmentError> {
+        if serialized_len > MAX_METADATA_BYTES.saturating_sub(self.retained_bytes) {
             return Err(invalid());
         }
+        self.retained_bytes += serialized_len;
         self.metadata.extend_from_slice(bytes);
         Ok(())
     }
@@ -378,12 +392,12 @@ impl AttachmentDecoder {
                                 header.extend_from_slice(&self.header);
                                 self.append_metadata(&header)?;
                                 if remaining
-                                    > MAX_METADATA_BYTES.saturating_sub(self.metadata.len())
+                                    > MAX_METADATA_BYTES.saturating_sub(self.retained_bytes)
                                 {
                                     return Err(invalid());
                                 }
                             } else if matches!(kind, DataKind::Parameter) {
-                                self.parameter = Some(ParameterEntry::new());
+                                self.parameter = Some(ParameterEntry::new(1 + self.header.len()));
                             }
                             self.header.clear();
                             if remaining == 0 && matches!(kind, DataKind::Parameter) {
@@ -417,9 +431,10 @@ impl AttachmentDecoder {
                     at += take;
                     if take == remaining
                         && matches!(kind, DataKind::Parameter)
-                        && let Some(field) = self.parameter.take().unwrap().finish()?
+                        && let Some((field, serialized_len)) =
+                            self.parameter.take().unwrap().finish()?
                     {
-                        self.append_metadata(&field)?;
+                        self.append_retained(&field, serialized_len)?;
                     }
                     self.state = if take == remaining {
                         ParseState::Tag
@@ -865,10 +880,47 @@ mod tests {
                 .bytes()
                 .all(|byte| byte == b'b')
         );
-        let (_, _, meta) = decode(&bytes)?;
-        let filename = meta.filename.unwrap();
-        assert_eq!(filename.len(), 60_000);
-        assert!(filename.bytes().all(|byte| byte == b'b'));
+        assert_eq!(
+            decode(&bytes)
+                .err()
+                .expect("oversized entry must fail")
+                .cause,
+            AttachmentFailureCause::NotAnAttachment
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn recognized_repeated_values_count_serialized() {
+        let mut value = envelope(b"content".to_vec());
+        value.parameters.remove("filename");
+        for size in [40_000, 10_000] {
+            let mut bytes = value.encode_to_vec();
+            let mut entry = Vec::new();
+            entry.extend_from_slice(b"\x0a\x08filename");
+            for byte in [b'a', b'b'] {
+                entry.push(0x12);
+                encode_varint(size, &mut entry);
+                entry.extend(std::iter::repeat_n(byte, size as usize));
+            }
+            bytes.push(0x12);
+            encode_varint(entry.len() as u64, &mut bytes);
+            bytes.extend_from_slice(&entry);
+            if size == 40_000 {
+                assert_eq!(
+                    decode(&bytes)
+                        .err()
+                        .expect("oversized entry must fail")
+                        .cause,
+                    AttachmentFailureCause::NotAnAttachment
+                );
+            } else {
+                let (_, _, meta) = decode(&bytes)?;
+                assert_eq!(
+                    meta.filename.as_deref(),
+                    Some("b".repeat(size as usize).as_str())
+                );
+            }
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]
