@@ -1607,6 +1607,12 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         attempt.done.cancel();
     }
 
+    fn end_cancelled_attempt(&self, attempt: &Arc<PendingAttempt>) {
+        *self.shared.lease.lock() = None;
+        let deleted = Err(AttachmentClientError::new(Cause::Deleted));
+        self.end_local_attempt(attempt, Some(&deleted));
+    }
+
     async fn lost_lease(&self, attempt: &Arc<PendingAttempt>) {
         *self.shared.lease.lock() = None;
         self.end_local_attempt(attempt, None);
@@ -1636,11 +1642,16 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         attempt: &Arc<PendingAttempt>,
     ) {
         let mut delay = Duration::from_millis(100);
+        let mut retrying = false;
         let timing = *self.context.attachment_runtime().lease_timing.lock();
         let mut renew = Box::pin(xmtp_common::time::interval_stream(timing.renew));
         #[cfg(not(target_arch = "wasm32"))]
         renew.next().await;
         loop {
+            if retrying && self.shared.cancel.is_cancelled() {
+                self.end_cancelled_attempt(attempt);
+                return;
+            }
             let event_lock = self
                 .context
                 .attachment_runtime()
@@ -1689,6 +1700,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                     return;
                 }
                 Err(error) if outcome_write_is_retryable(&error) => {
+                    retrying = true;
                     tracing::warn!(%error, "attachment outcome write will be retried");
                 }
                 Err(error) => {
@@ -1706,6 +1718,11 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
             tokio::pin!(retry_delay);
             loop {
                 tokio::select! {
+                    biased;
+                    _ = self.shared.cancel.cancelled() => {
+                        self.end_cancelled_attempt(attempt);
+                        return;
+                    }
                     _ = &mut retry_delay => break,
                     _ = renew.next() => {
                         let now = now_ns();

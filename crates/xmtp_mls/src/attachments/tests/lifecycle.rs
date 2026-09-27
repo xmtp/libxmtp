@@ -42,6 +42,84 @@ async fn locked_outcome_write_is_retried() {
     assert_eq!(row.status, "complete");
 }
 
+// verifies: ATCH-047, EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_stops_retrying_unrecorded_upload_outcome() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let events = alix
+        .client
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadCompleted,
+            EventKind::AttachmentUploadFailed,
+            EventKind::AttachmentDeleted,
+        ]))?;
+    alix.client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TRIGGER lock_attachment_outcome_before_delete BEFORE UPDATE OF status ON pending_attachments \
+             WHEN NEW.status = 'complete' \
+             BEGIN SELECT RAISE(ABORT, 'database table is locked'); END",
+        )
+        .execute(conn)
+    })?;
+    let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while alix
+            .client
+            .context
+            .attachments
+            .outcome_write_errors
+            .load(AtomicOrdering::SeqCst)
+            == 0
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    tokio::time::timeout(
+        Duration::from_secs(2),
+        alix.client.attachments().delete_local(&remote),
+    )
+    .await??;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), upload)
+            .await??
+            .unwrap_err()
+            .cause,
+        Cause::Deleted
+    );
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_none()
+    );
+    assert!(!dir.path().join(attachment_key(&remote)?).exists());
+    assert!(
+        !dir.path()
+            .join(staged_path(&remote.content_digest)?)
+            .exists()
+    );
+    let kinds: Vec<_> = events
+        .drain()
+        .into_iter()
+        .map(|event| event.client.unwrap().kind())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentDeleted
+        ]
+    );
+}
+
 // verifies: ATCH-025, ATCH-074, EVENT-055
 #[xmtp_common::test(unwrap_try = true)]
 async fn outcome_retry_renews_lease_without_another_upload() {
