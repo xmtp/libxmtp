@@ -4,12 +4,32 @@ use super::*;
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn deletion_cannot_race_reconciliation_snapshot() {
-    for separate_client in [false, true] {
+    #[cfg(unix)]
+    let cases = [
+        (false, false, false),
+        (true, false, false),
+        (true, false, true),
+        (true, true, false),
+    ];
+    #[cfg(not(unix))]
+    let cases = [(false, false, false), (true, false, false)];
+    for (separate_client, reconcile_via_alias, delete_via_alias) in cases {
         let dir = tempfile::tempdir()?;
-        tester!(alix, attachments_dir: dir.path(), disable_workers);
+        let real = dir.path().join("attachments");
+        std::fs::create_dir(&real)?;
+        #[cfg(unix)]
+        let alias = dir.path().join("alias");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &alias)?;
+        #[cfg(not(unix))]
+        let alias = real.clone();
+        let first_root = if reconcile_via_alias { &alias } else { &real };
+        let second_root = if delete_via_alias { &alias } else { &real };
+        tester!(alix, attachments_dir: first_root, disable_workers);
         let pending = alix.client.attachments().create(bytes()).await?;
         let remote = pending.remote_attachment().clone();
         let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .attachments_dir(second_root)
             .with_disable_workers(true)
             .build()
             .await?;

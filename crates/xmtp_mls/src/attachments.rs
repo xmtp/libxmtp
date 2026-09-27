@@ -63,9 +63,6 @@ fn shared_publication_lock(dir: Option<&PathBuf>) -> Arc<AsyncMutex<()>> {
     let Some(dir) = dir else {
         return Arc::new(AsyncMutex::new(()));
     };
-    #[cfg(not(target_arch = "wasm32"))]
-    let path = std::path::absolute(dir).unwrap_or_else(|_| dir.clone());
-    #[cfg(target_arch = "wasm32")]
     let path = dir.clone();
     let mut locks = PUBLICATION_LOCKS.lock();
     if let Some(lock) = locks.get(&path).and_then(Weak::upgrade) {
@@ -846,7 +843,6 @@ impl AttachmentRuntime {
         dir: Option<PathBuf>,
         options: AttachmentOptions,
     ) -> Result<Self, AttachmentClientError> {
-        let publication_lock = shared_publication_lock(dir.as_ref());
         let store: Option<Arc<dyn LocalStore>> = match dir.as_ref() {
             None => None,
             #[cfg(not(target_arch = "wasm32"))]
@@ -856,6 +852,18 @@ impl AttachmentRuntime {
                 xmtp_attachments::OpfsStore::new(&path.to_string_lossy()).await?,
             )),
         };
+        #[cfg(not(target_arch = "wasm32"))]
+        let lock_path = match dir.as_ref() {
+            Some(path) => Some(
+                tokio::fs::canonicalize(path)
+                    .await
+                    .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?,
+            ),
+            None => None,
+        };
+        #[cfg(target_arch = "wasm32")]
+        let lock_path = dir.clone();
+        let publication_lock = shared_publication_lock(lock_path.as_ref());
         Ok(Self {
             store,
             dir,
