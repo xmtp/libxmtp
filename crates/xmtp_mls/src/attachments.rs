@@ -798,6 +798,8 @@ pub struct AttachmentRuntime {
     #[cfg(all(test, not(target_arch = "wasm32")))]
     download_publish_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
+    download_existing_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     reconcile_snapshot_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
     outcome_write_errors: AtomicUsize,
@@ -855,6 +857,8 @@ impl Default for AttachmentRuntime {
             download_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_publish_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_existing_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             reconcile_snapshot_pause: Mutex::new(None),
             #[cfg(test)]
@@ -932,6 +936,8 @@ impl AttachmentRuntime {
             download_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_publish_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_existing_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             reconcile_snapshot_pause: Mutex::new(None),
             #[cfg(test)]
@@ -1172,6 +1178,8 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         let key = attachment_key(remote)?;
         let store = self.runtime().store()?;
         let lock = self.runtime().event_lock(&key);
+        // Keep the file check and its row insert behind the same lock as deletion.
+        let publication = self.runtime().publication_lock.lock().await;
         let shared = {
             let _guard = lock.lock().await;
             if self.runtime().deleting.lock().contains_key(&key) {
@@ -1180,6 +1188,13 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             if store.exists(&relative).await? {
                 if !store.is_regular_file(&relative).await? {
                     return Err(AttachmentClientError::new(Cause::LocalStorage));
+                }
+                #[cfg(all(test, not(target_arch = "wasm32")))]
+                let pause = { self.runtime().download_existing_pause.lock().take() };
+                #[cfg(all(test, not(target_arch = "wasm32")))]
+                if let Some((entered, resume)) = pause {
+                    entered.notify_one();
+                    resume.notified().await;
                 }
                 self.context
                     .db()
@@ -1239,6 +1254,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 shared
             }
         };
+        drop(publication);
         let mut outcome = shared.outcome.subscribe();
         loop {
             let current = outcome.borrow_and_update().clone();

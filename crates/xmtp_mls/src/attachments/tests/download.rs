@@ -114,6 +114,73 @@ async fn existing_file_keeps_decoded_metadata() {
     }
 }
 
+// verifies: ATCH-047, ATCH-063
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn existing_file_record_cannot_race_another_clients_deletion() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let relative = plaintext_rel_path(&remote)?;
+    alix.client
+        .context
+        .db()
+        .delete_local_attachment(&relative)?;
+
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    *second.context.attachments.download_existing_pause.lock() =
+        Some((entered.clone(), resume.clone()));
+    let downloading_client = second.clone();
+    let downloading_remote = remote.clone();
+    let downloading = tokio::spawn(async move {
+        downloading_client
+            .attachments()
+            .download(&downloading_remote)
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+
+    let deleting_client = alix.client.clone();
+    let deleting_remote = remote.clone();
+    let mut deleting = tokio::spawn(async move {
+        deleting_client
+            .attachments()
+            .delete_local(&deleting_remote)
+            .await
+    });
+    let deleted_before_record =
+        match tokio::time::timeout(Duration::from_millis(250), &mut deleting).await {
+            Ok(result) => {
+                result??;
+                true
+            }
+            Err(_) => false,
+        };
+    resume.notify_one();
+    let downloaded = tokio::time::timeout(Duration::from_secs(5), downloading).await???;
+    if !deleted_before_record {
+        tokio::time::timeout(Duration::from_secs(5), deleting).await???;
+    }
+    assert!(
+        !deleted_before_record,
+        "deletion crossed the existing-file record insert"
+    );
+    assert!(!downloaded.path.exists());
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_local_attachment(&relative)?
+            .is_none()
+    );
+}
+
 // verifies: ATCH-051, ATCH-063
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_metadata_write_removes_downloaded_file() {
