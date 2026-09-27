@@ -271,8 +271,7 @@ impl Client {
         inbox_id: Option<InboxID>,
         require_stored_identity: bool,
     ) -> Result<Self, XmtpError> {
-        let built =
-            Self::build_client(identity, options, inbox_id, require_stored_identity).await;
+        let built = Self::build_client(identity, options, inbox_id, require_stored_identity).await;
         // A failed build can unpause the OPFS pool and then drop its store,
         // for example when the database has no stored identity. The browser
         // host releases the storage lock after the failure, so the pool must
