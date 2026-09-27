@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-base=$(git merge-base HEAD origin/self-hosted)
+base_branch=${GITHUB_BASE_REF:-self-hosted}
+base_ref="refs/remotes/origin/$base_branch"
+if ! git show-ref --verify --quiet "$base_ref"; then
+  git fetch origin "refs/heads/$base_branch:$base_ref"
+fi
+base=$(git merge-base HEAD "$base_ref")
 if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
   exit 0
 fi
