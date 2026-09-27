@@ -12,7 +12,13 @@ import {
 import {
   Backend,
 } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import { Client, Message } from "../../../../target/sdk-generated/typescript-wasm/index";
+import {
+  Client,
+  ConversationStream,
+  EventStream,
+  Message,
+  MessageStream,
+} from "../../../../target/sdk-generated/typescript-wasm/index";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
@@ -462,12 +468,105 @@ export async function runBrowserBridgeConformance(
       "raw reader missed the message",
     );
     await reader.end();
-    results.push(
-      "PENDING scenario 7 and stream smoke: raw reader passed; Task 19 ack adapter is on #4250 (O2)",
+    const closeReasons: string[] = [];
+    const connectionStates: B.ConnectionState[] = [];
+    const messageStream = new MessageStream(
+      (signal) => readerGroup.messageReader({ signal }),
+      reopened,
+      {
+        onClose: (reason) => closeReasons.push(reason.kind),
+        onConnectionStateChange: (_previous, current) =>
+          connectionStates.push(current),
+      },
     );
-    results.push(
-      "PENDING scenario 8: Task 20 events and listeners are on #4251 (O2)",
+    equal(
+      (await messageStream.next()).value?.id.toString(),
+      readerID.toString(),
+      "reader did not replay its unacknowledged message",
     );
+    expect(
+      connectionStates.includes(B.ConnectionState.Connecting),
+      "reader did not report its connection state",
+    );
+    await messageStream.return();
+    equal(closeReasons.join(), "closed", "reader did not call onClose");
+    const replay = new MessageStream(
+      (signal) => readerGroup.messageReader({ signal }),
+      reopened,
+    );
+    equal(
+      (await replay.next()).value?.id.toString(),
+      readerID.toString(),
+      "closing the stream acknowledged the last message",
+    );
+    const pendingMessage = replay.next();
+    const nextID = await readerGroup.sendText("next request", undefined);
+    equal(
+      (await pendingMessage).value?.id.toString(),
+      nextID.toString(),
+      "next request did not receive the new message",
+    );
+    const idleRead = replay.next();
+    await replay.return();
+    equal((await idleRead).done, true, "idle read did not cancel");
+    const conversationStream = ConversationStream.openBrowser(
+      reopened,
+      { consentStates: [B.ConsentState.Unknown, B.ConsentState.Allowed] },
+    );
+    await conversationStream.ready();
+    const denied = await reopened.conversations().createGroup([], undefined);
+    await reopened.preferences().setConsentStates([
+      {
+        entity: B.ConsentEntity.Conversation.new({ conversationID: denied.id() }),
+        state: B.ConsentState.Denied,
+      },
+    ]);
+    const allowed = await reopened.conversations().createGroup([], undefined);
+    const selected = (await conversationStream.next()).value;
+    equal(selected?.tag, B.Conversation_Tags.Group, "conversation reader tag changed");
+    if (selected?.tag === B.Conversation_Tags.Group)
+      equal(
+        selected.inner.group.id().toString(),
+        allowed.id().toString(),
+        "conversation reader did not apply consentStates",
+      );
+    await conversationStream.end();
+    results.push("scenario 7: message and conversation readers, consentStates, connection state, onClose, and idle cancellation");
+
+    const eventFilter: B.EventFilter = {
+      kinds: [B.EventKind.ConversationJoined],
+      conversationIDs: undefined,
+      contentTypes: undefined,
+      referencesOwnMessages: false,
+    };
+    const eventReader = await reopened.events(eventFilter);
+    let listenerCalls = 0;
+    const listenerID = await reopened.startListener(eventFilter, {
+      async onEvent(event) {
+        equal(event.tag, B.ClientEvent_Tags.ConversationJoined, "listener event changed");
+        listenerCalls += 1;
+      },
+    });
+    await reopened.conversations().createGroup([], undefined);
+    equal(
+      (await eventReader.next())?.tag,
+      B.ClientEvent_Tags.ConversationJoined,
+      "event reader missed the join",
+    );
+    for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    equal(listenerCalls, 1, "listener missed the join");
+    await reopened.stopListener(listenerID);
+    await eventReader.end();
+    const eventStream = new EventStream(await reopened.events(eventFilter));
+    await reopened.conversations().createGroup([], undefined);
+    equal(
+      (await eventStream.next()).value?.tag,
+      B.ClientEvent_Tags.ConversationJoined,
+      "event stream missed the join",
+    );
+    await eventStream.return();
+    results.push("scenario 8: event reader, listener, stop, and event stream");
 
     const key = new Uint8Array(32).fill(7).buffer;
     const archive = await reopened.archives().exportToBytes(key, undefined);
