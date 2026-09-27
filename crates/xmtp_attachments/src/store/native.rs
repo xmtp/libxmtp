@@ -14,8 +14,8 @@ use cap_std::fs::{Dir, OpenOptions};
 use cap_std::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 
 use super::{
-    LocalStore, StagedFile, StoreFile, StoreWriter, is_reconcile_dir, validate_relative,
-    validate_temp,
+    LocalStore, StagedFile, StoreFile, StoreMoveError, StoreWriter, is_reconcile_dir,
+    validate_relative, validate_temp,
 };
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
@@ -487,7 +487,7 @@ impl LocalStore for NativeStore {
         })
     }
 
-    async fn rename(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
+    async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError> {
         validate_relative(from)?;
         validate_relative(to)?;
         let (from_parent, from_name) = self.parent(from, false).map_err(storage_error)?;
@@ -495,26 +495,28 @@ impl LocalStore for NativeStore {
             .symlink_metadata(&from_name)
             .map_err(storage_error)?;
         if !source.is_file() || is_link(&source) {
-            return Err(storage_error(()));
+            return Err(storage_error(()).into());
         }
         let (to_parent, to_name) = self.parent(to, true).map_err(storage_error)?;
         if exists_nofollow(&to_parent, &to_name).map_err(storage_error)? {
-            return Err(storage_error(()));
+            return Err(StoreMoveError::DestinationExists);
         }
         match self.hard_link(&from_parent, &from_name, &to_parent, &to_name) {
             Ok(()) => match self.remove_source(&from_parent, &from_name) {
                 Ok(()) => Ok(()),
                 Err(_) => {
                     let _ = to_parent.remove_file(&to_name);
-                    Err(storage_error(()))
+                    Err(storage_error(()).into())
                 }
             },
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(storage_error(())),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Err(StoreMoveError::DestinationExists)
+            }
             Err(_) => {
                 // Some file systems cannot make hard links. The fallback must
                 // reject a destination created after this check.
                 if exists_nofollow(&to_parent, &to_name).map_err(storage_error)? {
-                    return Err(storage_error(()));
+                    return Err(StoreMoveError::DestinationExists);
                 }
                 #[cfg(test)]
                 if let Some(bytes) = &self.fallback_race_bytes {
@@ -526,8 +528,13 @@ impl LocalStore for NativeStore {
                         .and_then(|mut file| file.write_all(bytes))
                         .map_err(storage_error)?;
                 }
-                rename_no_replace(&from_parent, &from_name, &to_parent, &to_name)
-                    .map_err(storage_error)
+                rename_no_replace(&from_parent, &from_name, &to_parent, &to_name).map_err(|error| {
+                    if error.kind() == io::ErrorKind::AlreadyExists {
+                        StoreMoveError::DestinationExists
+                    } else {
+                        storage_error(error).into()
+                    }
+                })
             }
         }
     }

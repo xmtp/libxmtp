@@ -9,8 +9,8 @@ use web_sys::{
 };
 
 use super::{
-    LocalStore, StagedFile, StoreFile, StoreWriter, is_reconcile_dir, validate_relative,
-    validate_temp,
+    LocalStore, StagedFile, StoreFile, StoreMoveError, StoreWriter, is_reconcile_dir,
+    validate_relative, validate_temp,
 };
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
@@ -216,11 +216,17 @@ impl LocalStore for OpfsStore {
         self.create_file(path).await
     }
 
-    async fn rename(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
+    async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError> {
         if self.exists(to).await? {
-            return Err(AttachmentError::new(Cause::LocalStorage));
+            return Err(StoreMoveError::DestinationExists);
         }
-        self.replace(from, to).await
+        match self.replace(from, to).await {
+            Ok(()) => Ok(()),
+            Err(_error) if self.exists(to).await.unwrap_or(false) => {
+                Err(StoreMoveError::DestinationExists)
+            }
+            Err(error) => Err(error.into()),
+        }
     }
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
@@ -475,6 +481,30 @@ mod tests {
             (expected.last_modified() as i64) * 1_000_000
         );
         assert!(files.iter().any(|file| file.path == ".tmp/one"));
+    }
+
+    // verifies: ATCH-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_rename_reports_existing_destination() {
+        let store = OpfsStore::new(&test_path()).await?;
+        let mut original = store.create_temp(".tmp/original").await?;
+        DownloadSink::write(&mut original, b"original").await?;
+        store.sync(&mut original).await?;
+        drop(original);
+        store.rename(".tmp/original", "key/file").await?;
+        let mut second = store.create_temp(".tmp/second").await?;
+        DownloadSink::write(&mut second, b"second").await?;
+        store.sync(&mut second).await?;
+        drop(second);
+        let error = match store.rename(".tmp/second", "key/file").await {
+            Ok(()) => panic!("existing destination was replaced"),
+            Err(error) => error,
+        };
+        assert!(matches!(error, StoreMoveError::DestinationExists));
+        let file = store.file_handle("key/file", false).await?.get_file();
+        let file: web_sys::File = JsFuture::from(file).await?.dyn_into()?;
+        let bytes = JsFuture::from(file.array_buffer()).await?;
+        assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"original");
     }
 
     // verifies: ATCH-043, ATCH-051

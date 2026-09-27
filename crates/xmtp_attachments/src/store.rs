@@ -145,6 +145,24 @@ pub struct StoreFile {
     pub modified_at_ns: i64,
 }
 
+/// The result of a move that must not replace an existing file.
+#[derive(Debug, thiserror::Error)]
+pub enum StoreMoveError {
+    #[error("attachment destination exists")]
+    DestinationExists,
+    #[error(transparent)]
+    Other(#[from] AttachmentError),
+}
+
+impl StoreMoveError {
+    pub fn cause(&self) -> Cause {
+        match self {
+            Self::DestinationExists => Cause::LocalStorage,
+            Self::Other(error) => error.cause,
+        }
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait DownloadSink: xmtp_common::wasm::MaybeSend {
@@ -159,7 +177,7 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     /// cannot create a file exclusively.
     async fn create_temp(&self, path: &str) -> Result<StoreWriter, AttachmentError>;
     /// Move a file only when the destination does not exist.
-    async fn rename(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
+    async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError>;
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
     async fn remove_file(&self, path: &str) -> Result<(), AttachmentError>;
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError>;
@@ -668,7 +686,7 @@ mod tests {
             .rename(".tmp/source", ".tmp/destination")
             .await
             .unwrap_err();
-        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(matches!(error, StoreMoveError::DestinationExists));
         assert_eq!(
             tokio::fs::read(directory.path().join(".tmp/source")).await?,
             b"source"
@@ -700,7 +718,7 @@ mod tests {
         source.write(b"second").await?;
         drop(source);
         let error = store.rename(".tmp/second", "key/file").await.unwrap_err();
-        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(matches!(error, StoreMoveError::DestinationExists));
         assert_eq!(
             tokio::fs::read(directory.path().join("key/file")).await?,
             b"source"
@@ -934,7 +952,7 @@ mod tests {
                 .rename(".tmp/source", "key/final")
                 .await
                 .unwrap_err()
-                .cause,
+                .cause(),
             Cause::LocalStorage
         );
         assert!(store.exists(".tmp/source").await?);

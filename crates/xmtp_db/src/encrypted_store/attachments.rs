@@ -75,6 +75,14 @@ impl PendingAttachmentOutcome {
 }
 
 pub trait QueryLocalAttachment {
+    /// Insert a record without changing an existing one. Return true only for a new row.
+    fn insert_local_attachment_if_absent(
+        &self,
+        path: &str,
+        created_at_ns: i64,
+        mime_type: Option<String>,
+        filename: Option<String>,
+    ) -> Result<bool, StorageError>;
     fn insert_or_ignore_local_attachment(
         &self,
         path: &str,
@@ -93,6 +101,16 @@ pub trait QueryLocalAttachment {
 }
 
 impl<T: QueryLocalAttachment + ?Sized> QueryLocalAttachment for &T {
+    fn insert_local_attachment_if_absent(
+        &self,
+        path: &str,
+        created_at_ns: i64,
+        mime_type: Option<String>,
+        filename: Option<String>,
+    ) -> Result<bool, StorageError> {
+        (**self).insert_local_attachment_if_absent(path, created_at_ns, mime_type, filename)
+    }
+
     fn insert_or_ignore_local_attachment(
         &self,
         path: &str,
@@ -124,6 +142,27 @@ impl<T: QueryLocalAttachment + ?Sized> QueryLocalAttachment for &T {
 }
 
 impl<C: ConnectionExt> QueryLocalAttachment for DbConnection<C> {
+    #[xmtp_common::db_span]
+    fn insert_local_attachment_if_absent(
+        &self,
+        path: &str,
+        created_at_ns: i64,
+        mime_type: Option<String>,
+        filename: Option<String>,
+    ) -> Result<bool, StorageError> {
+        Ok(self.raw_query(|conn| {
+            diesel::sql_query(
+                "INSERT INTO local_attachments (path, created_at_ns, mime_type, filename) \
+                 VALUES (?, ?, ?, ?) ON CONFLICT(path) DO NOTHING",
+            )
+            .bind::<Text, _>(path)
+            .bind::<BigInt, _>(created_at_ns)
+            .bind::<Nullable<Text>, _>(mime_type)
+            .bind::<Nullable<Text>, _>(filename)
+            .execute(conn)
+        })? == 1)
+    }
+
     #[xmtp_common::db_span]
     fn insert_or_ignore_local_attachment(
         &self,
@@ -195,6 +234,13 @@ impl<C: ConnectionExt> QueryLocalAttachment for DbConnection<C> {
 }
 
 pub trait QueryPendingAttachment {
+    /// Insert a pending row without changing an existing one. Return true only for a new row.
+    fn insert_pending_attachment_if_absent(
+        &self,
+        content_digest: &str,
+        remote_attachment: &[u8],
+        created_at_ns: i64,
+    ) -> Result<bool, StorageError>;
     fn insert_or_ignore_pending_attachment(
         &self,
         content_digest: &str,
@@ -245,6 +291,19 @@ pub trait QueryPendingAttachment {
 }
 
 impl<T: QueryPendingAttachment + ?Sized> QueryPendingAttachment for &T {
+    fn insert_pending_attachment_if_absent(
+        &self,
+        content_digest: &str,
+        remote_attachment: &[u8],
+        created_at_ns: i64,
+    ) -> Result<bool, StorageError> {
+        (**self).insert_pending_attachment_if_absent(
+            content_digest,
+            remote_attachment,
+            created_at_ns,
+        )
+    }
+
     fn insert_or_ignore_pending_attachment(
         &self,
         content_digest: &str,
@@ -324,6 +383,26 @@ impl<T: QueryPendingAttachment + ?Sized> QueryPendingAttachment for &T {
 }
 
 impl<C: ConnectionExt> QueryPendingAttachment for DbConnection<C> {
+    #[xmtp_common::db_span]
+    fn insert_pending_attachment_if_absent(
+        &self,
+        content_digest: &str,
+        remote_attachment: &[u8],
+        created_at_ns: i64,
+    ) -> Result<bool, StorageError> {
+        Ok(self.raw_query(|conn| {
+            diesel::insert_into(pending_attachments::table)
+                .values((
+                    pending_attachments::content_digest.eq(content_digest),
+                    pending_attachments::remote_attachment.eq(remote_attachment),
+                    pending_attachments::created_at_ns.eq(created_at_ns),
+                ))
+                .on_conflict(pending_attachments::content_digest)
+                .do_nothing()
+                .execute(conn)
+        })? == 1)
+    }
+
     #[xmtp_common::db_span]
     fn insert_or_ignore_pending_attachment(
         &self,
@@ -545,6 +624,32 @@ mod tests {
             db.list_local_attachments()?.pop()
         );
         assert_eq!(db.get_local_attachment("missing")?, None);
+    }
+
+    // verifies: ATCH-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn insert_if_absent_reports_new_attachment_rows() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        assert!(db.insert_local_attachment_if_absent(
+            "key/file",
+            3,
+            Some("image/png".into()),
+            Some("original.png".into()),
+        )?);
+        let local = db.get_local_attachment("key/file")?.expect("local row");
+        assert!(!db.insert_local_attachment_if_absent(
+            "key/file",
+            9,
+            Some("text/plain".into()),
+            Some("replacement.txt".into()),
+        )?);
+        assert_eq!(db.get_local_attachment("key/file")?, Some(local));
+
+        assert!(db.insert_pending_attachment_if_absent("digest", b"original", 3)?);
+        let pending = db.get_pending_attachment("digest")?.expect("pending row");
+        assert!(!db.insert_pending_attachment_if_absent("digest", b"replacement", 9)?);
+        assert_eq!(db.get_pending_attachment("digest")?, Some(pending));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -68,6 +68,7 @@ mock! {
     }
 
     impl QueryLocalAttachment for DbQuery {
+        fn insert_local_attachment_if_absent(&self, path: &str, created_at_ns: i64, mime_type: Option<String>, filename: Option<String>) -> Result<bool, StorageError>;
         fn insert_or_ignore_local_attachment(&self, path: &str, created_at_ns: i64, mime_type: Option<String>, filename: Option<String>) -> Result<(), StorageError>;
         fn get_local_attachment(&self, path: &str) -> Result<Option<crate::attachments::StoredLocalAttachment>, StorageError>;
         fn delete_local_attachment(&self, path: &str) -> Result<usize, StorageError>;
@@ -76,6 +77,7 @@ mock! {
     }
 
     impl QueryPendingAttachment for DbQuery {
+        fn insert_pending_attachment_if_absent(&self, content_digest: &str, remote_attachment: &[u8], created_at_ns: i64) -> Result<bool, StorageError>;
         fn insert_or_ignore_pending_attachment(&self, content_digest: &str, remote_attachment: &[u8], created_at_ns: i64) -> Result<(), StorageError>;
         fn delete_pending_attachment(&self, content_digest: &str) -> Result<usize, StorageError>;
         fn get_pending_attachment(&self, content_digest: &str) -> Result<Option<crate::attachments::StoredPendingAttachment>, StorageError>;
