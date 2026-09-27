@@ -1,6 +1,6 @@
 use std::{
     error::Error,
-    io::Read,
+    io::{BufReader, Read},
     net::{IpAddr, SocketAddr},
     sync::{
         Arc,
@@ -346,6 +346,7 @@ impl Read for ChannelReader {
         if self.position == self.chunk.len() {
             if !self.chunk.is_empty() {
                 self.chunk = Bytes::new();
+                self.position = 0;
                 if self.consumed.blocking_send(()).is_err() {
                     return Ok(0);
                 }
@@ -360,6 +361,34 @@ impl Read for ChannelReader {
         output[..count].copy_from_slice(&self.chunk[self.position..self.position + count]);
         self.position += count;
         Ok(count)
+    }
+}
+
+enum CompressedReader {
+    Gzip(flate2::read::MultiGzDecoder<ChannelReader>),
+    Deflate(flate2::bufread::ZlibDecoder<BufReader<ChannelReader>>),
+}
+
+impl Read for CompressedReader {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::Gzip(reader) => reader.read(output),
+            Self::Deflate(reader) => reader.read(output),
+        }
+    }
+}
+
+impl CompressedReader {
+    fn finish(self) -> Result<(), ()> {
+        if let Self::Deflate(reader) = self {
+            // BufReader keeps bytes after the zlib end marker available here.
+            let mut encoded = reader.into_inner();
+            let mut trailing = [0_u8; 1];
+            if encoded.read(&mut trailing).map_err(|_| ())? != 0 {
+                return Err(());
+            }
+        }
+        Ok(())
     }
 }
 
@@ -383,6 +412,7 @@ async fn read_compressed(
     let gzip = encoding == "gzip";
     let producer = tokio::spawn(async move {
         let mut input_count = 0_u64;
+        let mut decoder_done = false;
         loop {
             let chunk = match timeout(idle_timeout, response.chunk()).await {
                 Ok(Ok(Some(chunk))) => chunk,
@@ -399,13 +429,18 @@ async fn read_compressed(
                     break;
                 }
             };
+            if decoder_done {
+                continue;
+            }
             for start in (0..chunk.len()).step_by(CHUNK_SIZE) {
                 let end = (start + CHUNK_SIZE).min(chunk.len());
                 if input_tx.send(chunk.slice(start..end)).await.is_err() {
-                    return;
+                    decoder_done = true;
+                    break;
                 }
                 if consumed_rx.recv().await.is_none() {
-                    return;
+                    decoder_done = true;
+                    break;
                 }
             }
         }
@@ -420,16 +455,16 @@ async fn read_compressed(
             chunk: Bytes::new(),
             position: 0,
         };
-        let mut reader: Box<dyn Read> = if gzip {
-            Box::new(flate2::read::MultiGzDecoder::new(reader))
+        let mut reader = if gzip {
+            CompressedReader::Gzip(flate2::read::MultiGzDecoder::new(reader))
         } else {
-            Box::new(flate2::read::ZlibDecoder::new(reader))
+            CompressedReader::Deflate(flate2::bufread::ZlibDecoder::new(BufReader::new(reader)))
         };
         let mut output = vec![0_u8; CHUNK_SIZE];
         loop {
             let count = reader.read(&mut output).map_err(|_| ())?;
             if count == 0 {
-                return Ok::<_, ()>(());
+                return reader.finish();
             }
             if output_tx.blocking_send((output, count)).is_err() {
                 return Ok(());
@@ -460,19 +495,26 @@ async fn read_compressed(
     }
     drop(recycle_tx);
     drop(output_rx);
-    producer.abort();
     if result.is_ok() {
-        let decoded = decoder
-            .await
-            .map_err(|_| AttachmentError::with_http_status(Cause::HttpStatus, status))?;
+        let decoded = decoder.await;
+        if decoded.as_ref().is_ok_and(|result| result.is_ok()) {
+            let _ = producer.await;
+        } else {
+            producer.abort();
+        }
         if input_too_large.load(Ordering::Acquire) {
             return Err(AttachmentError::new(Cause::TooLarge));
         }
         if network_failed.load(Ordering::Acquire) {
             return Err(AttachmentError::new(Cause::Network));
         }
-        result = decoded.map_err(|_| AttachmentError::with_http_status(Cause::HttpStatus, status));
+        result = decoded
+            .map_err(|_| AttachmentError::with_http_status(Cause::HttpStatus, status))
+            .and_then(|result| {
+                result.map_err(|_| AttachmentError::with_http_status(Cause::HttpStatus, status))
+            });
     } else {
+        producer.abort();
         let _ = decoder.await;
     }
     result
@@ -1606,6 +1648,37 @@ mod tests {
             .await
             .unwrap_err();
         assert_eq!(error.cause, Cause::Network);
+        server.await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn deflate_trailing_bytes_are_rejected() {
+        use std::io::Write;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(b"complete member")?;
+        let compressed = encoder.finish()?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Encoding: deflate\r\nContent-Length: {}\r\n\r\n",
+                compressed.len() + 1024
+            );
+            socket.write_all(head.as_bytes()).await.unwrap();
+            socket.write_all(&compressed).await.unwrap();
+            socket.write_all(&vec![b'x'; 1024]).await.unwrap();
+        });
+        let error = allowed()
+            .get(&url, 100, &mut MemorySink::default())
+            .await
+            .err()
+            .expect("trailing encoded bytes must fail");
+        assert_eq!(error.cause, Cause::HttpStatus);
         server.await?;
     }
 
