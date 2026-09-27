@@ -1,4 +1,7 @@
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::{
+    cell::Cell,
+    io::{Read, Seek, SeekFrom, Write},
+};
 
 use flate2::read::{DeflateDecoder, MultiGzDecoder, ZlibDecoder};
 use prost::Message as _;
@@ -18,6 +21,31 @@ const COPY_CHUNK_BYTES: usize = 8192;
 
 fn invalid() -> AttachmentError {
     AttachmentError::new(AttachmentFailureCause::NotAnAttachment)
+}
+
+fn local_storage() -> AttachmentError {
+    AttachmentError::new(AttachmentFailureCause::LocalStorage)
+}
+
+struct TrackedSource<'a, R> {
+    source: &'a mut R,
+    read_failed: &'a Cell<bool>,
+}
+
+impl<R: Read> Read for TrackedSource<'_, R> {
+    fn read(&mut self, output: &mut [u8]) -> std::io::Result<usize> {
+        self.source
+            .read(output)
+            .inspect_err(|_| self.read_failed.set(true))
+    }
+}
+
+fn decode_error(read_failed: &Cell<bool>) -> AttachmentError {
+    if read_failed.get() {
+        local_storage()
+    } else {
+        invalid()
+    }
 }
 
 /// Encode the protobuf fields before the attachment content.
@@ -485,19 +513,40 @@ impl AttachmentDecoder {
         let compressed = match envelope.compression {
             None => false,
             Some(raw) if raw == Compression::Gzip as i32 => {
-                source.seek(SeekFrom::Start(0)).map_err(|_| invalid())?;
-                copy_bounded(&mut MultiGzDecoder::new(source), output)?;
+                source
+                    .seek(SeekFrom::Start(0))
+                    .map_err(|_| local_storage())?;
+                let read_failed = Cell::new(false);
+                let tracked = TrackedSource {
+                    source,
+                    read_failed: &read_failed,
+                };
+                copy_bounded(&mut MultiGzDecoder::new(tracked), output, &read_failed)?;
                 true
             }
             Some(raw) if raw == Compression::Deflate as i32 => {
-                source.seek(SeekFrom::Start(0)).map_err(|_| invalid())?;
+                source
+                    .seek(SeekFrom::Start(0))
+                    .map_err(|_| local_storage())?;
                 // Validate zlib before writing. If it fails, try raw DEFLATE.
-                let zlib_ok = probe_zlib(&mut ZlibDecoder::new(&mut *source))?;
-                source.seek(SeekFrom::Start(0)).map_err(|_| invalid())?;
+                let read_failed = Cell::new(false);
+                let tracked = TrackedSource {
+                    source: &mut *source,
+                    read_failed: &read_failed,
+                };
+                let zlib_ok = probe_zlib(&mut ZlibDecoder::new(tracked), &read_failed)?;
+                source
+                    .seek(SeekFrom::Start(0))
+                    .map_err(|_| local_storage())?;
+                let read_failed = Cell::new(false);
+                let tracked = TrackedSource {
+                    source,
+                    read_failed: &read_failed,
+                };
                 if zlib_ok {
-                    copy_bounded(&mut ZlibDecoder::new(source), output)?;
+                    copy_bounded(&mut ZlibDecoder::new(tracked), output, &read_failed)?;
                 } else {
-                    copy_bounded(&mut DeflateDecoder::new(source), output)?;
+                    copy_bounded(&mut DeflateDecoder::new(tracked), output, &read_failed)?;
                 }
                 true
             }
@@ -515,14 +564,24 @@ impl AttachmentDecoder {
     }
 }
 
-fn copy_bounded(reader: &mut impl Read, output: &mut impl Write) -> Result<(), AttachmentError> {
+fn copy_bounded(
+    reader: &mut impl Read,
+    output: &mut impl Write,
+    read_failed: &Cell<bool>,
+) -> Result<(), AttachmentError> {
     let mut count = 0usize;
     let mut chunk = [0u8; COPY_CHUNK_BYTES];
     loop {
         let request = (MAX_DECOMPRESSED_BYTES - count + 1).min(chunk.len());
-        let read = reader.read(&mut chunk[..request]).map_err(|_| invalid())?;
+        let read = reader
+            .read(&mut chunk[..request])
+            .map_err(|_| decode_error(read_failed))?;
         if read == 0 {
-            return Ok(());
+            return if read_failed.get() {
+                Err(local_storage())
+            } else {
+                Ok(())
+            };
         }
         if count + read > MAX_DECOMPRESSED_BYTES {
             return Err(invalid());
@@ -534,16 +593,20 @@ fn copy_bounded(reader: &mut impl Read, output: &mut impl Write) -> Result<(), A
     }
 }
 
-fn probe_zlib(reader: &mut impl Read) -> Result<bool, AttachmentError> {
+fn probe_zlib(reader: &mut impl Read, read_failed: &Cell<bool>) -> Result<bool, AttachmentError> {
     let mut count = 0usize;
     let mut chunk = [0u8; COPY_CHUNK_BYTES];
     loop {
         let request = (MAX_DECOMPRESSED_BYTES - count + 1).min(chunk.len());
         let read = match reader.read(&mut chunk[..request]) {
             Ok(read) => read,
+            Err(_) if read_failed.get() => return Err(local_storage()),
             Err(_) => return Ok(false),
         };
         if read == 0 {
+            if read_failed.get() {
+                return Err(local_storage());
+            }
             return Ok(true);
         }
         if count + read > MAX_DECOMPRESSED_BYTES {
@@ -556,7 +619,7 @@ fn probe_zlib(reader: &mut impl Read) -> Result<bool, AttachmentError> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
-    use std::io::{Cursor, Write as _};
+    use std::io::{self, Cursor, Read, Seek, SeekFrom, Write as _};
 
     use flate2::{
         Compression as FlateCompression,
@@ -609,6 +672,55 @@ mod tests {
         let mut decompressed = Vec::new();
         let meta = decoder.finish(&mut temporary, &mut decompressed)?;
         Ok((temporary.into_inner(), decompressed, meta))
+    }
+
+    struct FaultingSource {
+        bytes: Cursor<Vec<u8>>,
+        seeks: usize,
+        fail_read_after_seeks: Option<usize>,
+        fail_seek: bool,
+    }
+
+    impl Read for FaultingSource {
+        fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+            if self
+                .fail_read_after_seeks
+                .is_some_and(|count| self.seeks >= count)
+            {
+                return Err(io::Error::other("local content read failed"));
+            }
+            self.bytes.read(output)
+        }
+    }
+
+    impl Seek for FaultingSource {
+        fn seek(&mut self, position: SeekFrom) -> io::Result<u64> {
+            if self.fail_seek {
+                return Err(io::Error::other("local content seek failed"));
+            }
+            self.seeks += 1;
+            self.bytes.seek(position)
+        }
+    }
+
+    fn finish_with_faulting_source(
+        content: Vec<u8>,
+        compression: Compression,
+        fail_read_after_seeks: Option<usize>,
+        fail_seek: bool,
+    ) -> Result<DecodedMeta, AttachmentError> {
+        let mut value = envelope(content.clone());
+        value.compression = Some(compression as i32);
+        let encoded = value.encode_to_vec();
+        let mut decoder = AttachmentDecoder::new();
+        let _ = decoder.push(&encoded)?;
+        let mut source = FaultingSource {
+            bytes: Cursor::new(content),
+            seeks: 0,
+            fail_read_after_seeks,
+            fail_seek,
+        };
+        decoder.finish(&mut source, &mut Vec::new())
     }
 
     // verifies: ATCH-012
@@ -1008,6 +1120,49 @@ mod tests {
         value.compression = Some(99);
         assert_eq!(
             decode(&value.encode_to_vec()).unwrap_err().cause,
+            AttachmentFailureCause::NotAnAttachment
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn source_io_errors_are_local_storage() {
+        let text = b"valid compressed content";
+        let mut gzip = GzEncoder::new(Vec::new(), FlateCompression::default());
+        gzip.write_all(text)?;
+        let gzip = gzip.finish()?;
+        let mut zlib = ZlibEncoder::new(Vec::new(), FlateCompression::default());
+        zlib.write_all(text)?;
+        let zlib = zlib.finish()?;
+
+        for (content, compression, fail_read_after_seeks, fail_seek) in [
+            (gzip.clone(), Compression::Gzip, Some(1), false),
+            (zlib.clone(), Compression::Deflate, Some(1), false),
+            (zlib.clone(), Compression::Deflate, Some(2), false),
+            (gzip, Compression::Gzip, None, true),
+        ] {
+            let error =
+                finish_with_faulting_source(content, compression, fail_read_after_seeks, fail_seek)
+                    .expect_err("source I/O failure must stop decoding");
+            assert_eq!(error.cause, AttachmentFailureCause::LocalStorage);
+        }
+
+        let mut raw = DeflateEncoder::new(Vec::new(), FlateCompression::default());
+        raw.write_all(text)?;
+        let mut output = Vec::new();
+        let compressed = raw.finish()?;
+        let mut value = envelope(compressed.clone());
+        value.compression = Some(Compression::Deflate as i32);
+        let mut decoder = AttachmentDecoder::new();
+        let encoded = value.encode_to_vec();
+        let _ = decoder.push(&encoded)?;
+        let mut source = Cursor::new(compressed);
+        decoder.finish(&mut source, &mut output)?;
+        assert_eq!(output, text);
+
+        let mut malformed = envelope(b"not gzip".to_vec());
+        malformed.compression = Some(Compression::Gzip as i32);
+        assert_eq!(
+            decode(&malformed.encode_to_vec()).unwrap_err().cause,
             AttachmentFailureCause::NotAnAttachment
         );
     }
