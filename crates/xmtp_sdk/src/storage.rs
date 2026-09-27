@@ -1,12 +1,12 @@
 use std::sync::Arc;
 use xmtp_mls::context::XmtpSharedContext;
 
+#[cfg(not(target_arch = "wasm32"))]
+use crate::conversation::on_sdk_worker;
 use crate::{
     XmtpError,
     client::{CoreClient, EventReaderRegistry, end_client},
 };
-#[cfg(not(target_arch = "wasm32"))]
-use crate::conversation::on_sdk_worker;
 
 #[derive(uniffi::Object)]
 pub struct Storage {

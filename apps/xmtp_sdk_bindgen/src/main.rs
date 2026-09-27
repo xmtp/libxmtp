@@ -214,10 +214,14 @@ fn generate(
                 source.push_str("export { ConversationID, InboxID, InstallationID, MessageID, Timestamp } from './runtime';\n");
             } else if is_wasm {
                 source.push_str("\nexport { Client } from './proxy.gen';\nexport { Message } from './host-message.gen';\nexport { InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream, ConversationStream, EventStream } from './runtime';\n");
-                source.push_str("export type { StreamCloseReason, StreamOptions } from './runtime';\n");
+                source.push_str(
+                    "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
+                );
             } else {
                 source.push_str("\nexport { Client, Message, InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream, ConversationStream, EventStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
-                source.push_str("export type { StreamCloseReason, StreamOptions } from './runtime';\n");
+                source.push_str(
+                    "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
+                );
             }
             fs::write(index, source)?;
             if is_wasm && !pure_only {
