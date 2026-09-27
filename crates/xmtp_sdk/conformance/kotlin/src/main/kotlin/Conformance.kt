@@ -454,7 +454,7 @@ fun main() =
         val eventReader = reopenedHost.events(eventFilter)
         val received = CompletableDeferred<Unit>()
         val listenerID = reopenedHost.startListener(eventFilter) { received.complete(Unit) }
-        reopened.conversations().createGroup(emptyList())
+        reopened.conversations().createGroup(emptyList(), null)
         withTimeout(10_000) { eventReader.first() }
         withTimeout(10_000) { received.await() }
         reopenedHost.stopListener(listenerID)
@@ -469,7 +469,7 @@ fun main() =
         }
         val lateCalls = AtomicInteger()
         val delayedID = reopenedHost.startListener(eventFilter) { lateCalls.incrementAndGet() }
-        reopened.conversations().createGroup(emptyList())
+        reopened.conversations().createGroup(emptyList(), null)
         withTimeout(10_000) { startEntered.await() }
         withTimeout(10_000) { reopenedHost.stopListener(delayedID) }
         releaseStart.complete(Unit)
@@ -486,7 +486,7 @@ fun main() =
                 reopenedHost.stopListener(requireNotNull(reentrantID))
                 stoppedFromCallback.complete(Unit)
             }
-        reopened.conversations().createGroup(emptyList())
+        reopened.conversations().createGroup(emptyList(), null)
         withTimeout(10_000) { stoppedFromCallback.await() }
         println("Kotlin stop_from_inside_listener passed")
 
@@ -495,7 +495,7 @@ fun main() =
             reopenedHost.end()
             endedFromCallback.complete(Unit)
         }
-        runCatching { reopened.conversations().createGroup(emptyList()) }
+        runCatching { reopened.conversations().createGroup(emptyList(), null) }
         withTimeout(10_000) { endedFromCallback.await() }
         println("Kotlin end_from_inside_listener passed")
 

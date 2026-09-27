@@ -483,7 +483,7 @@ struct Conformance {
         let listenerID = try await reopenedHost.startListener(eventFilter) { _ in
             await eventSignal.mark()
         }
-        _ = try await reopened.conversations().createGroup(members: [])
+        _ = try await reopened.conversations().createGroup(members: [], options: nil)
         guard try await eventReader.next() != nil else {
             throw ConformanceFailure("event reader ended before event")
         }
@@ -501,7 +501,7 @@ struct Conformance {
         let delayedID = try await reopenedHost.startListener(eventFilter) { _ in
             await lateCalls.mark()
         }
-        _ = try await reopened.conversations().createGroup(members: [])
+        _ = try await reopened.conversations().createGroup(members: [], options: nil)
         try await startPause.waitUntilEntered()
         await reopenedHost.stopListener(delayedID)
         await startPause.release()
