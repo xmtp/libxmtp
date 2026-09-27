@@ -1,6 +1,7 @@
 //! PUT transport with progress measured at the socket.
 
 use std::{
+    future::Future,
     io::{self, IoSlice},
     net::{IpAddr, SocketAddr},
     pin::Pin,
@@ -23,12 +24,11 @@ use hyper_util::rt::TokioIo;
 use reqwest::{Url, dns::Name};
 use rustls::pki_types::ServerName;
 use tokio::{
-    io::{AsyncRead, AsyncSeekExt, AsyncWrite, ReadBuf},
+    io::{AsyncRead, AsyncWrite, ReadBuf},
     net::{TcpSocket, TcpStream},
     sync::Notify,
     time::{Instant, timeout_at},
 };
-use tokio_util::io::ReaderStream;
 
 use super::{AbortOnDrop, Transfer};
 use crate::{
@@ -106,9 +106,67 @@ struct BodyWrite {
 }
 
 struct TrackedBody {
-    reader: ReaderStream<tokio::fs::File>,
+    reader: PositionalReader,
     write: Arc<BodyWrite>,
     remaining: u64,
+}
+
+struct PositionalReader {
+    file: Arc<std::fs::File>,
+    offset: u64,
+    end: u64,
+    pending: Option<tokio::task::JoinHandle<io::Result<Vec<u8>>>>,
+}
+
+#[cfg(unix)]
+fn read_at(file: &std::fs::File, bytes: &mut [u8], offset: u64) -> io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, bytes, offset)
+}
+
+#[cfg(windows)]
+fn read_at(file: &std::fs::File, bytes: &mut [u8], offset: u64) -> io::Result<usize> {
+    std::os::windows::fs::FileExt::seek_read(file, bytes, offset)
+}
+
+#[cfg(not(any(unix, windows)))]
+fn read_at(_: &std::fs::File, _: &mut [u8], _: u64) -> io::Result<usize> {
+    Err(io::Error::from(io::ErrorKind::Unsupported))
+}
+
+impl Stream for PositionalReader {
+    type Item = io::Result<Bytes>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if self.offset >= self.end {
+            return Poll::Ready(None);
+        }
+        if self.pending.is_none() {
+            let file = self.file.clone();
+            let offset = self.offset;
+            let length = (self.end - offset).min(CHUNK_SIZE as u64) as usize;
+            self.pending = Some(tokio::task::spawn_blocking(move || {
+                let mut bytes = vec![0; length];
+                let count = read_at(&file, &mut bytes, offset)?;
+                bytes.truncate(count);
+                Ok(bytes)
+            }));
+        }
+        match Pin::new(self.pending.as_mut().unwrap()).poll(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(result) => {
+                self.pending = None;
+                match result {
+                    Ok(Ok(bytes)) if bytes.is_empty() => Poll::Ready(None),
+                    Ok(Ok(bytes)) => {
+                        self.offset += bytes.len() as u64;
+                        Poll::Ready(Some(Ok(Bytes::from(bytes))))
+                    }
+                    Ok(Err(error)) => Poll::Ready(Some(Err(error))),
+                    Err(error) => Poll::Ready(Some(Err(io::Error::other(error)))),
+                }
+            }
+        }
+    }
 }
 
 impl Stream for TrackedBody {
@@ -395,23 +453,19 @@ pub(super) async fn put(
     }
     let url = Url::parse(&upload.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
     secure_upload_url(&url)?;
-    let mut file = if let Some(opened) = body.opened {
-        tokio::fs::File::from_std(
-            opened
-                .try_clone()
-                .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?,
-        )
+    let file = if let Some(opened) = body.opened {
+        opened
     } else {
-        tokio::fs::File::open(body.path)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?
+        Arc::new(
+            tokio::fs::File::open(body.path)
+                .await
+                .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?
+                .into_std()
+                .await,
+        )
     };
-    file.rewind()
-        .await
-        .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
     let body_len = file
         .metadata()
-        .await
         .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?
         .len();
     let (path, headers) = request_headers(&url, upload, body_len)?;
@@ -435,7 +489,12 @@ pub(super) async fn put(
     .map_err(|_| network())??;
     *last.lock().unwrap() = Instant::now();
     let stream = TrackedBody {
-        reader: ReaderStream::with_capacity(file, CHUNK_SIZE),
+        reader: PositionalReader {
+            file,
+            offset: 0,
+            end: body_len,
+            pending: None,
+        },
         write: body_write.clone(),
         remaining: body_len,
     };

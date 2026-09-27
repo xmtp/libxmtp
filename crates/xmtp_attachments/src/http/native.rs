@@ -891,6 +891,97 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    async fn cloned_staged_uploads_read_independent_offsets() {
+        use http_body_util::BodyExt;
+
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let payload = vec![b'x'; 4 * 1024 * 1024];
+        let mut writer = store.create_temp(".tmp/body").await?;
+        writer.write(&payload).await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        let staged = store.open_read(".tmp/body").await?;
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = received.clone();
+        let server = server_async(move |request| {
+            let seen = seen.clone();
+            async move {
+                assert_eq!(
+                    request.headers()[hyper::header::CONTENT_LENGTH],
+                    (4 * 1024 * 1024).to_string()
+                );
+                if let Ok(body) = request.into_body().collect().await {
+                    seen.lock().unwrap().push(body.to_bytes());
+                }
+                answer(StatusCode::OK, "")
+            }
+        })
+        .await;
+        let transfer = Transfer::with_timeouts(
+            AttachmentOptions::default(),
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+        )?;
+        let request = upload(format!("{}/object", server.url));
+        let (first, second) = tokio::join!(
+            transfer.put(&request, staged.clone()),
+            transfer.put(&request, staged)
+        );
+        assert_eq!(first?, PutOutcome::Stored);
+        assert_eq!(second?, PutOutcome::Stored);
+        let bodies = received.lock().unwrap();
+        assert_eq!(bodies.len(), 2);
+        assert!(bodies.iter().all(|body| body.as_ref() == payload));
+        drop(bodies);
+
+        // Start the second PUT only after the first server has read body bytes.
+        let (advanced_tx, advanced_rx) = tokio::sync::oneshot::channel();
+        let signal = Arc::new(std::sync::Mutex::new(Some(advanced_tx)));
+        let received = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = received.clone();
+        let late_server = server_async(move |request| {
+            let signal = signal.clone();
+            let seen = seen.clone();
+            async move {
+                let first = request.uri().path() == "/first";
+                let mut body = request.into_body();
+                let mut bytes = Vec::new();
+                if first && let Some(Ok(frame)) = body.frame().await {
+                    bytes.extend_from_slice(&frame.into_data().unwrap());
+                    if let Some(sender) = signal.lock().unwrap().take() {
+                        let _ = sender.send(());
+                    }
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                while let Some(Ok(frame)) = body.frame().await {
+                    bytes.extend_from_slice(&frame.into_data().unwrap());
+                }
+                seen.lock().unwrap().push(Bytes::from(bytes));
+                answer(StatusCode::OK, "")
+            }
+        })
+        .await;
+        let transfer = Arc::new(transfer);
+        let staged = store.open_read(".tmp/body").await?;
+        let first_request = upload(format!("{}/first", late_server.url));
+        let second_request = upload(format!("{}/second", late_server.url));
+        let first_transfer = transfer.clone();
+        let first_staged = staged.clone();
+        let first =
+            tokio::spawn(async move { first_transfer.put(&first_request, first_staged).await });
+        tokio::time::timeout(Duration::from_secs(2), advanced_rx).await??;
+        assert_eq!(
+            transfer.put(&second_request, staged).await?,
+            PutOutcome::Stored
+        );
+        assert_eq!(first.await??, PutOutcome::Stored);
+        let bodies = received.lock().unwrap();
+        assert_eq!(bodies.len(), 2);
+        assert!(bodies.iter().all(|body| body.as_ref() == payload));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     async fn https_put_uses_trusted_ca_and_preserves_signed_request() {
         let server = tls_put_server().await?;
         let transfer = trusted_upload(&server)?;
