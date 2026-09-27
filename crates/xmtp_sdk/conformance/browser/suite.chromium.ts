@@ -571,8 +571,14 @@ export async function runBrowserBridgeConformance(
       readerID.toString(),
       "reader did not replay its unacknowledged message",
     );
+    // The first state is the one read at subscription, which the
+    // bridge reports asynchronously.
+    for (let i = 0; i < 100 && connectionStates.length === 0; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
     expect(
-      connectionStates.includes(B.ConnectionState.Connecting),
+      connectionStates[0] === B.ConnectionState.Connected ||
+        connectionStates[0] === B.ConnectionState.Connecting,
       "reader did not report its connection state",
     );
     await messageStream.return();
