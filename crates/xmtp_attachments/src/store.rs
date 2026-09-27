@@ -697,6 +697,61 @@ mod tests {
     // verifies: ATCH-077
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
+    async fn reconciliation_repairs_managed_directories_before_scan() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreModes(Vec<std::path::PathBuf>);
+        impl Drop for RestoreModes {
+            fn drop(&mut self) {
+                for path in &self.0 {
+                    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+                }
+            }
+        }
+
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let key = "a".repeat(64);
+        let tmp = directory.path().join(".tmp");
+        let key_dir = directory.path().join(&key);
+        std::fs::create_dir(&tmp)?;
+        std::fs::create_dir(&key_dir)?;
+        std::fs::write(key_dir.join("file"), b"plain")?;
+        let _restore = RestoreModes(vec![tmp.clone(), key_dir.clone()]);
+        for path in [&tmp, &key_dir] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))?;
+        }
+
+        let files = store.list_files().await?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, format!("{key}/file"));
+        for path in [&tmp, &key_dir] {
+            assert_eq!(std::fs::metadata(path)?.permissions().mode() & 0o777, 0o700);
+        }
+
+        let foreign = store.clone().with_forced_foreign_owner();
+        assert_eq!(
+            foreign
+                .list_files()
+                .await
+                .err()
+                .expect("foreign owner fails")
+                .cause,
+            Cause::LocalStorage
+        );
+
+        let outside = tempfile::tempdir()?;
+        std::fs::write(outside.path().join("outside"), b"other")?;
+        std::os::unix::fs::symlink(outside.path(), directory.path().join(".staged"))?;
+        let files = store.list_files().await?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, format!("{key}/file"));
+        assert_eq!(std::fs::read(outside.path().join("outside"))?, b"other");
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn new_managed_directory_is_repaired_under_restrictive_umask() {
         use std::os::unix::fs::PermissionsExt as _;
 

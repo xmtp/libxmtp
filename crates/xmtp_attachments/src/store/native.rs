@@ -795,6 +795,8 @@ impl LocalStore for NativeStore {
     async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError> {
         use cap_std::time::SystemClock;
         let root = self.root_dir.clone();
+        #[cfg(unix)]
+        let store = self.clone();
         xmtp_common::task::spawn_blocking(move || -> Result<Vec<StoreFile>, AttachmentError> {
             let mut files = Vec::new();
             let mut dirs = vec![(root.try_clone().map_err(storage_error)?, String::new())];
@@ -813,7 +815,13 @@ impl LocalStore for NativeStore {
                     let metadata = dir.symlink_metadata(&name).map_err(storage_error)?;
                     if metadata.is_dir() && !is_link(&metadata) {
                         if descend {
-                            dirs.push((dir.open_dir_nofollow(&name).map_err(storage_error)?, path));
+                            #[cfg(unix)]
+                            let child = store
+                                .open_managed_child(&dir, &name, false)
+                                .map_err(storage_error)?;
+                            #[cfg(not(unix))]
+                            let child = dir.open_dir_nofollow(&name).map_err(storage_error)?;
+                            dirs.push((child, path));
                         }
                     } else if metadata.is_file() && !is_link(&metadata) && !prefix.is_empty() {
                         let modified_at_ns = metadata
