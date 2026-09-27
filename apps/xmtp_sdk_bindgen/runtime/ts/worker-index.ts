@@ -1,10 +1,4 @@
 export {
-  Client,
-  ClientRegistry,
-  type ContentCodec,
-  type SDKClientOptions,
-} from "./client";
-export {
   ConversationID,
   InboxID,
   InstallationID,
@@ -12,4 +6,10 @@ export {
   Timestamp,
 } from "./ids";
 export { Message } from "./message";
-export { MessageStream } from "./reader";
+export { EventStream } from "./events/reader";
+export {
+  ConversationStream,
+  MessageStream,
+  ReaderStream,
+} from "./streams/reader";
+export type { StreamCloseReason, StreamOptions } from "./streams/reader";
