@@ -12957,6 +12957,7 @@ dependencies = [
  "wasm-streams",
  "web-sys",
  "webpki-roots",
+ "windows-sys 0.61.2",
  "xmtp-workspace-hack",
  "xmtp_common",
  "xmtp_content_types",

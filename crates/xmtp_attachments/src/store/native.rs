@@ -7,6 +7,8 @@ use std::{
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 #[cfg(windows)]
 use cap_std::fs::MetadataExt;
+#[cfg(windows)]
+use cap_std::fs::OpenOptionsExt as _;
 use cap_std::fs::{Dir, OpenOptions};
 #[cfg(unix)]
 use cap_std::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
@@ -277,14 +279,81 @@ fn rename_no_replace(
     .map_err(Into::into)
 }
 
-#[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+#[cfg(windows)]
+fn rename_no_replace(
+    from_parent: &Dir,
+    from_name: &str,
+    to_parent: &Dir,
+    to_name: &str,
+) -> io::Result<()> {
+    use std::{
+        ffi::OsStr,
+        os::windows::{ffi::OsStrExt, io::AsRawHandle},
+    };
+    use windows_sys::Win32::Storage::FileSystem::{
+        DELETE, FILE_ADD_FILE, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_RENAME_INFO,
+        FileRenameInfo, SetFileInformationByHandle,
+    };
+
+    let mut options = OpenOptions::new();
+    options
+        .read(true)
+        .access_mode(DELETE | FILE_READ_ATTRIBUTES)
+        .follow(FollowSymlinks::No);
+    let source = from_parent.open_with(from_name, &options)?;
+    let mut directory_options = OpenOptions::new();
+    directory_options
+        .read(true)
+        .access_mode(FILE_ADD_FILE)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS);
+    let destination = to_parent.open_with(".", &directory_options)?;
+    let name: Vec<u16> = OsStr::new(to_name).encode_wide().collect();
+    let name_bytes = name
+        .len()
+        .checked_mul(2)
+        .ok_or(io::ErrorKind::InvalidInput)?;
+    let size = std::mem::offset_of!(FILE_RENAME_INFO, FileName)
+        .checked_add(name_bytes)
+        .ok_or(io::ErrorKind::InvalidInput)?
+        .max(std::mem::size_of::<FILE_RENAME_INFO>());
+    let size = u32::try_from(size).map_err(|_| io::ErrorKind::InvalidInput)?;
+    let name_bytes = u32::try_from(name_bytes).map_err(|_| io::ErrorKind::InvalidInput)?;
+    let words = (size as usize).div_ceil(std::mem::size_of::<usize>());
+    let mut storage = vec![0_usize; words];
+    let info = storage.as_mut_ptr().cast::<FILE_RENAME_INFO>();
+    // The buffer is aligned for FILE_RENAME_INFO and has room for the UTF-16 name.
+    unsafe {
+        (*info).Anonymous.ReplaceIfExists = false;
+        (*info).RootDirectory = destination.as_raw_handle();
+        (*info).FileNameLength = name_bytes;
+        std::ptr::copy_nonoverlapping(
+            name.as_ptr(),
+            std::ptr::addr_of_mut!((*info).FileName).cast::<u16>(),
+            name.len(),
+        );
+        if SetFileInformationByHandle(source.as_raw_handle(), FileRenameInfo, info.cast(), size)
+            == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(not(any(
+    target_vendor = "apple",
+    target_os = "linux",
+    target_os = "android",
+    windows
+)))]
 fn rename_no_replace(
     _from_parent: &Dir,
     _from_name: &str,
     _to_parent: &Dir,
     _to_name: &str,
 ) -> io::Result<()> {
-    // No atomic no-replace move is available. Keep both files unchanged.
+    // Other native targets, including BSD and Solaris, have no fallback here.
+    // Keep both files unchanged when hard links are unavailable.
     Err(io::Error::new(
         io::ErrorKind::Unsupported,
         "atomic no-replace rename is unavailable",

@@ -475,6 +475,42 @@ mod tests {
         );
     }
 
+    #[cfg(windows)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn windows_rename_fallback_moves_without_replacing() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path())
+            .await?
+            .with_forced_hard_link_error(std::io::ErrorKind::Unsupported);
+        let mut source = store.create_temp(".tmp/source").await?;
+        source.write(b"source").await?;
+        drop(source);
+        store.rename(".tmp/source", "key/file").await?;
+        assert!(!store.exists(".tmp/source").await?);
+        assert_eq!(std::fs::read(directory.path().join("key/file"))?, b"source");
+
+        let racing = store.with_fallback_destination_race(b"destination".to_vec());
+        let mut source = racing.create_temp(".tmp/second").await?;
+        source.write(b"second").await?;
+        drop(source);
+        assert_eq!(
+            racing
+                .rename(".tmp/second", "key/raced")
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(
+            std::fs::read(directory.path().join("key/raced"))?,
+            b"destination"
+        );
+        assert_eq!(
+            std::fs::read(directory.path().join(".tmp/second"))?,
+            b"second"
+        );
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn native_rename_fallback_never_replaces_racing_destination() {

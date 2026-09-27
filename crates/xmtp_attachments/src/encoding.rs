@@ -881,10 +881,7 @@ mod tests {
                 .all(|byte| byte == b'b')
         );
         assert_eq!(
-            decode(&bytes)
-                .err()
-                .expect("oversized entry must fail")
-                .cause,
+            decode(&bytes).expect_err("oversized entry must fail").cause,
             AttachmentFailureCause::NotAnAttachment
         );
     }
@@ -897,7 +894,7 @@ mod tests {
             let mut bytes = value.encode_to_vec();
             let mut entry = Vec::new();
             entry.extend_from_slice(b"\x0a\x08filename");
-            for byte in [b'a', b'b'] {
+            for byte in *b"ab" {
                 entry.push(0x12);
                 encode_varint(size, &mut entry);
                 entry.extend(std::iter::repeat_n(byte, size as usize));
@@ -907,10 +904,7 @@ mod tests {
             bytes.extend_from_slice(&entry);
             if size == 40_000 {
                 assert_eq!(
-                    decode(&bytes)
-                        .err()
-                        .expect("oversized entry must fail")
-                        .cause,
+                    decode(&bytes).expect_err("oversized entry must fail").cause,
                     AttachmentFailureCause::NotAnAttachment
                 );
             } else {

@@ -930,10 +930,11 @@ mod tests {
         );
         assert_eq!(first?, PutOutcome::Stored);
         assert_eq!(second?, PutOutcome::Stored);
-        let bodies = received.lock().unwrap();
-        assert_eq!(bodies.len(), 2);
-        assert!(bodies.iter().all(|body| body.as_ref() == payload));
-        drop(bodies);
+        {
+            let bodies = received.lock().unwrap();
+            assert_eq!(bodies.len(), 2);
+            assert!(bodies.iter().all(|body| body.as_ref() == payload));
+        }
 
         // Start the second PUT only after the first server has read body bytes.
         let (advanced_tx, advanced_rx) = tokio::sync::oneshot::channel();
@@ -949,7 +950,8 @@ mod tests {
                 let mut bytes = Vec::new();
                 if first && let Some(Ok(frame)) = body.frame().await {
                     bytes.extend_from_slice(&frame.into_data().unwrap());
-                    if let Some(sender) = signal.lock().unwrap().take() {
+                    let sender = { signal.lock().unwrap().take() };
+                    if let Some(sender) = sender {
                         let _ = sender.send(());
                     }
                     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -1804,8 +1806,7 @@ mod tests {
         let error = allowed()
             .get(&url, 100, &mut MemorySink::default())
             .await
-            .err()
-            .expect("trailing encoded bytes must fail");
+            .expect_err("trailing encoded bytes must fail");
         assert_eq!(error.cause, Cause::HttpStatus);
         server.await?;
     }
