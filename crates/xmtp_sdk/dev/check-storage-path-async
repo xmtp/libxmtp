@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check that Storage.path is async in every generated host language."""
+"""Check the generated Storage surface in every host language."""
 
 from pathlib import Path
 import re
@@ -30,4 +30,9 @@ for language, (path, pattern) in bindings.items():
     if re.search(pattern, path.read_text()) is None:
         raise SystemExit(f"{language}: Storage.path must be async")
 
+wasm = (root / "typescript-wasm/xmtp_sdk.ts").read_text()
+if "uniffi_xmtp_sdk_fn_method_storage_reconnect" in wasm:
+    raise SystemExit("TypeScript WASM: Storage.reconnect must not be exported")
+
 print("Storage.path is async in Swift, Kotlin, TypeScript N-API, and TypeScript WASM.")
+print("TypeScript WASM does not export Storage.reconnect.")

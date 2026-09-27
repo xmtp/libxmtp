@@ -20,7 +20,11 @@ impl Storage {
     pub async fn path(&self) -> Result<Option<String>, XmtpError> {
         Ok(self.path.clone())
     }
+}
 
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_macro::sdk_export]
+impl Storage {
     pub async fn reconnect(&self) -> Result<(), XmtpError> {
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
@@ -28,11 +32,7 @@ impl Storage {
         })
         .await
     }
-}
 
-#[cfg(not(target_arch = "wasm32"))]
-#[xmtp_macro::sdk_export]
-impl Storage {
     pub async fn delete(&self) -> Result<(), XmtpError> {
         let path = self
             .path
