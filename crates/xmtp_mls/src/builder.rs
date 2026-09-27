@@ -799,6 +799,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         location: crate::storage_location::StorageLocation,
         key: xmtp_db::EncryptionKey,
     ) -> Result<ClientBuilder<ApiClient, S, xmtp_db::DefaultStore>, ClientBuilderError> {
+        location.validate()?;
         let conflict = self.storage_location_conflict
             || self.store.is_some()
             || self.mls_storage.is_some()

@@ -58,6 +58,68 @@ mod native {
             .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
     }
 
+    // verifies: ATCH-082
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn missing_data_dir_is_rejected_before_io() {
+        let root = tempfile::tempdir()?;
+        let result = builder()
+            .data_location(StorageLocation::DataDir(PathBuf::new()), [0u8; 32].into())
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::MissingPath { field: "data_dir" }
+            ))
+        ));
+        assert!(std::fs::read_dir(root.path())?.next().is_none());
+    }
+
+    // verifies: ATCH-082
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn missing_explicit_db_path_is_rejected_before_io() {
+        let root = tempfile::tempdir()?;
+        let result = builder()
+            .data_location(
+                StorageLocation::Explicit {
+                    db_path: PathBuf::new(),
+                    attachments_dir: root.path().join("attachments"),
+                },
+                [0u8; 32].into(),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::MissingPath { field: "db_path" }
+            ))
+        ));
+        assert!(std::fs::read_dir(root.path())?.next().is_none());
+    }
+
+    // verifies: ATCH-082
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn missing_explicit_attachments_dir_is_rejected_before_io() {
+        let root = tempfile::tempdir()?;
+        let result = builder()
+            .data_location(
+                StorageLocation::Explicit {
+                    db_path: root.path().join("client.db3"),
+                    attachments_dir: PathBuf::new(),
+                },
+                [0u8; 32].into(),
+            )
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::MissingPath {
+                    field: "attachments_dir"
+                }
+            ))
+        ));
+        assert!(std::fs::read_dir(root.path())?.next().is_none());
+    }
+
     // verifies: ATCH-069
     #[xmtp_common::test(unwrap_try = true)]
     async fn data_dir_without_backend_url_fails_before_request() {

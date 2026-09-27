@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 use tokio::sync::Mutex;
 use xmtp_attachments::sanitize_path_component_with_limit;
 
+/// Rust requires each layout's paths. The builder rejects empty paths.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StorageLocation {
     DataDir(PathBuf),
@@ -36,6 +37,8 @@ pub enum StorageLocationError {
     OfflineMissingDeployment,
     #[error("store or attachments_dir conflicts with data_location")]
     ConflictingStore,
+    #[error("storage location is missing {field}")]
+    MissingPath { field: &'static str },
     #[error("deployment identifier differs from the opened data directory")]
     DeploymentMismatch,
     #[error("storage location cannot read or write its deployment record: {0}")]
@@ -151,6 +154,23 @@ impl DeploymentRecorder {
 }
 
 impl StorageLocation {
+    pub(crate) fn validate(&self) -> Result<(), StorageLocationError> {
+        match self {
+            Self::DataDir(data_dir) if data_dir.as_os_str().is_empty() => {
+                Err(StorageLocationError::MissingPath { field: "data_dir" })
+            }
+            Self::Explicit { db_path, .. } if db_path.as_os_str().is_empty() => {
+                Err(StorageLocationError::MissingPath { field: "db_path" })
+            }
+            Self::Explicit {
+                attachments_dir, ..
+            } if attachments_dir.as_os_str().is_empty() => Err(StorageLocationError::MissingPath {
+                field: "attachments_dir",
+            }),
+            _ => Ok(()),
+        }
+    }
+
     pub(crate) fn recorder(&self, backend_url: &str) -> Option<DeploymentRecorder> {
         match self {
             Self::DataDir(path) => Some(DeploymentRecorder::new(path.clone(), backend_url)),
