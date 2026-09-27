@@ -469,6 +469,7 @@ describe("browser bridge transport", () => {
     });
   });
 
+  // verifies: EVENT-030, EVENT-031
   it("listener_bound_1023_then_lagged", async () => {
     const [main, worker] = pair();
     const mainCallbacks = new MainCallbacks(main);
@@ -483,22 +484,35 @@ describe("browser bridge transport", () => {
     const first = new Promise<void>((resolve) => {
       finish = resolve;
     });
-    const lagged: number[] = [];
+    const handed: unknown[] = [];
     const cb = mainCallbacks.register("EventListener", {
-      onEvent: async () => first,
+      onEvent: async (event) => {
+        handed.push(event);
+        return first;
+      },
       onLagged: (count) => {
-        if (typeof count === "number") lagged.push(count);
+        handed.push({ lagged: count });
       },
     });
     const listener = new BoundedListener(workerCallbacks, cb.cb);
     for (let index = 0; index < 1030; index++) listener.push(index);
     expect(listener.queued).toBe(1023);
     finish?.();
-    for (let index = 0; index < 10000 && lagged.length === 0; index++)
+    // Emit a later event when the queue has room, before the lagged handoff.
+    for (let index = 0; index < 10000 && listener.queued === 1023; index++)
       await Promise.resolve();
-    expect(lagged).toEqual([6]);
+    expect(listener.queued).toBeLessThan(1023);
+    listener.push(1030);
+    for (let index = 0; index < 100000 && handed.length < 1026; index++)
+      await Promise.resolve();
+    expect(handed).toEqual([
+      ...Array.from({ length: 1024 }, (_, index) => index),
+      { lagged: 6 },
+      1030,
+    ]);
   });
 
+  // verifies: EVENT-051
   it("continues listener drain after a callback fails", async () => {
     const [main, worker] = pair();
     const mainCallbacks = new MainCallbacks(main);
