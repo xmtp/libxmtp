@@ -655,15 +655,11 @@ const colliding = sdk.EncodedContent.create({
   }),
   content: new Uint8Array([1]).buffer,
 });
-const collidingMessage = new sdk.Message({
-  clientKey: slashHost.raw.clientKey(),
-  content: {
-    tag: sdk.MessageContent_Tags.Custom,
-    inner: { encoded: colliding, rawBytes: new ArrayBuffer(0) },
-  },
-  inReplyTo: undefined,
-} as sdk.MessageData);
-assert.equal(collidingMessage.content.tag, sdk.MessageContent_Tags.Unknown);
+assert.equal(
+  slashHost.decodeCustom(colliding),
+  undefined,
+  "codec key collision selected the wrong codec",
+);
 await slashHost.end();
 const customID = await familyGroup.send(
   customCodec.encode("codec value"),
