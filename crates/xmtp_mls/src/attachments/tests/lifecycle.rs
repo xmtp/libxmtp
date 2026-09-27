@@ -517,6 +517,53 @@ async fn delete_finishes_after_upload_task_panics() {
     );
 }
 
+// verifies: ATCH-074
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn panicked_attempt_can_be_claimed_after_lease_expiry() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    *alix.client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+        Duration::from_millis(300),
+        Duration::from_millis(100),
+        Duration::from_millis(10),
+    );
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let resumed = alix.client.attachments().pending(&remote).await?;
+    let events = alix
+        .client
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::AttachmentUploadStarted]))?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let release = Arc::new(tokio::sync::Notify::new());
+    *alix.client.context.attachments.attempt_panic_pause.lock() =
+        Some((entered.clone(), release.clone()));
+    let first = tokio::spawn(async move { pending.upload().await });
+    tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+    let attempt = resumed
+        .shared
+        .attempt
+        .lock()
+        .clone()
+        .expect("running attempt");
+    first.abort();
+    let _ = first.await;
+    *alix.client.context.attachments.attempt_panic_pause.lock() = None;
+    release.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), attempt.done.cancelled()).await?;
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while resumed.status() != PendingAttachmentStatus::Waiting {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    tokio::time::timeout(Duration::from_secs(5), resumed.upload()).await??;
+    assert_eq!(resumed.status(), PendingAttachmentStatus::Complete);
+    assert_eq!(events.drain().len(), 2);
+}
+
 // verifies: ATCH-029, ATCH-066
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_status_survives_restart() {

@@ -322,11 +322,27 @@ struct PendingAttempt {
     done: CancellationToken,
 }
 
-struct PendingAttemptDoneGuard(CancellationToken);
+struct PendingAttemptDoneGuard {
+    shared: Arc<PendingShared>,
+    attempt: Arc<PendingAttempt>,
+}
 
 impl Drop for PendingAttemptDoneGuard {
     fn drop(&mut self) {
-        self.0.cancel();
+        let mut active = self.shared.attempt.lock();
+        let was_active = active
+            .as_ref()
+            .is_some_and(|current| Arc::ptr_eq(current, &self.attempt));
+        if was_active {
+            *self.shared.lease.lock() = None;
+            *active = None;
+        }
+        drop(active);
+        if was_active {
+            let status = self.shared.watch.borrow().clone();
+            self.shared.watch.send_replace(status);
+        }
+        self.attempt.done.cancel();
     }
 }
 
@@ -1505,7 +1521,10 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                             };
                             // The registry entry owns the attempt after the caller stops waiting.
                             let local_attempt = attempt.clone();
-                            let done_guard = PendingAttemptDoneGuard(attempt.done.clone());
+                            let done_guard = PendingAttemptDoneGuard {
+                                shared: self.shared.clone(),
+                                attempt: attempt.clone(),
+                            };
                             drop(xmtp_common::task::spawn(async move {
                                 let _done_guard = done_guard;
                                 pending.run_attempt(token, attempt).await;
