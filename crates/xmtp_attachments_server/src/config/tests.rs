@@ -70,6 +70,28 @@ async fn retention_rules() {
     );
 }
 
+// verifies: ATCH-083
+#[xmtp_common::test(unwrap_try = true)]
+async fn presign_lifetime_bounds() {
+    let mut settings = config();
+    assert!(settings.validate().is_ok());
+
+    for value in [300, 3600] {
+        let TargetConfig::S3(s3) = &mut settings.target;
+        s3.presign_ttl_seconds = Some(value);
+        assert!(settings.validate().is_ok(), "{value}");
+    }
+    for value in [299, 3601] {
+        let TargetConfig::S3(s3) = &mut settings.target;
+        s3.presign_ttl_seconds = Some(value);
+        assert_eq!(
+            settings.validate().unwrap_err().field,
+            "attachments.target.S3.presign_ttl_seconds",
+            "{value}"
+        );
+    }
+}
+
 // verifies: ATCH-075
 #[xmtp_common::test(unwrap_try = true)]
 async fn key_prefix_rules() {

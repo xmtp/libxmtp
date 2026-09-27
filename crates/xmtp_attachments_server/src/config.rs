@@ -301,6 +301,7 @@ impl S3Config {
                 "contains an unsafe path character",
             ));
         }
+        // implements: ATCH-083
         if !(MIN_PRESIGN_TTL_SECONDS..=MAX_PRESIGN_TTL_SECONDS)
             .contains(&self.presign_ttl_seconds())
         {
