@@ -26,7 +26,7 @@ use xmtp_db::{
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 use xmtp_mls::{
     Client,
-    attachments::{AttachmentSource, PendingAttachmentStatus},
+    attachments::{AttachmentSource, PendingAttachmentStatus, pause_next_create_move},
     storage_location::{
         DeploymentWriteFault, set_deployment_write_fault, write_deployments_for_test,
     },
@@ -196,6 +196,49 @@ async fn client_create_writes_plaintext_to_opfs() {
     let local_file = root_store.open_read(&format!("{root}/{local}")).await?;
     assert_eq!(local_file.read_chunk(0, 64).await?, b"opfs plaintext");
     assert!(root_store.exists(&format!("{root}/{staged}")).await?);
+}
+
+// verifies: ATCH-046, ATCH-063
+#[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_create_waits_for_published_opfs_move() {
+    let root = test_root("attachment-move-cancel-tests");
+    let client = opfs_client(offline_api(), root.clone()).await;
+    let store = OpfsStore::new(&root).await?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    pause_next_create_move(entered.clone(), resume.clone());
+    let source = AttachmentSource::Bytes {
+        bytes: b"cancel during OPFS move".to_vec(),
+        filename: Some("proof.txt".into()),
+        mime_type: "text/plain".into(),
+    };
+    let creating_client = client.clone();
+    let (create, abort) =
+        futures::future::abortable(
+            async move { creating_client.attachments().create(source).await },
+        );
+    let task = xmtp_common::task::spawn(create);
+    xmtp_common::time::timeout(Duration::from_secs(3), entered.notified()).await?;
+    let local = store
+        .list_files()
+        .await?
+        .into_iter()
+        .map(|file| file.path)
+        .find(|path| !path.starts_with(".tmp/") && !path.starts_with(".staged/"))
+        .expect("plaintext move took effect");
+    let key = local.split('/').next().expect("attachment key").to_owned();
+    abort.abort();
+    assert!(task.await?.is_err());
+    resume.notify_one();
+    xmtp_common::time::timeout(Duration::from_secs(3), async {
+        while !matches!(store.list_files().await, Ok(files) if files.is_empty()) {
+            xmtp_common::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert!(!store.exists(&key).await?);
+    assert!(client.db().list_local_attachments()?.is_empty());
+    assert!(client.db().list_pending_attachments_since(0)?.is_empty());
 }
 
 // verifies: ATCH-052, ATCH-062

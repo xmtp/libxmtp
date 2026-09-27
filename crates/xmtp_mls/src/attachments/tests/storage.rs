@@ -14,15 +14,20 @@ async fn deletion_cannot_race_reconciliation_snapshot() {
             .build()
             .await?;
         let relative = plaintext_rel_path(&remote)?;
-        alix.client.context.db().delete_local_attachment(&relative)?;
+        alix.client
+            .context
+            .db()
+            .delete_local_attachment(&relative)?;
         let entered = Arc::new(tokio::sync::Notify::new());
         let resume = Arc::new(tokio::sync::Notify::new());
-        *alix.client.context.attachments.reconcile_snapshot_pause.lock() =
-            Some((entered.clone(), resume.clone()));
+        *alix
+            .client
+            .context
+            .attachments
+            .reconcile_snapshot_pause
+            .lock() = Some((entered.clone(), resume.clone()));
         let context = alix.client.context.clone();
-        let reconcile = tokio::spawn(async move {
-            context.attachments.reconcile(&context).await
-        });
+        let reconcile = tokio::spawn(async move { context.attachments.reconcile(&context).await });
         tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
         let deleting_client = if separate_client {
             second.clone()
@@ -31,22 +36,32 @@ async fn deletion_cannot_race_reconciliation_snapshot() {
         };
         let deleting_remote = remote.clone();
         let mut deletion = tokio::spawn(async move {
-            deleting_client.attachments().delete_local(&deleting_remote).await
+            deleting_client
+                .attachments()
+                .delete_local(&deleting_remote)
+                .await
         });
-        let finished_early = match tokio::time::timeout(Duration::from_millis(250), &mut deletion).await {
-            Ok(result) => {
-                result??;
-                true
-            }
-            Err(_) => false,
-        };
+        let finished_early =
+            match tokio::time::timeout(Duration::from_millis(250), &mut deletion).await {
+                Ok(result) => {
+                    result??;
+                    true
+                }
+                Err(_) => false,
+            };
         resume.notify_one();
         tokio::time::timeout(Duration::from_secs(5), reconcile).await???;
         if !finished_early {
             tokio::time::timeout(Duration::from_secs(5), deletion).await???;
         }
         assert!(!alix.client.attachments().local_path(&remote)?.exists());
-        assert!(alix.client.context.db().get_local_attachment(&relative)?.is_none());
+        assert!(
+            alix.client
+                .context
+                .db()
+                .get_local_attachment(&relative)?
+                .is_none()
+        );
         assert!(alix.client.attachments().list_local().await?.is_empty());
     }
 }
@@ -89,12 +104,24 @@ async fn deletion_event_hides_rows_after_metadata_delete_error() {
     assert_eq!(events.drain().len(), 1);
     assert!(alix.client.attachments().list_local().await?.is_empty());
     assert!(second.attachments().list_local().await?.is_empty());
-    assert!(alix.client.context.db().get_local_attachment(&relative)?.is_some());
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_local_attachment(&relative)?
+            .is_some()
+    );
     alix.client.context.db().raw_query(|conn| {
         xmtp_db::diesel::sql_query("DROP TRIGGER reject_local_delete").execute(conn)
     })?;
     second.attachments().delete_local(&remote).await?;
-    assert!(alix.client.context.db().get_local_attachment(&relative)?.is_none());
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_local_attachment(&relative)?
+            .is_none()
+    );
 }
 
 // verifies: ATCH-067, ATCH-068

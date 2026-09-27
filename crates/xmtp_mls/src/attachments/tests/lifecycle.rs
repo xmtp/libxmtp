@@ -509,7 +509,9 @@ async fn cancelled_delete_caller_does_not_leave_a_cancelled_pending_row() {
     let (url, entered_put, release_put) = paused_put(200).await;
     let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
         .api_client(Arc::new(signed_put_api(url, 1)))
-        .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(offer)))
+        .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+            offer,
+        )))
         .attachment_options(AttachmentOptions {
             allow_private_network: true,
             ..Default::default()
@@ -529,7 +531,10 @@ async fn cancelled_delete_caller_does_not_leave_a_cancelled_pending_row() {
     let deleting_client = client.clone();
     let deleting_remote = remote.clone();
     let deletion = tokio::spawn(async move {
-        deleting_client.attachments().delete_local(&deleting_remote).await
+        deleting_client
+            .attachments()
+            .delete_local(&deleting_remote)
+            .await
     });
     tokio::time::timeout(Duration::from_secs(5), entered_delete.notified()).await?;
     deletion.abort();
@@ -555,7 +560,11 @@ async fn cancelled_delete_caller_does_not_leave_a_cancelled_pending_row() {
     })
     .await??;
     assert!(!dir.path().join(attachment_key(&remote)?).exists());
-    assert!(!dir.path().join(staged_path(&remote.content_digest)?).exists());
+    assert!(
+        !dir.path()
+            .join(staged_path(&remote.content_digest)?)
+            .exists()
+    );
 }
 
 // verifies: ATCH-047

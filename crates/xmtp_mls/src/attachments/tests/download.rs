@@ -224,13 +224,11 @@ async fn another_client_publishes_plaintext_during_download() {
         .await?;
     let entered = Arc::new(tokio::sync::Notify::new());
     let resume = Arc::new(tokio::sync::Notify::new());
-    *first.context.attachments.download_move_pause.lock() =
-        Some((entered.clone(), resume.clone()));
+    *first.context.attachments.download_move_pause.lock() = Some((entered.clone(), resume.clone()));
     let first_remote = remote.clone();
     let first_client = first.clone();
-    let first_download = tokio::spawn(async move {
-        first_client.attachments().download(&first_remote).await
-    });
+    let first_download =
+        tokio::spawn(async move { first_client.attachments().download(&first_remote).await });
     tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
     let published = second.attachments().download(&remote).await?;
     let first_bytes = tokio::fs::read(&published.path).await?;
@@ -240,7 +238,10 @@ async fn another_client_publishes_plaintext_during_download() {
     let joined = tokio::time::timeout(Duration::from_secs(5), first_download).await???;
     assert_eq!(joined, published);
     assert_eq!(tokio::fs::read(&joined.path).await?, first_bytes);
-    assert_eq!(first.context.db().get_local_attachment(&relative)?, row_before);
+    assert_eq!(
+        first.context.db().get_local_attachment(&relative)?,
+        row_before
+    );
     assert_eq!(requests.load(Ordering::SeqCst), 2);
 }
 
