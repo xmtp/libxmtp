@@ -235,6 +235,7 @@ fn validate_type(ty: &Type) -> Result<()> {
                     | "ConversationID"
                     | "MessageID"
                     | "Timestamp"
+                    | "ListenerID"
             ) {
                 bail!("{name}: unsupported custom type");
             }
@@ -406,6 +407,9 @@ fn shape(ty: &Type) -> String {
         Type::Enum { name, .. } => format!("{{ kind: \"enum\", name: \"{name}\" }}"),
         Type::Box { inner_type } => shape(inner_type),
         Type::Custom { name, builtin, .. } => {
+            if name == "ListenerID" {
+                return shape(builtin);
+            }
             format!(
                 "{{ kind: \"custom\", name: \"{name}\", inner: {} }}",
                 shape(builtin)
@@ -455,6 +459,7 @@ fn decode_expr(ty: &Type, raw: &str, session: &str) -> String {
             match name.as_str() {
                 "Message" => format!("new HostMessage({inner}, {session})"),
                 "Timestamp" => format!("new B.Timestamp({inner})"),
+                "ListenerID" => inner,
                 _ => format!("B.{name}.fromRust({inner})"),
             }
         }
@@ -1238,6 +1243,19 @@ mod tests {
                 .to_string()
                 .contains("UnknownHostValue")
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn listener_id_uses_uint64_on_the_bridge() {
+        let ty = Type::Custom {
+            module_path: "test".into(),
+            name: "ListenerID".into(),
+            builtin: Box::new(Type::UInt64),
+        };
+        assert!(validate_type(&ty).is_ok());
+        assert_eq!(shape(&ty), "{ kind: \"value\", type: \"UInt64\" }");
+        assert_eq!(decode_expr(&ty, "raw", "session"), "bridgeBigInt(raw)");
+        assert_eq!(ts_type(&ty), "B.ListenerID");
     }
 
     #[xmtp_common::test(unwrap_try = true)]
