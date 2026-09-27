@@ -577,7 +577,7 @@ export async function runBrowserBridgeConformance(
   try {
     await checkError(
       () => refused.session.ready(),
-      (error) => Reflect.get(error, "code") === "contractMismatch",
+      (error) => Reflect.get(error, "code") === "ContractMismatch",
       "contract mismatch was accepted",
     );
     results.push("smoke: contract mismatch is refused before calls");

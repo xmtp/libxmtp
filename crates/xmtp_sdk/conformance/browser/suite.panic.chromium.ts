@@ -48,7 +48,7 @@ export async function checkRealWasmTrap(): Promise<void> {
       failures.some(
         (result) =>
           result.status !== "rejected" ||
-          Reflect.get(result.reason, "code") !== "workerTerminated",
+          Reflect.get(result.reason, "code") !== "WorkerTerminated",
       )
     ) {
       throw new Error("real WASM trap did not settle every pending call");
