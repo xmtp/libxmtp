@@ -3038,7 +3038,6 @@ async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
     client.end().await?;
 }
 
-// verifies: CTYPE-003, CTYPE-012
 #[xmtp_common::test(unwrap_try = true)]
 async fn reply_with_empty_nested_identifier_stays_unknown_on_all_read_paths() {
     use xmtp_content_types::{
