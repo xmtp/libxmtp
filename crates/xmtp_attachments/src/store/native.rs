@@ -99,9 +99,6 @@ impl NativeStore {
     }
 
     fn parent(&self, relative: &str, create: bool) -> io::Result<(Dir, String)> {
-        #[cfg(unix)]
-        use std::os::unix::fs::PermissionsExt as _;
-
         let (parent, name) = relative.rsplit_once('/').unwrap_or(("", relative));
         let mut directory = self.root_dir.try_clone()?;
         if !parent.is_empty() {
@@ -122,29 +119,13 @@ impl NativeStore {
                             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
                             Err(error) => return Err(error),
                         };
-                        let child = directory.open_dir_nofollow(part)?;
-                        #[cfg(all(test, unix))]
-                        if created {
-                            record_initial_mode(
-                                child
-                                    .try_clone()?
-                                    .into_std_file()
-                                    .metadata()?
-                                    .permissions()
-                                    .mode(),
-                                0o700,
-                            );
-                        }
                         #[cfg(unix)]
                         if created {
-                            child
-                                .try_clone()?
-                                .into_std_file()
-                                .set_permissions(std::fs::Permissions::from_mode(0o700))?;
+                            repair_created_child_mode(&directory, part)?;
                         }
                         #[cfg(not(unix))]
                         let _ = created;
-                        child
+                        directory.open_dir_nofollow(part)?
                     }
                     Err(error) => return Err(error),
                 };
@@ -152,6 +133,38 @@ impl NativeStore {
         }
         Ok((directory, name.to_owned()))
     }
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
+    let fd = rustix::fs::openat(
+        parent,
+        name,
+        rustix::fs::OFlags::RDONLY
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )?;
+    #[cfg(test)]
+    record_initial_mode(u32::from(rustix::fs::fstat(&fd)?.st_mode), 0o700);
+    rustix::fs::fchmod(&fd, rustix::fs::Mode::from_raw_mode(0o700))?;
+    Ok(())
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))
+))]
+fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let file = parent.open_with(name, &options)?;
+    #[cfg(test)]
+    record_initial_mode(file.metadata()?.permissions().mode(), 0o700);
+    file.set_permissions(cap_std::fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(unix)]
