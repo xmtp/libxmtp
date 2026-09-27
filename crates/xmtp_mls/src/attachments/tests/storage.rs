@@ -1,5 +1,23 @@
 use super::*;
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn weak_registry_prunes_dropped_entries() {
+    let runtime = AttachmentRuntime::default();
+    let live_pending = runtime.shared("live");
+    let live_lock = runtime.event_lock("live");
+    for number in 0..128 {
+        drop(runtime.shared(&format!("pending-{number}")));
+        drop(runtime.event_lock(&format!("event-{number}")));
+    }
+    let new_pending = runtime.shared("new");
+    let new_lock = runtime.event_lock("new");
+    assert_eq!(runtime.pending.lock().len(), 2);
+    assert_eq!(runtime.event_locks.lock().len(), 2);
+    assert!(Arc::ptr_eq(&live_pending, &runtime.shared("live")));
+    assert!(Arc::ptr_eq(&live_lock, &runtime.event_lock("live")));
+    drop((new_pending, new_lock));
+}
+
 // verifies: ATCH-047, ATCH-062, ATCH-063
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]

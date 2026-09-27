@@ -952,6 +952,7 @@ impl AttachmentRuntime {
         if let Some(shared) = pending.get(digest).and_then(Weak::upgrade) {
             return shared;
         }
+        pending.retain(|_, shared| shared.strong_count() != 0);
         let shared = Arc::new(PendingShared::new());
         pending.insert(digest.to_owned(), Arc::downgrade(&shared));
         shared
@@ -962,6 +963,7 @@ impl AttachmentRuntime {
         if let Some(lock) = locks.get(key).and_then(Weak::upgrade) {
             return lock;
         }
+        locks.retain(|_, lock| lock.strong_count() != 0);
         let lock = Arc::new(AsyncMutex::new(()));
         locks.insert(key.to_owned(), Arc::downgrade(&lock));
         lock
