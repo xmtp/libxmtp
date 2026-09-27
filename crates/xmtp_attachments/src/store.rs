@@ -886,6 +886,7 @@ mod tests {
                 app.join(suffix).join("nested"),
                 root.clone(),
                 root.join(".tmp"),
+                root.join("key"),
             ] {
                 assert_eq!(
                     std::fs::metadata(&directory)?.permissions().mode() & 0o777,
@@ -917,6 +918,7 @@ mod tests {
             super::native::take_initial_modes();
         }
         let store = NativeStore::new(std::path::PathBuf::from(root)).await?;
+        assert!(store.create_dir_if_absent("key").await?);
         let mut writer = store.create_temp(".tmp/file").await?;
         writer.write(b"private").await?;
         store.sync(&mut writer).await?;
@@ -927,7 +929,7 @@ mod tests {
                     .iter()
                     .filter(|(_, expected)| *expected == 0o700)
                     .count(),
-                4
+                5
             );
             assert_eq!(
                 modes

@@ -506,33 +506,17 @@ impl LocalStore for NativeStore {
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
             Err(error) => return Err(storage_error(error)),
         };
-        let child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
         #[cfg(unix)]
         if created {
-            use std::os::unix::fs::PermissionsExt as _;
-            #[cfg(test)]
-            record_initial_mode(
-                child
-                    .try_clone()
-                    .map_err(storage_error)?
-                    .into_std_file()
-                    .metadata()
-                    .map_err(storage_error)?
-                    .permissions()
-                    .mode(),
-                0o700,
-            );
             if self.force_chmod_error() {
                 tracing::warn!(%name, "could not set private attachment directory permissions");
             } else {
-                child
-                    .try_clone()
-                    .map_err(storage_error)?
-                    .into_std_file()
-                    .set_permissions(std::fs::Permissions::from_mode(0o700))
-                    .map_err(storage_error)?;
+                repair_created_child_mode(&parent, &name).map_err(storage_error)?;
             }
-        } else {
+        }
+        let child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        #[cfg(unix)]
+        if !created {
             self.check_existing_owner(&child).map_err(storage_error)?;
         }
         #[cfg(not(unix))]
