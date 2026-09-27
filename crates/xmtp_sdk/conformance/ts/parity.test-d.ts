@@ -188,6 +188,17 @@ export type PreferencesParity = Assert<
 export type StorageParity = Assert<
   SameMethods<Node.StorageLike, Browser.StorageLike, "delete_" | "reconnect">
 >;
+export type BrowserStorageOmitsReconnect = Assert<
+  Equal<"reconnect" extends keyof Browser.StorageLike ? true : false, false>
+>;
+export type BrowserBridgeStorageOmitsReconnect = Assert<
+  Equal<
+    "reconnect" extends keyof ReturnType<BrowserHost.Client["storage"]>
+      ? true
+      : false,
+    false
+  >
+>;
 export type SignatureRequestParity = Assert<
   SameMethods<Node.SignatureRequestLike, Browser.SignatureRequestLike>
 >;
