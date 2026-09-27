@@ -539,6 +539,53 @@ for (const closeMode of ["end", "fail"] as const) {
   await replacement.ready();
   await replacement.end();
 }
+// A second close waits for the reader teardown that the first close started.
+for (const firstClose of ["end", "fail"] as const) {
+  let readerEnds = 0;
+  let readerEnded = false;
+  let releaseReaderEnd!: () => void;
+  let markReaderEndStarted!: () => void;
+  const readerEndStarted = new Promise<void>((resolve) => {
+    markReaderEndStarted = resolve;
+  });
+  const readFailure = new Error("reader failed during close");
+  const racing = new sdk.MessageStream(
+    async () => ({
+      next: async () => {
+        throw readFailure;
+      },
+      end: async () => {
+        readerEnds++;
+        markReaderEndStarted();
+        await new Promise<void>((resolve) => {
+          releaseReaderEnd = resolve;
+        });
+        readerEnded = true;
+      },
+    }),
+    reopened,
+  );
+  await racing.ready();
+  const first =
+    firstClose === "end"
+      ? racing.end()
+      : assert.rejects(racing.next(), (error) => error === readFailure);
+  await readerEndStarted;
+  let secondSettled = false;
+  const second = racing.end().then(() => {
+    secondSettled = true;
+  });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(
+    secondSettled,
+    false,
+    `end() returned before the first ${firstClose} ended the reader`,
+  );
+  releaseReaderEnd();
+  await Promise.all([first, second]);
+  assert.equal(readerEnded, true);
+  assert.equal(readerEnds, 1, "concurrent closes ended the reader twice");
+}
 let endedAfterCloseThrow = false;
 const throwingClose = new sdk.MessageStream(
   async () => ({

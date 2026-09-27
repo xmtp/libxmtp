@@ -38,6 +38,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   private pending?: AbortController;
   private closed = false;
   private closeReason?: StreamCloseReason;
+  private closing?: Promise<void>;
   private readonly abortListener = () =>
     void this.return().catch(reportCallbackError);
 
@@ -108,17 +109,28 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     this.stop();
   }
 
-  private async fail(error: unknown): Promise<void> {
-    if (this.closed) return;
+  /** Every end, return, and failure waits for the first close's teardown. */
+  private close(reason: StreamCloseReason): Promise<void> {
+    this.closing ??= this.teardown(reason);
+    return this.closing;
+  }
+
+  private async teardown(reason: StreamCloseReason): Promise<void> {
     this.stopReading();
-    const reason: StreamCloseReason = { kind: "failed", error };
     this.closeReason = reason;
     try {
+      // A late opener ends its reader before this promise settles.
+      await this.reader;
       await this.active?.end();
     } catch {
-      // The read error remains the stream's close reason.
+      // A failed open, reader end, or client shutdown does not prevent
+      // close. A read error remains the stream's close reason.
     }
     this.notifyClose(reason);
+  }
+
+  private async fail(error: unknown): Promise<void> {
+    await this.close({ kind: "failed", error });
   }
 
   private async watchConnection(reader: ReaderLike<T>): Promise<void> {
@@ -193,18 +205,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   }
 
   async end(): Promise<void> {
-    if (this.closed) return;
-    this.stopReading();
-    const reason: StreamCloseReason = { kind: "closed" };
-    this.closeReason = reason;
-    try {
-      // A late opener ends its reader before this promise settles.
-      await this.reader;
-      await this.active?.end();
-    } catch {
-      // A failed open or client shutdown does not prevent close.
-    }
-    this.notifyClose(reason);
+    await this.close({ kind: "closed" });
   }
 }
 
