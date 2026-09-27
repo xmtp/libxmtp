@@ -455,8 +455,16 @@ struct Conformance {
             var iterator = release.makeAsyncIterator()
             _ = await iterator.next()
         }
+        let lateCloseNotified = TestFlag()
         let cancelledOpening = Task {
-            let openingStream = try await reopenedHost.messages(in: protocolGroup)
+            let openingStream = try await reopenedHost.messages(
+                in: protocolGroup,
+                onClose: { reason in
+                    if case .closed = reason {
+                        lateCloseNotified.set()
+                    }
+                }
+            )
             let openingIterator = openingStream.makeAsyncIterator()
             return try await openingIterator.next()
         }
@@ -465,6 +473,10 @@ struct Conformance {
             throw ConformanceFailure("reader did not open before cancellation")
         }
         cancelledOpening.cancel()
+        try await Task.sleep(for: .milliseconds(100))
+        guard !lateCloseNotified.value else {
+            throw ConformanceFailure("close callback ran before the late reader ended")
+        }
         releaseSignal.yield(())
         do {
             _ = try await cancelledOpening.value
@@ -476,6 +488,12 @@ struct Conformance {
         }
         guard lateReader.connectionState() == .closed else {
             throw ConformanceFailure("late reader was not closed")
+        }
+        for _ in 0 ..< 100 where !lateCloseNotified.value {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard lateCloseNotified.value else {
+            throw ConformanceFailure("late reader did not notify close")
         }
         guard try await lateReader.next() == nil else {
             throw ConformanceFailure("late reader was not closed")

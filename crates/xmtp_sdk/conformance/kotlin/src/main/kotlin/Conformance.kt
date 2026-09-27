@@ -498,14 +498,20 @@ fun main() =
             openedReader.complete(opened)
             releaseOpening.await()
         }
+        val openingClosed = CompletableDeferred<SDKStreamCloseReason>()
         val cancelledOpening =
             async(start = CoroutineStart.UNDISPATCHED) {
-                reopenedHost.messages(protocolGroup).collect {}
+                reopenedHost.messages(protocolGroup, onClose = { openingClosed.complete(it) }).collect {}
             }
         val lateReader = withTimeout(10_000) { openedReader.await() }
         cancelledOpening.cancel(CancellationException("cancel during reader creation"))
+        delay(100)
+        check(!openingClosed.isCompleted) { "close callback ran before the late reader ended" }
         releaseOpening.complete(Unit)
         withTimeout(3_000) { cancelledOpening.join() }
+        check(withTimeout(3_000) { openingClosed.await() } == SDKStreamCloseReason.Closed) {
+            "late reader did not report a closed stream"
+        }
         SDKClient.readerOpenedForTest = null
         withTimeout(10_000) {
             while (lateReader.connectionState() != ConnectionState.CLOSED) delay(10)
