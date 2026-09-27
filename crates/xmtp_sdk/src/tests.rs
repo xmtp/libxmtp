@@ -3265,7 +3265,7 @@ async fn custom_content_type_filter_rejects_unknown_storage_type() {
     assert!(matches!(result, Err(XmtpError::InvalidArgument(_))));
 }
 
-// verifies: CTYPE-007
+// verifies: CTYPE-030
 #[xmtp_common::test(unwrap_try = true)]
 fn decode_standard_rejects_out_of_range_actions_expiry() {
     use xmtp_content_types::{
