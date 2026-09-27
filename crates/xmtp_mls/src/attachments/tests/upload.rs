@@ -558,6 +558,36 @@ async fn existing_plaintext_without_record_is_adopted_on_create() {
     assert_eq!(alix.client.attachments().list_pending().await?.len(), 1);
 }
 
+// verifies: ATCH-032, ATCH-063
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn directory_plaintext_collision_rejects_create() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let pause = Arc::new(CreateMovePause {
+        path: Mutex::new(None),
+        staged_path: Mutex::new(None),
+        entered: tokio::sync::Notify::new(),
+        resume: tokio::sync::Notify::new(),
+    });
+    *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+    let client = alix.client.clone();
+    let create = xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
+    tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
+    let path = pause.path.lock().clone().expect("plaintext path");
+    let staged = pause.staged_path.lock().clone().expect("staged path");
+    let destination = dir.path().join(&path);
+    tokio::fs::create_dir_all(&destination).await?;
+    pause.resume.notify_one();
+    let result = create.await?;
+    assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert!(destination.is_dir());
+    assert!(alix.client.context.db().get_local_attachment(&path)?.is_none());
+    assert!(alix.client.attachments().list_pending().await?.is_empty());
+    assert!(!dir.path().join(staged).exists());
+    assert!(tokio::fs::read_dir(dir.path().join(".tmp")).await?.next_entry().await?.is_none());
+}
+
 // verifies: ATCH-046
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]

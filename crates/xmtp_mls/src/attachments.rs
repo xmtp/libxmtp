@@ -1224,6 +1224,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     final_plain = Some(local.clone());
                 }
                 Err(StoreMoveError::DestinationExists) => {
+                    if !store.is_regular_file(&local).await? {
+                        return Err(AttachmentClientError::new(Cause::LocalStorage));
+                    }
                     store.remove_file(&plain_temp).await?;
                     plain_temp_created = false;
                 }
