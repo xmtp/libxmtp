@@ -2503,6 +2503,28 @@ def _classify(entry: object) -> Decision:
             spelling(name[:-2] + ".ns" if name.endswith("Ns") else name + ".date"),
             "11.2, Timestamp; plan Decisions",
         )
+    if (
+        name == "Conversations.streamAllMessages"
+        and sdk in {"Swift", "Kotlin", "Node", "Browser"}
+    ) or (
+        name
+        in {
+            "Conversations.streamAllGroupMessages",
+            "Conversations.streamAllDmMessages",
+        }
+        and sdk in {"Node", "Browser"}
+    ):
+        ref = (
+            f"11.4 {sdk}, Conversations"
+            if sdk != "Browser"
+            else "11.4 Browser; 11.4 Node, Conversations"
+        )
+        return decision(
+            "generated",
+            spelling(name),
+            ref,
+            "Behavior change: no consent list now selects allowed and unknown conversations.",
+        )
     # These are explicit unchanged lists in the four Section 11.4 tables.
     owner, _, leaf = name.rpartition(".")
     if owner in {"Client", "Client.Companion"} and leaf in {

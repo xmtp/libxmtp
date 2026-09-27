@@ -2,7 +2,7 @@
 
 use super::{
     Result,
-    incoming::{IncomingCoordinator, IncomingScope},
+    incoming::{IncomingCoordinator, IncomingLease, IncomingScope},
     internal::InternalEvent,
 };
 use crate::{context::XmtpSharedContext, groups::MlsGroup};
@@ -10,6 +10,7 @@ use futures::Stream;
 use std::{
     collections::{HashMap, VecDeque},
     pin::Pin,
+    sync::{Arc, Weak},
     task::{Context, Poll},
 };
 use xmtp_common::{BoxDynStream, time::sleep};
@@ -69,6 +70,7 @@ impl KnownConversations {
 /// Notify one subscriber of committed local creation and Welcome joins.
 pub struct StreamConversations<C: XmtpSharedContext> {
     inner: BoxDynStream<'static, Result<MlsGroup<C>>>,
+    lease: Weak<IncomingLease>,
 }
 
 impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
@@ -117,16 +119,16 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
             ..Default::default()
         })?);
         let coordinator = IncomingCoordinator::for_context(&context);
-        let lease =
-            coordinator.acquire_stream(IncomingScope::Topics(vec![Topic::new_welcome_message(
-                context.installation_id(),
-            )]));
+        let lease = Arc::new(coordinator.acquire_stream(IncomingScope::Topics(vec![
+            Topic::new_welcome_message(context.installation_id()),
+        ])));
         let query = GroupQueryArgs {
             conversation_type,
             consent_states: Some(consent_states.unwrap_or_else(|| ALL_CONSENT_STATES.to_vec())),
             include_duplicate_dms,
             ..Default::default()
         };
+        let observer = Arc::downgrade(&lease);
         let stream = futures::stream::unfold(
             Some((context, events, lease, known, VecDeque::new(), query)),
             |state| async move {
@@ -192,7 +194,13 @@ impl<C: XmtpSharedContext + 'static> StreamConversations<C> {
         );
         Ok(Self {
             inner: Box::pin(stream),
+            lease: observer,
         })
+    }
+
+    /// Observe the same connection that supplies this conversation stream.
+    pub fn lease(&self) -> Option<Arc<IncomingLease>> {
+        self.lease.upgrade()
     }
 }
 

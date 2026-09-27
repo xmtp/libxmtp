@@ -1,5 +1,9 @@
 # @xmtp/browser-sdk
 
+## Unreleased
+
+- `conversations.streamAllMessages()` now streams allowed and unknown conversations by default. Pass an explicit `consentStates` list to select other states.
+
 ## 7.0.0
 
 This release includes a performance fix and local archive management. Update as soon as possible to take advantage of these enhancements and fixes.

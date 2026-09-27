@@ -502,6 +502,80 @@ async fn test_stream_all_messages_filters_by_consent_state(
     );
 }
 
+// verifies: CONS-042
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn stream_all_messages_default_excludes_denied() {
+    use xmtp_common::time::timeout;
+
+    tester!(alix, disable_workers);
+    let allowed = alix.create_group(None, None)?;
+    let denied = alix.create_group(None, None)?;
+    let unknown = alix.create_group(None, None)?;
+    allowed
+        .send_message(b"allowed", SendMessageOpts::default())
+        .await?;
+    denied
+        .send_message(b"denied", SendMessageOpts::default())
+        .await?;
+    unknown
+        .send_message(b"unknown", SendMessageOpts::default())
+        .await?;
+    // Sending changes consent to Allowed. Set the selection after all sends finish.
+    denied.update_consent_state(ConsentState::Denied)?;
+    unknown.update_consent_state(ConsentState::Unknown)?;
+
+    let selected = LocalDeliveryFilter {
+        consent_states: Some(vec![ConsentState::Allowed, ConsentState::Unknown]),
+        ..Default::default()
+    };
+    let snapshot =
+        LocalDelivery::history_snapshot(&alix.context, &DeliveryScope::All, &selected, 100)?;
+    assert!(
+        snapshot
+            .messages
+            .iter()
+            .any(|item| item.message.group_id == unknown.group_id)
+    );
+    let stream = alix.stream_all_messages(None, None).await?;
+    futures::pin_mut!(stream);
+    timeout(
+        Duration::from_secs(5),
+        assert_retained_history(&alix.context, &mut stream, selected),
+    )
+    .await?;
+    assert!(
+        timeout(Duration::from_millis(100), stream.next())
+            .await
+            .is_err()
+    );
+}
+
+// verifies: CONS-030
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn stream_all_messages_explicit_denied_selection() {
+    tester!(alix, disable_workers);
+    let denied = alix.create_group(None, None)?;
+    denied
+        .send_message(b"denied", SendMessageOpts::default())
+        .await?;
+    denied.update_consent_state(ConsentState::Denied)?;
+    let denied_only = alix
+        .stream_all_messages(None, Some(vec![ConsentState::Denied]))
+        .await?;
+    futures::pin_mut!(denied_only);
+    assert_retained_history(
+        &alix.context,
+        &mut denied_only,
+        LocalDeliveryFilter {
+            consent_states: Some(vec![ConsentState::Denied]),
+            ..Default::default()
+        },
+    )
+    .await;
+}
+
 #[xmtp_common::timeout(Duration::from_secs(30))]
 #[rstest]
 #[xmtp_common::test]

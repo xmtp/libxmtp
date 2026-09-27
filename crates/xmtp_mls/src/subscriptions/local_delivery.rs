@@ -11,7 +11,7 @@ pub use xmtp_db::delivery::{DeliveryCursor, DeliveryScope, DeliverySnapshot};
 use acknowledgement::{AcknowledgementState, DeliverySession, PendingAcknowledgement};
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use std::{collections::VecDeque, sync::Arc};
+use std::{borrow::Cow, collections::VecDeque, sync::Arc};
 use tokio::sync::Notify;
 use xmtp_common::{
     StreamHandle,
@@ -27,7 +27,7 @@ use xmtp_db::{
 };
 use xmtp_proto::types::GroupId;
 
-use super::{SubscribeError, internal::InternalEvent};
+use super::{DEFAULT_STREAM_CONSENT_STATES, SubscribeError, internal::InternalEvent};
 use crate::context::XmtpSharedContext;
 use xmtp_events::{EventFilter, Subscription};
 
@@ -327,6 +327,7 @@ where
                     || !matches_filter(
                         &self.session.context,
                         candidate.message.group_id,
+                        &selection.scope,
                         &selection.filter,
                     )?
                 {
@@ -436,9 +437,10 @@ where
         limit: u32,
     ) -> Result<DeliverySnapshot> {
         let settings = context.incoming_runtime().policy();
+        let filter = effective_filter(scope, filter);
         Ok(context.db().delivery_history_snapshot_filtered(
             scope,
-            filter,
+            &filter,
             now_ns(),
             limit.min(settings.max_local_read_rows),
             settings.max_local_read_bytes,
@@ -455,9 +457,35 @@ impl<Context: XmtpSharedContext> Drop for LocalDelivery<Context> {
     }
 }
 
+// implements: CONS-042, CONS-043
+fn effective_consent_states<'a>(
+    scope: &DeliveryScope,
+    filter: &'a LocalDeliveryFilter,
+) -> Option<&'a [ConsentState]> {
+    match (&filter.consent_states, scope) {
+        (Some(states), _) => Some(states),
+        (None, DeliveryScope::All) => Some(&DEFAULT_STREAM_CONSENT_STATES),
+        (None, _) => None,
+    }
+}
+
+fn effective_filter<'a>(
+    scope: &DeliveryScope,
+    filter: &'a LocalDeliveryFilter,
+) -> Cow<'a, LocalDeliveryFilter> {
+    match effective_consent_states(scope, filter) {
+        Some(states) if filter.consent_states.is_none() => Cow::Owned(LocalDeliveryFilter {
+            conversation_type: filter.conversation_type,
+            consent_states: Some(states.to_vec()),
+        }),
+        _ => Cow::Borrowed(filter),
+    }
+}
+
 fn matches_filter<Context: XmtpSharedContext>(
     context: &Context,
     group_id: GroupId,
+    scope: &DeliveryScope,
     filter: &LocalDeliveryFilter,
 ) -> Result<bool> {
     let db = context.db();
@@ -467,7 +495,8 @@ fn matches_filter<Context: XmtpSharedContext>(
             return Ok(false);
         }
     }
-    if let Some(states) = &filter.consent_states {
+    // Borrow the effective states; this runs once per candidate.
+    if let Some(states) = effective_consent_states(scope, filter) {
         let consent = db
             .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
             .map_err(StorageError::from)?

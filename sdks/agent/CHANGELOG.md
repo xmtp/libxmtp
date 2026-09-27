@@ -1,5 +1,11 @@
 # @xmtp/agent-sdk
 
+## Unreleased
+
+### Behavior Changes
+
+- `streamAllMessages` now excludes denied conversations when no consent list is set. Pass an explicit consent list to include them.
+
 ## 2.3.0
 
 ### Minor Changes

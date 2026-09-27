@@ -168,6 +168,14 @@ pub enum ConversationKind {
     Dm,
 }
 
+#[derive(Clone, Debug, Default, uniffi::Record)]
+pub struct ConversationReaderOptions {
+    #[uniffi(default = None)]
+    pub kind: Option<ConversationKind>,
+    #[uniffi(default = None)]
+    pub consent_states: Option<Vec<ConsentState>>,
+}
+
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ConversationOrder {
     CreatedAt,

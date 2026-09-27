@@ -163,26 +163,33 @@ async function run(): Promise<void> {
     next: () => Promise<undefined>;
     end: () => Promise<void>;
   }) => void;
+  let markCreationStarted!: () => void;
+  const creationStarted = new Promise<void>((resolve) => {
+    markCreationStarted = resolve;
+  });
   let endedLate = false;
   const opening = new sdk.MessageStream(
     () =>
       new Promise((resolve) => {
         resolveCreation = resolve;
+        markCreationStarted();
       }),
     reopened,
   );
   const openingRead = opening.next();
-  await opening.return();
+  await creationStarted;
+  // Ending waits for the in-flight creation, then ends the late reader.
+  const openingEnd = opening.return();
   resolveCreation({
     next: async () => undefined,
     end: async () => {
       endedLate = true;
     },
   });
+  await openingEnd;
+  if (!endedLate) throw new Error("late reader remained open");
   if (!(await openingRead).done)
     throw new Error("cancelled creation returned a value");
-  await new Promise((resolve) => setTimeout(resolve, 0));
-  if (!endedLate) throw new Error("late reader remained open");
   const rejectedOpening = new sdk.MessageStream(
     (signal) =>
       new Promise((_, reject) => {

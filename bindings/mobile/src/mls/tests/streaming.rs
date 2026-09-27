@@ -309,6 +309,78 @@ async fn test_stream_all_messages() {
     assert_eq!(caro.api_statistics().subscribe_static, 0);
 }
 
+// verifies: CONS-042
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
+async fn stream_all_messages_default_excludes_denied() {
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+    let alix_group = alix
+        .conversations()
+        .create_group_by_identity(
+            vec![bo.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await?;
+    bo.inner_client.sync_welcomes().await?;
+    let bo_group = bo.conversation(alix_group.id())?;
+    bo_group.update_consent_state(FfiConsentState::Denied)?;
+    let allowed_group = alix
+        .conversations()
+        .create_group_by_identity(
+            vec![bo.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await?;
+    bo.inner_client.sync_welcomes().await?;
+
+    let callback = Arc::new(RustStreamCallback::default());
+    let stream = bo
+        .conversations()
+        .stream_all_messages(callback.clone(), None)
+        .await;
+    stream.wait_for_ready().await;
+    let denied_id = alix_group
+        .send(b"denied".to_vec(), FfiSendMessageOpts::default())
+        .await?;
+    bo_group.sync().await?;
+    let allowed_id = allowed_group
+        .send(b"allowed".to_vec(), FfiSendMessageOpts::default())
+        .await?;
+    xmtp_common::time::timeout(
+        Duration::from_secs(5),
+        wait_for_application_messages(&callback, &[(allowed_id, b"allowed".to_vec())]),
+    )
+    .await
+    .expect("default mobile stream did not select only the allowed conversation");
+    stream.end_and_wait().await?;
+
+    let denied_callback = Arc::new(RustStreamCallback::default());
+    let denied_stream = bo
+        .conversations()
+        .stream_all_messages(denied_callback.clone(), Some(vec![FfiConsentState::Denied]))
+        .await;
+    denied_stream.wait_for_ready().await;
+    let second_denied_id = alix_group
+        .send(b"denied again".to_vec(), FfiSendMessageOpts::default())
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(bo_group.consent_state()?, FfiConsentState::Denied);
+    xmtp_common::time::timeout(
+        Duration::from_secs(5),
+        wait_for_eq(
+            || async {
+                streamed_application_messages(&denied_callback)
+                    .iter()
+                    .any(|(id, _)| id == &second_denied_id)
+            },
+            true,
+        ),
+    )
+    .await??;
+    assert_ne!(denied_id, second_denied_id);
+    denied_stream.end_and_wait().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread")]
 async fn test_message_streaming() {
     let amal = new_test_client().await;

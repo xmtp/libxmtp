@@ -19,6 +19,40 @@ private func sameEncoded(_ lhs: EncodedContent, _ rhs: EncodedContent) -> Bool {
         lhs.content == rhs.content
 }
 
+final class TestFlag: @unchecked Sendable {
+    private let lock = NSLock()
+    private var open = false
+
+    func set() {
+        lock.lock()
+        open = true
+        lock.unlock()
+    }
+
+    var value: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return open
+    }
+}
+
+final class TestCounter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    func increment() {
+        lock.lock()
+        count += 1
+        lock.unlock()
+    }
+
+    var value: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return count
+    }
+}
+
 final class TestSigner: Signer, @unchecked Sendable {
     private func run(_ action: String, _ text: String? = nil) throws -> String {
         let environment = ProcessInfo.processInfo.environment
@@ -363,6 +397,57 @@ struct Conformance {
         let remaining = try await afterAck.next()
         precondition(remaining?.id == secondID, "adapter did not acknowledge on next request")
         try await afterAck.end()
+        let breakGroup = try await reopened.conversations().createGroup(members: [], options: nil)
+        let breakID = try await breakGroup.sendText(text: "close after break", options: nil)
+        let (breakClose, breakCloseSignal) = AsyncStream<SDKStreamCloseReason>.makeStream()
+        let retainedStream = try await reopenedHost.messages(
+            in: breakGroup, onClose: { _ = breakCloseSignal.yield($0) }
+        )
+        for try await value in retainedStream {
+            precondition(value.id == breakID)
+            break
+        }
+        var breakCloseIterator = breakClose.makeAsyncIterator()
+        let breakTimer = Task {
+            try? await Task.sleep(for: .seconds(2))
+            breakCloseSignal.finish()
+        }
+        guard let breakReason = await breakCloseIterator.next() else {
+            throw ConformanceFailure("break did not close the stored message stream")
+        }
+        breakTimer.cancel()
+        guard case .closed = breakReason else {
+            throw ConformanceFailure("break reported a failed stream")
+        }
+        let (throwingClose, throwingCloseSignal) = AsyncStream<SDKStreamCloseReason>.makeStream()
+        let throwingCloseStream = try await reopenedHost.messages(
+            in: breakGroup,
+            onClose: { reason in
+                throwingCloseSignal.yield(reason)
+                throw ConformanceFailure("close callback failed")
+            }
+        )
+        for try await value in throwingCloseStream {
+            precondition(value.id == breakID)
+            break
+        }
+        var throwingCloseIterator = throwingClose.makeAsyncIterator()
+        let throwingCloseTimer = Task {
+            try? await Task.sleep(for: .seconds(2))
+            throwingCloseSignal.finish()
+        }
+        guard let throwingCloseReason = await throwingCloseIterator.next() else {
+            throw ConformanceFailure("throwing close callback was not called")
+        }
+        throwingCloseTimer.cancel()
+        guard case .closed = throwingCloseReason else {
+            throw ConformanceFailure("throwing close callback received a failed reason")
+        }
+        let breakReplay = try await breakGroup.messageReader()
+        guard try await breakReplay.next()?.id == breakID else {
+            throw ConformanceFailure("break acknowledged the last message")
+        }
+        try await breakReplay.end()
         let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
         let (release, releaseSignal) = AsyncStream<Void>.makeStream()
         SDKClient.readerOpenedForTest = { reader in
@@ -370,23 +455,227 @@ struct Conformance {
             var iterator = release.makeAsyncIterator()
             _ = await iterator.next()
         }
-        let cancelledOpening = Task { try await reopenedHost.messages(in: protocolGroup) }
+        let lateCloseNotified = TestFlag()
+        let cancelledOpening = Task {
+            let openingStream = try await reopenedHost.messages(
+                in: protocolGroup,
+                onClose: { reason in
+                    if case .closed = reason {
+                        lateCloseNotified.set()
+                    }
+                }
+            )
+            let openingIterator = openingStream.makeAsyncIterator()
+            return try await openingIterator.next()
+        }
         var openedIterator = opened.makeAsyncIterator()
         guard let lateReader = await openedIterator.next() else {
             throw ConformanceFailure("reader did not open before cancellation")
         }
         cancelledOpening.cancel()
+        try await Task.sleep(for: .milliseconds(100))
+        guard !lateCloseNotified.value else {
+            throw ConformanceFailure("close callback ran before the late reader ended")
+        }
         releaseSignal.yield(())
         do {
             _ = try await cancelledOpening.value
-            throw ConformanceFailure("cancelled reader creation returned a stream")
+            throw ConformanceFailure("cancelled reader creation delivered a message")
         } catch is CancellationError {}
         SDKClient.readerOpenedForTest = nil
+        for _ in 0 ..< 1000 where lateReader.connectionState() != .closed {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard lateReader.connectionState() == .closed else {
+            throw ConformanceFailure("late reader was not closed")
+        }
+        for _ in 0 ..< 100 where !lateCloseNotified.value {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        guard lateCloseNotified.value else {
+            throw ConformanceFailure("late reader did not notify close")
+        }
         guard try await lateReader.next() == nil else {
             throw ConformanceFailure("late reader was not closed")
         }
         let reopenedReader = try await protocolGroup.messageReader()
         try await reopenedReader.end()
+        // When iteration ends, the reader is already released: a replacement
+        // reader on the same group opens at once. A slow end makes a
+        // detached teardown lose this race every time.
+        let reopenScope = try await reopened.conversations().createGroup(members: [], options: nil)
+        func slowEndStream(
+            next: @escaping @Sendable () async throws -> Message?
+        ) -> SDKMessageStream {
+            SDKReaderStream(open: {
+                let reader = try await reopenScope.messageReader()
+                return StreamHandle(
+                    owner: reopenedHost,
+                    next: next,
+                    end: {
+                        try? await Task.sleep(for: .milliseconds(200))
+                        try? await reader.end()
+                    },
+                    connectionState: { reader.connectionState() },
+                    connectionStateChanged: { try await reader.connectionStateChanged(previous: $0) }
+                )
+            }, onClose: nil, onConnectionStateChange: nil)
+        }
+        func reopenScopeAfter(_ path: String) async throws {
+            do {
+                let replacement = try await reopenScope.messageReader()
+                try await replacement.end()
+            } catch XmtpError.ConsumerOwned {
+                throw ConformanceFailure("\(path) ended iteration before the reader was released")
+            }
+        }
+        guard try await slowEndStream(next: { nil }).makeAsyncIterator().next() == nil else {
+            throw ConformanceFailure("ended stream delivered a message")
+        }
+        try await reopenScopeAfter("end of stream")
+        do {
+            _ = try await slowEndStream(next: { throw ConformanceFailure("read failed") })
+                .makeAsyncIterator().next()
+            throw ConformanceFailure("failed read delivered a message")
+        } catch let failure as ConformanceFailure where failure.errorDescription == "read failed" {}
+        try await reopenScopeAfter("read failure")
+        let cancelledRead = Task {
+            try await slowEndStream(next: {
+                try await Task.sleep(for: .seconds(10))
+                return nil
+            }).makeAsyncIterator().next()
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        cancelledRead.cancel()
+        _ = try? await cancelledRead.value
+        try await reopenScopeAfter("cancellation")
+        print("Swift reader released before iteration ends passed")
+        do {
+            let conversationOpen = TestFlag()
+            SDKClient.conversationReaderOpeningForTest = {
+                try? await Task.sleep(for: .milliseconds(300))
+            }
+            SDKClient.conversationReaderOpenedForTest = { _ in
+                conversationOpen.set()
+            }
+            defer {
+                SDKClient.conversationReaderOpeningForTest = nil
+                SDKClient.conversationReaderOpenedForTest = nil
+            }
+            let conversationStream = try await reopenedHost.conversationStream()
+            let conversationIterator = conversationStream.makeAsyncIterator()
+            let conversationPending = Task { try await conversationIterator.next() }
+            let conversationDeadline = Task {
+                do { try await Task.sleep(for: .seconds(10)) }
+                catch { return }
+                conversationPending.cancel()
+            }
+            defer { conversationDeadline.cancel() }
+            for _ in 0 ..< 1000 {
+                if conversationOpen.value {
+                    break
+                }
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            guard conversationOpen.value else {
+                conversationPending.cancel()
+                throw ConformanceFailure("conversation reader was not open before group creation")
+            }
+            _ = try await reopened.conversations().createGroup(members: [], options: nil)
+            do {
+                guard try await conversationPending.value != nil else {
+                    throw ConformanceFailure("conversation stream missed a stored group")
+                }
+            } catch is CancellationError {
+                throw ConformanceFailure("conversation stream did not deliver a group before the deadline")
+            }
+        }
+        let monitorCalls = TestCounter()
+        let (monitorClosed, monitorClosedSignal) = AsyncStream<Void>.makeStream()
+        let fakeHandle = StreamHandle<Int>(
+            owner: reopenedHost,
+            next: {
+                try await Task.sleep(for: .seconds(10))
+                return nil
+            },
+            end: {},
+            connectionState: { .connecting },
+            connectionStateChanged: { _ in
+                monitorCalls.increment()
+                return .closed
+            }
+        )
+        let fakeStream = SDKReaderStream<Int>(
+            open: { fakeHandle },
+            onClose: nil,
+            onConnectionStateChange: { _, current in
+                if current == .closed {
+                    monitorClosedSignal.yield(())
+                }
+            }
+        )
+        let fakeRead = Task {
+            let iterator = fakeStream.makeAsyncIterator()
+            return try await iterator.next()
+        }
+        let monitorDeadline = Task {
+            try? await Task.sleep(for: .seconds(5))
+            monitorClosedSignal.finish()
+        }
+        var monitorClosedIterator = monitorClosed.makeAsyncIterator()
+        guard await monitorClosedIterator.next() != nil else {
+            fakeRead.cancel()
+            throw ConformanceFailure("state monitor did not report Closed")
+        }
+        monitorDeadline.cancel()
+        let callsAtClosed = monitorCalls.value
+        try await Task.sleep(for: .milliseconds(100))
+        fakeRead.cancel()
+        _ = try? await fakeRead.value
+        guard monitorCalls.value == callsAtClosed else {
+            throw ConformanceFailure("state monitor kept reading after Closed")
+        }
+        // verifies: PROC-044
+        // A reader opened on a connected connection reports Connected first.
+        let (connectedStates, connectedStateSignal) = AsyncStream<ConnectionState>.makeStream()
+        let connectedHandle = StreamHandle<Int>(
+            owner: reopenedHost,
+            next: {
+                try await Task.sleep(for: .seconds(10))
+                return nil
+            },
+            end: {},
+            connectionState: { .connected },
+            connectionStateChanged: { _ in
+                try await Task.sleep(for: .seconds(10))
+                return .closed
+            }
+        )
+        let connectedStream = SDKReaderStream<Int>(
+            open: { connectedHandle },
+            onClose: nil,
+            onConnectionStateChange: { _, current in
+                connectedStateSignal.yield(current)
+            }
+        )
+        let connectedRead = Task {
+            let iterator = connectedStream.makeAsyncIterator()
+            return try await iterator.next()
+        }
+        let connectedDeadline = Task {
+            try? await Task.sleep(for: .seconds(5))
+            connectedStateSignal.finish()
+        }
+        var connectedStateIterator = connectedStates.makeAsyncIterator()
+        let firstConnectedState = await connectedStateIterator.next()
+        connectedDeadline.cancel()
+        connectedRead.cancel()
+        _ = try? await connectedRead.value
+        guard firstConnectedState == .connected else {
+            throw ConformanceFailure(
+                "connected reader first reported \(String(describing: firstConnectedState))"
+            )
+        }
         print("Swift scenario 7: durable stream and idle cancellation passed")
 
         let largeExpiry: Int64 = 9_007_199_254_740_993

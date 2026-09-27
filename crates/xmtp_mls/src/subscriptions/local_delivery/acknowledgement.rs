@@ -220,7 +220,12 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
         )?;
         if selection.revision != self.pending.revision
             || !retained
-            || !super::matches_filter(&self.session.context, self.group_id, &selection.filter)?
+            || !super::matches_filter(
+                &self.session.context,
+                self.group_id,
+                &selection.scope,
+                &selection.filter,
+            )?
         {
             *state = AcknowledgementState::Reselect;
             self.pending.changed.notify_one();

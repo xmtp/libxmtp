@@ -11,6 +11,9 @@ use xmtp_proto::api_client::XmtpMlsStreams;
 use stream_all::StreamAllMessages;
 use stream_conversations::StreamConversations;
 
+const DEFAULT_STREAM_CONSENT_STATES: [ConsentState; 2] =
+    [ConsentState::Allowed, ConsentState::Unknown];
+
 // Live backend tests require native full-duplex HTTP/2.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod bidi_tests;
@@ -31,7 +34,7 @@ pub mod message_reader;
 pub(crate) mod policy;
 pub(crate) mod recovery;
 mod stream_all;
-mod stream_conversations;
+pub mod stream_conversations;
 pub mod stream_failure;
 pub mod stream_messages;
 // Live integration tests for the router (v3 wire; same gating rationale as
