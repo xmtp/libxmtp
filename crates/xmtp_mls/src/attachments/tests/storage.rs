@@ -394,7 +394,10 @@ async fn deletion_event_survives_later_row_failure() {
     assert!(!dir.path().join(key).exists());
     let emitted = events.drain();
     assert_eq!(emitted.len(), 1);
-    assert!(matches!(emitted[0].client, Some(ClientEvent::AttachmentDeleted(_))));
+    assert!(matches!(
+        emitted[0].client,
+        Some(ClientEvent::AttachmentDeleted(_))
+    ));
 }
 
 // verifies: ATCH-047, EVENT-055

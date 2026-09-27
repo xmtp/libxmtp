@@ -442,9 +442,12 @@ mod native {
             .mls_storage(custom.clone())
             .build()
             .await;
-        assert!(matches!(first, Err(crate::builder::ClientBuilderError::StorageLocation(
-            StorageLocationError::ConflictingStore
-        ))));
+        assert!(matches!(
+            first,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::ConflictingStore
+            ))
+        ));
 
         let mut api = xmtp_api_backend::MessageBackendBuilder::new();
         api.host("http://127.0.0.1:1");
@@ -457,9 +460,12 @@ mod native {
             .await?
             .build()
             .await;
-        assert!(matches!(second, Err(crate::builder::ClientBuilderError::StorageLocation(
-            StorageLocationError::ConflictingStore
-        ))));
+        assert!(matches!(
+            second,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::ConflictingStore
+            ))
+        ));
     }
 
     // verifies: ATCH-069, CONF-040
@@ -537,9 +543,12 @@ mod native {
             .with_disable_workers(true)
             .build()
             .await;
-        assert!(matches!(second, Err(crate::builder::ClientBuilderError::StorageLocation(
-            StorageLocationError::DeploymentMismatch
-        ))));
+        assert!(matches!(
+            second,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::DeploymentMismatch
+            ))
+        ));
         assert_eq!(
             location.recorder(backend.url()).unwrap().lookup().await?,
             Some(original_identifier.clone())
@@ -574,7 +583,9 @@ mod native {
         let dir = tempfile::tempdir()?;
         let recorder = DeploymentRecorder::new(dir.path().to_path_buf(), "http://localhost");
         recorder.record("deployment-a").await?;
-        let bound = recorder.clone().for_opened_identifier("deployment-a".into());
+        let bound = recorder
+            .clone()
+            .for_opened_identifier("deployment-a".into());
         assert!(matches!(
             bound.record("deployment-b").await,
             Err(StorageLocationError::DeploymentMismatch)

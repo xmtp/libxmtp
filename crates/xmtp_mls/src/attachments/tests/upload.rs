@@ -2,6 +2,58 @@ use super::*;
 
 struct KnownCredential(Arc<AtomicUsize>);
 
+// verifies: ATCH-046, ATCH-063
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_create_rolls_back_both_publication_points() {
+    for after_staged in [false, true] {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let pause = Arc::new(CreatePublishPause {
+            after_staged,
+            path: Mutex::new(None),
+            staged_path: Mutex::new(None),
+            entered: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        *alix.client.context.attachments.create_publish_pause.lock() = Some(pause.clone());
+        let client = alix.client.clone();
+        let create = tokio::spawn(async move { client.attachments().create(bytes()).await });
+        tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
+        let path = pause.path.lock().clone().expect("plaintext path");
+        let staged = pause.staged_path.lock().clone().expect("staged path");
+        create.abort();
+        let _ = create.await;
+        tokio::time::timeout(
+            Duration::from_secs(3),
+            alix.client
+                .context
+                .attachments
+                .reconcile(&alix.client.context),
+        )
+        .await??;
+        let store = alix.client.context.attachments.store()?;
+        assert!(!store.exists(&path).await?);
+        assert!(!store.exists(&staged).await?);
+        assert!(
+            alix.client
+                .context
+                .db()
+                .get_local_attachment(&path)?
+                .is_none()
+        );
+        let digest = staged.strip_prefix(".staged/").expect("staged digest");
+        assert!(
+            alix.client
+                .context
+                .db()
+                .get_pending_attachment(digest)?
+                .is_none()
+        );
+        assert!(store.list_files().await?.is_empty());
+    }
+}
+
 #[xmtp_common::async_trait]
 impl xmtp_api_backend::AuthCallback for KnownCredential {
     async fn on_auth_required(
@@ -572,7 +624,8 @@ async fn directory_plaintext_collision_rejects_create() {
     });
     *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
     let client = alix.client.clone();
-    let create = xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
+    let create =
+        xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
     tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
     let path = pause.path.lock().clone().expect("plaintext path");
     let staged = pause.staged_path.lock().clone().expect("staged path");
@@ -582,10 +635,22 @@ async fn directory_plaintext_collision_rejects_create() {
     let result = create.await?;
     assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
     assert!(destination.is_dir());
-    assert!(alix.client.context.db().get_local_attachment(&path)?.is_none());
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_local_attachment(&path)?
+            .is_none()
+    );
     assert!(alix.client.attachments().list_pending().await?.is_empty());
     assert!(!dir.path().join(staged).exists());
-    assert!(tokio::fs::read_dir(dir.path().join(".tmp")).await?.next_entry().await?.is_none());
+    assert!(
+        tokio::fs::read_dir(dir.path().join(".tmp"))
+            .await?
+            .next_entry()
+            .await?
+            .is_none()
+    );
 }
 
 // verifies: ATCH-046

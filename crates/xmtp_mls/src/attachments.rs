@@ -13,7 +13,7 @@ use futures::StreamExt as _;
 use parking_lot::Mutex;
 use prost::Message as _;
 use sha2::{Digest as _, Sha256};
-use tokio::sync::{Mutex as AsyncMutex, OnceCell, watch};
+use tokio::sync::{Mutex as AsyncMutex, OnceCell, OwnedMutexGuard, watch};
 use tokio_util::sync::CancellationToken;
 use xmtp_attachments::{
     AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, AttachmentOptions,
@@ -320,12 +320,10 @@ fn outcome_write_is_retryable(error: &xmtp_db::StorageError) -> bool {
     }
 
     match error {
-        StorageError::DieselResult(error) | StorageError::Connection(ConnectionError::Database(error)) => {
-            diesel_locked(error)
-        }
-        StorageError::Platform(error) | StorageError::Connection(ConnectionError::Platform(error)) => {
-            platform_transient(error)
-        }
+        StorageError::DieselResult(error)
+        | StorageError::Connection(ConnectionError::Database(error)) => diesel_locked(error),
+        StorageError::Platform(error)
+        | StorageError::Connection(ConnectionError::Platform(error)) => platform_transient(error),
         StorageError::DieselConnect(_) => true,
         _ => false,
     }
@@ -444,7 +442,10 @@ async fn publish_download_outcome<Context: XmtpSharedContext>(
     };
     context.events().emit(Some(event), None);
     let mut downloads = runtime.downloads.lock();
-    if downloads.get(relative).is_some_and(|current| Arc::ptr_eq(current, shared)) {
+    if downloads
+        .get(relative)
+        .is_some_and(|current| Arc::ptr_eq(current, shared))
+    {
         downloads.remove(relative);
     }
     shared.outcome.send_replace(Some(result));
@@ -453,8 +454,14 @@ async fn publish_download_outcome<Context: XmtpSharedContext>(
 impl<Context: XmtpSharedContext + 'static> DownloadAttemptGuard<Context> {
     async fn finish(&mut self, result: Result<DownloadedAttachment, AttachmentClientError>) {
         publish_download_outcome(
-            &self.context, &self.remote, &self.relative, &self.key, &self.shared, result,
-        ).await;
+            &self.context,
+            &self.remote,
+            &self.relative,
+            &self.key,
+            &self.shared,
+            result,
+        )
+        .await;
         self.finished = true;
     }
 }
@@ -477,7 +484,8 @@ impl<Context: XmtpSharedContext + 'static> Drop for DownloadAttemptGuard<Context
                 &key,
                 &shared,
                 Err(AttachmentClientError::new(Cause::LocalStorage)),
-            ).await;
+            )
+            .await;
         }));
     }
 }
@@ -516,6 +524,75 @@ impl DownloadShared {
     }
 }
 
+#[derive(Clone, Default)]
+struct CreateRollbackState {
+    plain_temp: Option<String>,
+    staged_temp: Option<String>,
+    final_plain: Option<String>,
+    final_staged: Option<String>,
+    created_key_dir: Option<String>,
+    local_row: Option<String>,
+    pending_row: Option<String>,
+}
+
+async fn rollback_create<Context: XmtpSharedContext>(
+    context: &Context,
+    store: &Arc<dyn LocalStore>,
+    state: &CreateRollbackState,
+) {
+    if let Some(digest) = &state.pending_row {
+        let _ = context.db().delete_pending_attachment(digest);
+    }
+    if let Some(path) = &state.local_row {
+        let _ = context.db().delete_local_attachment(path);
+    }
+    for path in [
+        &state.plain_temp,
+        &state.staged_temp,
+        &state.final_plain,
+        &state.final_staged,
+    ]
+    .into_iter()
+    .flatten()
+    {
+        let _ = store.remove_file(path).await;
+    }
+    if let Some(key_dir) = &state.created_key_dir {
+        let _ = store.remove_empty_dir(key_dir).await;
+    }
+}
+
+struct CreateRollbackGuard<Context: XmtpSharedContext + 'static> {
+    context: Context,
+    store: Arc<dyn LocalStore>,
+    state: CreateRollbackState,
+    publication: Option<OwnedMutexGuard<()>>,
+    committed: bool,
+}
+
+impl<Context: XmtpSharedContext + 'static> CreateRollbackGuard<Context> {
+    async fn rollback(&mut self) {
+        rollback_create(&self.context, &self.store, &self.state).await;
+        self.committed = true;
+    }
+}
+
+impl<Context: XmtpSharedContext + 'static> Drop for CreateRollbackGuard<Context> {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        let context = self.context.clone();
+        let store = self.store.clone();
+        let state = self.state.clone();
+        let publication = self.publication.take();
+        drop(xmtp_common::task::spawn(async move {
+            let _publication = publication;
+            rollback_create(&context, &store, &state).await;
+        }));
+    }
+}
+
 #[doc(hidden)]
 pub struct AttachmentRuntime {
     pub(crate) store: Option<Arc<dyn LocalStore>>,
@@ -525,6 +602,7 @@ pub struct AttachmentRuntime {
     downloads: Mutex<HashMap<String, Arc<DownloadShared>>>,
     deleting: Mutex<HashMap<String, usize>>,
     event_locks: Mutex<HashMap<String, Weak<AsyncMutex<()>>>>,
+    publication_lock: Arc<AsyncMutex<()>>,
     reconciled: OnceCell<()>,
     lease_timing: Mutex<LeaseTiming>,
     #[cfg(test)]
@@ -535,6 +613,8 @@ pub struct AttachmentRuntime {
     outcome_lock_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     create_move_pause: Mutex<Option<Arc<CreateMovePause>>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    create_publish_pause: Mutex<Option<Arc<CreatePublishPause>>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     attempt_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -553,6 +633,15 @@ struct CreateMovePause {
     resume: tokio::sync::Notify,
 }
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+struct CreatePublishPause {
+    after_staged: bool,
+    path: Mutex<Option<String>>,
+    staged_path: Mutex<Option<String>>,
+    entered: tokio::sync::Notify,
+    resume: tokio::sync::Notify,
+}
+
 impl Default for AttachmentRuntime {
     fn default() -> Self {
         Self {
@@ -563,6 +652,7 @@ impl Default for AttachmentRuntime {
             downloads: Mutex::new(HashMap::new()),
             deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
+            publication_lock: Arc::new(AsyncMutex::new(())),
             reconciled: OnceCell::new(),
             lease_timing: Mutex::new(LeaseTiming::default()),
             #[cfg(test)]
@@ -573,6 +663,8 @@ impl Default for AttachmentRuntime {
             outcome_lock_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            create_publish_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             attempt_panic_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -617,6 +709,7 @@ impl AttachmentRuntime {
             downloads: Mutex::new(HashMap::new()),
             deleting: Mutex::new(HashMap::new()),
             event_locks: Mutex::new(HashMap::new()),
+            publication_lock: Arc::new(AsyncMutex::new(())),
             reconciled: OnceCell::new(),
             lease_timing: Mutex::new(LeaseTiming::default()),
             #[cfg(test)]
@@ -627,6 +720,8 @@ impl AttachmentRuntime {
             outcome_lock_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            create_publish_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             attempt_panic_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -715,6 +810,7 @@ impl AttachmentRuntime {
         &self,
         context: &Context,
     ) -> Result<(), AttachmentClientError> {
+        let _publication = self.publication_lock.lock().await;
         #[cfg(test)]
         if FAIL_NEXT_RECONCILES
             .fetch_update(AtomicOrdering::SeqCst, AtomicOrdering::SeqCst, |count| {
@@ -1163,18 +1259,21 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         let id: [u8; 16] = xmtp_common::rand_array();
         let plain_temp = temporary_path(&format!("{}-plain", hex::encode(id)))?;
         let staged_temp = temporary_path(&format!("{}-staged", hex::encode(id)))?;
-        let mut plain_temp_created = false;
-        let mut staged_temp_created = false;
-        let mut final_plain = None::<String>;
-        let mut final_staged = None::<String>;
-        let mut created_key_dir = None::<String>;
-        let mut local_row_created = None::<String>;
-        let mut pending_row_created = None::<String>;
+        let publication = self.runtime().publication_lock.clone().lock_owned().await;
+        let mut rollback = CreateRollbackGuard {
+            context: self.context.context_ref().clone(),
+            store: store.clone(),
+            state: CreateRollbackState {
+                plain_temp: Some(plain_temp.clone()),
+                staged_temp: Some(staged_temp.clone()),
+                ..Default::default()
+            },
+            publication: Some(publication),
+            committed: false,
+        };
         let result: Result<PendingAttachment<Context>, AttachmentClientError> = async {
             let mut plain = store.create_temp(&plain_temp).await?;
-            plain_temp_created = true;
             let mut staged = store.create_temp(&staged_temp).await?;
-            staged_temp_created = true;
             let material = KeyMaterial::random();
             let mut encryptor = GcmEncryptor::new(&material);
             let mut hash = Sha256::new();
@@ -1287,26 +1386,37 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             }
             let key_dir = attachment_key(&remote)?;
             if store.create_dir_if_absent(&key_dir).await? {
-                created_key_dir = Some(key_dir);
+                rollback.state.created_key_dir = Some(key_dir);
             }
             match store.rename(&plain_temp, &local).await {
                 Ok(()) => {
-                    plain_temp_created = false;
-                    final_plain = Some(local.clone());
+                    rollback.state.plain_temp = None;
+                    rollback.state.final_plain = Some(local.clone());
                 }
                 Err(StoreMoveError::DestinationExists) => {
                     if !store.is_regular_file(&local).await? {
                         return Err(AttachmentClientError::new(Cause::LocalStorage));
                     }
                     store.remove_file(&plain_temp).await?;
-                    plain_temp_created = false;
+                    rollback.state.plain_temp = None;
                 }
                 Err(error) => return Err(error.into()),
             }
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            let publish_pause = { self.runtime().create_publish_pause.lock().clone() };
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            if let Some(pause) = publish_pause
+                && !pause.after_staged
+            {
+                *pause.path.lock() = Some(local.clone());
+                *pause.staged_path.lock() = Some(ciphertext.clone());
+                pause.entered.notify_one();
+                pause.resume.notified().await;
+            }
             match store.rename(&staged_temp, &ciphertext).await {
                 Ok(()) => {
-                    staged_temp_created = false;
-                    final_staged = Some(ciphertext.clone());
+                    rollback.state.staged_temp = None;
+                    rollback.state.final_staged = Some(ciphertext.clone());
                 }
                 Err(StoreMoveError::DestinationExists) => {
                     let valid = match store.open_read(&ciphertext).await {
@@ -1319,14 +1429,25 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     };
                     if valid {
                         store.remove_file(&staged_temp).await?;
-                        staged_temp_created = false;
+                        rollback.state.staged_temp = None;
                     } else {
                         store.replace(&staged_temp, &ciphertext).await?;
-                        staged_temp_created = false;
-                        final_staged = Some(ciphertext.clone());
+                        rollback.state.staged_temp = None;
+                        rollback.state.final_staged = Some(ciphertext.clone());
                     }
                 }
                 Err(error) => return Err(error.into()),
+            }
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            let publish_pause = { self.runtime().create_publish_pause.lock().clone() };
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            if let Some(pause) = publish_pause
+                && pause.after_staged
+            {
+                *pause.path.lock() = Some(local.clone());
+                *pause.staged_path.lock() = Some(ciphertext.clone());
+                pause.entered.notify_one();
+                pause.resume.notified().await;
             }
             let db = self.context.db();
             let inserted = db
@@ -1338,7 +1459,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 )
                 .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
             if inserted {
-                local_row_created = Some(local.clone());
+                rollback.state.local_row = Some(local.clone());
             }
             let inserted = db
                 .insert_pending_attachment_if_absent(&hex_digest, &remote.encode_to_vec(), now_ns())
@@ -1346,7 +1467,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             if !inserted {
                 return Err(AttachmentClientError::new(Cause::LocalStorage));
             }
-            pending_row_created = Some(hex_digest.clone());
+            rollback.state.pending_row = Some(hex_digest.clone());
             Ok(PendingAttachment {
                 context: self.context.clone(),
                 remote,
@@ -1355,28 +1476,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         }
         .await;
         if result.is_err() {
-            if let Some(digest) = pending_row_created.as_ref() {
-                let _ = self.context.db().delete_pending_attachment(digest);
-            }
-            if let Some(path) = local_row_created.as_ref() {
-                let _ = self.context.db().delete_local_attachment(path);
-            }
-            for path in [
-                plain_temp_created.then_some(&plain_temp),
-                staged_temp_created.then_some(&staged_temp),
-                final_plain.as_ref(),
-                final_staged.as_ref(),
-            ]
-            .into_iter()
-            .flatten()
-            {
-                if store.exists(path).await.unwrap_or(false) {
-                    let _ = store.remove_file(path).await;
-                }
-            }
-            if let Some(key_dir) = created_key_dir.as_ref() {
-                let _ = store.remove_empty_dir(key_dir).await;
-            }
+            rollback.rollback().await;
+        } else {
+            rollback.committed = true;
         }
         result
     }

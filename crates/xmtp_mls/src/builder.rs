@@ -434,7 +434,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             };
             let mut fetched = None;
             let (paths, opened_identifier) = if let Some(identifier) = recorded {
-                (location.resolve_identifier(inbox_id, &identifier)?, Some(identifier))
+                (
+                    location.resolve_identifier(inbox_id, &identifier)?,
+                    Some(identifier),
+                )
             } else if matches!(
                 location,
                 crate::storage_location::StorageLocation::Explicit { .. }
