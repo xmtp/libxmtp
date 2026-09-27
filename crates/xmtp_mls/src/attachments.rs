@@ -976,7 +976,18 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             }
         }
         let _guard = lock.lock().await;
-        let mut deleted_local_material = false;
+        let mut emitted = false;
+        let mut emit_deleted = || {
+            if !emitted {
+                self.context.events().emit(
+                    Some(ClientEvent::AttachmentDeleted(attachment_reference(
+                        remote, &key,
+                    ))),
+                    None,
+                );
+                emitted = true;
+            }
+        };
         // Remove the row first. An upload in another client sees the deletion
         // before this client removes its staged ciphertext.
         self.context
@@ -985,27 +996,21 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
         if store.exists(&key).await? {
             store.remove_dir_all(&key).await?;
-            deleted_local_material = true;
+            emit_deleted();
         }
         if store.exists(&staged).await? {
             store.remove_file(&staged).await?;
-            deleted_local_material = true;
+            emit_deleted();
         }
-        deleted_local_material |= self
+        let removed_rows = self
             .context
             .db()
             .delete_local_attachments_in_dir(&key)
-            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
-            != 0;
-        self.runtime().pending.lock().remove(&remote.content_digest);
-        if deleted_local_material {
-            self.context.events().emit(
-                Some(ClientEvent::AttachmentDeleted(attachment_reference(
-                    remote, &key,
-                ))),
-                None,
-            );
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+        if removed_rows != 0 {
+            emit_deleted();
         }
+        self.runtime().pending.lock().remove(&remote.content_digest);
         Ok(())
     }
 

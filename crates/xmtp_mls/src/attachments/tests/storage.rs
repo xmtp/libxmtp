@@ -369,6 +369,34 @@ async fn delete_removes_every_record_in_key_directory() {
     assert!(!dir.path().join(&key).exists());
 }
 
+// verifies: EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn deletion_event_survives_later_row_failure() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let key = attachment_key(&remote)?;
+    let events = alix
+        .client
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::AttachmentDeleted]))?;
+    alix.client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TRIGGER reject_local_attachment_delete BEFORE DELETE ON local_attachments \
+             BEGIN SELECT RAISE(ABORT, 'local row delete failed'); END",
+        )
+        .execute(conn)
+    })?;
+    let result = alix.client.attachments().delete_local(&remote).await;
+    assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert!(!dir.path().join(key).exists());
+    let emitted = events.drain();
+    assert_eq!(emitted.len(), 1);
+    assert!(matches!(emitted[0].client, Some(ClientEvent::AttachmentDeleted(_))));
+}
+
 // verifies: ATCH-047, EVENT-055
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_cancels_upload() {
