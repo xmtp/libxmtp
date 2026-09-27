@@ -2764,7 +2764,7 @@ async fn failed_standard_reply_parent_decode_stays_unknown() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let parent_id = group.send_text("parent".into()).await?;
+    let parent_id = group.send_text("parent".into(), None).await?;
     let reply_id = client
         .conversations()
         .reply_to_message(parent_id.clone(), crate::encode_text("reply".into())?, None)
