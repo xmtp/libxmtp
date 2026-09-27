@@ -499,6 +499,19 @@ class Links(unittest.TestCase):
             self.code(tmp, "// verifies: JOIN-001\nfn f() {}\n")
             self.assertIn("SPEC-055", rules(run(tmp), "warning"))
 
+    def test_stale_untested_waiver_is_a_warning(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
+            )
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
+                '[[waiver]]\nid = "JOIN-001"\nkind = "untested"\n'
+                'owner = "protocol"\nreason = "src/lib.rs::f satisfies the row"\n'
+            )
+            self.code(tmp, "// verifies: JOIN-001\nfn f() {}\n")
+            self.assertIn("SPEC-055", rules(run(tmp), "warning"))
+
     def test_sdk_languages_are_scanned(self):
         with TemporaryDirectory() as d:
             tmp = build(
