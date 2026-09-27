@@ -1160,6 +1160,7 @@ pub(crate) mod pure_codec_tests {
         }
     }
 
+    #[cfg(test)]
     // verifies: CTYPE-029
     #[xmtp_common::test(unwrap_try = true)]
     fn malformed_nested_standard_reply_content_is_rejected() {
@@ -1177,6 +1178,7 @@ pub(crate) mod pure_codec_tests {
         assert!(decode_standard(outer.into()).is_err());
     }
 
+    #[cfg(test)]
     // verifies: CTYPE-027
     #[xmtp_common::test(unwrap_try = true)]
     fn nested_custom_reply_content_remains_available() {
