@@ -16,7 +16,7 @@ Start from changed behaviour, not changed paths: the callers of what changed, th
 - `implements: ID` in a comment above the item that enforces the obligation. Name the decision point, not every site that participates. None at all when the obligation is a property of the design.
 - `verifies: ID` (or several IDs, comma separated) above a test whose assertions establish the obligation. Link a test unless an already-linked test establishes the same property in the same place: four SDK tests of one property at four conversion boundaries all count, and so do the normal-path, rollback, and restart tests of one storage boundary. Prefer the Rust test when two are genuinely redundant. A test that merely exercises the code path does not qualify.
 - Never mention a requirement ID anywhere else in a comment. Remove any you find; that is what the checker flags.
-- When no test can establish it, add an entry to `docs/specs/waivers.toml` with the ID, a reason, and a `kind`: `analysis` when a recorded review establishes the obligation, or `gap` when the implementation does not yet satisfy it. A `gap` entry names an owner and an issue.
+- When no test establishes it, add an entry to `docs/specs/waivers.toml` with the ID, a reason, and a `kind`: `analysis` when a recorded review establishes the obligation and no test can, `gap` when the implementation does not yet satisfy it, or `untested` when the reason names the code that satisfies it and no test proves it yet. A `gap` entry names an owner and an issue. An `untested` entry names an owner.
 
 ## Auditing a PR
 

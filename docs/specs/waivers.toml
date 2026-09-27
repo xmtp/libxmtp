@@ -1,5 +1,5 @@
 # Waivers under SPEC-055. Each entry names a requirement that carries no
-# `verifies:` link, with the kind that says why (SPEC-057).
+# `verifies:` link, with the kind that says why (SPEC-094).
 #
 # `gap` entries record behaviour the implementation does not yet satisfy. They
 # are the ones SPEC-026 requires when a spec states the intended behaviour and
@@ -7,6 +7,9 @@
 #
 # `analysis` entries record an obligation a recorded review establishes and no
 # test can.
+#
+# `untested` entries name the code that satisfies the row without a proving
+# test. Each needs an owner.
 #
 # The issue links below are placeholders. Each needs a real issue before its
 # spec is approved.
@@ -181,6 +184,19 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
 
 [[waiver]]
+id = "CONS-042"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "With no filter, the client's all-message stream delivers every consent state."
+
+[[waiver]]
+id = "CONS-044"
+kind = "untested"
+owner = "protocol"
+reason = "Core `StreamConversations` applies `ALL_CONSENT_STATES` when no consent filter is given; no test asserts the default yet."
+
+[[waiver]]
 id = "CONS-030"
 kind = "gap"
 owner = "protocol"
@@ -223,6 +239,12 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A token carrying kid whose algorithm no loaded key uses is answered unsupported_alg before key selection, rather than untrusted."
 
 [[waiver]]
+id = "AUTH-035"
+kind = "untested"
+owner = "protocol"
+reason = "AuthHandle.inner.state in crates/xmtp_api_backend/src/middleware/auth.rs holds the shared failure count and lockout; no test drives failures from two clients sharing it."
+
+[[waiver]]
 id = "AUTH-031"
 kind = "gap"
 owner = "backend"
@@ -235,6 +257,37 @@ kind = "gap"
 owner = "backend"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A client half-close during the drain for an outstanding Ping ends the stream with UNAVAILABLE rather than completing cleanly."
+
+[[waiver]]
+id = "CONF-077"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The client does not re-check the backend URL before its first request after an offline build."
+
+[[waiver]]
+id = "API-292"
+kind = "untested"
+owner = "protocol"
+reason = "TrackedStatsClient in crates/xmtp_api_backend/src/queries/api_stats.rs counts the five API RPCs, and the Node and mobile stats bindings expose those counts; no test covers every shared client and static call."
+
+[[waiver]]
+id = "API-293"
+kind = "untested"
+owner = "protocol"
+reason = "TrackedStatsClient in crates/xmtp_api_backend/src/queries/api_stats.rs counts both identity RPCs, and the Node and mobile stats bindings expose those counts; no test covers every shared client and static call."
+
+[[waiver]]
+id = "API-294"
+kind = "untested"
+owner = "protocol"
+reason = "The Node api_aggregate_statistics and mobile api_aggregate_statistics bindings format AggregateStats with the API and identity counts; no test proves the shared-connection summary."
+
+[[waiver]]
+id = "API-295"
+kind = "untested"
+owner = "protocol"
+reason = "Node Client::clear_all_statistics and mobile FfiXmtpClient::clear_all_statistics call ApiStats::clear and IdentityStats::clear in crates/xmtp_proto/src/api_client/stats.rs, which reset all seven counts; no test proves each count after a nonzero value."
 
 [[waiver]]
 id = "PUSH-257"
@@ -361,6 +414,41 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Client processing logs still contain full installation identifiers."
+
+[[waiver]]
+id = "PROC-041"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDK reader does not deliver a close notification with a reason for every stream end."
+
+[[waiver]]
+id = "PROC-042"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current reader end does not give its stream the closed reason."
+
+[[waiver]]
+id = "PROC-043"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current reader has no close reason that classifies stream errors as retryable or terminal."
+
+[[waiver]]
+id = "PROC-044"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current reader has no connection-state subscription that delivers the state at subscription and ordered changes."
+
+[[waiver]]
+id = "PROC-045"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current reader does not expose a failed custom codec as a custom item with its error while keeping the stream open."
 
 [[waiver]]
 id = "SEND-003"
@@ -538,6 +626,149 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
 
 [[waiver]]
+id = "CTYPE-026"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Node and browser expose no client-free Reply encoder, and Swift and Kotlin codecs are host-language classes whose envelopes can differ from the client's; the façade exposes Rust-backed codecs."
+
+[[waiver]]
+id = "CTYPE-027"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The core reply decoder returns Custom for an unrecognized nested type instead of an unknown body that keeps the nested EncodedContent."
+
+[[waiver]]
+id = "CTYPE-028"
+kind = "untested"
+owner = "protocol"
+reason = "ReplyCodec::decode and MessageBody::decode_with_budget in crates/xmtp_mls decode the nested EncodedContent type without using the outer contentType parameter; no conflict test proves this."
+
+[[waiver]]
+id = "CTYPE-029"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current SDK does not report the required decode failure while preserving the outer bytes and fallback on every invalid nested content path."
+
+[[waiver]]
+id = "STORE-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs always put a label (`env`) in the file name, so the unlabeled `xmtp-<inbox id>.db3` is never produced; the façade SDKs implement both forms."
+
+[[waiver]]
+id = "STORE-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-003"
+kind = "untested"
+owner = "protocol"
+reason = "Android Client.initFFiClient uses the xmtp_db directory under appContext.filesDir for the default database; no test asserts that directory."
+
+[[waiver]]
+id = "STORE-004"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-005"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs use other default directories; the façade SDKs replace them in the SDK migration."
+
+[[waiver]]
+id = "STORE-006"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS SDK falls back to the Documents directory instead of failing when no location can be derived; the façade SDKs fail."
+
+[[waiver]]
+id = "STORE-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDK `build` can open a new database; the façade `build` fails with a typed error."
+
+[[waiver]]
+id = "STORE-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs do not reject separators, the colon, and NUL in the label; the façade does."
+
+[[waiver]]
+id = "STORE-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current iOS and Android Client.dbPath return :memory: for in-memory storage instead of no path; the façade returns no path."
+
+[[waiver]]
+id = "STORE-010"
+kind = "untested"
+owner = "protocol"
+reason = "iOS Client.reconnectLocalDatabase and Android Client.reconnectLocalDatabase call FfiXmtpClient.dbReconnect, which reopens the client database; no test proves that it is the original file."
+
+[[waiver]]
+id = "STORE-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs ignore in-memory delete and drop only the connection before removing the file; the façade fails and closes first."
+
+[[waiver]]
+id = "STORE-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Current SDKs ignore in-memory delete and drop only the connection before removing the file; the façade fails and closes first."
+
+[[waiver]]
+id = "STORE-018"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Android Client.deleteLocalDatabase ignores the Boolean from File(dbPath).delete(), so deletion can complete while the database file remains."
+
+[[waiver]]
+id = "IDENT-073"
+kind = "untested"
+owner = "protocol"
+reason = "iOS Client.create calls preAuthenticateToInboxCallback before handleSignature, and Android Client.create calls the callback before handleSignature; no test asserts the order."
+
+[[waiver]]
+id = "IDENT-074"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS and Android SDKs call the handler even when registration needs no signature; the façade SDKs call it only when a signature is needed."
+
+[[waiver]]
+id = "IDENT-075"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The current iOS and Android SDKs propagate a failing handler without reporting a typed callback failure; the façade SDKs report a callback failure."
+
+[[waiver]]
+id = "IDENT-076"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The Node and browser SDKs accept no pre-authentication handler; the façade adds handlers.preAuthenticate."
+
+[[waiver]]
 id = "GMOD-035"
 kind = "gap"
 owner = "protocol"
@@ -601,15 +832,28 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "The specified event payload members and their source values are not implemented."
 
 [[waiver]]
-id = "EVENT-025"
+id = "EVENT-026"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4207"
+reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
+
+[[waiver]]
+id = "EVENT-055"
+kind = "untested"
+owner = "protocol"
+reason = "ClientBuilder registers each client public event writer with its backend AuthHandle, and AuthInner::emit_lockout emits to every registered writer; no test drives two sharing clients."
+
+[[waiver]]
+id = "EVENT-056"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "The Rust bus is per client and shared credentials fan out to each client's bus, but no SDK facade hands events to app subscriptions or verifies isolation when two clients share storage or credentials."
 
 [[waiver]]
-id = "EVENT-026"
+id = "CTYPE-030"
 kind = "gap"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."

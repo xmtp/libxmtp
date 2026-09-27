@@ -124,7 +124,7 @@ Leaving a group and being added back replaces previously set consent state with 
 
 ## 4. Gating listing and streaming
 
-An app can filter conversation listings and streams by consent state. The client returns or delivers only conversations in the requested states, and a conversation with no record counts as unknown (CONS-001). An empty filter names no state and so includes nothing; it is not the same as no filter. Without a filter, a listing returns the conversations the user has allowed and the ones the user has not decided on, and never the denied ones. The same filter applies to a stream of conversations and to a stream of messages across conversations; PROC-032 owns what a message stream does with a candidate the filter excludes.
+An app can filter conversation listings and streams by consent state. The client returns or delivers only conversations in the requested states, and a conversation with no record counts as unknown (CONS-001). An empty filter names no state and so includes nothing; it is not the same as no filter. Without a filter, a listing and a message stream across conversations include allowed and unknown conversations. A conversation stream without a filter includes every consent state. PROC-032 owns what a message stream does with a candidate the filter excludes.
 
 A message listing within one conversation is not filtered: the app named the conversation. A sync group is never listed or streamed unless the app asks for sync groups (SYNC-005).
 
@@ -132,6 +132,9 @@ A message listing within one conversation is not filtered: the app named the con
 | --- | --- | --- | --- |
 | CONS-030 | The filter is on conversation consent | When an app lists or streams conversations, or streams messages across conversations, with a consent filter, the client MUST include only conversations whose conversation consent is in the filter, so that an empty filter includes none, and MUST NOT read inbox consent to decide. | |
 | CONS-031 | Default listing excludes denied | When an app lists conversations with no consent filter, the client MUST return the conversations whose conversation consent is allowed or unknown and MUST NOT return one whose consent is denied. | A denied conversation that appears is the block failing; an unknown one that disappears can never be decided on. |
+| CONS-042 | Default all-message stream | When an app streams messages across all its conversations with no consent filter, the client MUST deliver only messages from conversations whose conversation consent is allowed or unknown, as CONS-031 does for listings. | Messages from a denied conversation must not reach an app that used the default consent choice. |
+| CONS-043 | One conversation stream | When an app streams messages from one named conversation with no consent filter, the client MUST NOT filter that stream by the conversation's consent state. | The app has selected that conversation explicitly. |
+| CONS-044 | Default conversation stream | When an app streams conversations with no consent filter, the client MUST deliver new conversations of every consent state. | An app that hides a new denied conversation cannot show it in a blocked list. |
 
 ## 5. What an app can read and set
 
