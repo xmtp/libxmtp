@@ -196,6 +196,24 @@ async fn existing_not_fetched() {
     assert_eq!(requests.load(Ordering::SeqCst), 0);
 }
 
+// verifies: ATCH-052, ATCH-062
+#[xmtp_common::test(unwrap_try = true)]
+async fn directory_at_plaintext_path_is_not_a_download() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let relative = plaintext_rel_path(&remote)?;
+    let path = alix.client.attachments().local_path(&remote)?;
+    alix.client.context.db().delete_local_attachment(&relative)?;
+    tokio::fs::remove_file(&path).await?;
+    tokio::fs::create_dir(&path).await?;
+    let result = alix.client.attachments().download(&remote).await;
+    assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert!(alix.client.context.db().get_local_attachment(&relative)?.is_none());
+    assert!(path.is_dir());
+}
+
 // verifies: ATCH-051, ATCH-056, ATCH-060
 #[xmtp_common::test(unwrap_try = true)]
 async fn forged_body_leaves_nothing() {

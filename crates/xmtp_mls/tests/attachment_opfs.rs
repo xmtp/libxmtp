@@ -17,7 +17,7 @@ use xmtp_attachments::{
 use xmtp_common::time::Duration;
 use xmtp_configuration::{AttachmentsConfiguration, ServerConfiguration, StaticConfigProvider};
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_db::{ConnectionExt, diesel::RunQueryDsl, prelude::QueryPendingAttachment};
+use xmtp_db::{ConnectionExt, diesel::RunQueryDsl, prelude::{QueryLocalAttachment, QueryPendingAttachment}};
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 use xmtp_mls::{
     Client,
@@ -98,6 +98,30 @@ async fn client_create_writes_plaintext_to_opfs() {
     let local_file = root_store.open_read(&format!("{root}/{local}")).await?;
     assert_eq!(local_file.read_chunk(0, 64).await?, b"opfs plaintext");
     assert!(root_store.exists(&format!("{root}/{staged}")).await?);
+}
+
+// verifies: ATCH-052, ATCH-062
+#[xmtp_common::test(unwrap_try = true)]
+async fn directory_at_plaintext_path_is_not_a_download() {
+    let root = test_root("attachment-directory-download-tests");
+    let client = opfs_client(offline_api(), root.clone()).await;
+    let pending = client
+        .attachments()
+        .create(AttachmentSource::Bytes {
+            bytes: b"directory proof".to_vec(),
+            filename: Some("proof.txt".into()),
+            mime_type: "text/plain".into(),
+        })
+        .await?;
+    let remote = pending.remote_attachment();
+    let local = plaintext_rel_path(remote)?;
+    client.db().delete_local_attachment(&local)?;
+    let root_store = OpfsStore::new_root().await?;
+    root_store.remove_file(&format!("{root}/{local}")).await?;
+    root_store.create_dir_if_absent(&format!("{root}/{local}")).await?;
+    let result = client.attachments().download(remote).await;
+    assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert!(client.db().get_local_attachment(&local)?.is_none());
 }
 
 // verifies: ATCH-025, ATCH-074

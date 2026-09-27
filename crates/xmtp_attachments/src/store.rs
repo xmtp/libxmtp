@@ -173,6 +173,10 @@ pub trait DownloadSink: xmtp_common::wasm::MaybeSend {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSync {
     async fn open_read(&self, path: &str) -> Result<StagedFile, AttachmentError>;
+    /// Check the file kind after the caller finds an existing path.
+    async fn is_regular_file(&self, path: &str) -> Result<bool, AttachmentError> {
+        self.open_read(path).await?.is_regular_file().await
+    }
     /// Create a temporary file. Callers must use unique names because OPFS
     /// cannot create a file exclusively.
     async fn create_temp(&self, path: &str) -> Result<StoreWriter, AttachmentError>;
@@ -199,6 +203,21 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
 }
 
 impl StagedFile {
+    async fn is_regular_file(&self) -> Result<bool, AttachmentError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            Ok(tokio::fs::metadata(&self.path)
+                .await
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+                .is_file())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // OPFS open_read obtains a file handle, which rejects directories.
+            Ok(true)
+        }
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn read_chunk(
         &self,

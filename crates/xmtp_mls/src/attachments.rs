@@ -780,6 +780,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 return Err(AttachmentClientError::new(Cause::Deleted));
             }
             if store.exists(&relative).await? {
+                if !store.is_regular_file(&relative).await? {
+                    return Err(AttachmentClientError::new(Cause::LocalStorage));
+                }
                 self.context
                     .db()
                     .insert_or_ignore_local_attachment(&relative, now_ns(), None, None)
