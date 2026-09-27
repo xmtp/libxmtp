@@ -199,7 +199,10 @@ impl NativeStore {
                         #[cfg(unix)]
                         if created {
                             if self.force_chmod_error() {
-                                tracing::warn!(part, "could not set private attachment directory permissions");
+                                tracing::warn!(
+                                    part,
+                                    "could not set private attachment directory permissions"
+                                );
                             } else {
                                 repair_created_child_mode(&directory, part)?;
                             }
@@ -488,28 +491,52 @@ impl LocalStore for NativeStore {
     }
 
     async fn create_dir_if_absent(&self, path: &str) -> Result<bool, AttachmentError> {
-        let path = self.path(path)?;
-        let creation_path = path.clone();
-        let created = xmtp_common::task::spawn_blocking(move || {
-            #[cfg(unix)]
-            let result = {
-                use std::os::unix::fs::DirBuilderExt as _;
-                std::fs::DirBuilder::new()
-                    .mode(0o700)
-                    .create(&creation_path)
-            };
-            #[cfg(not(unix))]
-            let result = std::fs::create_dir(&creation_path);
-            match result {
-                Ok(()) => Ok(true),
-                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
-                Err(error) => Err(error),
+        validate_relative(path)?;
+        let (parent, name) = self.parent(path, true).map_err(storage_error)?;
+        #[cfg(unix)]
+        let mut builder = cap_std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        builder.mode(0o700);
+        #[cfg(unix)]
+        let result = parent.create_dir_with(&name, &builder);
+        #[cfg(not(unix))]
+        let result = parent.create_dir(&name);
+        let created = match result {
+            Ok(()) => true,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
+            Err(error) => return Err(storage_error(error)),
+        };
+        let child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        #[cfg(unix)]
+        if created {
+            use std::os::unix::fs::PermissionsExt as _;
+            #[cfg(test)]
+            record_initial_mode(
+                child
+                    .try_clone()
+                    .map_err(storage_error)?
+                    .into_std_file()
+                    .metadata()
+                    .map_err(storage_error)?
+                    .permissions()
+                    .mode(),
+                0o700,
+            );
+            if self.force_chmod_error() {
+                tracing::warn!(%name, "could not set private attachment directory permissions");
+            } else {
+                child
+                    .try_clone()
+                    .map_err(storage_error)?
+                    .into_std_file()
+                    .set_permissions(std::fs::Permissions::from_mode(0o700))
+                    .map_err(storage_error)?;
             }
-        })
-        .await
-        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
-        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        create_private_dir(&path, self.force_chmod_error(), self.force_foreign_owner()).await?;
+        } else {
+            self.check_existing_owner(&child).map_err(storage_error)?;
+        }
+        #[cfg(not(unix))]
+        let _ = child;
         Ok(created)
     }
 
@@ -566,9 +593,27 @@ impl LocalStore for NativeStore {
     }
 
     async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
-        tokio::fs::rename(self.path(from)?, self.path(to)?)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+        validate_relative(from)?;
+        validate_relative(to)?;
+        let (from_parent, from_name) = self.parent(from, false).map_err(storage_error)?;
+        let source = from_parent
+            .symlink_metadata(&from_name)
+            .map_err(storage_error)?;
+        if !source.is_file() || is_link(&source) {
+            return Err(storage_error(()));
+        }
+        let (to_parent, to_name) = self.parent(to, true).map_err(storage_error)?;
+        match to_parent.symlink_metadata(&to_name) {
+            Ok(metadata) if !metadata.is_file() || is_link(&metadata) => {
+                return Err(storage_error(()));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(storage_error(error)),
+        }
+        from_parent
+            .rename(&from_name, &to_parent, &to_name)
+            .map_err(storage_error)
     }
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
@@ -582,15 +627,20 @@ impl LocalStore for NativeStore {
     }
 
     async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError> {
-        tokio::fs::remove_dir(self.path(path)?)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+        validate_relative(path)?;
+        let (parent, name) = self.parent(path, false).map_err(storage_error)?;
+        parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        parent.remove_dir(&name).map_err(storage_error)
     }
 
     async fn remove_file(&self, path: &str) -> Result<(), AttachmentError> {
-        tokio::fs::remove_file(self.path(path)?)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+        validate_relative(path)?;
+        let (parent, name) = self.parent(path, false).map_err(storage_error)?;
+        let metadata = parent.symlink_metadata(&name).map_err(storage_error)?;
+        if !metadata.is_file() || is_link(&metadata) {
+            return Err(storage_error(()));
+        }
+        parent.remove_file(&name).map_err(storage_error)
     }
 
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError> {
@@ -619,21 +669,31 @@ impl LocalStore for NativeStore {
     ) -> Result<DecodedMeta, AttachmentError> {
         validate_temp(source)?;
         validate_temp(output)?;
-        let source = self.path(source)?;
-        let output = self.path(output)?;
+        let (source_parent, source_name) = self.parent(source, false).map_err(storage_error)?;
+        let mut read_options = OpenOptions::new();
+        read_options.read(true).follow(FollowSymlinks::No);
+        let input = source_parent
+            .open_with(&source_name, &read_options)
+            .map_err(storage_error)?;
+        let (output_parent, output_name) = self.parent(output, true).map_err(storage_error)?;
+        let mut write_options = OpenOptions::new();
+        write_options
+            .write(true)
+            .create_new(true)
+            .follow(FollowSymlinks::No);
+        #[cfg(unix)]
+        write_options.mode(0o600);
+        let decoded = output_parent
+            .open_with(&output_name, &write_options)
+            .map_err(storage_error)?;
+        #[cfg(unix)]
+        if let Err(error) = decoded.set_permissions(cap_std::fs::Permissions::from_mode(0o600)) {
+            let _ = output_parent.remove_file(&output_name);
+            return Err(storage_error(error));
+        }
         xmtp_common::task::spawn_blocking(move || {
-            let mut input = std::fs::File::open(source)
-                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-            let mut options = std::fs::OpenOptions::new();
-            options.write(true).create_new(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::OpenOptionsExt as _;
-                options.mode(0o600);
-            }
-            let mut decoded = options
-                .open(output)
-                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+            let mut input = input.into_std();
+            let mut decoded = decoded.into_std();
             let meta = decoder.finish(&mut input, &mut decoded)?;
             decoded
                 .sync_all()
@@ -645,50 +705,44 @@ impl LocalStore for NativeStore {
     }
 
     async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError> {
-        use std::time::UNIX_EPOCH;
-        let mut files = Vec::new();
-        let mut dirs = vec![(self.root.clone(), String::new())];
-        while let Some((dir, prefix)) = dirs.pop() {
-            let mut entries = tokio::fs::read_dir(dir)
-                .await
-                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-            while let Some(entry) = entries
-                .next_entry()
-                .await
-                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
-            {
-                let name = entry.file_name().to_string_lossy().into_owned();
-                let descend = prefix.is_empty() && is_reconcile_dir(&name);
-                let path = if prefix.is_empty() {
-                    name
-                } else {
-                    format!("{prefix}/{name}")
-                };
-                let kind = entry
-                    .file_type()
-                    .await
-                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-                if kind.is_dir() {
-                    if descend {
-                        dirs.push((entry.path(), path));
+        use cap_std::time::SystemClock;
+        let root = self.root_dir.clone();
+        xmtp_common::task::spawn_blocking(move || -> Result<Vec<StoreFile>, AttachmentError> {
+            let mut files = Vec::new();
+            let mut dirs = vec![(root.try_clone().map_err(storage_error)?, String::new())];
+            while let Some((dir, prefix)) = dirs.pop() {
+                for entry in dir.entries().map_err(storage_error)? {
+                    let entry = entry.map_err(storage_error)?;
+                    let Ok(name) = entry.file_name().into_string() else {
+                        continue;
+                    };
+                    let descend = prefix.is_empty() && is_reconcile_dir(&name);
+                    let path = if prefix.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{prefix}/{name}")
+                    };
+                    let metadata = dir.symlink_metadata(&name).map_err(storage_error)?;
+                    if metadata.is_dir() && !is_link(&metadata) {
+                        if descend {
+                            dirs.push((dir.open_dir_nofollow(&name).map_err(storage_error)?, path));
+                        }
+                    } else if metadata.is_file() && !is_link(&metadata) && !prefix.is_empty() {
+                        let modified_at_ns = metadata
+                            .modified()
+                            .ok()
+                            .and_then(|time| time.duration_since(SystemClock::UNIX_EPOCH).ok())
+                            .map_or(0, |age| age.as_nanos().min(i64::MAX as u128) as i64);
+                        files.push(StoreFile {
+                            path,
+                            modified_at_ns,
+                        });
                     }
-                } else if kind.is_file() && !prefix.is_empty() {
-                    let meta = entry
-                        .metadata()
-                        .await
-                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-                    let modified_at_ns = meta
-                        .modified()
-                        .ok()
-                        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-                        .map_or(0, |age| age.as_nanos().min(i64::MAX as u128) as i64);
-                    files.push(StoreFile {
-                        path,
-                        modified_at_ns,
-                    });
                 }
             }
-        }
-        Ok(files)
+            Ok(files)
+        })
+        .await
+        .map_err(storage_error)?
     }
 }

@@ -485,7 +485,7 @@ mod tests {
                 .rename(".tmp/source", "key/file")
                 .await
                 .unwrap_err()
-                .cause,
+                .cause(),
             Cause::LocalStorage
         );
         assert!(!outside.path().join("file").exists());
@@ -506,7 +506,7 @@ mod tests {
                 .rename("key/file", "safe/file")
                 .await
                 .unwrap_err()
-                .cause,
+                .cause(),
             Cause::LocalStorage
         );
         assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
@@ -813,7 +813,7 @@ mod tests {
                 .rename(".tmp/source", "key/file")
                 .await
                 .unwrap_err()
-                .cause,
+                .cause(),
             Cause::LocalStorage
         );
         assert_eq!(
