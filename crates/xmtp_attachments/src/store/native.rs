@@ -22,6 +22,8 @@ pub struct NativeStore {
     forced_hard_link_error: Option<std::io::ErrorKind>,
     #[cfg(test)]
     forced_source_unlink_error: Option<std::io::ErrorKind>,
+    #[cfg(test)]
+    fallback_race_bytes: Option<Vec<u8>>,
 }
 
 impl NativeStore {
@@ -40,6 +42,8 @@ impl NativeStore {
             forced_hard_link_error: None,
             #[cfg(test)]
             forced_source_unlink_error: None,
+            #[cfg(test)]
+            fallback_race_bytes: None,
         })
     }
 
@@ -52,6 +56,12 @@ impl NativeStore {
     #[cfg(test)]
     pub(crate) fn with_forced_source_unlink_error(mut self, kind: std::io::ErrorKind) -> Self {
         self.forced_source_unlink_error = Some(kind);
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_fallback_destination_race(mut self, bytes: Vec<u8>) -> Self {
+        self.fallback_race_bytes = Some(bytes);
         self
     }
 
@@ -127,6 +137,37 @@ fn exists_nofollow(parent: &Dir, name: &str) -> io::Result<bool> {
     }
 }
 
+#[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+fn rename_no_replace(
+    from_parent: &Dir,
+    from_name: &str,
+    to_parent: &Dir,
+    to_name: &str,
+) -> io::Result<()> {
+    rustix::fs::renameat_with(
+        from_parent,
+        from_name,
+        to_parent,
+        to_name,
+        rustix::fs::RenameFlags::NOREPLACE,
+    )
+    .map_err(Into::into)
+}
+
+#[cfg(not(any(target_vendor = "apple", target_os = "linux", target_os = "android")))]
+fn rename_no_replace(
+    _from_parent: &Dir,
+    _from_name: &str,
+    _to_parent: &Dir,
+    _to_name: &str,
+) -> io::Result<()> {
+    // No atomic no-replace move is available. Keep both files unchanged.
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "atomic no-replace rename is unavailable",
+    ))
+}
+
 #[async_trait::async_trait]
 impl LocalStore for NativeStore {
     async fn open_read(&self, path: &str) -> Result<StagedFile, AttachmentError> {
@@ -182,15 +223,22 @@ impl LocalStore for NativeStore {
             },
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(storage_error(())),
             Err(_) => {
-                // Some file systems cannot make hard links. This check and
-                // rename are not atomic. Callers keep each path single-flight
-                // (one pending attachment per digest, one fetch per path), as
-                // with the OPFS check-then-move path.
+                // Some file systems cannot make hard links. The fallback must
+                // reject a destination created after this check.
                 if exists_nofollow(&to_parent, &to_name).map_err(storage_error)? {
                     return Err(storage_error(()));
                 }
-                from_parent
-                    .rename(&from_name, &to_parent, &to_name)
+                #[cfg(test)]
+                if let Some(bytes) = &self.fallback_race_bytes {
+                    use std::io::Write;
+                    let mut options = OpenOptions::new();
+                    options.write(true).create_new(true);
+                    to_parent
+                        .open_with(&to_name, &options)
+                        .and_then(|mut file| file.write_all(bytes))
+                        .map_err(storage_error)?;
+                }
+                rename_no_replace(&from_parent, &from_name, &to_parent, &to_name)
                     .map_err(storage_error)
             }
         }

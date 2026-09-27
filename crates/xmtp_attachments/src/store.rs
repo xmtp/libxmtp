@@ -443,7 +443,7 @@ mod tests {
         );
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn native_rename_falls_back_without_hard_links() {
         let directory = tempfile::tempdir()?;
@@ -472,6 +472,37 @@ mod tests {
         assert_eq!(
             tokio::fs::read(directory.path().join(".tmp/second")).await?,
             b"second"
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_rename_fallback_never_replaces_racing_destination() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path())
+            .await?
+            .with_forced_hard_link_error(std::io::ErrorKind::PermissionDenied)
+            .with_fallback_destination_race(b"destination".to_vec());
+        let mut source = store.create_temp(".tmp/source").await?;
+        source.write(b"source").await?;
+        store.sync(&mut source).await?;
+        drop(source);
+
+        assert_eq!(
+            store
+                .rename(".tmp/source", "key/file")
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(
+            std::fs::read(directory.path().join("key/file"))?,
+            b"destination"
+        );
+        assert_eq!(
+            std::fs::read(directory.path().join(".tmp/source"))?,
+            b"source"
         );
     }
 

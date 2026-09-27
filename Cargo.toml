@@ -66,6 +66,7 @@ bytes = "1.12.1"
 camino = "1.1"
 cap-fs-ext = "4.0.3"
 cap-std = "4.0.3"
+rustix = { version = "1.1.4", features = ["fs"] }
 chrono = "0.4.45"
 clap = { version = "4", features = ["derive", "env"] }
 color-eyre = "0.6"
