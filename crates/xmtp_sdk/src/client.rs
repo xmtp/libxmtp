@@ -464,8 +464,8 @@ async fn open_existing_store(
     }
     #[cfg(target_arch = "wasm32")]
     {
-        let path = wasm_storage_path(options, inbox_id)?
-            .ok_or_else(XmtpError::identity_not_found)?;
+        let path =
+            wasm_storage_path(options, inbox_id)?.ok_or_else(XmtpError::identity_not_found)?;
         xmtp_db::init_sqlite().await;
         let pool = xmtp_db::get_sqlite()
             .ok_or_else(|| XmtpError::unknown("OPFS pool is unavailable"))?
