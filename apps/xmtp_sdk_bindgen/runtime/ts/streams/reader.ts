@@ -1,5 +1,9 @@
 import { ConnectionState } from "../../xmtp_sdk";
-import type { Conversation, ConversationReaderOptions } from "../../xmtp_sdk";
+import type {
+  ClientLike,
+  Conversation,
+  ConversationReaderOptions,
+} from "../../xmtp_sdk";
 import type { Client } from "../client";
 import type { Message } from "../message";
 
@@ -44,7 +48,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
 
   constructor(
     open: (signal: AbortSignal) => Promise<ReaderLike<T>>,
-    private readonly owner: Client,
+    private readonly owner: object,
     private readonly options: StreamOptions = {},
   ) {
     this.stopped = new Promise((resolve) => {
@@ -168,7 +172,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
       this.pending = read;
       try {
         // Keep the host client alive while this reader is open.
-        void this.owner.raw;
+        void this.owner;
         const value = await Promise.race([
           reader.next({ signal: read.signal }),
           this.stopped,
@@ -208,10 +212,10 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   }
 }
 
-export class MessageStream extends ReaderStream<Message> {
+export class MessageStream<T = Message> extends ReaderStream<T> {
   constructor(
-    open: (signal: AbortSignal) => Promise<ReaderLike<Message>>,
-    owner: Client,
+    open: (signal: AbortSignal) => Promise<ReaderLike<T>>,
+    owner: object,
     options?: StreamOptions,
   ) {
     super(open, owner, options);
@@ -232,9 +236,22 @@ export class ConversationStream extends ReaderStream<Conversation> {
     );
   }
 
+  static openBrowser(
+    owner: ClientLike,
+    selection?: ConversationReaderOptions,
+    options?: StreamOptions,
+  ): ConversationStream {
+    return new ConversationStream(
+      (signal) =>
+        owner.conversations().conversationReader(selection, { signal }),
+      owner,
+      options,
+    );
+  }
+
   constructor(
     open: (signal: AbortSignal) => Promise<ReaderLike<Conversation>>,
-    owner: Client,
+    owner: object,
     options?: StreamOptions,
   ) {
     super(open, owner, options);
