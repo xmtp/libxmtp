@@ -729,6 +729,12 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Android Client.deleteLocalDatabase ignores the Boolean from File(dbPath).delete(), so deletion can complete while the database file remains."
 
 [[waiver]]
+id = "IDENT-073"
+kind = "untested"
+owner = "protocol"
+reason = "The façade tests prove the order. The current iOS Client.create and Android Client.create call preAuthenticateToInboxCallback before handleSignature, but no test for these separate code paths asserts the order."
+
+[[waiver]]
 id = "IDENT-074"
 kind = "gap"
 owner = "protocol"
