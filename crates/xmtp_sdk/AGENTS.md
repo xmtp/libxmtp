@@ -22,8 +22,8 @@ Run commands from the repository root in the Nix shell. Run
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
 - `just sdk conformance browser` runs the browser bridge storage, worker
-  failure, and pure codec checks in Chromium. It builds the pure codec fixture
-  in the Rust shell before it enters the JS shell.
+  failure, and pure codec checks in Chromium. Its recipe builds the pure codec
+  fixture in the Rust shell before it enters the JS shell.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

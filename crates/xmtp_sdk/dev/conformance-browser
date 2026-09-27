@@ -4,7 +4,6 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
-  bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture
   exec env NIX_DEVSHELL=js dev/nix-shell 'bash crates/xmtp_sdk/dev/conformance-browser'
 fi
 export VITE_XMTP_BACKEND_URL="${XMTP_BACKEND_URL:?load the worktree backend URL}"

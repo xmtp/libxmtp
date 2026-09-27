@@ -22,7 +22,13 @@ wasm-init:
 check-isolation:
     cd "{{ root }}" && crates/xmtp_sdk/dev/check-isolation
 
-conformance target:
+[private]
+_browser-pure-fixture target:
+    if [ "{{ target }}" = browser ]; then \
+      cd "{{ root }}" && NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture'; \
+    fi
+
+conformance target: (_browser-pure-fixture target)
     {{ _env }} && case "{{ target }}" in \
       swift|kotlin|node|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
       bridge) cd "{{ root }}" && \
