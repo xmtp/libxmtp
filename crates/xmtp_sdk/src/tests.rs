@@ -1573,6 +1573,79 @@ async fn storage_path_keeps_opened_relative_file_after_chdir() {
     std::fs::remove_dir_all(relative.parent().expect("database directory"))?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn storage_delete_ends_event_reader_and_listener() {
+    let directory = std::env::temp_dir().join(format!(
+        "xmtp-sdk-delete-events-{}-{}",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    std::fs::create_dir_all(&directory)?;
+    let path = directory.join("client.sqlite");
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let reader = client
+        .events(event_filter(vec![EventKind::HmacKeysUpdated]))
+        .await?;
+    let (listener, _) = event_probe(None, false, None, false);
+    client
+        .start_listener(event_filter(vec![EventKind::HmacKeysUpdated]), listener)
+        .await?;
+    let pending_reader = reader.clone();
+    let pending = tokio::spawn(async move { pending_reader.next().await });
+    client.storage().delete().await?;
+    assert!(tokio::time::timeout(Duration::from_secs(2), pending)
+        .await???
+        .is_none());
+    assert_eq!(client.listeners.active_count_for_test(), 0);
+    client.end().await?;
+    assert!(!path.exists());
+    std::fs::remove_dir_all(directory)?;
+}
+
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn storage_delete_can_retry_after_file_removal_fails() {
+    use std::os::unix::fs::PermissionsExt;
+
+    struct RestorePermissions {
+        path: std::path::PathBuf,
+        mode: u32,
+    }
+
+    impl Drop for RestorePermissions {
+        fn drop(&mut self) {
+            std::fs::set_permissions(&self.path, std::fs::Permissions::from_mode(self.mode))
+                .expect("restore directory permissions");
+        }
+    }
+
+    let directory = std::env::temp_dir().join(format!(
+        "xmtp-sdk-delete-retry-{}-{}",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    std::fs::create_dir_all(&directory)?;
+    let path = directory.join("client.sqlite");
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    let original_mode = std::fs::metadata(&directory)?.permissions().mode();
+    let restore = RestorePermissions {
+        path: directory.clone(),
+        mode: original_mode,
+    };
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o500))?;
+    assert!(client.storage().delete().await.is_err());
+    drop(restore);
+    assert!(path.exists());
+    client.storage().delete().await?;
+    assert!(!path.exists());
+    client.end().await?;
+    std::fs::remove_dir_all(directory)?;
+}
+
 // verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_default_requires_host_and_directory_names_are_unique() {

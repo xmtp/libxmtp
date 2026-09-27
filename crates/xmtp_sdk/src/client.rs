@@ -22,7 +22,7 @@ pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 static NEXT_CLIENT_KEY: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
-struct EventReaderRegistry {
+pub(crate) struct EventReaderRegistry {
     closing: bool,
     readers: Vec<Weak<crate::EventReader>>,
 }
@@ -209,8 +209,8 @@ pub struct Client {
     pub(crate) storage_path: Option<String>,
     pub(crate) signer: Option<Arc<dyn Signer>>,
     pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
-    pub(crate) listeners: crate::events::dispatch::ListenerRegistry,
-    event_readers: parking_lot::Mutex<EventReaderRegistry>,
+    pub(crate) listeners: Arc<crate::events::dispatch::ListenerRegistry>,
+    pub(crate) event_readers: Arc<parking_lot::Mutex<EventReaderRegistry>>,
 }
 
 impl Client {
@@ -302,8 +302,8 @@ impl Client {
             storage_path,
             signer: None,
             auth_handle,
-            listeners: crate::events::dispatch::ListenerRegistry::default(),
-            event_readers: parking_lot::Mutex::new(EventReaderRegistry::default()),
+            listeners: Arc::new(crate::events::dispatch::ListenerRegistry::default()),
+            event_readers: Arc::new(parking_lot::Mutex::new(EventReaderRegistry::default())),
         })
     }
 
@@ -445,6 +445,8 @@ impl Client {
         Arc::new(Storage {
             client: self.inner.clone(),
             path: self.storage_path.clone(),
+            listeners: self.listeners.clone(),
+            event_readers: self.event_readers.clone(),
         })
     }
 
@@ -455,19 +457,7 @@ impl Client {
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
-        let readers: Vec<_> = {
-            let mut registry = self.event_readers.lock();
-            registry.closing = true;
-            registry.readers.iter().filter_map(Weak::upgrade).collect()
-        };
-        self.listeners.stop_all();
-        for reader in &readers {
-            reader.close();
-        }
-        for reader in &readers {
-            reader.wait_for_reads().await;
-        }
-        self.inner.close().await.map_err(XmtpError::from_client)
+        end_client(&self.inner, &self.listeners, &self.event_readers).await
     }
 
     // implements: EVENT-014
@@ -520,6 +510,26 @@ impl Client {
     pub async fn stop_listener(&self, id: crate::ListenerID) {
         self.listeners.stop(id);
     }
+}
+
+pub(crate) async fn end_client(
+    client: &CoreClient,
+    listeners: &crate::events::dispatch::ListenerRegistry,
+    event_readers: &parking_lot::Mutex<EventReaderRegistry>,
+) -> Result<(), XmtpError> {
+    let readers: Vec<_> = {
+        let mut registry = event_readers.lock();
+        registry.closing = true;
+        registry.readers.iter().filter_map(Weak::upgrade).collect()
+    };
+    listeners.stop_all();
+    for reader in &readers {
+        reader.close();
+    }
+    for reader in &readers {
+        reader.wait_for_reads().await;
+    }
+    client.close().await.map_err(XmtpError::from_client)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
