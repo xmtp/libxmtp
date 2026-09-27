@@ -1541,6 +1541,7 @@ async fn idle_read_cancel_settles() {
     client.end().await?;
 }
 
+// verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_default_requires_host_and_directory_names_are_unique() {
     let default = StorageOptions::default();
@@ -1599,6 +1600,12 @@ async fn storage_default_requires_host_and_directory_names_are_unique() {
         native_storage_path(&path_options, "inbox-a")?.expect("exact path"),
         exact_path
     );
+    let mut file_options = self::options();
+    file_options.storage = path_options;
+    let file_client = Client::create(crate::generate_local_signer().await, file_options).await?;
+    assert_eq!(file_client.storage().path().await?, Some(exact_path.clone()));
+    assert!(std::path::Path::new(&exact_path).is_file());
+    file_client.end().await?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -3338,6 +3345,7 @@ fn decode_rejects_compression_bomb_with_bounded_output() {
     assert!(budget.peak_capacity() <= MAX_DECOMPRESSED_BYTES + COMPRESSION_CHUNK_BYTES);
 }
 
+// verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn consent_archive_storage_and_diagnostics() {
     use crate::{ConsentEntity, ConsentRecord, ConsentState};
