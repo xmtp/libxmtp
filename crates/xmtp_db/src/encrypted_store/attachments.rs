@@ -946,4 +946,16 @@ mod tests {
         assert!(invalid.is_err());
         assert!(db.get_pending_attachment("bad")?.is_none());
     }
+
+    // verifies: ATCH-074
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn schema_rejects_waiting_with_a_partial_lease() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        let invalid = db.raw_query(|conn| {
+            diesel::sql_query("INSERT INTO pending_attachments (content_digest, remote_attachment, created_at_ns, status, lease_id) VALUES ('partial', X'01', 1, 'waiting', X'01')").execute(conn)
+        });
+        assert!(invalid.is_err());
+        assert!(db.get_pending_attachment("partial")?.is_none());
+    }
 }

@@ -17,6 +17,7 @@ CREATE TABLE pending_attachments (
   failure_http_status     INTEGER CHECK (failure_http_status BETWEEN 100 AND 999),
   lease_id                BLOB,
   lease_expires_at_ns     BIGINT,
-  CHECK ((status = 'uploading') = (lease_id IS NOT NULL AND lease_expires_at_ns IS NOT NULL))
+  CHECK ((status = 'uploading') = (lease_id IS NOT NULL)
+     AND (status = 'uploading') = (lease_expires_at_ns IS NOT NULL))
 );
 CREATE INDEX pending_attachments_created_at ON pending_attachments (created_at_ns);
