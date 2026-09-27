@@ -409,6 +409,79 @@ struct DownloadShared {
     cancel: CancellationToken,
 }
 
+struct DownloadAttemptGuard<Context: XmtpSharedContext + 'static> {
+    context: Context,
+    remote: RemoteAttachment,
+    relative: String,
+    key: String,
+    shared: Arc<DownloadShared>,
+    finished: bool,
+}
+
+async fn publish_download_outcome<Context: XmtpSharedContext>(
+    context: &Context,
+    remote: &RemoteAttachment,
+    relative: &str,
+    key: &str,
+    shared: &Arc<DownloadShared>,
+    result: Result<DownloadedAttachment, AttachmentClientError>,
+) {
+    let runtime = context.attachment_runtime();
+    let lock = runtime.event_lock(key);
+    let _guard = lock.lock().await;
+    if shared.outcome.borrow().is_some() {
+        return;
+    }
+    let reference = attachment_reference(remote, key);
+    let event = match &result {
+        Ok(_) => ClientEvent::AttachmentDownloadCompleted(reference),
+        Err(error) => ClientEvent::AttachmentDownloadFailed(AttachmentFailed {
+            attachment_key: key.to_owned(),
+            url: reference.url,
+            content_digest: reference.content_digest,
+            cause: error.cause.as_str().to_owned(),
+        }),
+    };
+    context.events().emit(Some(event), None);
+    let mut downloads = runtime.downloads.lock();
+    if downloads.get(relative).is_some_and(|current| Arc::ptr_eq(current, shared)) {
+        downloads.remove(relative);
+    }
+    shared.outcome.send_replace(Some(result));
+}
+
+impl<Context: XmtpSharedContext + 'static> DownloadAttemptGuard<Context> {
+    async fn finish(&mut self, result: Result<DownloadedAttachment, AttachmentClientError>) {
+        publish_download_outcome(
+            &self.context, &self.remote, &self.relative, &self.key, &self.shared, result,
+        ).await;
+        self.finished = true;
+    }
+}
+
+impl<Context: XmtpSharedContext + 'static> Drop for DownloadAttemptGuard<Context> {
+    fn drop(&mut self) {
+        if self.finished {
+            return;
+        }
+        let context = self.context.clone();
+        let remote = self.remote.clone();
+        let relative = self.relative.clone();
+        let key = self.key.clone();
+        let shared = self.shared.clone();
+        drop(xmtp_common::task::spawn(async move {
+            publish_download_outcome(
+                &context,
+                &remote,
+                &relative,
+                &key,
+                &shared,
+                Err(AttachmentClientError::new(Cause::LocalStorage)),
+            ).await;
+        }));
+    }
+}
+
 struct DeleteInProgress<'a> {
     paths: &'a Mutex<HashMap<String, usize>>,
     path: String,
@@ -464,6 +537,8 @@ pub struct AttachmentRuntime {
     create_move_pause: Mutex<Option<Arc<CreateMovePause>>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     attempt_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    download_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
     outcome_write_errors: AtomicUsize,
     #[cfg(test)]
@@ -500,6 +575,8 @@ impl Default for AttachmentRuntime {
             create_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             attempt_panic_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_panic_pause: Mutex::new(None),
             #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
@@ -552,6 +629,8 @@ impl AttachmentRuntime {
             create_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             attempt_panic_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_panic_pause: Mutex::new(None),
             #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
@@ -815,11 +894,28 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 let task = Attachments {
                     context: self.context.context_ref().clone(),
                 };
-                let remote = remote.clone();
-                let shared_for_task = shared.clone();
+                let attempt = DownloadAttemptGuard {
+                    context: task.context.clone(),
+                    remote: remote.clone(),
+                    relative: relative.clone(),
+                    key: key.clone(),
+                    shared: shared.clone(),
+                    finished: false,
+                };
                 drop(xmtp_common::task::spawn(async move {
-                    task.run_download(remote, relative, key, shared_for_task)
+                    let mut attempt = attempt;
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    let panic_pause = { task.runtime().download_panic_pause.lock().take() };
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    if let Some((entered, resume)) = panic_pause {
+                        entered.notify_one();
+                        resume.notified().await;
+                        panic!("forced download attempt panic");
+                    }
+                    let result = task
+                        .download_once(&attempt.remote, &attempt.relative, &attempt.shared.cancel)
                         .await;
+                    attempt.finish(result).await;
                 }));
                 shared
             }
@@ -835,31 +931,6 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 .await
                 .map_err(|_| AttachmentClientError::new(Cause::Network))?;
         }
-    }
-
-    async fn run_download(
-        &self,
-        remote: RemoteAttachment,
-        relative: String,
-        key: String,
-        shared: Arc<DownloadShared>,
-    ) {
-        let result = self.download_once(&remote, &relative, &shared.cancel).await;
-        let lock = self.runtime().event_lock(&key);
-        let _guard = lock.lock().await;
-        let reference = attachment_reference(&remote, &key);
-        let event = match &result {
-            Ok(_) => ClientEvent::AttachmentDownloadCompleted(reference),
-            Err(error) => ClientEvent::AttachmentDownloadFailed(AttachmentFailed {
-                attachment_key: key,
-                url: reference.url,
-                content_digest: reference.content_digest,
-                cause: error.cause.as_str().to_owned(),
-            }),
-        };
-        self.context.events().emit(Some(event), None);
-        self.runtime().downloads.lock().remove(&relative);
-        shared.outcome.send_replace(Some(result));
     }
 
     async fn download_once(

@@ -214,6 +214,82 @@ async fn directory_at_plaintext_path_is_not_a_download() {
     assert!(path.is_dir());
 }
 
+// verifies: ATCH-047, ATCH-058, EVENT-001
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn panicked_download_releases_waiters_and_deletion() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let relative = plaintext_rel_path(&remote)?;
+    alix.client.context.db().delete_local_attachment(&relative)?;
+    tokio::fs::remove_file(alix.client.attachments().local_path(&remote)?).await?;
+    let events = alix.client.context.events().subscribe_app(EventFilter::new([
+        EventKind::AttachmentDownloadStarted,
+        EventKind::AttachmentDownloadFailed,
+    ]))?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    *alix.client.context.attachments.download_panic_pause.lock() =
+        Some((entered.clone(), resume.clone()));
+    let client = alix.client.clone();
+    let first_remote = remote.clone();
+    let first = tokio::spawn(async move { client.attachments().download(&first_remote).await });
+    tokio::time::timeout(Duration::from_secs(3), entered.notified()).await?;
+    let shared = alix
+        .client
+        .context
+        .attachments
+        .downloads
+        .lock()
+        .get(&relative)
+        .cloned()
+        .expect("download attempt");
+    let client = alix.client.clone();
+    let second_remote = remote.clone();
+    let second = tokio::spawn(async move { client.attachments().download(&second_remote).await });
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while shared.outcome.receiver_count() < 2 {
+            tokio::task::yield_now().await;
+        }
+    }).await?;
+    let client = alix.client.clone();
+    let deleting_remote = remote.clone();
+    let delete_entered = Arc::new(tokio::sync::Notify::new());
+    let delete_resume = Arc::new(tokio::sync::Notify::new());
+    *alix.client.context.attachments.delete_pause.lock() =
+        Some((delete_entered.clone(), delete_resume.clone()));
+    let delete = tokio::spawn(async move { client.attachments().delete_local(&deleting_remote).await });
+    tokio::time::timeout(Duration::from_secs(3), delete_entered.notified()).await?;
+    assert!(shared.cancel.is_cancelled());
+    resume.notify_one();
+    delete_resume.notify_one();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), first).await??.unwrap_err().cause,
+        Cause::LocalStorage
+    );
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(2), second).await??.unwrap_err().cause,
+        Cause::LocalStorage
+    );
+    tokio::time::timeout(Duration::from_secs(2), delete).await???;
+    let emitted = events.drain();
+    assert_eq!(emitted.len(), 2);
+    assert!(matches!(emitted[0].client, Some(ClientEvent::AttachmentDownloadStarted(_))));
+    assert!(matches!(emitted[1].client, Some(ClientEvent::AttachmentDownloadFailed(_))));
+    assert!(!alix.client.context.attachments.downloads.lock().contains_key(&relative));
+    let mut retry_remote = remote;
+    retry_remote.url = "http://127.0.0.1:9/missing".into();
+    let _ = tokio::time::timeout(
+        Duration::from_secs(3),
+        alix.client.attachments().download(&retry_remote),
+    )
+    .await?;
+    assert!(matches!(events.drain().first().and_then(|event| event.client.as_ref()),
+        Some(ClientEvent::AttachmentDownloadStarted(_))));
+}
+
 // verifies: ATCH-051, ATCH-056, ATCH-060
 #[xmtp_common::test(unwrap_try = true)]
 async fn forged_body_leaves_nothing() {
