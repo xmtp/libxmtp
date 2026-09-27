@@ -140,22 +140,59 @@ impl NativeStore {
     }
 
     #[cfg(unix)]
-    fn check_existing_owner(&self, parent: &Dir, name: &str) -> io::Result<()> {
+    fn open_managed_child(&self, parent: &Dir, name: &str, created: bool) -> io::Result<Dir> {
+        use cap_fs_ext::OsMetadataExt as _;
         use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 
-        let child = open_child_mode_handle(parent, name)?;
+        let before = parent.symlink_metadata(name)?;
+        if !before.is_dir()
+            || is_link(&before)
+            || self.force_foreign_owner()
+            || before.uid() != unsafe { libc::geteuid() }
+        {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+        #[cfg(test)]
+        if created {
+            record_initial_mode(before.permissions().mode(), 0o700);
+        }
+        #[cfg(not(test))]
+        let _ = created;
+        let child = match open_child_mode_handle(parent, name) {
+            Ok(child) => child,
+            Err(error)
+                if error.kind() == io::ErrorKind::PermissionDenied
+                    && before.permissions().mode() & 0o7777 != 0o700
+                    && !self.force_chmod_error() =>
+            {
+                repair_unreadable_child_mode(parent, name, &before)?;
+                open_child_mode_handle(parent, name)?
+            }
+            Err(error) => return Err(error),
+        };
         let metadata = child.metadata()?;
-        let owner = metadata.uid();
-        if self.force_foreign_owner() || owner != unsafe { libc::geteuid() } {
+        if !metadata.is_dir()
+            || metadata.uid() != before.uid()
+            || metadata.dev() != before.dev()
+            || metadata.ino() != before.ino()
+        {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied));
         }
         if metadata.permissions().mode() & 0o7777 != 0o700 {
             if self.force_chmod_error() {
-                return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+                if created {
+                    tracing::warn!(
+                        name,
+                        "could not set private attachment directory permissions"
+                    );
+                } else {
+                    return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+                }
+            } else {
+                set_private_child_mode(&child)?;
             }
-            set_private_child_mode(&child)?;
         }
-        Ok(())
+        Ok(Dir::from_std_file(child))
     }
 
     fn remove_source(&self, parent: &Dir, name: &str) -> io::Result<()> {
@@ -185,11 +222,16 @@ impl NativeStore {
         let mut directory = self.root_dir.try_clone()?;
         if !parent.is_empty() {
             for part in parent.split('/') {
-                directory = match directory.open_dir_nofollow(part) {
-                    Ok(child) => {
+                directory = match directory.symlink_metadata(part) {
+                    Ok(_) => {
                         #[cfg(unix)]
-                        self.check_existing_owner(&directory, part)?;
-                        child
+                        {
+                            self.open_managed_child(&directory, part, false)?
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            directory.open_dir_nofollow(part)?
+                        }
                     }
                     Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
                         #[cfg(unix)]
@@ -205,25 +247,16 @@ impl NativeStore {
                             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
                             Err(error) => return Err(error),
                         };
-                        #[cfg(unix)]
-                        if created {
-                            if self.force_chmod_error() {
-                                tracing::warn!(
-                                    part,
-                                    "could not set private attachment directory permissions"
-                                );
-                            } else {
-                                repair_created_child_mode(&directory, part)?;
-                            }
-                        }
                         #[cfg(not(unix))]
                         let _ = created;
-                        let child = directory.open_dir_nofollow(part)?;
                         #[cfg(unix)]
-                        if !created {
-                            self.check_existing_owner(&directory, part)?;
+                        {
+                            self.open_managed_child(&directory, part, created)?
                         }
-                        child
+                        #[cfg(not(unix))]
+                        {
+                            directory.open_dir_nofollow(part)?
+                        }
                     }
                     Err(error) => return Err(error),
                 };
@@ -261,15 +294,68 @@ fn open_child_mode_handle(parent: &Dir, name: &str) -> io::Result<std::fs::File>
     Ok(file.into_std())
 }
 
-#[cfg(unix)]
-fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
-    let file = open_child_mode_handle(parent, name)?;
-    #[cfg(test)]
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn repair_unreadable_child_mode(
+    parent: &Dir,
+    name: &str,
+    before: &cap_std::fs::Metadata,
+) -> io::Result<()> {
+    use cap_fs_ext::OsMetadataExt as _;
+    use std::os::{
+        fd::AsRawFd as _,
+        unix::fs::{MetadataExt as _, PermissionsExt as _},
+    };
+
+    // O_PATH pins the child without requiring read or search permission.
+    let pinned = rustix::fs::openat(
+        parent,
+        name,
+        rustix::fs::OFlags::PATH
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )?;
+    let pinned: std::fs::File = pinned.into();
+    let metadata = pinned.metadata()?;
+    if !metadata.is_dir()
+        || metadata.uid() != before.uid()
+        || metadata.dev() != before.dev()
+        || metadata.ino() != before.ino()
+        || metadata.uid() != unsafe { libc::geteuid() }
     {
-        use std::os::unix::fs::PermissionsExt as _;
-        record_initial_mode(file.metadata()?.permissions().mode(), 0o700);
+        return Err(io::Error::from(io::ErrorKind::PermissionDenied));
     }
-    set_private_child_mode(&file)
+    // Linux fchmod rejects O_PATH handles. The proc path refers to the pinned
+    // descriptor, so a replacement of the child name cannot redirect chmod.
+    let pinned_path = format!("/proc/self/fd/{}", pinned.as_raw_fd());
+    std::fs::set_permissions(pinned_path, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+fn repair_unreadable_child_mode(
+    parent: &Dir,
+    name: &str,
+    before: &cap_std::fs::Metadata,
+) -> io::Result<()> {
+    use cap_fs_ext::OsMetadataExt as _;
+
+    let current = parent.symlink_metadata(name)?;
+    if !current.is_dir()
+        || is_link(&current)
+        || current.uid() != unsafe { libc::geteuid() }
+        || current.dev() != before.dev()
+        || current.ino() != before.ino()
+    {
+        return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+    }
+    rustix::fs::chmodat(
+        parent,
+        name,
+        rustix::fs::Mode::from_raw_mode(0o700),
+        rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+    )?;
+    Ok(())
 }
 
 #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
@@ -534,19 +620,11 @@ impl LocalStore for NativeStore {
             Err(error) => return Err(storage_error(error)),
         };
         #[cfg(unix)]
-        if created {
-            if self.force_chmod_error() {
-                tracing::warn!(%name, "could not set private attachment directory permissions");
-            } else {
-                repair_created_child_mode(&parent, &name).map_err(storage_error)?;
-            }
-        }
+        let _child = self
+            .open_managed_child(&parent, &name, created)
+            .map_err(storage_error)?;
+        #[cfg(not(unix))]
         let _child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
-        #[cfg(unix)]
-        if !created {
-            self.check_existing_owner(&parent, &name)
-                .map_err(storage_error)?;
-        }
         Ok(created)
     }
 

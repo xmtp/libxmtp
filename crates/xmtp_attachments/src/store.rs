@@ -660,6 +660,73 @@ mod tests {
     // verifies: ATCH-077
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
+    async fn inaccessible_managed_directory_is_repaired_before_open() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreMode(std::path::PathBuf);
+        impl Drop for RestoreMode {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let managed = directory.path().join(".tmp");
+        std::fs::create_dir(&managed)?;
+        let _restore = RestoreMode(managed.clone());
+        std::fs::set_permissions(&managed, std::fs::Permissions::from_mode(0o000))?;
+        let mut writer = store.create_temp(".tmp/file").await?;
+        writer.write(b"private").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        assert_eq!(
+            std::fs::metadata(&managed)?.permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(std::fs::read(managed.join("file"))?, b"private");
+
+        std::fs::set_permissions(&managed, std::fs::Permissions::from_mode(0o000))?;
+        assert!(!store.create_dir_if_absent(".tmp").await?);
+        assert_eq!(
+            std::fs::metadata(&managed)?.permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn new_managed_directory_is_repaired_under_restrictive_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct Restore(libc::mode_t, std::path::PathBuf);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe { libc::umask(self.0) };
+                let _ = std::fs::set_permissions(&self.1, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let managed = directory.path().join(".tmp");
+        let previous = unsafe { libc::umask(0o777) };
+        let _restore = Restore(previous, managed.clone());
+        let mut writer = store.create_temp(".tmp/file").await?;
+        writer.write(b"private").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        assert_eq!(
+            std::fs::metadata(&managed)?.permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(std::fs::read(managed.join("file"))?, b"private");
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn chmod_failure_does_not_stop_native_store() {
         use std::os::unix::fs::PermissionsExt as _;
         let directory = tempfile::tempdir()?;
