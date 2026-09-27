@@ -147,7 +147,12 @@ fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
         rustix::fs::Mode::empty(),
     )?;
     #[cfg(test)]
-    record_initial_mode(u32::from(rustix::fs::fstat(&fd)?.st_mode), 0o700);
+    {
+        // `mode_t` is `u16` on Apple platforms and `u32` on Linux.
+        #[allow(clippy::useless_conversion)]
+        let initial_mode = u32::from(rustix::fs::fstat(&fd)?.st_mode);
+        record_initial_mode(initial_mode, 0o700);
+    }
     rustix::fs::fchmod(&fd, rustix::fs::Mode::from_raw_mode(0o700))?;
     Ok(())
 }
