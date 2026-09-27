@@ -762,6 +762,8 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
             // implements: CTYPE-025
             let nested =
                 xmtp_content_types::compression::decompress(value.content).map_err(codec_error)?;
+            xmtp_mls::messages::decoded_message::MessageBody::try_from(nested.clone())
+                .map_err(|error| crate::XmtpError::invalid(error.to_string()))?;
             StandardContent::Reply {
                 reference: crate::MessageID::try_from(value.reference)?,
                 reference_inbox_id: value
@@ -1156,6 +1158,51 @@ pub(crate) mod pure_codec_tests {
                 })?;
             assert!(decode_standard(outer.into()).is_err());
         }
+    }
+
+    // verifies: CTYPE-029
+    #[xmtp_common::test(unwrap_try = true)]
+    fn malformed_nested_standard_reply_content_is_rejected() {
+        let nested = ProtoEncodedContent {
+            r#type: Some(xmtp_content_types::text::TextCodec::content_type()),
+            content: vec![0xff, 0xfe],
+            ..Default::default()
+        };
+        let outer =
+            xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
+                reference: "a".repeat(64),
+                reference_inbox_id: None,
+                content: nested,
+            })?;
+        assert!(decode_standard(outer.into()).is_err());
+    }
+
+    // verifies: CTYPE-027
+    #[xmtp_common::test(unwrap_try = true)]
+    fn nested_custom_reply_content_remains_available() {
+        let nested = ProtoEncodedContent {
+            r#type: Some(ProtoContentTypeId {
+                authority_id: "example.com".into(),
+                type_id: "widget".into(),
+                version_major: 1,
+                version_minor: 0,
+            }),
+            content: vec![0xff, 0xfe],
+            ..Default::default()
+        };
+        let outer =
+            xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
+                reference: "a".repeat(64),
+                reference_inbox_id: None,
+                content: nested,
+            })?;
+        assert!(matches!(
+            decode_standard(outer.into())?,
+            StandardContent::Reply { content, .. }
+                if content.r#type.authority_id == "example.com"
+                    && content.r#type.type_id == "widget"
+                    && content.content == [0xff, 0xfe]
+        ));
     }
 
     #[cfg(test)]
