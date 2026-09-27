@@ -208,6 +208,11 @@ impl MessageBody {
                         "nested content type identifier is incomplete",
                     ));
                 }
+                if core_decodes_standard(&value) || value.compression.is_some() {
+                    return Err(XmtpError::invalid(
+                        "nested standard content failed to decode",
+                    ));
+                }
                 Self::Custom {
                     encoded: value.into(),
                 }

@@ -2491,6 +2491,53 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
     client.end().await?;
 }
 
+// verifies: CTYPE-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn failed_standard_reply_parent_decode_stays_unknown() {
+    use crate::MessageBody;
+    use prost::Message as _;
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent_id = group.send_text("parent".into()).await?;
+    let reply_id = client
+        .conversations()
+        .reply_to_message(parent_id.clone(), crate::encode_text("reply".into())?, None)
+        .await?;
+    let parent_bytes = hex::decode(&parent_id.0)?;
+    let stored = client.inner.message(parent_bytes.clone())?;
+    let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
+    encoded.content = vec![0xff, 0xfe];
+    let raw = encoded.encode_to_vec();
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(parent_bytes)))
+            .set(dsl::decrypted_message_bytes.eq(&raw))
+            .execute(conn)
+    })?;
+
+    let by_id = client
+        .conversations()
+        .get_message_by_id(reply_id.clone())
+        .await?
+        .expect("reply by ID");
+    let history = group.messages(None).await?;
+    let listed = history
+        .iter()
+        .find(|message| message.0.id == reply_id)
+        .expect("reply in history");
+    for (path, message) in [("by ID", &by_id), ("history", listed)] {
+        let parent = message.0.in_reply_to.as_ref().expect("reply parent");
+        assert!(
+            matches!(&parent.content, MessageBody::Unknown { encoded }
+                if encoded.r#type.type_id == "text" && encoded.content == vec![0xff, 0xfe]),
+            "{path} treated a failed text decode as a custom codec"
+        );
+    }
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn disappearing_permission_denies_both_metadata_fields() {
     use crate::{MetadataFieldKind, PermissionPolicy, PermissionUpdateKind};
