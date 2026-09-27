@@ -1119,6 +1119,7 @@ pub(crate) mod pure_codec_tests {
     }
 
     #[cfg(test)]
+    // verifies: CTYPE-026
     #[xmtp_common::test(unwrap_try = true)]
     fn standard_codec_bytes_match_the_core_send_codecs() {
         let cases = standard_codec_samples()?;
