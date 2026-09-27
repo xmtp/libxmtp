@@ -13,7 +13,6 @@ import type {
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.ts";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.ts";
 
-// verifies: P56, P58
 if (typeof global.gc !== "function") throw new Error("run with --expose-gc");
 const worker = new Worker(new URL("./bridge.worker.mts", import.meta.url), {
   execArgv: process.execArgv,

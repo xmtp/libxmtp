@@ -4,7 +4,6 @@ import type {
   WireMessage,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire";
 
-// verifies: P55
 export async function checkWorkerFailure(): Promise<void> {
   const worker = new Worker(new URL("./bridge.failure.worker.ts", import.meta.url), {
     type: "module",

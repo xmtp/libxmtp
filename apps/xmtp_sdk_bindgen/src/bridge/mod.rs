@@ -1391,7 +1391,6 @@ mod tests {
         assert!(operations(&[item], &BTreeMap::new()).is_empty());
     }
 
-    // verifies: P12
     #[xmtp_common::test(unwrap_try = true)]
     fn rejects_unreviewed_custom_type() {
         let ty = Type::Custom {

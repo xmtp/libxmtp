@@ -12,7 +12,6 @@ import type {
   WireMessage,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/wire.ts";
 
-// verifies: P61
 assert.ok("setLogSink" in METHOD_TABLE, "WASM bridge has no log sink");
 assert.ok("sdkConformanceEmit" in METHOD_TABLE);
 assert.ok("sdkConformanceSinkErrorCount" in METHOD_TABLE);

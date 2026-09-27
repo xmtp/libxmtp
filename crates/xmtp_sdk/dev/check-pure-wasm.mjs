@@ -7,7 +7,6 @@ const worker = readFileSync(`${root}/typescript-wasm/xmtp_sdk.ts`, "utf8");
 const dispatch = readFileSync(`${root}/typescript-wasm/dispatch.gen.ts`, "utf8");
 const publicFunctions = (source) =>
   [...source.matchAll(/^export function (\w+)\(/gm)].map((match) => match[1]).sort();
-// verifies: P70
 const expected = [
   "decodeStandard",
   "encodeStandard",

@@ -1,6 +1,5 @@
 import * as sdk from "../../../../target/sdk-pure-conformance/typescript-pure/index";
 
-// verifies: P69
 export async function checkPureCodecs(): Promise<number> {
   const loading = sdk.initPureWasm();
   if (loading !== sdk.initPureWasm()) throw new Error("pure WASM loaded twice");

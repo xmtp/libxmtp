@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import { chromium } from "../../../../sdks/browser/node_modules/playwright/index.mjs";
 import { createServer } from "../../../../sdks/browser/node_modules/vite/dist/node/index.js";
 
-// verifies: P58
 const server = await createServer({
   root: process.cwd(),
   configFile: false,
