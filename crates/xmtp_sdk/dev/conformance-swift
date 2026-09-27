@@ -13,11 +13,19 @@ negative="$swift_dir/Sources/Conformance/ConsumerNegative.swift"
 log="$(mktemp)"
 trap 'rm -f "$negative" "$log"' EXIT
 cp "$swift_dir/Negative/ConsumerNegative.swift" "$negative"
-if NIX_DEVSHELL=ios dev/nix-shell 'export SDK_OPENSSL_LIB_DIR="$(pkg-config --variable=libdir openssl)"; swift build --package-path crates/xmtp_sdk/conformance/swift' >"$log" 2>&1; then
+if NIX_DEVSHELL=ios dev/nix-shell 'export SDK_OPENSSL_LIB_DIR="$(pkg-config --variable=libdir openssl)"; swift build --package-path crates/xmtp_sdk/conformance/swift -Xswiftc -strict-concurrency=complete' >"$log" 2>&1; then
+  echo "Swift negative consumer compiled" >&2
+  exit 1
+fi
+grep -q "NonSendableCodec.*does not conform to protocol 'SDKContentCodec'" "$log"
+grep -q "stored property 'count' of 'Sendable'-conforming class 'MutableCodec' is mutable" "$log"
+cp "$swift_dir/Negative/ConsumerTypeNegative.swift" "$negative"
+if NIX_DEVSHELL=ios dev/nix-shell 'export SDK_OPENSSL_LIB_DIR="$(pkg-config --variable=libdir openssl)"; swift build --package-path crates/xmtp_sdk/conformance/swift -Xswiftc -strict-concurrency=complete' >"$log" 2>&1; then
   echo "Swift negative consumer compiled" >&2
   exit 1
 fi
 grep -q "cannot convert value of type 'String' to specified type 'ConversationID'" "$log"
 grep -q "cannot convert value of type 'MessageContent' to specified type 'EncodedContent'" "$log"
 grep -q "cannot convert value of type 'Conversation' to specified type 'Group'" "$log"
+grep -q "cannot convert value of type 'String' to expected argument type 'MessageID'" "$log"
 echo "Swift ID, content, and Group/Dm consumer checks passed"

@@ -1,14 +1,26 @@
 import {
   Conversation_Tags,
+  MessageBody_Tags,
   MessageContent_Tags,
+  type Actions,
+  type Attachment,
   type Conversation,
   type ConversationID,
   type Conversations,
   type EncodedContent,
   type Group,
+  type InboxID,
+  type Intent,
+  type Message,
   type MessageContent,
   type MessageID,
+  type MultiRemoteAttachment,
   type Reaction,
+  type RemoteAttachment,
+  type StandardContent,
+  StandardContent_Tags,
+  type TransactionReference,
+  type WalletSendCalls,
 } from "../../../../../target/sdk-generated/typescript-napi/index.ts";
 
 export function consume(
@@ -40,4 +52,68 @@ export async function consumeOmittedSendOptions(
   await group.prepareMessage(encoded);
   await conversations.reactToMessage(id, reaction);
   await conversations.replyToMessage(id, encoded);
+}
+
+export async function consumeOmittedTypedSendOptions(
+  group: Group,
+  id: MessageID,
+  reaction: Reaction,
+  encoded: EncodedContent,
+  attachment: Attachment,
+  remote: RemoteAttachment,
+  multiRemote: MultiRemoteAttachment,
+  transaction: TransactionReference,
+  walletCalls: WalletSendCalls,
+  actions: Actions,
+  intent: Intent,
+): Promise<void> {
+  await group.sendText("text");
+  await group.sendMarkdown("markdown");
+  await group.sendReaction(id, undefined, reaction);
+  await group.sendReply(id, undefined, encoded);
+  await group.sendReadReceipt();
+  await group.sendAttachment(attachment);
+  await group.sendRemoteAttachment(remote);
+  await group.sendMultiRemoteAttachment(multiRemote);
+  await group.sendTransactionReference(transaction);
+  await group.sendWalletSendCalls(walletCalls);
+  await group.sendActions(actions);
+  await group.sendIntent(intent);
+}
+
+export function consumeStandardIDs(
+  content: StandardContent,
+): MessageID | undefined {
+  if (content.tag === StandardContent_Tags.Reaction) {
+    const reference: MessageID = content.inner.reference;
+    const inbox: InboxID | undefined = content.inner.referenceInboxID;
+    void inbox;
+    return reference;
+  }
+  if (content.tag === StandardContent_Tags.Reply) {
+    const reference: MessageID = content.inner.reference;
+    return reference;
+  }
+  if (content.tag === StandardContent_Tags.DeleteMessage) {
+    const id: MessageID = content.inner.messageID;
+    return id;
+  }
+  return undefined;
+}
+
+export async function consumeMessageConversation(
+  message: Message,
+): Promise<Conversation | undefined> {
+  return message.conversation();
+}
+
+export function consumeLiftedCustomValues(message: Message): unknown[] {
+  const values: unknown[] = [];
+  if (message.content.tag === MessageContent_Tags.Custom) {
+    values.push(message.content.inner.value);
+  }
+  if (message.replyContent?.tag === MessageBody_Tags.Custom) {
+    values.push(message.replyContent.inner.value);
+  }
+  return values;
 }

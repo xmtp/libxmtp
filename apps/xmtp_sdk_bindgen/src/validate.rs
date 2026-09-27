@@ -33,6 +33,13 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
         match item {
             Metadata::Record(record) => {
                 for field in &record.fields {
+                    if record.name != "MessageData" && raw_message(&field.ty) {
+                        bail!(
+                            "{}.{}: return Message, not MessageData",
+                            record.name,
+                            field.name
+                        );
+                    }
                     if let Type::Optional { inner_type } = &field.ty
                         && type_names_record(inner_type, &record.name)
                     {
@@ -48,6 +55,20 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                             record.name,
                             field.name
                         );
+                    }
+                }
+            }
+            Metadata::Enum(enumeration) => {
+                for variant in &enumeration.variants {
+                    for field in &variant.fields {
+                        if raw_message(&field.ty) {
+                            bail!(
+                                "{}.{}.{}: return Message, not MessageData",
+                                enumeration.name,
+                                variant.name,
+                                field.name
+                            );
+                        }
                     }
                 }
             }
@@ -67,6 +88,9 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
             }
             Metadata::Method(method) => {
                 let item_name = format!("{}.{}", method.self_name, method.name);
+                if method.return_type.as_ref().is_some_and(raw_message) {
+                    bail!("{item_name}: return Message, not MessageData");
+                }
                 check_message_inputs(&item_name, &method.inputs)?;
                 if records.contains(method.self_name.as_str()) {
                     bail!("{item_name}: exported record method is not supported");
@@ -84,6 +108,9 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
             }
             Metadata::TraitMethod(method) => {
                 let item_name = format!("{}.{}", method.trait_name, method.name);
+                if method.return_type.as_ref().is_some_and(raw_message) {
+                    bail!("{item_name}: return Message, not MessageData");
+                }
                 check_message_inputs(&item_name, &method.inputs)?;
                 if method.name == "close" {
                     bail!("{item_name}: exported object close method is not supported");
@@ -107,6 +134,23 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                 )?;
             }
             Metadata::Func(function) => {
+                if function
+                    .docstring
+                    .as_deref()
+                    .is_some_and(|doc| doc.contains("@xmtp-pure"))
+                {
+                    if function.is_async {
+                        bail!("{}: pure export must be synchronous", function.name);
+                    }
+                    for input in &function.inputs {
+                        if contains_object(&input.ty, &items, &mut HashSet::new()) {
+                            bail!("{}: pure export takes an object", function.name);
+                        }
+                    }
+                }
+                if function.return_type.as_ref().is_some_and(raw_message) {
+                    bail!("{}: return Message, not MessageData", function.name);
+                }
                 check_message_inputs(&function.name, &function.inputs)?;
                 check_error_type(&function.name, function.throws.as_ref())?;
             }
@@ -120,6 +164,23 @@ fn type_names_record(ty: &Type, name: &str) -> bool {
     match ty {
         Type::Record { name: found, .. } => found == name,
         Type::Box { inner_type } => type_names_record(inner_type, name),
+        _ => false,
+    }
+}
+
+fn raw_message(ty: &Type) -> bool {
+    match ty {
+        Type::Record { name, .. } => name == "MessageData",
+        Type::Optional { inner_type }
+        | Type::Sequence { inner_type }
+        | Type::Set { inner_type }
+        | Type::Box { inner_type } => raw_message(inner_type),
+        Type::Map {
+            key_type,
+            value_type,
+        } => raw_message(key_type) || raw_message(value_type),
+        // Message is the custom newtype. Its builtin MessageData is private to the converter.
+        Type::Custom { name, .. } if name == "Message" => false,
         _ => false,
     }
 }
@@ -263,6 +324,26 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    fn every_message_position_uses_the_host_lift() {
+        let plain = Type::Record {
+            module_path: "test".into(),
+            name: "MessageData".into(),
+        };
+        assert!(raw_message(&plain));
+        assert!(raw_message(&Type::Sequence {
+            inner_type: Box::new(Type::Optional {
+                inner_type: Box::new(plain.clone()),
+            }),
+        }));
+        let lifted = Type::Custom {
+            module_path: "test".into(),
+            name: "Message".into(),
+            builtin: Box::new(plain),
+        };
+        assert!(!raw_message(&lifted));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     fn rejects_sync_foreign_trait_method() {
         let items = [
             object("Signer", ObjectImpl::Trait(TraitKind::Both)),
@@ -377,6 +458,62 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("open: object Failure")
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn pure_export_rejects_async_and_nested_object_input() {
+        let mut pure = Metadata::Func(FnMetadata {
+            module_path: "test".into(),
+            name: "encode_pure".into(),
+            orig_name: None,
+            is_async: true,
+            inputs: vec![],
+            return_type: None,
+            throws: None,
+            checksum: None,
+            docstring: Some("@xmtp-pure".into()),
+        });
+        assert!(
+            validate_items(&[pure.clone()])
+                .unwrap_err()
+                .to_string()
+                .contains("pure")
+        );
+        let Metadata::Func(ref mut function) = pure else {
+            unreachable!()
+        };
+        function.is_async = false;
+        function.inputs = vec![FnParamMetadata::simple(
+            "value",
+            Type::Record {
+                module_path: "test".into(),
+                name: "Wrapper".into(),
+            },
+        )];
+        let wrapper = Metadata::Record(RecordMetadata {
+            module_path: "test".into(),
+            name: "Wrapper".into(),
+            orig_name: None,
+            remote: false,
+            docstring: None,
+            fields: vec![FieldMetadata {
+                name: "client".into(),
+                orig_name: None,
+                ty: Type::Object {
+                    module_path: "test".into(),
+                    name: "Client".into(),
+                    imp: ObjectImpl::Struct,
+                },
+                default: None,
+                docstring: None,
+            }],
+        });
+        assert!(
+            validate_items(&[pure, wrapper])
+                .unwrap_err()
+                .to_string()
+                .contains("pure")
         );
     }
 

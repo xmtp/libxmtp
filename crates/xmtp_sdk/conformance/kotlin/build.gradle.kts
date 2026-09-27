@@ -14,7 +14,12 @@ sourceSets.main { kotlin.srcDir("../../../../target/sdk-conformance/kotlin/runti
 
 application { mainClass.set("ConformanceKt") }
 tasks.named<JavaExec>("run") {
-    jvmArgs("-Xss16m", "-Djna.library.path=${project.rootDir}/../../../../target/debug")
+    jvmArgs(
+        "-Xss16m",
+        "-XX:+UseSerialGC",
+        "-XX:-DisableExplicitGC",
+        "-Djna.library.path=${project.rootDir}/../../../../target/debug",
+    )
     environment("RUST_MIN_STACK", "16777216")
     environment("SDK_SIGN_KEY", System.getenv("SDK_SIGN_KEY"))
     environment("SDK_NODE_BIN", System.getenv("SDK_NODE_BIN"))

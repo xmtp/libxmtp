@@ -53,6 +53,26 @@ function codecKey(type: ContentTypeID): string {
   return JSON.stringify([type.authorityID, type.typeID, type.versionMajor]);
 }
 
+class CodecRegistry {
+  private readonly codecs: ReadonlyMap<string, AnyCodec>;
+
+  constructor(codecs: readonly AnyCodec[]) {
+    this.codecs = new Map(codecs.map((codec) => [codecKey(codec.type), codec]));
+  }
+
+  decode(
+    encoded: EncodedContent,
+  ): { value?: unknown; error?: string } | undefined {
+    const codec = this.codecs.get(codecKey(encoded.type));
+    if (codec === undefined) return undefined;
+    try {
+      return { value: codec.decode(encoded) };
+    } catch (error) {
+      return { error: String(error) };
+    }
+  }
+}
+
 function resolvedOptions(options: ClientOptions): ClientOptions {
   if (options.storage.location.tag !== StorageLocation_Tags.Default)
     return options;
@@ -92,14 +112,14 @@ export class Client {
   private readonly key: bigint;
   private readonly listeners = new Map<bigint, { stopped: boolean }>();
   private readonly pendingListeners = new Set<{ stopped: boolean }>();
-  private readonly codecs: ReadonlyMap<string, AnyCodec>;
+  private readonly codecs: CodecRegistry;
 
   private constructor(
     readonly raw: ClientLike,
     codecs: readonly AnyCodec[],
   ) {
     this.key = raw.clientKey();
-    this.codecs = new Map(codecs.map((codec) => [codecKey(codec.type), codec]));
+    this.codecs = new CodecRegistry(codecs);
     ClientRegistry.set(this.key, this);
   }
 
@@ -258,13 +278,7 @@ export class Client {
   decodeCustom(
     encoded: EncodedContent,
   ): { value?: unknown; error?: string } | undefined {
-    const codec = this.codecs.get(codecKey(encoded.type));
-    if (codec === undefined) return undefined;
-    try {
-      return { value: codec.decode(encoded) };
-    } catch (error) {
-      return { error: String(error) };
-    }
+    return this.codecs.decode(encoded);
   }
 
   async end(): Promise<void> {
