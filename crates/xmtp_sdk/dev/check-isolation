@@ -3,10 +3,20 @@ set -euo pipefail
 
 # Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs there may change
 # (spec evidence, and owner-approved behaviour changes made in core).
-# A stacked pull request is checked against its own base branch, so a lower PR's changes do not count.
-base_ref="origin/${1:-${GITHUB_BASE_REF:-self-hosted}}"
+# A stacked pull request is checked against its own base, so a lower PR's changes do not count.
+# An explicit base branch wins. In a pull request run, HEAD is GitHub's merge commit and its first
+# parent is the base. Otherwise compare against self-hosted.
+if [ -n "${1:-}" ]; then
+  base_ref="origin/$1"
+  base=$(git merge-base HEAD "$base_ref")
+elif git rev-parse -q --verify HEAD^2 >/dev/null; then
+  base_ref="HEAD^1"
+  base=$(git rev-parse HEAD^1)
+else
+  base_ref="origin/self-hosted"
+  base=$(git merge-base HEAD "$base_ref")
+fi
 echo "Checking SDK isolation against $base_ref" >&2
-base=$(git merge-base HEAD "$base_ref")
 if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
   exit 0
 fi
