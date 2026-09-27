@@ -1,5 +1,7 @@
 //! Pending remote attachments owned by a client.
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+use std::sync::atomic::AtomicBool;
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
 use std::{
@@ -755,6 +757,8 @@ pub struct AttachmentRuntime {
     #[cfg(all(test, not(target_arch = "wasm32")))]
     outcome_lock_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
+    fail_next_staged_removal: AtomicBool,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     create_move_pause: Mutex<Option<Arc<CreateMovePause>>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     create_publish_pause: Mutex<Option<Arc<CreatePublishPause>>>,
@@ -808,6 +812,8 @@ impl Default for AttachmentRuntime {
             delete_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             outcome_lock_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            fail_next_staged_removal: AtomicBool::new(false),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -881,6 +887,8 @@ impl AttachmentRuntime {
             delete_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             outcome_lock_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            fail_next_staged_removal: AtomicBool::new(false),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -2191,9 +2199,23 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                     if result.is_ok()
                         && let Ok(store) = self.context.attachment_runtime().store()
                         && let Ok(path) = staged_path(&self.remote.content_digest)
-                        && let Err(error) = store.remove_file(&path).await
                     {
-                        tracing::warn!(%error, "staged ciphertext cleanup will be retried by reconciliation");
+                        #[cfg(all(test, not(target_arch = "wasm32")))]
+                        let removal = if self
+                            .context
+                            .attachment_runtime()
+                            .fail_next_staged_removal
+                            .swap(false, AtomicOrdering::SeqCst)
+                        {
+                            Err(AttachmentError::new(Cause::LocalStorage))
+                        } else {
+                            store.remove_file(&path).await
+                        };
+                        #[cfg(not(all(test, not(target_arch = "wasm32"))))]
+                        let removal = store.remove_file(&path).await;
+                        if let Err(error) = removal {
+                            tracing::warn!(%error, "staged ciphertext cleanup will be retried by reconciliation");
+                        }
                     }
                     self.publish_upload_outcome(&result);
                     self.end_local_attempt(attempt, Some(&result));

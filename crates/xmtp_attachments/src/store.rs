@@ -604,6 +604,62 @@ mod tests {
     // verifies: ATCH-077
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
+    async fn existing_managed_directories_are_repaired_before_write() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir()?;
+        let key = "a".repeat(64);
+        let other_key = "b".repeat(64);
+        std::fs::create_dir(directory.path().join(".tmp"))?;
+        std::fs::create_dir(directory.path().join(&key))?;
+        std::fs::create_dir(directory.path().join(&other_key))?;
+        for name in [".tmp", key.as_str(), other_key.as_str()] {
+            std::fs::set_permissions(
+                directory.path().join(name),
+                std::fs::Permissions::from_mode(0o770),
+            )?;
+        }
+        let root_mode = std::fs::metadata(directory.path())?.permissions().mode() & 0o777;
+        let store = NativeStore::new(directory.path()).await?;
+        let mut writer = store.create_temp(".tmp/file").await?;
+        writer.write(b"private").await?;
+        drop(writer);
+        assert_eq!(
+            std::fs::metadata(directory.path().join(".tmp"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert!(!store.create_dir_if_absent(&other_key).await?);
+        assert_eq!(
+            std::fs::metadata(directory.path().join(&other_key))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        store.rename(".tmp/file", &format!("{key}/file")).await?;
+        assert_eq!(
+            std::fs::metadata(directory.path().join(&key))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::read(directory.path().join(&key).join("file"))?,
+            b"private"
+        );
+        assert_eq!(
+            std::fs::metadata(directory.path())?.permissions().mode() & 0o777,
+            root_mode
+        );
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
     async fn chmod_failure_does_not_stop_native_store() {
         use std::os::unix::fs::PermissionsExt as _;
         let directory = tempfile::tempdir()?;

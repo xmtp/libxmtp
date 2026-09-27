@@ -884,16 +884,16 @@ async fn reconcile_ignores_stray_and_nested_files() {
 #[cfg(unix)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn complete_recorded_before_staged_file() {
-    use std::os::unix::fs::PermissionsExt as _;
     let dir = tempfile::tempdir()?;
     tester!(alix, attachments_dir: dir.path(), disable_workers);
     let pending = alix.client.attachments().create(bytes()).await?;
     let digest = pending.remote_attachment().content_digest.clone();
-    let staged_dir = dir.path().join(".staged");
-    std::fs::set_permissions(&staged_dir, std::fs::Permissions::from_mode(0o555))?;
-    let result = pending.upload().await;
-    std::fs::set_permissions(&staged_dir, std::fs::Permissions::from_mode(0o755))?;
-    result?;
+    alix.client
+        .context
+        .attachments
+        .fail_next_staged_removal
+        .store(true, AtomicOrdering::SeqCst);
+    pending.upload().await?;
     assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
     assert_eq!(
         alix.client

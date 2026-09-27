@@ -140,11 +140,20 @@ impl NativeStore {
     }
 
     #[cfg(unix)]
-    fn check_existing_owner(&self, child: &Dir) -> io::Result<()> {
-        use std::os::unix::fs::MetadataExt as _;
-        let owner = child.try_clone()?.into_std_file().metadata()?.uid();
+    fn check_existing_owner(&self, parent: &Dir, name: &str) -> io::Result<()> {
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+        let child = open_child_mode_handle(parent, name)?;
+        let metadata = child.metadata()?;
+        let owner = metadata.uid();
         if self.force_foreign_owner() || owner != unsafe { libc::geteuid() } {
             return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+        if metadata.permissions().mode() & 0o7777 != 0o700 {
+            if self.force_chmod_error() {
+                return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+            }
+            set_private_child_mode(&child)?;
         }
         Ok(())
     }
@@ -179,7 +188,7 @@ impl NativeStore {
                 directory = match directory.open_dir_nofollow(part) {
                     Ok(child) => {
                         #[cfg(unix)]
-                        self.check_existing_owner(&child)?;
+                        self.check_existing_owner(&directory, part)?;
                         child
                     }
                     Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
@@ -212,7 +221,7 @@ impl NativeStore {
                         let child = directory.open_dir_nofollow(part)?;
                         #[cfg(unix)]
                         if !created {
-                            self.check_existing_owner(&child)?;
+                            self.check_existing_owner(&directory, part)?;
                         }
                         child
                     }
@@ -225,7 +234,7 @@ impl NativeStore {
 }
 
 #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
-fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
+fn open_child_mode_handle(parent: &Dir, name: &str) -> io::Result<std::fs::File> {
     let fd = rustix::fs::openat(
         parent,
         name,
@@ -235,14 +244,37 @@ fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
             | rustix::fs::OFlags::CLOEXEC,
         rustix::fs::Mode::empty(),
     )?;
+    Ok(fd.into())
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))
+))]
+fn open_child_mode_handle(parent: &Dir, name: &str) -> io::Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let file = parent.open_with(name, &options)?;
+    if !file.metadata()?.is_dir() {
+        return Err(io::Error::from(io::ErrorKind::NotADirectory));
+    }
+    Ok(file.into_std())
+}
+
+#[cfg(unix)]
+fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
+    let file = open_child_mode_handle(parent, name)?;
     #[cfg(test)]
     {
-        // `mode_t` is `u16` on Apple platforms and `u32` on Linux.
-        #[allow(clippy::useless_conversion)]
-        let initial_mode = u32::from(rustix::fs::fstat(&fd)?.st_mode);
-        record_initial_mode(initial_mode, 0o700);
+        use std::os::unix::fs::PermissionsExt as _;
+        record_initial_mode(file.metadata()?.permissions().mode(), 0o700);
     }
-    rustix::fs::fchmod(&fd, rustix::fs::Mode::from_raw_mode(0o700))?;
+    set_private_child_mode(&file)
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+fn set_private_child_mode(file: &std::fs::File) -> io::Result<()> {
+    rustix::fs::fchmod(file, rustix::fs::Mode::from_raw_mode(0o700))?;
     Ok(())
 }
 
@@ -250,15 +282,10 @@ fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
     unix,
     not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))
 ))]
-fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
+fn set_private_child_mode(file: &std::fs::File) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
 
-    let mut options = OpenOptions::new();
-    options.read(true).follow(FollowSymlinks::No);
-    let file = parent.open_with(name, &options)?;
-    #[cfg(test)]
-    record_initial_mode(file.metadata()?.permissions().mode(), 0o700);
-    file.set_permissions(cap_std::fs::Permissions::from_mode(0o700))
+    file.set_permissions(std::fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(unix)]
@@ -514,13 +541,12 @@ impl LocalStore for NativeStore {
                 repair_created_child_mode(&parent, &name).map_err(storage_error)?;
             }
         }
-        let child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        let _child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
         #[cfg(unix)]
         if !created {
-            self.check_existing_owner(&child).map_err(storage_error)?;
+            self.check_existing_owner(&parent, &name)
+                .map_err(storage_error)?;
         }
-        #[cfg(not(unix))]
-        let _ = child;
         Ok(created)
     }
 
