@@ -32,9 +32,6 @@ jobs:
       - name: Install JavaScript tools
         run: just install-js
       - name: Check SDK isolation
-        env:
-          # A stacked PR is checked against its own base, not self-hosted.
-          SDK_ISOLATION_BASE: ${{ github.base_ref }}
         run: just sdk check-isolation
       - name: Start backend
         run: just backend up
