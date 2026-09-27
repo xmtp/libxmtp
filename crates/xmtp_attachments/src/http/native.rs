@@ -191,6 +191,8 @@ pub struct Transfer {
     upload_resolver: Arc<dyn Resolve>,
     #[cfg(test)]
     upload_test_roots: Option<rustls::RootCertStore>,
+    #[cfg(test)]
+    upload_socket_failure: Option<upload::SocketSetupFailure>,
     options: AttachmentOptions,
     connect_timeout: Duration,
     idle_timeout: Duration,
@@ -230,6 +232,8 @@ impl Transfer {
             upload_resolver: upstream,
             #[cfg(test)]
             upload_test_roots: None,
+            #[cfg(test)]
+            upload_socket_failure: None,
             options,
             connect_timeout,
             idle_timeout,
@@ -691,6 +695,10 @@ mod tests {
     }
 
     async fn tls_put_server() -> Result<TlsPutServer, Box<dyn Error + Send + Sync>> {
+        tls_put_server_for("localhost").await
+    }
+
+    async fn tls_put_server_for(host: &str) -> Result<TlsPutServer, Box<dyn Error + Send + Sync>> {
         xmtp_cryptography::install_crypto_provider();
         let ca_key = rcgen::KeyPair::generate()?;
         let mut ca_params = rcgen::CertificateParams::new(vec!["Attachment test CA".into()])?;
@@ -701,7 +709,7 @@ mod tests {
         ];
         let ca = rcgen::CertifiedIssuer::self_signed(ca_params, ca_key)?;
         let leaf_key = rcgen::KeyPair::generate()?;
-        let mut leaf_params = rcgen::CertificateParams::new(vec!["localhost".into()])?;
+        let mut leaf_params = rcgen::CertificateParams::new(vec![host.into()])?;
         leaf_params.is_ca = rcgen::IsCa::ExplicitNoCa;
         leaf_params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
         leaf_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
@@ -764,6 +772,43 @@ mod tests {
         )?;
         transfer.upload_test_roots = Some(roots);
         Ok(transfer)
+    }
+
+    async fn put_tries_next_address_after_setup_failure(
+        failure: upload::SocketSetupFailure,
+    ) -> Result<(), Box<dyn Error + Send + Sync>> {
+        let server = tls_put_server_for("upload.example").await?;
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(server.root.clone())?;
+        let mut transfer = Transfer::with_resolver_and_timeouts(
+            AttachmentOptions::default(),
+            Arc::new(FakeResolver(vec!["192.0.2.1:0".parse()?, server.address])),
+            Duration::from_secs(2),
+            Duration::from_secs(2),
+        )?;
+        transfer.upload_test_roots = Some(roots);
+        transfer.upload_socket_failure = Some(failure);
+        let (_directory, body) = staged_body()?;
+        let request = upload(format!(
+            "https://upload.example:{}/object",
+            server.address.port()
+        ));
+        assert_eq!(transfer.put(&request, body).await?, PutOutcome::Stored);
+        let (handshake, seen) = tokio::time::timeout(Duration::from_secs(2), server.task).await??;
+        assert!(handshake);
+        assert_eq!(seen.unwrap().body.as_ref(), b"body");
+        Ok(())
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_tries_next_address_after_socket_creation_failure() {
+        put_tries_next_address_after_setup_failure(upload::SocketSetupFailure::CreateFirst).await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_tries_next_address_after_send_buffer_failure() {
+        put_tries_next_address_after_setup_failure(upload::SocketSetupFailure::SetBufferFirst)
+            .await?;
     }
 
     #[xmtp_common::test(unwrap_try = true)]

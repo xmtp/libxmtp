@@ -49,6 +49,33 @@ fn upload_failure(write: &BodyWrite) -> AttachmentError {
     }
 }
 
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SocketSetupFailure {
+    CreateFirst,
+    SetBufferFirst,
+}
+
+fn open_socket(address: SocketAddr, _transfer: &Transfer, _index: usize) -> io::Result<TcpSocket> {
+    #[cfg(test)]
+    if _index == 0 && _transfer.upload_socket_failure == Some(SocketSetupFailure::CreateFirst) {
+        return Err(io::Error::other("injected socket creation failure"));
+    }
+    if address.is_ipv4() {
+        TcpSocket::new_v4()
+    } else {
+        TcpSocket::new_v6()
+    }
+}
+
+fn set_send_buffer(socket: &TcpSocket, _transfer: &Transfer, _index: usize) -> io::Result<()> {
+    #[cfg(test)]
+    if _index == 0 && _transfer.upload_socket_failure == Some(SocketSetupFailure::SetBufferFirst) {
+        return Err(io::Error::other("injected send buffer failure"));
+    }
+    socket.set_send_buffer_size(CHUNK_SIZE as u32)
+}
+
 fn tls_config() -> Result<rustls::ClientConfig, AttachmentError> {
     #[cfg(target_os = "android")]
     {
@@ -215,16 +242,13 @@ async fn connect(
         }
     };
     let mut connected = None;
-    for address in addresses {
-        let socket = if address.is_ipv4() {
-            TcpSocket::new_v4()
-        } else {
-            TcpSocket::new_v6()
+    for (index, address) in addresses.into_iter().enumerate() {
+        let Ok(socket) = open_socket(address, transfer, index) else {
+            continue;
+        };
+        if set_send_buffer(&socket, transfer, index).is_err() {
+            continue;
         }
-        .map_err(|_| network())?;
-        socket
-            .set_send_buffer_size(CHUNK_SIZE as u32)
-            .map_err(|_| network())?;
         if let Ok(stream) = socket.connect(address).await {
             connected = Some(stream);
             break;
