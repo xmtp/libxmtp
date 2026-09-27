@@ -136,6 +136,61 @@ export function poolName(options: unknown): string | undefined {
   return ".opfs-libxmtp-metadata";
 }
 
+/**
+ * Runs one binding call and encodes its result. When `pool` is set, the call
+ * holds that storage pool lock, and the lock stays with the owner of the
+ * returned handle. When a created client fails to encode, the client is ended
+ * before the lock is released, so its database closes first.
+ */
+export async function callWithPool(
+  locks: PoolLocks | undefined,
+  pool: string | undefined,
+  createsClient: boolean,
+  call: () => unknown,
+  encode: (result: unknown) => unknown,
+): Promise<unknown> {
+  if (pool) {
+    if (!locks) throw new TypeError("storage lock provider missing");
+    await locks.open(pool);
+  }
+  try {
+    const result: unknown = await call();
+    let encoded: unknown;
+    try {
+      encoded = encode(result);
+    } catch (error) {
+      if (createsClient) await endUnencodedClient(result);
+      throw error;
+    }
+    if (
+      pool &&
+      encoded !== null &&
+      typeof encoded === "object" &&
+      "owner" in encoded &&
+      typeof encoded.owner === "number"
+    )
+      locks?.attachOwner(encoded.owner, pool);
+    return encoded;
+  } catch (error) {
+    if (pool) locks?.close(pool);
+    throw error;
+  }
+}
+
+// The caller gets the encode error, so an error from end is only logged.
+async function endUnencodedClient(client: unknown): Promise<void> {
+  try {
+    const end: unknown =
+      client !== null && typeof client === "object"
+        ? Reflect.get(client, "end")
+        : undefined;
+    if (typeof end !== "function") throw new TypeError("Client.end is missing");
+    await Reflect.apply(end, client, []);
+  } catch (error) {
+    console.error("client that failed to encode could not close", error);
+  }
+}
+
 export interface WorkerContext {
   registry: WorkerRegistry;
   callbacks: WorkerCallbacks;

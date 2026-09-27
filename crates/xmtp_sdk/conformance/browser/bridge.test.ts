@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   CredentialError_Tags,
   ErrorCategory,
@@ -33,6 +33,7 @@ import {
 import {
   PoolLocks,
   WorkerHost,
+  callWithPool,
   poolName,
   type LockProvider,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
@@ -436,6 +437,60 @@ describe("browser bridge transport", () => {
     client.release();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(worker.sent.some((message) => message.t === "fatal")).toBe(true);
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
+  });
+
+  it("ends a created client before its pool lock is released when the encode fails", async () => {
+    const held = new Set<string>();
+    const provider: LockProvider = {
+      async request(name, _options, callback) {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          await callback({});
+        } finally {
+          held.delete(name);
+        }
+      },
+    };
+    const locks = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
+    const { engine } = host(async () => undefined);
+    const registry = engine.registry;
+    let lockHeldAtEnd: boolean | undefined;
+    const client = {
+      end: async () => {
+        lockHeldAtEnd = held.has("xmtp:client-pool");
+        throw new Error("close failed");
+      },
+    };
+    const logged = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        callWithPool(
+          locks,
+          "client-pool",
+          true,
+          async () => client,
+          () =>
+            registry.scope(() =>
+              registry.add(client, "Client", undefined, () => {
+                throw new Error("snapshot failed");
+              }),
+            ),
+        ),
+      ).rejects.toThrow("snapshot failed");
+      expect(lockHeldAtEnd).toBe(true);
+      expect(logged).toHaveBeenCalledWith(
+        "client that failed to encode could not close",
+        expect.objectContaining({ message: "close failed" }),
+      );
+    } finally {
+      logged.mockRestore();
+    }
+    expect(registry.size).toBe(0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await otherTab.open("client-pool");
     otherTab.close("client-pool");
   });
