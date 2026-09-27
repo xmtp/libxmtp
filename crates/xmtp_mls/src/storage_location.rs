@@ -258,6 +258,12 @@ async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocation
         #[cfg(unix)]
         options.mode(0o600);
         let mut file = options.open(&temp).await?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            file.set_permissions(std::fs::Permissions::from_mode(0o600))
+                .await?;
+        }
         file.write_all(bytes).await
     }
     .await;

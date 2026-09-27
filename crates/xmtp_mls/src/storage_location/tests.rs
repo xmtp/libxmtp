@@ -655,6 +655,37 @@ mod native {
         assert_eq!(recorder.lookup().await?, Some("deployment-a".into()));
     }
 
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn deployment_record_is_readable_under_restrictive_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreUmask(libc::mode_t);
+        impl Drop for RestoreUmask {
+            fn drop(&mut self) {
+                unsafe { libc::umask(self.0) };
+            }
+        }
+
+        let dir = tempfile::tempdir()?;
+        let recorder = DeploymentRecorder::new(dir.path().to_path_buf(), "http://localhost");
+        let _umask = RestoreUmask(unsafe { libc::umask(0o400) });
+        recorder.record("deployment-a").await?;
+        let record_path = dir.path().join("deployments.json");
+        assert_eq!(
+            std::fs::metadata(&record_path)?.permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(recorder.lookup().await?, Some("deployment-a".into()));
+        recorder.record("deployment-b").await?;
+        assert_eq!(
+            std::fs::metadata(record_path)?.permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(recorder.lookup().await?, Some("deployment-b".into()));
+    }
+
     // Covers plan P19.
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
