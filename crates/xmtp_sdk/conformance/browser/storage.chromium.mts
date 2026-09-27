@@ -83,6 +83,16 @@ try {
     }, pathC),
     pathC,
   );
+  // verifies: STORE-007
+  await first.evaluate(async (path) => {
+    const bridge = await import("./storage.bridge.chromium.ts");
+    const before = await bridge.poolFilenames();
+    await bridge.rejectBuildWithoutStoredIdentity(path);
+    const after = await bridge.poolFilenames();
+    if (JSON.stringify(after) !== JSON.stringify(before))
+      throw new Error("build created an OPFS database without a stored identity");
+  }, `${base}-missing.db`);
+  console.log("Chromium missing-identity build left the OPFS pool unchanged");
   const attempt = () =>
     second.evaluate(async (path) => {
       const bridge = await import("./storage.bridge.chromium.ts");

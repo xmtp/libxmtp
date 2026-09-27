@@ -87,6 +87,67 @@ export async function open(path: string): Promise<string> {
   return storedPath;
 }
 
+export async function poolFilenames(): Promise<string[]> {
+  const root = await navigator.storage.getDirectory();
+  const metadata = await root.getDirectoryHandle(".opfs-libxmtp-metadata");
+  const pool = await metadata.getDirectoryHandle(".opaque");
+  const names: string[] = [];
+  for await (const handle of pool.values()) {
+    if (handle.kind !== "file") continue;
+    const bytes = new Uint8Array(
+      await (await handle.getFile()).slice(0, 512).arrayBuffer(),
+    );
+    const end = bytes.indexOf(0);
+    if (end > 0) names.push(new TextDecoder().decode(bytes.subarray(0, end)));
+  }
+  return names.sort();
+}
+
+export async function rejectBuildWithoutStoredIdentity(path: string): Promise<void> {
+  const current = await connection();
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  const identifier = `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  const inbox = B.InboxID.fromString(
+    Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join(""),
+  );
+  try {
+    const client = await Client.build(
+      current,
+      { identifier, kind: B.PublicIdentityKind.Ethereum },
+      {
+        backend: B.BackendSource.Options.new({
+          options: {
+            url: `${location.origin}/backend`,
+            appVersion: undefined,
+            credential: undefined,
+            credentials: undefined,
+          },
+        }),
+        storage: {
+          location: B.StorageLocation.Path.new(path),
+          label: path,
+          encryptionKey: undefined,
+          pool: undefined,
+          singleConnection: false,
+        },
+        deviceSync: false,
+        allowOffline: false,
+        registration: { auto: false, nonce: undefined },
+        forkRecovery: undefined,
+        workers: undefined,
+        handlers: undefined,
+      },
+      inbox,
+    );
+    await client.end();
+    throw new Error("build accepted a database without a stored identity");
+  } catch (error) {
+    if (!B.XmtpError.IdentityNotFound.instanceOf(error)) throw error;
+  }
+}
+
 export async function endOne(): Promise<void> {
   const client = clients.shift();
   if (!client) throw new Error("no client to close");
