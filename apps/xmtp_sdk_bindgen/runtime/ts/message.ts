@@ -1,26 +1,29 @@
 import {
   ErrorCategory,
-  MessageBody,
   MessageBody_Tags,
-  MessageContent,
   MessageContent_Tags,
   XmtpError,
   encodeText,
   type EncodedContent,
   type Conversation,
+  type MessageBody,
+  type MessageContent,
   type MessageData,
   type Reaction,
   type SendOptions,
 } from "../xmtp_sdk";
 import { ClientRegistry, type Client, type ContentCodec } from "./client";
+import {
+  liftCustomBody,
+  liftCustomContent,
+  type LiftedCustomBody,
+  type LiftedCustomContent,
+} from "./custom-lift";
 import type { MessageID } from "./ids";
 
 type LiftedReplyBody =
   | Exclude<MessageBody, { tag: MessageBody_Tags.Custom }>
-  | {
-      tag: MessageBody_Tags.Custom;
-      inner: { encoded: EncodedContent; value?: unknown; error?: string };
-    };
+  | LiftedCustomBody;
 
 function decodeReplyBody(
   body: MessageBody,
@@ -30,26 +33,13 @@ function decodeReplyBody(
   const encoded = body.inner.encoded;
   const owner = ClientRegistry.get(clientKey);
   const decoded = owner?.decodeCustom(encoded);
-  if (decoded === undefined && owner !== undefined)
-    return MessageBody.Unknown.new({ encoded });
-  return {
-    tag: MessageBody_Tags.Custom,
-    inner: { encoded, ...(decoded ?? { error: "clientClosed" }) },
-  };
+  return liftCustomBody(body, owner !== undefined, decoded);
 }
 
 export class Message {
   readonly content:
     | Exclude<MessageContent, { tag: MessageContent_Tags.Custom }>
-    | {
-        tag: MessageContent_Tags.Custom;
-        inner: {
-          encoded: EncodedContent;
-          rawBytes: ArrayBuffer;
-          value?: unknown;
-          error?: string;
-        };
-      };
+    | LiftedCustomContent;
   readonly inReplyToContent?: LiftedReplyBody;
   readonly replyContent?: LiftedReplyBody;
 
@@ -68,21 +58,9 @@ export class Message {
       this.content = content;
       return;
     }
-    const encoded = content.inner.encoded;
-    const rawBytes = content.inner.rawBytes;
     const owner = ClientRegistry.get(data.clientKey);
-    const decoded = owner?.decodeCustom(encoded);
-    this.content =
-      decoded === undefined && owner !== undefined
-        ? MessageContent.Unknown.new({ encoded, rawBytes })
-        : {
-            tag: MessageContent_Tags.Custom,
-            inner: {
-              encoded,
-              rawBytes,
-              ...(decoded ?? { error: "clientClosed" }),
-            },
-          };
+    const decoded = owner?.decodeCustom(content.inner.encoded);
+    this.content = liftCustomContent(content, owner !== undefined, decoded);
   }
 
   get id() {

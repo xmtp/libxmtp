@@ -7,11 +7,17 @@ const server = await createServer({
   root: process.cwd(),
   configFile: false,
   resolve: { preserveSymlinks: false },
-  server: { host: "127.0.0.1", port: 0, strictPort: false, fs: { strict: false } },
+  server: {
+    host: "127.0.0.1",
+    port: 0,
+    strictPort: false,
+    fs: { strict: false },
+  },
 });
 await server.listen();
 const address = server.httpServer?.address();
-if (!address || typeof address === "string") throw new Error("Vite has no port");
+if (!address || typeof address === "string")
+  throw new Error("Vite has no port");
 const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage();
@@ -25,12 +31,18 @@ try {
     await checkWorkerFailure();
     const { checkPureCodecs } = await import("./pure-codecs.chromium.ts");
     const count = await checkPureCodecs();
-    const { checkDeletedMessages } = await import("./message.deleted.chromium.ts");
+    const { checkDeletedMessages } =
+      await import("./message.deleted.chromium.ts");
     await checkDeletedMessages(url);
+    const { checkCustomMessageLift } =
+      await import("./message.custom.chromium.ts");
+    checkCustomMessageLift();
     return count;
   }, backendURL);
   assert.equal(result, 15);
-  console.log("Chromium worker failure, 15 pure codecs, and deleted messages passed");
+  console.log(
+    "Chromium worker failure, 15 pure codecs, deleted messages, and custom lift passed",
+  );
 } finally {
   await browser.close();
   await server.close();

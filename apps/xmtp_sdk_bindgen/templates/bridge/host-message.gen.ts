@@ -1,7 +1,18 @@
 import * as Pure from "../typescript-pure/xmtp_sdk.js";
-import * as B from "./xmtp_sdk.js";
 import type { Client } from "./proxy.gen.js";
 import type { MainSession } from "./runtime/bridge/main/session.js";
+import {
+  codecKey,
+  decodeCustom,
+  type AnyCodec,
+} from "./runtime/custom-codec.js";
+import {
+  liftCustomBody,
+  liftCustomContent,
+  type LiftedCustomBody,
+  type LiftedCustomContent,
+} from "./runtime/custom-lift.js";
+import * as B from "./xmtp_sdk.js";
 
 export interface ContentCodec<T = unknown> {
   readonly type: B.ContentTypeID;
@@ -9,19 +20,15 @@ export interface ContentCodec<T = unknown> {
   decode(encoded: B.EncodedContent): T;
 }
 
-type AnyCodec = {
-  readonly type: B.ContentTypeID;
-  encode(value: never): B.EncodedContent;
-  decode(encoded: B.EncodedContent): unknown;
-};
-
 export type HostClientOptions = B.ClientOptions & {
   codecs?: readonly AnyCodec[];
 };
 
 declare const process: { cwd(): string } | undefined;
 
-export function resolveBrowserOptions(options: B.ClientOptions): B.ClientOptions {
+export function resolveBrowserOptions(
+  options: B.ClientOptions,
+): B.ClientOptions {
   if (options.storage.location.tag !== B.StorageLocation_Tags.Default)
     return options;
   const directory =
@@ -41,10 +48,6 @@ interface Owner {
 }
 
 const owners = new WeakMap<MainSession, Map<bigint, Owner>>();
-
-function codecKey(type: B.ContentTypeID): string {
-  return JSON.stringify([type.authorityID, type.typeID, type.versionMajor]);
-}
 
 export function registerClient(
   session: MainSession,
@@ -81,17 +84,9 @@ function owner(session: MainSession, key: bigint): Owner | undefined {
   return entry;
 }
 
-type CustomContent = {
-  tag: B.MessageContent_Tags.Custom;
-  inner: { encoded: B.EncodedContent; value?: unknown; error?: string };
-};
-type CustomBody = {
-  tag: B.MessageBody_Tags.Custom;
-  inner: { encoded: B.EncodedContent; value?: unknown; error?: string };
-};
 type LiftedReplyBody =
   | Exclude<B.MessageBody, { tag: B.MessageBody_Tags.Custom }>
-  | CustomBody;
+  | LiftedCustomBody;
 type HostReply = {
   tag: B.MessageContent_Tags.Reply;
   inner: { referenceID: B.MessageID; body: LiftedReplyBody };
@@ -104,20 +99,7 @@ type HostContent =
       }
     >
   | HostReply
-  | CustomContent;
-
-function decodeCustom(
-  entry: Owner | undefined,
-  encoded: B.EncodedContent,
-): { value?: unknown; error?: string } | undefined {
-  const codec = entry?.codecs.get(codecKey(encoded.type));
-  if (!codec) return undefined;
-  try {
-    return { value: codec.decode(encoded) };
-  } catch (error) {
-    return { error: String(error) };
-  }
-}
+  | LiftedCustomContent;
 
 function decodeContent(
   session: MainSession,
@@ -126,16 +108,19 @@ function decodeContent(
   encoded: B.EncodedContent,
 ): HostContent {
   if (content.tag === B.MessageContent_Tags.Custom) {
-    const result = decodeCustom(owner(session, key), encoded);
-    return result === undefined
-      ? { tag: B.MessageContent_Tags.Custom, inner: { encoded } }
-      : { tag: B.MessageContent_Tags.Custom, inner: { encoded, ...result } };
+    const entry = owner(session, key);
+    return liftCustomContent(
+      content,
+      entry !== undefined,
+      decodeCustom(entry?.codecs, content.inner.encoded),
+    );
   }
   // Deleted messages keep their original encoded bytes. Keep the Rust marker.
   if (
     content.tag === B.MessageContent_Tags.Unknown ||
     content.tag === B.MessageContent_Tags.DeletedMessage
-  ) return content;
+  )
+    return content;
 
   // Standard bytes are decoded by the main-thread pure WASM module.
   const standard = Pure.decodeStandard(encoded);
@@ -173,10 +158,18 @@ function decodeContent(
       return B.MessageContent.LeaveRequest.new(standard.inner[0]);
     case Pure.StandardContent_Tags.Reply:
       if (content.tag !== B.MessageContent_Tags.Reply) return content;
-      return { tag: B.MessageContent_Tags.Reply, inner: {
-        referenceID: content.inner.referenceID,
-        body: decodeBody(session, key, content.inner.body, standard.inner.content),
-      } };
+      return {
+        tag: B.MessageContent_Tags.Reply,
+        inner: {
+          referenceID: content.inner.referenceID,
+          body: decodeBody(
+            session,
+            key,
+            content.inner.body,
+            standard.inner.content,
+          ),
+        },
+      };
     case Pure.StandardContent_Tags.DeleteMessage:
       return content;
   }
@@ -189,16 +182,19 @@ function decodeBody(
   encoded: B.EncodedContent,
 ): LiftedReplyBody {
   if (body.tag === B.MessageBody_Tags.Custom) {
-    const result = decodeCustom(owner(session, key), encoded);
-    return result === undefined
-      ? { tag: B.MessageBody_Tags.Custom, inner: { encoded } }
-      : { tag: B.MessageBody_Tags.Custom, inner: { encoded, ...result } };
+    const entry = owner(session, key);
+    return liftCustomBody(
+      body,
+      entry !== undefined,
+      decodeCustom(entry?.codecs, body.inner.encoded),
+    );
   }
   // A deleted reply parent also keeps its original encoded bytes.
   if (
     body.tag === B.MessageBody_Tags.Unknown ||
     body.tag === B.MessageBody_Tags.DeletedMessage
-  ) return body;
+  )
+    return body;
   const standard = Pure.decodeStandard(encoded);
   switch (standard.tag) {
     case Pure.StandardContent_Tags.Text:
@@ -237,11 +233,24 @@ export class Message extends B.Message {
   readonly inReplyToContent?: LiftedReplyBody;
   readonly replyContent?: LiftedReplyBody;
 
-  constructor(data: B.MessageData, private readonly session: MainSession) {
+  constructor(
+    data: B.MessageData,
+    private readonly session: MainSession,
+  ) {
     super(data);
-    this.content = decodeContent(session, data.clientKey, data.content, data.encoded);
+    this.content = decodeContent(
+      session,
+      data.clientKey,
+      data.content,
+      data.encoded,
+    );
     this.inReplyToContent = data.inReplyTo
-      ? decodeBody(session, data.clientKey, data.inReplyTo.content, data.inReplyTo.encoded)
+      ? decodeBody(
+          session,
+          data.clientKey,
+          data.inReplyTo.content,
+          data.inReplyTo.encoded,
+        )
       : undefined;
     this.replyContent =
       this.content.tag === B.MessageContent_Tags.Reply
@@ -249,17 +258,39 @@ export class Message extends B.Message {
         : undefined;
   }
 
-  get conversationID(): B.ConversationID { return this.data.conversationID; }
-  get topic(): string { return this.data.topic; }
-  get senderInboxID(): B.InboxID { return this.data.senderInboxID; }
-  get sentAt(): B.Timestamp { return this.data.sentAt; }
-  get contentType(): B.ContentTypeID { return this.data.contentType; }
-  get fallback(): string | undefined { return this.data.fallback; }
-  get replyCount(): bigint { return this.data.replyCount; }
-  get reactions(): B.ReactionMessage[] { return this.data.reactions; }
-  get insertedAt(): B.Timestamp { return this.data.insertedAt; }
-  get expiresAt(): B.Timestamp | undefined { return this.data.expiresAt; }
-  get inReplyTo(): B.ReplyParent | undefined { return this.data.inReplyTo; }
+  get conversationID(): B.ConversationID {
+    return this.data.conversationID;
+  }
+  get topic(): string {
+    return this.data.topic;
+  }
+  get senderInboxID(): B.InboxID {
+    return this.data.senderInboxID;
+  }
+  get sentAt(): B.Timestamp {
+    return this.data.sentAt;
+  }
+  get contentType(): B.ContentTypeID {
+    return this.data.contentType;
+  }
+  get fallback(): string | undefined {
+    return this.data.fallback;
+  }
+  get replyCount(): bigint {
+    return this.data.replyCount;
+  }
+  get reactions(): B.ReactionMessage[] {
+    return this.data.reactions;
+  }
+  get insertedAt(): B.Timestamp {
+    return this.data.insertedAt;
+  }
+  get expiresAt(): B.Timestamp | undefined {
+    return this.data.expiresAt;
+  }
+  get inReplyTo(): B.ReplyParent | undefined {
+    return this.data.inReplyTo;
+  }
 
   client(): Client {
     const value = owner(this.session, this.data.clientKey)?.client.deref();
@@ -269,7 +300,9 @@ export class Message extends B.Message {
 
   async refresh(): Promise<Message | undefined> {
     const value = await this.client().conversations().getMessageByID(this.id);
-    return value === undefined ? undefined : new Message(value.data, this.session);
+    return value === undefined
+      ? undefined
+      : new Message(value.data, this.session);
   }
   delete(): Promise<B.MessageID> {
     return this.client().conversations().deleteMessage(this.id);
@@ -278,31 +311,43 @@ export class Message extends B.Message {
     return this.client().conversations().deleteMessageLocally(this.id);
   }
   react(reaction: B.Reaction, options?: B.SendOptions): Promise<B.MessageID> {
-    return this.client().conversations().reactToMessage(this.id, reaction, options);
+    return this.client()
+      .conversations()
+      .reactToMessage(this.id, reaction, options);
   }
-  reply(content: string | B.EncodedContent, options?: B.SendOptions): Promise<B.MessageID>;
-  reply<T>(codec: ContentCodec<T>, value: T, options?: B.SendOptions): Promise<B.MessageID>;
+  reply(
+    content: string | B.EncodedContent,
+    options?: B.SendOptions,
+  ): Promise<B.MessageID>;
+  reply<T>(
+    codec: ContentCodec<T>,
+    value: T,
+    options?: B.SendOptions,
+  ): Promise<B.MessageID>;
   reply(
     content: string | B.EncodedContent | ContentCodec<unknown>,
     valueOrOptions?: unknown,
     options?: B.SendOptions,
   ): Promise<B.MessageID> {
     if (typeof content !== "string" && "encode" in content)
-      return this.client().conversations().replyToMessage(
-        this.id,
-        content.encode(valueOrOptions),
-        options,
-      );
+      return this.client()
+        .conversations()
+        .replyToMessage(this.id, content.encode(valueOrOptions), options);
     if (!isSendOptions(valueOrOptions))
       throw new TypeError("invalid send options");
-    const encoded = typeof content === "string" ? Pure.encodeText(content) : content;
-    return this.client().conversations().replyToMessage(this.id, encoded, valueOrOptions);
+    const encoded =
+      typeof content === "string" ? Pure.encodeText(content) : content;
+    return this.client()
+      .conversations()
+      .replyToMessage(this.id, encoded, valueOrOptions);
   }
   async parent(): Promise<Message | undefined> {
     const id = this.inReplyTo?.id;
     if (id === undefined) return undefined;
     const value = await this.client().conversations().getMessageByID(id);
-    return value === undefined ? undefined : new Message(value.data, this.session);
+    return value === undefined
+      ? undefined
+      : new Message(value.data, this.session);
   }
   conversation(): Promise<B.Conversation | undefined> {
     return this.client().conversations().getByID(this.conversationID);
@@ -310,8 +355,11 @@ export class Message extends B.Message {
 }
 
 function isSendOptions(value: unknown): value is B.SendOptions | undefined {
-  return value === undefined || (
-    value !== null && typeof value === "object" &&
-    "optimistic" in value && typeof value.optimistic === "boolean"
+  return (
+    value === undefined ||
+    (value !== null &&
+      typeof value === "object" &&
+      "optimistic" in value &&
+      typeof value.optimistic === "boolean")
   );
 }
