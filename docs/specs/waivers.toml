@@ -184,12 +184,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
 
 [[waiver]]
-id = "CONS-044"
-kind = "untested"
-owner = "protocol"
-reason = "Core `StreamConversations` applies `ALL_CONSENT_STATES` when no consent filter is given; no test asserts the default yet."
-
-[[waiver]]
 id = "CONS-030"
 kind = "gap"
 owner = "protocol"

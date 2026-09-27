@@ -1734,7 +1734,7 @@ async fn cancelled_conversation_read_delivers_next_group() {
     client.end().await?;
 }
 
-// verifies: CONS-030
+// verifies: CONS-030, CONS-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn conversation_reader_default_includes_denied() {
     use crate::{ConsentEntity, ConsentRecord, ConsentState};
