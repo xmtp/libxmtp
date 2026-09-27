@@ -853,10 +853,10 @@ describe("Conversations", () => {
       .updateConsentState(ConsentState.Denied);
 
     const messages: Message[] = [];
-    const errors: Error[] = [];
+    const defaultErrors: Error[] = [];
     const stream = recipient.conversations().streamAllMessages(
       (err, message) => {
-        if (err) errors.push(err);
+        if (err) defaultErrors.push(err);
         if (message) messages.push(message);
       },
       () => {},
@@ -876,12 +876,14 @@ describe("Conversations", () => {
         { timeout: 15_000 },
       )
       .toEqual([allowedId]);
+    expect(defaultErrors).toEqual([]);
     await stream.endAndWait();
 
     const deniedMessages: Message[] = [];
+    const deniedErrors: Error[] = [];
     const deniedStream = recipient.conversations().streamAllMessages(
       (err, message) => {
-        if (err) errors.push(err);
+        if (err) deniedErrors.push(err);
         if (message) deniedMessages.push(message);
       },
       () => {},
@@ -900,8 +902,8 @@ describe("Conversations", () => {
       )
       .toBe(true);
     expect(deniedId).not.toBe(secondDeniedId);
+    expect(deniedErrors).toEqual([]);
     await deniedStream.endAndWait();
-    expect(errors).toEqual([]);
   });
 
   it("should only stream group chat messages", async () => {
