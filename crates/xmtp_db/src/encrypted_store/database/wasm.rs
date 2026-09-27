@@ -115,7 +115,11 @@ pub async fn try_init_sqlite() -> Result<(), PlatformStorageError> {
 
 /// Give up OPFS access handles after the last SQLite file closes.
 /// A live database makes `pause_vfs` fail without changing the pool.
+/// A pending open has no live file yet, so it skips the pause itself.
 pub fn pause_sqlite_if_idle() {
+    if restore::open_pending() {
+        return;
+    }
     if let Some(Ok(util)) = get_sqlite()
         && let Err(error) = util.pause_vfs()
     {
