@@ -46,7 +46,7 @@ export function bridgeError(
   const publicCode = code[0].toUpperCase() + code.slice(1);
   if (code === "clientClosed") {
     // Keep these fields in sync with XmtpError::closed in the SDK façade.
-    const category = 6;
+    const category = ErrorCategory.Lifecycle;
     return new BridgeError(
       "ClientClosed",
       "ClientClosed",
@@ -64,20 +64,25 @@ export function bridgeError(
     );
   }
   if (code === "storageBusy") {
-    // ErrorCategory.Storage is the third variant in the UniFFI flat enum.
-    const category = 2;
+    const category = ErrorCategory.Storage;
     return new BridgeError("StorageBusy", publicCode, category, true, code, [
       { code: publicCode, category, retryable: true, message: code },
     ]);
   }
   if (code === "lagged") {
-    // ErrorCategory.Stream is the tenth variant in the UniFFI flat enum.
-    const category = 9;
+    const category = ErrorCategory.Stream;
     return new BridgeError("Lagged", "Lagged", category, true, code, [
       { code: "Lagged", category, retryable: true, message: code },
     ]);
   }
-  return new BridgeError(publicCode, publicCode, 6, false, code, details);
+  return new BridgeError(
+    publicCode,
+    publicCode,
+    ErrorCategory.Lifecycle,
+    false,
+    code,
+    details,
+  );
 }
 
 export function encodeError(error: unknown): ErrorWire {
