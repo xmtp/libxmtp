@@ -43,6 +43,7 @@ mod message;
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
 mod preferences;
+#[cfg(not(feature = "pure-only"))]
 mod signer;
 #[cfg(not(feature = "pure-only"))]
 mod state;
@@ -118,6 +119,7 @@ pub use notifications::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use preferences::{ConsentEntity, ConsentRecord, ConsentState, Preferences};
+#[cfg(not(feature = "pure-only"))]
 pub use signer::{
     PublicIdentity, PublicIdentityKind, Signature, Signer, SignerError, SignerKind, SigningRequest,
     generate_local_signer, local_signer_from_private_key,
