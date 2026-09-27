@@ -205,6 +205,8 @@ jobs:
             --exclude '^https://github\.com/xmtp/libxmtp/edit/.*'
             --exclude '^https://github\.com/xmtp/libxmtp/blob/[0-9a-f]{40}/.*'
             --exclude '^http://collector:4317/?$'
+            # IANA's registry pages answer GitHub-hosted runners with 502; they resolve normally elsewhere.
+            --exclude '^https://www\.iana\.org/assignments/'
             'apps/docs/_site/*.html'
             'apps/docs/_site/agents/**/*.html'
             'apps/docs/_site/chat-apps/**/*.html'
