@@ -206,6 +206,7 @@ pub struct Client {
     pub(crate) key: u64,
     pub(crate) identity: PublicIdentity,
     pub(crate) options: ClientOptions,
+    pub(crate) storage_path: Option<String>,
     pub(crate) signer: Option<Arc<dyn Signer>>,
     pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
     pub(crate) listeners: crate::events::dispatch::ListenerRegistry,
@@ -215,11 +216,21 @@ pub struct Client {
 impl Client {
     async fn build_inner(
         identity: PublicIdentity,
-        options: ClientOptions,
+        mut options: ClientOptions,
         inbox_id: Option<InboxID>,
     ) -> Result<Self, XmtpError> {
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        match &mut options.storage.location {
+            StorageLocation::Path(path) | StorageLocation::Directory(path) => {
+                *path = std::path::absolute(&*path)
+                    .map_err(XmtpError::unknown)?
+                    .to_string_lossy()
+                    .into_owned();
+            }
+            StorageLocation::Default | StorageLocation::InMemory => {}
         }
         let identifier = identity.to_core()?;
         let backend = options
@@ -246,6 +257,10 @@ impl Client {
             }
         };
         let store = open_store(&options.storage, &inbox_id).await?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let storage_path = native_storage_path(&options.storage, &inbox_id)?;
+        #[cfg(target_arch = "wasm32")]
+        let storage_path = wasm_storage_path(&options.storage, &inbox_id)?;
         let mode = if options.device_sync {
             DeviceSyncMode::Enabled
         } else {
@@ -284,6 +299,7 @@ impl Client {
             key,
             identity,
             options,
+            storage_path,
             signer: None,
             auth_handle,
             listeners: crate::events::dispatch::ListenerRegistry::default(),
@@ -428,8 +444,7 @@ impl Client {
     pub fn storage(&self) -> Arc<Storage> {
         Arc::new(Storage {
             client: self.inner.clone(),
-            options: self.options.clone(),
-            inbox_id: self.inbox_id(),
+            path: self.storage_path.clone(),
         })
     }
 

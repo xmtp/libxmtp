@@ -1543,6 +1543,38 @@ async fn idle_read_cancel_settles() {
 
 // verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
+async fn storage_path_keeps_opened_relative_file_after_chdir() {
+    struct RestoreDirectory(std::path::PathBuf);
+
+    impl Drop for RestoreDirectory {
+        fn drop(&mut self) {
+            std::env::set_current_dir(&self.0).expect("restore working directory");
+        }
+    }
+
+    let original = std::env::current_dir()?;
+    let relative = std::path::PathBuf::from(format!(
+        "target/sdk-relative-storage-{}-{}/db.sqlite",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    std::fs::create_dir_all(relative.parent().expect("database directory"))?;
+    let expected = std::path::absolute(&relative)?;
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Path(relative.to_string_lossy().into_owned());
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    assert!(expected.is_file());
+    {
+        let _restore = RestoreDirectory(original);
+        std::env::set_current_dir(std::env::temp_dir())?;
+        assert_eq!(client.storage().path().await?, Some(expected.to_string_lossy().into_owned()));
+    }
+    client.end().await?;
+    std::fs::remove_dir_all(relative.parent().expect("database directory"))?;
+}
+
+// verifies: STORE-009
+#[xmtp_common::test(unwrap_try = true)]
 async fn storage_default_requires_host_and_directory_names_are_unique() {
     let default = StorageOptions::default();
     assert!(matches!(

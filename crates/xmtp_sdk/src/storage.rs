@@ -1,25 +1,17 @@
 use std::sync::Arc;
 
-use crate::{ClientOptions, InboxID, XmtpError, client::CoreClient, conversation::on_sdk_worker};
+use crate::{XmtpError, client::CoreClient, conversation::on_sdk_worker};
 
 #[derive(uniffi::Object)]
 pub struct Storage {
     pub(crate) client: Arc<CoreClient>,
-    pub(crate) options: ClientOptions,
-    pub(crate) inbox_id: InboxID,
+    pub(crate) path: Option<String>,
 }
 
 #[xmtp_macro::sdk_export]
 impl Storage {
     pub async fn path(&self) -> Result<Option<String>, XmtpError> {
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            crate::client::native_storage_path(&self.options.storage, &self.inbox_id.0)
-        }
-        #[cfg(target_arch = "wasm32")]
-        {
-            crate::client::wasm_storage_path(&self.options.storage, &self.inbox_id.0)
-        }
+        Ok(self.path.clone())
     }
 
     pub async fn reconnect(&self) -> Result<(), XmtpError> {
