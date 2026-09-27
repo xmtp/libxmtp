@@ -3388,10 +3388,36 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
         .conversations()
         .reply_to_message(target.clone(), crate::encode_text("reply".into())?, None)
         .await?;
+    let reader = group.message_reader().await?;
+    let original = xmtp_common::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let item = reader.next().await?.expect("original message");
+            if item.0.id == target {
+                break Ok::<_, XmtpError>(item);
+            }
+        }
+    })
+    .await??;
+    assert!(
+        matches!(original.0.content, MessageContent::Text(ref text) if text == "secret-deleted")
+    );
+    reader.end().await?;
     client
         .conversations()
         .delete_message(target.clone())
         .await?;
+
+    let replay = group.message_reader().await?;
+    let replayed = xmtp_common::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let item = replay.next().await?.expect("deleted message replay");
+            if item.0.id == target {
+                break Ok::<_, XmtpError>(item);
+            }
+        }
+    })
+    .await??;
+    replay.end().await?;
 
     let by_id = client
         .conversations()
@@ -3403,7 +3429,11 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
         .iter()
         .find(|message| message.0.id == target)
         .expect("deleted message in history");
-    for (path, message) in [("by ID", &by_id), ("history", listed)] {
+    for (path, message) in [
+        ("by ID", &by_id),
+        ("history", listed),
+        ("reader replay", &replayed),
+    ] {
         assert!(
             matches!(message.0.content, MessageContent::DeletedMessage(_)),
             "{path} did not show deletion"
