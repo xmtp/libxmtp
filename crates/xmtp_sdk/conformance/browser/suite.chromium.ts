@@ -772,6 +772,30 @@ export async function runBrowserBridgeConformance(
         },
       },
     );
+    // A second worker stands in for a second tab. While this worker holds
+    // the origin lock, the other worker must not open the OPFS pool. SAH
+    // contention in WASM is also StorageBusy, but only the lock refusal
+    // carries the bridge code as its message.
+    const other = connection();
+    try {
+      await other.session.ready();
+      await checkError(
+        async () => {
+          const opened = await Client.create(
+            other.session,
+            signer(other.session),
+            options(`other-${crypto.randomUUID()}.db`, backendURL),
+          );
+          await opened.end();
+        },
+        (error) =>
+          B.XmtpError.StorageBusy.instanceOf(error) &&
+          error.inner[0].message === "storageBusy",
+        "a second worker opened OPFS storage under the origin lock",
+      );
+    } finally {
+      other.worker.terminate();
+    }
     await reopened.end();
     reopened = undefined;
     const closedReaction = {
@@ -796,7 +820,9 @@ export async function runBrowserBridgeConformance(
     } finally {
       staleClient.release();
     }
-    results.push("smoke: two page clients share the origin lock");
+    results.push(
+      "smoke: two clients share a worker's lock; a second worker is StorageBusy",
+    );
 
   } catch (error) {
     console.error(
