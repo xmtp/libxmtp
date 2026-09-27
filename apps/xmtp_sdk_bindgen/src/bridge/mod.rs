@@ -962,7 +962,7 @@ fn render(
                 } else if object.name == "Client" && op.name == "end" {
                     writeln!(
                         proxy,
-                        "  private closing?: Promise<void>;\n  end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const key = this.clientKey(); const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ this.endOwner(); unregisterClient(this.session, key); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
+                        "  private closing?: Promise<void>;\n  async end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const key = this.clientKey(); const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ this.endOwner(); unregisterClient(this.session, key); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
                     )?;
                 } else {
                     let comma = if params.is_empty() { "" } else { ", " };
@@ -1463,6 +1463,36 @@ mod tests {
         let files = render(&[item], &[], "test", &BTreeMap::new())?;
         assert!(files["wire.gen.ts"].contains("export type WireKind = number"));
         assert!(files["wire.gen.ts"].contains("flat: true"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn generated_client_end_rejects_closed_handle() {
+        let object = Metadata::Object(ObjectMetadata {
+            module_path: "test".into(),
+            name: "Client".into(),
+            orig_name: None,
+            remote: false,
+            imp: ObjectImpl::Struct,
+            docstring: None,
+        });
+        let method = Metadata::Method(MethodMetadata {
+            module_path: "test".into(),
+            self_name: "Client".into(),
+            name: "end".into(),
+            orig_name: None,
+            is_async: true,
+            inputs: vec![],
+            return_type: None,
+            throws: None,
+            takes_self_by_arc: true,
+            checksum: None,
+            docstring: None,
+        });
+        let items = [object, method];
+        let names = BTreeMap::new();
+        let operations = operations(&items, &names);
+        let files = render(&items, &operations, "test", &names)?;
+        assert!(files["proxy.gen.ts"].contains("async end(asyncOpts_?:"));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -304,13 +304,16 @@ export class Message extends B.Message {
       ? undefined
       : new Message(value.data, this.session);
   }
-  delete(): Promise<B.MessageID> {
+  async delete(): Promise<B.MessageID> {
     return this.client().conversations().deleteMessage(this.id);
   }
-  deleteLocally(): Promise<void> {
+  async deleteLocally(): Promise<void> {
     return this.client().conversations().deleteMessageLocally(this.id);
   }
-  react(reaction: B.Reaction, options?: B.SendOptions): Promise<B.MessageID> {
+  async react(
+    reaction: B.Reaction,
+    options?: B.SendOptions,
+  ): Promise<B.MessageID> {
     return this.client()
       .conversations()
       .reactToMessage(this.id, reaction, options);
@@ -324,7 +327,7 @@ export class Message extends B.Message {
     value: T,
     options?: B.SendOptions,
   ): Promise<B.MessageID>;
-  reply(
+  async reply(
     content: string | B.EncodedContent | ContentCodec<unknown>,
     valueOrOptions?: unknown,
     options?: B.SendOptions,
@@ -349,7 +352,7 @@ export class Message extends B.Message {
       ? undefined
       : new Message(value.data, this.session);
   }
-  conversation(): Promise<B.Conversation | undefined> {
+  async conversation(): Promise<B.Conversation | undefined> {
     return this.client().conversations().getByID(this.conversationID);
   }
 }
