@@ -283,6 +283,72 @@ try {
   );
   await ending;
 
+  // The Client snapshot includes options(). Its pre-authentication handler
+  // is a main-thread callback, so the worker must not encode it again.
+  // verifies: IDENT-073, IDENT-076
+  const handledAccount = privateKeyToAccount(
+    `0x${randomBytes(32).toString("hex")}`,
+  );
+  const order: string[] = [];
+  const handled = await Client.create(
+    first.session,
+    {
+      async identity() {
+        return {
+          identifier: handledAccount.address,
+          kind: B.PublicIdentityKind.Ethereum,
+        };
+      },
+      async kind() {
+        return B.SignerKind.Eoa.new();
+      },
+      async sign(request) {
+        order.push("sign");
+        const signed = await handledAccount.signMessage({
+          message: request.text,
+        });
+        return B.Signature.Ecdsa.new(
+          Uint8Array.from(Buffer.from(signed.slice(2), "hex")).buffer,
+        );
+      },
+    },
+    {
+      backend: new B.BackendSource.Options({
+        options: {
+          url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
+          appVersion: undefined,
+          credentials: undefined,
+          credential: undefined,
+        },
+      }),
+      storage: {
+        location: B.StorageLocation.InMemory.new(),
+        label: undefined,
+        encryptionKey: undefined,
+        pool: undefined,
+        singleConnection: false,
+      },
+      deviceSync: false,
+      allowOffline: false,
+      registration: { auto: true, nonce: undefined },
+      forkRecovery: undefined,
+      workers: undefined,
+      handlers: {
+        preAuthenticate: {
+          async run() {
+            order.push("preAuthenticate");
+          },
+        },
+      },
+    },
+  );
+  assert.deepEqual(order, ["preAuthenticate", "sign"]);
+  // The snapshot returns the handler as a worker handle that calls back to
+  // the app's handler on the main thread.
+  await handled.options().handlers?.preAuthenticate?.run();
+  assert.deepEqual(order, ["preAuthenticate", "sign", "preAuthenticate"]);
+  await handled.end();
+
   // A Rust signer comes back as a worker-resident handle, like any object.
   const localKey = randomBytes(32);
   const keyed = decodeObjectSigner(
