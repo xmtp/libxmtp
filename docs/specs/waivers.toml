@@ -756,6 +756,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current iOS and Android SDKs propagate a failing handler without reporting a typed callback failure; the façade SDKs report a callback failure."
 
 [[waiver]]
+id = "IDENT-076"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The Node and browser SDKs accept no pre-authentication handler; the façade adds handlers.preAuthenticate."
+
+[[waiver]]
 id = "GMOD-035"
 kind = "gap"
 owner = "protocol"
