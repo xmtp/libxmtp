@@ -2311,9 +2311,14 @@ async fn connection_state_across_toxiproxy_drop() {
             .lease_for_test()
             .lock_change_receiver_for_test()
             .await;
+        // Drain a stored permit, then wait until next() reaches its idle wait.
+        let idle = conversations.idle_read_for_test();
+        let _ = idle.notified().now_or_never();
         let pending_conversation = conversations.clone();
         let pending_read = tokio::spawn(async move { pending_conversation.next().await });
-        tokio::time::sleep(Duration::from_millis(100)).await;
+        xmtp_common::time::timeout(Duration::from_secs(5), idle.notified())
+            .await
+            .expect("conversation read reached its idle wait");
         assert!(
             !pending_read.is_finished(),
             "conversation read was not pending"
