@@ -11,6 +11,7 @@ import {
 import {
   Backend,
   Client,
+  decodeObjectSigner,
 } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.ts";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session.ts";
 import type {
@@ -282,8 +283,51 @@ try {
   );
   await ending;
 
+  // A Rust signer comes back as a worker-resident handle, like any object.
+  const localKey = randomBytes(32);
+  const keyed = decodeObjectSigner(
+    first.session,
+    await first.session.call("localSignerFromPrivateKey", [
+      Uint8Array.from(localKey).buffer,
+    ]),
+  );
+  assert.equal(
+    (await keyed.identity()).identifier.toLowerCase(),
+    privateKeyToAccount(`0x${localKey.toString("hex")}`).address.toLowerCase(),
+  );
+  const local = decodeObjectSigner(
+    first.session,
+    await first.session.call("generateLocalSigner", []),
+  );
+  const localClient = await Client.create(first.session, local, {
+    backend: new B.BackendSource.Options({
+      options: {
+        url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
+        appVersion: undefined,
+        credentials: undefined,
+        credential: undefined,
+      },
+    }),
+    storage: {
+      location: B.StorageLocation.InMemory.new(),
+      label: undefined,
+      encryptionKey: undefined,
+      pool: undefined,
+      singleConnection: false,
+    },
+    deviceSync: false,
+    registration: { auto: true, nonce: undefined },
+    forkRecovery: undefined,
+    workers: undefined,
+  });
+  assert.equal(
+    localClient.identity().identifier,
+    (await local.identity()).identifier,
+  );
+  await localClient.end();
+
   console.log(
-    "real WASM client, messages, reader, typed error, GC, and end fence passed",
+    "real WASM client, messages, reader, typed error, GC, end fence, and local signer passed",
   );
 } finally {
   await first.worker.terminate();

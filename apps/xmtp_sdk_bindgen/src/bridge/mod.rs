@@ -1,4 +1,9 @@
-use std::{collections::BTreeMap, fmt::Write as _, fs, process::Command};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+    fs,
+    process::Command,
+};
 
 use anyhow::{Context, Result, bail};
 use camino::Utf8Path;
@@ -184,7 +189,90 @@ fn validate_bridge(items: &[Metadata]) -> Result<()> {
             validate_type(ty)?;
         }
     }
+    validate_results(items)
+}
+
+/// Foreign traits whose objects the worker can hand to the main thread. Every
+/// method is async, so a main-thread proxy forwards each call to the worker.
+fn remote_foreign(items: &[Metadata]) -> BTreeSet<String> {
+    items
+        .iter()
+        .filter_map(|item| match item {
+            Metadata::Object(object) if object.imp.has_callback_interface() => items
+                .iter()
+                .all(|other| {
+                    !matches!(other, Metadata::TraitMethod(method)
+                        if method.trait_name == object.name && !method.is_async)
+                })
+                .then(|| object.name.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
+// A result the worker returns must decode on the main thread. A foreign
+// object in a result becomes a proxy, which cannot serve a synchronous method.
+fn validate_results(items: &[Metadata]) -> Result<()> {
+    let remote = remote_foreign(items);
+    for item in items {
+        let (key, output) = match item {
+            Metadata::Method(value) => (
+                format!("{}.{}", value.self_name, value.name),
+                &value.return_type,
+            ),
+            Metadata::Func(value) if !pure_function(item) => {
+                (value.name.clone(), &value.return_type)
+            }
+            Metadata::TraitMethod(value) if remote.contains(&value.trait_name) => (
+                format!("{}.{}", value.trait_name, value.name),
+                &value.return_type,
+            ),
+            _ => continue,
+        };
+        if let Some(ty) = output
+            && let Some(name) = unproxied_foreign(ty, items, &remote, &mut BTreeSet::new())
+        {
+            bail!("{key}: result can hold {name}, which has no main-thread proxy");
+        }
+    }
     Ok(())
+}
+
+fn unproxied_foreign(
+    ty: &Type,
+    items: &[Metadata],
+    remote: &BTreeSet<String>,
+    seen: &mut BTreeSet<String>,
+) -> Option<String> {
+    let mut check = |ty: &Type| unproxied_foreign(ty, items, remote, seen);
+    match ty {
+        Type::Object { name, imp, .. } if imp.has_callback_interface() => {
+            (!remote.contains(name)).then(|| name.clone())
+        }
+        Type::CallbackInterface { name, .. } => Some(name.clone()),
+        Type::Box { inner_type }
+        | Type::Optional { inner_type }
+        | Type::Sequence { inner_type }
+        | Type::Set { inner_type } => check(inner_type),
+        Type::Map {
+            key_type,
+            value_type,
+        } => check(key_type).or_else(|| check(value_type)),
+        Type::Custom { builtin, .. } => check(builtin),
+        Type::Record { name, .. } | Type::Enum { name, .. } => {
+            if !seen.insert(name.clone()) {
+                return None;
+            }
+            let item = items.iter().find(|item| {
+                matches!(item, Metadata::Record(value) if &value.name == name)
+                    || matches!(item, Metadata::Enum(value) if &value.name == name)
+            })?;
+            item_types(item)
+                .into_iter()
+                .find_map(|ty| unproxied_foreign(ty, items, remote, seen))
+        }
+        _ => None,
+    }
 }
 
 fn pure_function(item: &Metadata) -> bool {
@@ -288,9 +376,25 @@ fn ts_name(source: &str, names: &BTreeMap<String, String>) -> String {
 }
 
 fn operations(items: &[Metadata], names: &BTreeMap<String, String>) -> Vec<Operation> {
+    let remote = remote_foreign(items);
     let mut output = Vec::new();
     for item in items {
         match item {
+            Metadata::TraitMethod(value) if remote.contains(&value.trait_name) => {
+                output.push(Operation {
+                    owner: Some(value.trait_name.clone()),
+                    name: ts_name(&value.name, names),
+                    key: format!("{}.{}", value.trait_name, ts_name(&value.name, names)),
+                    inputs: value
+                        .inputs
+                        .iter()
+                        .map(|p| (ts_name(&p.name, names), p.ty.clone()))
+                        .collect(),
+                    output: value.return_type.clone(),
+                    constructor: false,
+                    immutable: false,
+                })
+            }
             Metadata::Method(value) => output.push(Operation {
                 owner: Some(value.self_name.clone()),
                 name: ts_name(&value.name, names),
@@ -527,6 +631,7 @@ fn decode_expr(ty: &Type, raw: &str, session: &str) -> String {
 }
 
 fn render_decoders(items: &[Metadata], names: &BTreeMap<String, String>) -> Result<String> {
+    let remote = remote_foreign(items);
     let mut code = String::from(
         "function bridgeRecord(raw: unknown): Record<string, unknown> { if (raw === null || typeof raw !== \"object\" || Array.isArray(raw)) throw new TypeError(\"expected record\"); return Object.fromEntries(Object.entries(raw)); }\n\
 function bridgeArray(raw: unknown): unknown[] { if (!Array.isArray(raw)) throw new TypeError(\"expected array\"); return raw; }\n\
@@ -542,7 +647,9 @@ function bridgeHandle(raw: unknown, type: string): HandleWire { const value = br
     );
     for item in items {
         match item {
-            Metadata::Object(object) if object.imp.has_struct() => {
+            Metadata::Object(object)
+                if object.imp.has_struct() || remote.contains(&object.name) =>
+            {
                 writeln!(
                     code,
                     "function decodeObject{}(session: MainSession, raw: unknown): {} {{ const value = proxyFor(session, bridgeHandle(raw, \"{}\")); if (!(value instanceof {})) throw new TypeError(\"invalid object\"); return value; }}",
@@ -898,13 +1005,16 @@ fn render(
     let mut proxy = String::from(
         "import * as B from \"./xmtp_sdk.js\";\nimport { initPureWasm } from \"../typescript-pure/index.js\";\nimport { Message as HostMessage, registerClient, resolveBrowserOptions, unregisterClient, type HostClientOptions } from \"./host-message.gen.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
     );
+    let remote = remote_foreign(items);
     for item in items {
         if let Metadata::Object(object) = item
-            && object.imp.has_struct()
+            && (object.imp.has_struct() || remote.contains(&object.name))
         {
+            // A foreign trait proxy implements the trait interface itself.
+            let like = if object.imp.has_struct() { "Like" } else { "" };
             writeln!(
                 proxy,
-                "export class {} extends RemoteObject implements B.{}Like {{",
+                "export class {} extends RemoteObject implements B.{}{like} {{",
                 object.name, object.name
             )?;
             for op in operations
@@ -1039,7 +1149,7 @@ fn render(
     proxy.push_str("export function proxyFor(session: MainSession, handle: HandleWire): RemoteObject {\n  session.checkHandle(handle);\n  const existing = session.proxy(handle); if (existing) return existing;\n  switch (handle.type) {\n");
     for item in items {
         if let Metadata::Object(object) = item
-            && object.imp.has_struct()
+            && (object.imp.has_struct() || remote.contains(&object.name))
         {
             writeln!(
                 proxy,
@@ -1554,6 +1664,76 @@ mod tests {
         let operations = operations(&items, &names);
         let files = render(&items, &operations, "test", &names)?;
         assert!(files["proxy.gen.ts"].contains("async end(asyncOpts_?:"));
+    }
+
+    fn foreign_trait(name: &str, method: &str, is_async: bool) -> [Metadata; 3] {
+        let object = Type::Object {
+            module_path: "test".into(),
+            name: name.into(),
+            imp: ObjectImpl::Trait(TraitKind::Both),
+        };
+        [
+            Metadata::Object(ObjectMetadata {
+                module_path: "test".into(),
+                name: name.into(),
+                orig_name: None,
+                remote: false,
+                imp: ObjectImpl::Trait(TraitKind::Both),
+                docstring: None,
+            }),
+            Metadata::TraitMethod(TraitMethodMetadata {
+                module_path: "test".into(),
+                trait_name: name.into(),
+                index: 0,
+                name: method.into(),
+                orig_name: None,
+                is_async,
+                inputs: vec![],
+                return_type: Some(Type::String),
+                throws: None,
+                takes_self_by_arc: true,
+                checksum: None,
+                docstring: None,
+            }),
+            Metadata::Func(FnMetadata {
+                module_path: "test".into(),
+                name: "make".into(),
+                orig_name: None,
+                is_async: true,
+                inputs: vec![],
+                return_type: Some(Type::Optional {
+                    inner_type: Box::new(object),
+                }),
+                throws: None,
+                checksum: None,
+                docstring: None,
+            }),
+        ]
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn returned_foreign_object_decodes_to_worker_proxy() {
+        let items = foreign_trait("Signer", "identity", true);
+        validate_bridge(&items)?;
+        let names = BTreeMap::new();
+        let operations = operations(&items, &names);
+        let files = render(&items, &operations, "test", &names)?;
+        let proxy = &files["proxy.gen.ts"];
+        assert!(proxy.contains("export class Signer extends RemoteObject implements B.Signer {"));
+        assert!(proxy.contains("case \"Signer\": return new Signer(session, handle);"));
+        assert!(!proxy.contains("foreign object cannot be returned"));
+        assert!(files["dispatch.gen.ts"].contains("\"Signer.identity\": { owner: \"Signer\""));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_returned_foreign_object_with_sync_method() {
+        let items = foreign_trait("LogSink", "log", false);
+        assert!(
+            validate_bridge(&items)
+                .unwrap_err()
+                .to_string()
+                .contains("make: result can hold LogSink")
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
