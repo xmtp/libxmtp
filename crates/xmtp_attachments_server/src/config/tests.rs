@@ -103,6 +103,13 @@ async fn storage_endpoint_requires_https_or_loopback_http() {
         "http://127.0.0.1:9000",
         "http://localhost:9000",
         "http://[::1]:9000",
+        "https://1.a",
+        "https://1a.example",
+        "https://[::ffff:1.2.3.4]",
+        "https://[2001:db8:0:0:0:0:1.2.3.4]",
+        "https://[2001:db8::1.2.3.4]",
+        "http://[::0.0.0.1]",
+        "http://[0:0:0:0:0:0:0.0.0.1]",
     ] {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.endpoint = endpoint.into();
@@ -123,6 +130,10 @@ async fn storage_endpoint_requires_https_or_loopback_http() {
         "http://0x7f.0.0.1",
         "http://2130706433",
         "http://127.000.0.1",
+        "http://0177.0.0.1",
+        "http://127.0.0.1.",
+        "https://[::1.2.3]",
+        "http://[::127.0.0.1]",
         "http://127.0.0.1:0",
         "http://127.0.0.1:000",
     ] {

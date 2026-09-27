@@ -1,7 +1,6 @@
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
-use std::net::Ipv4Addr;
-use url::Url;
+use url::{Host, Url};
 use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_UPLOAD_BYTES, MAX_ATTACHMENT_RETENTION_SECONDS,
     MAX_ATTACHMENT_UPLOAD_BYTES, check_base_url, check_max_upload_bytes, check_retention_seconds,
@@ -31,15 +30,32 @@ fn ipv6_loopback_pattern() -> String {
     forms.join("|")
 }
 
+/// Match an IPv6 address whose final two words use an IPv4 address.
+fn ipv6_ipv4_tail_pattern(word: &str, tail: &str) -> String {
+    let mut forms = vec![format!(r"(?:{word}:){{6}}{tail}")];
+    for left in 0..=5 {
+        for right in 0..=5 - left {
+            let before = vec![word; left].join(":");
+            let after = vec![word; right].join(":");
+            let separator = if right == 0 { "" } else { ":" };
+            forms.push(format!("{before}::{after}{separator}{tail}"));
+        }
+    }
+    forms.join("|")
+}
+
 /// Constrain the public URL shape. The runtime performs the final RFC 3986 check.
 fn url_shape(allow_trailing_slash: bool) -> Schema {
     let octet = r"(?:0|[1-9][0-9]?|1[0-9]{2}|2[0-4][0-9]|25[0-5])";
+    let ipv4_tail = format!(r"{octet}\.{octet}\.{octet}\.{octet}");
+    let ipv6_tail = ipv6_ipv4_tail_pattern(r"[0-9A-Fa-f]{1,4}", &ipv4_tail);
+    let loopback_tail = ipv6_ipv4_tail_pattern("0{1,4}", r"0\.0\.0\.1");
     let localhost = r"[lL][oO][cC][aA][lL][hH][oO][sS][tT]";
     let loopback = format!(
-        r"(?:{localhost}|127\.(?:{octet}\.){{2}}{octet}|\[(?:{})\])",
-        ipv6_loopback_pattern()
+        r"(?:{localhost}|127\.(?:{octet}\.){{2}}{octet}|\[(?:{}|{loopback_tail})\])",
+        ipv6_loopback_pattern(),
     );
-    let host = r"(?:[A-Za-z0-9._~!$&'()*+,;=-]+|\[[0-9A-Fa-f:.]+\])";
+    let host = format!(r"(?:[A-Za-z0-9._~!$&'()*+,;=-]+|\[(?:[0-9A-Fa-f:]+|{ipv6_tail})\])");
     let port = r"(?::(?:0*(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)?";
     let path = r"(?:/[A-Za-z0-9._~!$&'()*+,;=:@/%-]*)*";
     let no_dot_segments = if allow_trailing_slash {
@@ -69,8 +85,11 @@ fn endpoint_schema(_: &mut SchemaGenerator) -> Schema {
     url_shape(true)
 }
 
-/// Find numeric IPv4 host text that URL parsing would normalize.
-fn has_noncanonical_ipv4_host(endpoint: &str) -> bool {
+/// Find IPv4 host text that URL parsing normalized.
+fn has_noncanonical_ipv4_host(endpoint: &str, parsed: &Url) -> bool {
+    let Some(Host::Ipv4(address)) = parsed.host() else {
+        return false;
+    };
     let Some((_, rest)) = endpoint.split_once("://") else {
         return false;
     };
@@ -79,13 +98,7 @@ fn has_noncanonical_ipv4_host(endpoint: &str) -> bool {
         return false;
     }
     let host = authority.split(':').next().unwrap_or(authority);
-    host.as_bytes().first().is_some_and(u8::is_ascii_digit)
-        && host
-            .bytes()
-            .all(|byte| byte.is_ascii_hexdigit() || matches!(byte, b'.' | b'x' | b'X'))
-        && !host
-            .parse::<Ipv4Addr>()
-            .is_ok_and(|address| address.to_string() == host)
+    host != address.to_string()
 }
 
 fn region_schema(_: &mut SchemaGenerator) -> Schema {
@@ -219,8 +232,7 @@ impl S3Config {
             rest.split('/')
                 .next()
                 .is_some_and(|host| host.contains('%'))
-        }) || has_noncanonical_ipv4_host(&self.endpoint)
-        {
+        }) {
             return Err(ConfigInvalid::new(
                 "attachments.target.S3.endpoint",
                 "is not a URL as written",
@@ -229,6 +241,12 @@ impl S3Config {
         let url = Url::parse(&self.endpoint).map_err(|_| {
             ConfigInvalid::new("attachments.target.S3.endpoint", "must be an absolute URL")
         })?;
+        if has_noncanonical_ipv4_host(&self.endpoint, &url) {
+            return Err(ConfigInvalid::new(
+                "attachments.target.S3.endpoint",
+                "is not a URL as written",
+            ));
+        }
         if !matches!(url.scheme(), "http" | "https")
             || url.host().is_none()
             || url.query().is_some()

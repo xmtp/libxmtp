@@ -576,6 +576,34 @@ fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
             "endpoint = {endpoint:?}"
         );
     }
+    for (endpoint, expected) in [
+        ("https://1.a", true),
+        ("https://1a.example", true),
+        ("https://[::ffff:1.2.3.4]", true),
+        ("https://[2001:db8:0:0:0:0:1.2.3.4]", true),
+        ("https://[2001:db8::1.2.3.4]", true),
+        ("http://[::0.0.0.1]", true),
+        ("http://[0:0:0:0:0:0:0.0.0.1]", true),
+        ("http://0177.0.0.1", false),
+        ("http://127.0.0.1.", false),
+        ("https://[::1.2.3]", false),
+        ("http://[::127.0.0.1]", false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
+        let settings: xmtp_attachments_server::AttachmentsConfig =
+            serde_json::from_value(instance["attachments"].clone())?;
+        assert_eq!(
+            settings.validate().is_ok(),
+            expected,
+            "runtime: {endpoint:?}"
+        );
+        assert_eq!(
+            validator.is_valid(&instance),
+            expected,
+            "schema: {endpoint:?}"
+        );
+    }
 }
 
 // These are the URL vectors in xmtp_configuration/src/common/attachments/tests.rs.
@@ -636,6 +664,24 @@ fn published_attachment_base_url_schema_agrees_with_runtime_vectors() {
             runtime,
             "base_url = {value:?}"
         );
+    }
+    for (value, expected) in [
+        ("https://[::ffff:1.2.3.4]/att", true),
+        ("https://[2001:db8:0:0:0:0:1.2.3.4]/att", true),
+        ("https://[2001:db8::1.2.3.4]/att", true),
+        ("http://[::0.0.0.1]/att", true),
+        ("http://[0:0:0:0:0:0:0.0.0.1]/att", true),
+        ("https://[::1.2.3]/att", false),
+        ("http://[::127.0.0.1]/att", false),
+    ] {
+        let mut instance = baseline.clone();
+        instance["attachments"]["base_url"] = json!(value);
+        assert_eq!(
+            xmtp_configuration::check_base_url(value).is_ok(),
+            expected,
+            "runtime: {value:?}"
+        );
+        assert_eq!(validator.is_valid(&instance), expected, "schema: {value:?}");
     }
 }
 

@@ -14,6 +14,11 @@ fn base_url_accepts_raw_rfc_forms() {
         "http://127.0.0.1/attachments",
         "http://[::1]/attachments",
         "http://[0:0:0:0:0:0:0:1]/att",
+        "https://[::ffff:1.2.3.4]/att",
+        "https://[2001:db8:0:0:0:0:1.2.3.4]/att",
+        "https://[2001:db8::1.2.3.4]/att",
+        "http://[::0.0.0.1]/att",
+        "http://[0:0:0:0:0:0:0.0.0.1]/att",
     ] {
         assert_eq!(check_base_url(base_url), Ok(()), "{base_url}");
     }
@@ -48,6 +53,8 @@ fn base_url_rejects_non_rfc_or_disallowed_forms() {
         "http://2130706433/att",
         "http://0x7f.1/att",
         "http://127.1/att",
+        "https://[::1.2.3]/att",
+        "http://[::127.0.0.1]/att",
         "https://user:secret@example.com/attachments",
         "https://user@example.com/attachments",
     ] {
