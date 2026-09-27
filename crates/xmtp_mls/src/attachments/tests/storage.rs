@@ -421,6 +421,43 @@ async fn delete_cancels_upload() {
     );
 }
 
+// verifies: EVENT-001, ATCH-047
+#[xmtp_common::test(unwrap_try = true)]
+async fn pending_row_only_delete_emits_no_deleted_event() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    pending.upload().await?;
+    let key = attachment_key(&remote)?;
+    tokio::fs::remove_dir_all(dir.path().join(&key)).await?;
+    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    assert!(client.context.db().list_local_attachments()?.is_empty());
+    assert!(
+        client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_some()
+    );
+    let events = client
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::AttachmentDeleted]))?;
+    client.attachments().delete_local(&remote).await?;
+    assert!(
+        client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_none()
+    );
+    assert!(events.drain().is_empty());
+}
+
 // verifies: ATCH-046, ATCH-063, ATCH-076
 // Covers plan P22 and P24.
 #[xmtp_common::test(unwrap_try = true)]

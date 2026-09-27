@@ -918,31 +918,29 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             }
         }
         let _guard = lock.lock().await;
-        let mut changed = false;
+        let mut deleted_local_material = false;
         // Remove the row first. An upload in another client sees the deletion
         // before this client removes its staged ciphertext.
-        changed |= self
-            .context
+        self.context
             .db()
             .delete_pending_attachment(&remote.content_digest)
-            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
-            != 0;
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
         if store.exists(&key).await? {
             store.remove_dir_all(&key).await?;
-            changed = true;
+            deleted_local_material = true;
         }
         if store.exists(&staged).await? {
             store.remove_file(&staged).await?;
-            changed = true;
+            deleted_local_material = true;
         }
-        changed |= self
+        deleted_local_material |= self
             .context
             .db()
             .delete_local_attachments_in_dir(&key)
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
             != 0;
         self.runtime().pending.lock().remove(&remote.content_digest);
-        if changed {
+        if deleted_local_material {
             self.context.events().emit(
                 Some(ClientEvent::AttachmentDeleted(attachment_reference(
                     remote, &key,
