@@ -1125,6 +1125,20 @@ mod tests {
     };
 
     #[xmtp_common::test(unwrap_try = true)]
+    fn public_time_types_match_node_runtime() {
+        let timestamp = Type::Custom {
+            module_path: "test".into(),
+            name: "Timestamp".into(),
+            builtin: Box::new(Type::Int64),
+        };
+        assert_eq!(ts_type(&timestamp), "B.Timestamp");
+        assert_eq!(ts_type(&Type::Timestamp), "Date");
+        assert_eq!(ts_type(&Type::Duration), "number");
+        assert_eq!(wire_type(&timestamp), "bigint");
+        assert_eq!(wire_type(&Type::Duration), "bigint");
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     fn message_lift_uses_browser_host_class() {
         let message = Type::Custom {
             module_path: "test".into(),
