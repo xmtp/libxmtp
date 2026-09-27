@@ -1,23 +1,20 @@
-#[cfg(not(target_arch = "wasm32"))]
 use std::sync::Arc;
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_mls::context::XmtpSharedContext;
 
+use crate::{XmtpError, client::EventReaderRegistry};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::{
-    client::{CoreClient, EventReaderRegistry, end_client},
+    client::{CoreClient, end_client},
     conversation::on_sdk_worker,
 };
-use crate::XmtpError;
 
 #[derive(uniffi::Object)]
 pub struct Storage {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) client: Arc<CoreClient>,
     pub(crate) path: Option<String>,
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) listeners: Arc<crate::events::dispatch::ListenerRegistry>,
-    #[cfg(not(target_arch = "wasm32"))]
     pub(crate) event_readers: Arc<parking_lot::Mutex<EventReaderRegistry>>,
 }
 
