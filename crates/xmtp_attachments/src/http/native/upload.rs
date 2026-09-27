@@ -26,7 +26,7 @@ use tokio::{
     io::{AsyncRead, AsyncSeekExt, AsyncWrite, ReadBuf},
     net::{TcpSocket, TcpStream},
     sync::Notify,
-    time::{Instant, timeout},
+    time::{Instant, timeout_at},
 };
 use tokio_util::io::ReaderStream;
 
@@ -54,6 +54,8 @@ fn upload_failure(write: &BodyWrite) -> AttachmentError {
 pub(super) enum SocketSetupFailure {
     CreateFirst,
     SetBufferFirst,
+    ConnectFirstPending,
+    ConnectAllPending,
 }
 
 fn open_socket(address: SocketAddr, _transfer: &Transfer, _index: usize) -> io::Result<TcpSocket> {
@@ -214,6 +216,7 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for ProgressIo<T> {
 async fn connect(
     transfer: &Transfer,
     url: &Url,
+    deadline: Instant,
     last: Arc<Mutex<Instant>>,
     body_write: Arc<BodyWrite>,
 ) -> Result<Box<dyn SocketIo>, AttachmentError> {
@@ -242,6 +245,7 @@ async fn connect(
         }
     };
     let mut connected = None;
+    let address_count = addresses.len();
     for (index, address) in addresses.into_iter().enumerate() {
         let Ok(socket) = open_socket(address, transfer, index) else {
             continue;
@@ -249,7 +253,26 @@ async fn connect(
         if set_send_buffer(&socket, transfer, index).is_err() {
             continue;
         }
-        if let Ok(stream) = socket.connect(address).await {
+        let attempt = async {
+            #[cfg(test)]
+            if matches!(
+                transfer.upload_socket_failure,
+                Some(SocketSetupFailure::ConnectAllPending)
+            ) || (index == 0
+                && transfer.upload_socket_failure == Some(SocketSetupFailure::ConnectFirstPending))
+            {
+                return std::future::pending::<io::Result<TcpStream>>().await;
+            }
+            socket.connect(address).await
+        };
+        let now = Instant::now();
+        let remaining = deadline.saturating_duration_since(now);
+        if remaining.is_zero() {
+            break;
+        }
+        let attempts_left = u32::try_from(address_count - index).unwrap_or(u32::MAX);
+        let attempt_deadline = now + remaining / attempts_left;
+        if let Ok(Ok(stream)) = timeout_at(attempt_deadline, attempt).await {
             connected = Some(stream);
             break;
         }
@@ -397,9 +420,16 @@ pub(super) async fn put(
     if body_len == 0 {
         body_write.complete.store(true, Ordering::Release);
     }
-    let io = timeout(
-        transfer.connect_timeout,
-        connect(transfer, &url, last.clone(), body_write.clone()),
+    let connect_deadline = Instant::now() + transfer.connect_timeout;
+    let io = timeout_at(
+        connect_deadline,
+        connect(
+            transfer,
+            &url,
+            connect_deadline,
+            last.clone(),
+            body_write.clone(),
+        ),
     )
     .await
     .map_err(|_| network())??;

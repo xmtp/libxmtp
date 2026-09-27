@@ -854,6 +854,43 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    async fn put_tries_next_address_after_stalled_connect() {
+        let server = tls_put_server_for("upload.example").await?;
+        let mut roots = rustls::RootCertStore::empty();
+        roots.add(server.root.clone())?;
+        let addresses = vec!["192.0.2.1:0".parse()?, server.address];
+        let mut transfer = Transfer::with_resolver_and_timeouts(
+            AttachmentOptions::default(),
+            Arc::new(FakeResolver(addresses.clone())),
+            Duration::from_millis(1200),
+            Duration::from_secs(2),
+        )?;
+        transfer.upload_test_roots = Some(roots);
+        transfer.upload_socket_failure = Some(upload::SocketSetupFailure::ConnectFirstPending);
+        let request = upload(format!(
+            "https://upload.example:{}/object",
+            server.address.port()
+        ));
+        let (_directory, body) = staged_body()?;
+        assert_eq!(transfer.put(&request, body).await?, PutOutcome::Stored);
+        let (_, seen) = server.task.await?;
+        assert_eq!(seen.unwrap().body.as_ref(), b"body");
+
+        let mut stalled = Transfer::with_resolver_and_timeouts(
+            AttachmentOptions::default(),
+            Arc::new(FakeResolver(addresses)),
+            Duration::from_millis(300),
+            Duration::from_secs(2),
+        )?;
+        stalled.upload_socket_failure = Some(upload::SocketSetupFailure::ConnectAllPending);
+        let (_directory, body) = staged_body()?;
+        assert_eq!(
+            stalled.put(&request, body).await.unwrap_err().cause,
+            Cause::Network
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     async fn https_put_uses_trusted_ca_and_preserves_signed_request() {
         let server = tls_put_server().await?;
         let transfer = trusted_upload(&server)?;
