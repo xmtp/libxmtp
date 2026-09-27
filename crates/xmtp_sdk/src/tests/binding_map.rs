@@ -57,58 +57,38 @@ async fn build_on_new_database_fails_identity_not_found_offline() {
     build_on_new_database_fails_identity_not_found(true).await?;
 }
 
+// A path below a regular file fails with ENOTDIR for every user, root included.
+// A mode 000 directory does not: root can still traverse it.
 #[cfg(unix)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn build_with_unreadable_database_returns_storage_error() {
-    use std::os::unix::fs::PermissionsExt;
-
-    struct RestorePermissions {
-        directory: std::path::PathBuf,
-        mode: u32,
-    }
-
-    impl Drop for RestorePermissions {
-        fn drop(&mut self) {
-            std::fs::set_permissions(&self.directory, std::fs::Permissions::from_mode(self.mode))
-                .expect("restore directory permissions");
-        }
-    }
-
-    let directory = std::env::temp_dir().join(format!(
-        "sdk-build-unreadable-{}-{}",
+async fn build_with_inaccessible_database_path_returns_storage_error() {
+    let parent = std::env::temp_dir().join(format!(
+        "sdk-build-inaccessible-{}-{}",
         std::process::id(),
         xmtp_common::time::now_ns()
     ));
-    std::fs::create_dir_all(&directory)?;
-    let path = directory.join("client.sqlite");
+    std::fs::write(&parent, b"not a directory")?;
+    let path = parent.join("client.sqlite");
+    assert!(path.try_exists().is_err());
     let mut settings = options();
     settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
     let signer = crate::generate_local_signer().await;
-    let identity = signer::identity(signer.clone()).await?;
-    let client = Client::create(signer, settings.clone()).await?;
-    let inbox_id = client.inbox_id();
-    client.end().await?;
-
-    let mode = std::fs::metadata(&directory)?.permissions().mode();
-    let restore = RestorePermissions {
-        directory: directory.clone(),
-        mode,
-    };
-    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o000))?;
-    assert!(matches!(
-        path.try_exists(),
-        Err(error) if error.kind() == std::io::ErrorKind::PermissionDenied
-    ));
+    let identity = signer::identity(signer).await?;
+    let inbox_id = InboxID(
+        identity
+            .to_core()?
+            .inbox_id(0)
+            .map_err(XmtpError::unknown)?,
+    );
     let result = Client::build(identity, settings, Some(inbox_id)).await;
-    drop(restore);
-    std::fs::remove_dir_all(directory)?;
+    std::fs::remove_file(parent)?;
 
     match result {
         Err(XmtpError::Storage(details))
             if details.code == "Storage"
                 && matches!(details.category, crate::ErrorCategory::Storage) => {}
         Err(error) => panic!("expected storage error, got {error}"),
-        Ok(_) => panic!("build opened an unreadable database"),
+        Ok(_) => panic!("build opened an inaccessible database"),
     }
 }
 
