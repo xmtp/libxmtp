@@ -2428,7 +2428,7 @@ async fn invalid_text_bytes_stay_unknown_on_all_read_paths() {
     client.end().await?;
 }
 
-// verifies: CTYPE-007, CTYPE-008
+// verifies: CTYPE-007, CTYPE-008, CTYPE-030
 #[xmtp_common::test(unwrap_try = true)]
 async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
     use xmtp_content_types::{
