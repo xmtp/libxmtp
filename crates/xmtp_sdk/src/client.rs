@@ -669,12 +669,14 @@ pub(crate) async fn open_store(
 
 pub(crate) fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
     let label = options.label.as_deref().unwrap_or("");
-    if [label, inbox_id]
-        .iter()
-        .any(|part| part.contains('/') || part.contains('\\') || part.chars().any(char::is_control))
-    {
+    if [label, inbox_id].iter().any(|part| {
+        part.contains('/')
+            || part.contains('\\')
+            || part.contains(':')
+            || part.chars().any(char::is_control)
+    }) {
         return Err(XmtpError::invalid(
-            "storage label or inbox ID contains a path separator",
+            "storage label or inbox ID contains an unsafe character",
         ));
     }
     let label = if label.is_empty() {

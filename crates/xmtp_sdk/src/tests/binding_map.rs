@@ -45,11 +45,13 @@ async fn build_on_new_database_fails_identity_not_found(
     Ok(())
 }
 
+// verifies: STORE-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn build_on_new_database_fails_identity_not_found_online() {
     build_on_new_database_fails_identity_not_found(false).await?;
 }
 
+// verifies: STORE-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn build_on_new_database_fails_identity_not_found_offline() {
     build_on_new_database_fails_identity_not_found(true).await?;
@@ -134,7 +136,7 @@ async fn catch_up_replays_once_and_preserves_bounded_progress() {
         .await?;
     let expected = (0..5).map(|i| format!("owed {i}")).collect::<Vec<_>>();
     for text in &expected {
-        group.send_text(text.clone()).await?;
+        group.send_text(text.clone(), None).await?;
     }
 
     match alix.catch_up_to_live(Some(1)).await {
@@ -409,7 +411,7 @@ async fn backend_url_is_required_and_offline_choice_is_explicit() {
     std::fs::remove_file(path)?;
 }
 
-// verifies: CONF-034
+// verifies: CONF-076
 #[xmtp_common::test(unwrap_try = true)]
 async fn offline_build_with_moved_url_uses_stored_copy() {
     use xmtp_db::prelude::QueryServerConfiguration;
@@ -505,10 +507,12 @@ fn facade_content_records_preserve_codec_fields() {
             .into_proto(reference.clone(), InboxID::try_from("inbox".to_owned())?),
     )?;
     let decoded_reaction = MessageContent::decode(encoded_reaction.encode_to_vec())?;
-    assert!(matches!(decoded_reaction, MessageContent::Reaction(value)
+    assert!(
+        matches!(decoded_reaction, MessageContent::Reaction { reaction: value, .. }
         if value.content == reaction.content
             && matches!(value.action, crate::ReactionAction::Added)
-            && matches!(value.schema, crate::ReactionSchema::Unicode)));
+            && matches!(value.schema, crate::ReactionSchema::Unicode))
+    );
     let proto_reaction = proto::ReactionV2::decode(encoded_reaction.content.as_slice())?;
     assert_eq!(proto_reaction.reference, reference.0);
     assert_eq!(proto_reaction.reference_inbox_id, "inbox");
@@ -608,7 +612,7 @@ async fn reader_survives_group_name_update_without_fork() {
     let bo_group = crate::Group::from_core(bo.inner.group(&group.inner.group_id)?, bo.key).await?;
     let reader = bo_group.message_reader().await?;
     group.update_name("renamed".into()).await?;
-    let id = group.send_text("after rename".into()).await?;
+    let id = group.send_text("after rename".into(), None).await?;
     let delivered = xmtp_common::time::timeout(Duration::from_secs(15), async {
         loop {
             if let Some(message) = reader.next().await?
@@ -629,7 +633,7 @@ async fn reader_survives_group_name_update_without_fork() {
         MessageContent::GroupUpdated(update)
             if update.metadata_field_changes.iter().any(|field| field.field_name == "group_name" && field.new_value.as_deref() == Some("renamed")))));
     assert!(history.iter().any(|message| message.0.id == id));
-    bo_group.send_text("reply".into()).await?;
+    bo_group.send_text("reply".into(), None).await?;
     group.sync().await?;
     assert_eq!(group.id(), bo_group.id());
     assert!(group.messages(None).await?.iter().any(|message| {
@@ -729,7 +733,7 @@ async fn group_creation_with_members_and_content_type_filters() {
     assert_eq!(debug.epoch, 1);
     assert!(!debug.maybe_forked);
     assert!(debug.fork_details.is_empty());
-    let text_id = group.send_text("typed text".into()).await?;
+    let text_id = group.send_text("typed text".into(), None).await?;
     let text_type = crate::encode_text("sample".into())?.r#type;
     let text_only = group
         .messages(Some(ListMessagesOptions {
@@ -762,8 +766,8 @@ async fn listed_conversations_keep_last_message_and_empty_groups() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let empty = client.conversations().create_group(vec![], None).await?;
     let active = client.conversations().create_group(vec![], None).await?;
-    let first = active.send_text("first".into()).await?;
-    let second = active.send_text("second".into()).await?;
+    let first = active.send_text("first".into(), None).await?;
+    let second = active.send_text("second".into(), None).await?;
     assert_ne!(first, second);
     let listed = client.conversations().list_groups(None).await?;
     assert_eq!(listed.len(), 2);
@@ -791,7 +795,7 @@ async fn conversation_list_limit_and_activity_cursor_cover_all_groups() {
     for index in 0..6 {
         let group = client.conversations().create_group(vec![], None).await?;
         if index % 2 == 0 {
-            group.send_text(format!("message {index}")).await?;
+            group.send_text(format!("message {index}"), None).await?;
         }
         groups.push(group);
     }
@@ -1290,7 +1294,8 @@ async fn new_installation_can_find_existing_dm() {
     peer.conversations().sync().await?;
     let second = Client::create(signer, sync_options).await?;
     assert!(second.conversations().list(None).await?.is_empty());
-    dm.send_text("new installation delivery".into()).await?;
+    dm.send_text("new installation delivery".into(), None)
+        .await?;
     first.conversations().sync().await?;
     second.catch_up_to_live(None).await?;
     let found = second
@@ -1327,7 +1332,7 @@ async fn removed_member_does_not_receive_later_group_message() {
         panic!("expected group")
     };
     group.remove_members(vec![bo.inbox_id()]).await?;
-    group.send_text("only current members".into()).await?;
+    group.send_text("only current members".into(), None).await?;
     xmtp_common::time::timeout(Duration::from_secs(10), async {
         loop {
             let _ = bo_group.sync().await;

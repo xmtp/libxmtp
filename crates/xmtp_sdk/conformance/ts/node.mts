@@ -254,6 +254,22 @@ try {
     (error) => error instanceof sdk.XmtpError.IdentityNotFound,
   );
   assert.equal((await readdir(join(defaultRoot, "xmtp"))).length, 0);
+  // verifies: STORE-004
+  const defaultClient = await sdk.Client.create(signer, {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: new sdk.StorageLocation.Default(),
+    },
+  });
+  const defaultPath = join(
+    defaultRoot,
+    "xmtp",
+    `xmtp-${defaultClient.inboxID().toString()}.db3`,
+  );
+  assert.equal(await defaultClient.storage().path(), realpathSync(defaultPath));
+  assert.ok((await stat(defaultPath)).isFile());
+  await defaultClient.end();
 } finally {
   process.chdir(oldCwd);
 }

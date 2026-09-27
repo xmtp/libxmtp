@@ -150,6 +150,7 @@ mls/tests/static_methods.rs	test_get_newest_message_metadata	façade: `crates/xm
 mls/tests/streaming.rs	test_can_stream_group_messages_for_updates	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests
 mls/tests/streaming.rs	test_conversation_streaming	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests
 mls/tests/streaming.rs	test_stream_all_messages	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests
+mls/tests/streaming.rs	stream_all_messages_default_excludes_denied	façade: `crates/xmtp_sdk/src/tests.rs::all_scope_message_reader_skips_synced_denied_message`
 mls/tests/streaming.rs	test_message_streaming	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests
 mls/tests/streaming.rs	test_dm_message_streaming_uses_bidi	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests
 mls/tests/streaming.rs	test_message_streaming_when_removed_then_added	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests

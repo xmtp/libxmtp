@@ -1484,7 +1484,7 @@ async fn backend_only_identity_and_message_queries() {
     assert!(metadata[0].created_at.0 > 0);
     let first_metadata = metadata[0].created_at.0;
     let first_sequence_id = metadata[0].sequence_id;
-    group.send_text("newer metadata".into()).await?;
+    group.send_text("newer metadata".into(), None).await?;
     let updated_metadata = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let metadata = crate::static_helpers::newest_message_metadata_with_backend(
@@ -1628,7 +1628,7 @@ async fn facade_message_counts_and_last_read_times() {
     let b = Client::create(crate::generate_local_signer().await, options()).await?;
     let a_dm = a.conversations().create_dm(b.inbox_id(), None).await?;
     assert_eq!(a_dm.count_messages(None).await?, 0);
-    a_dm.send_text("counted".into()).await?;
+    a_dm.send_text("counted".into(), None).await?;
     assert_eq!(a_dm.count_messages(None).await?, 1);
     b.conversations().sync_all(None).await?;
     let b_dm = b
@@ -1655,7 +1655,7 @@ async fn facade_long_text_message_round_trips() {
     let b = Client::create(crate::generate_local_signer().await, options()).await?;
     let dm = a.conversations().create_dm(b.inbox_id(), None).await?;
     let text = "long message line\n".repeat(6_000);
-    let id = dm.send_text(text.clone()).await?;
+    let id = dm.send_text(text.clone(), None).await?;
     b.conversations().sync_all(None).await?;
     let received = b
         .conversations()
@@ -1727,6 +1727,10 @@ impl Signer for RecordingSigner {
     }
 }
 
+// verifies: IDENT-073
+// verifies: IDENT-074
+// verifies: IDENT-075
+// verifies: IDENT-076
 #[xmtp_common::test(unwrap_try = true)]
 async fn pre_authenticate_runs_before_signing_and_propagates_failure() {
     let calls = Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -1746,6 +1750,9 @@ async fn pre_authenticate_runs_before_signing_and_propagates_failure() {
     assert!(calls.lock().expect("calls").is_empty());
     client.register().await?;
     assert_eq!(*calls.lock().expect("calls"), ["pre-authenticate", "sign"]);
+    calls.lock().expect("calls").clear();
+    client.register().await?;
+    assert!(calls.lock().expect("calls").is_empty());
     client.end().await?;
 
     calls.lock().expect("calls").clear();
@@ -2702,6 +2709,7 @@ async fn connection_state_across_toxiproxy_drop() {
     .await;
 }
 
+// verifies: STORE-001
 // verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_path_keeps_opened_relative_file_after_chdir() {
@@ -2891,6 +2899,22 @@ async fn storage_default_requires_host_and_directory_names_are_unique() {
     drop(first_store);
     drop(second_store);
     std::fs::remove_dir_all(directory)?;
+}
+
+// verifies: STORE-008
+#[xmtp_common::test(unwrap_try = true)]
+fn storage_label_rejects_unsafe_characters() {
+    for label in ["bad/name", "bad\\name", "bad:name", "bad\0name"] {
+        let options = StorageOptions {
+            location: StorageLocation::Directory(std::env::temp_dir().to_string_lossy().into()),
+            label: Some(label.into()),
+            ..Default::default()
+        };
+        assert!(matches!(
+            native_storage_path(&options, "inbox-a"),
+            Err(XmtpError::InvalidInput(_))
+        ));
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -4836,14 +4860,14 @@ async fn archive_excludes_disappearing_messages_when_requested() {
     let signer = crate::generate_local_signer().await;
     let first = Client::create(signer.clone(), options()).await?;
     let group = first.conversations().create_group(vec![], None).await?;
-    group.send_text("kept".into()).await?;
+    group.send_text("kept".into(), None).await?;
     group
         .update_disappearing_settings(Some(crate::DisappearingSettings {
             from: crate::Timestamp(xmtp_common::time::now_ns()),
             retention_ns: xmtp_common::NS_IN_MIN,
         }))
         .await?;
-    group.send_text("excluded".into()).await?;
+    group.send_text("excluded".into(), None).await?;
     let archives = first.archives();
     let selection = |exclude_disappearing_messages| crate::ArchiveOptions {
         start: None,

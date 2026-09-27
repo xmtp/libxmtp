@@ -318,6 +318,22 @@ struct Conformance {
         guard !defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
             throw ConformanceFailure("build created a new database")
         }
+        // verifies: STORE-002
+        let defaultHost = try await SDKClient.create(
+            signer: TestSigner(),
+            options: ClientOptions(
+                backend: options.backend,
+                storage: StorageOptions(location: .default),
+                deviceSync: false
+            ),
+            appName: appName
+        )
+        let expectedDefaultPath = defaultFolder
+            .appendingPathComponent("xmtp-\(defaultHost.raw.inboxID().value).db3").path
+        guard try await defaultHost.storage().path() == expectedDefaultPath,
+              FileManager.default.fileExists(atPath: expectedDefaultPath)
+        else { throw ConformanceFailure("default storage path is incorrect") }
+        try await defaultHost.end()
         try FileManager.default.removeItem(at: appFolder)
         var orphan: Message!
         weak var weakHost: SDKClient?

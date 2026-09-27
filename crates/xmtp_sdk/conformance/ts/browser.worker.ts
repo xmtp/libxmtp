@@ -90,18 +90,24 @@ async function run(): Promise<void> {
   const reopened = await sdk.Client.build(identity, options, inboxID);
   if (reopened.inboxID().toString() !== inboxID.toString())
     throw new Error("inbox changed");
-  const defaultClient = await sdk.Client.build(
-    identity,
-    {
-      ...options,
-      storage: {
-        ...options.storage,
-        location: new sdk.StorageLocation.Default(),
-      },
+  const defaultOptions = {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: new sdk.StorageLocation.Default(),
     },
-    inboxID,
-  );
+  };
+  const defaultClient = await sdk.Client.create(signer, defaultOptions);
+  // verifies: STORE-005
+  const defaultPath = await defaultClient.storage().path();
+  if (!defaultPath?.startsWith("xmtp-sdk/"))
+    throw new Error("browser default storage is outside xmtp-sdk");
+  const defaultInbox = defaultClient.inboxID();
   await defaultClient.end();
+  const reopenedDefault = await sdk.Client.build(identity, defaultOptions, defaultInbox);
+  if ((await reopenedDefault.storage().path()) !== defaultPath)
+    throw new Error("browser default database did not reopen");
+  await reopenedDefault.end();
   postMessage({ result: "Browser scenario 2 passed" });
 
   const liveGroup = await reopened.conversations().createGroup([], undefined);
