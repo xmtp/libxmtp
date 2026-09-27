@@ -148,6 +148,26 @@ async function checkError(
   throw new Error(message);
 }
 
+async function checkRejectedPromise(
+  action: () => Promise<unknown>,
+  label: string,
+): Promise<void> {
+  let result: Promise<unknown>;
+  try {
+    result = action();
+  } catch (error) {
+    throw new Error(`${label} threw synchronously`, { cause: error });
+  }
+  expect(result instanceof Promise, `${label} did not return a promise`);
+  await checkError(
+    () => result,
+    (error) =>
+      B.XmtpError.ClientClosed.instanceOf(error) &&
+      error.inner[0].code === "ClientClosed",
+    `${label} did not reject with ClientClosed`,
+  );
+}
+
 export async function runBrowserBridgeConformance(
   backendURL: string,
 ): Promise<string[]> {
@@ -748,13 +768,28 @@ export async function runBrowserBridgeConformance(
     );
     await reopened.end();
     reopened = undefined;
-    await checkError(
-      () => parent.react({ content: "closed", action: B.ReactionAction.Added, schema: B.ReactionSchema.Unicode }),
-      (error) => B.XmtpError.ClientClosed.instanceOf(error),
-      "message action did not fail after end",
-    );
+    const closedReaction = {
+      content: "closed",
+      action: B.ReactionAction.Added,
+      schema: B.ReactionSchema.Unicode,
+    };
+    for (const [label, action] of [
+      ["Message.delete", () => parent.delete()],
+      ["Message.deleteLocally", () => parent.deleteLocally()],
+      ["Message.react", () => parent.react(closedReaction)],
+      ["Message.reply", () => parent.reply("closed")],
+      ["Message.conversation", () => parent.conversation()],
+    ] as const) {
+      await checkRejectedPromise(action, label);
+    }
     await second.conversations().listGroups(undefined);
     await second.end();
+    const staleClient = new Client(session, second.handle);
+    try {
+      await checkRejectedPromise(() => staleClient.end(), "Client.end");
+    } finally {
+      staleClient.release();
+    }
     results.push("smoke: two page clients share the origin lock");
 
   } catch (error) {
