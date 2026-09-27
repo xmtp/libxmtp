@@ -286,27 +286,49 @@ fn status_from_row(row: &StoredPendingAttachment, now: i64) -> PendingAttachment
 }
 
 fn outcome_write_is_retryable(error: &xmtp_db::StorageError) -> bool {
-    use xmtp_db::diesel::result::{DatabaseErrorKind, Error};
+    use xmtp_db::{ConnectionError, PlatformStorageError, StorageError, diesel::result::Error};
 
-    let diesel_error = match error {
-        xmtp_db::StorageError::DieselResult(error)
-        | xmtp_db::StorageError::Connection(xmtp_db::ConnectionError::Database(error))
-        | xmtp_db::StorageError::Platform(xmtp_db::PlatformStorageError::DieselResult(error))
-        | xmtp_db::StorageError::Connection(xmtp_db::ConnectionError::Platform(
-            xmtp_db::PlatformStorageError::DieselResult(error),
-        )) => Some(error),
-        _ => None,
-    };
-    !matches!(
-        diesel_error,
-        Some(Error::DatabaseError(
-            DatabaseErrorKind::CheckViolation
-                | DatabaseErrorKind::NotNullViolation
-                | DatabaseErrorKind::UniqueViolation
-                | DatabaseErrorKind::ForeignKeyViolation,
-            _
-        ))
-    )
+    fn diesel_locked(error: &Error) -> bool {
+        let Error::DatabaseError(_, information) = error else {
+            return false;
+        };
+        matches!(
+            information.message(),
+            "database is locked"
+                | "database table is locked"
+                | "database schema is locked"
+                | "database is busy"
+        )
+    }
+
+    fn platform_transient(error: &PlatformStorageError) -> bool {
+        match error {
+            PlatformStorageError::DieselResult(error) => diesel_locked(error),
+            #[cfg(not(target_arch = "wasm32"))]
+            PlatformStorageError::Pool(_)
+            | PlatformStorageError::DbConnection(_)
+            | PlatformStorageError::PoolNeedsConnection
+            | PlatformStorageError::DatabaseLocked
+            | PlatformStorageError::DieselConnect(_) => true,
+            #[cfg(target_arch = "wasm32")]
+            PlatformStorageError::SAH(_)
+            | PlatformStorageError::Connection(_)
+            | PlatformStorageError::Disconnected
+            | PlatformStorageError::DatabaseInUse => true,
+            _ => false,
+        }
+    }
+
+    match error {
+        StorageError::DieselResult(error) | StorageError::Connection(ConnectionError::Database(error)) => {
+            diesel_locked(error)
+        }
+        StorageError::Platform(error) | StorageError::Connection(ConnectionError::Platform(error)) => {
+            platform_transient(error)
+        }
+        StorageError::DieselConnect(_) => true,
+        _ => false,
+    }
 }
 
 struct PendingShared {

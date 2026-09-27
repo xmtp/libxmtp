@@ -372,6 +372,32 @@ async fn deterministic_outcome_error_fails_with_local_storage() {
     assert!(events.drain().is_empty());
 }
 
+// verifies: ATCH-025, ATCH-074
+#[xmtp_common::test(unwrap_try = true)]
+async fn permanent_non_constraint_outcome_error_stops_retrying() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    alix.client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TRIGGER reject_permanent_attachment_outcome BEFORE UPDATE OF status ON pending_attachments \
+             WHEN NEW.status = 'complete' \
+             BEGIN SELECT RAISE(ABORT, 'permanent outcome error'); END",
+        )
+        .execute(conn)
+    })?;
+    let result = tokio::time::timeout(Duration::from_secs(2), pending.upload()).await?;
+    assert_eq!(result.unwrap_err().cause, Cause::LocalStorage);
+    assert_eq!(
+        alix.client
+            .context
+            .attachments
+            .outcome_write_errors
+            .load(AtomicOrdering::SeqCst),
+        1
+    );
+}
+
 // verifies: ATCH-047, EVENT-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_finishes_after_unrecorded_upload_outcome() {
