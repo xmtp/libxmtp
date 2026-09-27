@@ -12,6 +12,9 @@ export class WorkerRegistry {
   private readonly ownerClients = new Map<number, object>();
   private nextHandle = 1;
   private nextOwner = 1;
+  // Handles that the current snapshot allocated. A snapshot can add nested
+  // handles; if it throws, all of them are released with the parent handle.
+  private allocations?: number[];
 
   constructor(readonly epoch: number) {}
 
@@ -29,19 +32,32 @@ export class WorkerRegistry {
       actualOwner,
       (this.ownerCounts.get(actualOwner) ?? 0) + 1,
     );
+    const parent = this.allocations;
+    const allocations = [h];
+    this.allocations = allocations;
     try {
-      return {
-        h,
-        owner: actualOwner,
-        epoch: this.epoch,
-        type,
-        snap: snapshot?.(actualOwner),
-      };
+      const snap = snapshot?.(actualOwner);
+      parent?.push(...allocations);
+      return { h, owner: actualOwner, epoch: this.epoch, type, snap };
     } catch (error) {
-      this.entries.delete(h);
-      this.decrementOwner(actualOwner);
-      if (type === "Client") this.ownerClients.delete(actualOwner);
+      this.rollback(allocations);
       throw error;
+    } finally {
+      this.allocations = parent;
+    }
+  }
+
+  private rollback(handles: number[]): void {
+    for (const h of handles) {
+      const entry = this.entries.get(h);
+      if (!entry) continue;
+      this.entries.delete(h);
+      this.decrementOwner(entry.owner);
+      if (
+        entry.type === "Client" &&
+        this.ownerClients.get(entry.owner) === entry.value
+      )
+        this.ownerClients.delete(entry.owner);
     }
   }
 

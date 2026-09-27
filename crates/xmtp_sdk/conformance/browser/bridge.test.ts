@@ -209,6 +209,24 @@ describe("browser bridge transport", () => {
     expect(decoder.convert(shape, structuredClone(encoded))).toBe(object);
   });
 
+  it("rolls back nested handles when a snapshot throws", () => {
+    const { engine } = host(async () => undefined);
+    const registry = engine.registry;
+    const kept = registry.add({}, "Group");
+    expect(() =>
+      registry.add({}, "Client", undefined, (owner) => {
+        registry.add({}, "Conversations", owner, (nestedOwner) => {
+          registry.add({}, "Group", nestedOwner);
+          return {};
+        });
+        throw new Error("snapshot failed");
+      }),
+    ).toThrow("snapshot failed");
+    expect(registry.size).toBe(1);
+    expect(registry.release([kept.h])).toEqual([kept.owner]);
+    expect(registry.size).toBe(0);
+  });
+
   it("uses a new epoch for each worker and rejects a proxy from another session", async () => {
     const first = host(async () => undefined);
     const second = host(async () => undefined);
