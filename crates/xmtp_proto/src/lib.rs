@@ -56,3 +56,29 @@ pub mod identity_v1 {
 pub mod backend_v1 {
     pub use super::xmtp::backend::v1::*;
 }
+
+#[cfg(test)]
+mod descriptor_tests {
+    use prost::Message;
+
+    // verifies: ATCH-020
+    #[xmtp_common::test(unwrap_try = true)]
+    fn create_upload_is_unary_in_backend_descriptor() {
+        let descriptors = prost_types::FileDescriptorSet::decode(crate::FILE_DESCRIPTOR_SET)?;
+        let service = descriptors
+            .file
+            .iter()
+            .filter(|file| file.package.as_deref() == Some("xmtp.backend.v1"))
+            .flat_map(|file| &file.service)
+            .find(|service| service.name.as_deref() == Some("AttachmentService"))
+            .expect("AttachmentService descriptor");
+        let method = service
+            .method
+            .iter()
+            .find(|method| method.name.as_deref() == Some("CreateUpload"))
+            .expect("CreateUpload descriptor");
+
+        assert!(!method.client_streaming.unwrap_or(false));
+        assert!(!method.server_streaming.unwrap_or(false));
+    }
+}
