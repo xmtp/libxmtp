@@ -28,7 +28,13 @@ _browser-pure-fixture target:
       cd "{{ root }}" && NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture'; \
     fi
 
-conformance target: (_browser-pure-fixture target)
+[private]
+_browser-panic-fixture target:
+    if [ "{{ target }}" = browser ]; then \
+      cd "{{ root }}" && NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'; \
+    fi
+
+conformance target: (_browser-pure-fixture target) (_browser-panic-fixture target)
     {{ _env }} && case "{{ target }}" in \
       swift|kotlin|node|browser) bash "{{ root }}/crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
       bridge) cd "{{ root }}" && \

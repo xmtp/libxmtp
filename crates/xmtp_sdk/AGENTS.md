@@ -14,7 +14,7 @@ Run commands from the repository root in the Nix shell. Run
   worktree's backend. `just sdk conformance browser` runs scenarios 1-11
   plus a real WASM trap from a test-only panic fixture in Vitest Playwright
   Chromium, then checks real OPFS and worker behavior. Its recipe builds the
-  pure codec fixture in the Rust shell before the JS shell.
+  pure codec and panic fixtures in the Rust shell before the JS shell.
   Scenario 7 checks readers and streams. Scenario 8 checks events and listeners.
 - `just sdk bench` compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
