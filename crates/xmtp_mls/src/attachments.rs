@@ -1044,6 +1044,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         let mut staged_temp_created = false;
         let mut final_plain = None::<String>;
         let mut final_staged = None::<String>;
+        let mut created_key_dir = None::<String>;
         let mut local_row_created = None::<String>;
         let mut pending_row_created = None::<String>;
         let result: Result<PendingAttachment<Context>, AttachmentClientError> = async {
@@ -1161,6 +1162,10 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 pause.entered.notify_one();
                 pause.resume.notified().await;
             }
+            let key_dir = attachment_key(&remote)?;
+            if store.create_dir_if_absent(&key_dir).await? {
+                created_key_dir = Some(key_dir);
+            }
             store.rename(&plain_temp, &local).await?;
             plain_temp_created = false;
             final_plain = Some(local.clone());
@@ -1213,6 +1218,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 if store.exists(path).await.unwrap_or(false) {
                     let _ = store.remove_file(path).await;
                 }
+            }
+            if let Some(key_dir) = created_key_dir.as_ref() {
+                let _ = store.remove_empty_dir(key_dir).await;
             }
         }
         result

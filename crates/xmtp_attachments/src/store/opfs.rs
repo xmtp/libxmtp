@@ -216,6 +216,12 @@ impl LocalStore for OpfsStore {
         self.create_file(path).await
     }
 
+    async fn create_dir_if_absent(&self, path: &str) -> Result<bool, AttachmentError> {
+        let existed = self.exists(path).await?;
+        Self::directories(self.root.clone(), path, !existed).await?;
+        Ok(!existed)
+    }
+
     async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError> {
         if self.exists(to).await? {
             return Err(StoreMoveError::DestinationExists);
@@ -234,6 +240,14 @@ impl LocalStore for OpfsStore {
         let options = FileSystemRemoveOptions::new();
         options.set_recursive(true);
         JsFuture::from(parent.remove_entry_with_options(&name, &options))
+            .await
+            .map_err(storage_error)?;
+        Ok(())
+    }
+
+    async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError> {
+        let (parent, name) = self.parent(path, false).await?;
+        JsFuture::from(parent.remove_entry(&name))
             .await
             .map_err(storage_error)?;
         Ok(())

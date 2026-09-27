@@ -518,63 +518,71 @@ async fn conflicting_plaintext_move_keeps_existing_file_and_record() {
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn conflicting_staged_move_keeps_existing_file_and_record() {
-    let dir = tempfile::tempdir()?;
-    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
-    let pause = Arc::new(CreateMovePause {
-        path: Mutex::new(None),
-        staged_path: Mutex::new(None),
-        entered: tokio::sync::Notify::new(),
-        resume: tokio::sync::Notify::new(),
-    });
-    *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
-    let client = alix.client.clone();
-    let create =
-        xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
-    tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
-    let plain = pause.path.lock().clone().expect("plaintext path");
-    let staged = pause.staged_path.lock().clone().expect("staged path");
-    let digest = staged.strip_prefix(".staged/").expect("digest");
-    let staged_file = dir.path().join(&staged);
-    tokio::fs::create_dir_all(staged_file.parent().expect("staged directory")).await?;
-    tokio::fs::write(&staged_file, b"existing staged data").await?;
-    alix.client
-        .context
-        .db()
-        .insert_or_ignore_pending_attachment(digest, b"existing record", 123)?;
-    let original_row = alix
-        .client
-        .context
-        .db()
-        .get_pending_attachment(digest)?
-        .expect("record");
-    pause.resume.notify_one();
-    let error = create.await?.err().expect("staged move must fail");
-    assert_eq!(error.cause, Cause::LocalStorage);
-    assert!(!dir.path().join(&plain).exists());
-    assert_eq!(
-        tokio::fs::read(&staged_file).await?,
-        b"existing staged data"
-    );
-    assert_eq!(
-        alix.client.context.db().get_pending_attachment(digest)?,
-        Some(original_row)
-    );
-    assert!(
+    for preexisting_key_dir in [false, true] {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let pause = Arc::new(CreateMovePause {
+            path: Mutex::new(None),
+            staged_path: Mutex::new(None),
+            entered: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+        let client = alix.client.clone();
+        let create =
+            xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
+        tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
+        let plain = pause.path.lock().clone().expect("plaintext path");
+        let key_dir = dir.path().join(&plain);
+        let key_dir = key_dir.parent().expect("key directory");
+        if preexisting_key_dir {
+            tokio::fs::create_dir_all(key_dir).await?;
+        }
+        let staged = pause.staged_path.lock().clone().expect("staged path");
+        let digest = staged.strip_prefix(".staged/").expect("digest");
+        let staged_file = dir.path().join(&staged);
+        tokio::fs::create_dir_all(staged_file.parent().expect("staged directory")).await?;
+        tokio::fs::write(&staged_file, b"existing staged data").await?;
         alix.client
             .context
             .db()
-            .get_local_attachment(&plain)?
-            .is_none()
-    );
-    let files = alix
-        .client
-        .context
-        .attachments
-        .store()?
-        .list_files()
-        .await?;
-    assert_eq!(files.len(), 1);
-    assert_eq!(files[0].path, staged);
+            .insert_or_ignore_pending_attachment(digest, b"existing record", 123)?;
+        let original_row = alix
+            .client
+            .context
+            .db()
+            .get_pending_attachment(digest)?
+            .expect("record");
+        pause.resume.notify_one();
+        let error = create.await?.err().expect("staged move must fail");
+        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(!dir.path().join(&plain).exists());
+        assert_eq!(key_dir.exists(), preexisting_key_dir);
+        assert_eq!(
+            tokio::fs::read(&staged_file).await?,
+            b"existing staged data"
+        );
+        assert_eq!(
+            alix.client.context.db().get_pending_attachment(digest)?,
+            Some(original_row)
+        );
+        assert!(
+            alix.client
+                .context
+                .db()
+                .get_local_attachment(&plain)?
+                .is_none()
+        );
+        let files = alix
+            .client
+            .context
+            .attachments
+            .store()?
+            .list_files()
+            .await?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, staged);
+    }
 }
 
 // verifies: ATCH-035, ATCH-038, ATCH-067

@@ -176,9 +176,13 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     /// Create a temporary file. Callers must use unique names because OPFS
     /// cannot create a file exclusively.
     async fn create_temp(&self, path: &str) -> Result<StoreWriter, AttachmentError>;
+    /// Return true when this call created the directory.
+    async fn create_dir_if_absent(&self, path: &str) -> Result<bool, AttachmentError>;
     /// Move a file only when the destination does not exist.
     async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError>;
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
+    /// Remove only an empty directory.
+    async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError>;
     async fn remove_file(&self, path: &str) -> Result<(), AttachmentError>;
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError>;
     async fn sync(&self, writer: &mut StoreWriter) -> Result<(), AttachmentError>;

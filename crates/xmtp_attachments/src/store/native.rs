@@ -487,6 +487,32 @@ impl LocalStore for NativeStore {
         })
     }
 
+    async fn create_dir_if_absent(&self, path: &str) -> Result<bool, AttachmentError> {
+        let path = self.path(path)?;
+        let creation_path = path.clone();
+        let created = xmtp_common::task::spawn_blocking(move || {
+            #[cfg(unix)]
+            let result = {
+                use std::os::unix::fs::DirBuilderExt as _;
+                std::fs::DirBuilder::new()
+                    .mode(0o700)
+                    .create(&creation_path)
+            };
+            #[cfg(not(unix))]
+            let result = std::fs::create_dir(&creation_path);
+            match result {
+                Ok(()) => Ok(true),
+                Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => Ok(false),
+                Err(error) => Err(error),
+            }
+        })
+        .await
+        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        create_private_dir(&path, self.force_chmod_error(), self.force_foreign_owner()).await?;
+        Ok(created)
+    }
+
     async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError> {
         validate_relative(from)?;
         validate_relative(to)?;
@@ -547,6 +573,12 @@ impl LocalStore for NativeStore {
             .map_err(storage_error)?
             .remove_open_dir_all()
             .map_err(storage_error)
+    }
+
+    async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError> {
+        tokio::fs::remove_dir(self.path(path)?)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
     }
 
     async fn remove_file(&self, path: &str) -> Result<(), AttachmentError> {
