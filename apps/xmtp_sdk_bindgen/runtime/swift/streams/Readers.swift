@@ -97,6 +97,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
     private let onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
     private var handle: StreamHandle<Value>?
     private var opening = false
+    private var openingTask: Task<Void, Never>?
     private var stopped = false
     private var waiters: [CheckedContinuation<StreamHandle<Value>, Error>] = []
     private var monitor: Task<Void, Never>?
@@ -129,22 +130,25 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
             waiters.append(continuation)
             let start = !opening
             opening = true
-            lock.unlock()
             if start {
-                Task.detached { [self] in
-                    do { try opened(await open()) }
-                    catch { openFailed(error) }
+                openingTask = Task.detached { [self] in
+                    do {
+                        let newHandle = try await open()
+                        if !opened(newHandle) {
+                            await newHandle.end()
+                        }
+                    } catch { openFailed(error) }
                 }
             }
+            lock.unlock()
         }
     }
 
-    private func opened(_ newHandle: StreamHandle<Value>) {
+    private func opened(_ newHandle: StreamHandle<Value>) -> Bool {
         lock.lock()
         if stopped {
             lock.unlock()
-            Task.detached { await newHandle.end() }
-            return
+            return false
         }
         handle = newHandle
         let pending = waiters
@@ -154,6 +158,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         for waiter in pending {
             waiter.resume(returning: newHandle)
         }
+        return true
     }
 
     private func openFailed(_ error: Error) {
@@ -208,6 +213,8 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         stopped = true
         let currentHandle = handle
         handle = nil
+        let currentOpening = openingTask
+        openingTask = nil
         let pending = waiters
         waiters.removeAll()
         let currentMonitor = monitor
@@ -224,6 +231,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
                 if let currentHandle {
                     await currentHandle.end()
                 }
+                await currentOpening?.value
                 completion.notify(reason)
             }
         }

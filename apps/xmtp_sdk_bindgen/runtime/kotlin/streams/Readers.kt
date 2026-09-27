@@ -78,7 +78,9 @@ private fun <T, R> readerFlow(
             val active = reader
             if (active == null) {
                 // Collection can settle before an opener returns. Close its late reader.
-                openerScope.launch { runCatching { end(opening.await()) } }
+                withContext(NonCancellable) {
+                    runCatching { end(opening.await()) }
+                }
             } else {
                 withContext(NonCancellable) {
                     runCatching { end(active) }

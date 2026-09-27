@@ -379,25 +379,110 @@ let resolveCreation!: (reader: {
   next: () => Promise<undefined>;
   end: () => Promise<void>;
 }) => void;
+let markCreationStarted!: () => void;
+const creationStarted = new Promise<void>((resolve) => {
+  markCreationStarted = resolve;
+});
 let endedLate = false;
 const opening = new sdk.MessageStream(
   () =>
     new Promise((resolve) => {
       resolveCreation = resolve;
+      markCreationStarted();
     }),
   reopened,
 );
 const openingRead = opening.next();
-await opening.end();
-assert.equal((await openingRead).done, true, "opening read did not settle");
+await creationStarted;
+const openingEnd = opening.end();
 resolveCreation({
   next: async () => undefined,
   end: async () => {
     endedLate = true;
   },
 });
-await new Promise((resolve) => setTimeout(resolve, 0));
+await openingEnd;
+assert.equal((await openingRead).done, true, "opening read did not settle");
 assert.equal(endedLate, true, "late reader remained open");
+let pendingScopeOwned = false;
+let pendingOpenStarted!: () => void;
+const pendingOpenStartedSignal = new Promise<void>((resolve) => {
+  pendingOpenStarted = resolve;
+});
+let releasePendingOpen!: (reader: {
+  next: () => Promise<undefined>;
+  end: () => Promise<void>;
+}) => void;
+let pendingReplacement: sdk.MessageStream | undefined;
+const pendingScopeOpen = async () => {
+  if (pendingScopeOwned)
+    throw Object.assign(new Error("stream scope is still owned"), {
+      code: "ConsumerOwned",
+    });
+  pendingScopeOwned = true;
+  return {
+    next: async () => undefined,
+    end: async () => {
+      pendingScopeOwned = false;
+    },
+  };
+};
+const pendingScopeStream = new sdk.MessageStream(
+  async () => {
+    pendingScopeOwned = true;
+    pendingOpenStarted();
+    return new Promise<Awaited<ReturnType<typeof pendingScopeOpen>>>((resolve) => {
+      releasePendingOpen = resolve;
+    });
+  },
+  reopened,
+  {
+    onClose: (reason) => {
+      assert.equal(reason.kind, "closed");
+      pendingReplacement = new sdk.MessageStream(pendingScopeOpen, reopened);
+    },
+  },
+);
+const pendingScopeRead = pendingScopeStream.next();
+await pendingOpenStartedSignal;
+const pendingScopeEnd = pendingScopeStream.end();
+releasePendingOpen({
+  next: async () => undefined,
+  end: async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    pendingScopeOwned = false;
+  },
+});
+await pendingScopeEnd;
+assert.equal((await pendingScopeRead).done, true);
+assert.ok(pendingReplacement, "pending open did not call onClose");
+await pendingReplacement.ready();
+await pendingReplacement.end();
+let rejectPendingOpen!: (error: Error) => void;
+let failedOpenStarted!: () => void;
+const failedOpenStartedSignal = new Promise<void>((resolve) => {
+  failedOpenStarted = resolve;
+});
+const failedOpenReasons: sdk.StreamCloseReason[] = [];
+const failedPendingStream = new sdk.MessageStream(
+  () => {
+    failedOpenStarted();
+    return new Promise<never>((_, reject) => {
+      rejectPendingOpen = reject;
+    });
+  },
+  reopened,
+  { onClose: (reason) => failedOpenReasons.push(reason) },
+);
+await failedOpenStartedSignal;
+const failedPendingEnd = failedPendingStream.end();
+rejectPendingOpen(new Error("open failed after end"));
+await failedPendingEnd;
+assert.deepEqual(
+  failedOpenReasons.map((reason) => reason.kind),
+  ["closed"],
+);
+assert.equal((await failedPendingStream.next()).done, true);
 // verifies: PROC-041, PROC-042
 for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
   const closeReasons: sdk.StreamCloseReason[] = [];
@@ -731,16 +816,22 @@ assert.equal(
   allowedConversation.id().toString(),
 );
 await consentReader.end();
+let markAbortReady!: () => void;
+const abortReady = new Promise<void>((resolve) => {
+  markAbortReady = resolve;
+});
 const rejectedOpening = new sdk.MessageStream(
   (signal) =>
     new Promise((_, reject) => {
       signal.addEventListener("abort", () =>
         reject(new DOMException("aborted", "AbortError")),
       );
+      markAbortReady();
     }),
   reopened,
 );
 const rejectedRead = rejectedOpening.next();
+await abortReady;
 await rejectedOpening.return();
 assert.equal((await rejectedRead).done, true);
 const creationFailure = Object.assign(new Error("reader creation failed"), {

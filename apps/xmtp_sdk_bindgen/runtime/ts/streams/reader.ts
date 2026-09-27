@@ -194,9 +194,11 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     const reason: StreamCloseReason = { kind: "closed" };
     this.closeReason = reason;
     try {
+      // A late opener ends its reader before this promise settles.
+      await this.reader;
       await this.active?.end();
     } catch {
-      // Client shutdown can close the reader first.
+      // A failed open or client shutdown does not prevent close.
     }
     this.notifyClose(reason);
   }

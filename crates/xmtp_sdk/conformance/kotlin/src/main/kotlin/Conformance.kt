@@ -504,8 +504,8 @@ fun main() =
             }
         val lateReader = withTimeout(10_000) { openedReader.await() }
         cancelledOpening.cancel(CancellationException("cancel during reader creation"))
-        withTimeout(3_000) { cancelledOpening.join() }
         releaseOpening.complete(Unit)
+        withTimeout(3_000) { cancelledOpening.join() }
         SDKClient.readerOpenedForTest = null
         withTimeout(10_000) {
             while (lateReader.connectionState() != ConnectionState.CLOSED) delay(10)
