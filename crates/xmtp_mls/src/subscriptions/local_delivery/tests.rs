@@ -180,11 +180,15 @@ async fn all_scope_defaults_to_allowed_and_unknown_but_group_scope_does_not() {
     tester!(alix);
     let denied = alix.create_group(None, None)?;
     let allowed = alix.create_group(None, None)?;
+    let unknown = alix.create_group(None, None)?;
     denied.update_consent_state(ConsentState::Denied)?;
+    unknown.update_consent_state(ConsentState::Unknown)?;
     let denied_message = generate_stored_msg(Cursor(100), denied.group_id);
     let allowed_message = generate_stored_msg(Cursor(200), allowed.group_id);
+    let unknown_message = generate_stored_msg(Cursor(250), unknown.group_id);
     denied_message.store(&alix.context.db())?;
     allowed_message.store(&alix.context.db())?;
+    unknown_message.store(&alix.context.db())?;
 
     let mut all = LocalDelivery::new(
         alix.context.clone(),
@@ -195,6 +199,11 @@ async fn all_scope_defaults_to_allowed_and_unknown_but_group_scope_does_not() {
     )?;
     let selected = all.next_delivery().await?.expect("allowed message");
     assert_eq!(selected.message.id, allowed_message.id);
+    selected.acknowledgement.acknowledge()?;
+    let selected = timeout(Duration::from_secs(2), all.next_delivery())
+        .await??
+        .expect("unknown message");
+    assert_eq!(selected.message.id, unknown_message.id);
     selected.acknowledgement.acknowledge()?;
     all.control().close();
     drop(all);
