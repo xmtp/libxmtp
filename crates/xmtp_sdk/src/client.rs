@@ -462,6 +462,18 @@ async fn open_existing_store(
     {
         return Err(XmtpError::identity_not_found());
     }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let path = wasm_storage_path(options, inbox_id)?
+            .ok_or_else(XmtpError::identity_not_found)?;
+        xmtp_db::init_sqlite().await;
+        let pool = xmtp_db::get_sqlite()
+            .ok_or_else(|| XmtpError::unknown("OPFS pool is unavailable"))?
+            .map_err(XmtpError::unknown)?;
+        if !pool.exists(&path).map_err(XmtpError::unknown)? {
+            return Err(XmtpError::identity_not_found());
+        }
+    }
     let store = open_store(options, inbox_id).await?;
     let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::unknown)?;
     if stored.is_none() {
