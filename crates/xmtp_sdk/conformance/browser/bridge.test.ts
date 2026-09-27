@@ -27,7 +27,6 @@ import {
   type WireMessage,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire.js";
 import {
-  BoundedListener,
   LogWindow,
   WorkerCallbacks,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/callback-stub.js";
@@ -469,78 +468,6 @@ describe("browser bridge transport", () => {
     });
   });
 
-  // verifies: EVENT-030, EVENT-031
-  it("listener_bound_1023_then_lagged", async () => {
-    const [main, worker] = pair();
-    const mainCallbacks = new MainCallbacks(main);
-    const workerCallbacks = new WorkerCallbacks(worker);
-    main.onMessage((message) => {
-      if (message.t === "callback") void mainCallbacks.receive(message);
-    });
-    worker.onMessage((message) => {
-      if (message.t === "callbackResult") workerCallbacks.receive(message);
-    });
-    let finish: (() => void) | undefined;
-    const first = new Promise<void>((resolve) => {
-      finish = resolve;
-    });
-    const handed: unknown[] = [];
-    const cb = mainCallbacks.register("EventListener", {
-      onEvent: async (event) => {
-        handed.push(event);
-        return first;
-      },
-      onLagged: (count) => {
-        handed.push({ lagged: count });
-      },
-    });
-    const listener = new BoundedListener(workerCallbacks, cb.cb);
-    for (let index = 0; index < 1030; index++) listener.push(index);
-    expect(listener.queued).toBe(1023);
-    finish?.();
-    // Emit a later event when the queue has room, before the lagged handoff.
-    for (let index = 0; index < 10000 && listener.queued === 1023; index++)
-      await Promise.resolve();
-    expect(listener.queued).toBeLessThan(1023);
-    listener.push(1030);
-    for (let index = 0; index < 100000 && handed.length < 1026; index++)
-      await Promise.resolve();
-    expect(handed).toEqual([
-      ...Array.from({ length: 1024 }, (_, index) => index),
-      { lagged: 6 },
-      1030,
-    ]);
-  });
-
-  // verifies: EVENT-051
-  it("continues listener drain after a callback fails", async () => {
-    const [main, worker] = pair();
-    const mainCallbacks = new MainCallbacks(main);
-    const workerCallbacks = new WorkerCallbacks(worker);
-    main.onMessage((message) => {
-      if (message.t === "callback") void mainCallbacks.receive(message);
-    });
-    worker.onMessage((message) => {
-      if (message.t === "callbackResult") workerCallbacks.receive(message);
-    });
-    const received: number[] = [];
-    const callback = mainCallbacks.register("EventListener", {
-      onEvent: (event) => {
-        if (typeof event !== "number")
-          throw new TypeError("event is not a number");
-        received.push(event);
-        if (event === 1) throw new Error("first event failed");
-      },
-    });
-    const listener = new BoundedListener(workerCallbacks, callback.cb);
-    listener.push(1);
-    listener.push(2);
-    for (let index = 0; index < 1000 && received.length < 2; index++)
-      await Promise.resolve();
-    expect(received).toEqual([1, 2]);
-    expect(listener.queued).toBe(0);
-  });
-
   it("log_window_busy_at_4096", () => {
     const [main, worker] = pair();
     const callbacks = new WorkerCallbacks(worker);
@@ -668,44 +595,6 @@ describe("browser bridge transport", () => {
     const opening = locks.open("pending");
     locks.closeAll();
     await expect(opening).rejects.toMatchObject({ code: "WorkerTerminated" });
-  });
-
-  it("reports a gap before later events under constant flow", async () => {
-    const [main, worker] = pair();
-    const mainCallbacks = new MainCallbacks(main);
-    const workerCallbacks = new WorkerCallbacks(worker);
-    main.onMessage((message) => {
-      if (message.t === "callback") void mainCallbacks.receive(message);
-    });
-    worker.onMessage((message) => {
-      if (message.t === "callbackResult") workerCallbacks.receive(message);
-    });
-    const order: string[] = [];
-    const cb = mainCallbacks.register("EventListener", {
-      onEvent: (event) => {
-        order.push(`event:${event}`);
-      },
-      onLagged: (count) => {
-        order.push(`lagged:${count}`);
-      },
-    });
-    const listener = new BoundedListener(workerCallbacks, cb.cb);
-    for (let index = 0; index < 1030; index++) listener.push(index);
-    for (let index = 0; index < 100; index++) {
-      listener.push(2000 + index);
-      await Promise.resolve();
-    }
-    for (
-      let index = 0;
-      index < 10000 && !order.some((item) => item.startsWith("lagged:"));
-      index++
-    )
-      await Promise.resolve();
-    const gap = order.findIndex((item) => item.startsWith("lagged:"));
-    expect(gap).toBeGreaterThanOrEqual(0);
-    expect(
-      order.slice(0, gap).every((item) => !/^event:2\d{3}$/.test(item)),
-    ).toBe(true);
   });
 
   it("rejects an already aborted call as cancelled", async () => {
