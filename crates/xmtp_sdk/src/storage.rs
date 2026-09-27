@@ -4,8 +4,9 @@ use xmtp_mls::context::XmtpSharedContext;
 use crate::{
     XmtpError,
     client::{CoreClient, EventReaderRegistry, end_client},
-    conversation::on_sdk_worker,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::conversation::on_sdk_worker;
 
 #[derive(uniffi::Object)]
 pub struct Storage {
