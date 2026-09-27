@@ -318,7 +318,6 @@ struct Conformance {
         guard !defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
             throw ConformanceFailure("build created a new database")
         }
-        // verifies: STORE-002
         let defaultHost = try await SDKClient.create(
             signer: TestSigner(),
             options: ClientOptions(
