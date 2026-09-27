@@ -814,7 +814,6 @@ async fn end_racing_listener_stop_blocks_a_late_callback() {
     );
 }
 
-
 // verifies: CTYPE-014
 #[xmtp_common::test(unwrap_try = true)]
 async fn standard_codec_bytes_match_typed_send_wire_bytes() {
