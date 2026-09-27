@@ -279,6 +279,36 @@ try {
     "a failed registration left its client holding the OPFS pool",
   );
   console.log("Chromium failed registration released the OPFS pool");
+
+  // A build without a stored identity unpauses the pool to look for the
+  // file. It must pause the pool again before the Web Lock is released.
+  await second.evaluate(async () =>
+    (await import("./storage.bridge.chromium.ts")).endOne(),
+  );
+  await first.evaluate(async (path) => {
+    const bridge = await import("./storage.bridge.chromium.ts");
+    await bridge.rejectBuildWithoutStoredIdentity(path);
+  }, `${base}-missing-release.db`);
+  let afterMissing: unknown;
+  for (let index = 0; index < 50; index++) {
+    afterMissing = await second.evaluate(async (path) => {
+      const bridge = await import("./storage.bridge.chromium.ts");
+      try {
+        await bridge.open(path);
+        return "opened";
+      } catch (error) {
+        return bridge.codeOf(error);
+      }
+    }, `${base}-after-missing.db`);
+    if (afterMissing !== "StorageBusy") break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(
+    afterMissing,
+    "opened",
+    "a build without a stored identity left the OPFS pool unpaused",
+  );
+  console.log("Chromium missing-identity build released the OPFS pool");
 } finally {
   await first
     .evaluate(async () =>

@@ -267,6 +267,25 @@ impl Client {
 
     async fn build_inner(
         identity: PublicIdentity,
+        options: ClientOptions,
+        inbox_id: Option<InboxID>,
+        require_stored_identity: bool,
+    ) -> Result<Self, XmtpError> {
+        let built =
+            Self::build_client(identity, options, inbox_id, require_stored_identity).await;
+        // A failed build can unpause the OPFS pool and then drop its store,
+        // for example when the database has no stored identity. The browser
+        // host releases the storage lock after the failure, so the pool must
+        // not keep its access handles. A live database keeps the pool open.
+        #[cfg(target_arch = "wasm32")]
+        if built.is_err() {
+            xmtp_db::pause_sqlite_if_idle();
+        }
+        built
+    }
+
+    async fn build_client(
+        identity: PublicIdentity,
         mut options: ClientOptions,
         inbox_id: Option<InboxID>,
         require_stored_identity: bool,
