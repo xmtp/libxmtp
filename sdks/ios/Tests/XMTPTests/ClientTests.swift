@@ -216,7 +216,8 @@ class ClientTests: XCTestCase {
 		)
 		do {
 			_ = try await Client.create(account: fakeWallet, options: opts)
-			await XCTWaiter().fulfillment(of: [expectation], timeout: 30)
+			let result = await XCTWaiter().fulfillment(of: [expectation], timeout: 30)
+			XCTAssertEqual(result, .completed)
 		} catch {
 			XCTFail("Error: \(error)")
 		}
