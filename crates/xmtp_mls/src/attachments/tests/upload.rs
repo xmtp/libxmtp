@@ -479,6 +479,7 @@ async fn conflicting_plaintext_move_keeps_existing_file_and_record() {
         .lock()
         .clone()
         .expect("creation reached the first move");
+    let staged = pause.staged_path.lock().clone().expect("staged path");
     let destination = dir.path().join(&path);
     tokio::fs::create_dir_all(destination.parent().expect("key directory")).await?;
     tokio::fs::write(&destination, b"existing attachment").await?;
@@ -495,14 +496,14 @@ async fn conflicting_plaintext_move_keeps_existing_file_and_record() {
         .get_local_attachment(&path)?
         .expect("record");
     pause.resume.notify_one();
-    let error = create.await?.err().expect("the move must fail");
-    assert_eq!(error.cause, Cause::LocalStorage);
+    let created = create.await??;
+    assert_eq!(plaintext_rel_path(created.remote_attachment())?, path);
     assert_eq!(tokio::fs::read(&destination).await?, b"existing attachment");
     assert_eq!(
         alix.client.context.db().get_local_attachment(&path)?,
         Some(original_row)
     );
-    assert!(alix.client.attachments().list_pending().await?.is_empty());
+    assert_eq!(alix.client.attachments().list_pending().await?.len(), 1);
     let files = alix
         .client
         .context
@@ -510,14 +511,57 @@ async fn conflicting_plaintext_move_keeps_existing_file_and_record() {
         .store()?
         .list_files()
         .await?;
-    assert_eq!(files.len(), 1);
-    assert_eq!(files[0].path, path);
+    assert_eq!(files.len(), 2);
+    assert!(files.iter().any(|file| file.path == path));
+    assert!(files.iter().any(|file| file.path == staged));
+}
+
+// verifies: ATCH-045, ATCH-046
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn existing_plaintext_without_record_is_adopted_on_create() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let pause = Arc::new(CreateMovePause {
+        path: Mutex::new(None),
+        staged_path: Mutex::new(None),
+        entered: tokio::sync::Notify::new(),
+        resume: tokio::sync::Notify::new(),
+    });
+    *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+    let client = alix.client.clone();
+    let create =
+        xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
+    tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
+    let path = pause.path.lock().clone().expect("plaintext path");
+    let destination = dir.path().join(&path);
+    tokio::fs::create_dir_all(destination.parent().expect("key directory")).await?;
+    tokio::fs::write(&destination, b"existing attachment").await?;
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_local_attachment(&path)?
+            .is_none()
+    );
+    pause.resume.notify_one();
+    let created = create.await??;
+    assert_eq!(plaintext_rel_path(created.remote_attachment())?, path);
+    assert_eq!(tokio::fs::read(&destination).await?, b"existing attachment");
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_local_attachment(&path)?
+            .is_some()
+    );
+    assert_eq!(alix.client.attachments().list_pending().await?.len(), 1);
 }
 
 // verifies: ATCH-046
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
-async fn conflicting_staged_move_keeps_existing_file_and_record() {
+async fn conflicting_pending_row_rolls_back_only_owned_files() {
     for preexisting_key_dir in [false, true] {
         let dir = tempfile::tempdir()?;
         tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
@@ -541,8 +585,6 @@ async fn conflicting_staged_move_keeps_existing_file_and_record() {
         let staged = pause.staged_path.lock().clone().expect("staged path");
         let digest = staged.strip_prefix(".staged/").expect("digest");
         let staged_file = dir.path().join(&staged);
-        tokio::fs::create_dir_all(staged_file.parent().expect("staged directory")).await?;
-        tokio::fs::write(&staged_file, b"existing staged data").await?;
         alix.client
             .context
             .db()
@@ -558,10 +600,7 @@ async fn conflicting_staged_move_keeps_existing_file_and_record() {
         assert_eq!(error.cause, Cause::LocalStorage);
         assert!(!dir.path().join(&plain).exists());
         assert_eq!(key_dir.exists(), preexisting_key_dir);
-        assert_eq!(
-            tokio::fs::read(&staged_file).await?,
-            b"existing staged data"
-        );
+        assert!(!staged_file.exists());
         assert_eq!(
             alix.client.context.db().get_pending_attachment(digest)?,
             Some(original_row)
@@ -580,9 +619,62 @@ async fn conflicting_staged_move_keeps_existing_file_and_record() {
             .store()?
             .list_files()
             .await?;
-        assert_eq!(files.len(), 1);
-        assert_eq!(files[0].path, staged);
+        assert!(files.is_empty());
     }
+}
+
+// verifies: ATCH-045, ATCH-046
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn existing_staged_ciphertext_is_reused_on_create() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let pause = Arc::new(CreateMovePause {
+        path: Mutex::new(None),
+        staged_path: Mutex::new(None),
+        entered: tokio::sync::Notify::new(),
+        resume: tokio::sync::Notify::new(),
+    });
+    *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+    let client = alix.client.clone();
+    let create =
+        xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
+    tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
+    let staged = pause.staged_path.lock().clone().expect("staged path");
+    let staged_file = dir.path().join(&staged);
+    let mut temp_files = tokio::fs::read_dir(dir.path().join(".tmp")).await?;
+    let mut ciphertext = None;
+    while let Some(entry) = temp_files.next_entry().await? {
+        if entry.file_name().to_string_lossy().ends_with("-staged") {
+            ciphertext = Some(tokio::fs::read(entry.path()).await?);
+        }
+    }
+    let ciphertext = ciphertext.expect("staged temporary file");
+    tokio::fs::create_dir_all(staged_file.parent().expect("staged directory")).await?;
+    tokio::fs::write(&staged_file, &ciphertext).await?;
+    let existing_inode = tokio::fs::metadata(&staged_file).await?.ino();
+    pause.resume.notify_one();
+    let created = create.await??;
+    assert_eq!(
+        staged_path(&created.remote_attachment().content_digest)?,
+        staged
+    );
+    assert_eq!(tokio::fs::read(&staged_file).await?, ciphertext);
+    assert_eq!(
+        tokio::fs::metadata(&staged_file).await?.ino(),
+        existing_inode
+    );
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_pending_attachment(&created.remote_attachment().content_digest)?
+            .is_some()
+    );
+    let mut temp_files = tokio::fs::read_dir(dir.path().join(".tmp")).await?;
+    assert!(temp_files.next_entry().await?.is_none());
 }
 
 // verifies: ATCH-035, ATCH-038, ATCH-067

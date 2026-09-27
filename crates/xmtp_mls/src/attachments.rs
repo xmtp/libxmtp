@@ -1188,12 +1188,28 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             if store.create_dir_if_absent(&key_dir).await? {
                 created_key_dir = Some(key_dir);
             }
-            store.rename(&plain_temp, &local).await?;
-            plain_temp_created = false;
-            final_plain = Some(local.clone());
-            store.rename(&staged_temp, &ciphertext).await?;
-            staged_temp_created = false;
-            final_staged = Some(ciphertext.clone());
+            match store.rename(&plain_temp, &local).await {
+                Ok(()) => {
+                    plain_temp_created = false;
+                    final_plain = Some(local.clone());
+                }
+                Err(StoreMoveError::DestinationExists) => {
+                    store.remove_file(&plain_temp).await?;
+                    plain_temp_created = false;
+                }
+                Err(error) => return Err(error.into()),
+            }
+            match store.rename(&staged_temp, &ciphertext).await {
+                Ok(()) => {
+                    staged_temp_created = false;
+                    final_staged = Some(ciphertext.clone());
+                }
+                Err(StoreMoveError::DestinationExists) => {
+                    store.remove_file(&staged_temp).await?;
+                    staged_temp_created = false;
+                }
+                Err(error) => return Err(error.into()),
+            }
             let db = self.context.db();
             let inserted = db
                 .insert_local_attachment_if_absent(
@@ -1203,10 +1219,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     filename.clone(),
                 )
                 .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
-            if !inserted {
-                return Err(AttachmentClientError::new(Cause::LocalStorage));
+            if inserted {
+                local_row_created = Some(local.clone());
             }
-            local_row_created = Some(local.clone());
             let inserted = db
                 .insert_pending_attachment_if_absent(&hex_digest, &remote.encode_to_vec(), now_ns())
                 .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
