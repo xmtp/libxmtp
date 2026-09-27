@@ -228,8 +228,16 @@ export type SendOptions = object;
 
 export enum ErrorCategory {
   Input,
-  Lifecycle,
+  Network,
+  Storage,
   Identity,
+  Conversation,
+  Callback,
+  Lifecycle,
+  Configuration,
+  Notification,
+  Stream,
+  Unknown,
 }
 
 export type ErrorDetails = {

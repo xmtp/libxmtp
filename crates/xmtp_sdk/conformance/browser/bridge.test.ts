@@ -1,4 +1,13 @@
 import { describe, expect, it } from "vitest";
+import {
+  CredentialError_Tags,
+  ErrorCategory,
+  ListenerError_Tags,
+  LogSinkError_Tags,
+  PreAuthenticateError_Tags,
+  SignerError_Tags,
+  XmtpError_Tags,
+} from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
 
 import {
   ValueCodec,
@@ -8,6 +17,7 @@ import { MainCallbacks } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/brid
 import { RemoteObject } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object.js";
 import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
 import {
+  BRIDGE_ERROR_CODES,
   BridgeError,
   assertCloneable,
   bridgeError,
@@ -80,23 +90,31 @@ class TestProxy extends RemoteObject {
 
 describe("browser bridge transport", () => {
   it("exposes only PascalCase error codes", () => {
-    const codes = [
-      "contractMismatch",
-      "workerTerminated",
-      "clientClosed",
-      "storageBusy",
-      "lagged",
-      "callbackFailed",
-      "cancelled",
-    ] as const;
-    const exposed = codes.flatMap((code) => {
+    const exposed = [
+      CredentialError_Tags,
+      ListenerError_Tags,
+      LogSinkError_Tags,
+      PreAuthenticateError_Tags,
+      SignerError_Tags,
+      XmtpError_Tags,
+    ].flatMap((variants) => Object.values(variants));
+    for (const code of BRIDGE_ERROR_CODES) {
       const error = bridgeError(code);
-      const wire = encodeError(error);
-      return [error.code, wire.code];
-    });
+      exposed.push(error.code, encodeError(error).code);
+    }
     exposed.push(encodeError(new Error("unknown failure")).code);
     for (const code of exposed) {
       expect(code).toMatch(/^[A-Z][A-Za-z0-9]*$/);
+    }
+  });
+
+  it("uses the generated Unknown category for fallback errors", () => {
+    for (const error of [
+      Object.assign(new Error("missing detail"), { tag: "XmtpError" }),
+      new Error("plain failure"),
+      "non-error failure",
+    ]) {
+      expect(encodeError(error).category).toBe(ErrorCategory.Unknown);
     }
   });
 

@@ -1,11 +1,20 @@
-export type BridgeErrorCode =
-  | "contractMismatch"
-  | "workerTerminated"
-  | "clientClosed"
-  | "storageBusy"
-  | "lagged"
-  | "callbackFailed"
-  | "cancelled";
+import { ErrorCategory } from "../../xmtp_sdk.js";
+
+function bridgeCodes<const T extends readonly string[]>(...codes: T): T {
+  return codes;
+}
+
+export const BRIDGE_ERROR_CODES = bridgeCodes(
+  "contractMismatch",
+  "workerTerminated",
+  "clientClosed",
+  "storageBusy",
+  "lagged",
+  "callbackFailed",
+  "cancelled",
+);
+
+export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
 
 export interface ErrorWire {
   variant: string;
@@ -109,7 +118,7 @@ export function encodeError(error: unknown): ErrorWire {
       return {
         variant: error.tag,
         code: "Unknown",
-        category: "unknown",
+        category: ErrorCategory.Unknown,
         retryable: false,
         message: error.message,
         details: inner,
@@ -118,7 +127,7 @@ export function encodeError(error: unknown): ErrorWire {
     return {
       variant: error.name,
       code: "Unknown",
-      category: "unknown",
+      category: ErrorCategory.Unknown,
       retryable: false,
       message: error.message,
     };
@@ -126,7 +135,7 @@ export function encodeError(error: unknown): ErrorWire {
   return {
     variant: "Unknown",
     code: "Unknown",
-    category: "unknown",
+    category: ErrorCategory.Unknown,
     retryable: false,
     message: String(error),
   };
