@@ -86,6 +86,43 @@ fn contract_hash(groups: &MetadataGroupMap) -> String {
     format!("{:x}", hasher.finalize())
 }
 
+// The proxy reads these from a snapshot taken once, when the handle is made.
+// UniFFI metadata cannot show that a value never changes, so each entry is
+// reviewed by hand. Any other synchronous method stops generation.
+const IMMUTABLE_PROPERTIES: &[&str] = &[
+    "Client.app_version",
+    "Client.archives",
+    "Client.client_key",
+    "Client.conversations",
+    "Client.diagnostics",
+    "Client.identity",
+    "Client.inbox_id",
+    "Client.installation_id",
+    "Client.installation_id_bytes",
+    "Client.is_in_memory",
+    "Client.libxmtp_version",
+    "Client.options",
+    "Client.preferences",
+    "Client.server_configuration",
+    "Client.storage",
+    "Client.storage_path",
+    "Dm.added_by_inbox_id",
+    "Dm.created_at",
+    "Dm.creator_inbox_id",
+    "Dm.id",
+    "Dm.is_creator",
+    "Dm.kind",
+    "Dm.peer_inbox_id",
+    "Dm.topic",
+    "Group.added_by_inbox_id",
+    "Group.created_at",
+    "Group.creator_inbox_id",
+    "Group.id",
+    "Group.is_creator",
+    "Group.kind",
+    "Group.topic",
+];
+
 fn validate_bridge(items: &[Metadata]) -> Result<()> {
     for item in items {
         if pure_function(item) {
@@ -93,14 +130,15 @@ fn validate_bridge(items: &[Metadata]) -> Result<()> {
         }
         match item {
             Metadata::Method(method) if !method.is_async => {
+                let key = format!("{}.{}", method.self_name, method.name);
                 let immutable = method.inputs.is_empty()
                     && method.throws.is_none()
-                    && method.return_type.is_some();
+                    && method.return_type.is_some()
+                    && IMMUTABLE_PROPERTIES.contains(&key.as_str());
                 if !immutable {
                     bail!(
-                        "{}.{}: synchronous worker method is not an immutable property",
-                        method.self_name,
-                        method.name
+                        "{key}: synchronous worker method is not a reviewed immutable property; \
+                         make a live read async, or add a value that never changes to IMMUTABLE_PROPERTIES"
                     );
                 }
             }
@@ -1296,11 +1334,34 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    fn rejects_unreviewed_sync_getter() {
+        let item = Metadata::Method(MethodMetadata {
+            module_path: "test".into(),
+            self_name: "MessageReader".into(),
+            name: "connection_state".into(),
+            orig_name: None,
+            is_async: false,
+            inputs: vec![],
+            return_type: Some(Type::UInt64),
+            throws: None,
+            takes_self_by_arc: true,
+            checksum: None,
+            docstring: None,
+        });
+        assert!(
+            validate_bridge(&[item])
+                .unwrap_err()
+                .to_string()
+                .contains("MessageReader.connection_state")
+        );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     fn derives_immutable_getter_from_metadata() {
         let item = Metadata::Method(MethodMetadata {
             module_path: "test".into(),
             self_name: "Group".into(),
-            name: "random_value".into(),
+            name: "created_at".into(),
             orig_name: None,
             is_async: false,
             inputs: vec![],
@@ -1319,7 +1380,7 @@ mod tests {
         let item = Metadata::Method(MethodMetadata {
             module_path: "test".into(),
             self_name: "Group".into(),
-            name: "with_input".into(),
+            name: "id".into(),
             orig_name: None,
             is_async: false,
             inputs: vec![uniffi_meta::FnParamMetadata::simple("value", Type::UInt64)],
@@ -1337,7 +1398,7 @@ mod tests {
         let item = Metadata::Method(MethodMetadata {
             module_path: "test".into(),
             self_name: "Group".into(),
-            name: "that_throws".into(),
+            name: "id".into(),
             orig_name: None,
             is_async: false,
             inputs: vec![],
