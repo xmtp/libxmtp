@@ -13,6 +13,7 @@ mod conversation;
 mod credentials;
 mod crypto;
 mod error;
+mod events;
 mod foreign;
 mod identity;
 mod ids;
@@ -35,6 +36,9 @@ pub use credentials::{
 };
 pub use crypto::{EncryptedEncodedContent, EncryptionKeys};
 pub use error::{ErrorCategory, ErrorDetails, XmtpError};
+pub use events::{
+    ClientEvent, EventFilter, EventKind, EventListener, EventReader, ListenerError, ListenerID,
+};
 pub use identity::{
     CanMessageEntry, CatchUpSummary, GroupSyncSummary, InboxCountEntry, InboxState, Installation,
     KeyPackageLifetime, KeyPackageStatus, KeyPackageStatusEntry, SignatureKind, SignatureRequest,

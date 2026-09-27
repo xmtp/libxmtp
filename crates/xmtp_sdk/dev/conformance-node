@@ -6,6 +6,8 @@ cd "$root"
 node --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/timestamp.test.mts
 bash crates/xmtp_sdk/dev/conformance-generate
+python3 crates/xmtp_sdk/conformance/inject_event_start_hook.py typescript \
+  target/sdk-conformance/typescript-napi/runtime/client.ts
 nix build --no-link .#ubjs-core .#ubjs-node
 core="$(nix path-info .#ubjs-core)"
 node="$(nix path-info .#ubjs-node)"

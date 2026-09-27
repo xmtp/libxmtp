@@ -12,6 +12,8 @@ import kotlinx.coroutines.withContext
 class SDKClient private constructor(
     val raw: Client,
 ) {
+    internal val listenerGates = ListenerGates()
+
     companion object {
         private fun resolved(
             options: ClientOptions,
@@ -96,6 +98,7 @@ class SDKClient private constructor(
     }
 
     suspend fun end() {
+        listenerGates.stopAll()
         try {
             raw.end()
         } finally {

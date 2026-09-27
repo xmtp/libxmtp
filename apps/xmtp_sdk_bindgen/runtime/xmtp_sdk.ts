@@ -79,6 +79,13 @@ export type LogRecord = {
   droppedRecords: bigint;
 };
 export type ConversationsLike = object;
+export type ClientEvent = object;
+export type EventFilter = object;
+export declare const ListenerError: { Failed: new () => Error };
+export interface EventReaderLike {
+  next(options?: { signal: AbortSignal }): Promise<ClientEvent | undefined>;
+  end(): Promise<void>;
+}
 
 export declare function fetchServerConfiguration(
   options: BackendOptions,
@@ -130,6 +137,12 @@ export interface ClientLike {
   inboxID(): InboxID;
   installationID(): InstallationID;
   conversations(): ConversationsLike;
+  events(filter: EventFilter): Promise<EventReaderLike>;
+  startListener(
+    filter: EventFilter,
+    listener: { onEvent(event: ClientEvent): Promise<void> },
+  ): Promise<bigint>;
+  stopListener(id: bigint): Promise<void>;
   end(): Promise<void>;
 }
 
