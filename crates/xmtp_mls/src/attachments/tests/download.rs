@@ -152,6 +152,132 @@ async fn failed_metadata_write_removes_downloaded_file() {
     assert_eq!(tokio::fs::read(path).await?, b"attachment content");
 }
 
+// verifies: ATCH-062, ATCH-063
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn reconcile_waits_for_download_metadata_publication() {
+    let sender = tempfile::tempdir()?;
+    let recipient = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: sender.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let mut remote = pending.remote_attachment().clone();
+    let body = tokio::fs::read(sender.path().join(staged_path(&remote.content_digest)?)).await?;
+    let (url, _) = serve_body(body).await;
+    remote.url = url;
+    tester!(bo, attachments_dir: recipient.path(), disable_workers);
+    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let relative = plaintext_rel_path(&remote)?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    *client.context.attachments.download_publish_pause.lock() =
+        Some((entered.clone(), resume.clone()));
+    let downloading_client = client.clone();
+    let downloading_remote = remote.clone();
+    let download = tokio::spawn(async move {
+        downloading_client
+            .attachments()
+            .download(&downloading_remote)
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+    assert!(client.attachments().local_path(&remote)?.exists());
+    assert!(
+        client
+            .context
+            .db()
+            .get_local_attachment(&relative)?
+            .is_none()
+    );
+    let context = client.context.clone();
+    let mut reconcile = tokio::spawn(async move { context.attachments.reconcile(&context).await });
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), &mut reconcile)
+            .await
+            .is_err()
+    );
+    resume.notify_one();
+    let downloaded = tokio::time::timeout(Duration::from_secs(5), download).await???;
+    tokio::time::timeout(Duration::from_secs(5), reconcile).await???;
+    assert_eq!(downloaded.mime_type.as_deref(), Some("text/plain"));
+    assert_eq!(downloaded.filename.as_deref(), Some("note.txt"));
+    let record = client
+        .context
+        .db()
+        .get_local_attachment(&relative)?
+        .expect("record");
+    assert_eq!(record.mime_type.as_deref(), Some("text/plain"));
+    assert_eq!(record.filename.as_deref(), Some("note.txt"));
+}
+
+// verifies: ATCH-062, ATCH-063
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn failed_download_publication_cannot_leave_reconciled_row() {
+    let sender = tempfile::tempdir()?;
+    let recipient = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: sender.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let mut remote = pending.remote_attachment().clone();
+    let body = tokio::fs::read(sender.path().join(staged_path(&remote.content_digest)?)).await?;
+    let (url, _) = serve_body(body).await;
+    remote.url = url;
+    tester!(bo, attachments_dir: recipient.path(), disable_workers);
+    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let relative = plaintext_rel_path(&remote)?;
+    let path = client.attachments().local_path(&remote)?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    *client.context.attachments.download_publish_pause.lock() =
+        Some((entered.clone(), resume.clone()));
+    let downloading_client = client.clone();
+    let downloading_remote = remote.clone();
+    let download = tokio::spawn(async move {
+        downloading_client
+            .attachments()
+            .download(&downloading_remote)
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+    let context = client.context.clone();
+    let reconcile = tokio::spawn(async move { context.attachments.reconcile(&context).await });
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TRIGGER reject_publication_metadata BEFORE INSERT ON local_attachments \
+             BEGIN SELECT RAISE(ABORT, 'metadata rejected'); END",
+        )
+        .execute(conn)
+    })?;
+    resume.notify_one();
+    let error = tokio::time::timeout(Duration::from_secs(5), download)
+        .await??
+        .unwrap_err();
+    assert_eq!(error.cause, Cause::LocalStorage);
+    tokio::time::timeout(Duration::from_secs(5), reconcile).await???;
+    assert!(!path.exists());
+    assert!(
+        client
+            .context
+            .db()
+            .get_local_attachment(&relative)?
+            .is_none()
+    );
+}
+
 // verifies: ATCH-044, ATCH-059
 #[xmtp_common::test(unwrap_try = true)]
 async fn local_path_no_io() {

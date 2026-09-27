@@ -776,6 +776,8 @@ pub struct AttachmentRuntime {
     #[cfg(all(test, not(target_arch = "wasm32")))]
     download_move_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
+    download_publish_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     reconcile_snapshot_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
     outcome_write_errors: AtomicUsize,
@@ -831,6 +833,8 @@ impl Default for AttachmentRuntime {
             download_panic_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_move_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_publish_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             reconcile_snapshot_pause: Mutex::new(None),
             #[cfg(test)]
@@ -906,6 +910,8 @@ impl AttachmentRuntime {
             download_panic_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_move_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_publish_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             reconcile_snapshot_pause: Mutex::new(None),
             #[cfg(test)]
@@ -1265,6 +1271,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     resume.notified().await;
                 }
             }
+            let _publication = self.runtime().publication_lock.lock().await;
             match store.rename(final_tmp, relative).await {
                 Ok(()) => {}
                 Err(StoreMoveError::DestinationExists) => {
@@ -1284,6 +1291,13 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     });
                 }
                 Err(error) => return Err(error.into()),
+            }
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            let publish_pause = { self.runtime().download_publish_pause.lock().take() };
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            if let Some((entered, resume)) = publish_pause {
+                entered.notify_one();
+                resume.notified().await;
             }
             if self.context.db().insert_or_ignore_local_attachment(
                 relative, now_ns(), Some(meta.mime_type.clone()), meta.filename.clone()
