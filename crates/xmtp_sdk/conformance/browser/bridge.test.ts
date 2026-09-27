@@ -441,47 +441,76 @@ describe("browser bridge transport", () => {
     otherTab.close("client-pool");
   });
 
-  it("ends a created client before its pool lock is released when the encode fails", async () => {
+  function heldPoolLocks(): { held: Set<string>; provider: LockProvider } {
     const held = new Set<string>();
-    const provider: LockProvider = {
-      async request(name, _options, callback) {
-        if (held.has(name)) return callback(null);
-        held.add(name);
-        try {
-          await callback({});
-        } finally {
-          held.delete(name);
-        }
+    return {
+      held,
+      provider: {
+        async request(name, _options, callback) {
+          if (held.has(name)) return callback(null);
+          held.add(name);
+          try {
+            await callback({});
+          } finally {
+            held.delete(name);
+          }
+        },
       },
     };
-    const locks = new PoolLocks(provider);
-    const otherTab = new PoolLocks(provider);
+  }
+
+  async function createUnencodableClient(
+    locks: PoolLocks,
+    client: { end: () => Promise<void> },
+  ): Promise<void> {
     const { engine } = host(async () => undefined);
     const registry = engine.registry;
+    await expect(
+      callWithPool(
+        locks,
+        "client-pool",
+        true,
+        async () => client,
+        () =>
+          registry.scope(() =>
+            registry.add(client, "Client", undefined, () => {
+              throw new Error("snapshot failed");
+            }),
+          ),
+      ),
+    ).rejects.toThrow("snapshot failed");
+    expect(registry.size).toBe(0);
+  }
+
+  it("ends a created client before its pool lock is released when the encode fails", async () => {
+    const { held, provider } = heldPoolLocks();
+    const locks = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
     let lockHeldAtEnd: boolean | undefined;
     const client = {
       end: async () => {
         lockHeldAtEnd = held.has("xmtp:client-pool");
+      },
+    };
+    await createUnencodableClient(locks, client);
+    expect(lockHeldAtEnd).toBe(true);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
+  });
+
+  it("keeps the pool lock when a created client that fails to encode cannot end", async () => {
+    const { provider } = heldPoolLocks();
+    const locks = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
+    const client = {
+      end: async () => {
         throw new Error("close failed");
       },
     };
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      await expect(
-        callWithPool(
-          locks,
-          "client-pool",
-          true,
-          async () => client,
-          () =>
-            registry.scope(() =>
-              registry.add(client, "Client", undefined, () => {
-                throw new Error("snapshot failed");
-              }),
-            ),
-        ),
-      ).rejects.toThrow("snapshot failed");
-      expect(lockHeldAtEnd).toBe(true);
+      await createUnencodableClient(locks, client);
       expect(logged).toHaveBeenCalledWith(
         "client that failed to encode could not close",
         expect.objectContaining({ message: "close failed" }),
@@ -489,7 +518,11 @@ describe("browser bridge transport", () => {
     } finally {
       logged.mockRestore();
     }
-    expect(registry.size).toBe(0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await expect(otherTab.open("client-pool")).rejects.toMatchObject({
+      code: "StorageBusy",
+    });
+    locks.closeAll();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await otherTab.open("client-pool");
     otherTab.close("client-pool");

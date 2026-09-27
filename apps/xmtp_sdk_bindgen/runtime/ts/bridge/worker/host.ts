@@ -140,7 +140,9 @@ export function poolName(options: unknown): string | undefined {
  * Runs one binding call and encodes its result. When `pool` is set, the call
  * holds that storage pool lock, and the lock stays with the owner of the
  * returned handle. When a created client fails to encode, the client is ended
- * before the lock is released, so its database closes first.
+ * before the lock is released, so its database closes first. If the client
+ * cannot end, its database can stay open, so the lock stays held. The browser
+ * releases a held Web Lock when the worker ends.
  */
 export async function callWithPool(
   locks: PoolLocks | undefined,
@@ -153,32 +155,35 @@ export async function callWithPool(
     if (!locks) throw new TypeError("storage lock provider missing");
     await locks.open(pool);
   }
+  let result: unknown;
   try {
-    const result: unknown = await call();
-    let encoded: unknown;
-    try {
-      encoded = encode(result);
-    } catch (error) {
-      if (createsClient) await endUnencodedClient(result);
-      throw error;
-    }
-    if (
-      pool &&
-      encoded !== null &&
-      typeof encoded === "object" &&
-      "owner" in encoded &&
-      typeof encoded.owner === "number"
-    )
-      locks?.attachOwner(encoded.owner, pool);
-    return encoded;
+    result = await call();
   } catch (error) {
     if (pool) locks?.close(pool);
     throw error;
   }
+  let encoded: unknown;
+  try {
+    encoded = encode(result);
+  } catch (error) {
+    const ended = !createsClient || (await endUnencodedClient(result));
+    if (pool && ended) locks?.close(pool);
+    throw error;
+  }
+  if (
+    pool &&
+    encoded !== null &&
+    typeof encoded === "object" &&
+    "owner" in encoded &&
+    typeof encoded.owner === "number"
+  )
+    locks?.attachOwner(encoded.owner, pool);
+  return encoded;
 }
 
 // The caller gets the encode error, so an error from end is only logged.
-async function endUnencodedClient(client: unknown): Promise<void> {
+// Returns false when the client did not end.
+async function endUnencodedClient(client: unknown): Promise<boolean> {
   try {
     const end: unknown =
       client !== null && typeof client === "object"
@@ -186,8 +191,10 @@ async function endUnencodedClient(client: unknown): Promise<void> {
         : undefined;
     if (typeof end !== "function") throw new TypeError("Client.end is missing");
     await Reflect.apply(end, client, []);
+    return true;
   } catch (error) {
     console.error("client that failed to encode could not close", error);
+    return false;
   }
 }
 
