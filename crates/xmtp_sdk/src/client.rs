@@ -456,9 +456,10 @@ async fn open_existing_store(
         return Err(XmtpError::identity_not_found());
     }
     #[cfg(not(target_arch = "wasm32"))]
-    if native_storage_path(options, inbox_id)?
-        .as_ref()
-        .is_some_and(|path| !std::path::Path::new(path).exists())
+    if let Some(path) = native_storage_path(options, inbox_id)?
+        && !std::path::Path::new(&path)
+            .try_exists()
+            .map_err(XmtpError::storage)?
     {
         return Err(XmtpError::identity_not_found());
     }

@@ -158,6 +158,15 @@ impl XmtpError {
         })
     }
 
+    pub(crate) fn storage(error: impl std::fmt::Display) -> Self {
+        Self::Storage(Self::details(
+            "Storage",
+            ErrorCategory::Storage,
+            false,
+            error.to_string(),
+        ))
+    }
+
     pub(crate) fn identity_not_found() -> Self {
         Self::IdentityNotFound(Self::details(
             "IdentityNotFound",
