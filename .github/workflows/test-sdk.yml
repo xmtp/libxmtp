@@ -32,7 +32,7 @@ jobs:
       - name: Install JavaScript tools
         run: just install-js
       - name: Check SDK isolation
-        run: just sdk check-isolation
+        run: just sdk check-isolation "${{ github.base_ref }}"
       - name: Start backend
         run: just backend up
       - name: Generate SDK bindings

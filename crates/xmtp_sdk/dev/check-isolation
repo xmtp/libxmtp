@@ -4,7 +4,8 @@ set -euo pipefail
 # Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs there may change
 # (spec evidence, and owner-approved behaviour changes made in core).
 # A stacked pull request is checked against its own base branch, so a lower PR's changes do not count.
-base_ref="origin/${GITHUB_BASE_REF:-self-hosted}"
+base_ref="origin/${1:-${GITHUB_BASE_REF:-self-hosted}}"
+echo "Checking SDK isolation against $base_ref" >&2
 base=$(git merge-base HEAD "$base_ref")
 if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
   exit 0
