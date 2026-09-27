@@ -409,15 +409,12 @@ async fn delete_cancels_upload() {
     );
     let emitted = events.drain();
     let key = attachment_key(&remote)?;
-    assert_eq!(emitted.len(), 3);
+    assert_eq!(emitted.len(), 2);
     assert!(
         matches!(&emitted[0].client, Some(ClientEvent::AttachmentUploadStarted(reference)) if reference.attachment_key == key)
     );
     assert!(
-        matches!(&emitted[1].client, Some(ClientEvent::AttachmentUploadFailed(failed)) if failed.attachment_key == key && failed.cause == "deleted")
-    );
-    assert!(
-        matches!(&emitted[2].client, Some(ClientEvent::AttachmentDeleted(reference)) if reference.attachment_key == key)
+        matches!(&emitted[1].client, Some(ClientEvent::AttachmentDeleted(reference)) if reference.attachment_key == key)
     );
 }
 

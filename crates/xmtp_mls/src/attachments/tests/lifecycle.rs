@@ -120,6 +120,77 @@ async fn delete_stops_retrying_unrecorded_upload_outcome() {
     );
 }
 
+// verifies: ATCH-047, EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn deletion_wins_before_outcome_write_under_event_lock() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let key = attachment_key(&remote)?;
+    let events = alix
+        .client
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadCompleted,
+            EventKind::AttachmentUploadFailed,
+            EventKind::AttachmentDeleted,
+        ]))?;
+    let entered_outcome = Arc::new(tokio::sync::Notify::new());
+    let resume_outcome = Arc::new(tokio::sync::Notify::new());
+    *alix.client.context.attachments.outcome_lock_pause.lock() =
+        Some((entered_outcome.clone(), resume_outcome.clone()));
+    let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+    tokio::time::timeout(Duration::from_secs(5), entered_outcome.notified()).await?;
+
+    let event_lock = alix.client.context.attachments.event_lock(&key);
+    let guard = event_lock.lock().await;
+    let entered_delete = Arc::new(tokio::sync::Notify::new());
+    let resume_delete = Arc::new(tokio::sync::Notify::new());
+    *alix.client.context.attachments.delete_pause.lock() =
+        Some((entered_delete.clone(), resume_delete.clone()));
+    let client = alix.client.clone();
+    let deleting_remote = remote.clone();
+    let deletion = xmtp_common::task::spawn(async move {
+        client.attachments().delete_local(&deleting_remote).await
+    });
+    tokio::task::yield_now().await;
+    drop(guard);
+    tokio::time::timeout(Duration::from_secs(5), entered_delete.notified()).await?;
+    resume_outcome.notify_one();
+    let upload_result = tokio::time::timeout(Duration::from_secs(2), upload).await??;
+    resume_delete.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), deletion).await???;
+    assert_eq!(upload_result.unwrap_err().cause, Cause::Deleted);
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_none()
+    );
+    assert!(!dir.path().join(&key).exists());
+    assert!(
+        !dir.path()
+            .join(staged_path(&remote.content_digest)?)
+            .exists()
+    );
+    let kinds: Vec<_> = events
+        .drain()
+        .into_iter()
+        .map(|event| event.client.unwrap().kind())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentDeleted
+        ]
+    );
+}
+
 // verifies: ATCH-025, ATCH-074, EVENT-055
 #[xmtp_common::test(unwrap_try = true)]
 async fn outcome_retry_renews_lease_without_another_upload() {
@@ -363,9 +434,17 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
             .await??
             .unwrap_err()
             .cause,
-        Cause::LocalStorage
+        Cause::Deleted
     );
     tokio::time::timeout(Duration::from_secs(2), delete).await???;
+    assert_eq!(
+        client
+            .context
+            .attachments
+            .outcome_write_errors
+            .load(AtomicOrdering::SeqCst),
+        0
+    );
     let _ = release_put.send(());
     assert!(
         client

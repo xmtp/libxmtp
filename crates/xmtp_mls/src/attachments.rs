@@ -421,6 +421,8 @@ pub struct AttachmentRuntime {
     #[cfg(test)]
     delete_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
+    outcome_lock_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     create_move_pause: Mutex<Option<Arc<CreateMovePause>>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     attempt_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
@@ -454,6 +456,8 @@ impl Default for AttachmentRuntime {
             sweep_pause: Mutex::new(None),
             #[cfg(test)]
             delete_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            outcome_lock_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -504,6 +508,8 @@ impl AttachmentRuntime {
             sweep_pause: Mutex::new(None),
             #[cfg(test)]
             delete_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            outcome_lock_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1652,11 +1658,28 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 self.end_cancelled_attempt(attempt);
                 return;
             }
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            let outcome_pause = self
+                .context
+                .attachment_runtime()
+                .outcome_lock_pause
+                .lock()
+                .take();
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            if let Some((entered, resume)) = outcome_pause {
+                entered.notify_one();
+                resume.notified().await;
+            }
             let event_lock = self
                 .context
                 .attachment_runtime()
                 .event_lock(&self.reference().attachment_key);
             let _event_guard = event_lock.lock().await;
+            if self.shared.cancel.is_cancelled() {
+                drop(_event_guard);
+                self.end_cancelled_attempt(attempt);
+                return;
+            }
             let recorded = match &result {
                 Ok(()) => PendingAttachmentOutcome::Complete,
                 Err(error) => PendingAttachmentOutcome::Failed {
