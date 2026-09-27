@@ -19,6 +19,22 @@ export type HostClientOptions = B.ClientOptions & {
   codecs?: readonly AnyCodec[];
 };
 
+declare const process: { cwd(): string } | undefined;
+
+export function resolveBrowserOptions(options: B.ClientOptions): B.ClientOptions {
+  if (options.storage.location.tag !== B.StorageLocation_Tags.Default)
+    return options;
+  const directory =
+    typeof process === "undefined" ? "xmtp-sdk" : `${process.cwd()}/xmtp`;
+  return {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: B.StorageLocation.Directory.new(directory),
+    },
+  };
+}
+
 interface Owner {
   client: WeakRef<Client>;
   codecs: ReadonlyMap<string, AnyCodec>;

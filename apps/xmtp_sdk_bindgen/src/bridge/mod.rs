@@ -858,7 +858,7 @@ fn render(
     result.insert("wire.gen.ts", wire);
 
     let mut proxy = String::from(
-        "import * as B from \"./xmtp_sdk.js\";\nimport { initPureWasm } from \"../typescript-pure/index.js\";\nimport { Message as HostMessage, registerClient, unregisterClient, type HostClientOptions } from \"./host-message.gen.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
+        "import * as B from \"./xmtp_sdk.js\";\nimport { initPureWasm } from \"../typescript-pure/index.js\";\nimport { Message as HostMessage, registerClient, resolveBrowserOptions, unregisterClient, type HostClientOptions } from \"./host-message.gen.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
     );
     for item in items {
         if let Metadata::Object(object) = item
@@ -891,7 +891,7 @@ fn render(
                     .iter()
                     .map(|(name, ty)| {
                         let value = if object.name == "Client" && name == "options" {
-                            "bridgeOptions"
+                            "resolvedBridgeOptions"
                         } else {
                             name
                         };
@@ -907,7 +907,7 @@ fn render(
                 )?;
                 if !op.inputs.is_empty() {
                     if object.name == "Client" {
-                        proxy.push_str("    await initPureWasm();\n    const { codecs = [], ...bridgeOptions } = options;\n");
+                        proxy.push_str("    await initPureWasm();\n    const { codecs = [], ...bridgeOptions } = options;\n    const resolvedBridgeOptions = resolveBrowserOptions(bridgeOptions);\n");
                     }
                     proxy.push_str("    const encoder = mainEncoder(session);\n");
                 }

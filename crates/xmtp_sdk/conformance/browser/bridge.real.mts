@@ -128,9 +128,8 @@ try {
     ),
     (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.ok(B.XmtpError.StorageLocationRequired.instanceOf(error));
-      assert.equal(error.inner[0].category, B.ErrorCategory.Storage);
-      assert.equal(error.inner[0].code, "StorageLocationRequired");
+      assert.ok(B.XmtpError.Unknown.instanceOf(error));
+      assert.ok(!B.XmtpError.StorageLocationRequired.instanceOf(error));
       return true;
     },
   );
@@ -139,7 +138,7 @@ try {
     1,
     "real WASM must decode numeric PublicIdentityKind",
   );
-  assert.equal(kinds, 0, "storage failure occurs before signer kind");
+  assert.equal(kinds, 0, "unsupported OPFS fails before signer kind");
 
   await assert.rejects(
     Client.create(
