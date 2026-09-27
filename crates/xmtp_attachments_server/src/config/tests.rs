@@ -119,6 +119,12 @@ async fn storage_endpoint_requires_https_or_loopback_http() {
         r"https://s3.example.com\x",
         "https://exa%6Dple.com",
         "https://bücher.example",
+        "http://127.1",
+        "http://0x7f.0.0.1",
+        "http://2130706433",
+        "http://127.000.0.1",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:000",
     ] {
         let TargetConfig::S3(s3) = &mut config.target;
         s3.endpoint = endpoint.into();

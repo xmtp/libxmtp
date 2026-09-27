@@ -1,5 +1,6 @@
 use schemars::{JsonSchema, Schema, SchemaGenerator, json_schema};
 use serde::{Deserialize, Serialize};
+use std::net::Ipv4Addr;
 use url::Url;
 use xmtp_configuration::{
     BACKEND_DEFAULT_MAX_UPLOAD_BYTES, MAX_ATTACHMENT_RETENTION_SECONDS,
@@ -39,7 +40,7 @@ fn url_shape(allow_trailing_slash: bool) -> Schema {
         ipv6_loopback_pattern()
     );
     let host = r"(?:[A-Za-z0-9._~!$&'()*+,;=-]+|\[[0-9A-Fa-f:.]+\])";
-    let port = r"(?::(?:0*(?:[0-9]{1,4}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)?";
+    let port = r"(?::(?:0*(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?)?";
     let path = r"(?:/[A-Za-z0-9._~!$&'()*+,;=:@/%-]*)*";
     let no_dot_segments = if allow_trailing_slash {
         ""
@@ -66,6 +67,25 @@ fn base_url_schema(_: &mut SchemaGenerator) -> Schema {
 
 fn endpoint_schema(_: &mut SchemaGenerator) -> Schema {
     url_shape(true)
+}
+
+/// Find numeric IPv4 host text that URL parsing would normalize.
+fn has_noncanonical_ipv4_host(endpoint: &str) -> bool {
+    let Some((_, rest)) = endpoint.split_once("://") else {
+        return false;
+    };
+    let authority = rest.split('/').next().unwrap_or(rest);
+    if authority.starts_with('[') {
+        return false;
+    }
+    let host = authority.split(':').next().unwrap_or(authority);
+    host.as_bytes().first().is_some_and(u8::is_ascii_digit)
+        && host
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() || matches!(byte, b'.' | b'x' | b'X'))
+        && !host
+            .parse::<Ipv4Addr>()
+            .is_ok_and(|address| address.to_string() == host)
 }
 
 fn region_schema(_: &mut SchemaGenerator) -> Schema {
@@ -199,7 +219,8 @@ impl S3Config {
             rest.split('/')
                 .next()
                 .is_some_and(|host| host.contains('%'))
-        }) {
+        }) || has_noncanonical_ipv4_host(&self.endpoint)
+        {
             return Err(ConfigInvalid::new(
                 "attachments.target.S3.endpoint",
                 "is not a URL as written",

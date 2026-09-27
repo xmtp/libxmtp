@@ -558,6 +558,12 @@ fn published_attachment_endpoint_schema_agrees_with_runtime_vectors() {
         r"https://s3.example.com\x",
         "https://exa%6Dple.com",
         "https://bücher.example",
+        "http://127.1",
+        "http://0x7f.0.0.1",
+        "http://2130706433",
+        "http://127.000.0.1",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:000",
     ] {
         let mut instance = baseline.clone();
         instance["attachments"]["target"]["S3"]["endpoint"] = json!(endpoint);
@@ -585,6 +591,9 @@ fn published_attachment_base_url_schema_agrees_with_runtime_vectors() {
         "https://example.com",
         "https://CDN.example.com/att",
         "https://example.com:443/att",
+        "https://example.com:0/att",
+        "http://127.0.0.1:0/att",
+        "https://example.com:000/att",
         "https://example.com/att%20file",
         "http://LOCALHOST/files",
         "http://127.0.0.1:9000",
