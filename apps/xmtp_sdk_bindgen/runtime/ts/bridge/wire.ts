@@ -34,6 +34,7 @@ export function bridgeError(
   code: BridgeErrorCode,
   details?: unknown,
 ): BridgeError {
+  const publicCode = code[0].toUpperCase() + code.slice(1);
   if (code === "clientClosed") {
     // Keep these fields in sync with XmtpError::closed in the SDK façade.
     const category = 6;
@@ -56,8 +57,8 @@ export function bridgeError(
   if (code === "storageBusy") {
     // ErrorCategory.Storage is the third variant in the UniFFI flat enum.
     const category = 2;
-    return new BridgeError("StorageBusy", code, category, true, code, [
-      { code, category, retryable: true, message: code },
+    return new BridgeError("StorageBusy", publicCode, category, true, code, [
+      { code: publicCode, category, retryable: true, message: code },
     ]);
   }
   if (code === "lagged") {
@@ -67,7 +68,7 @@ export function bridgeError(
       { code: "Lagged", category, retryable: true, message: code },
     ]);
   }
-  return new BridgeError(code, code, 6, false, code, details);
+  return new BridgeError(publicCode, publicCode, 6, false, code, details);
 }
 
 export function encodeError(error: unknown): ErrorWire {
@@ -107,7 +108,7 @@ export function encodeError(error: unknown): ErrorWire {
       }
       return {
         variant: error.tag,
-        code: "unknown",
+        code: "Unknown",
         category: "unknown",
         retryable: false,
         message: error.message,
@@ -116,7 +117,7 @@ export function encodeError(error: unknown): ErrorWire {
     }
     return {
       variant: error.name,
-      code: "unknown",
+      code: "Unknown",
       category: "unknown",
       retryable: false,
       message: error.message,
@@ -124,7 +125,7 @@ export function encodeError(error: unknown): ErrorWire {
   }
   return {
     variant: "Unknown",
-    code: "unknown",
+    code: "Unknown",
     category: "unknown",
     retryable: false,
     message: String(error),

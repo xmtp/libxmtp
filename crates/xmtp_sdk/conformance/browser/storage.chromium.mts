@@ -36,7 +36,7 @@ const third = await context.newPage();
 const url = `http://127.0.0.1:${address.port}/crates/xmtp_sdk/conformance/browser/bridge.chromium.html`;
 const base = `bridge-${crypto.randomUUID()}`;
 const busyFields = {
-  code: "storageBusy",
+  code: "StorageBusy",
   category: 2,
   retryable: true,
   typed: true,
@@ -95,7 +95,7 @@ try {
     }, pathB);
   assert.equal(
     await attempt(),
-    "storageBusy",
+    "StorageBusy",
     "another path in a second tab must be busy",
   );
   assert.deepEqual(await opfsAttempt(second, pathB), busyFields);
@@ -104,7 +104,7 @@ try {
   );
   assert.equal(
     await attempt(),
-    "storageBusy",
+    "StorageBusy",
     "another client still owns the pool",
   );
   await first.evaluate(async () =>
@@ -114,7 +114,7 @@ try {
   for (let index = 0; index < 50; index++) {
     reopened = await attempt();
     if (reopened === "opened") break;
-    if (reopened !== "storageBusy") break;
+    if (reopened !== "StorageBusy") break;
     await new Promise<void>((resolve) => setTimeout(resolve, 50));
   }
   assert.equal(
@@ -150,7 +150,7 @@ try {
         return bridge.codeOf(error);
       }
     }, pathD),
-    "storageBusy",
+    "StorageBusy",
     "GC released the lock before Rust closed SQLite",
   );
   await second.evaluate(async () =>

@@ -157,7 +157,7 @@ const host = new WorkerHost(
           error !== null &&
           typeof error === "object" &&
           "code" in error &&
-          error.code === "storageBusy"
+          error.code === "StorageBusy"
         );
       }
     }

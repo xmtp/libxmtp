@@ -79,6 +79,27 @@ class TestProxy extends RemoteObject {
 }
 
 describe("browser bridge transport", () => {
+  it("exposes only PascalCase error codes", () => {
+    const codes = [
+      "contractMismatch",
+      "workerTerminated",
+      "clientClosed",
+      "storageBusy",
+      "lagged",
+      "callbackFailed",
+      "cancelled",
+    ] as const;
+    const exposed = codes.flatMap((code) => {
+      const error = bridgeError(code);
+      const wire = encodeError(error);
+      return [error.code, wire.code];
+    });
+    exposed.push(encodeError(new Error("unknown failure")).code);
+    for (const code of exposed) {
+      expect(code).toMatch(/^[A-Z][A-Za-z0-9]*$/);
+    }
+  });
+
   it("uses the Rust ClientClosed fields for bridge lifecycle errors", () => {
     expect(bridgeError("clientClosed")).toMatchObject({
       variant: "ClientClosed",
@@ -99,7 +120,7 @@ describe("browser bridge transport", () => {
   it("uses the Rust StorageBusy fields for bridge lock errors", () => {
     expect(bridgeError("storageBusy")).toMatchObject({
       variant: "StorageBusy",
-      code: "storageBusy",
+      code: "StorageBusy",
       category: 2,
       retryable: true,
     });
@@ -115,7 +136,7 @@ describe("browser bridge transport", () => {
   it("XmtpError keeps variant and detail fields", () => {
     const error = new BridgeError(
       "StorageBusy",
-      "storageBusy",
+      "StorageBusy",
       "storage",
       true,
       "busy",
@@ -124,7 +145,7 @@ describe("browser bridge transport", () => {
     const result = decodeError(structuredClone(encodeError(error)));
     expect(result).toMatchObject({
       variant: "StorageBusy",
-      code: "storageBusy",
+      code: "StorageBusy",
       category: "storage",
       retryable: true,
       details: { pool: "one" },
@@ -132,7 +153,7 @@ describe("browser bridge transport", () => {
     class TaggedError extends Error {
       readonly tag = "StorageBusy";
       readonly inner = [
-        { code: "storageBusy", category: 2, retryable: true, pool: "one" },
+        { code: "StorageBusy", category: 2, retryable: true, pool: "one" },
       ];
     }
     const tagged = decodeError(
@@ -140,7 +161,7 @@ describe("browser bridge transport", () => {
     );
     expect(tagged).toMatchObject({
       variant: "StorageBusy",
-      code: "storageBusy",
+      code: "StorageBusy",
       category: 2,
       retryable: true,
       details: [{ pool: "one" }],
@@ -221,7 +242,7 @@ describe("browser bridge transport", () => {
     const pending = session.call("waiting", []);
     await Promise.resolve();
     main.emitRaw({ t: "futureMessage" });
-    await expect(pending).rejects.toMatchObject({ code: "contractMismatch" });
+    await expect(pending).rejects.toMatchObject({ code: "ContractMismatch" });
   });
 
   it("worker_death_settles_pending", async () => {
@@ -246,7 +267,7 @@ describe("browser bridge transport", () => {
           ),
         ),
       ]),
-    ).rejects.toMatchObject({ code: "workerTerminated" });
+    ).rejects.toMatchObject({ code: "WorkerTerminated" });
   });
 
   it("rolls back a pending call when structuredClone throws", async () => {
@@ -269,7 +290,7 @@ describe("browser bridge transport", () => {
     expect(engine.registry.size).toBe(2);
     const call = proxy.ping();
     engine.fatal(new Error("panic"));
-    await expect(call).rejects.toMatchObject({ code: "workerTerminated" });
+    await expect(call).rejects.toMatchObject({ code: "WorkerTerminated" });
     expect(() => proxy.ping()).toThrowError(BridgeError);
     expect(() => proxy.ping()).toThrow("clientClosed");
   });
@@ -318,7 +339,7 @@ describe("browser bridge transport", () => {
     locks.attachOwner(handle.owner, "client-pool");
     const client = new TestProxy(session, handle);
     await expect(otherTab.open("client-pool")).rejects.toMatchObject({
-      code: "storageBusy",
+      code: "StorageBusy",
     });
     client.release();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -361,7 +382,7 @@ describe("browser bridge transport", () => {
     locks.attachOwner(handle.owner, "client-pool");
     const client = new TestProxy(session, handle);
     await expect(otherTab.open("client-pool")).rejects.toMatchObject({
-      code: "storageBusy",
+      code: "StorageBusy",
     });
     client.release();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
@@ -394,7 +415,7 @@ describe("browser bridge transport", () => {
     );
     const session = new MainSession(main, 1, "main hash");
     await expect(session.ready()).rejects.toMatchObject({
-      code: "contractMismatch",
+      code: "ContractMismatch",
     });
   });
 
@@ -484,7 +505,7 @@ describe("browser bridge transport", () => {
     const second = new PoolLocks(provider);
     await first.open("same-pool");
     await expect(second.open("same-pool")).rejects.toMatchObject({
-      code: "storageBusy",
+      code: "StorageBusy",
     });
     first.closeAll();
   });
@@ -536,7 +557,7 @@ describe("browser bridge transport", () => {
     await Promise.all([first.open("race"), first.open("race")]);
     first.close("race");
     await expect(second.open("race")).rejects.toMatchObject({
-      code: "storageBusy",
+      code: "StorageBusy",
     });
     first.attachOwner(7, "race");
     first.closeOwner(7);
@@ -565,7 +586,7 @@ describe("browser bridge transport", () => {
     await tab.open("pool");
     tab.closeOwner(1);
     await expect(otherTab.open("pool")).rejects.toMatchObject({
-      code: "storageBusy",
+      code: "StorageBusy",
     });
     tab.attachOwner(2, "pool");
     tab.closeOwner(2);
@@ -582,7 +603,7 @@ describe("browser bridge transport", () => {
     });
     const opening = locks.open("pending");
     locks.closeAll();
-    await expect(opening).rejects.toMatchObject({ code: "workerTerminated" });
+    await expect(opening).rejects.toMatchObject({ code: "WorkerTerminated" });
   });
 
   it("reports a gap before later events under constant flow", async () => {
@@ -630,6 +651,6 @@ describe("browser bridge transport", () => {
     abort.abort();
     await expect(
       session.call("one", [], undefined, abort.signal),
-    ).rejects.toMatchObject({ code: "cancelled" });
+    ).rejects.toMatchObject({ code: "Cancelled" });
   });
 });

@@ -61,8 +61,8 @@ try {
   };
   const pending = session.call("__bridgeNever", []);
   const trap = session.call("bridgeTestPanic", []);
-  await assert.rejects(trap, { code: "workerTerminated" });
-  await assert.rejects(pending, { code: "workerTerminated" });
+  await assert.rejects(trap, { code: "WorkerTerminated" });
+  await assert.rejects(pending, { code: "WorkerTerminated" });
   assert.ok(sawFatal, "real WASM trap must send fatal");
   assert.throws(() => session.checkHandle(handle), { code: "ClientClosed" });
   await Promise.race([
@@ -110,7 +110,7 @@ try {
   const waiting = backgroundSession.call("__bridgeNever", []);
   const trigger = backgroundSession.call("bridgeTestBackgroundPanic", []);
   await Promise.allSettled([trigger, waiting]);
-  await assert.rejects(waiting, { code: "workerTerminated" });
+  await assert.rejects(waiting, { code: "WorkerTerminated" });
   assert.ok(backgroundFatal, "background WASM panic must send fatal at once");
   console.log("background WASM panic hook sent fatal without a later call");
 } finally {

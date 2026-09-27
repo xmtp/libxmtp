@@ -182,7 +182,7 @@ impl XmtpError {
     #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) fn storage_busy(message: impl Into<String>) -> Self {
         Self::StorageBusy(Self::details(
-            "storageBusy",
+            "StorageBusy",
             ErrorCategory::Storage,
             true,
             message,
@@ -452,7 +452,7 @@ mod tests {
         let XmtpError::StorageBusy(details) = XmtpError::storage_busy("busy") else {
             panic!("expected StorageBusy");
         };
-        assert_eq!(details.code, "storageBusy");
+        assert_eq!(details.code, "StorageBusy");
         assert!(matches!(details.category, ErrorCategory::Storage));
         assert!(details.retryable);
     }

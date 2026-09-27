@@ -204,7 +204,7 @@ async function keepGroupAfterClientGC(): Promise<void> {
   const group = new Group(lockSession, groupHandle);
   temporaryLockedClient();
   await assert.rejects(otherTab.open("collected-client"), {
-    code: "storageBusy",
+    code: "StorageBusy",
   });
   for (let attempt = 0; attempt < 100 && host.registry.size > 1; attempt++) {
     global.gc();
@@ -216,7 +216,7 @@ async function keepGroupAfterClientGC(): Promise<void> {
     "message-id",
   );
   await assert.rejects(otherTab.open("collected-client"), {
-    code: "storageBusy",
+    code: "StorageBusy",
   });
 }
 await keepGroupAfterClientGC();

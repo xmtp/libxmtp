@@ -291,7 +291,7 @@ try {
   const pending = second.session.call("__bridgeNever", []);
   await new Promise<void>((resolve) => setTimeout(resolve, 10));
   await second.worker.terminate();
-  await assert.rejects(pending, { code: "workerTerminated" });
+  await assert.rejects(pending, { code: "WorkerTerminated" });
   console.log("worker_threads termination passed");
 } finally {
   await second.worker.terminate();

@@ -43,7 +43,7 @@ export async function checkWorkerFailure(): Promise<void> {
     } catch (error) {
       code = error instanceof Error ? Reflect.get(error, "code") : undefined;
     }
-    if (!fatal || code !== "workerTerminated") {
+    if (!fatal || code !== "WorkerTerminated") {
       throw new Error(`worker failure was not fatal: ${String(code)}`);
     }
   } finally {
