@@ -623,6 +623,7 @@ mod tests {
         let store = NativeStore::new(directory.path()).await?;
         let mut writer = store.create_temp(".tmp/file").await?;
         writer.write(b"private").await?;
+        store.sync(&mut writer).await?;
         drop(writer);
         assert_eq!(
             std::fs::metadata(directory.path().join(".tmp"))?
@@ -886,9 +887,11 @@ mod tests {
         let store = NativeStore::new(directory.path()).await?;
         let mut source = store.create_temp(".tmp/source").await?;
         source.write(b"source").await?;
+        store.sync(&mut source).await?;
         drop(source);
         let mut destination = store.create_temp(".tmp/destination").await?;
         destination.write(b"destination").await?;
+        store.sync(&mut destination).await?;
         drop(destination);
         let error = store
             .rename(".tmp/source", ".tmp/destination")
@@ -914,6 +917,7 @@ mod tests {
             .with_forced_hard_link_error(std::io::ErrorKind::PermissionDenied);
         let mut source = store.create_temp(".tmp/source").await?;
         source.write(b"source").await?;
+        store.sync(&mut source).await?;
         drop(source);
         store.rename(".tmp/source", "key/file").await?;
         assert!(!store.exists(".tmp/source").await?);
@@ -924,6 +928,7 @@ mod tests {
 
         let mut source = store.create_temp(".tmp/second").await?;
         source.write(b"second").await?;
+        store.sync(&mut source).await?;
         drop(source);
         let error = store.rename(".tmp/second", "key/file").await.unwrap_err();
         assert!(matches!(error, StoreMoveError::DestinationExists));
@@ -946,6 +951,7 @@ mod tests {
             .with_forced_hard_link_error(std::io::ErrorKind::Unsupported);
         let mut source = store.create_temp(".tmp/source").await?;
         source.write(b"source").await?;
+        store.sync(&mut source).await?;
         drop(source);
         store.rename(".tmp/source", "key/file").await?;
         assert!(!store.exists(".tmp/source").await?);
@@ -954,6 +960,7 @@ mod tests {
         let racing = store.with_fallback_destination_race(b"destination".to_vec());
         let mut source = racing.create_temp(".tmp/second").await?;
         source.write(b"second").await?;
+        racing.sync(&mut source).await?;
         drop(source);
         assert_eq!(
             racing
@@ -1025,6 +1032,7 @@ mod tests {
         std::env::set_current_dir(elsewhere.path())?;
         let mut writer = store.create_temp(".tmp/file").await?;
         writer.write(b"original root").await?;
+        store.sync(&mut writer).await?;
         drop(writer);
         assert_eq!(
             tokio::fs::read(directory.path().join(".tmp/file")).await?,
