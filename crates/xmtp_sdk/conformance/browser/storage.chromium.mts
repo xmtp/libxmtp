@@ -242,6 +242,44 @@ try {
   console.log(
     "Chromium real WASM retried OPFS install and unpause after SAH contention",
   );
+
+  // A failed registration must end the client it built before the Web Lock
+  // is released. Otherwise its SQLite connections keep the OPFS pool.
+  await Promise.all(
+    [second, third].map((page) =>
+      page.evaluate(async () =>
+        (await import("./storage.bridge.chromium.ts")).stop(),
+      ),
+    ),
+  );
+  assert.equal(
+    await first.evaluate(
+      async (path) =>
+        (await import("./storage.bridge.chromium.ts")).failRegistration(path),
+      `${base}-registration.db`,
+    ),
+    "SignerFailed",
+  );
+  let afterRegistration: unknown;
+  for (let index = 0; index < 50; index++) {
+    afterRegistration = await second.evaluate(async (path) => {
+      const bridge = await import("./storage.bridge.chromium.ts");
+      try {
+        await bridge.open(path);
+        return "opened";
+      } catch (error) {
+        return bridge.codeOf(error);
+      }
+    }, `${base}-after-registration.db`);
+    if (afterRegistration !== "StorageBusy") break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(
+    afterRegistration,
+    "opened",
+    "a failed registration left its client holding the OPFS pool",
+  );
+  console.log("Chromium failed registration released the OPFS pool");
 } finally {
   await first
     .evaluate(async () =>

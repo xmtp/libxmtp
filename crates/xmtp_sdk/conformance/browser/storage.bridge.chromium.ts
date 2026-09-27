@@ -87,6 +87,53 @@ export async function open(path: string): Promise<string> {
   return storedPath;
 }
 
+export async function failRegistration(path: string): Promise<unknown> {
+  const current = await connection();
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  const identifier = `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  try {
+    const client = await Client.create(
+      current,
+      {
+        async identity() {
+          return { identifier, kind: B.PublicIdentityKind.Ethereum };
+        },
+        async kind() {
+          return B.SignerKind.Eoa.new();
+        },
+        async sign() {
+          throw new Error("signer rejected registration");
+        },
+      },
+      {
+        backend: B.BackendSource.Options.new({
+          options: {
+            url: `${location.origin}/backend`,
+            appVersion: undefined,
+            credential: undefined,
+            credentials: undefined,
+          },
+        }),
+        storage: {
+          location: B.StorageLocation.Path.new(path),
+          label: path,
+          encryptionKey: undefined,
+          pool: undefined,
+          singleConnection: false,
+        },
+        deviceSync: false,
+        registration: { auto: true, nonce: undefined },
+        forkRecovery: undefined,
+        workers: undefined,
+      },
+    );
+    await client.end();
+    return "opened";
+  } catch (error) {
+    return codeOf(error);
+  }
+}
+
 export async function poolFilenames(): Promise<string[]> {
   const root = await navigator.storage.getDirectory();
   const metadata = await root.getDirectoryHandle(".opfs-libxmtp-metadata");

@@ -495,8 +495,16 @@ impl Client {
         let identity = signer::identity(signer.clone()).await?;
         let mut client = Self::build_inner(identity, options, None, false).await?;
         if client.options.registration.auto {
-            let kind = signer::kind(signer.clone()).await?;
-            client.register_with_signer(signer.clone(), kind).await?;
+            let registered = match signer::kind(signer.clone()).await {
+                Ok(kind) => client.register_with_signer(signer.clone(), kind).await,
+                Err(error) => Err(error),
+            };
+            if let Err(error) = registered {
+                // The built client already runs background work on its store.
+                // End it, so a failed create leaves no work and no open store.
+                let _ = client.end().await;
+                return Err(error);
+            }
         }
         client.signer = Some(signer);
         Ok(client)
