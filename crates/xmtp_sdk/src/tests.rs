@@ -7,6 +7,7 @@ use std::sync::{
 use std::{future::Future, time::Duration};
 
 use alloy::signers::local::PrivateKeySigner;
+use futures::FutureExt;
 use tokio::sync::Notify;
 use xmtp_db::{group::GroupQueryArgs, group_message::MsgQueryArgs};
 use xmtp_id::{InboxOwner, associations::unverified::UnverifiedSignature};
@@ -2072,9 +2073,10 @@ async fn conversation_conversion_error_closes_reader() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let reader = client.conversations().conversation_reader(None).await?;
     reader.fail_next_conversion_for_test();
+    let idle = reader.idle_read_for_test();
     let waiting = reader.clone();
     let read = tokio::spawn(async move { waiting.next().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    xmtp_common::time::timeout(Duration::from_secs(5), idle.notified()).await?;
     client.conversations().create_group(vec![], None).await?;
     assert!(
         xmtp_common::time::timeout(Duration::from_secs(5), read)
@@ -2094,9 +2096,10 @@ async fn conversation_reader_rereads_after_fall_behind() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let reader = client.conversations().conversation_reader(None).await?;
+    let idle = reader.idle_read_for_test();
     let waiting_reader = reader.clone();
     let pending = tokio::spawn(async move { waiting_reader.next().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    xmtp_common::time::timeout(Duration::from_secs(5), idle.notified()).await?;
     assert!(
         !pending.is_finished(),
         "reader must start before new groups"
@@ -2127,9 +2130,11 @@ async fn conversation_reader_rereads_after_fall_behind() {
     }
     assert!(expected.is_empty());
 
+    // Stored reads leave a permit. Consume it before waiting for the next read.
+    let _ = idle.notified().now_or_never();
     let waiting_reader = reader.clone();
     let pending = tokio::spawn(async move { waiting_reader.next().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    xmtp_common::time::timeout(Duration::from_secs(5), idle.notified()).await?;
     assert!(
         !pending.is_finished(),
         "lagged hint must not close the reader"
