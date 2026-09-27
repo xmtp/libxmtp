@@ -129,7 +129,7 @@ SEND-020 requires an SDK that accepts string content without an explicit content
 | CTYPE-008 | Undecodable content is kept | When a received application message has no matching codec, fails decoding, or is not a typed `EncodedContent`, the client MUST retain its original bytes and message id. The client and SDK MUST expose those bytes and that id to the app, with the actual content identifier and fallback when present, without replacing the identifier with a text or fallback type. | Dropping undecodable content gives installations different conversation histories. |
 | CTYPE-009 | Failures are distinguishable | When encoding, decoding, or selecting a codec, an SDK MUST let the app distinguish no matching codec, codec decode failure, codec encode failure, and a malformed or untyped envelope. On a lookup failure, the Kotlin and Swift SDK registries MUST report no matching codec and MUST NOT return a successful text decode instead. | Unknown UTF-8 content can otherwise appear to be ordinary text. |
 | CTYPE-017 | Apps supply custom codecs | An SDK MUST let an app register a codec for a custom type, use it for received custom content matched under CTYPE-001, and send typed envelopes that the app encodes with it. | An app-defined type must be usable without changing the client. |
-| CTYPE-026 | Standard codecs without a client | An SDK MUST expose, for each standard type that an app can send as message content, a codec that an app can call without a client and whose envelope for a value equals the client's own encoding of that value under CTYPE-014. | Apps build and inspect standard content outside a conversation, and a second encoder in a host language drifts from the client's. |
+| CTYPE-026 | Standard codecs without a client | An SDK MUST expose, for each standard type except the legacy group membership change, group updates, and the reserved edit type, a codec that an app can call without a client and whose envelope for a value equals the client's own encoding of that value under CTYPE-014. | Apps build and inspect standard content outside a conversation, and a second encoder in a host language drifts from the client's. |
 
 ## 4. The push value
 
@@ -162,7 +162,7 @@ An incompatible encoding needs a different major version under CTYPE-016. A code
 
 The catalogue lists identifiers, encodings, parameters, push values, and deletion eligibility. CTYPE-018 binds deletion eligibility; it is authorization behavior, not a wire value. PROC-037 requires that a deletion affects only a target in the same group, passes CTYPE-018, and is sent by the target's sender or a current super admin; a rejected deletion leaves the target unchanged.
 
-Every SDK exposes a codec for each standard type an app can send (CTYPE-026). Types that the client only receives or derives, such as the legacy group membership change and group updates, and the reserved edit type need no standalone codec. Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
+Every SDK exposes a codec for each standard type except the legacy group membership change, group updates, and the reserved edit type (CTYPE-026); the client only receives or derives those types, or reserves them. Standard content may be decoded by the client before an SDK registry is reached. SYNC owns its own message identifier and schema. The reserved edit type has a protobuf schema but no active codec.
 
 JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.html#section-4). Section 7.2 states member names, types, and presence in tables, without using WebIDL for a wire format. SPEC-043 and [SPEC section 3.1](SPEC-spec-format.md#31-type-blocks) provide no notation for repository-defined JSON type blocks. The tables avoid claiming a WebIDL exception.
 
@@ -379,7 +379,7 @@ The validation table states encode and decode behavior separately. A decode erro
 | JSON object members | Use the JSON member tables, omit absent optional members, and fail for a missing required member or wrong value type | Require the declared member types; accept absent or null optional members and ignore unknown members, except that additional WalletCallMetadata members are retained as strings |
 | TransactionReference `networkId` | String | Accept string or number; return a number's decimal text as a string |
 | Actions `actions` | Require 1 through 10 entries and unique `id` values | Accept an array without imposing the encode count or uniqueness limits |
-| Action and Actions `expiresAt` | RFC 3339 UTC timestamp with exactly three fractional digits; discard precision below milliseconds | Parse RFC 3339 timestamps and normalize to UTC; accept `expires_at` as an alias |
+| Action and Actions `expiresAt` | RFC 3339 UTC timestamp with exactly three fractional digits; discard precision below milliseconds; fail for a time outside the signed 64-bit nanosecond range | Parse RFC 3339 timestamps and normalize to UTC; accept `expires_at` as an alias |
 | Action `imageUrl`; Intent `actionId` | Use the camel-case member name | Also accept `image_url` and `action_id`, respectively |
 | Intent `metadata` | Reject when its compact UTF-8 JSON encoding exceeds 10240 bytes | Accept an object without imposing the encode size limit |
 
@@ -388,7 +388,7 @@ Timestamp syntax is defined by [RFC 3339 §5.6](https://www.rfc-editor.org/rfc/r
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CTYPE-019 | Encoding and decoding checks | When the client or an SDK encodes or decodes catalogue content, it MUST apply the matching column of the validation table above and MUST return an encode or decode failure for a violated check. | Hidden validation differences make the same content work on one SDK and fail on another. |
-| CTYPE-030 | Action expiry range | When the client or an SDK decodes Actions content whose Actions or Action `expiresAt` names a time that a signed 64-bit count of nanoseconds since the Unix epoch cannot represent, it MUST return a decode failure for the message. | An SDK that clamps or drops an unrepresentable expiry shows a different value than another SDK, or none. |
+| CTYPE-030 | Action expiry range | When the client or an SDK encodes or decodes Actions content whose Actions or Action `expiresAt` names a time that a signed 64-bit count of nanoseconds since the Unix epoch cannot represent, it MUST return an encode or decode failure for the message. | An SDK that clamps or drops an unrepresentable expiry shows a different value than another SDK, or none. |
 
 ## Known limitations
 

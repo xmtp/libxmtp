@@ -630,7 +630,7 @@ id = "CTYPE-026"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs ship host-language codec classes; the Rust-backed classes replace them in the SDK migration."
+reason = "Node and browser expose no client-free Reply encoder, and Swift and Kotlin codecs are host-language classes whose envelopes can differ from the client's; the façade exposes Rust-backed codecs."
 
 [[waiver]]
 id = "CTYPE-027"
