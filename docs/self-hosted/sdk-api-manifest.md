@@ -2475,7 +2475,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.accountIdentifier` | member | `Client.identity` | generated | 11.1, Client.identity | Source: `sdks/node/src/Client.ts`. |
 | `Client.appVersion` | member | `Client.appVersion` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts`. |
 | `Client.archiveMetadata` | member | `Client.archives.metadataFromFile` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.build` | member | `Client.build` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Build requires a stored identity and does not fetch configuration for an empty database. Source: `sdks/node/src/Client.ts`. |
+| `Client.build` | member | `Client.build` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Build requires a stored identity and does not fetch configuration for an empty database. The current Node build resolves the inbox ID from the backend and creates the client online, so an empty database fetches configuration and needs no stored identity. Source: `sdks/node/src/Client.ts`. |
 | `Client.canMessage` | member | `Client.canMessage` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.changeRecoveryIdentifier` | member | `Client.changeRecoveryIdentifier` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.close` | member | `Client.end()` | generated | plan Decisions, client end | Source: `sdks/node/src/Client.ts`. |
@@ -2967,7 +2967,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.accountIdentifier` | member | `Client.identity` | generated | 11.1, Client.identity | Source: `sdks/browser/src/Client.ts`. |
 | `Client.appVersion` | member | `Client.appVersion` | generated | 11.1, Client immutable fields | Source: `sdks/browser/src/Client.ts`. |
 | `Client.archiveMetadata` | member | `Client.archives.metadataFromBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
-| `Client.build` | member | `Client.build` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). Build requires a stored identity and does not fetch configuration for an empty database. Source: `sdks/browser/src/Client.ts`. |
+| `Client.build` | member | `Client.build` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). Build requires a stored identity and does not fetch configuration for an empty database. The current Browser build resolves the inbox ID from the backend and creates the client online, so an empty database fetches configuration and needs no stored identity. Source: `sdks/browser/src/Client.ts`. |
 | `Client.canMessage` | member | `Client.canMessage` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.changeRecoveryIdentifier` | member | `Client.changeRecoveryIdentifier` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.close` | member | `Client.end()` | generated | plan Decisions, client end | Source: `sdks/browser/src/Client.ts`. |

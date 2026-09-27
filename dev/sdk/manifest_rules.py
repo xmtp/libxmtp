@@ -364,7 +364,9 @@ for sdk in ("Node", "Browser"):
         note=(
             "Host wrapper owns codecs and closures (11.1; plan Decisions). "
             "Build requires a stored identity and does not fetch configuration "
-            "for an empty database."
+            f"for an empty database. The current {sdk} build resolves the inbox "
+            "ID from the backend and creates the client online, so an empty "
+            "database fetches configuration and needs no stored identity."
         ),
     )
     add(
