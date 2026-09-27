@@ -197,6 +197,10 @@ impl WasmDb {
         let conn = match opts {
             Ephemeral => PersistentOrMem::Mem(WasmDbConnection::new_ephemeral("xmtp-ephemeral")?),
             Persistent(db_path) => {
+                // Unpause here even when the caller already did: an ending
+                // client can pause the pool before this open starts. A pause
+                // during the unpause is a no-op. Keep no await between the
+                // unpause and the guard, so a later pause sees the guard.
                 init_sqlite().await;
                 let _opening = restore::PendingOpen::acquire()?;
                 maybe_resize().await?;

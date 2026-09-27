@@ -121,6 +121,32 @@ xmtp_common::if_wasm! {
         xmtp_db::delete_opfs_database(&path).await?;
     }
 
+    /// A caller can unpause the pool before `WasmDb::new`, and an ending client
+    /// can pause it again before the open starts or while the open unpauses it.
+    /// The open unpauses the pool itself, so it still opens its file.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn open_unpauses_a_pool_paused_before_it() {
+        use futures::FutureExt;
+        use xmtp_db::WasmDb;
+
+        xmtp_db::try_init_sqlite().await.expect("OPFS install");
+        let util = get_sqlite().expect("OPFS cell").expect("OPFS util");
+        xmtp_db::pause_sqlite_if_idle();
+        assert!(util.is_paused(), "an idle pool did not pause");
+        let path = xmtp_common::tmp_path();
+        let location = StorageOption::Persistent(path.clone());
+        let mut open = std::pin::pin!(WasmDb::new(&location));
+        assert!(open.as_mut().now_or_never().is_none(), "the open did not wait on the unpause");
+
+        xmtp_db::pause_sqlite_if_idle();
+        let store = EncryptedMessageStore::new(open.await?)?;
+
+        assert!(!util.is_paused(), "the open left the pool paused");
+        assert!(util.exists(&path)?, "the open did not create its OPFS file");
+        store.release_connection()?;
+        xmtp_db::delete_opfs_database(&path).await?;
+    }
+
     /// Whole-database import requires a closed, absent target and fences old state.
     #[xmtp_common::test(unwrap_try = true)]
     async fn opfs_restore_rotates_identity_and_fences_old_handles() {
