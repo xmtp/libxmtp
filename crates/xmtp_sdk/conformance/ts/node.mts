@@ -589,14 +589,18 @@ for (const abortBeforeOpen of [true, false]) {
   const controller = new AbortController();
   if (abortBeforeOpen) controller.abort();
   let endedAfterAbort = false;
+  let opened = false;
   await assertNoUnhandledRejection(async () => {
     const aborted = new sdk.MessageStream(
-      async () => ({
-        next: async () => undefined,
-        end: async () => {
-          endedAfterAbort = true;
-        },
-      }),
+      async () => {
+        opened = true;
+        return {
+          next: async () => undefined,
+          end: async () => {
+            endedAfterAbort = true;
+          },
+        };
+      },
       reopened,
       {
         signal: controller.signal,
@@ -610,7 +614,14 @@ for (const abortBeforeOpen of [true, false]) {
       controller.abort();
     }
     await new Promise((resolve) => setImmediate(resolve));
-    assert.equal(endedAfterAbort, true, "aborted reader remained open");
+    // A stream aborted before its opener starts never opens; one aborted
+    // after opening ends its reader. Either way no reader stays open.
+    assert.equal(
+      !opened || endedAfterAbort,
+      true,
+      "aborted reader remained open",
+    );
+    if (!abortBeforeOpen) assert.equal(opened, true, "opener did not run");
     assert.equal((await aborted.next()).done, true);
   });
 }

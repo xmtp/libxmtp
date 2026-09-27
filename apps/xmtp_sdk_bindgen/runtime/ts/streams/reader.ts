@@ -52,8 +52,12 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     const creation = new AbortController();
     this.pending = creation;
     this.reader = Promise.resolve()
-      .then(() => open(creation.signal))
+      // A stream ended before its opener starts never opens: an opener
+      // started with an already-aborted signal may never settle, and end()
+      // waits for the opener.
+      .then(() => (this.closed ? undefined : open(creation.signal)))
       .then(async (reader) => {
+        if (!reader) return undefined;
         if (this.closed) {
           await reader.end();
           return undefined;
