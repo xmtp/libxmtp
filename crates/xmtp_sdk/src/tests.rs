@@ -1567,7 +1567,10 @@ async fn storage_path_keeps_opened_relative_file_after_chdir() {
     {
         let _restore = RestoreDirectory(original);
         std::env::set_current_dir(std::env::temp_dir())?;
-        assert_eq!(client.storage().path().await?, Some(expected.to_string_lossy().into_owned()));
+        assert_eq!(
+            client.storage().path().await?,
+            Some(expected.to_string_lossy().into_owned())
+        );
     }
     client.end().await?;
     std::fs::remove_dir_all(relative.parent().expect("database directory"))?;
@@ -1595,9 +1598,11 @@ async fn storage_delete_ends_event_reader_and_listener() {
     let pending_reader = reader.clone();
     let pending = tokio::spawn(async move { pending_reader.next().await });
     client.storage().delete().await?;
-    assert!(tokio::time::timeout(Duration::from_secs(2), pending)
-        .await???
-        .is_none());
+    assert!(
+        tokio::time::timeout(Duration::from_secs(2), pending)
+            .await???
+            .is_none()
+    );
     assert_eq!(client.listeners.active_count_for_test(), 0);
     client.end().await?;
     assert!(!path.exists());
