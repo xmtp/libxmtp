@@ -638,7 +638,9 @@ await reopened.conversations().createGroup([], undefined);
 assert.equal((await conversationStream.next()).done, false);
 await conversationStream.end();
 // verifies: CONS-030
-const consentReader = sdk.ConversationStream.open(reopened);
+const consentReader = sdk.ConversationStream.open(reopened, {
+  consentStates: [sdk.ConsentState.Allowed],
+});
 const deniedConversation = await reopened.conversations().createGroup([], undefined);
 await reopened.raw.preferences().setConsentStates([
   {
@@ -649,7 +651,14 @@ await reopened.raw.preferences().setConsentStates([
   },
 ]);
 const allowedConversation = await reopened.conversations().createGroup([], undefined);
-const selectedConversation = (await consentReader.next()).value;
+const selectedConversation = (
+  await Promise.race([
+    consentReader.next(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("selected conversation not delivered")), 5_000),
+    ),
+  ])
+).value;
 assert.equal(selectedConversation?.tag, sdk.Conversation_Tags.Group);
 assert.equal(
   (selectedConversation as InstanceType<typeof sdk.Conversation.Group>).inner.group
