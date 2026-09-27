@@ -99,6 +99,30 @@ private class TestSigner : Signer {
     }
 }
 
+private class RecordingSigner(
+    private val inner: Signer,
+    private val calls: MutableList<String>,
+) : Signer {
+    override suspend fun identity() = inner.identity()
+
+    override suspend fun kind() = inner.kind()
+
+    override suspend fun sign(request: SigningRequest): Signature {
+        calls.add("sign")
+        return inner.sign(request)
+    }
+}
+
+private class RecordingPreAuthenticate(
+    private val calls: MutableList<String>,
+    private val fail: Boolean,
+) : PreAuthenticate {
+    override suspend fun run() {
+        calls.add("pre-authenticate")
+        if (fail) throw PreAuthenticateException.Failed()
+    }
+}
+
 private class OrderedLogSink : LogSink {
     val sequence = mutableListOf<String>()
 
@@ -671,6 +695,34 @@ fun main() =
         check(unsignedHost.raw.isRegistered())
         unsignedHost.end()
         println("Kotlin scenario 11: local signer and signature request passed")
+
+        // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
+        val preAuthCalls = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val preAuthenticated =
+            SDKClient.create(
+                RecordingSigner(generateLocalSigner(), preAuthCalls),
+                unsignedOptions.copy(handlers = ClientHandlers(RecordingPreAuthenticate(preAuthCalls, fail = false))),
+            )
+        check(preAuthCalls.isEmpty())
+        preAuthenticated.raw.register()
+        check(preAuthCalls == listOf("pre-authenticate", "sign")) { "$preAuthCalls" }
+        preAuthCalls.clear()
+        preAuthenticated.raw.register()
+        check(preAuthCalls.isEmpty()) { "$preAuthCalls" }
+        preAuthenticated.end()
+        check(
+            runCatching {
+                SDKClient.create(
+                    RecordingSigner(generateLocalSigner(), preAuthCalls),
+                    unsignedOptions.copy(
+                        registration = RegistrationOptions(auto = true),
+                        handlers = ClientHandlers(RecordingPreAuthenticate(preAuthCalls, fail = true)),
+                    ),
+                )
+            }.exceptionOrNull() is XmtpException.CallbackFailed,
+        )
+        check(preAuthCalls == listOf("pre-authenticate")) { "$preAuthCalls" }
+        println("Kotlin IDENT-073: host preAuthenticate runs before the signer")
 
         check(reopened.notificationState() == NotificationState.Disabled)
         check(

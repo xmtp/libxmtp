@@ -1254,6 +1254,68 @@ assert.equal(await unsigned.raw.isRegistered(), true);
 await unsigned.end();
 console.log("Node scenario 11: local signer and signature request passed");
 
+// verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
+function recordingSigner(calls: string[]) {
+  const wallet = privateKeyToAccount(generatePrivateKey());
+  return {
+    async identity() {
+      return {
+        identifier: wallet.address.toLowerCase(),
+        kind: sdk.PublicIdentityKind.Ethereum,
+      };
+    },
+    async kind() {
+      return new sdk.SignerKind.Eoa();
+    },
+    async sign(request: { text: string }) {
+      calls.push("sign");
+      const signature = await wallet.signMessage({ message: request.text });
+      return new sdk.Signature.Ecdsa(
+        Uint8Array.from(toBytes(signature)).buffer,
+      );
+    },
+  };
+}
+function preAuthenticateOptions(calls: string[], fail: boolean, auto: boolean) {
+  return {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: new sdk.StorageLocation.InMemory(),
+    },
+    registration: { auto, nonce: undefined },
+    handlers: {
+      preAuthenticate: {
+        async run() {
+          calls.push("pre-authenticate");
+          if (fail) throw new sdk.PreAuthenticateError.Failed();
+        },
+      },
+    },
+  };
+}
+const preAuthCalls: string[] = [];
+const preAuthenticated = await sdk.Client.create(
+  recordingSigner(preAuthCalls),
+  preAuthenticateOptions(preAuthCalls, false, false),
+);
+assert.deepEqual(preAuthCalls, []);
+await preAuthenticated.raw.register();
+assert.deepEqual(preAuthCalls, ["pre-authenticate", "sign"]);
+preAuthCalls.length = 0;
+await preAuthenticated.raw.register();
+assert.deepEqual(preAuthCalls, []);
+await preAuthenticated.end();
+await assert.rejects(
+  sdk.Client.create(
+    recordingSigner(preAuthCalls),
+    preAuthenticateOptions(preAuthCalls, true, true),
+  ),
+  (error) => error instanceof sdk.XmtpError.CallbackFailed,
+);
+assert.deepEqual(preAuthCalls, ["pre-authenticate"]);
+console.log("Node IDENT-073: host preAuthenticate runs before the signer");
+
 const familyGroup = await reopened.conversations().createGroup([], {
   permissions: undefined,
   name: "family group",
