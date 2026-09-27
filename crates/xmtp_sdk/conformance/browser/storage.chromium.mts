@@ -203,6 +203,10 @@ try {
     busyFields,
     "unpause must report a busy OPFS pool",
   );
+  await second.evaluate(async (path) => {
+    const bridge = await import("./storage.bridge.chromium.ts");
+    await bridge.rejectBuildWithoutStoredIdentity(path, "StorageBusy");
+  }, `${base}-unpause-build.db`);
   await first.evaluate(async () =>
     (await import("./storage.opfs.hog.chromium.ts")).release(),
   );

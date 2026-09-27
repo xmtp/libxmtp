@@ -103,7 +103,10 @@ export async function poolFilenames(): Promise<string[]> {
   return names.sort();
 }
 
-export async function rejectBuildWithoutStoredIdentity(path: string): Promise<void> {
+export async function rejectBuildWithoutStoredIdentity(
+  path: string,
+  expectedCode: "IdentityNotFound" | "StorageBusy" = "IdentityNotFound",
+): Promise<void> {
   const current = await connection();
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   const identifier = `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
@@ -144,7 +147,11 @@ export async function rejectBuildWithoutStoredIdentity(path: string): Promise<vo
     await client.end();
     throw new Error("build accepted a database without a stored identity");
   } catch (error) {
-    if (!B.XmtpError.IdentityNotFound.instanceOf(error)) throw error;
+    const typed =
+      expectedCode === "IdentityNotFound"
+        ? B.XmtpError.IdentityNotFound.instanceOf(error)
+        : B.XmtpError.StorageBusy.instanceOf(error);
+    if (!typed || codeOf(error) !== expectedCode) throw error;
   }
 }
 
