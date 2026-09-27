@@ -458,17 +458,27 @@ impl<Context: XmtpSharedContext> Drop for LocalDelivery<Context> {
 }
 
 // implements: CONS-042, CONS-043
+fn effective_consent_states<'a>(
+    scope: &DeliveryScope,
+    filter: &'a LocalDeliveryFilter,
+) -> Option<&'a [ConsentState]> {
+    match (&filter.consent_states, scope) {
+        (Some(states), _) => Some(states),
+        (None, DeliveryScope::All) => Some(&DEFAULT_STREAM_CONSENT_STATES),
+        (None, _) => None,
+    }
+}
+
 fn effective_filter<'a>(
     scope: &DeliveryScope,
     filter: &'a LocalDeliveryFilter,
 ) -> Cow<'a, LocalDeliveryFilter> {
-    if matches!(scope, DeliveryScope::All) && filter.consent_states.is_none() {
-        Cow::Owned(LocalDeliveryFilter {
+    match effective_consent_states(scope, filter) {
+        Some(states) if filter.consent_states.is_none() => Cow::Owned(LocalDeliveryFilter {
             conversation_type: filter.conversation_type,
-            consent_states: Some(DEFAULT_STREAM_CONSENT_STATES.to_vec()),
-        })
-    } else {
-        Cow::Borrowed(filter)
+            consent_states: Some(states.to_vec()),
+        }),
+        _ => Cow::Borrowed(filter),
     }
 }
 
@@ -478,7 +488,6 @@ fn matches_filter<Context: XmtpSharedContext>(
     scope: &DeliveryScope,
     filter: &LocalDeliveryFilter,
 ) -> Result<bool> {
-    let filter = effective_filter(scope, filter);
     let db = context.db();
     if let Some(kind) = filter.conversation_type {
         let group: Option<StoredGroup> = db.fetch(&group_id)?;
@@ -486,7 +495,8 @@ fn matches_filter<Context: XmtpSharedContext>(
             return Ok(false);
         }
     }
-    if let Some(states) = &filter.consent_states {
+    // Borrow the effective states; this runs once per candidate.
+    if let Some(states) = effective_consent_states(scope, filter) {
         let consent = db
             .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
             .map_err(StorageError::from)?
