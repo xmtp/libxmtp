@@ -322,6 +322,14 @@ struct PendingAttempt {
     done: CancellationToken,
 }
 
+struct PendingAttemptDoneGuard(CancellationToken);
+
+impl Drop for PendingAttemptDoneGuard {
+    fn drop(&mut self) {
+        self.0.cancel();
+    }
+}
+
 impl PendingAttempt {
     fn new() -> Self {
         let (outcome, _) = watch::channel(None);
@@ -414,6 +422,8 @@ pub struct AttachmentRuntime {
     delete_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     create_move_pause: Mutex<Option<Arc<CreateMovePause>>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    attempt_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
     outcome_write_errors: AtomicUsize,
     #[cfg(test)]
@@ -446,6 +456,8 @@ impl Default for AttachmentRuntime {
             delete_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            attempt_panic_pause: Mutex::new(None),
             #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
@@ -494,6 +506,8 @@ impl AttachmentRuntime {
             delete_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            attempt_panic_pause: Mutex::new(None),
             #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
@@ -1477,7 +1491,9 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                             };
                             // The registry entry owns the attempt after the caller stops waiting.
                             let local_attempt = attempt.clone();
+                            let done_guard = PendingAttemptDoneGuard(attempt.done.clone());
                             drop(xmtp_common::task::spawn(async move {
+                                let _done_guard = done_guard;
                                 pending.run_attempt(token, attempt).await;
                             }));
                             (true, Some(local_attempt))
@@ -1516,6 +1532,20 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
     }
 
     async fn run_attempt(&self, token: [u8; 16], attempt: Arc<PendingAttempt>) {
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        {
+            let pause = self
+                .context
+                .attachment_runtime()
+                .attempt_panic_pause
+                .lock()
+                .clone();
+            if let Some((entered, resume)) = pause {
+                entered.notify_one();
+                resume.notified().await;
+                panic!("forced attachment upload panic");
+            }
+        }
         let timing = *self.context.attachment_runtime().lease_timing.lock();
         let mut tick = Box::pin(xmtp_common::time::interval_stream(timing.renew));
         #[cfg(not(target_arch = "wasm32"))]

@@ -316,6 +316,50 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
     );
 }
 
+// verifies: ATCH-047
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_finishes_after_upload_task_panics() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let entered_attempt = Arc::new(tokio::sync::Notify::new());
+    let resume_attempt = Arc::new(tokio::sync::Notify::new());
+    *alix.client.context.attachments.attempt_panic_pause.lock() =
+        Some((entered_attempt.clone(), resume_attempt.clone()));
+    let upload = tokio::spawn(async move { pending.upload().await });
+    tokio::time::timeout(Duration::from_secs(5), entered_attempt.notified()).await?;
+
+    let entered_delete = Arc::new(tokio::sync::Notify::new());
+    let resume_delete = Arc::new(tokio::sync::Notify::new());
+    *alix.client.context.attachments.delete_pause.lock() =
+        Some((entered_delete.clone(), resume_delete.clone()));
+    let client = alix.client.clone();
+    let deleting_remote = remote.clone();
+    let deletion =
+        tokio::spawn(async move { client.attachments().delete_local(&deleting_remote).await });
+    tokio::time::timeout(Duration::from_secs(5), entered_delete.notified()).await?;
+    resume_delete.notify_one();
+    resume_attempt.notify_one();
+    tokio::time::timeout(Duration::from_secs(2), deletion).await???;
+    upload.abort();
+    let _ = upload.await;
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_none()
+    );
+    assert!(!dir.path().join(attachment_key(&remote)?).exists());
+    assert!(
+        !dir.path()
+            .join(staged_path(&remote.content_digest)?)
+            .exists()
+    );
+}
+
 // verifies: ATCH-029, ATCH-066
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_status_survives_restart() {
