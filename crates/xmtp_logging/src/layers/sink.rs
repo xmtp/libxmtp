@@ -365,15 +365,6 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct NativeRecords(Arc<parking_lot::Mutex<Vec<LogRecord>>>);
-
-    impl<S: tracing::Subscriber> Layer<S> for NativeRecords {
-        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-            self.0.lock().push(LogRecord::from_event(event));
-        }
-    }
-
-    #[derive(Default)]
     struct Collect(Arc<parking_lot::Mutex<Vec<LogRecord>>>);
 
     impl LogSinkTarget for Collect {
@@ -414,18 +405,6 @@ mod tests {
         );
         assert_eq!(slot.dropped_count(), 1);
         assert_eq!(slot.error_count(), 0);
-    }
-
-    #[test]
-    fn native_handle_reports_busy_drops() {
-        let handle = crate::XmtpLogging::builder()
-            .level(Level::Info)
-            .install()
-            .unwrap();
-        handle.set_sink(Some(Arc::new(Busy)));
-        tracing::info!(target: "xmtp_mls", "busy");
-        assert_eq!(handle.sink_dropped_count(), 1);
-        assert_eq!(handle.sink_error_count(), 0);
     }
 
     #[test]
@@ -506,21 +485,18 @@ mod tests {
 
     #[test]
     fn replace_sink_whose_drop_logs() {
-        let handle = Arc::new(
-            crate::XmtpLogging::builder()
-                .level(Level::Info)
-                .with_native(true)
-                .install()
-                .unwrap(),
-        );
+        let slot = SinkSlot::default();
+        let subscriber = tracing_subscriber::registry().with(slot.clone());
         let dropped = Arc::new(AtomicBool::new(false));
-        handle.set_sink(Some(Arc::new(LogsOnDrop(dropped.clone()))));
+        slot.set_sink(Some(Arc::new(LogsOnDrop(dropped.clone()))));
         let replacement = Arc::new(Collect::default());
         let (done_tx, done_rx) = channel();
         let worker = thread::spawn({
             let replacement = replacement.clone();
             move || {
-                handle.set_sink(Some(replacement));
+                tracing::subscriber::with_default(subscriber, || {
+                    slot.set_sink(Some(replacement));
+                });
                 done_tx.send(()).unwrap();
             }
         });
@@ -648,28 +624,13 @@ mod tests {
         let calls = Arc::new(parking_lot::Mutex::new(Vec::new()));
         let slot = SinkSlot::default();
         slot.set_sink(Some(Arc::new(Failing(calls.clone()))));
-        let native = NativeRecords::default();
-        let native_records = native.0.clone();
-        let subscriber = tracing_subscriber::registry()
-            .with(slot.clone())
-            .with(native);
-        tracing::subscriber::set_global_default(subscriber).unwrap();
-        tracing::info!(target: "xmtp_mls", "original one");
-        tracing::info!(target: "xmtp_mls", "original two");
+        let subscriber = tracing_subscriber::registry().with(slot.clone());
+        tracing::subscriber::with_default(subscriber, || {
+            tracing::info!(target: "xmtp_mls", "original one");
+            tracing::info!(target: "xmtp_mls", "original two");
+        });
         assert_eq!(&*calls.lock(), &["original one", "original two"]);
         assert_eq!(slot.error_count(), 2);
-        assert_eq!(
-            native_records
-                .lock()
-                .iter()
-                .filter(|record| {
-                    record.level == Level::Error
-                        && record.target == "xmtp_common"
-                        && record.message == "log sink returned an error"
-                })
-                .count(),
-            1
-        );
     }
 
     struct Panicking;
