@@ -38,6 +38,8 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   private pending?: AbortController;
   private closed = false;
   private closeReason?: StreamCloseReason;
+  private readonly abortListener = () =>
+    void this.return().catch(reportCallbackError);
 
   constructor(
     open: (signal: AbortSignal) => Promise<ReaderLike<T>>,
@@ -63,13 +65,10 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     void this.reader.catch((error: unknown) => {
       if (!this.closed) void this.fail(error).catch(reportCallbackError);
     });
-    this.options.signal?.addEventListener(
-      "abort",
-      () => void this.return().catch(reportCallbackError),
-      { once: true },
-    );
-    if (this.options.signal?.aborted)
-      void this.return().catch(reportCallbackError);
+    this.options.signal?.addEventListener("abort", this.abortListener, {
+      once: true,
+    });
+    if (this.options.signal?.aborted) this.abortListener();
   }
 
   [Symbol.asyncIterator](): AsyncIterableIterator<T> {
@@ -96,11 +95,16 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     this.options.onClose?.(reason);
   }
 
-  private async fail(error: unknown): Promise<void> {
-    if (this.closed) return;
+  private stopReading(): void {
     this.closed = true;
+    this.options.signal?.removeEventListener("abort", this.abortListener);
     this.pending?.abort();
     this.stop();
+  }
+
+  private async fail(error: unknown): Promise<void> {
+    if (this.closed) return;
+    this.stopReading();
     try {
       this.notifyClose({ kind: "failed", error });
     } finally {
@@ -185,9 +189,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
 
   async end(): Promise<void> {
     if (this.closed) return;
-    this.closed = true;
-    this.pending?.abort();
-    this.stop();
+    this.stopReading();
     try {
       this.notifyClose({ kind: "closed" });
     } finally {

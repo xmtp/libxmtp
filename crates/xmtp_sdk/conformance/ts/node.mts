@@ -429,6 +429,22 @@ const throwingClose = new sdk.MessageStream(
 await throwingClose.ready();
 await assert.rejects(throwingClose.end(), /close callback failed/);
 assert.equal(endedAfterCloseThrow, true, "throwing onClose skipped reader.end");
+const endedSignal = new AbortController();
+const endedWithSignal = new sdk.MessageStream(
+  async () => ({ next: async () => undefined, end: async () => {} }),
+  reopened,
+  { signal: endedSignal.signal },
+);
+await endedWithSignal.ready();
+let returnCallsAfterEnd = 0;
+const originalReturn = endedWithSignal.return.bind(endedWithSignal);
+endedWithSignal.return = async () => {
+  returnCallsAfterEnd++;
+  return originalReturn();
+};
+await endedWithSignal.end();
+endedSignal.abort();
+assert.equal(returnCallsAfterEnd, 0, "abort handler remained after stream end");
 for (const abortBeforeOpen of [true, false]) {
   const controller = new AbortController();
   if (abortBeforeOpen) controller.abort();
