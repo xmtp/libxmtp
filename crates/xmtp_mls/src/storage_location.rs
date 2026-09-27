@@ -54,6 +54,38 @@ struct DeploymentFile {
 
 static RECORD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[doc(hidden)]
+#[derive(Clone)]
+pub enum DeploymentWriteFault {
+    Write,
+    Sync,
+    Replace,
+    Pause {
+        entered: std::sync::Arc<tokio::sync::Notify>,
+        resume: std::sync::Arc<tokio::sync::Notify>,
+    },
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+static DEPLOYMENT_WRITE_FAULT: parking_lot::Mutex<Option<DeploymentWriteFault>> =
+    parking_lot::Mutex::new(None);
+
+#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[doc(hidden)]
+pub fn set_deployment_write_fault(fault: DeploymentWriteFault) {
+    *DEPLOYMENT_WRITE_FAULT.lock() = Some(fault);
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[doc(hidden)]
+pub async fn write_deployments_for_test(
+    data_dir: &Path,
+    bytes: &[u8],
+) -> Result<(), StorageLocationError> {
+    write_file(data_dir, bytes).await
+}
+
 fn normalized_url(url: &str) -> String {
     url.trim_end_matches('/').to_owned()
 }
@@ -254,6 +286,30 @@ async fn read_file(data_dir: &Path) -> Result<DeploymentFile, StorageLocationErr
 }
 
 #[cfg(target_arch = "wasm32")]
+struct DeploymentTempGuard {
+    store: xmtp_attachments::OpfsStore,
+    path: String,
+    committed: bool,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for DeploymentTempGuard {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        use xmtp_attachments::LocalStore;
+        let store = self.store.clone();
+        let path = self.path.clone();
+        drop(xmtp_common::task::spawn(async move {
+            if let Err(error) = store.remove_file(&path).await {
+                tracing::warn!(?error, %path, "cannot remove temporary deployment record");
+            }
+        }));
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
 async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocationError> {
     use xmtp_attachments::{DownloadSink, LocalStore, OpfsStore};
     let store = OpfsStore::new(&data_dir.to_string_lossy())
@@ -264,20 +320,67 @@ async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocation
         .create_temp(&temp)
         .await
         .map_err(|_| StorageLocationError::Opfs)?;
-    writer
-        .write(bytes)
-        .await
-        .map_err(|_| StorageLocationError::Opfs)?;
-    store
-        .sync(&mut writer)
-        .await
-        .map_err(|_| StorageLocationError::Opfs)?;
+    let mut guard = DeploymentTempGuard {
+        store: store.clone(),
+        path: temp.clone(),
+        committed: false,
+    };
+    #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+    let fault = { DEPLOYMENT_WRITE_FAULT.lock().take() };
+    let write_result: Result<(), StorageLocationError> = async {
+        #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+        if let Some(DeploymentWriteFault::Pause { entered, resume }) = &fault {
+            entered.notify_one();
+            resume.notified().await;
+        }
+        #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+        if matches!(fault, Some(DeploymentWriteFault::Write)) {
+            return Err(StorageLocationError::Opfs);
+        }
+        writer
+            .write(bytes)
+            .await
+            .map_err(|_| StorageLocationError::Opfs)?;
+        #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+        if matches!(fault, Some(DeploymentWriteFault::Sync)) {
+            return Err(StorageLocationError::Opfs);
+        }
+        store
+            .sync(&mut writer)
+            .await
+            .map_err(|_| StorageLocationError::Opfs)?;
+        Ok(())
+    }
+    .await;
     drop(writer);
-    // OPFS file move replaces the destination in current browser engines.
-    store
-        .replace(&temp, "deployments.json")
-        .await
-        .map_err(|_| StorageLocationError::Opfs)
+    let result = match write_result {
+        Err(error) => Err(error),
+        Ok(()) => {
+            #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+            if matches!(fault, Some(DeploymentWriteFault::Replace)) {
+                Err(StorageLocationError::Opfs)
+            } else {
+                store
+                    .replace(&temp, "deployments.json")
+                    .await
+                    .map_err(|_| StorageLocationError::Opfs)
+            }
+            #[cfg(not(all(target_arch = "wasm32", feature = "test-utils")))]
+            // OPFS file move replaces the destination in current browser engines.
+            store
+                .replace(&temp, "deployments.json")
+                .await
+                .map_err(|_| StorageLocationError::Opfs)
+        }
+    };
+    if result.is_ok() {
+        guard.committed = true;
+    } else if let Err(error) = store.remove_file(&temp).await {
+        tracing::warn!(?error, %temp, "cannot remove temporary deployment record");
+    } else {
+        guard.committed = true;
+    }
+    result
 }
 
 #[cfg(test)]

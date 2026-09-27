@@ -6,6 +6,7 @@
 #![cfg(target_arch = "wasm32")]
 #![recursion_limit = "256"]
 
+use std::path::Path;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -17,11 +18,18 @@ use xmtp_attachments::{
 use xmtp_common::time::Duration;
 use xmtp_configuration::{AttachmentsConfiguration, ServerConfiguration, StaticConfigProvider};
 use xmtp_cryptography::utils::generate_local_wallet;
-use xmtp_db::{ConnectionExt, diesel::RunQueryDsl, prelude::{QueryLocalAttachment, QueryPendingAttachment}};
+use xmtp_db::{
+    ConnectionExt,
+    diesel::RunQueryDsl,
+    prelude::{QueryLocalAttachment, QueryPendingAttachment},
+};
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 use xmtp_mls::{
     Client,
     attachments::{AttachmentSource, PendingAttachmentStatus},
+    storage_location::{
+        DeploymentWriteFault, set_deployment_write_fault, write_deployments_for_test,
+    },
     utils::test::identity_setup,
 };
 use xmtp_proto::backend_v1::{GetInboxIdsResponse, get_inbox_ids_response};
@@ -78,6 +86,96 @@ fn test_root(name: &str) -> String {
     format!("{name}/{}", hex::encode(xmtp_common::rand_array::<16>()))
 }
 
+async fn assert_deployment_write_fault(
+    fault: DeploymentWriteFault,
+) -> Result<(), xmtp_common::BoxDynError> {
+    let root = test_root("deployment-write-fault-tests");
+    write_deployments_for_test(Path::new(&root), b"prior record").await?;
+    set_deployment_write_fault(fault);
+    assert!(
+        write_deployments_for_test(Path::new(&root), b"new record")
+            .await
+            .is_err()
+    );
+    let store = OpfsStore::new(&root).await?;
+    assert_eq!(
+        store
+            .open_read("deployments.json")
+            .await?
+            .read_chunk(0, 64)
+            .await?,
+        b"prior record"
+    );
+    assert!(
+        !store
+            .list_files()
+            .await?
+            .iter()
+            .any(|file| file.path.starts_with(".tmp/deployments-"))
+    );
+    Ok(())
+}
+
+// verifies: ATCH-040, ATCH-069
+#[xmtp_common::test(unwrap_try = true)]
+async fn deployment_temp_removed_after_write_error() {
+    assert_deployment_write_fault(DeploymentWriteFault::Write).await?;
+}
+
+// verifies: ATCH-040, ATCH-069
+#[xmtp_common::test(unwrap_try = true)]
+async fn deployment_temp_removed_after_sync_error() {
+    assert_deployment_write_fault(DeploymentWriteFault::Sync).await?;
+}
+
+// verifies: ATCH-040, ATCH-069
+#[xmtp_common::test(unwrap_try = true)]
+async fn deployment_temp_removed_after_replace_error() {
+    assert_deployment_write_fault(DeploymentWriteFault::Replace).await?;
+}
+
+// verifies: ATCH-040, ATCH-069
+#[xmtp_common::test(unwrap_try = true)]
+async fn deployment_temp_removed_after_cancel() {
+    let root = test_root("deployment-write-cancel-tests");
+    write_deployments_for_test(Path::new(&root), b"prior record").await?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    set_deployment_write_fault(DeploymentWriteFault::Pause {
+        entered: entered.clone(),
+        resume,
+    });
+    let path = std::path::PathBuf::from(&root);
+    let (write, abort) = futures::future::abortable(async move {
+        write_deployments_for_test(&path, b"new record").await
+    });
+    let task = xmtp_common::task::spawn(write);
+    xmtp_common::time::timeout(Duration::from_secs(3), entered.notified()).await?;
+    abort.abort();
+    assert!(task.await?.is_err());
+    let store = OpfsStore::new(&root).await?;
+    xmtp_common::time::timeout(Duration::from_secs(3), async {
+        while store
+            .list_files()
+            .await
+            .expect("list deployment temp files")
+            .iter()
+            .any(|file| file.path.starts_with(".tmp/deployments-"))
+        {
+            xmtp_common::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert_eq!(
+        store
+            .open_read("deployments.json")
+            .await?
+            .read_chunk(0, 64)
+            .await?,
+        b"prior record"
+    );
+}
+
 // verifies: ATCH-048
 #[xmtp_common::test(unwrap_try = true)]
 async fn client_create_writes_plaintext_to_opfs() {
@@ -118,7 +216,9 @@ async fn directory_at_plaintext_path_is_not_a_download() {
     client.db().delete_local_attachment(&local)?;
     let root_store = OpfsStore::new_root().await?;
     root_store.remove_file(&format!("{root}/{local}")).await?;
-    root_store.create_dir_if_absent(&format!("{root}/{local}")).await?;
+    root_store
+        .create_dir_if_absent(&format!("{root}/{local}"))
+        .await?;
     let result = client.attachments().download(remote).await;
     assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
     assert!(client.db().get_local_attachment(&local)?.is_none());
