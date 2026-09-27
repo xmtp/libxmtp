@@ -492,9 +492,9 @@ mod native {
         );
     }
 
-    // verifies: ATCH-069, CONF-026
+    // verifies: ATCH-040, ATCH-069, CONF-026
     #[xmtp_common::test(unwrap_try = true)]
-    async fn build_records_the_stored_identifier() {
+    async fn build_keeps_deployment_record_aligned_with_opened_paths() {
         use crate::utils::test::backend::EphemeralBackend;
         let dir = tempfile::tempdir()?;
         let backend = EphemeralBackend::start("").await?;
@@ -513,6 +513,8 @@ mod native {
             .await?;
         let db = first.context.store.db();
         let row = db.server_configuration()?.unwrap();
+        let first_inbox = first.inbox_id().to_owned();
+        let original_identifier = row.identifier.clone();
         let mut response =
             xmtp_proto::backend_v1::GetConfigurationResponse::decode(row.response.as_slice())?;
         response.identifier = "new-deployment".to_owned();
@@ -534,12 +536,50 @@ mod native {
             .default_mls_store()?
             .with_disable_workers(true)
             .build()
-            .await?;
-        assert_eq!(second.server_configuration().identifier, "new-deployment");
+            .await;
+        assert!(matches!(second, Err(crate::builder::ClientBuilderError::StorageLocation(
+            StorageLocationError::DeploymentMismatch
+        ))));
         assert_eq!(
             location.recorder(backend.url()).unwrap().lookup().await?,
-            Some("new-deployment".to_owned())
+            Some(original_identifier.clone())
         );
+        let wrong = location.resolve_identifier(&first_inbox, "new-deployment")?;
+        assert!(!wrong.db_path.exists());
+
+        db.store_server_configuration(
+            &original_identifier,
+            &row.backend_url,
+            &row.response,
+            xmtp_common::time::now_ns(),
+        )?;
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(backend.url());
+        let third = Client::builder(identity_setup(&owner))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_allow_offline(Some(true))
+            .data_location(location, [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        assert_eq!(third.inbox_id(), first_inbox);
+    }
+
+    // verifies: ATCH-040, ATCH-069
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn bound_recorder_keeps_the_opened_deployment() {
+        let dir = tempfile::tempdir()?;
+        let recorder = DeploymentRecorder::new(dir.path().to_path_buf(), "http://localhost");
+        recorder.record("deployment-a").await?;
+        let bound = recorder.clone().for_opened_identifier("deployment-a".into());
+        assert!(matches!(
+            bound.record("deployment-b").await,
+            Err(StorageLocationError::DeploymentMismatch)
+        ));
+        assert_eq!(recorder.lookup().await?, Some("deployment-a".into()));
     }
 
     // Covers plan P19.

@@ -36,6 +36,8 @@ pub enum StorageLocationError {
     OfflineMissingDeployment,
     #[error("store or attachments_dir conflicts with data_location")]
     ConflictingStore,
+    #[error("deployment identifier differs from the opened data directory")]
+    DeploymentMismatch,
     #[error("storage location cannot read or write its deployment record: {0}")]
     Io(#[from] std::io::Error),
     #[error("storage location cannot encode its deployment record: {0}")]
@@ -68,6 +70,7 @@ pub fn deployment_component(identifier: &str) -> String {
 pub(crate) struct DeploymentRecorder {
     data_dir: PathBuf,
     backend_url: String,
+    opened_identifier: Option<String>,
 }
 
 impl DeploymentRecorder {
@@ -75,7 +78,13 @@ impl DeploymentRecorder {
         Self {
             data_dir,
             backend_url: normalized_url(backend_url),
+            opened_identifier: None,
         }
+    }
+
+    pub(crate) fn for_opened_identifier(mut self, identifier: String) -> Self {
+        self.opened_identifier = Some(identifier);
+        self
     }
 
     pub(crate) async fn lookup(&self) -> Result<Option<String>, StorageLocationError> {
@@ -90,6 +99,13 @@ impl DeploymentRecorder {
     }
 
     pub(crate) async fn record(&self, identifier: &str) -> Result<(), StorageLocationError> {
+        if self
+            .opened_identifier
+            .as_deref()
+            .is_some_and(|opened| opened != identifier)
+        {
+            return Err(StorageLocationError::DeploymentMismatch);
+        }
         if self.backend_url.is_empty() {
             return Err(StorageLocationError::BackendUrl);
         }

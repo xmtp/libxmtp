@@ -433,13 +433,13 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 None => None,
             };
             let mut fetched = None;
-            let paths = if let Some(identifier) = recorded {
-                location.resolve_identifier(inbox_id, &identifier)?
+            let (paths, opened_identifier) = if let Some(identifier) = recorded {
+                (location.resolve_identifier(inbox_id, &identifier)?, Some(identifier))
             } else if matches!(
                 location,
                 crate::storage_location::StorageLocation::Explicit { .. }
             ) {
-                location.resolve_identifier(inbox_id, "")?
+                (location.resolve_identifier(inbox_id, "")?, None)
             } else {
                 if allow_offline {
                     return Err(StorageLocationError::OfflineMissingDeployment.into());
@@ -454,8 +454,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 let configuration =
                     crate::server_configuration::validated(&response).map_err(ClientError::from)?;
                 let paths = location.resolve_identifier(inbox_id, &configuration.identifier)?;
-                fetched = Some((configuration.identifier, response));
-                paths
+                let identifier = configuration.identifier;
+                fetched = Some((identifier.clone(), response));
+                (paths, Some(identifier))
             };
             let opener = location_store_opener.ok_or(StorageLocationError::ConflictingStore)?;
             let opened = opener(paths.clone(), key).await?;
@@ -472,7 +473,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             }
             store = Some(opened);
             attachments_dir = Some(paths.attachments_dir);
-            deployment_recorder = recorder;
+            deployment_recorder = recorder.map(|recorder| match opened_identifier {
+                Some(identifier) => recorder.for_opened_identifier(identifier),
+                None => recorder,
+            });
         }
         let store = store
             .take()
