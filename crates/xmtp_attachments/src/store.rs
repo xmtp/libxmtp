@@ -74,8 +74,18 @@ pub(crate) fn validate_temp(path: &str) -> Result<(), AttachmentError> {
 pub struct StagedFile {
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) path: std::path::PathBuf,
+    /// A file opened by the native store without following a path link.
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) opened: Option<std::sync::Arc<std::fs::File>>,
     #[cfg(target_arch = "wasm32")]
     pub(crate) file: web_sys::File,
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+impl StagedFile {
+    pub(crate) fn from_path_for_test(path: std::path::PathBuf) -> Self {
+        Self { path, opened: None }
+    }
 }
 
 /// A writable file used as the sink for a download.
@@ -245,6 +255,148 @@ mod tests {
         store.open_read("key/file").await?;
         store.remove_dir_all("key").await?;
         assert!(!store.exists("key/file").await?);
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_create_temp_rejects_symlinked_parent() {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        let store = NativeStore::new(root.path()).await?;
+        std::os::unix::fs::symlink(outside.path(), root.path().join(".tmp"))?;
+
+        assert_eq!(
+            store.create_temp(".tmp/file").await.err().unwrap().cause,
+            Cause::LocalStorage
+        );
+        assert!(!outside.path().join("file").exists());
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_open_read_rejects_symlinked_parent() {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        std::fs::write(outside.path().join("file"), b"outside")?;
+        let store = NativeStore::new(root.path()).await?;
+        std::os::unix::fs::symlink(outside.path(), root.path().join("key"))?;
+
+        assert_eq!(
+            store.open_read("key/file").await.err().unwrap().cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_open_read_rejects_symlinked_file() {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        std::fs::create_dir(root.path().join("key"))?;
+        std::fs::write(outside.path().join("file"), b"outside")?;
+        let store = NativeStore::new(root.path()).await?;
+        std::os::unix::fs::symlink(outside.path().join("file"), root.path().join("key/file"))?;
+
+        assert_eq!(
+            store.open_read("key/file").await.err().unwrap().cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_rename_rejects_symlinked_destination() {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        let store = NativeStore::new(root.path()).await?;
+        let mut writer = store.create_temp(".tmp/source").await?;
+        writer.write(b"source").await?;
+        drop(writer);
+        std::os::unix::fs::symlink(outside.path(), root.path().join("key"))?;
+
+        assert_eq!(
+            store
+                .rename(".tmp/source", "key/file")
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::LocalStorage
+        );
+        assert!(!outside.path().join("file").exists());
+        assert_eq!(std::fs::read(root.path().join(".tmp/source"))?, b"source");
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_rename_rejects_symlinked_source() {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        std::fs::write(outside.path().join("file"), b"outside")?;
+        let store = NativeStore::new(root.path()).await?;
+        std::os::unix::fs::symlink(outside.path(), root.path().join("key"))?;
+
+        assert_eq!(
+            store
+                .rename("key/file", "safe/file")
+                .await
+                .unwrap_err()
+                .cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+        assert!(!root.path().join("safe/file").exists());
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_exists_rejects_symlinked_parent() {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        std::fs::write(outside.path().join("file"), b"outside")?;
+        let store = NativeStore::new(root.path()).await?;
+        std::os::unix::fs::symlink(outside.path(), root.path().join("key"))?;
+
+        assert_eq!(
+            store.exists("key/file").await.unwrap_err().cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_exists_rejects_symlinked_file() {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        std::fs::create_dir(root.path().join("key"))?;
+        std::fs::write(outside.path().join("file"), b"outside")?;
+        let store = NativeStore::new(root.path()).await?;
+        std::os::unix::fs::symlink(outside.path().join("file"), root.path().join("key/file"))?;
+
+        assert_eq!(
+            store.exists("key/file").await.unwrap_err().cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_remove_dir_rejects_symlinked_parent() {
+        let root = tempfile::tempdir()?;
+        let outside = tempfile::tempdir()?;
+        std::fs::create_dir(outside.path().join("sub"))?;
+        std::fs::write(outside.path().join("sub/file"), b"outside")?;
+        let store = NativeStore::new(root.path()).await?;
+        std::os::unix::fs::symlink(outside.path(), root.path().join("key"))?;
+
+        assert_eq!(
+            store.remove_dir_all("key/sub").await.unwrap_err().cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(std::fs::read(outside.path().join("sub/file"))?, b"outside");
     }
 
     #[cfg(not(target_arch = "wasm32"))]

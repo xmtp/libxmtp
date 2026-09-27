@@ -23,7 +23,7 @@ use hyper_util::rt::TokioIo;
 use reqwest::{Url, dns::Name};
 use rustls::pki_types::ServerName;
 use tokio::{
-    io::{AsyncRead, AsyncWrite, ReadBuf},
+    io::{AsyncRead, AsyncSeekExt, AsyncWrite, ReadBuf},
     net::{TcpSocket, TcpStream},
     sync::Notify,
     time::{Instant, timeout},
@@ -348,7 +348,18 @@ pub(super) async fn put(
     }
     let url = Url::parse(&upload.url).map_err(|_| AttachmentError::new(Cause::InsecureUrl))?;
     secure_upload_url(&url)?;
-    let file = tokio::fs::File::open(body.path)
+    let mut file = if let Some(opened) = body.opened {
+        tokio::fs::File::from_std(
+            opened
+                .try_clone()
+                .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?,
+        )
+    } else {
+        tokio::fs::File::open(body.path)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?
+    };
+    file.rewind()
         .await
         .map_err(|_| AttachmentError::new(Cause::StagedUnusable))?;
     let body_len = file

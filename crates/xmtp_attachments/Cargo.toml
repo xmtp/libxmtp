@@ -30,6 +30,8 @@ xmtp_proto.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 bytes.workspace = true
+cap-fs-ext.workspace = true
+cap-std.workspace = true
 http-body-util.workspace = true
 hyper = { workspace = true, features = ["client", "http1"] }
 hyper-util = { workspace = true, features = ["tokio"] }

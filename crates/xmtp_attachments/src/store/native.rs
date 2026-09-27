@@ -1,4 +1,13 @@
-use std::path::{Path, PathBuf};
+use std::{
+    io,
+    path::{Path, PathBuf},
+    sync::Arc,
+};
+
+use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+#[cfg(windows)]
+use cap_std::fs::MetadataExt;
+use cap_std::fs::{Dir, OpenOptions};
 
 use super::{LocalStore, StagedFile, StoreWriter, validate_relative, validate_temp};
 use crate::{AttachmentError, AttachmentFailureCause as Cause};
@@ -7,6 +16,8 @@ use crate::{AttachmentError, AttachmentFailureCause as Cause};
 #[derive(Clone, Debug)]
 pub struct NativeStore {
     root: PathBuf,
+    // Resolve every child from this handle, even if the root path changes.
+    root_dir: Arc<Dir>,
     #[cfg(test)]
     forced_hard_link_error: Option<std::io::ErrorKind>,
     #[cfg(test)]
@@ -19,9 +30,12 @@ impl NativeStore {
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
         tokio::fs::create_dir_all(&root)
             .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+            .map_err(storage_error)?;
+        let root_dir =
+            Dir::open_ambient_dir(&root, cap_std::ambient_authority()).map_err(storage_error)?;
         Ok(Self {
             root,
+            root_dir: Arc::new(root_dir),
             #[cfg(test)]
             forced_hard_link_error: None,
             #[cfg(test)]
@@ -41,102 +55,165 @@ impl NativeStore {
         self
     }
 
-    async fn remove_source(&self, path: &Path) -> std::io::Result<()> {
+    fn remove_source(&self, parent: &Dir, name: &str) -> io::Result<()> {
         #[cfg(test)]
         if let Some(kind) = self.forced_source_unlink_error {
-            return Err(std::io::Error::from(kind));
+            return Err(io::Error::from(kind));
         }
-        tokio::fs::remove_file(path).await
+        parent.remove_file(name)
     }
 
-    async fn hard_link(&self, from: &Path, to: &Path) -> std::io::Result<()> {
+    fn hard_link(
+        &self,
+        from_parent: &Dir,
+        from_name: &str,
+        to_parent: &Dir,
+        to_name: &str,
+    ) -> io::Result<()> {
         #[cfg(test)]
         if let Some(kind) = self.forced_hard_link_error {
-            return Err(std::io::Error::from(kind));
+            return Err(io::Error::from(kind));
         }
-        tokio::fs::hard_link(from, to).await
+        from_parent.hard_link(from_name, to_parent, to_name)
     }
 
-    fn path(&self, relative: &str) -> Result<PathBuf, AttachmentError> {
-        validate_relative(relative)?;
-        Ok(self.root.join(relative))
+    fn parent(&self, relative: &str, create: bool) -> io::Result<(Dir, String)> {
+        let (parent, name) = relative.rsplit_once('/').unwrap_or(("", relative));
+        let mut directory = self.root_dir.try_clone()?;
+        if !parent.is_empty() {
+            for part in parent.split('/') {
+                directory = match directory.open_dir_nofollow(part) {
+                    Ok(child) => child,
+                    Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
+                        match directory.create_dir(part) {
+                            Ok(()) => {}
+                            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                            Err(error) => return Err(error),
+                        }
+                        directory.open_dir_nofollow(part)?
+                    }
+                    Err(error) => return Err(error),
+                };
+            }
+        }
+        Ok((directory, name.to_owned()))
+    }
+}
+
+fn storage_error(_: impl Sized) -> AttachmentError {
+    AttachmentError::new(Cause::LocalStorage)
+}
+
+#[cfg(windows)]
+fn is_link(metadata: &cap_std::fs::Metadata) -> bool {
+    const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+    metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+}
+
+#[cfg(not(windows))]
+fn is_link(metadata: &cap_std::fs::Metadata) -> bool {
+    metadata.file_type().is_symlink()
+}
+
+fn exists_nofollow(parent: &Dir, name: &str) -> io::Result<bool> {
+    match parent.symlink_metadata(name) {
+        Ok(metadata) if is_link(&metadata) => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "attachment path is a symlink",
+        )),
+        Ok(_) => Ok(true),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+        Err(error) => Err(error),
     }
 }
 
 #[async_trait::async_trait]
 impl LocalStore for NativeStore {
     async fn open_read(&self, path: &str) -> Result<StagedFile, AttachmentError> {
-        let path = self.path(path)?;
-        tokio::fs::File::open(&path)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        Ok(StagedFile { path })
+        validate_relative(path)?;
+        let (parent, name) = self.parent(path, false).map_err(storage_error)?;
+        let mut options = OpenOptions::new();
+        options.read(true).follow(FollowSymlinks::No);
+        let file = parent.open_with(&name, &options).map_err(storage_error)?;
+        if !file.metadata().map_err(storage_error)?.is_file() {
+            return Err(storage_error(()));
+        }
+        Ok(StagedFile {
+            path: self.root.join(path),
+            opened: Some(Arc::new(file.into_std())),
+        })
     }
 
     async fn create_temp(&self, path: &str) -> Result<StoreWriter, AttachmentError> {
         validate_temp(path)?;
-        let path = self.path(path)?;
-        let parent = path
-            .parent()
-            .ok_or(AttachmentError::new(Cause::Malformed))?;
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        let file = tokio::fs::OpenOptions::new()
+        let (parent, name) = self.parent(path, true).map_err(storage_error)?;
+        let mut options = OpenOptions::new();
+        options
             .write(true)
             .create_new(true)
-            .open(path)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        Ok(StoreWriter { file })
+            .follow(FollowSymlinks::No);
+        let file = parent.open_with(&name, &options).map_err(storage_error)?;
+        Ok(StoreWriter {
+            file: tokio::fs::File::from_std(file.into_std()),
+        })
     }
 
     async fn rename(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
-        let from = self.path(from)?;
-        let to = self.path(to)?;
-        let parent = to.parent().ok_or(AttachmentError::new(Cause::Malformed))?;
-        tokio::fs::create_dir_all(parent)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-        match self.hard_link(&from, &to).await {
-            Ok(()) => match self.remove_source(&from).await {
+        validate_relative(from)?;
+        validate_relative(to)?;
+        let (from_parent, from_name) = self.parent(from, false).map_err(storage_error)?;
+        let source = from_parent
+            .symlink_metadata(&from_name)
+            .map_err(storage_error)?;
+        if !source.is_file() || is_link(&source) {
+            return Err(storage_error(()));
+        }
+        let (to_parent, to_name) = self.parent(to, true).map_err(storage_error)?;
+        if exists_nofollow(&to_parent, &to_name).map_err(storage_error)? {
+            return Err(storage_error(()));
+        }
+        match self.hard_link(&from_parent, &from_name, &to_parent, &to_name) {
+            Ok(()) => match self.remove_source(&from_parent, &from_name) {
                 Ok(()) => Ok(()),
                 Err(_) => {
-                    let _ = tokio::fs::remove_file(&to).await;
-                    Err(AttachmentError::new(Cause::LocalStorage))
+                    let _ = to_parent.remove_file(&to_name);
+                    Err(storage_error(()))
                 }
             },
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                Err(AttachmentError::new(Cause::LocalStorage))
-            }
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(storage_error(())),
             Err(_) => {
                 // Some file systems cannot make hard links. This check and
                 // rename are not atomic. Callers keep each path single-flight
                 // (one pending attachment per digest, one fetch per path), as
                 // with the OPFS check-then-move path.
-                if tokio::fs::try_exists(&to)
-                    .await
-                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
-                {
-                    return Err(AttachmentError::new(Cause::LocalStorage));
+                if exists_nofollow(&to_parent, &to_name).map_err(storage_error)? {
+                    return Err(storage_error(()));
                 }
-                tokio::fs::rename(from, to)
-                    .await
-                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+                from_parent
+                    .rename(&from_name, &to_parent, &to_name)
+                    .map_err(storage_error)
             }
         }
     }
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
-        tokio::fs::remove_dir_all(self.path(path)?)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+        validate_relative(path)?;
+        let (parent, name) = self.parent(path, false).map_err(storage_error)?;
+        parent
+            .open_dir_nofollow(&name)
+            .map_err(storage_error)?
+            .remove_open_dir_all()
+            .map_err(storage_error)
     }
 
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError> {
-        Ok(tokio::fs::try_exists(self.path(path)?)
-            .await
-            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?)
+        validate_relative(path)?;
+        let (parent, name) = match self.parent(path, false) {
+            Ok(value) => value,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(storage_error(error)),
+        };
+        exists_nofollow(&parent, &name).map_err(storage_error)
     }
 
     async fn sync(&self, writer: &mut StoreWriter) -> Result<(), AttachmentError> {

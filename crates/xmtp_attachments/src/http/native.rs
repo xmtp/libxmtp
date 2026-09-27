@@ -643,7 +643,7 @@ mod tests {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("body");
         std::fs::write(&path, b"body")?;
-        Ok((directory, StagedFile { path }))
+        Ok((directory, StagedFile::from_path_for_test(path)))
     }
 
     fn upload(url: String) -> UploadRequest {
@@ -786,7 +786,7 @@ mod tests {
         assert_eq!(
             tokio::time::timeout(
                 Duration::from_secs(3),
-                transfer.put(&request, StagedFile { path })
+                transfer.put(&request, StagedFile::from_path_for_test(path))
             )
             .await??,
             PutOutcome::Stored
@@ -1007,7 +1007,7 @@ mod tests {
         std::fs::write(&path, vec![0x5a; BODY_SIZE])?;
         let result = tokio::time::timeout(
             Duration::from_secs(3),
-            allowed().put(&upload(url), StagedFile { path }),
+            allowed().put(&upload(url), StagedFile::from_path_for_test(path)),
         )
         .await?;
         tokio::time::timeout(Duration::from_secs(1), server).await??;
@@ -1100,8 +1100,11 @@ mod tests {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("body");
         std::fs::write(&path, vec![0x5a; BODY_SIZE])?;
-        let mut upload =
-            tokio::spawn(async move { allowed().put(&upload(url), StagedFile { path }).await });
+        let mut upload = tokio::spawn(async move {
+            allowed()
+                .put(&upload(url), StagedFile::from_path_for_test(path))
+                .await
+        });
         tokio::time::timeout(Duration::from_secs(5), paused_rx).await??;
         assert!(received.load(Ordering::Acquire) < BODY_SIZE);
         assert!(
@@ -1181,7 +1184,11 @@ mod tests {
         std::fs::write(&path, vec![0x5a; BODY_SIZE])?;
         let upload_task = tokio::spawn({
             let path = path.clone();
-            async move { allowed().put(&upload(url), StagedFile { path }).await }
+            async move {
+                allowed()
+                    .put(&upload(url), StagedFile::from_path_for_test(path))
+                    .await
+            }
         });
         tokio::time::timeout(Duration::from_secs(5), headers_rx).await??;
         if truncate {
@@ -1685,8 +1692,11 @@ mod tests {
         let directory = tempfile::tempdir()?;
         let path = directory.path().join("body");
         std::fs::write(&path, vec![0x5a; BODY_SIZE])?;
-        let task =
-            tokio::spawn(async move { allowed().put(&upload(url), StagedFile { path }).await });
+        let task = tokio::spawn(async move {
+            allowed()
+                .put(&upload(url), StagedFile::from_path_for_test(path))
+                .await
+        });
         tokio::time::timeout(Duration::from_secs(3), answered_rx).await??;
         tokio::time::sleep(Duration::from_millis(50)).await;
         task.abort();
