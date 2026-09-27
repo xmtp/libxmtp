@@ -7,7 +7,7 @@ pub use filter::EventFilter;
 pub use listener::{EventListener, ListenerError};
 pub use reader::EventReader;
 
-use crate::{ContentTypeId, ConversationID, InboxID, InstallationID, MessageID};
+use crate::{ConnectionState, ContentTypeId, ConversationID, InboxID, InstallationID, MessageID};
 use xmtp_events as core;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -88,7 +88,17 @@ mapped_enum!(ConsentEntityKind => core::ConsentEntityKind { Conversation, Inbox 
 mapped_enum!(EventConsentState => core::ConsentState { Unknown, Allowed, Denied });
 mapped_enum!(RejectionCause => core::RejectionCause { BackendMismatch, VersionTooOld });
 mapped_enum!(LockoutChange => core::LockoutChange { Entered, Left });
-mapped_enum!(ConnectionState => core::ConnectionState { Connecting, Connected, Reconnecting, Failed, Closed });
+impl From<core::ConnectionState> for ConnectionState {
+    fn from(value: core::ConnectionState) -> Self {
+        match value {
+            core::ConnectionState::Connecting => Self::Connecting,
+            core::ConnectionState::Connected => Self::Connected,
+            core::ConnectionState::Reconnecting => Self::Reconnecting,
+            core::ConnectionState::Failed => Self::Failed,
+            core::ConnectionState::Closed => Self::Closed,
+        }
+    }
+}
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ClientEvent {
