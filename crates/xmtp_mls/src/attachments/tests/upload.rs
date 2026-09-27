@@ -509,6 +509,58 @@ async fn failed_create_leaves_nothing() {
     );
 }
 
+// verifies: ATCH-033, ATCH-060
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn fifo_source_is_rejected_before_staging() {
+    use std::os::unix::ffi::OsStrExt as _;
+
+    let dir = tempfile::tempdir()?;
+    let fifo = dir.path().join("source.fifo");
+    let fifo_name = std::ffi::CString::new(fifo.as_os_str().as_bytes())?;
+    assert_eq!(unsafe { libc::mkfifo(fifo_name.as_ptr(), 0o600) }, 0);
+    tester!(alix, attachments_dir: dir.path().join("attachments"), configured: offer, disable_workers);
+    let client = alix.client.clone();
+    let source = fifo.clone();
+    let mut creating = tokio::spawn(async move {
+        client
+            .attachments()
+            .create(AttachmentSource::Path {
+                path: source,
+                filename: None,
+                mime_type: "text/plain".into(),
+            })
+            .await
+    });
+    let result = match tokio::time::timeout(Duration::from_millis(500), &mut creating).await {
+        Ok(result) => result?,
+        Err(_) => {
+            let writer = tokio::task::spawn_blocking(move || -> std::io::Result<()> {
+                let mut file = std::fs::OpenOptions::new().write(true).open(fifo)?;
+                std::io::Write::write_all(&mut file, b"x")
+            });
+            tokio::time::timeout(Duration::from_secs(3), writer).await???;
+            let _ = tokio::time::timeout(Duration::from_secs(3), creating).await?;
+            panic!("FIFO source blocked creation");
+        }
+    };
+    assert_eq!(
+        result.err().expect("FIFO source must fail").cause,
+        Cause::SourceUnreadable
+    );
+    assert!(alix.client.attachments().list_pending().await?.is_empty());
+    assert!(alix.client.attachments().list_local().await?.is_empty());
+    assert!(
+        alix.client
+            .context
+            .attachments
+            .store()?
+            .list_files()
+            .await?
+            .is_empty()
+    );
+}
+
 // verifies: ATCH-045, ATCH-046
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]

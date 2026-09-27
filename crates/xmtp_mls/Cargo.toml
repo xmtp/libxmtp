@@ -132,6 +132,9 @@ tracing-subscriber = { workspace = true, features = [
 chrono = { workspace = true, features = ["clock"] }
 dyn-clone.workspace = true
 
+[target.'cfg(unix)'.dependencies]
+libc.workspace = true
+
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 chrono = { workspace = true, features = ["wasmbind"] }
 uuid = { workspace = true, features = ["js"] }
@@ -182,9 +185,6 @@ ctor.workspace = true
 mockito = "1.7.2"
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["rt-multi-thread"] }
-
-[target.'cfg(unix)'.dev-dependencies]
-libc.workspace = true
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
 tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }

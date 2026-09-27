@@ -1563,6 +1563,8 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         }
         let filename = source_filename.map(str::to_owned);
         let mime_type = source_mime_type.to_owned();
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut native_source_file: Option<tokio::fs::File> = None;
         let size = match &source {
             AttachmentSource::Path { path, .. } => {
                 #[cfg(target_arch = "wasm32")]
@@ -1579,10 +1581,23 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 }
                 #[cfg(not(target_arch = "wasm32"))]
                 {
-                    tokio::fs::metadata(path)
-                        .await
-                        .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?
-                        .len()
+                    #[cfg(unix)]
+                    use std::os::unix::fs::OpenOptionsExt as _;
+                    let mut options = std::fs::OpenOptions::new();
+                    options.read(true);
+                    #[cfg(unix)]
+                    options.custom_flags(libc::O_NONBLOCK);
+                    let file = options
+                        .open(path)
+                        .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
+                    let metadata = file
+                        .metadata()
+                        .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
+                    if !metadata.is_file() {
+                        return Err(AttachmentClientError::new(Cause::SourceUnreadable));
+                    }
+                    native_source_file = Some(tokio::fs::File::from_std(file));
+                    metadata.len()
                 }
             }
             AttachmentSource::Bytes { bytes, .. } => bytes.len() as u64,
@@ -1625,9 +1640,10 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         use tokio::io::AsyncReadExt as _;
-                        let mut file = tokio::fs::File::open(path)
-                            .await
-                            .map_err(|_| AttachmentClientError::new(Cause::SourceUnreadable))?;
+                        let _ = path;
+                        let mut file = native_source_file
+                            .take()
+                            .ok_or_else(|| AttachmentClientError::new(Cause::SourceUnreadable))?;
                         let mut chunk = [0u8; CHUNK];
                         let mut read_total = 0u64;
                         loop {
