@@ -660,6 +660,25 @@ export async function runBrowserBridgeConformance(
     );
     equal(await reopenedDefault.storage().path(), defaultPath, "default browser database path changed on reopen");
     await reopenedDefault.end();
+    const keyOptions = options(`key-${crypto.randomUUID()}.db`, backendURL, false);
+    await checkError(
+      async () => {
+        const opened = await Client.create(session, signer(session), {
+          ...keyOptions,
+          storage: {
+            ...keyOptions.storage,
+            location: B.StorageLocation.InMemory.new(),
+            encryptionKey: new Uint8Array(32).fill(7).buffer,
+          },
+        } as B.ClientOptions);
+        await opened.end();
+      },
+      (error) =>
+        B.XmtpError.InvalidInput.instanceOf(error) &&
+        error.inner[0].code === "InvalidInput" &&
+        error.inner[0].category === B.ErrorCategory.Input,
+      "browser accepted an encryption key",
+    );
     results.push("scenario 10: catch-up, configuration, and default storage");
 
     const unsignedSigner = signer(session);
