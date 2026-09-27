@@ -427,8 +427,20 @@ const throwingClose = new sdk.MessageStream(
   },
 );
 await throwingClose.ready();
-await assert.rejects(throwingClose.end(), /close callback failed/);
+await throwingClose.end();
 assert.equal(endedAfterCloseThrow, true, "throwing onClose skipped reader.end");
+assert.equal((await throwingClose.next()).done, true);
+const throwingEndOfStream = new sdk.MessageStream(
+  async () => ({ next: async () => undefined, end: async () => {} }),
+  reopened,
+  {
+    onClose: () => {
+      throw new Error("end of stream callback failed");
+    },
+  },
+);
+await throwingEndOfStream.ready();
+assert.equal((await throwingEndOfStream.next()).done, true);
 const endedSignal = new AbortController();
 const endedWithSignal = new sdk.MessageStream(
   async () => ({ next: async () => undefined, end: async () => {} }),
@@ -492,7 +504,7 @@ const throwingFailureClose = new sdk.MessageStream(
   },
 );
 await throwingFailureClose.ready();
-await assert.rejects(throwingFailureClose.next(), /failure callback failed/);
+await assert.rejects(throwingFailureClose.next(), /reader failed/);
 assert.equal(
   endedAfterFailureCloseThrow,
   true,

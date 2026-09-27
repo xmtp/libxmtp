@@ -430,6 +430,27 @@ fun main() =
         val retainedFirst = reopenedHost.messages(breakGroup, onClose = { firstReasons.add(it) })
         check(retainedFirst.first().id == breakID)
         check(firstReasons == listOf(SDKStreamCloseReason.Closed)) { "first did not close the stored flow" }
+        val callbackReasons = mutableListOf<SDKStreamCloseReason>()
+        val closeCallbackFlow =
+            reopenedHost.messages(
+                breakGroup,
+                onClose = {
+                    callbackReasons.add(it)
+                    throw IllegalStateException("close callback failed")
+                },
+            )
+        check(
+            withTimeout(3_000) {
+                closeCallbackFlow
+                    .take(1)
+                    .toList()
+                    .single()
+                    .id
+            } == breakID,
+        ) {
+            "close callback error escaped message collection"
+        }
+        check(callbackReasons == listOf(SDKStreamCloseReason.Closed))
         val thrownReasons = mutableListOf<SDKStreamCloseReason>()
         val retainedThrown = reopenedHost.messages(breakGroup, onClose = { thrownReasons.add(it) })
         try {
@@ -504,6 +525,22 @@ fun main() =
         reopened.conversations().createGroup(emptyList(), null)
         check(withTimeout(15_000) { conversationValues.await() }.size == 1)
         check(conversationClose == SDKStreamCloseReason.Closed)
+        val throwingConversationReasons = mutableListOf<SDKStreamCloseReason>()
+        val throwingConversationValues =
+            async {
+                reopenedHost
+                    .conversations(
+                        onClose = {
+                            throwingConversationReasons.add(it)
+                            throw IllegalStateException("conversation close callback failed")
+                        },
+                    ).take(1)
+                    .toList()
+            }
+        delay(100)
+        reopened.conversations().createGroup(emptyList(), null)
+        check(withTimeout(15_000) { throwingConversationValues.await() }.size == 1)
+        check(throwingConversationReasons == listOf(SDKStreamCloseReason.Closed))
         val monitorCalls = AtomicInteger()
         val monitorClosed = CompletableDeferred<Unit>()
         val fakeMonitor =

@@ -11,9 +11,9 @@ public enum SDKStreamCloseReason: @unchecked Sendable {
 private final class StreamCompletion: @unchecked Sendable {
     private let lock = NSLock()
     private var didClose = false
-    private let callback: (@Sendable (SDKStreamCloseReason) -> Void)?
+    private let callback: (@Sendable (SDKStreamCloseReason) throws -> Void)?
 
-    init(_ callback: (@Sendable (SDKStreamCloseReason) -> Void)?) {
+    init(_ callback: (@Sendable (SDKStreamCloseReason) throws -> Void)?) {
         self.callback = callback
     }
 
@@ -28,7 +28,11 @@ private final class StreamCompletion: @unchecked Sendable {
     }
 
     func notify(_ reason: SDKStreamCloseReason) {
-        callback?(reason)
+        do {
+            try callback?(reason)
+        } catch {
+            NSLog("XMTP stream close callback failed: %@", String(describing: error))
+        }
     }
 
     var closed: Bool {
@@ -67,12 +71,12 @@ public struct SDKReaderStream<Value>: AsyncSequence {
     public typealias Iterator = SDKReaderIterator<Value>
 
     private let open: @Sendable () async throws -> StreamHandle<Value>
-    private let onClose: (@Sendable (SDKStreamCloseReason) -> Void)?
+    private let onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)?
     private let onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
 
     fileprivate init(
         open: @escaping @Sendable () async throws -> StreamHandle<Value>,
-        onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,
+        onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)?,
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
     ) {
         self.open = open
@@ -99,7 +103,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
 
     fileprivate init(
         open: @escaping @Sendable () async throws -> StreamHandle<Value>,
-        onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,
+        onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)?,
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
     ) {
         self.open = open
@@ -249,7 +253,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
 func makeSDKMessageStream(
     group: Group,
     owner: SDKClient,
-    onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,
+    onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)?,
     onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
 ) -> SDKMessageStream {
     SDKReaderStream(open: { [weak owner] in
@@ -269,7 +273,7 @@ func makeSDKConversationStream(
     kind: ConversationKind?,
     consentStates: [ConsentState]?,
     owner: SDKClient,
-    onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,
+    onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)?,
     onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
 ) -> SDKConversationStream {
     SDKReaderStream(open: { [weak owner] in

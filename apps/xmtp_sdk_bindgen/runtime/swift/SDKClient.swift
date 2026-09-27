@@ -109,7 +109,7 @@ public final class SDKClient: @unchecked Sendable {
     /// The reader acknowledges a value when the next read starts.
     public func messages(
         in group: Group,
-        onClose: (@Sendable (SDKStreamCloseReason) -> Void)? = nil,
+        onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)? = nil,
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
     ) async throws -> SDKMessageStream {
         try Task.checkCancellation()
@@ -122,7 +122,7 @@ public final class SDKClient: @unchecked Sendable {
     public func conversationStream(
         kind: ConversationKind? = nil,
         consentStates: [ConsentState]? = nil,
-        onClose: (@Sendable (SDKStreamCloseReason) -> Void)? = nil,
+        onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)? = nil,
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
     ) async throws -> SDKConversationStream {
         try Task.checkCancellation()

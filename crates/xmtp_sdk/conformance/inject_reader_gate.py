@@ -76,9 +76,9 @@ elif language == "swift":
     sequence = replace_once(
         sequence,
         "    fileprivate init(\n        open: @escaping @Sendable () async throws -> StreamHandle<Value>,\n"
-        "        onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,",
+        "        onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)?,",
         "    init(\n        open: @escaping @Sendable () async throws -> StreamHandle<Value>,\n"
-        "        onClose: (@Sendable (SDKStreamCloseReason) -> Void)?,",
+        "        onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)?,",
     )
     readers_source = sequence + marker + iterator
     readers.write_text(readers_source)

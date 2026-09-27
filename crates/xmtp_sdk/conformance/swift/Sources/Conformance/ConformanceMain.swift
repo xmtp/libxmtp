@@ -419,6 +419,30 @@ struct Conformance {
         guard case .closed = breakReason else {
             throw ConformanceFailure("break reported a failed stream")
         }
+        let (throwingClose, throwingCloseSignal) = AsyncStream<SDKStreamCloseReason>.makeStream()
+        let throwingCloseStream = try await reopenedHost.messages(
+            in: breakGroup,
+            onClose: { reason in
+                throwingCloseSignal.yield(reason)
+                throw ConformanceFailure("close callback failed")
+            }
+        )
+        for try await value in throwingCloseStream {
+            precondition(value.id == breakID)
+            break
+        }
+        var throwingCloseIterator = throwingClose.makeAsyncIterator()
+        let throwingCloseTimer = Task {
+            try? await Task.sleep(for: .seconds(2))
+            throwingCloseSignal.finish()
+        }
+        guard let throwingCloseReason = await throwingCloseIterator.next() else {
+            throw ConformanceFailure("throwing close callback was not called")
+        }
+        throwingCloseTimer.cancel()
+        guard case .closed = throwingCloseReason else {
+            throw ConformanceFailure("throwing close callback received a failed reason")
+        }
         let breakReplay = try await breakGroup.messageReader()
         guard try await breakReplay.next()?.id == breakID else {
             throw ConformanceFailure("break acknowledged the last message")

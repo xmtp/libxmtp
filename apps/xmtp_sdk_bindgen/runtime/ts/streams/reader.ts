@@ -92,7 +92,11 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   private notifyClose(reason: StreamCloseReason): void {
     if (this.closeReason !== undefined) return;
     this.closeReason = reason;
-    this.options.onClose?.(reason);
+    try {
+      this.options.onClose?.(reason);
+    } catch (error) {
+      reportCallbackError(error);
+    }
   }
 
   private stopReading(): void {

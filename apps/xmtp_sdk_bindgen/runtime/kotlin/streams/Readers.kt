@@ -88,7 +88,11 @@ private fun <T, R> readerFlow(
                 failure
                     ?.takeUnless { collectorStopped || it is CancellationException }
                     ?.let(SDKStreamCloseReason::Failed) ?: SDKStreamCloseReason.Closed
-            onClose?.invoke(reason)
+            try {
+                onClose?.invoke(reason)
+            } catch (error: Throwable) {
+                System.err.println("XMTP stream close callback failed: $error")
+            }
         }
     }
 
