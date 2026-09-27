@@ -599,7 +599,7 @@ struct Conformance {
                         try? await Task.sleep(for: .milliseconds(200))
                         try? await reader.end()
                     },
-                    connectionState: { reader.connectionState() },
+                    connectionState: { await reader.connectionState() },
                     connectionStateChanged: { try await reader.connectionStateChanged(previous: $0) }
                 )
             }, onClose: nil, onConnectionStateChange: nil)
