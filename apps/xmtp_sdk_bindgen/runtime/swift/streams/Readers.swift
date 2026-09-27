@@ -101,6 +101,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
     private var stopped = false
     private var waiters: [CheckedContinuation<StreamHandle<Value>, Error>] = []
     private var monitor: Task<Void, Never>?
+    private var teardown: Task<Void, Never>?
 
     fileprivate init(
         open: @escaping @Sendable () async throws -> StreamHandle<Value>,
@@ -204,11 +205,13 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         lock.unlock()
     }
 
-    private func close(_ reason: SDKStreamCloseReason) {
+    /// Every close returns the first close's teardown. It ends after the reader is released.
+    @discardableResult
+    private func close(_ reason: SDKStreamCloseReason) -> Task<Void, Never> {
         lock.lock()
-        if stopped {
+        if let teardown {
             lock.unlock()
-            return
+            return teardown
         }
         stopped = true
         let currentHandle = handle
@@ -220,21 +223,24 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
         let currentMonitor = monitor
         monitor = nil
         let notify = completion.markClosed()
+        let completion = completion
+        let task = Task.detached {
+            if let currentHandle {
+                await currentHandle.end()
+            }
+            // A late opener ends its reader before this task ends.
+            await currentOpening?.value
+            if notify {
+                completion.notify(reason)
+            }
+        }
+        teardown = task
         lock.unlock()
         currentMonitor?.cancel()
         for waiter in pending {
             waiter.resume(throwing: CancellationError())
         }
-        if notify {
-            let completion = completion
-            Task.detached {
-                if let currentHandle {
-                    await currentHandle.end()
-                }
-                await currentOpening?.value
-                completion.notify(reason)
-            }
-        }
+        return task
     }
 
     public func next() async throws -> Value? {
@@ -247,11 +253,11 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
                 _ = currentHandle.owner.raw
                 let value = try await currentHandle.next()
                 if value == nil {
-                    close(.closed)
+                    await close(.closed).value
                 }
                 return value
             } catch {
-                close(Task.isCancelled ? .closed : .failed(error))
+                await close(Task.isCancelled ? .closed : .failed(error)).value
                 throw error
             }
         }, onCancel: { close(.closed) })

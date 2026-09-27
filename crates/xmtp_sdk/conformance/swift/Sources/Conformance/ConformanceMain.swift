@@ -500,6 +500,56 @@ struct Conformance {
         }
         let reopenedReader = try await protocolGroup.messageReader()
         try await reopenedReader.end()
+        // When iteration ends, the reader is already released: a replacement
+        // reader on the same group opens at once. A slow end makes a
+        // detached teardown lose this race every time.
+        let reopenScope = try await reopened.conversations().createGroup(members: [], options: nil)
+        func slowEndStream(
+            next: @escaping @Sendable () async throws -> Message?
+        ) -> SDKMessageStream {
+            SDKReaderStream(open: {
+                let reader = try await reopenScope.messageReader()
+                return StreamHandle(
+                    owner: reopenedHost,
+                    next: next,
+                    end: {
+                        try? await Task.sleep(for: .milliseconds(200))
+                        try? await reader.end()
+                    },
+                    connectionState: { reader.connectionState() },
+                    connectionStateChanged: { try await reader.connectionStateChanged(previous: $0) }
+                )
+            }, onClose: nil, onConnectionStateChange: nil)
+        }
+        func reopenScopeAfter(_ path: String) async throws {
+            do {
+                let replacement = try await reopenScope.messageReader()
+                try await replacement.end()
+            } catch XmtpError.ConsumerOwned {
+                throw ConformanceFailure("\(path) ended iteration before the reader was released")
+            }
+        }
+        guard try await slowEndStream(next: { nil }).makeAsyncIterator().next() == nil else {
+            throw ConformanceFailure("ended stream delivered a message")
+        }
+        try await reopenScopeAfter("end of stream")
+        do {
+            _ = try await slowEndStream(next: { throw ConformanceFailure("read failed") })
+                .makeAsyncIterator().next()
+            throw ConformanceFailure("failed read delivered a message")
+        } catch let failure as ConformanceFailure where failure.errorDescription == "read failed" {}
+        try await reopenScopeAfter("read failure")
+        let cancelledRead = Task {
+            try await slowEndStream(next: {
+                try await Task.sleep(for: .seconds(10))
+                return nil
+            }).makeAsyncIterator().next()
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        cancelledRead.cancel()
+        _ = try? await cancelledRead.value
+        try await reopenScopeAfter("cancellation")
+        print("Swift reader released before iteration ends passed")
         do {
             let conversationOpen = TestFlag()
             SDKClient.conversationReaderOpeningForTest = {
