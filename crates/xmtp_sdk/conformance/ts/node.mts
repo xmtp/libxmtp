@@ -762,16 +762,13 @@ for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
     { onConnectionStateChange: (_previous, current) => states.push(current) },
   );
   await probe.ready();
-  assert.deepEqual(states, [
-    sdk.ConnectionState.Connecting,
-    sdk.ConnectionState.Connected,
-  ]);
+  // A reader opened on a connected connection reports Connected first.
+  assert.deepEqual(states, [sdk.ConnectionState.Connected]);
   changes.shift()?.(sdk.ConnectionState.Reconnecting);
   await new Promise((resolve) => setTimeout(resolve, 0));
   changes.shift()?.(sdk.ConnectionState.Connected);
   await new Promise((resolve) => setTimeout(resolve, 0));
   assert.deepEqual(states, [
-    sdk.ConnectionState.Connecting,
     sdk.ConnectionState.Connected,
     sdk.ConnectionState.Reconnecting,
     sdk.ConnectionState.Connected,

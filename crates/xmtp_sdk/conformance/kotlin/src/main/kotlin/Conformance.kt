@@ -575,6 +575,28 @@ fun main() =
         } finally {
             fakeMonitor.cancelAndJoin()
         }
+        // verifies: PROC-044
+        // A reader opened on a connected connection reports Connected first.
+        val firstState = CompletableDeferred<Pair<ConnectionState?, ConnectionState>>()
+        val connectedMonitor =
+            async {
+                readerFlow<Unit, Unit>(
+                    owner = reopenedHost,
+                    open = { Unit },
+                    next = { awaitCancellation() },
+                    end = {},
+                    connectionState = { ConnectionState.CONNECTED },
+                    connectionStateChanged = { _, _ -> awaitCancellation() },
+                    onClose = null,
+                    onConnectionStateChange = { previous, current -> firstState.complete(previous to current) },
+                ).collect {}
+            }
+        try {
+            val first = withTimeout(5_000) { firstState.await() }
+            check(first == (null to ConnectionState.CONNECTED)) { "connected reader first reported $first" }
+        } finally {
+            connectedMonitor.cancelAndJoin()
+        }
         println("Kotlin scenario 7: durable stream and idle cancellation passed")
 
         val largeExpiry = 9_007_199_254_740_993L

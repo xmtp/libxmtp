@@ -585,6 +585,47 @@ struct Conformance {
         guard monitorCalls.value == callsAtClosed else {
             throw ConformanceFailure("state monitor kept reading after Closed")
         }
+        // verifies: PROC-044
+        // A reader opened on a connected connection reports Connected first.
+        let (connectedStates, connectedStateSignal) = AsyncStream<ConnectionState>.makeStream()
+        let connectedHandle = StreamHandle<Int>(
+            owner: reopenedHost,
+            next: {
+                try await Task.sleep(for: .seconds(10))
+                return nil
+            },
+            end: {},
+            connectionState: { .connected },
+            connectionStateChanged: { _ in
+                try await Task.sleep(for: .seconds(10))
+                return .closed
+            }
+        )
+        let connectedStream = SDKReaderStream<Int>(
+            open: { connectedHandle },
+            onClose: nil,
+            onConnectionStateChange: { _, current in
+                connectedStateSignal.yield(current)
+            }
+        )
+        let connectedRead = Task {
+            let iterator = connectedStream.makeAsyncIterator()
+            return try await iterator.next()
+        }
+        let connectedDeadline = Task {
+            try? await Task.sleep(for: .seconds(5))
+            connectedStateSignal.finish()
+        }
+        var connectedStateIterator = connectedStates.makeAsyncIterator()
+        let firstConnectedState = await connectedStateIterator.next()
+        connectedDeadline.cancel()
+        connectedRead.cancel()
+        _ = try? await connectedRead.value
+        guard firstConnectedState == .connected else {
+            throw ConformanceFailure(
+                "connected reader first reported \(String(describing: firstConnectedState))"
+            )
+        }
         print("Swift scenario 7: durable stream and idle cancellation passed")
 
         let largeExpiry: Int64 = 9_007_199_254_740_993

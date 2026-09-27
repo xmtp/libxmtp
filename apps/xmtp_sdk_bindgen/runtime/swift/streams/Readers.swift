@@ -185,7 +185,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
                 onConnectionStateChange(previous, current)
                 previous = current
             }
-            emit(.connecting)
+            // PROC-044: the first state is the one read at subscription.
             emit(currentHandle.connectionState())
             do {
                 while !completion.closed, let last = previous, last != .closed {

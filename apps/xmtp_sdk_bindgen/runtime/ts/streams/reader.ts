@@ -142,10 +142,9 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
       callback(previous, current);
       previous = current;
     };
-    let current = ConnectionState.Connecting;
     try {
-      emit(current);
-      current = reader.connectionState();
+      // PROC-044: the first state is the one read at subscription.
+      let current = reader.connectionState();
       emit(current);
       while (
         !this.isClosed() &&
