@@ -570,3 +570,41 @@ pub(super) async fn put(
     driver.abort();
     outcome
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::{DownloadSink, LocalStore, NativeStore};
+    use std::io::{Seek, SeekFrom};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn cloned_staged_reads_interleave_without_moving_shared_cursor() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let mut writer = store.create_temp(".tmp/body").await?;
+        writer.write(b"abcdefghijkl").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+
+        let first = store.open_read(".tmp/body").await?;
+        let second = first.clone();
+        let first_file = first.opened.as_ref().unwrap();
+        let second_file = second.opened.as_ref().unwrap();
+        let mut shared_cursor = first_file.try_clone()?;
+        shared_cursor.seek(SeekFrom::Start(3))?;
+        let mut first_bytes = Vec::new();
+        let mut second_bytes = Vec::new();
+        for offset in [0, 2, 4] {
+            let mut chunk = [0_u8; 2];
+            assert_eq!(read_at(first_file, &mut chunk, offset)?, 2);
+            first_bytes.extend_from_slice(&chunk);
+            assert_eq!(shared_cursor.stream_position()?, 3);
+
+            assert_eq!(read_at(second_file, &mut chunk, offset + 6)?, 2);
+            second_bytes.extend_from_slice(&chunk);
+            assert_eq!(shared_cursor.stream_position()?, 3);
+        }
+        assert_eq!(first_bytes, b"abcdef");
+        assert_eq!(second_bytes, b"ghijkl");
+    }
+}

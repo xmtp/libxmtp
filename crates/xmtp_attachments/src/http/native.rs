@@ -1812,6 +1812,36 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    async fn deflate_short_body_after_complete_member_is_network() {
+        use std::io::Write;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let mut encoder = flate2::write::ZlibEncoder::new(Vec::new(), flate2::Compression::fast());
+        encoder.write_all(b"complete member")?;
+        let compressed = encoder.finish()?;
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let mut request = [0_u8; 1024];
+            assert!(socket.read(&mut request).await.unwrap() > 0);
+            let head = format!(
+                "HTTP/1.1 200 OK\r\nContent-Encoding: deflate\r\nContent-Length: {}\r\n\r\n",
+                compressed.len() + 100
+            );
+            socket.write_all(head.as_bytes()).await.unwrap();
+            socket.write_all(&compressed).await.unwrap();
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        });
+        let error = allowed()
+            .get(&url, 100, &mut MemorySink::default())
+            .await
+            .expect_err("short HTTP body must fail");
+        assert_eq!(error.cause, Cause::Network);
+        server.await?;
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     async fn gzip_and_deflate_decode_in_stream() {
         use std::io::Write;
         let content = b"decoded ciphertext";
