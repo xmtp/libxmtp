@@ -7,9 +7,9 @@ use std::{
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 #[cfg(windows)]
 use cap_std::fs::MetadataExt;
-#[cfg(unix)]
-use cap_std::fs::PermissionsExt as _;
 use cap_std::fs::{Dir, OpenOptions};
+#[cfg(unix)]
+use cap_std::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 
 use super::{LocalStore, StagedFile, StoreWriter, validate_relative, validate_temp};
 use crate::{AttachmentError, AttachmentFailureCause as Cause};
@@ -99,6 +99,9 @@ impl NativeStore {
     }
 
     fn parent(&self, relative: &str, create: bool) -> io::Result<(Dir, String)> {
+        #[cfg(unix)]
+        use std::os::unix::fs::PermissionsExt as _;
+
         let (parent, name) = relative.rsplit_once('/').unwrap_or(("", relative));
         let mut directory = self.root_dir.try_clone()?;
         if !parent.is_empty() {
@@ -106,15 +109,34 @@ impl NativeStore {
                 directory = match directory.open_dir_nofollow(part) {
                     Ok(child) => child,
                     Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
-                        let created = match directory.create_dir(part) {
+                        #[cfg(unix)]
+                        let mut builder = cap_std::fs::DirBuilder::new();
+                        #[cfg(unix)]
+                        builder.mode(0o700);
+                        #[cfg(unix)]
+                        let create_result = directory.create_dir_with(part, &builder);
+                        #[cfg(not(unix))]
+                        let create_result = directory.create_dir(part);
+                        let created = match create_result {
                             Ok(()) => true,
                             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
                             Err(error) => return Err(error),
                         };
                         let child = directory.open_dir_nofollow(part)?;
+                        #[cfg(all(test, unix))]
+                        if created {
+                            record_initial_mode(
+                                child
+                                    .try_clone()?
+                                    .into_std_file()
+                                    .metadata()?
+                                    .permissions()
+                                    .mode(),
+                                0o700,
+                            );
+                        }
                         #[cfg(unix)]
                         if created {
-                            use std::os::unix::fs::PermissionsExt as _;
                             child
                                 .try_clone()?
                                 .into_std_file()
@@ -139,8 +161,15 @@ fn create_private_directories(path: &Path) -> io::Result<()> {
     let mut current = PathBuf::new();
     for component in path.components() {
         current.push(component.as_os_str());
-        match std::fs::create_dir(&current) {
-            Ok(()) => std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o700))?,
+        let mut builder = std::fs::DirBuilder::new();
+        std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+        match builder.create(&current) {
+            Ok(()) => {
+                let directory = open_created_directory(&current)?;
+                #[cfg(test)]
+                record_initial_mode(directory.metadata()?.permissions().mode(), 0o700);
+                directory.set_permissions(std::fs::Permissions::from_mode(0o700))?;
+            }
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
                 if !std::fs::metadata(&current)?.is_dir() {
                     return Err(io::Error::from(io::ErrorKind::NotADirectory));
@@ -150,6 +179,40 @@ fn create_private_directories(path: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+fn open_created_directory(path: &Path) -> io::Result<std::fs::File> {
+    let fd = rustix::fs::openat(
+        rustix::fs::CWD,
+        path,
+        rustix::fs::OFlags::RDONLY | rustix::fs::OFlags::DIRECTORY | rustix::fs::OFlags::NOFOLLOW,
+        rustix::fs::Mode::empty(),
+    )?;
+    Ok(fd.into())
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))
+))]
+fn open_created_directory(path: &Path) -> io::Result<std::fs::File> {
+    std::fs::File::open(path)
+}
+
+#[cfg(all(test, unix))]
+static INITIAL_MODES: std::sync::Mutex<Vec<(u32, u32)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(all(test, unix))]
+fn record_initial_mode(mode: u32, expected: u32) {
+    if std::env::var_os("XMTP_TEST_INITIAL_MODES").is_some() {
+        INITIAL_MODES.lock().unwrap().push((mode & 0o777, expected));
+    }
+}
+
+#[cfg(all(test, unix))]
+pub(super) fn take_initial_modes() -> Vec<(u32, u32)> {
+    std::mem::take(&mut INITIAL_MODES.lock().unwrap())
 }
 
 fn storage_error(_: impl Sized) -> AttachmentError {
@@ -235,7 +298,14 @@ impl LocalStore for NativeStore {
             .write(true)
             .create_new(true)
             .follow(FollowSymlinks::No);
+        #[cfg(unix)]
+        options.mode(0o600);
         let file = parent.open_with(&name, &options).map_err(storage_error)?;
+        #[cfg(all(test, unix))]
+        record_initial_mode(
+            file.metadata().map_err(storage_error)?.permissions().mode(),
+            0o600,
+        );
         #[cfg(unix)]
         if let Err(error) = file.set_permissions(cap_std::fs::Permissions::from_mode(0o600)) {
             let _ = parent.remove_file(&name);

@@ -592,10 +592,59 @@ mod tests {
         let Some(root) = std::env::var_os("XMTP_TEST_ATTACHMENTS_ROOT") else {
             return;
         };
+        let verify_initial = std::env::var_os("XMTP_TEST_INITIAL_MODES").is_some();
+        if verify_initial {
+            super::native::take_initial_modes();
+        }
         let store = NativeStore::new(std::path::PathBuf::from(root)).await?;
         let mut writer = store.create_temp(".tmp/file").await?;
         writer.write(b"private").await?;
         store.sync(&mut writer).await?;
+        if verify_initial {
+            let modes = super::native::take_initial_modes();
+            assert_eq!(
+                modes
+                    .iter()
+                    .filter(|(_, expected)| *expected == 0o700)
+                    .count(),
+                4
+            );
+            assert_eq!(
+                modes
+                    .iter()
+                    .filter(|(_, expected)| *expected == 0o600)
+                    .count(),
+                1
+            );
+            for (actual, expected) in modes {
+                assert_eq!(
+                    actual & !expected,
+                    0,
+                    "initial mode {actual:o} exceeds {expected:o}"
+                );
+            }
+        }
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_initial_modes_never_exceed_private() {
+        let base = tempfile::tempdir()?;
+        let root = base.path().join("new").join("nested").join("attachments");
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("umask 0000; exec \"$1\" --exact store::tests::native_directory_mode_child")
+            .arg("sh")
+            .arg(std::env::current_exe()?)
+            .env("XMTP_TEST_ATTACHMENTS_ROOT", &root)
+            .env("XMTP_TEST_INITIAL_MODES", "1")
+            .output()?;
+        assert!(
+            output.status.success(),
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[cfg(not(target_arch = "wasm32"))]
