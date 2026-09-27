@@ -259,12 +259,13 @@ async fn read_body<R: futures_util::io::AsyncRead + Unpin>(
         if deadline.fired.get() {
             return Err(AttachmentError::new(Cause::Network));
         }
+        deadline.stop();
         if size == 0 {
             break;
         }
-        deadline.arm(idle_timeout);
         count = checked_count(count, size, cap)?;
         sink.write(&buffer[..size]).await?;
+        deadline.arm(idle_timeout);
     }
     deadline.stop();
     Ok(())
@@ -386,6 +387,18 @@ mod tests {
     #[async_trait::async_trait(?Send)]
     impl DownloadSink for NullSink {
         async fn write(&mut self, _bytes: &[u8]) -> Result<(), AttachmentError> {
+            Ok(())
+        }
+    }
+
+    #[derive(Default)]
+    struct SlowSink(Vec<u8>);
+
+    #[async_trait::async_trait(?Send)]
+    impl DownloadSink for SlowSink {
+        async fn write(&mut self, bytes: &[u8]) -> Result<(), AttachmentError> {
+            gloo_timers::future::TimeoutFuture::new(100).await;
+            self.0.extend_from_slice(bytes);
             Ok(())
         }
     }
@@ -673,6 +686,22 @@ mod tests {
         .unwrap_err();
         assert_eq!(error.cause, Cause::Network);
         assert!(deadline.controller.signal().aborted());
+    }
+
+    // verifies: ATCH-070
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn get_slow_sink_does_not_consume_idle_window() {
+        let idle = Duration::from_millis(40);
+        let deadline = AbortDeadline::new()?;
+        deadline.arm(idle);
+        let mut reader = DelayedByte {
+            delay: Box::pin(gloo_timers::future::TimeoutFuture::new(0)),
+            sent: false,
+        };
+        let mut sink = SlowSink::default();
+        read_body(&mut reader, 1, &mut sink, &deadline, idle).await?;
+        assert_eq!(sink.0, b"x");
+        assert!(!deadline.controller.signal().aborted());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

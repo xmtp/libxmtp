@@ -313,6 +313,7 @@ mod tests {
         let store = NativeStore::new(root.path()).await?;
         let mut writer = store.create_temp(".tmp/source").await?;
         writer.write(b"source").await?;
+        store.sync(&mut writer).await?;
         drop(writer);
         std::os::unix::fs::symlink(outside.path(), root.path().join("key"))?;
 
