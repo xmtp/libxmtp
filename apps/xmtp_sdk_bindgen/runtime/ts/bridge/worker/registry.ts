@@ -47,6 +47,26 @@ export class WorkerRegistry {
     }
   }
 
+  /**
+   * Encodes one result. Every handle added while `encode` runs, including
+   * sibling handles in a list or record, is released if it throws.
+   */
+  scope<T>(encode: () => T): T {
+    const parent = this.allocations;
+    const allocations: number[] = [];
+    this.allocations = allocations;
+    try {
+      const value = encode();
+      parent?.push(...allocations);
+      return value;
+    } catch (error) {
+      this.rollback(allocations);
+      throw error;
+    } finally {
+      this.allocations = parent;
+    }
+  }
+
   private rollback(handles: number[]): void {
     for (const h of handles) {
       const entry = this.entries.get(h);

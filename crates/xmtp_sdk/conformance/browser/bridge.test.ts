@@ -209,6 +209,20 @@ describe("browser bridge transport", () => {
     expect(decoder.convert(shape, structuredClone(encoded))).toBe(object);
   });
 
+  it("rolls back sibling handles when a later snapshot throws", () => {
+    const { engine } = host(async () => undefined);
+    const registry = engine.registry;
+    expect(() =>
+      registry.scope(() => [
+        registry.add({}, "Group"),
+        registry.add({}, "Group", undefined, () => {
+          throw new Error("snapshot failed");
+        }),
+      ]),
+    ).toThrow("snapshot failed");
+    expect(registry.size).toBe(0);
+  });
+
   it("rolls back nested handles when a snapshot throws", () => {
     const { engine } = host(async () => undefined);
     const registry = engine.registry;
