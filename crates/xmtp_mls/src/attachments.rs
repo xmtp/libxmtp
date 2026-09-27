@@ -619,6 +619,8 @@ pub struct AttachmentRuntime {
     attempt_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     download_panic_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    download_move_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(test)]
     outcome_write_errors: AtomicUsize,
     #[cfg(test)]
@@ -669,6 +671,8 @@ impl Default for AttachmentRuntime {
             attempt_panic_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_panic_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_move_pause: Mutex::new(None),
             #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
@@ -726,6 +730,8 @@ impl AttachmentRuntime {
             attempt_panic_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_panic_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_move_pause: Mutex::new(None),
             #[cfg(test)]
             outcome_write_errors: AtomicUsize::new(0),
             #[cfg(test)]
@@ -1062,7 +1068,34 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             cipher.finish()?;
             let meta = store.finish_decode(decoder, &content_tmp, &decoded_tmp).await?;
             let final_tmp = if meta.compressed { &decoded_tmp } else { &content_tmp };
-            store.rename(final_tmp, relative).await?;
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            {
+                let pause = self.runtime().download_move_pause.lock().clone();
+                if let Some((entered, resume)) = pause {
+                    entered.notify_one();
+                    resume.notified().await;
+                }
+            }
+            match store.rename(final_tmp, relative).await {
+                Ok(()) => {}
+                Err(StoreMoveError::DestinationExists) => {
+                    if !store.is_regular_file(relative).await? {
+                        return Err(AttachmentClientError::new(Cause::LocalStorage));
+                    }
+                    self.context.db().insert_or_ignore_local_attachment(
+                        relative, now_ns(), None, None
+                    ).map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+                    let record = self.context.db().get_local_attachment(relative)
+                        .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+                        .ok_or_else(|| AttachmentClientError::new(Cause::LocalStorage))?;
+                    return Ok(DownloadedAttachment {
+                        path: self.local_path(remote)?,
+                        mime_type: record.mime_type,
+                        filename: record.filename,
+                    });
+                }
+                Err(error) => return Err(error.into()),
+            }
             if self.context.db().insert_or_ignore_local_attachment(
                 relative, now_ns(), Some(meta.mime_type.clone()), meta.filename.clone()
             )

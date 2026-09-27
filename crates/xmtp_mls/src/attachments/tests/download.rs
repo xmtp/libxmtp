@@ -196,6 +196,54 @@ async fn existing_not_fetched() {
     assert_eq!(requests.load(Ordering::SeqCst), 0);
 }
 
+// verifies: ATCH-045, ATCH-063
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn another_client_publishes_plaintext_during_download() {
+    let sender = tempfile::tempdir()?;
+    let recipient = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: sender.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let mut remote = pending.remote_attachment().clone();
+    let body = tokio::fs::read(sender.path().join(staged_path(&remote.content_digest)?)).await?;
+    let (url, requests) = serve_body(body).await;
+    remote.url = url;
+
+    tester!(bo, attachments_dir: recipient.path(), disable_workers);
+    let first = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let second = crate::builder::ClientBuilder::from_client(first.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    *first.context.attachments.download_move_pause.lock() =
+        Some((entered.clone(), resume.clone()));
+    let first_remote = remote.clone();
+    let first_client = first.clone();
+    let first_download = tokio::spawn(async move {
+        first_client.attachments().download(&first_remote).await
+    });
+    tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+    let published = second.attachments().download(&remote).await?;
+    let first_bytes = tokio::fs::read(&published.path).await?;
+    let relative = plaintext_rel_path(&remote)?;
+    let row_before = first.context.db().get_local_attachment(&relative)?;
+    resume.notify_one();
+    let joined = tokio::time::timeout(Duration::from_secs(5), first_download).await???;
+    assert_eq!(joined, published);
+    assert_eq!(tokio::fs::read(&joined.path).await?, first_bytes);
+    assert_eq!(first.context.db().get_local_attachment(&relative)?, row_before);
+    assert_eq!(requests.load(Ordering::SeqCst), 2);
+}
+
 // verifies: ATCH-052, ATCH-062
 #[xmtp_common::test(unwrap_try = true)]
 async fn directory_at_plaintext_path_is_not_a_download() {
