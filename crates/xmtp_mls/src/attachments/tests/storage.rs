@@ -51,6 +51,52 @@ async fn deletion_cannot_race_reconciliation_snapshot() {
     }
 }
 
+// verifies: ATCH-062, ATCH-063, EVENT-010
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn deletion_event_hides_rows_after_metadata_delete_error() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let relative = plaintext_rel_path(&remote)?;
+    let second = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let events = alix
+        .client
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::AttachmentDeleted]))?;
+    alix.client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TRIGGER reject_local_delete BEFORE DELETE ON local_attachments \
+             BEGIN SELECT RAISE(ABORT, 'metadata delete rejected'); END",
+        )
+        .execute(conn)
+    })?;
+    assert_eq!(
+        alix.client
+            .attachments()
+            .delete_local(&remote)
+            .await
+            .unwrap_err()
+            .cause,
+        Cause::LocalStorage
+    );
+    assert!(!alix.client.attachments().local_path(&remote)?.exists());
+    assert_eq!(events.drain().len(), 1);
+    assert!(alix.client.attachments().list_local().await?.is_empty());
+    assert!(second.attachments().list_local().await?.is_empty());
+    assert!(alix.client.context.db().get_local_attachment(&relative)?.is_some());
+    alix.client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query("DROP TRIGGER reject_local_delete").execute(conn)
+    })?;
+    second.attachments().delete_local(&remote).await?;
+    assert!(alix.client.context.db().get_local_attachment(&relative)?.is_none());
+}
+
 // verifies: ATCH-067, ATCH-068
 #[xmtp_common::test(unwrap_try = true)]
 async fn pending_expire() {

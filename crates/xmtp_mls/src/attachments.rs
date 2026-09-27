@@ -965,18 +965,22 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
 
     pub async fn list_local(&self) -> Result<Vec<LocalAttachment>, AttachmentClientError> {
         self.runtime().ensure_reconciled(&self.context).await?;
-        self.context
+        let _publication = self.runtime().publication_lock.lock().await;
+        let store = self.runtime().store()?;
+        let rows = self.context
             .db()
             .list_local_attachments()
-            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))
-            .map(|rows| {
-                rows.into_iter()
-                    .map(|row| LocalAttachment {
-                        path: row.path,
-                        created_at_ns: row.created_at_ns,
-                    })
-                    .collect()
-            })
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+        let mut local = Vec::with_capacity(rows.len());
+        for row in rows {
+            if store.exists(&row.path).await? && store.is_regular_file(&row.path).await? {
+                local.push(LocalAttachment {
+                    path: row.path,
+                    created_at_ns: row.created_at_ns,
+                });
+            }
+        }
+        Ok(local)
     }
 
     /// Fetch one verified attachment when its plaintext file is absent.
