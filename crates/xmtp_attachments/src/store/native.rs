@@ -7,6 +7,8 @@ use std::{
 use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
 #[cfg(windows)]
 use cap_std::fs::MetadataExt;
+#[cfg(unix)]
+use cap_std::fs::PermissionsExt as _;
 use cap_std::fs::{Dir, OpenOptions};
 
 use super::{LocalStore, StagedFile, StoreWriter, validate_relative, validate_temp};
@@ -30,6 +32,15 @@ impl NativeStore {
     pub async fn new(root: impl AsRef<Path>) -> Result<Self, AttachmentError> {
         let root = std::path::absolute(root.as_ref())
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        #[cfg(unix)]
+        {
+            let path = root.clone();
+            xmtp_common::task::spawn_blocking(move || create_private_directories(&path))
+                .await
+                .map_err(storage_error)?
+                .map_err(storage_error)?;
+        }
+        #[cfg(not(unix))]
         tokio::fs::create_dir_all(&root)
             .await
             .map_err(storage_error)?;
@@ -95,12 +106,23 @@ impl NativeStore {
                 directory = match directory.open_dir_nofollow(part) {
                     Ok(child) => child,
                     Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
-                        match directory.create_dir(part) {
-                            Ok(()) => {}
-                            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+                        let created = match directory.create_dir(part) {
+                            Ok(()) => true,
+                            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
                             Err(error) => return Err(error),
+                        };
+                        let child = directory.open_dir_nofollow(part)?;
+                        #[cfg(unix)]
+                        if created {
+                            use std::os::unix::fs::PermissionsExt as _;
+                            child
+                                .try_clone()?
+                                .into_std_file()
+                                .set_permissions(std::fs::Permissions::from_mode(0o700))?;
                         }
-                        directory.open_dir_nofollow(part)?
+                        #[cfg(not(unix))]
+                        let _ = created;
+                        child
                     }
                     Err(error) => return Err(error),
                 };
@@ -108,6 +130,26 @@ impl NativeStore {
         }
         Ok((directory, name.to_owned()))
     }
+}
+
+#[cfg(unix)]
+fn create_private_directories(path: &Path) -> io::Result<()> {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    let mut current = PathBuf::new();
+    for component in path.components() {
+        current.push(component.as_os_str());
+        match std::fs::create_dir(&current) {
+            Ok(()) => std::fs::set_permissions(&current, std::fs::Permissions::from_mode(0o700))?,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                if !std::fs::metadata(&current)?.is_dir() {
+                    return Err(io::Error::from(io::ErrorKind::NotADirectory));
+                }
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
 }
 
 fn storage_error(_: impl Sized) -> AttachmentError {
@@ -194,6 +236,11 @@ impl LocalStore for NativeStore {
             .create_new(true)
             .follow(FollowSymlinks::No);
         let file = parent.open_with(&name, &options).map_err(storage_error)?;
+        #[cfg(unix)]
+        if let Err(error) = file.set_permissions(cap_std::fs::Permissions::from_mode(0o600)) {
+            let _ = parent.remove_file(&name);
+            return Err(storage_error(error));
+        }
         Ok(StoreWriter {
             file: tokio::fs::File::from_std(file.into_std()),
         })

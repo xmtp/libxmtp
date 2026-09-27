@@ -535,6 +535,69 @@ mod tests {
         assert!(!elsewhere.path().join(relative).join(".tmp/file").exists());
     }
 
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_created_directory_modes_ignore_umask() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let base = tempfile::tempdir()?;
+        let app = base.path().join("existing-app-dir");
+        std::fs::create_dir(&app)?;
+        std::fs::set_permissions(&app, std::fs::Permissions::from_mode(0o755))?;
+        let executable = std::env::current_exe()?;
+        for (mask, suffix) in [("0177", "restrictive"), ("0000", "open")] {
+            let root = app.join(suffix).join("nested").join("attachments");
+            let output = std::process::Command::new("sh")
+                .arg("-c")
+                .arg(format!(
+                    "umask {mask}; exec \"$1\" --exact store::tests::native_directory_mode_child"
+                ))
+                .arg("sh")
+                .arg(&executable)
+                .env("XMTP_TEST_ATTACHMENTS_ROOT", &root)
+                .output()?;
+            assert!(
+                output.status.success(),
+                "umask {mask}: {}",
+                String::from_utf8_lossy(&output.stdout)
+            );
+            for directory in [
+                app.join(suffix),
+                app.join(suffix).join("nested"),
+                root.clone(),
+                root.join(".tmp"),
+            ] {
+                assert_eq!(
+                    std::fs::metadata(&directory)?.permissions().mode() & 0o777,
+                    0o700,
+                    "{} under umask {mask}",
+                    directory.display()
+                );
+            }
+            assert_eq!(
+                std::fs::metadata(root.join(".tmp/file"))?
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600,
+                "file under umask {mask}"
+            );
+            assert_eq!(std::fs::metadata(&app)?.permissions().mode() & 0o777, 0o755);
+        }
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_directory_mode_child() {
+        let Some(root) = std::env::var_os("XMTP_TEST_ATTACHMENTS_ROOT") else {
+            return;
+        };
+        let store = NativeStore::new(std::path::PathBuf::from(root)).await?;
+        let mut writer = store.create_temp(".tmp/file").await?;
+        writer.write(b"private").await?;
+        store.sync(&mut writer).await?;
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn rename_rolls_back_when_source_unlink_fails() {
