@@ -235,6 +235,10 @@ impl LocalStore for OpfsStore {
         }
     }
 
+    async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
+        OpfsStore::replace(self, from, to).await
+    }
+
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
         let (parent, name) = self.parent(path, false).await?;
         let options = FileSystemRemoveOptions::new();

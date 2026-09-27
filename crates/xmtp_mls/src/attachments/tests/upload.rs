@@ -677,6 +677,77 @@ async fn existing_staged_ciphertext_is_reused_on_create() {
     assert!(temp_files.next_entry().await?.is_none());
 }
 
+// verifies: ATCH-045, ATCH-046
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn damaged_staged_ciphertext_is_replaced_on_create() {
+    use std::os::unix::fs::MetadataExt as _;
+
+    for truncate in [false, true] {
+        let dir = tempfile::tempdir()?;
+        tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+        let pause = Arc::new(CreateMovePause {
+            path: Mutex::new(None),
+            staged_path: Mutex::new(None),
+            entered: tokio::sync::Notify::new(),
+            resume: tokio::sync::Notify::new(),
+        });
+        *alix.client.context.attachments.create_move_pause.lock() = Some(pause.clone());
+        let client = alix.client.clone();
+        let create =
+            xmtp_common::task::spawn(async move { client.attachments().create(bytes()).await });
+        tokio::time::timeout(Duration::from_secs(3), pause.entered.notified()).await?;
+        let staged = pause.staged_path.lock().clone().expect("staged path");
+        let staged_file = dir.path().join(&staged);
+        let mut temp_files = tokio::fs::read_dir(dir.path().join(".tmp")).await?;
+        let mut ciphertext = None;
+        while let Some(entry) = temp_files.next_entry().await? {
+            if entry.file_name().to_string_lossy().ends_with("-staged") {
+                ciphertext = Some(tokio::fs::read(entry.path()).await?);
+            }
+        }
+        let mut ciphertext = ciphertext.expect("staged temporary file");
+        if truncate {
+            ciphertext.pop();
+        } else {
+            ciphertext[0] ^= 1;
+        }
+        tokio::fs::create_dir_all(staged_file.parent().expect("staged directory")).await?;
+        tokio::fs::write(&staged_file, &ciphertext).await?;
+        let damaged_inode = tokio::fs::metadata(&staged_file).await?.ino();
+        pause.resume.notify_one();
+        let created = create.await??;
+        let (digest, length) = alix
+            .client
+            .context
+            .attachments
+            .store()?
+            .open_read(&staged)
+            .await?
+            .sha256()
+            .await?;
+        assert_eq!(
+            hex::encode(digest),
+            created.remote_attachment().content_digest
+        );
+        assert_eq!(
+            length,
+            u64::from(
+                created
+                    .remote_attachment()
+                    .content_length
+                    .expect("content length")
+            )
+        );
+        assert_ne!(
+            tokio::fs::metadata(&staged_file).await?.ino(),
+            damaged_inode
+        );
+        created.upload().await?;
+        assert_eq!(created.status(), PendingAttachmentStatus::Complete);
+    }
+}
+
 // verifies: ATCH-035, ATCH-038, ATCH-067
 #[xmtp_common::test(unwrap_try = true)]
 async fn one_pending_per_digest() {

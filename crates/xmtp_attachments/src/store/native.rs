@@ -565,6 +565,12 @@ impl LocalStore for NativeStore {
         }
     }
 
+    async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
+        tokio::fs::rename(self.path(from)?, self.path(to)?)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+    }
+
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
         validate_relative(path)?;
         let (parent, name) = self.parent(path, false).map_err(storage_error)?;

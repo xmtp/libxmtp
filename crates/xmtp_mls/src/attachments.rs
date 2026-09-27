@@ -1205,8 +1205,22 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     final_staged = Some(ciphertext.clone());
                 }
                 Err(StoreMoveError::DestinationExists) => {
-                    store.remove_file(&staged_temp).await?;
-                    staged_temp_created = false;
+                    let valid = match store.open_read(&ciphertext).await {
+                        Ok(file) => matches!(
+                            file.sha256().await,
+                            Ok((digest, stored_length))
+                                if stored_length == length && hex::encode(digest) == hex_digest
+                        ),
+                        Err(_) => false,
+                    };
+                    if valid {
+                        store.remove_file(&staged_temp).await?;
+                        staged_temp_created = false;
+                    } else {
+                        store.replace(&staged_temp, &ciphertext).await?;
+                        staged_temp_created = false;
+                        final_staged = Some(ciphertext.clone());
+                    }
                 }
                 Err(error) => return Err(error.into()),
             }

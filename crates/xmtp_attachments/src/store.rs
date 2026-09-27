@@ -180,6 +180,8 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     async fn create_dir_if_absent(&self, path: &str) -> Result<bool, AttachmentError>;
     /// Move a file only when the destination does not exist.
     async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError>;
+    /// Atomically replace the destination with a completed temporary file.
+    async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
     /// Remove only an empty directory.
     async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError>;
