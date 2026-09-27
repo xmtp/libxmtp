@@ -750,7 +750,6 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
         StandardContentKind::Reply => {
             let value =
                 xmtp_content_types::reply::ReplyCodec::decode(encoded).map_err(codec_error)?;
-            // implements: CTYPE-012
             let nested_type = value.content.r#type.as_ref().ok_or_else(|| {
                 crate::XmtpError::invalid("nested reply content has no content type")
             })?;
@@ -1137,7 +1136,6 @@ pub(crate) mod pure_codec_tests {
     }
 
     #[cfg(test)]
-    // verifies: CTYPE-012
     // verifies: CTYPE-024
     #[xmtp_common::test(unwrap_try = true)]
     fn malformed_nested_reply_content_is_rejected() {
