@@ -396,17 +396,21 @@ resolveCreation({
 });
 await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(endedLate, true, "late reader remained open");
-const closeReasons: sdk.StreamCloseReason[] = [];
-const explicitlyClosed = new sdk.MessageStream(
-  async () => ({ next: async () => undefined, end: async () => {} }),
-  reopened,
-  { onClose: (reason) => closeReasons.push(reason) },
-);
-await explicitlyClosed.end();
-assert.deepEqual(
-  closeReasons.map((reason) => reason.kind),
-  ["closed"],
-);
+// verifies: PROC-041, PROC-042
+for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
+  const closeReasons: sdk.StreamCloseReason[] = [];
+  const explicitlyClosed = new StreamType(
+    async () => ({ next: async () => undefined, end: async () => {} }),
+    reopened,
+    { onClose: (reason) => closeReasons.push(reason) },
+  );
+  await explicitlyClosed.end();
+  await explicitlyClosed.end();
+  assert.deepEqual(
+    closeReasons.map((reason) => reason.kind),
+    ["closed"],
+  );
+}
 let endedAfterCloseThrow = false;
 const throwingClose = new sdk.MessageStream(
   async () => ({
@@ -498,6 +502,7 @@ await throwingState.ready();
 await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(stateCallbackCalls, 1);
 await throwingState.end();
+// verifies: PROC-041
 for (const code of [
   "RecoveryExhausted",
   "Storage",
@@ -527,6 +532,7 @@ for (const code of [
   if (reasons[0].kind === "failed")
     assert.equal((reasons[0].error as { code: string }).code, code);
 }
+// verifies: PROC-044
 for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
   const states: sdk.ConnectionState[] = [];
   const changes: Array<(state: sdk.ConnectionState) => void> = [];
@@ -1218,6 +1224,7 @@ const ownerWithThrowingCodec = await sdk.Client.build(
 const throwingGroup = await ownerWithThrowingCodec
   .conversations()
   .createGroup([], undefined);
+// verifies: PROC-045
 const codecStream = new sdk.MessageStream(
   (signal) => throwingGroup.messageReader({ signal }),
   ownerWithThrowingCodec,

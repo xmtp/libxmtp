@@ -4165,12 +4165,20 @@ async fn sends_reject_empty_content_identifiers() {
     client.end().await?;
 }
 
+// verifies: CTYPE-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn nested_reaction_reply_body_keeps_nested_envelope() {
     use crate::{EncodedContent, MessageBody, Reaction, ReactionAction, ReactionSchema};
     use prost::Message as _;
-    use xmtp_content_types::{ContentCodec, reaction::ReactionCodec};
-    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
+    use xmtp_content_types::{
+        ContentCodec,
+        compression::compress,
+        reaction::ReactionCodec,
+        reply::{Reply, ReplyCodec},
+    };
+    use xmtp_proto::xmtp::mls::message_contents::{
+        Compression as WireCompression, EncodedContent as ProtoEncodedContent,
+    };
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
@@ -4186,7 +4194,7 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
     .into();
     let reply_id = client
         .conversations()
-        .reply_to_message(reference, nested, None)
+        .reply_to_message(reference.clone(), nested, None)
         .await?;
     let stored = client.inner.message(hex::decode(&reply_id.0)?)?;
     let decoded = client
@@ -4195,12 +4203,13 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
         )
         .await?;
     let MessageContent::Reply {
+        reference_id,
         body: MessageBody::Unknown { encoded },
-        ..
     } = decoded
     else {
         panic!("expected an unknown nested reaction body");
     };
+    assert_eq!(reference_id, reference);
     assert_eq!(encoded.r#type.type_id, "reaction");
 
     let reply = group
@@ -4210,13 +4219,40 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
         .find(|message| message.0.id == reply_id)
         .expect("reply in history");
     let MessageContent::Reply {
+        reference_id,
         body: MessageBody::Unknown { encoded },
-        ..
     } = reply.0.content
     else {
         panic!("expected an unknown nested reaction body in history");
     };
+    assert_eq!(reference_id, reference);
     assert_eq!(encoded.r#type.type_id, "reaction");
+
+    let nested = ReactionCodec::encode(
+        Reaction {
+            content: "compressed reaction".into(),
+            action: ReactionAction::Added,
+            schema: ReactionSchema::Unicode,
+        }
+        .into_proto(reference.clone(), client.inbox_id()),
+    )?;
+    let expected_content = nested.content.clone();
+    let compressed = compress(nested, WireCompression::Gzip)?;
+    let outer = ReplyCodec::encode(Reply {
+        reference: reference.0.clone(),
+        reference_inbox_id: None,
+        content: compressed,
+    })?;
+    let MessageContent::Reply {
+        reference_id,
+        body: MessageBody::Unknown { encoded },
+    } = MessageContent::decode(outer.encode_to_vec())?
+    else {
+        panic!("expected unknown nested compressed reaction");
+    };
+    assert_eq!(reference_id, reference);
+    assert_eq!(encoded.r#type.type_id, "reaction");
+    assert_eq!(encoded.content, expected_content);
     client.end().await?;
 }
 
