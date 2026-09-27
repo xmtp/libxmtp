@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""Check the generated Storage surface in every host language."""
+
+from pathlib import Path
+import re
+import sys
+
+
+root = Path(sys.argv[1] if len(sys.argv) > 1 else "target/sdk-generated")
+bindings = {
+    "Swift": (
+        root / "swift/xmtp_sdk.swift",
+        r"\bfunc path\(\)\s*async\s+throws\b",
+    ),
+    "Kotlin": (
+        root / "kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt",
+        r"\bsuspend fun `path`\(",
+    ),
+    "TypeScript N-API": (
+        root / "typescript-napi/xmtp_sdk.ts",
+        r"\bpath\([^\n]*\)[^\n]*:\s*Promise<string\s*\|\s*undefined>",
+    ),
+    "TypeScript WASM": (
+        root / "typescript-wasm/xmtp_sdk.ts",
+        r"\bpath\([^\n]*\)[^\n]*:\s*Promise<string\s*\|\s*undefined>",
+    ),
+}
+
+for language, (path, pattern) in bindings.items():
+    if re.search(pattern, path.read_text()) is None:
+        raise SystemExit(f"{language}: Storage.path must be async")
+
+wasm = (root / "typescript-wasm/xmtp_sdk.ts").read_text()
+if "uniffi_xmtp_sdk_fn_method_storage_reconnect" in wasm:
+    raise SystemExit("TypeScript WASM: Storage.reconnect must not be exported")
+
+print("Storage.path is async in Swift, Kotlin, TypeScript N-API, and TypeScript WASM.")
+print("TypeScript WASM does not export Storage.reconnect.")

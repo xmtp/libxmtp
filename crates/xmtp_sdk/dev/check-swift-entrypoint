@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+source_dir="${1:-crates/xmtp_sdk/conformance/swift/Sources/Conformance}"
+if test -f "$source_dir/main.swift" &&
+  test "$(find "$source_dir" -maxdepth 1 -name '*.swift' | wc -l)" -gt 1 &&
+  rg -q '@main' "$source_dir/main.swift"; then
+  echo 'Swift executable has @main in main.swift with other source files' >&2
+  exit 1
+fi

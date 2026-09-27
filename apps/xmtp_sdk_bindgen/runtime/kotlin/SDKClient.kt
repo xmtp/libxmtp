@@ -11,8 +11,21 @@ import kotlinx.coroutines.withContext
 /** The host client resolves storage and owns the weak message lookup entry. */
 class SDKClient private constructor(
     val raw: Client,
+    codecs: List<SDKContentCodec>,
 ) {
     internal val listenerGates = ListenerGates()
+    private val codecs = codecs.associateBy { it.key }
+
+    fun storage(): Storage = raw.storage()
+
+    fun decodeCustom(encoded: EncodedContent): SDKMessageContent {
+        val codec = codecs[SDKContentCodecKey(encoded.type)] ?: return SDKMessageContent.Unknown(encoded)
+        return try {
+            SDKMessageContent.Custom(encoded, codec.decode(encoded), null)
+        } catch (error: Throwable) {
+            SDKMessageContent.Custom(encoded, null, error)
+        }
+    }
 
     companion object {
         private fun resolved(
@@ -28,8 +41,9 @@ class SDKClient private constructor(
             signer: Signer,
             options: ClientOptions,
             defaultDirectory: String? = null,
+            codecs: List<SDKContentCodec> = emptyList(),
         ): SDKClient =
-            SDKClient(Client.create(signer, resolved(options, defaultDirectory))).also {
+            SDKClient(Client.create(signer, resolved(options, defaultDirectory)), codecs).also {
                 ClientRegistry.register(it)
             }
 
@@ -38,9 +52,11 @@ class SDKClient private constructor(
             options: ClientOptions,
             inboxID: InboxID? = null,
             defaultDirectory: String? = null,
+            codecs: List<SDKContentCodec> = emptyList(),
         ): SDKClient =
             SDKClient(
                 Client.build(identity, resolved(options, defaultDirectory), inboxID),
+                codecs,
             ).also { ClientRegistry.register(it) }
 
         suspend fun fetchServerConfiguration(backend: BackendSource): ServerConfiguration =

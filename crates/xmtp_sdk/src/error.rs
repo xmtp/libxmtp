@@ -56,9 +56,9 @@ pub enum XmtpError {
     CredentialExhausted(ErrorDetails),
     #[error("credential missing: {0:?}")]
     CredentialMissing(ErrorDetails),
-    #[error("notification permission denied: {0:?}")]
+    #[error("permission denied: {0:?}")]
     PermissionDenied(ErrorDetails),
-    #[error("notification argument invalid: {0:?}")]
+    #[error("invalid argument: {0:?}")]
     InvalidArgument(ErrorDetails),
     #[error("notification value out of range: {0:?}")]
     OutOfRange(ErrorDetails),
@@ -118,6 +118,15 @@ impl XmtpError {
         })
     }
 
+    pub(crate) fn invalid_argument(message: impl Into<String>) -> Self {
+        Self::InvalidArgument(Self::details(
+            "InvalidArgument",
+            ErrorCategory::Input,
+            false,
+            message,
+        ))
+    }
+
     pub(crate) fn closed() -> Self {
         Self::ClientClosed(ErrorDetails {
             code: "ClientClosed".into(),
@@ -125,6 +134,15 @@ impl XmtpError {
             retryable: false,
             message: "client is closed".into(),
         })
+    }
+
+    pub(crate) fn conversation_permission_denied(message: impl Into<String>) -> Self {
+        Self::PermissionDenied(Self::details(
+            "PermissionDenied",
+            ErrorCategory::Conversation,
+            false,
+            message,
+        ))
     }
 
     pub(crate) fn storage_location_required() -> Self {

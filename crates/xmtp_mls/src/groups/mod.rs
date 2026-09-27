@@ -193,6 +193,7 @@ where
 
 pub struct ConversationListItem<Context> {
     pub group: MlsGroup<Context>,
+    pub added_by_inbox_id: String,
     pub last_message: Option<StoredGroupMessage>,
     pub is_commit_log_forked: Option<bool>,
 }

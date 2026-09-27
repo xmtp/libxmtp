@@ -1,4 +1,4 @@
-use crate::{Client, XmtpError};
+use crate::{Client, ConsentState, XmtpError};
 use xmtp_mls::client::notifications as core;
 
 #[derive(Clone, Debug, uniffi::Enum)]
@@ -14,23 +14,6 @@ impl From<NotificationChannel> for core::NotificationChannel {
             NotificationChannel::Apns { token } => Self::Apns { token },
             NotificationChannel::Fcm { token } => Self::Fcm { token },
             NotificationChannel::Http { url, signing_key } => Self::Http { url, signing_key },
-        }
-    }
-}
-
-#[derive(Clone, Debug, uniffi::Enum)]
-pub enum ConsentState {
-    Unknown,
-    Allowed,
-    Denied,
-}
-
-impl From<ConsentState> for xmtp_db::consent_record::ConsentState {
-    fn from(value: ConsentState) -> Self {
-        match value {
-            ConsentState::Unknown => Self::Unknown,
-            ConsentState::Allowed => Self::Allowed,
-            ConsentState::Denied => Self::Denied,
         }
     }
 }

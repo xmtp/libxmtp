@@ -13,8 +13,8 @@ use xmtp_mls::{
 };
 
 use crate::{
-    BackendSource, Conversations, InboxID, InstallationID, PublicIdentity, Signature, Signer,
-    SignerKind, SigningRequest, XmtpError, signer,
+    Archives, BackendSource, Conversations, Diagnostics, InboxID, InstallationID, Preferences,
+    PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError, signer,
 };
 
 pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
@@ -22,7 +22,7 @@ pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 static NEXT_CLIENT_KEY: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Default)]
-struct EventReaderRegistry {
+pub(crate) struct EventReaderRegistry {
     closing: bool,
     readers: Vec<Weak<crate::EventReader>>,
 }
@@ -206,20 +206,31 @@ pub struct Client {
     pub(crate) key: u64,
     pub(crate) identity: PublicIdentity,
     pub(crate) options: ClientOptions,
+    pub(crate) storage_path: Option<String>,
     pub(crate) signer: Option<Arc<dyn Signer>>,
     pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
-    pub(crate) listeners: crate::events::dispatch::ListenerRegistry,
-    event_readers: parking_lot::Mutex<EventReaderRegistry>,
+    pub(crate) listeners: Arc<crate::events::dispatch::ListenerRegistry>,
+    pub(crate) event_readers: Arc<parking_lot::Mutex<EventReaderRegistry>>,
 }
 
 impl Client {
     async fn build_inner(
         identity: PublicIdentity,
-        options: ClientOptions,
+        mut options: ClientOptions,
         inbox_id: Option<InboxID>,
     ) -> Result<Self, XmtpError> {
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        match &mut options.storage.location {
+            StorageLocation::Path(path) | StorageLocation::Directory(path) => {
+                *path = std::path::absolute(&*path)
+                    .map_err(XmtpError::unknown)?
+                    .to_string_lossy()
+                    .into_owned();
+            }
+            StorageLocation::Default | StorageLocation::InMemory => {}
         }
         let identifier = identity.to_core()?;
         let backend = options
@@ -246,6 +257,10 @@ impl Client {
             }
         };
         let store = open_store(&options.storage, &inbox_id).await?;
+        #[cfg(not(target_arch = "wasm32"))]
+        let storage_path = native_storage_path(&options.storage, &inbox_id)?;
+        #[cfg(target_arch = "wasm32")]
+        let storage_path = wasm_storage_path(&options.storage, &inbox_id)?;
         let mode = if options.device_sync {
             DeviceSyncMode::Enabled
         } else {
@@ -284,10 +299,11 @@ impl Client {
             key,
             identity,
             options,
+            storage_path,
             signer: None,
             auth_handle,
-            listeners: crate::events::dispatch::ListenerRegistry::default(),
-            event_readers: parking_lot::Mutex::new(EventReaderRegistry::default()),
+            listeners: Arc::new(crate::events::dispatch::ListenerRegistry::default()),
+            event_readers: Arc::new(parking_lot::Mutex::new(EventReaderRegistry::default())),
         })
     }
 
@@ -413,20 +429,35 @@ impl Client {
         })
     }
 
+    pub fn preferences(&self) -> Arc<Preferences> {
+        Arc::new(Preferences {
+            client: self.inner.clone(),
+        })
+    }
+
+    pub fn diagnostics(&self) -> Arc<Diagnostics> {
+        Arc::new(Diagnostics {
+            client: self.inner.clone(),
+        })
+    }
+
+    pub fn storage(&self) -> Arc<Storage> {
+        Arc::new(Storage {
+            client: self.inner.clone(),
+            path: self.storage_path.clone(),
+            listeners: self.listeners.clone(),
+            event_readers: self.event_readers.clone(),
+        })
+    }
+
+    pub fn archives(&self) -> Arc<Archives> {
+        Arc::new(Archives {
+            client: self.inner.clone(),
+        })
+    }
+
     pub async fn end(&self) -> Result<(), XmtpError> {
-        let readers: Vec<_> = {
-            let mut registry = self.event_readers.lock();
-            registry.closing = true;
-            registry.readers.iter().filter_map(Weak::upgrade).collect()
-        };
-        self.listeners.stop_all();
-        for reader in &readers {
-            reader.close();
-        }
-        for reader in &readers {
-            reader.wait_for_reads().await;
-        }
-        self.inner.close().await.map_err(XmtpError::from_client)
+        end_client(&self.inner, &self.listeners, &self.event_readers).await
     }
 
     // implements: EVENT-014
@@ -481,6 +512,26 @@ impl Client {
     }
 }
 
+pub(crate) async fn end_client(
+    client: &CoreClient,
+    listeners: &crate::events::dispatch::ListenerRegistry,
+    event_readers: &parking_lot::Mutex<EventReaderRegistry>,
+) -> Result<(), XmtpError> {
+    let readers: Vec<_> = {
+        let mut registry = event_readers.lock();
+        registry.closing = true;
+        registry.readers.iter().filter_map(Weak::upgrade).collect()
+    };
+    listeners.stop_all();
+    for reader in &readers {
+        reader.close();
+    }
+    for reader in &readers {
+        reader.wait_for_reads().await;
+    }
+    client.close().await.map_err(XmtpError::from_client)
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) async fn open_store(
     options: &StorageOptions,
@@ -527,7 +578,7 @@ pub(crate) async fn open_store(
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
 }
 
-fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
+pub(crate) fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
     let label = options.label.as_deref().unwrap_or("");
     if [label, inbox_id]
         .iter()

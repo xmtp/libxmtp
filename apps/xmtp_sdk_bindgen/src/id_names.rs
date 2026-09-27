@@ -77,6 +77,7 @@ fn metadata_paths(groups: &MetadataGroupMap) -> BTreeSet<String> {
                 Metadata::Enum(enumeration) => {
                     paths.insert(enumeration.name.clone());
                     for variant in &enumeration.variants {
+                        paths.insert(format!("{}.{}", enumeration.name, variant.name));
                         add_fields(
                             &mut paths,
                             &format!("{}.{}", enumeration.name, variant.name),
@@ -308,5 +309,17 @@ mod tests {
         let rename: toml::value::Table = toml::from_str("'Client.inbox_id' = 'inbox_i_d'")?;
         let error = map_from_table(&rename, &BTreeSet::new()).unwrap_err();
         assert!(error.to_string().contains("Client.inbox_id"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn enum_variant_rename_keeps_id_capitalized() {
+        let rename: toml::value::Table =
+            toml::from_str("'MlsExtensionType.ApplicationId' = 'application_i_d'")?;
+        let paths = BTreeSet::from(["MlsExtensionType.ApplicationId".into()]);
+        let names = map_from_table(&rename, &paths)?;
+        assert_eq!(
+            names.get("applicationId").map(String::as_str),
+            Some("applicationID")
+        );
     }
 }
