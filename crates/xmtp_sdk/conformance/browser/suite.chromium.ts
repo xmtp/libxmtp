@@ -418,8 +418,17 @@ export async function runBrowserBridgeConformance(
     equal(custom.encoded.parameters.get("source"), "browser", "map was lost");
     equal(new TextDecoder().decode(custom.encoded.content), "custom browser value", "custom bytes changed");
     equal(custom.content.tag, B.MessageContent_Tags.Custom, "custom tag changed");
-    if (custom.content.tag === B.MessageContent_Tags.Custom)
+    if (custom.data.content.tag !== B.MessageContent_Tags.Custom)
+      throw new Error("stored custom content changed tag");
+    if (custom.content.tag === B.MessageContent_Tags.Custom) {
       equal(custom.content.inner.value, "custom browser value", "host custom content failed");
+      expect(custom.content.inner.rawBytes.byteLength > 0, "custom raw bytes were empty");
+      equal(
+        new Uint8Array(custom.content.inner.rawBytes).toString(),
+        new Uint8Array(custom.data.content.inner.rawBytes).toString(),
+        "custom raw bytes changed",
+      );
+    }
     const customReplyID = await custom.reply(customCodec, "custom reply");
     const customReply = await customOwner.conversations().getMessageByID(customReplyID);
     expect(customReply instanceof Message, "custom reply was not lifted");
@@ -465,9 +474,24 @@ export async function runBrowserBridgeConformance(
     const unknown = await customOwner.conversations().getMessageByID(unknownID);
     expect(unknown, "unknown content was not read");
     expect(unknown instanceof Message, "unknown content was not lifted");
-    equal(unknown.content.tag, B.MessageContent_Tags.Custom, "unknown content tag changed");
-    if (unknown.content.tag === B.MessageContent_Tags.Custom)
-      equal(unknown.content.inner.value, undefined, "unknown codec produced a value");
+    equal(unknown.content.tag, B.MessageContent_Tags.Unknown, "unknown content tag changed");
+    if (unknown.data.content.tag !== B.MessageContent_Tags.Custom)
+      throw new Error("stored unknown content changed tag");
+    if (unknown.content.tag === B.MessageContent_Tags.Unknown) {
+      expect(unknown.content.inner.rawBytes.byteLength > 0, "unknown raw bytes were empty");
+      equal(
+        new Uint8Array(unknown.content.inner.rawBytes).toString(),
+        new Uint8Array(unknown.data.content.inner.rawBytes).toString(),
+        "unknown raw bytes changed",
+      );
+    }
+    const unknownReplyID = await unknown.reply(
+      B.EncodedContent.create({ type: unknownType, content: new Uint8Array([4]).buffer }),
+      undefined,
+    );
+    const unknownReply = await customOwner.conversations().getMessageByID(unknownReplyID);
+    expect(unknownReply instanceof Message, "unknown reply was not lifted");
+    equal(unknownReply.replyContent?.tag, B.MessageBody_Tags.Unknown, "unknown reply body changed tag");
     const failingID = await customGroup.send(failingCodec.encode("bad"), undefined);
     const failed = await customOwner.conversations().getMessageByID(failingID);
     expect(failed, "failed custom content was not read");
@@ -485,10 +509,16 @@ export async function runBrowserBridgeConformance(
     const collision = await customOwner.conversations().getMessageByID(collisionID);
     expect(collision, "colliding content was not read");
     expect(collision instanceof Message, "colliding content was not lifted");
-    equal(collision.content.tag, B.MessageContent_Tags.Custom, "colliding content changed tag");
-    if (collision.content.tag === B.MessageContent_Tags.Custom)
-      equal(collision.content.inner.value, undefined, "codec decoded a different content identifier");
+    equal(collision.content.tag, B.MessageContent_Tags.Unknown, "colliding content changed tag");
+    if (collision.content.tag === B.MessageContent_Tags.Unknown)
+      expect(collision.content.inner.rawBytes.byteLength > 0, "colliding raw bytes were empty");
     await customOwner.end();
+    const closedMessage = new Message(custom.data, session);
+    equal(closedMessage.content.tag, B.MessageContent_Tags.Custom, "closed client's content changed tag");
+    if (closedMessage.content.tag === B.MessageContent_Tags.Custom) {
+      equal(closedMessage.content.inner.error, "clientClosed", "closed client error was lost");
+      expect(closedMessage.content.inner.rawBytes.byteLength > 0, "closed client raw bytes were empty");
+    }
     results.push("scenario 6: custom codec registry, unknown codec, and error");
 
     const readerGroup = await reopened
