@@ -1150,6 +1150,7 @@ macro_rules! common_conversation {
                 send_encoded(self.inner.clone(), encoded, options.unwrap_or_default()).await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_text(
                 &self,
                 text: String,
@@ -1158,6 +1159,7 @@ macro_rules! common_conversation {
                 send_standard(self.inner.clone(), StandardContent::Text(text), options).await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_markdown(
                 &self,
                 markdown: String,
@@ -1171,6 +1173,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_reaction(
                 &self,
                 reference: MessageID,
@@ -1190,6 +1193,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_reply(
                 &self,
                 reference: MessageID,
@@ -1209,6 +1213,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_read_receipt(
                 &self,
                 options: Option<SendOptions>,
@@ -1216,6 +1221,7 @@ macro_rules! common_conversation {
                 send_standard(self.inner.clone(), StandardContent::ReadReceipt, options).await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_attachment(
                 &self,
                 attachment: crate::Attachment,
@@ -1229,6 +1235,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_remote_attachment(
                 &self,
                 attachment: crate::RemoteAttachment,
@@ -1242,6 +1249,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_multi_remote_attachment(
                 &self,
                 attachment: crate::MultiRemoteAttachment,
@@ -1255,6 +1263,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_transaction_reference(
                 &self,
                 reference: crate::TransactionReference,
@@ -1268,6 +1277,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_wallet_send_calls(
                 &self,
                 calls: crate::WalletSendCalls,
@@ -1281,6 +1291,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_actions(
                 &self,
                 actions: crate::Actions,
@@ -1294,6 +1305,7 @@ macro_rules! common_conversation {
                 .await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn send_intent(
                 &self,
                 intent: crate::Intent,

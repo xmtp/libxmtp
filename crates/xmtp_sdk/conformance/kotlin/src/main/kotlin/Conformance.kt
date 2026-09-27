@@ -30,6 +30,34 @@ private suspend fun consumeOmittedSendOptions(
     conversations.replyToMessage(id, encoded)
 }
 
+@Suppress("unused")
+private suspend fun consumeOmittedTypedSendOptions(
+    group: Group,
+    id: MessageID,
+    reaction: Reaction,
+    encoded: EncodedContent,
+    attachment: Attachment,
+    remote: RemoteAttachment,
+    multiRemote: MultiRemoteAttachment,
+    transaction: TransactionReference,
+    walletCalls: WalletSendCalls,
+    actions: Actions,
+    intent: Intent,
+) {
+    group.sendText("text")
+    group.sendMarkdown("markdown")
+    group.sendReaction(id, null, reaction)
+    group.sendReply(id, null, encoded)
+    group.sendReadReceipt()
+    group.sendAttachment(attachment)
+    group.sendRemoteAttachment(remote)
+    group.sendMultiRemoteAttachment(multiRemote)
+    group.sendTransactionReference(transaction)
+    group.sendWalletSendCalls(walletCalls)
+    group.sendActions(actions)
+    group.sendIntent(intent)
+}
+
 private fun sameEncoded(
     actual: EncodedContent,
     expected: EncodedContent,

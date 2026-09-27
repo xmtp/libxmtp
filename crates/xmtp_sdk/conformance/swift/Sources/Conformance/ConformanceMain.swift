@@ -141,12 +141,12 @@ struct SampleCodec: SDKContentCodec {
 struct SlashCodec: SDKContentCodec {
     let type = ContentTypeID(authorityID: "example.org", typeID: "a/b", versionMajor: 1, versionMinor: 0)
 
-    func encode(_ value: Any) throws -> EncodedContent {
+    func encode(_ value: any Sendable) throws -> EncodedContent {
         guard let text = value as? String else { throw ConformanceFailure("custom value was not text") }
         return EncodedContent(type: type, content: Data(text.utf8))
     }
 
-    func decode(_: EncodedContent) throws -> Any {
+    func decode(_: EncodedContent) throws -> any Sendable {
         "wrong codec"
     }
 }
