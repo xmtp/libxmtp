@@ -2414,6 +2414,84 @@ async fn invalid_reply_parent_body_does_not_break_history() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn deleted_messages_and_reply_parents_hide_original_content() {
+    use crate::MessageBody;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let mut text = crate::encode_text("secret-deleted".into())?;
+    text.fallback = Some("secret-deleted-fallback".into());
+    let target = group.send(text, None).await?;
+    let reply = client
+        .conversations()
+        .reply_to_message(target.clone(), crate::encode_text("reply".into())?, None)
+        .await?;
+    client
+        .conversations()
+        .delete_message(target.clone())
+        .await?;
+
+    let by_id = client
+        .conversations()
+        .get_message_by_id(target.clone())
+        .await?
+        .expect("deleted message by ID");
+    let history = group.messages(None).await?;
+    let listed = history
+        .iter()
+        .find(|message| message.0.id == target)
+        .expect("deleted message in history");
+    for (path, message) in [("by ID", &by_id), ("history", listed)] {
+        assert!(
+            matches!(message.0.content, MessageContent::DeletedMessage(_)),
+            "{path} did not show deletion"
+        );
+        assert_eq!(message.0.content_type.authority_id, "xmtp.org", "{path}");
+        assert_eq!(message.0.content_type.type_id, "deletedMessage", "{path}");
+        assert_eq!(message.0.content_type.version_major, 1, "{path}");
+        assert_eq!(message.0.content_type.version_minor, 0, "{path}");
+        assert!(message.0.fallback.is_none(), "{path} kept the fallback");
+        assert!(
+            message.0.encoded.content.is_empty(),
+            "{path} kept the payload"
+        );
+        assert_eq!(message.0.encoded.r#type.type_id, "deletedMessage", "{path}");
+        assert!(message.0.encoded.parameters.is_empty(), "{path}");
+        assert!(
+            !format!("{:?}", message.0).contains("secret-deleted"),
+            "{path}"
+        );
+    }
+
+    let reply_by_id = client
+        .conversations()
+        .get_message_by_id(reply.clone())
+        .await?
+        .expect("reply by ID");
+    let reply_in_history = history
+        .iter()
+        .find(|message| message.0.id == reply)
+        .expect("reply in history");
+    for (path, message) in [("by ID", &reply_by_id), ("history", reply_in_history)] {
+        let parent = message.0.in_reply_to.as_ref().expect("reply parent");
+        assert!(
+            matches!(parent.content, MessageBody::DeletedMessage(_)),
+            "{path}"
+        );
+        assert_eq!(parent.content_type.type_id, "deletedMessage", "{path}");
+        assert!(parent.fallback.is_none(), "{path} kept the parent fallback");
+        assert!(
+            parent.encoded.content.is_empty(),
+            "{path} kept the parent payload"
+        );
+        assert_eq!(parent.encoded.r#type.type_id, "deletedMessage", "{path}");
+        assert!(parent.encoded.parameters.is_empty(), "{path}");
+        assert!(!format!("{parent:?}").contains("secret-deleted"), "{path}");
+    }
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn disappearing_permission_denies_both_metadata_fields() {
     use crate::{MetadataFieldKind, PermissionPolicy, PermissionUpdateKind};
     use xmtp_mls::groups::group_permissions::MetadataPolicies;

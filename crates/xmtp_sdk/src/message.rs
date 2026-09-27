@@ -300,7 +300,23 @@ impl Message {
         client_key: u64,
         decoded: Option<xmtp_mls::messages::decoded_message::MessageBody>,
     ) -> Result<Self, XmtpError> {
-        let encoded = EncodedContent::decode(value.decrypted_message_bytes.as_slice()).ok();
+        let deleted = matches!(
+            decoded.as_ref(),
+            Some(xmtp_mls::messages::decoded_message::MessageBody::DeletedMessage { .. })
+        );
+        let message_bytes = if deleted {
+            &[][..]
+        } else {
+            value.decrypted_message_bytes.as_slice()
+        };
+        let encoded = if deleted {
+            Some(EncodedContent {
+                r#type: Some(xmtp_mls::messages::enrichment::deleted_message_content_type()),
+                ..Default::default()
+            })
+        } else {
+            EncodedContent::decode(message_bytes).ok()
+        };
         let raw_fallback = encoded.is_none().then(|| SdkEncodedContent {
             r#type: ContentTypeId {
                 authority_id: String::new(),
@@ -310,7 +326,7 @@ impl Message {
             },
             parameters: Default::default(),
             fallback: None,
-            content: value.decrypted_message_bytes.clone(),
+            content: message_bytes.to_vec(),
         });
         let content_type = encoded
             .as_ref()
@@ -329,12 +345,10 @@ impl Message {
                     || core_content.compression.is_some() =>
                 {
                     // Core also uses Custom when a standard decode fails.
-                    MessageContent::decode_proto(content, &value.decrypted_message_bytes)
+                    MessageContent::decode_proto(content, message_bytes)
                 }
-                Some(body) => {
-                    MessageContent::from_core(body, content, &value.decrypted_message_bytes)
-                }
-                None => MessageContent::decode_proto(content, &value.decrypted_message_bytes),
+                Some(body) => MessageContent::from_core(body, content, message_bytes),
+                None => MessageContent::decode_proto(content, message_bytes),
             })
             .transpose()
             .unwrap_or(None)
@@ -344,7 +358,7 @@ impl Message {
                     .map(Into::into)
                     .or_else(|| raw_fallback.clone())
                     .expect("parsed or raw content"),
-                raw_bytes: value.decrypted_message_bytes.clone(),
+                raw_bytes: message_bytes.to_vec(),
             });
         let kind = match value.kind {
             GroupMessageKind::Application => MessageKind::Application,
