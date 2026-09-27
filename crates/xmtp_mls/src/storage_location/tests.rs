@@ -422,6 +422,46 @@ mod native {
         ));
     }
 
+    // verifies: ATCH-040, ATCH-080
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn data_location_rejects_custom_mls_storage_in_both_orders() {
+        use xmtp_db::XmtpTestDb as _;
+
+        let dir = tempfile::tempdir()?;
+        let store = xmtp_db::TestDb::create_persistent_store(None).await;
+        let custom = xmtp_db::sql_key_store::SqlKeyStore::new(store.db());
+        let location = StorageLocation::DataDir(dir.path().join("data"));
+        let mut api = xmtp_api_backend::MessageBackendBuilder::new();
+        api.host("http://127.0.0.1:1");
+        let first = Client::builder(identity_setup(generate_local_wallet()))
+            .api_client_with_streams(api.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_allow_offline(Some(true))
+            .data_location(location.clone(), [0u8; 32].into())
+            .await?
+            .mls_storage(custom.clone())
+            .build()
+            .await;
+        assert!(matches!(first, Err(crate::builder::ClientBuilderError::StorageLocation(
+            StorageLocationError::ConflictingStore
+        ))));
+
+        let mut api = xmtp_api_backend::MessageBackendBuilder::new();
+        api.host("http://127.0.0.1:1");
+        let second = Client::builder(identity_setup(generate_local_wallet()))
+            .api_client_with_streams(api.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_allow_offline(Some(true))
+            .mls_storage(custom)
+            .data_location(location, [0u8; 32].into())
+            .await?
+            .build()
+            .await;
+        assert!(matches!(second, Err(crate::builder::ClientBuilderError::StorageLocation(
+            StorageLocationError::ConflictingStore
+        ))));
+    }
+
     // verifies: ATCH-069, CONF-040
     #[xmtp_common::test(unwrap_try = true)]
     async fn refresh_records_a_stored_answer() {

@@ -919,13 +919,15 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
     }
 
     pub fn mls_storage<NewS>(self, mls_storage: NewS) -> ClientBuilder<ApiClient, NewS, Db> {
+        let storage_location_conflict =
+            self.storage_location_conflict || self.storage_location_selected;
         ClientBuilder {
             deployment_recorder: self.deployment_recorder,
             data_location: self.data_location,
             location_store_opener: self.location_store_opener,
             mls_storage_factory: None,
             storage_location_selected: self.storage_location_selected,
-            storage_location_conflict: self.storage_location_conflict,
+            storage_location_conflict,
             store: self.store,
             api_client: self.api_client,
             identity: self.identity,
