@@ -11,7 +11,7 @@ pub use xmtp_db::delivery::{DeliveryCursor, DeliveryScope, DeliverySnapshot};
 use acknowledgement::{AcknowledgementState, DeliverySession, PendingAcknowledgement};
 use futures::{Stream, StreamExt};
 use parking_lot::Mutex;
-use std::{collections::VecDeque, sync::Arc};
+use std::{borrow::Cow, collections::VecDeque, sync::Arc};
 use tokio::sync::Notify;
 use xmtp_common::{
     StreamHandle,
@@ -437,9 +437,10 @@ where
         limit: u32,
     ) -> Result<DeliverySnapshot> {
         let settings = context.incoming_runtime().policy();
+        let filter = effective_filter(scope, filter);
         Ok(context.db().delivery_history_snapshot_filtered(
             scope,
-            filter,
+            &filter,
             now_ns(),
             limit.min(settings.max_local_read_rows),
             settings.max_local_read_bytes,
@@ -456,12 +457,28 @@ impl<Context: XmtpSharedContext> Drop for LocalDelivery<Context> {
     }
 }
 
+// implements: CONS-042, CONS-043
+fn effective_filter<'a>(
+    scope: &DeliveryScope,
+    filter: &'a LocalDeliveryFilter,
+) -> Cow<'a, LocalDeliveryFilter> {
+    if matches!(scope, DeliveryScope::All) && filter.consent_states.is_none() {
+        Cow::Owned(LocalDeliveryFilter {
+            conversation_type: filter.conversation_type,
+            consent_states: Some(DEFAULT_STREAM_CONSENT_STATES.to_vec()),
+        })
+    } else {
+        Cow::Borrowed(filter)
+    }
+}
+
 fn matches_filter<Context: XmtpSharedContext>(
     context: &Context,
     group_id: GroupId,
     scope: &DeliveryScope,
     filter: &LocalDeliveryFilter,
 ) -> Result<bool> {
+    let filter = effective_filter(scope, filter);
     let db = context.db();
     if let Some(kind) = filter.conversation_type {
         let group: Option<StoredGroup> = db.fetch(&group_id)?;
@@ -469,11 +486,7 @@ fn matches_filter<Context: XmtpSharedContext>(
             return Ok(false);
         }
     }
-    // implements: CONS-042, CONS-043
-    let states = filter.consent_states.as_deref().or_else(|| {
-        matches!(scope, DeliveryScope::All).then_some(DEFAULT_STREAM_CONSENT_STATES.as_slice())
-    });
-    if let Some(states) = states {
+    if let Some(states) = &filter.consent_states {
         let consent = db
             .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
             .map_err(StorageError::from)?
