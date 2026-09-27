@@ -220,6 +220,11 @@ impl StagedFile {
         self.file.size() as u64
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
     /// Read at most one chunk from an OPFS source file.
     #[cfg(target_arch = "wasm32")]
     pub async fn read_chunk(
