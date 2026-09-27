@@ -27,7 +27,7 @@ use xmtp_db::{
 };
 use xmtp_proto::types::GroupId;
 
-use super::{SubscribeError, internal::InternalEvent};
+use super::{DEFAULT_STREAM_CONSENT_STATES, SubscribeError, internal::InternalEvent};
 use crate::context::XmtpSharedContext;
 use xmtp_events::{EventFilter, Subscription};
 
@@ -327,6 +327,7 @@ where
                     || !matches_filter(
                         &self.session.context,
                         candidate.message.group_id,
+                        &selection.scope,
                         &selection.filter,
                     )?
                 {
@@ -458,6 +459,7 @@ impl<Context: XmtpSharedContext> Drop for LocalDelivery<Context> {
 fn matches_filter<Context: XmtpSharedContext>(
     context: &Context,
     group_id: GroupId,
+    scope: &DeliveryScope,
     filter: &LocalDeliveryFilter,
 ) -> Result<bool> {
     let db = context.db();
@@ -467,7 +469,11 @@ fn matches_filter<Context: XmtpSharedContext>(
             return Ok(false);
         }
     }
-    if let Some(states) = &filter.consent_states {
+    // implements: CONS-042, CONS-043
+    let states = filter.consent_states.as_deref().or_else(|| {
+        matches!(scope, DeliveryScope::All).then_some(DEFAULT_STREAM_CONSENT_STATES.as_slice())
+    });
+    if let Some(states) = states {
         let consent = db
             .get_consent_record(hex::encode(group_id), ConsentType::ConversationId)
             .map_err(StorageError::from)?

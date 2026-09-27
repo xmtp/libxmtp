@@ -309,7 +309,7 @@ async fn test_stream_all_messages() {
     assert_eq!(caro.api_statistics().subscribe_static, 0);
 }
 
-// verifies: CONS-030
+// verifies: CONS-042
 #[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 5)]
 async fn stream_all_messages_default_excludes_denied() {
     let alix = new_test_client().await;
@@ -342,6 +342,7 @@ async fn stream_all_messages_default_excludes_denied() {
     let denied_id = alix_group
         .send(b"denied".to_vec(), FfiSendMessageOpts::default())
         .await?;
+    bo_group.sync().await?;
     let allowed_id = allowed_group
         .send(b"allowed".to_vec(), FfiSendMessageOpts::default())
         .await?;

@@ -94,6 +94,11 @@ impl MessageReader {
     }
 
     #[cfg(test)]
+    pub(crate) fn update_all_scope_for_test(&self) {
+        self.control.update_scope(DeliveryScope::All);
+    }
+
+    #[cfg(test)]
     pub(crate) fn control_for_test(&self) -> MessageReaderControl {
         self.control.clone()
     }

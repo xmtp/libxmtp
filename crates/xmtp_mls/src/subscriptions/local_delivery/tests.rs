@@ -160,6 +160,47 @@ async fn excluded_rows_stay_consumed_after_a_filter_change() {
     assert_eq!(reader.next_delivery().await?.unwrap().message.id, later.id);
 }
 
+// verifies: CONS-042, CONS-043
+#[xmtp_common::test(unwrap_try = true)]
+async fn all_scope_defaults_to_allowed_and_unknown_but_group_scope_does_not() {
+    tester!(alix);
+    let denied = alix.create_group(None, None)?;
+    let allowed = alix.create_group(None, None)?;
+    denied.update_consent_state(ConsentState::Denied)?;
+    let denied_message = generate_stored_msg(Cursor(100), denied.group_id);
+    let allowed_message = generate_stored_msg(Cursor(200), allowed.group_id);
+    denied_message.store(&alix.context.db())?;
+    allowed_message.store(&alix.context.db())?;
+
+    let mut all = LocalDelivery::new(
+        alix.context.clone(),
+        DeliveryScope::All,
+        LocalDeliveryFilter::default(),
+        None,
+        LocalDeliveryConfig::default(),
+    )?;
+    let selected = all.next_delivery().await?.expect("allowed message");
+    assert_eq!(selected.message.id, allowed_message.id);
+    selected.acknowledgement.acknowledge()?;
+    all.control().close();
+    drop(all);
+
+    let later_denied = generate_stored_msg(Cursor(300), denied.group_id);
+    later_denied.store(&alix.context.db())?;
+    let mut one_group = LocalDelivery::new(
+        alix.context.clone(),
+        DeliveryScope::Groups(vec![denied.group_id]),
+        LocalDeliveryFilter::default(),
+        None,
+        LocalDeliveryConfig::default(),
+    )?;
+    let selected = one_group
+        .next_delivery()
+        .await?
+        .expect("denied group message");
+    assert_eq!(selected.message.id, later_denied.id);
+}
+
 // verifies: PROC-026
 #[xmtp_common::test(unwrap_try = true)]
 async fn missed_local_wake_is_recovered_by_a_fresh_database_poll() {

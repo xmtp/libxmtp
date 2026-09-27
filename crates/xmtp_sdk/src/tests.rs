@@ -1808,6 +1808,61 @@ async fn conversation_reader_explicit_allowed_selection() {
     client.end().await?;
 }
 
+// verifies: CONS-042
+#[xmtp_common::test(unwrap_try = true)]
+async fn all_scope_message_reader_skips_synced_denied_message() {
+    use crate::{ConsentEntity, ConsentRecord, ConsentState};
+
+    let alix = Client::create(crate::generate_local_signer().await, options()).await?;
+    let bo = Client::create(crate::generate_local_signer().await, options()).await?;
+    let denied = alix
+        .conversations()
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    let allowed = alix
+        .conversations()
+        .create_group(vec![bo.inbox_id()], None)
+        .await?;
+    bo.inner.sync_welcomes().await?;
+    let bo_denied =
+        crate::Group::from_core(bo.inner.group(&denied.inner.group_id)?, bo.key).await?;
+    let bo_allowed =
+        crate::Group::from_core(bo.inner.group(&allowed.inner.group_id)?, bo.key).await?;
+    bo.preferences()
+        .set_consent_states(vec![ConsentRecord {
+            entity: ConsentEntity::Conversation {
+                conversation_id: bo_denied.id(),
+            },
+            state: ConsentState::Denied,
+        }])
+        .await?;
+    let denied_id = denied.send_text("denied".into(), None).await?;
+    bo_denied.sync().await?;
+    assert_eq!(
+        bo_denied.inner.consent_state()?,
+        ConsentState::Denied.into()
+    );
+    let allowed_id = allowed.send_text("allowed".into(), None).await?;
+    bo_allowed.sync().await?;
+
+    let reader = bo_allowed.message_reader().await?;
+    reader.update_all_scope_for_test();
+    let selected = xmtp_common::time::timeout(Duration::from_secs(5), async {
+        loop {
+            let message = reader.next().await?.expect("allowed message");
+            assert_ne!(message.0.id, denied_id, "denied message was delivered");
+            if message.0.id == allowed_id {
+                break Ok::<_, crate::XmtpError>(message);
+            }
+        }
+    })
+    .await??;
+    assert_eq!(selected.0.id, allowed_id);
+    reader.end().await?;
+    alix.end().await?;
+    bo.end().await?;
+}
+
 // verifies: PROC-028
 #[xmtp_common::test(unwrap_try = true)]
 async fn stream_ack_only_on_next_request() {

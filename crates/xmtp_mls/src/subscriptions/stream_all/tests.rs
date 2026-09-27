@@ -502,7 +502,7 @@ async fn test_stream_all_messages_filters_by_consent_state(
     );
 }
 
-// verifies: CONS-030
+// verifies: CONS-042
 #[xmtp_common::test(unwrap_try = true)]
 #[cfg_attr(target_arch = "wasm32", ignore)]
 async fn stream_all_messages_default_excludes_denied() {

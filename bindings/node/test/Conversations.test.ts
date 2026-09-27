@@ -831,6 +831,7 @@ describe("Conversations", () => {
     expectStreamedMessages(messages4, [[message3, "gm3!"]], [dm.id()]);
   });
 
+  // verifies: CONS-042
   it("defaults all-message streams to allowed and unknown consent", async () => {
     const sender = await createRegisteredClient(createUser());
     const recipientUser = createUser();
@@ -861,6 +862,10 @@ describe("Conversations", () => {
       () => {},
     );
     const deniedId = await deniedGroup.sendText("denied");
+    await recipient
+      .conversations()
+      .getConversationById(deniedGroup.id())!
+      .sync();
     const allowedId = await allowedGroup.sendText("allowed");
     await expect
       .poll(

@@ -6,7 +6,7 @@ mod tests;
 #[cfg(any(test, feature = "test-utils"))]
 use super::message_reader::MessageReaderControl;
 use super::{
-    DEFAULT_STREAM_CONSENT_STATES, Result,
+    Result,
     local_delivery::{DeliveryScope, LocalDeliveryFilter},
     message_reader::MessageReader,
 };
@@ -53,9 +53,7 @@ impl StreamAllMessages {
             DeliveryScope::All,
             LocalDeliveryFilter {
                 conversation_type,
-                consent_states: Some(
-                    consent_states.unwrap_or_else(|| DEFAULT_STREAM_CONSENT_STATES.to_vec()),
-                ),
+                consent_states,
             },
             None,
         )?;
