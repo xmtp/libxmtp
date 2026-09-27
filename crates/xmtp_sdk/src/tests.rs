@@ -3096,7 +3096,13 @@ async fn custom_content_type_filter_rejects_unknown_storage_type() {
             None,
         )
         .await?;
-    assert!(group.messages(None).await?.iter().any(|message| message.0.id == sent));
+    assert!(
+        group
+            .messages(None)
+            .await?
+            .iter()
+            .any(|message| message.0.id == sent)
+    );
 
     let result = group
         .messages(Some(ListMessagesOptions {
