@@ -191,6 +191,12 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "With no filter, the client's all-message stream delivers every consent state."
 
 [[waiver]]
+id = "CONS-044"
+kind = "untested"
+owner = "protocol"
+reason = "Core `StreamConversations` applies `ALL_CONSENT_STATES` when no consent filter is given; no test asserts the default yet."
+
+[[waiver]]
 id = "CONS-030"
 kind = "gap"
 owner = "protocol"
