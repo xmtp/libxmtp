@@ -1668,9 +1668,10 @@ async fn cancel_idle_read_settles() {
     );
     let group = client.conversations().create_group(vec![], None).await?;
     let reader = group.message_reader().await?;
+    let idle = reader.idle_read_for_test();
     let pending_reader = reader.clone();
     let pending = tokio::spawn(async move { pending_reader.next().await });
-    tokio::time::sleep(Duration::from_millis(100)).await;
+    xmtp_common::time::timeout(Duration::from_secs(5), idle.notified()).await?;
     assert!(!pending.is_finished(), "reader did not reach an idle read");
     xmtp_common::time::timeout(Duration::from_secs(2), reader.end()).await??;
     assert!(
