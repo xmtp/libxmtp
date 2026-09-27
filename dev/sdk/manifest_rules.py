@@ -2503,12 +2503,17 @@ def _classify(entry: object) -> Decision:
             spelling(name[:-2] + ".ns" if name.endswith("Ns") else name + ".date"),
             "11.2, Timestamp; plan Decisions",
         )
-    if name == "Conversations.streamAllMessages" and sdk in {
-        "Swift",
-        "Kotlin",
-        "Node",
-        "Browser",
-    }:
+    if (
+        name == "Conversations.streamAllMessages"
+        and sdk in {"Swift", "Kotlin", "Node", "Browser"}
+    ) or (
+        name
+        in {
+            "Conversations.streamAllGroupMessages",
+            "Conversations.streamAllDmMessages",
+        }
+        and sdk in {"Node", "Browser"}
+    ):
         ref = (
             f"11.4 {sdk}, Conversations"
             if sdk != "Browser"
