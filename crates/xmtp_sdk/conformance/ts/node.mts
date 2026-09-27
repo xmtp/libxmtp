@@ -9,7 +9,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
 
-async function assertNoUnhandledRejection(action: () => Promise<void>): Promise<void> {
+async function assertNoUnhandledRejection(
+  action: () => Promise<void>,
+): Promise<void> {
   const unhandled: unknown[] = [];
   const capture = (error: unknown): void => {
     unhandled.push(error);
@@ -411,6 +413,47 @@ for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
     ["closed"],
   );
 }
+for (const closeMode of ["end", "fail"] as const) {
+  let scopeOwned = false;
+  const openScope = async () => {
+    if (scopeOwned)
+      throw Object.assign(new Error("stream scope is still owned"), {
+        code: "ConsumerOwned",
+      });
+    scopeOwned = true;
+    return {
+      next: async () => undefined,
+      end: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        scopeOwned = false;
+      },
+    };
+  };
+  const readFailure = new Error("reader failed before close");
+  let replacement: sdk.MessageStream | undefined;
+  const stream = new sdk.MessageStream(
+    async () => ({
+      ...(await openScope()),
+      next: async () => {
+        if (closeMode === "fail") throw readFailure;
+        return undefined;
+      },
+    }),
+    reopened,
+    {
+      onClose: (reason) => {
+        assert.equal(reason.kind, closeMode === "end" ? "closed" : "failed");
+        replacement = new sdk.MessageStream(openScope, reopened);
+      },
+    },
+  );
+  await stream.ready();
+  if (closeMode === "end") await stream.end();
+  else await assert.rejects(stream.next(), (error) => error === readFailure);
+  assert.ok(replacement, "close callback did not reopen the stream scope");
+  await replacement.ready();
+  await replacement.end();
+}
 let endedAfterCloseThrow = false;
 const throwingClose = new sdk.MessageStream(
   async () => ({
@@ -653,7 +696,9 @@ await conversationStream.end();
 const consentReader = sdk.ConversationStream.open(reopened, {
   consentStates: [sdk.ConsentState.Allowed],
 });
-const deniedConversation = await reopened.conversations().createGroup([], undefined);
+const deniedConversation = await reopened
+  .conversations()
+  .createGroup([], undefined);
 await reopened.raw.preferences().setConsentStates([
   {
     entity: new sdk.ConsentEntity.Conversation({
@@ -662,18 +707,25 @@ await reopened.raw.preferences().setConsentStates([
     state: sdk.ConsentState.Denied,
   },
 ]);
-const allowedConversation = await reopened.conversations().createGroup([], undefined);
+const allowedConversation = await reopened
+  .conversations()
+  .createGroup([], undefined);
 const selectedConversation = (
   await Promise.race([
     consentReader.next(),
     new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("selected conversation not delivered")), 5_000),
+      setTimeout(
+        () => reject(new Error("selected conversation not delivered")),
+        5_000,
+      ),
     ),
   ])
 ).value;
 assert.equal(selectedConversation?.tag, sdk.Conversation_Tags.Group);
 assert.equal(
-  (selectedConversation as InstanceType<typeof sdk.Conversation.Group>).inner.group
+  (
+    selectedConversation as InstanceType<typeof sdk.Conversation.Group>
+  ).inner.group
     .id()
     .toString(),
   allowedConversation.id().toString(),

@@ -90,8 +90,6 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   }
 
   private notifyClose(reason: StreamCloseReason): void {
-    if (this.closeReason !== undefined) return;
-    this.closeReason = reason;
     try {
       this.options.onClose?.(reason);
     } catch (error) {
@@ -109,15 +107,14 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   private async fail(error: unknown): Promise<void> {
     if (this.closed) return;
     this.stopReading();
+    const reason: StreamCloseReason = { kind: "failed", error };
+    this.closeReason = reason;
     try {
-      this.notifyClose({ kind: "failed", error });
-    } finally {
-      try {
-        await this.active?.end();
-      } catch {
-        // The read error remains the stream's close reason.
-      }
+      await this.active?.end();
+    } catch {
+      // The read error remains the stream's close reason.
     }
+    this.notifyClose(reason);
   }
 
   private async watchConnection(reader: ReaderLike<T>): Promise<void> {
@@ -194,15 +191,14 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   async end(): Promise<void> {
     if (this.closed) return;
     this.stopReading();
+    const reason: StreamCloseReason = { kind: "closed" };
+    this.closeReason = reason;
     try {
-      this.notifyClose({ kind: "closed" });
-    } finally {
-      try {
-        await this.active?.end();
-      } catch {
-        // Client shutdown can close the reader first.
-      }
+      await this.active?.end();
+    } catch {
+      // Client shutdown can close the reader first.
     }
+    this.notifyClose(reason);
   }
 }
 
