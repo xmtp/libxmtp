@@ -11,7 +11,6 @@ import kotlinx.coroutines.withContext
 private class CodecRegistry(
     codecs: List<SDKContentCodec>,
 ) {
-    internal val listenerGates = ListenerGates()
     private val codecs = codecs.associateBy { it.key }
 
     fun decode(encoded: EncodedContent): SDKMessageContent {
@@ -30,6 +29,7 @@ class SDKClient private constructor(
     codecs: List<SDKContentCodec>,
 ) {
     private val codecs = CodecRegistry(codecs)
+    internal val listenerGates = ListenerGates()
 
     fun storage(): Storage = raw.storage()
 
