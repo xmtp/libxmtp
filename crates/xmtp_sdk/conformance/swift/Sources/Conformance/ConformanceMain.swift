@@ -87,6 +87,69 @@ final class TestSigner: Signer, @unchecked Sendable {
     }
 }
 
+final class CallLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        lock.lock()
+        values.append(value)
+        lock.unlock()
+    }
+
+    func removeAll() {
+        lock.lock()
+        values.removeAll()
+        lock.unlock()
+    }
+
+    var calls: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
+final class RecordingSigner: Signer, @unchecked Sendable {
+    private let inner: Signer
+    private let log: CallLog
+
+    init(_ inner: Signer, _ log: CallLog) {
+        self.inner = inner
+        self.log = log
+    }
+
+    func identity() async throws -> PublicIdentity {
+        try await inner.identity()
+    }
+
+    func kind() async throws -> SignerKind {
+        try await inner.kind()
+    }
+
+    func sign(request: SigningRequest) async throws -> Signature {
+        log.append("sign")
+        return try await inner.sign(request: request)
+    }
+}
+
+final class RecordingPreAuthenticate: PreAuthenticate, @unchecked Sendable {
+    private let log: CallLog
+    private let fail: Bool
+
+    init(_ log: CallLog, fail: Bool) {
+        self.log = log
+        self.fail = fail
+    }
+
+    func run() async throws {
+        log.append("pre-authenticate")
+        if fail {
+            throw PreAuthenticateError.Failed
+        }
+    }
+}
+
 final class OrderedLogSink: LogSink, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String] = []
@@ -777,6 +840,42 @@ struct Conformance {
         }
         try await unsignedHost.end()
         print("Swift scenario 11: local signer and signature request passed")
+
+        // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
+        let preAuthLog = CallLog()
+        var preAuthOptions = unsignedOptions
+        preAuthOptions.handlers = ClientHandlers(preAuthenticate: RecordingPreAuthenticate(preAuthLog, fail: false))
+        let preAuthenticated = try await SDKClient.create(
+            signer: RecordingSigner(await generateLocalSigner(), preAuthLog),
+            options: preAuthOptions
+        )
+        guard preAuthLog.calls.isEmpty else {
+            throw ConformanceFailure("preAuthenticate ran before registration: \(preAuthLog.calls)")
+        }
+        try await preAuthenticated.raw.register()
+        guard preAuthLog.calls == ["pre-authenticate", "sign"] else {
+            throw ConformanceFailure("preAuthenticate did not run before the signer: \(preAuthLog.calls)")
+        }
+        preAuthLog.removeAll()
+        try await preAuthenticated.raw.register()
+        guard preAuthLog.calls.isEmpty else {
+            throw ConformanceFailure("registered client ran preAuthenticate again: \(preAuthLog.calls)")
+        }
+        try await preAuthenticated.end()
+        var failingOptions = unsignedOptions
+        failingOptions.registration = RegistrationOptions(auto: true)
+        failingOptions.handlers = ClientHandlers(preAuthenticate: RecordingPreAuthenticate(preAuthLog, fail: true))
+        do {
+            _ = try await SDKClient.create(
+                signer: RecordingSigner(await generateLocalSigner(), preAuthLog),
+                options: failingOptions
+            )
+            throw ConformanceFailure("failing preAuthenticate did not stop registration")
+        } catch XmtpError.CallbackFailed {}
+        guard preAuthLog.calls == ["pre-authenticate"] else {
+            throw ConformanceFailure("failing preAuthenticate reached the signer: \(preAuthLog.calls)")
+        }
+        print("Swift IDENT-073: host preAuthenticate runs before the signer")
 
         guard try reopened.notificationState() == .disabled else {
             throw ConformanceFailure("new client notification state was not disabled")
