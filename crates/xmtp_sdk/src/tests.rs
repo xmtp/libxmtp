@@ -1603,7 +1603,10 @@ async fn storage_default_requires_host_and_directory_names_are_unique() {
     let mut file_options = self::options();
     file_options.storage = path_options;
     let file_client = Client::create(crate::generate_local_signer().await, file_options).await?;
-    assert_eq!(file_client.storage().path().await?, Some(exact_path.clone()));
+    assert_eq!(
+        file_client.storage().path().await?,
+        Some(exact_path.clone())
+    );
     assert!(std::path::Path::new(&exact_path).is_file());
     file_client.end().await?;
     #[cfg(unix)]
