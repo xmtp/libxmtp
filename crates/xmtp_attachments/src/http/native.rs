@@ -1162,8 +1162,8 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(5), &mut upload).await???,
             PutOutcome::Stored
         );
-        assert_eq!(received.load(Ordering::Acquire), BODY_SIZE);
         tokio::time::timeout(Duration::from_secs(5), server).await??;
+        assert_eq!(received.load(Ordering::Acquire), BODY_SIZE);
     }
 
     // verifies: ATCH-025
@@ -2121,6 +2121,52 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.cause, Cause::Network);
         tokio::time::timeout(Duration::from_secs(1), received).await??;
+        task.abort();
+        let _ = task.await;
+    }
+
+    // verifies: ATCH-025
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn put_2xx_does_not_wait_for_response_body() {
+        use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await?;
+        let url = format!("http://{}", listener.local_addr()?);
+        let (received_tx, received_rx) = tokio::sync::oneshot::channel();
+        let task = tokio::spawn(async move {
+            let (socket, _) = listener.accept().await.unwrap();
+            let mut reader = BufReader::new(socket);
+            let mut line = String::new();
+            let mut content_length = None;
+            loop {
+                line.clear();
+                assert!(reader.read_line(&mut line).await.unwrap() > 0);
+                if line == "\r\n" {
+                    break;
+                }
+                if let Some(length) = line.to_ascii_lowercase().strip_prefix("content-length: ") {
+                    content_length = Some(length.trim().parse::<usize>().unwrap());
+                }
+            }
+            let mut body = vec![0; content_length.unwrap()];
+            reader.read_exact(&mut body).await.unwrap();
+            assert_eq!(body, b"body");
+            received_tx.send(()).unwrap();
+            reader
+                .get_mut()
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 1\r\n\r\n")
+                .await
+                .unwrap();
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        });
+        let (_directory, body) = staged_body()?;
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(1),
+            short_timeout().put(&upload(url), body),
+        )
+        .await??;
+        assert_eq!(outcome, PutOutcome::Stored);
+        tokio::time::timeout(Duration::from_secs(1), received_rx).await??;
         task.abort();
         let _ = task.await;
     }

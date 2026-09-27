@@ -12,7 +12,7 @@ use std::{
 };
 
 use futures_util::Stream;
-use http_body_util::{BodyExt, StreamBody};
+use http_body_util::StreamBody;
 use hyper::{
     Request,
     body::{Bytes, Frame},
@@ -422,19 +422,12 @@ pub(super) async fn put(
         .map_err(|_| network())?;
     let mut driver = tokio::spawn(connection);
     let _driver_guard = AbortOnDrop::new(&driver);
-    let outcome = {
+    let response = {
         let upload = async {
-            let mut response = sender
+            sender
                 .send_request(request)
                 .await
-                .map_err(|_| upload_failure(&body_write))?;
-            let outcome = put_outcome(response.status().as_u16())?;
-            if outcome == PutOutcome::Stored {
-                while let Some(frame) = response.frame().await {
-                    frame.map_err(|_| upload_failure(&body_write))?;
-                }
-            }
-            Ok(outcome)
+                .map_err(|_| upload_failure(&body_write))
         };
         tokio::pin!(upload);
         loop {
@@ -450,32 +443,40 @@ pub(super) async fn put(
         }
     };
     drop(sender);
-    let outcome = if matches!(outcome, Ok(PutOutcome::Stored)) {
-        loop {
-            if body_write.flushed.load(Ordering::Acquire) {
-                break Ok(PutOutcome::Stored);
-            }
-            let deadline = *last.lock().unwrap() + transfer.idle_timeout;
-            tokio::select! {
-                () = body_write.notify.notified() => {}
-                result = &mut driver => {
-                    break if result.is_ok_and(|result| result.is_ok())
-                        && body_write.flushed.load(Ordering::Acquire)
-                    {
-                        Ok(PutOutcome::Stored)
-                    } else {
-                        Err(upload_failure(&body_write))
-                    };
-                }
-                () = tokio::time::sleep_until(deadline) => {
-                    if Instant::now().duration_since(*last.lock().unwrap()) >= transfer.idle_timeout {
-                        break Err(network());
+    let outcome = match response {
+        Ok(response) => {
+            let status = put_outcome(response.status().as_u16());
+            let result = if matches!(status, Ok(PutOutcome::Stored)) {
+                loop {
+                    if body_write.flushed.load(Ordering::Acquire) {
+                        break Ok(PutOutcome::Stored);
+                    }
+                    let deadline = *last.lock().unwrap() + transfer.idle_timeout;
+                    tokio::select! {
+                        () = body_write.notify.notified() => {}
+                        result = &mut driver => {
+                            break if result.is_ok_and(|result| result.is_ok())
+                                && body_write.flushed.load(Ordering::Acquire)
+                            {
+                                Ok(PutOutcome::Stored)
+                            } else {
+                                Err(upload_failure(&body_write))
+                            };
+                        }
+                        () = tokio::time::sleep_until(deadline) => {
+                            if Instant::now().duration_since(*last.lock().unwrap()) >= transfer.idle_timeout {
+                                break Err(network());
+                            }
+                        }
                     }
                 }
-            }
+            } else {
+                status
+            };
+            drop(response);
+            result
         }
-    } else {
-        outcome
+        Err(error) => Err(error),
     };
     driver.abort();
     outcome
