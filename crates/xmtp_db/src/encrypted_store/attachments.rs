@@ -248,6 +248,12 @@ pub trait QueryPendingAttachment {
         created_at_ns: i64,
     ) -> Result<(), StorageError>;
     fn delete_pending_attachment(&self, content_digest: &str) -> Result<usize, StorageError>;
+    /// Delete only the version of a digest that the caller inspected.
+    fn delete_pending_attachment_if_remote_matches(
+        &self,
+        content_digest: &str,
+        remote_attachment: &[u8],
+    ) -> Result<usize, StorageError>;
     fn get_pending_attachment(
         &self,
         content_digest: &str,
@@ -319,6 +325,14 @@ impl<T: QueryPendingAttachment + ?Sized> QueryPendingAttachment for &T {
 
     fn delete_pending_attachment(&self, content_digest: &str) -> Result<usize, StorageError> {
         (**self).delete_pending_attachment(content_digest)
+    }
+
+    fn delete_pending_attachment_if_remote_matches(
+        &self,
+        content_digest: &str,
+        remote_attachment: &[u8],
+    ) -> Result<usize, StorageError> {
+        (**self).delete_pending_attachment_if_remote_matches(content_digest, remote_attachment)
     }
 
     fn get_pending_attachment(
@@ -428,6 +442,22 @@ impl<C: ConnectionExt> QueryPendingAttachment for DbConnection<C> {
     fn delete_pending_attachment(&self, content_digest: &str) -> Result<usize, StorageError> {
         Ok(self.raw_query(|conn| {
             diesel::delete(pending_attachments::table.find(content_digest)).execute(conn)
+        })?)
+    }
+
+    #[xmtp_common::db_span]
+    fn delete_pending_attachment_if_remote_matches(
+        &self,
+        content_digest: &str,
+        remote_attachment: &[u8],
+    ) -> Result<usize, StorageError> {
+        Ok(self.raw_query(|conn| {
+            diesel::delete(
+                pending_attachments::table
+                    .filter(pending_attachments::content_digest.eq(content_digest))
+                    .filter(pending_attachments::remote_attachment.eq(remote_attachment)),
+            )
+            .execute(conn)
         })?)
     }
 
@@ -772,6 +802,24 @@ mod tests {
         assert_eq!(db.delete_pending_attachment("a")?, 1);
         assert_eq!(db.delete_pending_attachment("a")?, 0);
         assert_eq!(db.list_pending_attachments_since(0)?[0].content_digest, "b");
+    }
+
+    // verifies: ATCH-047
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn conditional_pending_delete_checks_stored_remote() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        db.insert_or_ignore_pending_attachment("a", &[1], 1)?;
+        assert_eq!(
+            db.delete_pending_attachment_if_remote_matches("a", &[2])?,
+            0
+        );
+        assert!(db.get_pending_attachment("a")?.is_some());
+        assert_eq!(
+            db.delete_pending_attachment_if_remote_matches("a", &[1])?,
+            1
+        );
+        assert!(db.get_pending_attachment("a")?.is_none());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

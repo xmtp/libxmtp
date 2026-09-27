@@ -395,6 +395,62 @@ async fn delete_ends_other_clients_upload() {
     );
 }
 
+// verifies: ATCH-047
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_same_digest_with_another_key_keeps_pending_upload() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let created = alix.client.attachments().create(bytes()).await?;
+    let original = created.remote_attachment().clone();
+    let mut other = original.clone();
+    other.secret[0] ^= 1;
+    let other_key = attachment_key(&other)?;
+    assert_ne!(attachment_key(&original)?, other_key);
+    let other_relative = plaintext_rel_path(&other)?;
+    std::fs::create_dir(dir.path().join(&other_key))?;
+    std::fs::write(dir.path().join(&other_relative), b"other local file")?;
+    alix.client.context.db().insert_or_ignore_local_attachment(
+        &other_relative,
+        now_ns(),
+        None,
+        None,
+    )?;
+    let staged = dir.path().join(staged_path(&original.content_digest)?);
+    let (url, entered, release) = paused_put(200).await;
+    let uploader = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .api_client(Arc::new(signed_put_api(url, 1)))
+        .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+            offer,
+        )))
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let pending = uploader.attachments().pending(&original).await?;
+    let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+    tokio::time::timeout(Duration::from_secs(5), entered).await??;
+    alix.client.attachments().delete_local(&other).await?;
+    assert!(!dir.path().join(&other_relative).exists());
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_local_attachment(&other_relative)?
+            .is_none()
+    );
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_pending_attachment(&original.content_digest)?
+            .is_some()
+    );
+    assert!(staged.exists());
+    release.send(()).unwrap();
+    tokio::time::timeout(Duration::from_secs(10), upload).await???;
+    assert_eq!(created.status(), PendingAttachmentStatus::Complete);
+}
+
 // verifies: ATCH-047, ATCH-074
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_with_watcher_ends_other_clients_upload() {

@@ -80,6 +80,7 @@ mock! {
         fn insert_pending_attachment_if_absent(&self, content_digest: &str, remote_attachment: &[u8], created_at_ns: i64) -> Result<bool, StorageError>;
         fn insert_or_ignore_pending_attachment(&self, content_digest: &str, remote_attachment: &[u8], created_at_ns: i64) -> Result<(), StorageError>;
         fn delete_pending_attachment(&self, content_digest: &str) -> Result<usize, StorageError>;
+        fn delete_pending_attachment_if_remote_matches(&self, content_digest: &str, remote_attachment: &[u8]) -> Result<usize, StorageError>;
         fn get_pending_attachment(&self, content_digest: &str) -> Result<Option<crate::attachments::StoredPendingAttachment>, StorageError>;
         fn list_pending_attachments_since(&self, since_ns: i64) -> Result<Vec<crate::attachments::StoredPendingAttachment>, StorageError>;
         fn pending_attachment_sweep_candidates(&self, older_than_ns: i64) -> Result<Vec<String>, StorageError>;

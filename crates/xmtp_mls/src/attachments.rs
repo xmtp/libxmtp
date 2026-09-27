@@ -76,6 +76,13 @@ fn shared_publication_lock(dir: Option<&PathBuf>) -> Arc<AsyncMutex<()>> {
     lock
 }
 
+fn pending_row_matches_key(row: &StoredPendingAttachment, key: &str) -> bool {
+    RemoteAttachment::decode(row.remote_attachment.as_slice())
+        .ok()
+        .and_then(|remote| attachment_key(&remote).ok())
+        .is_some_and(|stored_key| stored_key == key)
+}
+
 #[derive(Clone, Copy)]
 struct LeaseTiming {
     duration: Duration,
@@ -1331,12 +1338,21 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             let _guard = lock.lock().await;
             // Marks the whole key directory, so no download into it can start.
             let deleting = DeleteInProgress::new(&self.runtime().deleting, key.clone());
-            let upload = self
-                .runtime()
-                .pending
-                .lock()
-                .get(&remote.content_digest)
-                .and_then(Weak::upgrade);
+            let pending_matches = self
+                .context
+                .db()
+                .get_pending_attachment(&remote.content_digest)
+                .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+                .is_some_and(|row| pending_row_matches_key(&row, &key));
+            let upload = pending_matches
+                .then(|| {
+                    self.runtime()
+                        .pending
+                        .lock()
+                        .get(&remote.content_digest)
+                        .and_then(Weak::upgrade)
+                })
+                .flatten();
             let prefix = format!("{key}/");
             let downloads: Vec<_> = self
                 .runtime()
@@ -1394,15 +1410,29 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         };
         // Remove the row first. An upload in another client sees the deletion
         // before this client removes its staged ciphertext.
-        self.context
+        let pending_row = self
+            .context
             .db()
-            .delete_pending_attachment(&remote.content_digest)
+            .get_pending_attachment(&remote.content_digest)
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+        let deleted_pending =
+            if let Some(row) = pending_row.filter(|row| pending_row_matches_key(row, &key)) {
+                self.context
+                    .db()
+                    .delete_pending_attachment_if_remote_matches(
+                        &remote.content_digest,
+                        &row.remote_attachment,
+                    )
+                    .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+                    != 0
+            } else {
+                false
+            };
         if store.exists(&key).await? {
             store.remove_dir_all(&key).await?;
             emit_deleted();
         }
-        if store.exists(&staged).await? {
+        if deleted_pending && store.exists(&staged).await? {
             store.remove_file(&staged).await?;
             emit_deleted();
         }
@@ -1414,7 +1444,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         if removed_rows != 0 {
             emit_deleted();
         }
-        self.runtime().pending.lock().remove(&remote.content_digest);
+        if deleted_pending {
+            self.runtime().pending.lock().remove(&remote.content_digest);
+        }
         Ok(())
     }
 
