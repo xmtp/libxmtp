@@ -1090,6 +1090,24 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         &self,
         remote: &RemoteAttachment,
     ) -> Result<(), AttachmentClientError> {
+        let task = Attachments {
+            context: self.context.context_ref().clone(),
+        };
+        let remote = remote.clone();
+        let (sender, receiver) = tokio::sync::oneshot::channel();
+        drop(xmtp_common::task::spawn(async move {
+            let result = task.delete_local_inner(&remote).await;
+            let _ = sender.send(result);
+        }));
+        receiver
+            .await
+            .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+    }
+
+    async fn delete_local_inner(
+        &self,
+        remote: &RemoteAttachment,
+    ) -> Result<(), AttachmentClientError> {
         let key = attachment_key(remote)?;
         let staged = staged_path(&remote.content_digest)?;
         let store = self.runtime().store()?;

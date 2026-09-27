@@ -500,6 +500,65 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
 }
 
 // verifies: ATCH-047
+#[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_delete_caller_does_not_leave_a_cancelled_pending_row() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let created = alix.client.attachments().create(bytes()).await?;
+    let remote = created.remote_attachment().clone();
+    let (url, entered_put, release_put) = paused_put(200).await;
+    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .api_client(Arc::new(signed_put_api(url, 1)))
+        .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(offer)))
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let pending = client.attachments().pending(&remote).await?;
+    let upload = tokio::spawn(async move { pending.upload().await });
+    tokio::time::timeout(Duration::from_secs(5), entered_put).await??;
+
+    let entered_delete = Arc::new(tokio::sync::Notify::new());
+    let resume_delete = Arc::new(tokio::sync::Notify::new());
+    *client.context.attachments.delete_pause.lock() =
+        Some((entered_delete.clone(), resume_delete.clone()));
+    let deleting_client = client.clone();
+    let deleting_remote = remote.clone();
+    let deletion = tokio::spawn(async move {
+        deleting_client.attachments().delete_local(&deleting_remote).await
+    });
+    tokio::time::timeout(Duration::from_secs(5), entered_delete.notified()).await?;
+    deletion.abort();
+    resume_delete.notify_one();
+    let _ = release_put.send(());
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), upload)
+            .await??
+            .unwrap_err()
+            .cause,
+        Cause::Deleted
+    );
+    tokio::time::timeout(Duration::from_secs(3), async {
+        while client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_some()
+        {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        Ok::<_, xmtp_db::StorageError>(())
+    })
+    .await??;
+    assert!(!dir.path().join(attachment_key(&remote)?).exists());
+    assert!(!dir.path().join(staged_path(&remote.content_digest)?).exists());
+}
+
+// verifies: ATCH-047
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_finishes_after_upload_task_panics() {
