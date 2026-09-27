@@ -363,10 +363,11 @@ for sdk in ("Node", "Browser"):
         ref,
         note=(
             "Host wrapper owns codecs and closures (11.1; plan Decisions). "
-            "Build requires a stored identity and does not fetch configuration "
-            f"for an empty database. The current {sdk} build resolves the inbox "
-            "ID from the backend and creates the client online, so an empty "
-            "database fetches configuration and needs no stored identity."
+            "The façade build requires a stored identity and does not fetch "
+            f"configuration for an empty database. The current {sdk} build does "
+            "not: it resolves the inbox ID from the backend and creates the "
+            "client online without allowOffline, so an empty database fetches "
+            "configuration and needs no stored identity."
         ),
     )
     add(
