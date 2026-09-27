@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GitHub runs a stacked PR's checks against the stack trunk, so this diff
-# includes the PRs below it. Only shipped code in sdks/ and bindings/ is
-# guarded: tests and changelogs there may change (spec evidence, and
-# owner-approved behaviour changes made in core).
-base=$(git merge-base HEAD origin/self-hosted)
+# Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs there may change
+# (spec evidence, and owner-approved behaviour changes made in core).
+# A stacked pull request is checked against its own base branch, so a lower PR's changes do not count.
+base_ref="origin/${GITHUB_BASE_REF:-self-hosted}"
+base=$(git merge-base HEAD "$base_ref")
 if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
   exit 0
 fi
