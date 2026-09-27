@@ -1120,6 +1120,23 @@ async fn attachment_event_order() {
 // verifies: EVENT-001, EVENT-055
 #[xmtp_common::test(unwrap_try = true)]
 async fn attachment_event_kinds() {
+    fn expected_reference(remote: &RemoteAttachment) -> AttachmentRef {
+        AttachmentRef {
+            attachment_key: attachment_key(remote).expect("attachment key"),
+            url: remote.url.clone(),
+            content_digest: remote.content_digest.clone(),
+        }
+    }
+
+    fn expected_failure(reference: &AttachmentRef, cause: Cause) -> AttachmentFailed {
+        AttachmentFailed {
+            attachment_key: reference.attachment_key.clone(),
+            url: reference.url.clone(),
+            content_digest: reference.content_digest.clone(),
+            cause: cause.as_str().to_owned(),
+        }
+    }
+
     let dir = tempfile::tempdir()?;
     tester!(alix, attachments_dir: dir.path(), disable_workers);
     let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
@@ -1140,6 +1157,7 @@ async fn attachment_event_kinds() {
         EventKind::AttachmentDeleted,
     ]))?;
     let failed = client.attachments().create(bytes()).await?;
+    let failed_remote = failed.remote_attachment().clone();
     let staged = dir
         .path()
         .join(staged_path(&failed.remote_attachment().content_digest)?);
@@ -1159,7 +1177,7 @@ async fn attachment_event_kinds() {
     client.attachments().download(&remote).await?;
     client.attachments().delete_local(&remote).await?;
     let (url, _) = serve_body(b"forged".to_vec()).await;
-    let mut forged = remote;
+    let mut forged = remote.clone();
     forged.url = url;
     assert_eq!(
         client
@@ -1170,20 +1188,34 @@ async fn attachment_event_kinds() {
             .cause,
         Cause::DigestMismatch
     );
-    let kinds: Vec<_> = events
+    let emitted: Vec<_> = events
         .drain()
         .into_iter()
-        .map(|entry| entry.client.unwrap().kind())
+        .map(|entry| entry.client.expect("attachment event"))
         .collect();
-    for kind in [
-        EventKind::AttachmentUploadStarted,
-        EventKind::AttachmentUploadCompleted,
-        EventKind::AttachmentUploadFailed,
-        EventKind::AttachmentDownloadStarted,
-        EventKind::AttachmentDownloadCompleted,
-        EventKind::AttachmentDownloadFailed,
-        EventKind::AttachmentDeleted,
-    ] {
-        assert!(kinds.contains(&kind), "missing {kind:?}");
-    }
+    let failed_ref = expected_reference(&failed_remote);
+    let remote_ref = expected_reference(&remote);
+    let forged_ref = expected_reference(&forged);
+    assert_eq!(
+        emitted,
+        vec![
+            ClientEvent::AttachmentUploadStarted(failed_ref.clone()),
+            ClientEvent::AttachmentUploadFailed(expected_failure(
+                &failed_ref,
+                Cause::StagedUnusable
+            )),
+            ClientEvent::AttachmentDeleted(failed_ref),
+            ClientEvent::AttachmentUploadStarted(remote_ref.clone()),
+            ClientEvent::AttachmentUploadCompleted(remote_ref.clone()),
+            ClientEvent::AttachmentDeleted(remote_ref.clone()),
+            ClientEvent::AttachmentDownloadStarted(remote_ref.clone()),
+            ClientEvent::AttachmentDownloadCompleted(remote_ref.clone()),
+            ClientEvent::AttachmentDeleted(remote_ref),
+            ClientEvent::AttachmentDownloadStarted(forged_ref.clone()),
+            ClientEvent::AttachmentDownloadFailed(expected_failure(
+                &forged_ref,
+                Cause::DigestMismatch
+            )),
+        ]
+    );
 }
