@@ -121,6 +121,7 @@ function options(
       singleConnection: false,
     },
     deviceSync: false,
+    allowOffline: false,
     registration: { auto, nonce: undefined },
     forkRecovery: undefined,
     workers: undefined,
@@ -170,6 +171,7 @@ export async function runBrowserBridgeConformance(
     client = await Client.create(session, mainSigner, clientOptions);
     expect(mainSigner.didReenter(), "signer did not reenter the SDK");
     const inboxID = client.inboxID();
+    equal(await client.isRegistered(), true, "created client was not registered");
     equal(await client.storage().path(), databasePath, "OPFS path changed");
     expect(client.libxmtpVersion().length > 0, "missing SDK version");
     await client.end();
@@ -225,11 +227,10 @@ export async function runBrowserBridgeConformance(
         location: B.StorageLocation.InMemory.new(),
       },
     };
-    const credentialClient = await Client.build(
+    const credentialClient = await Client.create(
       session,
-      identity,
+      signer(session),
       credentialOptions,
-      inboxID,
     );
     expect(credentialCalls > 0, "credential callback was not called");
     await credentialClient.setCredential({
@@ -536,9 +537,9 @@ export async function runBrowserBridgeConformance(
     await unsigned.end();
     results.push("scenario 11: signature request through worker");
 
-    const second = await Client.build(
+    const second = await Client.create(
       session,
-      identity,
+      mainSigner,
       {
         ...clientOptions,
         storage: {
@@ -548,7 +549,6 @@ export async function runBrowserBridgeConformance(
           ),
         },
       },
-      inboxID,
     );
     await reopened.end();
     reopened = undefined;
