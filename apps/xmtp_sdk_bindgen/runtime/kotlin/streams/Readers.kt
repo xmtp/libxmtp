@@ -50,7 +50,7 @@ private fun <T, R> readerFlow(
                         previous = current
                     }
                     try {
-                        // PROC-044: the first state is the one read at subscription.
+                        // The first state is the one read at subscription.
                         emitState(connectionState(active))
                         while (previous != ConnectionState.CLOSED) {
                             emitState(connectionStateChanged(active, previous!!))
