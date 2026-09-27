@@ -57,6 +57,20 @@ fn base_url_rejects_non_rfc_or_disallowed_forms() {
     }
 }
 
+// verifies: ATCH-002
+#[xmtp_common::test(unwrap_try = true)]
+fn base_url_rejects_zero_port() {
+    for base_url in [
+        "https://h:0",
+        "https://h:00",
+        "http://127.0.0.1:0",
+        "http://127.0.0.1:00",
+    ] {
+        let error = check_base_url(base_url).unwrap_err();
+        assert_eq!(error.field(), "base_url", "{base_url}");
+    }
+}
+
 // verifies: ATCH-008
 #[xmtp_common::test(unwrap_try = true)]
 fn upload_and_retention_bounds() {

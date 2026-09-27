@@ -155,7 +155,7 @@ pub fn check_base_url(base_url: &str) -> Result<(), AttachmentConfigurationError
     };
     if port.is_some_and(|port| {
         !port.bytes().all(|byte| byte.is_ascii_digit())
-            || (!port.is_empty() && port.parse::<u16>().is_err())
+            || (!port.is_empty() && !port.parse::<u16>().is_ok_and(|number| number > 0))
     }) {
         return Err(invalid_url("has an invalid port"));
     }
