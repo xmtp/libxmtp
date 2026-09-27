@@ -715,7 +715,7 @@ const throwingState = new sdk.MessageStream(
   async () => ({
     next: async () => undefined,
     end: async () => {},
-    connectionState: () => sdk.ConnectionState.Connected,
+    connectionState: async () => sdk.ConnectionState.Connected,
     connectionStateChanged: async () => sdk.ConnectionState.Closed,
   }),
   reopened,
@@ -768,7 +768,7 @@ for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
     async () => ({
       next: async () => undefined,
       end: async () => {},
-      connectionState: () => sdk.ConnectionState.Connected,
+      connectionState: async () => sdk.ConnectionState.Connected,
       connectionStateChanged: () =>
         new Promise<sdk.ConnectionState>((resolve) => changes.push(resolve)),
     }),
@@ -794,7 +794,7 @@ const closedStateProbe = new sdk.MessageStream(
   async () => ({
     next: async () => undefined,
     end: async () => {},
-    connectionState: () => sdk.ConnectionState.Closed,
+    connectionState: async () => sdk.ConnectionState.Closed,
     connectionStateChanged: async () => {
       closedStatePolls += 1;
       if (closedStatePolls > 2) throw new Error("closed state loop");

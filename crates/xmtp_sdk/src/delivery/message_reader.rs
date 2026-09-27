@@ -311,7 +311,7 @@ impl MessageReader {
         .await
     }
 
-    pub fn connection_state(&self) -> ConnectionState {
+    pub async fn connection_state(&self) -> ConnectionState {
         self.control.catch_up_snapshot().connection.into()
     }
 

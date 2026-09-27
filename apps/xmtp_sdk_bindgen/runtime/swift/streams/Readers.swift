@@ -47,14 +47,14 @@ private final class StreamHandle<Value>: @unchecked Sendable {
     let owner: SDKClient
     let next: @Sendable () async throws -> Value?
     let end: @Sendable () async -> Void
-    let connectionState: @Sendable () -> ConnectionState
+    let connectionState: @Sendable () async -> ConnectionState
     let connectionStateChanged: @Sendable (ConnectionState) async throws -> ConnectionState
 
     init(
         owner: SDKClient,
         next: @escaping @Sendable () async throws -> Value?,
         end: @escaping @Sendable () async -> Void,
-        connectionState: @escaping @Sendable () -> ConnectionState,
+        connectionState: @escaping @Sendable () async -> ConnectionState,
         connectionStateChanged: @escaping @Sendable (ConnectionState) async throws -> ConnectionState
     ) {
         self.owner = owner
@@ -187,7 +187,7 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
                 previous = current
             }
             // The first state is the one read at subscription.
-            emit(currentHandle.connectionState())
+            emit(await currentHandle.connectionState())
             do {
                 while !completion.closed, let last = previous, last != .closed {
                     try emit(await currentHandle.connectionStateChanged(last))
@@ -277,7 +277,7 @@ func makeSDKMessageStream(
             owner: owner,
             next: { try await reader.next() },
             end: { try? await reader.end() },
-            connectionState: { reader.connectionState() },
+            connectionState: { await reader.connectionState() },
             connectionStateChanged: { try await reader.connectionStateChanged(previous: $0) }
         )
     }, onClose: onClose, onConnectionStateChange: onConnectionStateChange)
@@ -299,7 +299,7 @@ func makeSDKConversationStream(
             owner: owner,
             next: { try await reader.next() },
             end: { try? await reader.end() },
-            connectionState: { reader.connectionState() },
+            connectionState: { await reader.connectionState() },
             connectionStateChanged: { try await reader.connectionStateChanged(previous: $0) }
         )
     }, onClose: onClose, onConnectionStateChange: onConnectionStateChange)

@@ -303,7 +303,7 @@ export type ConversationReaderOptions = {
 export interface ConversationReaderLike {
   next(options?: { signal: AbortSignal }): Promise<Conversation | undefined>;
   end(): Promise<void>;
-  connectionState(): ConnectionState;
+  connectionState(): Promise<ConnectionState>;
   connectionStateChanged(previous: ConnectionState): Promise<ConnectionState>;
 }
 export type LogRecord = {

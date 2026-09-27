@@ -2396,7 +2396,10 @@ async fn conversation_conversion_error_closes_reader() {
             .is_err(),
         "injected conversion must fail the pending read"
     );
-    assert_eq!(reader.connection_state(), crate::ConnectionState::Closed);
+    assert_eq!(
+        reader.connection_state().await,
+        crate::ConnectionState::Closed
+    );
     let replacement = client.conversations().conversation_reader(None).await?;
     replacement.end().await?;
     client.end().await?;
@@ -2591,8 +2594,8 @@ async fn connection_state_across_toxiproxy_drop() {
             .expect("conversation reader");
 
         for state in [
-            messages.connection_state(),
-            conversations.connection_state(),
+            messages.connection_state().await,
+            conversations.connection_state().await,
         ] {
             assert!(matches!(
                 state,
@@ -2651,7 +2654,7 @@ async fn connection_state_across_toxiproxy_drop() {
 
         proxy.disable().await.expect("disable proxy");
         xmtp_common::time::timeout(Duration::from_secs(30), async {
-            while conversations.connection_state() != ConnectionState::Reconnecting {
+            while conversations.connection_state().await != ConnectionState::Reconnecting {
                 tokio::time::sleep(Duration::from_millis(20)).await;
             }
         })

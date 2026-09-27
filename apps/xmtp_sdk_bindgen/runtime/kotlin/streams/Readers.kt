@@ -24,7 +24,7 @@ private fun <T, R> readerFlow(
     open: suspend () -> R,
     next: suspend (R) -> T?,
     end: suspend (R) -> Unit,
-    connectionState: (R) -> ConnectionState,
+    connectionState: suspend (R) -> ConnectionState,
     connectionStateChanged: suspend (R, ConnectionState) -> ConnectionState,
     onClose: ((SDKStreamCloseReason) -> Unit)?,
     onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)?,

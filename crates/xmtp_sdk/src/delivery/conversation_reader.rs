@@ -212,7 +212,7 @@ impl ConversationReader {
         .await
     }
 
-    pub fn connection_state(&self) -> ConnectionState {
+    pub async fn connection_state(&self) -> ConnectionState {
         self.lease.snapshot().connection.into()
     }
 

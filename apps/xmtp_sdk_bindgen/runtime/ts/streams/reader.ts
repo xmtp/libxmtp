@@ -29,7 +29,7 @@ export type StreamOptions = {
 type ReaderLike<T> = {
   next(options?: { signal: AbortSignal }): Promise<T | undefined>;
   end(): Promise<void>;
-  connectionState?(): ConnectionState;
+  connectionState?(): Promise<ConnectionState>;
   connectionStateChanged?(previous: ConnectionState): Promise<ConnectionState>;
 };
 
@@ -148,7 +148,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     };
     try {
       // The first state is the one read at subscription.
-      let current = reader.connectionState();
+      let current = await reader.connectionState();
       emit(current);
       while (
         !this.isClosed() &&

@@ -261,6 +261,11 @@ try {
   assert.equal(typeof streamed.kind, "number");
   assert.equal(typeof streamed.deliveryStatus, "number");
   await reader.end();
+  assert.equal(
+    await reader.connectionState(),
+    B.ConnectionState.Closed,
+    "connectionState must read the live reader state",
+  );
   const ending = live.end();
   assert.throws(
     () => live.conversations(),
