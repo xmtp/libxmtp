@@ -54,11 +54,31 @@ static PUBLICATION_LOCKS: LazyLock<Mutex<HashMap<PathBuf, Weak<AsyncMutex<()>>>>
 #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
 static CREATE_MOVE_PAUSE: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>> =
     Mutex::new(None);
+#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+static DOWNLOAD_MOVE_PAUSE: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>> =
+    Mutex::new(None);
+#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+static DOWNLOAD_TEST_BODY: Mutex<Option<Vec<u8>>> = Mutex::new(None);
 
 #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
 #[doc(hidden)]
 pub fn pause_next_create_move(entered: Arc<tokio::sync::Notify>, resume: Arc<tokio::sync::Notify>) {
     *CREATE_MOVE_PAUSE.lock() = Some((entered, resume));
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[doc(hidden)]
+pub fn pause_next_download_move(
+    entered: Arc<tokio::sync::Notify>,
+    resume: Arc<tokio::sync::Notify>,
+) {
+    *DOWNLOAD_MOVE_PAUSE.lock() = Some((entered, resume));
+}
+
+#[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+#[doc(hidden)]
+pub fn set_next_download_body(body: Vec<u8>) {
+    *DOWNLOAD_TEST_BODY.lock() = Some(body);
 }
 
 fn shared_publication_lock(dir: Option<&PathBuf>) -> Arc<AsyncMutex<()>> {
@@ -1253,6 +1273,15 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             let snapshot_limit = self.context.server_configuration().configuration().attachments
                 .as_ref().map_or(xmtp_configuration::BACKEND_DEFAULT_MAX_UPLOAD_BYTES, |offer| offer.max_upload_bytes);
             let cap = download_cap(remote.content_length.map(u64::from), snapshot_limit, &self.runtime().options);
+            #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+            let test_body = { DOWNLOAD_TEST_BODY.lock().take() };
+            #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
+            if let Some(body) = test_body {
+                sink.write(&body).await?;
+            } else {
+                Transfer::new(self.runtime().options.clone())?.get(&remote.url, cap, &mut sink).await?;
+            }
+            #[cfg(not(all(target_arch = "wasm32", feature = "test-utils")))]
             Transfer::new(self.runtime().options.clone())?.get(&remote.url, cap, &mut sink).await?;
             let DecoderSink { mut writer, hash, cipher, decoder } = sink;
             store.sync(&mut writer).await?;
@@ -1271,8 +1300,33 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     resume.notified().await;
                 }
             }
-            let _publication = self.runtime().publication_lock.lock().await;
-            match store.rename(final_tmp, relative).await {
+            let publication = self.runtime().publication_lock.clone().lock_owned().await;
+            #[cfg(not(target_arch = "wasm32"))]
+            let (move_result, _publication) = (store.rename(final_tmp, relative).await, publication);
+            #[cfg(target_arch = "wasm32")]
+            let (move_result, _publication) = {
+                // Keep the lock in the task until the OPFS move promise settles.
+                let store = store.clone();
+                let source = final_tmp.to_owned();
+                let destination = relative.to_owned();
+                let (sender, receiver) = tokio::sync::oneshot::channel();
+                drop(xmtp_common::task::spawn(async move {
+                    let result = store.rename(&source, &destination).await;
+                    #[cfg(feature = "test-utils")]
+                    if result.is_ok() {
+                        let pause = { DOWNLOAD_MOVE_PAUSE.lock().take() };
+                        if let Some((entered, resume)) = pause {
+                            entered.notify_one();
+                            resume.notified().await;
+                        }
+                    }
+                    let _ = sender.send((result, publication));
+                }));
+                receiver
+                    .await
+                    .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
+            };
+            match move_result {
                 Ok(()) => {}
                 Err(StoreMoveError::DestinationExists) => {
                     if !store.is_regular_file(relative).await? {

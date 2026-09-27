@@ -26,7 +26,10 @@ use xmtp_db::{
 use xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier;
 use xmtp_mls::{
     Client,
-    attachments::{AttachmentSource, PendingAttachmentStatus, pause_next_create_move},
+    attachments::{
+        AttachmentSource, PendingAttachmentStatus, pause_next_create_move,
+        pause_next_download_move, set_next_download_body,
+    },
     storage_location::{
         DeploymentWriteFault, set_deployment_write_fault, write_deployments_for_test,
     },
@@ -239,6 +242,64 @@ async fn cancelled_create_waits_for_published_opfs_move() {
     assert!(!store.exists(&key).await?);
     assert!(client.db().list_local_attachments()?.is_empty());
     assert!(client.db().list_pending_attachments_since(0)?.is_empty());
+}
+
+// verifies: ATCH-047, ATCH-062, ATCH-063
+#[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_download_keeps_publication_locked_until_opfs_move_settles() {
+    let root = test_root("attachment-download-move-cancel-tests");
+    let client = opfs_client(offline_api(), root.clone()).await;
+    let store = OpfsStore::new(&root).await?;
+    let pending = client
+        .attachments()
+        .create(AttachmentSource::Bytes {
+            bytes: b"cancel download during OPFS move".to_vec(),
+            filename: Some("proof.txt".into()),
+            mime_type: "text/plain".into(),
+        })
+        .await?;
+    let remote = pending.remote_attachment().clone();
+    let local = plaintext_rel_path(&remote)?;
+    let staged = staged_path(&remote.content_digest)?;
+    let file = store.open_read(&staged).await?;
+    let body = file.read_chunk(0, file.len() as usize).await?;
+    client.db().delete_local_attachment(&local)?;
+    store.remove_file(&local).await?;
+    set_next_download_body(body);
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    pause_next_download_move(entered.clone(), resume.clone());
+    let downloading_client = client.clone();
+    let downloading_remote = remote.clone();
+    let download = xmtp_common::task::spawn(async move {
+        downloading_client
+            .attachments()
+            .download(&downloading_remote)
+            .await
+    });
+    xmtp_common::time::timeout(Duration::from_secs(3), entered.notified()).await?;
+    let deleting_client = client.clone();
+    let deleting_remote = remote.clone();
+    let (done_tx, mut done_rx) = tokio::sync::oneshot::channel();
+    drop(xmtp_common::task::spawn(async move {
+        let _ = done_tx.send(
+            deleting_client
+                .attachments()
+                .delete_local(&deleting_remote)
+                .await,
+        );
+    }));
+    xmtp_common::time::sleep(Duration::from_millis(100)).await;
+    assert!(
+        done_rx.try_recv().is_err(),
+        "deletion passed the in-flight move"
+    );
+    resume.notify_one();
+    xmtp_common::time::timeout(Duration::from_secs(3), done_rx).await???;
+    let download_result = xmtp_common::time::timeout(Duration::from_secs(3), download).await??;
+    assert!(matches!(download_result, Err(error) if error.cause == Cause::Deleted));
+    assert!(!store.exists(&local).await?);
+    assert!(client.db().get_local_attachment(&local)?.is_none());
 }
 
 // verifies: ATCH-052, ATCH-062
