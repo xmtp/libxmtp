@@ -58,6 +58,11 @@ impl<C: XmtpSharedContext + 'static> Client<C> {
         &self,
         timeout: Option<Duration>,
     ) -> Result<CatchUpSummary, CatchUpError> {
+        // A client with a blocked connection sends no topic or credential to the backend.
+        self.context
+            .server_configuration()
+            .check()
+            .map_err(GroupError::from)?;
         let timeout = timeout.unwrap_or(self.context.incoming_runtime().policy().barrier_timeout);
         let started = Instant::now();
         let query = || GroupQueryArgs {
@@ -236,6 +241,49 @@ mod tests {
             },
             "a second run still reaches live, but persists nothing, so its counts are zero"
         );
+    }
+
+    /// A client with a blocked connection fails catch-up with the cause and sends no request.
+    // verifies: CONF-075
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn blocked_connection_fails_catch_up_before_any_request() {
+        use super::CatchUpError;
+        use crate::{
+            client::ClientError, context::XmtpSharedContext, groups::GroupError,
+            server_configuration::BlockedConnection,
+        };
+        use xmtp_proto::api::HasStats;
+        tester!(alix, disable_workers);
+        alix.context.server_configuration().block_connection(
+            BlockedConnection::ClientVersionTooOld {
+                client: "1.0.0".into(),
+                minimum: "9999.0.0".into(),
+            },
+        );
+        let stats = alix.context.api().api_client.mls_stats();
+        stats.clear();
+
+        let error = alix.catch_up_to_live(None).await.unwrap_err();
+
+        assert!(
+            matches!(
+                error,
+                CatchUpError::Group(GroupError::Client(ClientError::ClientVersionTooOld {
+                    ref minimum,
+                    ..
+                })) if minimum == "9999.0.0"
+            ),
+            "expected the blocked connection cause, got {error:?}"
+        );
+        for (endpoint, count) in [
+            ("publish", stats.publish.get_count()),
+            ("query", stats.query.get_count()),
+            ("query_newest", stats.query_newest.get_count()),
+            ("subscribe", stats.subscribe.get_count()),
+            ("subscribe_static", stats.subscribe_static.get_count()),
+        ] {
+            assert_eq!(count, 0, "a blocked client must not call {endpoint}");
+        }
     }
 
     /// Nothing owed at all — a fresh client's run is just the welcome-topic
