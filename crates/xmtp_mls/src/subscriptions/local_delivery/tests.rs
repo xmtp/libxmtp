@@ -135,7 +135,9 @@ async fn excluded_rows_stay_consumed_after_a_filter_change() {
         None,
         LocalDeliveryConfig::default(),
     )?;
-    let item = reader.next_delivery().await?.unwrap();
+    let item = timeout(Duration::from_secs(2), reader.next_delivery())
+        .await??
+        .unwrap();
     assert_eq!(item.message.id, selected.id);
     item.acknowledgement.acknowledge()?;
     let later = generate_stored_msg(Cursor(300), denied.group_id);
@@ -153,11 +155,23 @@ async fn excluded_rows_stay_consumed_after_a_filter_change() {
         .control()
         .update_scope(DeliveryScope::Groups(vec![allowed.group_id]));
     assert!(!reader.skip_candidate(&candidate, revision)?);
-    reader
-        .control()
-        .update_filter(LocalDeliveryFilter::default());
+    reader.control().update_filter(LocalDeliveryFilter {
+        consent_states: Some(vec![
+            ConsentState::Allowed,
+            ConsentState::Unknown,
+            ConsentState::Denied,
+        ]),
+        ..Default::default()
+    });
     reader.control().update_scope(DeliveryScope::All);
-    assert_eq!(reader.next_delivery().await?.unwrap().message.id, later.id);
+    assert_eq!(
+        timeout(Duration::from_secs(2), reader.next_delivery())
+            .await??
+            .unwrap()
+            .message
+            .id,
+        later.id
+    );
 }
 
 // verifies: CONS-042, CONS-043
