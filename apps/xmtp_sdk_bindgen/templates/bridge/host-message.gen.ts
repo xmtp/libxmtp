@@ -131,7 +131,12 @@ function decodeContent(
     case Pure.StandardContent_Tags.ReadReceipt:
       return B.MessageContent.ReadReceipt.new();
     case Pure.StandardContent_Tags.Reaction:
-      return B.MessageContent.Reaction.new(standard.inner.reaction);
+      if (content.tag !== B.MessageContent_Tags.Reaction) return content;
+      return B.MessageContent.Reaction.new({
+        reference: content.inner.reference,
+        referenceInboxID: content.inner.referenceInboxID,
+        reaction: standard.inner.reaction,
+      });
     case Pure.StandardContent_Tags.Attachment:
       return B.MessageContent.Attachment.new(standard.inner[0]);
     case Pure.StandardContent_Tags.RemoteAttachment:
