@@ -319,12 +319,16 @@ struct PendingShared {
 
 struct PendingAttempt {
     outcome: watch::Sender<Option<Result<(), AttachmentClientError>>>,
+    done: CancellationToken,
 }
 
 impl PendingAttempt {
     fn new() -> Self {
         let (outcome, _) = watch::channel(None);
-        Self { outcome }
+        Self {
+            outcome,
+            done: CancellationToken::new(),
+        }
     }
 }
 
@@ -862,7 +866,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         let staged = staged_path(&remote.content_digest)?;
         let store = self.runtime().store()?;
         let lock = self.runtime().event_lock(&key);
-        let (upload, owns_upload, downloads, _deleting) = {
+        let (upload_attempt, downloads, _deleting) = {
             let _guard = lock.lock().await;
             // Marks the whole key directory, so no download into it can start.
             let deleting = DeleteInProgress::new(&self.runtime().deleting, key.clone());
@@ -881,16 +885,17 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 .filter(|(path, _)| path.starts_with(&prefix))
                 .map(|(_, shared)| shared.clone())
                 .collect();
-            let owns_upload = upload
+            let upload_attempt = upload
                 .as_ref()
-                .is_some_and(|shared| shared.lease.lock().is_some());
+                .filter(|shared| shared.lease.lock().is_some())
+                .and_then(|shared| shared.attempt.lock().clone());
             if let Some(shared) = &upload {
                 shared.cancel.cancel();
             }
             for shared in &downloads {
                 shared.cancel.cancel();
             }
-            (upload, owns_upload, downloads, deleting)
+            (upload_attempt, downloads, deleting)
         };
         #[cfg(test)]
         {
@@ -900,17 +905,8 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 resume.notified().await;
             }
         }
-        if let Some(shared) = upload.filter(|_| owns_upload) {
-            let mut status = shared.watch.subscribe();
-            while matches!(
-                status.borrow_and_update().clone(),
-                PendingAttachmentStatus::Uploading
-            ) {
-                status
-                    .changed()
-                    .await
-                    .map_err(|_| AttachmentClientError::new(Cause::Network))?;
-            }
+        if let Some(attempt) = upload_attempt {
+            attempt.done.cancelled().await;
         }
         for shared in downloads {
             let mut outcome = shared.outcome.subscribe();
@@ -1572,6 +1568,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         if let Some(result) = result {
             attempt.outcome.send_replace(Some(result.clone()));
         }
+        attempt.done.cancel();
     }
 
     async fn lost_lease(&self, attempt: &Arc<PendingAttempt>) {

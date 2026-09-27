@@ -223,6 +223,99 @@ async fn deterministic_outcome_error_fails_with_local_storage() {
     assert!(events.drain().is_empty());
 }
 
+// verifies: ATCH-047, EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_finishes_after_unrecorded_upload_outcome() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let created = alix.client.attachments().create(bytes()).await?;
+    let remote = created.remote_attachment().clone();
+    let (url, entered_put, release_put) = paused_put(200).await;
+    let client = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .api_client(Arc::new(signed_put_api(url, 1)))
+        .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+            offer,
+        )))
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let pending = client.attachments().pending(&remote).await?;
+    let events = client.context.events().subscribe_app(EventFilter::new([
+        EventKind::AttachmentUploadStarted,
+        EventKind::AttachmentUploadFailed,
+        EventKind::AttachmentDeleted,
+    ]))?;
+    client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TABLE delete_outcome_check (value INTEGER CHECK (value = 1))",
+        )
+        .execute(conn)
+    })?;
+    client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TRIGGER reject_deleted_outcome BEFORE UPDATE OF status ON pending_attachments \
+             WHEN NEW.status = 'failed' \
+             BEGIN INSERT INTO delete_outcome_check (value) VALUES (2); END",
+        )
+        .execute(conn)
+    })?;
+    let upload = xmtp_common::task::spawn(async move { pending.upload().await });
+    tokio::time::timeout(Duration::from_secs(5), entered_put).await??;
+    let entered_delete = Arc::new(tokio::sync::Notify::new());
+    let resume_delete = Arc::new(tokio::sync::Notify::new());
+    *client.context.attachments.delete_pause.lock() =
+        Some((entered_delete.clone(), resume_delete.clone()));
+    let deleting_client = client.clone();
+    let deleting_remote = remote.clone();
+    let delete = xmtp_common::task::spawn(async move {
+        deleting_client
+            .attachments()
+            .delete_local(&deleting_remote)
+            .await
+    });
+    tokio::time::timeout(Duration::from_secs(5), entered_delete.notified()).await?;
+    resume_delete.notify_one();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), upload)
+            .await??
+            .unwrap_err()
+            .cause,
+        Cause::LocalStorage
+    );
+    tokio::time::timeout(Duration::from_secs(2), delete).await???;
+    let _ = release_put.send(());
+    assert!(
+        client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_none()
+    );
+    assert!(!dir.path().join(attachment_key(&remote)?).exists());
+    assert!(
+        !dir.path()
+            .join(staged_path(&remote.content_digest)?)
+            .exists()
+    );
+    let kinds: Vec<_> = events
+        .drain()
+        .into_iter()
+        .map(|event| event.client.unwrap().kind())
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentDeleted
+        ]
+    );
+}
+
 // verifies: ATCH-029, ATCH-066
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_status_survives_restart() {
