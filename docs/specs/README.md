@@ -4,13 +4,17 @@ The approved specs in this folder are the promises libxmtp and the self-hosted b
 
 Specs supersede XIPs. The documents they replaced were deleted under one blanket disposition (SPEC-013) once the replacing specs held their obligations; their history is in git.
 
+## Waivers
+
+A requirement without a proving test needs a waiver under SPEC-055, SPEC-094, and SPEC-095. Use `analysis` when a recorded review proves a property that no test can prove. Use `gap` when the code does not satisfy the requirement; name an owner and an issue. Use `untested` when the reason names the code that satisfies the requirement but no test proves it yet; name an owner.
+
 ## Capability map
 
 | Prefix | Spec | Owns | Status |
 | --- | --- | --- | --- |
 | `SPEC` | [Specification format](SPEC-spec-format.md) | The format, admission, identifiers, backlinks, waivers, plans' spec-change section | approved |
 | `TOPIC` | [Topic format](TOPIC-topic-format.md) | The kind byte and identifier layout of every topic | draft |
-| `API` | [Backend API contract](API-backend-api.md) | The gRPC contract: ordering, publish, query, subscribe, identity RPCs, error codes, admission validation | draft |
+| `API` | [Backend API contract](API-backend-api.md) | The gRPC contract: ordering, publish, query, subscribe, identity RPCs, connection statistics, error codes, admission validation | draft |
 | `CONF` | [Backend configuration](CONF-backend-configuration.md) | Configuration validation, what is published, how the client applies it | draft |
 | `AUTH` | [Backend auth](AUTH-backend-auth.md) | Request authentication and authorization, client credentials, terminal auth failures | draft |
 | `OPS` | [Backend operations](OPS-backend-operations.md) | Retention and pruning, readiness and health, shutdown as observed, the metric catalogue | draft |
@@ -28,6 +32,7 @@ Specs supersede XIPs. The documents they replaced were deleted under one blanket
 | `SYNC` | [Device sync](SYNC-device-sync.md) | The sync group, preference updates, trust of sync invitations | draft |
 | `ARCH` | [Archive format](ARCH-archive-format.md) | The backup export and import format and its compatibility promise | draft |
 | `CTYPE` | [Content types](CTYPE-content-types.md) | Content type ids, the encoded-content envelope, the standard catalogue | draft |
+| `STORE` | [Client storage](STORE-client-storage.md) | Client database locations and storage lifecycle | draft |
 | `EVENT` | [Client events](EVENT-client-events.md) | Live event kinds, payloads, filters, delivery, and subscriptions | approved |
 
 ## Tools

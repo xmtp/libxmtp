@@ -270,17 +270,23 @@ class Checker:
                     f"the waiver for {rid} has no reason",
                 )
             kind = entry.get("kind")
-            if kind not in ("analysis", "gap"):
+            if kind not in ("analysis", "gap", "untested"):
                 self.error(
                     f"{SPECS_DIR}/waivers.toml",
-                    "SPEC-057",
-                    f'the waiver for {rid} needs kind = "analysis" or "gap"',
+                    "SPEC-094",
+                    f'the waiver for {rid} needs kind = "analysis", "gap", or "untested"',
                 )
             elif kind == "gap" and not (entry.get("owner") and entry.get("issue")):
                 self.error(
                     f"{SPECS_DIR}/waivers.toml",
-                    "SPEC-057",
+                    "SPEC-095",
                     f"the gap waiver for {rid} needs an owner and an issue",
+                )
+            elif kind == "untested" and not entry.get("owner"):
+                self.error(
+                    f"{SPECS_DIR}/waivers.toml",
+                    "SPEC-095",
+                    f"the untested waiver for {rid} needs an owner",
                 )
             self.waivers[rid] = {"reason": reason or "", "kind": kind}
 
@@ -905,15 +911,14 @@ class Checker:
                 )
             elif (
                 self.requirements[rid].verifies
-                and self.waivers[rid].get("kind") == "analysis"
+                and self.waivers[rid].get("kind") in ("analysis", "untested")
             ):
-                # A gap waiver records that behaviour is missing. Evidence for
-                # one path does not close it, so only an analysis waiver is
-                # made redundant by a link.
+                # A gap waiver records missing behaviour. Evidence for one
+                # path does not close it. A link makes other waivers stale.
                 self.warn(
                     f"{SPECS_DIR}/waivers.toml",
                     "SPEC-055",
-                    f"{rid} now has a verifies link; remove its analysis waiver",
+                    f"{rid} now has a verifies link; review its waiver",
                 )
 
     # -- cross references --------------------------------------------------

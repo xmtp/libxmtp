@@ -267,6 +267,7 @@ class ClientTest : BaseInstrumentedTest() {
         }
     }
 
+    // verifies: IDENT-076
     @Test
     fun testPreAuthenticateToInboxCallback() {
         val fakeWallet = PrivateKeyBuilder()

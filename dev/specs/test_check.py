@@ -857,7 +857,7 @@ class ReviewRegressions(unittest.TestCase):
             (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nreason = "later"\n'
             )
-            self.assertIn("SPEC-057", rules(run(tmp), "error"))
+            self.assertIn("SPEC-094", rules(run(tmp), "error"))
 
     def test_gap_waiver_needs_an_owner_and_issue(self):
         with TemporaryDirectory() as d:
@@ -868,7 +868,19 @@ class ReviewRegressions(unittest.TestCase):
             (tmp / "docs" / "specs" / "waivers.toml").write_text(
                 '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "not built"\n'
             )
-            self.assertIn("SPEC-057", rules(run(tmp), "error"))
+            self.assertIn("SPEC-095", rules(run(tmp), "error"))
+
+    def test_gap_waiver_needs_an_issue_with_an_owner(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
+            )
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
+                '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "not built"\n'
+                'owner = "backend"\n'
+            )
+            self.assertIn("SPEC-095", rules(run(tmp), "error"))
 
     def test_complete_gap_waiver_passes(self):
         with TemporaryDirectory() as d:
@@ -880,7 +892,30 @@ class ReviewRegressions(unittest.TestCase):
                 '[[waiver]]\nid = "JOIN-001"\nkind = "gap"\nreason = "not built"\n'
                 'owner = "backend"\nissue = "https://example.invalid/1"\n'
             )
-            self.assertNotIn("SPEC-057", rules(run(tmp), "error"))
+            self.assertNotIn("SPEC-095", rules(run(tmp), "error"))
+
+    def test_untested_waiver_needs_an_owner(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
+            )
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
+                '[[waiver]]\nid = "JOIN-001"\nkind = "untested"\nreason = "no test"\n'
+            )
+            self.assertIn("SPEC-095", rules(run(tmp), "error"))
+
+    def test_untested_waiver_with_an_owner_passes_without_an_issue(self):
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
+            )
+            (tmp / "docs" / "specs" / "waivers.toml").write_text(
+                '[[waiver]]\nid = "JOIN-001"\nkind = "untested"\nreason = "no test"\n'
+                'owner = "protocol"\n'
+            )
+            self.assertNotIn("SPEC-095", rules(run(tmp), "error"))
 
 
 class SecondReviewRegressions(unittest.TestCase):
