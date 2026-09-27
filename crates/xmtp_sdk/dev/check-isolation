@@ -4,14 +4,15 @@ set -euo pipefail
 # Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs there may change
 # (spec evidence, and owner-approved behaviour changes made in core).
 # A stacked pull request is checked against its own base, so a lower PR's changes do not count.
-# An explicit base branch wins. In a pull request run, HEAD is GitHub's merge commit and its first
-# parent is the base. Otherwise compare against self-hosted.
-if [ -n "${1:-}" ]; then
-  base_ref="origin/$1"
-  base=$(git merge-base HEAD "$base_ref")
-elif git rev-parse -q --verify HEAD^2 >/dev/null; then
+# In a pull request run, HEAD is GitHub's merge commit and its first parent is the base; the
+# workflow's base_ref can name the stack's trunk instead, so the merge commit wins. Otherwise use
+# the given base branch, or self-hosted.
+if git rev-parse -q --verify HEAD^2 >/dev/null; then
   base_ref="HEAD^1"
   base=$(git rev-parse HEAD^1)
+elif [ -n "${1:-}" ]; then
+  base_ref="origin/$1"
+  base=$(git merge-base HEAD "$base_ref")
 else
   base_ref="origin/self-hosted"
   base=$(git merge-base HEAD "$base_ref")
