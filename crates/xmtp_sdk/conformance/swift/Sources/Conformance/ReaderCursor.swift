@@ -31,13 +31,17 @@ func checkReaderCursor(signer: Signer, backend: BackendOptions) async throws {
     let allClosed = AsyncStream<Void>.makeStream()
     let all = try await host.messages(options: MessageReaderOptions(conversationKind: .group, from: beginning), onClose: { _ in allClosed.continuation.finish() })
     var allCount = 0
-    for try await item in all { allCount += 1; precondition(item.deliveryCursor == cursor); break }
+    for try await item in all {
+        allCount += 1; precondition(item.deliveryCursor == cursor); break
+    }
     precondition(allCount == 1, "all reader ended before its first item")
     for await _ in allClosed.stream {}
     let namedClosed = AsyncStream<Void>.makeStream()
     let named = try await host.messages(in: group, onClose: { _ in namedClosed.continuation.finish() })
     var namedCount = 0
-    for try await item in named { namedCount += 1; precondition(item.deliveryCursor == cursor); break }
+    for try await item in named {
+        namedCount += 1; precondition(item.deliveryCursor == cursor); break
+    }
     precondition(namedCount == 1, "named reader ended before its first item")
     for await _ in namedClosed.stream {}
     let secondId = try await group.sendText(text: "large B")
@@ -98,7 +102,9 @@ func checkRestoredPeer(backend: BackendOptions) async throws {
     precondition(peer == nil)
     let listed = try await c.raw.conversations().listDms(options: ListConversationsOptions(includeDuplicateDms: true))
     precondition(listed.count == 2)
-    for item in listed { let peer = try await item.peerInboxId(); precondition(peer == nil) }
+    for item in listed {
+        let peer = try await item.peerInboxId(); precondition(peer == nil)
+    }
     let duplicates = try await restored.duplicateDms()
     precondition(duplicates.count == 1)
     let duplicatePeer = try await duplicates[0].peerInboxId()
@@ -109,7 +115,9 @@ func checkRestoredPeer(backend: BackendOptions) async throws {
     let closed = AsyncStream<Void>.makeStream()
     let stream = try await c.messages(in: restored, options: ConversationMessageReaderOptions(from: beginning), onClose: { _ in closed.continuation.finish() })
     var dmCount = 0
-    for try await first in stream { dmCount += 1; precondition(first.id == id && first.deliveryCursor == cursor); break }
+    for try await first in stream {
+        dmCount += 1; precondition(first.id == id && first.deliveryCursor == cursor); break
+    }
     precondition(dmCount == 1, "DM reader ended before its first item")
     for await _ in closed.stream {}
     let reader = try await restored.messageReader()
