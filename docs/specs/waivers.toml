@@ -412,13 +412,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Removal from a group rejects pending intents without failing their message rows."
 
 [[waiver]]
-id = "ARCH-003"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The importer reads the container version and never compares it, so an archive of an unsupported version is parsed with the version 0 parser."
-
-[[waiver]]
 id = "ARCH-007"
 kind = "gap"
 owner = "protocol"
@@ -452,13 +445,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Batched reads provide no fixed export snapshot and can silently omit groups whose MLS state or immutable metadata cannot be read."
-
-[[waiver]]
-id = "ARCH-018"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Incomplete framing at end of input can loop or be mistaken for a clean end of stream."
 
 [[waiver]]
 id = "ARCH-020"
