@@ -64,7 +64,7 @@ impl MessageReader {
             let current = context
                 .db()
                 .current_delivery_cursor()
-                .map_err(XmtpError::unknown)?;
+                .map_err(|error| super::delivery_error(LocalDeliveryError::Storage(error)))?;
             if cursor.database_id != current.database_id {
                 return Err(super::delivery_error(LocalDeliveryError::Storage(
                     xmtp_db::StorageError::Stream(

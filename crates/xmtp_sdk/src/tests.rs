@@ -5639,3 +5639,22 @@ async fn delivery_cursor_rejects_invalid_and_foreign_before_open() {
     client.end().await?;
     foreign.end().await?;
 }
+
+// verifies: PROC-040
+#[xmtp_common::test(unwrap_try = true)]
+async fn delivery_cursor_storage_failure_keeps_typed_cause() {
+    use xmtp_db::{ConnectionExt, diesel::{RunQueryDsl, sql_query}};
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let beginning = client.conversations().beginning_delivery_cursor().await?;
+    let db = client.inner.context.db();
+    db.raw_query(|conn| sql_query("ALTER TABLE user_preferences RENAME TO missing_preferences").execute(conn))?;
+    let beginning_error = client.conversations().beginning_delivery_cursor().await;
+    let replay_error = client.conversations().message_reader(Some(crate::MessageReaderOptions {
+        from: Some(beginning), ..Default::default()
+    })).await;
+    db.raw_query(|conn| sql_query("ALTER TABLE missing_preferences RENAME TO user_preferences").execute(conn))?;
+    client.end().await?;
+    for result in [beginning_error.map(|_| ()), replay_error.map(|_| ())] {
+        assert!(matches!(result, Err(crate::XmtpError::Storage(ref details)) if details.code == "Storage" && matches!(details.category, crate::ErrorCategory::Storage)), "{result:?}");
+    }
+}

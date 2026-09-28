@@ -263,7 +263,7 @@ impl Conversations {
             let database_id = context
                 .db()
                 .stream_database_id()
-                .map_err(XmtpError::unknown)?;
+                .map_err(|error| crate::delivery::delivery_error(xmtp_mls::subscriptions::local_delivery::LocalDeliveryError::Storage(error)))?;
             Ok(crate::delivery::cursor::encode(DeliveryCursor {
                 database_id,
                 delivery_sequence: 0,
