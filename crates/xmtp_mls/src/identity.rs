@@ -130,7 +130,17 @@ impl IdentityStrategy {
             .map(|i: StoredIdentity| i.try_into())
             .transpose()?;
 
-        debug!("identity strategy: {self:?}, identity in store: {stored_identity:?}");
+        let strategy = match &self {
+            CreateIfNotFound { .. } => "create_if_not_found",
+            CachedOnly => "cached_only",
+            #[cfg(any(test, feature = "test-utils"))]
+            ExternalIdentity(_) => "external_identity",
+        };
+        debug!(
+            strategy,
+            stored_identity_present = stored_identity.is_some(),
+            "identity strategy"
+        );
         match self {
             CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
             CreateIfNotFound {
@@ -962,6 +972,83 @@ mod tests {
     };
     use xmtp_id::key_package::WrapperAlgorithm;
     use xmtp_mls_common::group::DMMetadataOptions;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn initialize_identity_debug_log_omits_legacy_private_key() {
+        use super::IdentityStrategy;
+        use openmls::credentials::{Credential, CredentialType};
+        use prost::Message;
+        use std::sync::atomic::AtomicBool;
+        use tracing::instrument::WithSubscriber;
+        use xmtp_api::ApiClientWrapper;
+        use xmtp_api_backend::MockBackendClient;
+        use xmtp_common::{Retry, rand_vec};
+        use xmtp_cryptography::XmtpInstallationCredential;
+        use xmtp_db::{Store, XmtpTestDb, identity::StoredIdentity, sql_key_store::SqlKeyStore};
+        use xmtp_id::associations::test_utils::{
+            MockSmartContractSignatureVerifier, WalletTestExt,
+        };
+        use xmtp_logging::{Level, test_logging::LogCapture};
+        use xmtp_proto::xmtp::message_contents::{SignedPrivateKey, signed_private_key};
+
+        let private_scalar: Vec<u8> = (1..=32).collect();
+        let private_key = SignedPrivateKey {
+            created_ns: 0,
+            public_key: None,
+            union: Some(signed_private_key::Union::Secp256k1(
+                signed_private_key::Secp256k1 {
+                    bytes: private_scalar.clone(),
+                },
+            )),
+        }
+        .encode_to_vec();
+        let store = xmtp_db::TestDb::create_persistent_store(None).await;
+        let identifier = generate_local_wallet().identifier();
+        let inbox_id = identifier.inbox_id(0).unwrap();
+        let stored: StoredIdentity = (&super::Identity {
+            inbox_id: inbox_id.clone(),
+            installation_keys: XmtpInstallationCredential::new(),
+            credential: Credential::new(CredentialType::Basic, rand_vec::<24>()),
+            signature_request: None,
+            is_ready: AtomicBool::new(true),
+        })
+            .try_into()
+            .unwrap();
+        stored.store(&store.conn()).unwrap();
+
+        let strategy =
+            IdentityStrategy::new(inbox_id.clone(), identifier, 0, Some(private_key.clone()));
+        let api = ApiClientWrapper::new(MockBackendClient::new(), Retry::default());
+        let verifier = MockSmartContractSignatureVerifier::new(true);
+        let capture = LogCapture::new(Level::Debug);
+        let loaded = strategy
+            .initialize_identity(&api, &SqlKeyStore::new(&store.db()), &verifier)
+            .with_subscriber(capture.dispatch())
+            .await
+            .unwrap();
+
+        let output = capture.output();
+        assert_eq!(loaded.inbox_id, inbox_id);
+        assert!(output.contains("identity strategy"), "{output}");
+        assert!(!output.contains(&format!("{private_key:?}")), "{output}");
+        let scalar_decimal = private_scalar
+            .iter()
+            .map(u8::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        assert!(!output.contains(&scalar_decimal), "{output}");
+        assert!(!output.contains(&hex::encode(&private_key)), "{output}");
+        assert!(!output.contains(&hex::encode(&private_scalar)), "{output}");
+        assert!(
+            output.contains("\"strategy\":\"create_if_not_found\""),
+            "{output}"
+        );
+        assert!(
+            output.contains("\"stored_identity_present\":true"),
+            "{output}"
+        );
+    }
 
     async fn get_key_package_from_network(client: &FullXmtpClient) -> VerifiedKeyPackageV2 {
         let mut kp_mapping = client
