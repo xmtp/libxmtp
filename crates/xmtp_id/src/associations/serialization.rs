@@ -670,24 +670,12 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
             .ok_or(SignatureError::Invalid)?
             .union
             .ok_or(SignatureError::Invalid)?;
-        let wallet_signature = match union {
-            Union::WalletEcdsaCompact(wallet_ecdsa_compact) => {
-                let mut wallet_signature = wallet_ecdsa_compact.bytes.clone();
-                wallet_signature.push(wallet_ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-                if wallet_signature.len() != 65 {
-                    return Err(SignatureError::Invalid);
-                }
-                wallet_signature
-            }
-            Union::EcdsaCompact(ecdsa_compact) => {
-                let mut signature = ecdsa_compact.bytes.clone();
-                signature.push(ecdsa_compact.recovery as u8); // TODO: normalize recovery ID if necessary
-                if signature.len() != 65 {
-                    return Err(SignatureError::Invalid);
-                }
-                signature
-            }
+        let (bytes, recovery) = match union {
+            Union::WalletEcdsaCompact(signature) => (signature.bytes, signature.recovery),
+            Union::EcdsaCompact(signature) => (signature.bytes, signature.recovery),
         };
+        let recovery = u8::try_from(recovery).map_err(|_| SignatureError::Invalid)?;
+        let wallet_signature = [bytes.as_slice(), &[recovery]].concat();
         let verified_wallet_signature = VerifiedSignature::from_recoverable_ecdsa(
             Self::text(&serialized_key_data),
             &wallet_signature,
@@ -721,7 +709,7 @@ impl TryFrom<LegacySignedPublicKeyProto> for ValidatedLegacySignedPublicKey {
 
 impl From<ValidatedLegacySignedPublicKey> for LegacySignedPublicKeyProto {
     fn from(validated: ValidatedLegacySignedPublicKey) -> Self {
-        let signature = validated.wallet_signature.raw_bytes;
+        let signature = validated.wallet_signature.replay_key;
         Self {
             key_bytes: validated.serialized_key_data,
             signature: Some(SignedPublicKeySignatureProto {
