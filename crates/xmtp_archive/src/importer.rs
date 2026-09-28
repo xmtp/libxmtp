@@ -280,6 +280,16 @@ mod tests {
             }
         }
 
+        // A full-length frame that authenticates under neither the counter nor the legacy nonce
+        // fails with the authentication error and ends the stream.
+        let mut forged = counter.clone();
+        *forged.last_mut()? ^= 1;
+        let restored = restore(container(0, &forged).await);
+        assert!(
+            matches!(restored, Err(ArchiveError::AesGcm(_))),
+            "forged tag: {restored:?}"
+        );
+
         // A declared ciphertext shorter than the tag fails even when the bytes are present.
         for len in 0..TAG_SIZE as u32 {
             let framed = [&counter[..metadata_end], &len.to_le_bytes(), &[0; 32]].concat();
