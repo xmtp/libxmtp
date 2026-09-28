@@ -236,6 +236,68 @@ xmtp_common::if_wasm! {
         matches!(result, Err(xmtp_db::StorageError::Platform(xmtp_db::PlatformStorageError::DatabaseInUse)))
     }
 
+    /// The pinned VFS cannot count duplicate opens. Reject a second live
+    /// connection before SQLite opens it, but allow a later closed-path reopen.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_same_path_requires_exclusive_live_connection() {
+        use xmtp_db::{WasmDb, WasmDbConnection, PlatformStorageError, ConnectionError, XmtpDb};
+        use xmtp_db::prelude::QueryDelivery;
+
+        let path = xmtp_common::tmp_path();
+        let location = StorageOption::Persistent(path.clone());
+        let first = EncryptedMessageStore::new(WasmDb::new(&location).await?)?;
+        let identity = first.db().stream_database_id()?;
+        let rejected = [
+            matches!(WasmDb::new(&location).await, Err(PlatformStorageError::DatabaseInUse)),
+            matches!(WasmDbConnection::new(&path), Err(PlatformStorageError::DatabaseInUse)),
+        ];
+        assert_eq!(rejected, [true; 2], "both opens must reject a live path before touching the VFS");
+        assert_eq!(first.db().stream_database_id()?, identity);
+        first.release_connection()?;
+
+        let database = WasmDb::new(&location).await?;
+        let shared = database.clone();
+        let second = EncryptedMessageStore::new(database)?;
+        assert!(matches!(first.reconnect(), Err(ConnectionError::Platform(PlatformStorageError::DatabaseInUse))));
+        // Closing the old object again must not close the new connection.
+        first.release_connection()?;
+        xmtp_db::pause_sqlite_if_idle();
+        assert!(!get_sqlite().unwrap().unwrap().is_paused());
+        assert_eq!(second.db().stream_database_id()?, identity);
+        assert_eq!(shared.db().stream_database_id()?, identity);
+        let rejected_changes = [
+            is_busy(xmtp_db::clear_opfs_databases().await),
+            is_busy(xmtp_db::export_opfs_database(&path).await),
+            is_busy(xmtp_db::delete_opfs_database(&path).await),
+        ];
+        assert_eq!(rejected_changes, [true; 3]);
+        second.release_connection()?;
+        xmtp_db::pause_sqlite_if_idle();
+        assert!(get_sqlite().unwrap().unwrap().is_paused());
+        xmtp_db::try_init_sqlite().await?;
+        first.reconnect()?;
+        assert_eq!(first.db().stream_database_id()?, identity);
+        first.release_connection()?;
+        xmtp_db::delete_opfs_database(&path).await?;
+    }
+
+    /// SQLite URIs can alias the same VFS path. Reject both URI forms before
+    /// initializing OPFS or opening a persistent connection.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_persistent_paths_reject_sqlite_uris() {
+        use xmtp_db::{WasmDb, WasmDbConnection, PlatformStorageError};
+
+        assert!(get_sqlite().is_none());
+        let rejected = [
+            matches!(WasmDbConnection::new("file:uri-path"), Err(PlatformStorageError::InvalidDatabasePath)),
+            matches!(WasmDbConnection::new("sqlite://uri-path"), Err(PlatformStorageError::InvalidDatabasePath)),
+            matches!(WasmDb::new(&StorageOption::Persistent("file:uri-path".into())).await, Err(PlatformStorageError::InvalidDatabasePath)),
+            matches!(WasmDb::new(&StorageOption::Persistent("sqlite://uri-path".into())).await, Err(PlatformStorageError::InvalidDatabasePath)),
+        ];
+        assert_eq!(rejected, [true; 4]);
+        assert!(get_sqlite().is_none(), "invalid paths must not initialize OPFS");
+    }
+
     /// Two reads must share the real VFS resume, including its access handles.
     #[xmtp_common::test(unwrap_try = true)]
     async fn opfs_reads_share_resume() {

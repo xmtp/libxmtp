@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **11 crates** with **409 total error codes**.
+**38 error types** across **11 crates** with **410 total error codes**.
 
 ## mobile
 
@@ -186,6 +186,7 @@ when surfaced to JavaScript.
 | `PlatformStorageError::InvalidRestoreInput` | The restore input is not a complete SQLite database. |
 | `PlatformStorageError::Initialization` | The OPFS utility could not be initialized. |
 | `PlatformStorageError::PoolUnusable` | A pool transition failed or was cancelled. Terminate this worker before retrying. |
+| `PlatformStorageError::InvalidDatabasePath` | Persistent OPFS storage needs a plain path, not a SQLite URI. Not retryable. |
 
 ### SqlKeyStoreError <sub>enum</sub>
 

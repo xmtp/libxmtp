@@ -109,7 +109,9 @@ pub(super) fn register_connection(path: &str, state: &Rc<RefCell<ConnectionState
 
 /// The VFS keeps each supplied filename unchanged. OPFS SyncAccessHandles
 /// exclude other workers. This check also excludes open handles in this worker.
-fn closed_target(path: Option<&str>) -> Result<Vec<Rc<RefCell<ConnectionState>>>, StorageError> {
+pub(super) fn closed_target(
+    path: Option<&str>,
+) -> Result<Vec<Rc<RefCell<ConnectionState>>>, PlatformStorageError> {
     CONNECTIONS.with_borrow(|connections| {
         let states: Vec<_> = connections
             .iter()
@@ -121,7 +123,7 @@ fn closed_target(path: Option<&str>) -> Result<Vec<Rc<RefCell<ConnectionState>>>
                 .try_borrow()
                 .map_err(|_| PlatformStorageError::DatabaseInUse)?;
             if state.connection.is_some() {
-                return Err(PlatformStorageError::DatabaseInUse.into());
+                return Err(PlatformStorageError::DatabaseInUse);
             }
         }
         Ok(states)

@@ -57,6 +57,9 @@ pub enum PlatformStorageError {
     /// A pool transition failed or was cancelled. Terminate this worker before retrying.
     #[error("OPFS pool is unusable; terminate this worker before retrying")]
     PoolUnusable,
+    /// Persistent OPFS storage needs a plain path, not a SQLite URI. Not retryable.
+    #[error("persistent OPFS storage requires a plain path; SQLite URIs are not supported")]
+    InvalidDatabasePath,
 }
 
 impl xmtp_common::RetryableError for PlatformStorageError {
@@ -69,7 +72,8 @@ impl xmtp_common::RetryableError for PlatformStorageError {
             Self::Replaced
             | Self::RestoreDestinationExists
             | Self::InvalidRestoreInput
-            | Self::PoolUnusable => false,
+            | Self::PoolUnusable
+            | Self::InvalidDatabasePath => false,
         }
     }
 }
@@ -184,6 +188,11 @@ pub fn pause_sqlite_if_idle() {
     let Ok(_transition) = POOL_TRANSITION.try_lock() else {
         return;
     };
+    // The pinned VFS tracks open filenames in a set, not connection counts.
+    // Its idle check alone cannot prove that every local connection is closed.
+    if restore::closed_target(None).is_err() {
+        return;
+    }
     if let Some(Ok(util)) = get_sqlite()
         && let Err(error) = util.pause_vfs()
     {
@@ -236,6 +245,15 @@ async fn init_opfs() -> Result<SyncOpfsUtil, PlatformStorageError> {
         .map_err(PlatformStorageError::SAH)
 }
 
+/// URI parsing can give different inputs the same VFS filename. The registry
+/// requires plain paths so admission uses the exact filename SQLite will open.
+fn validate_persistent_path(path: &str) -> Result<(), PlatformStorageError> {
+    if path.starts_with("file:") || path.starts_with("sqlite://") {
+        return Err(PlatformStorageError::InvalidDatabasePath);
+    }
+    Ok(())
+}
+
 /// Synchronous opens cannot wait for resume. Reject them while it is needed.
 fn check_pool_ready() -> Result<(), PlatformStorageError> {
     check_pool_usable()?;
@@ -271,8 +289,10 @@ impl WasmDb {
         let conn = match opts {
             Ephemeral => PersistentOrMem::Mem(WasmDbConnection::new_ephemeral("xmtp-ephemeral")?),
             Persistent(db_path) => {
+                validate_persistent_path(db_path)?;
                 let _opening = restore::PendingOpen::acquire()?;
                 let _transition = POOL_TRANSITION.lock().await;
+                restore::closed_target(Some(db_path))?;
                 let util = resume_sqlite().await?;
                 maybe_resize(util).await?;
                 tracing::debug!("creating persistent opfs db @{}", db_path);
@@ -303,15 +323,18 @@ struct ConnectionState {
 
 impl WasmDbConnection {
     pub fn new(path: &str) -> Result<Self, PlatformStorageError> {
+        validate_persistent_path(path)?;
         let _opening = restore::PendingOpen::acquire()?;
         let _transition = POOL_TRANSITION
             .try_lock()
             .map_err(|_| PlatformStorageError::DatabaseInUse)?;
+        restore::closed_target(Some(path))?;
         check_pool_ready()?;
         Self::connect(path)
     }
 
-    // The caller holds persistent-open admission and POOL_TRANSITION.
+    // The caller holds persistent-open admission and POOL_TRANSITION, and has
+    // checked that this plain path has no live connection.
     fn connect(path: &str) -> Result<Self, PlatformStorageError> {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
@@ -405,22 +428,30 @@ impl ConnectionExt for WasmDbConnection {
         } else {
             None
         };
+        {
+            let state = self
+                .conn
+                .try_borrow()
+                .map_err(|_| crate::ConnectionError::ReconnectInTransaction)?;
+            if state.replaced {
+                return Err(PlatformStorageError::Replaced.into());
+            }
+            if state.connection.is_some() {
+                return Ok(());
+            }
+        }
+        if self.persistent {
+            check_pool_ready()?;
+            restore::closed_target(Some(&self.path))?;
+        }
         let mut state = self
             .conn
             .try_borrow_mut()
             .map_err(|_| crate::ConnectionError::ReconnectInTransaction)?;
-        if state.replaced {
-            return Err(PlatformStorageError::Replaced.into());
-        }
-        if state.connection.is_none() {
-            if self.persistent {
-                check_pool_ready()?;
-            }
-            let mut conn =
-                SqliteConnection::establish(&self.path).map_err(PlatformStorageError::from)?;
-            conn.batch_execute("PRAGMA foreign_keys = on;")?;
-            state.connection = Some(conn);
-        }
+        let mut conn =
+            SqliteConnection::establish(&self.path).map_err(PlatformStorageError::from)?;
+        conn.batch_execute("PRAGMA foreign_keys = on;")?;
+        state.connection = Some(conn);
         Ok(())
     }
 }
