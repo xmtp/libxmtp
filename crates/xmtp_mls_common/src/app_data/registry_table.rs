@@ -55,7 +55,7 @@ use crate::app_data::{
 /// | Range            | Purpose                                       |
 /// |------------------|-----------------------------------------------|
 /// | `0x8000-0xBFFF`  | XMTP-allocated well-known ids (this table)    |
-/// | `0xC000-0xFEFF`  | Application-range `RuntimeComponent` ids      |
+/// | `0xC000-0xFEFF`  | Application ids, decoded by registry type     |
 /// | `0xFF00-0xFFFF`  | Reserved (hard-rejected, no graceful-degrade) |
 ///
 /// Adding a new well-known entry here changes the protocol's
@@ -71,8 +71,9 @@ use crate::app_data::{
 /// pulls its registered [`ComponentType`], and dispatches through the
 /// type-level decoder. The closed type universe covers every shape:
 /// Bytes / String pass-through, `TlsSet<InboxId>` / `TlsSet<bytes>` /
-/// `TlsMap<InboxId, bytes>` / `TlsMap<bytes, bytes>` apply their deltas
-/// element-wise — old and new clients converge on the same dict bytes.
+/// `TlsMap<InboxId, bytes>` / `TlsMap<InboxId, UTF-8 bytes>` /
+/// `TlsMap<bytes, bytes>` apply their deltas element-wise — old and new
+/// clients converge on the same dict bytes.
 /// The tolerance path covers the XMTP range (`0x8000-0xBFFF`) and the
 /// application range (`0xC000-0xFEFF`); the reserved range
 /// (`0xFF00-0xFFFF`) is **still hard-rejected** — those slots are
