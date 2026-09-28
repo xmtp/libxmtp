@@ -1268,6 +1268,55 @@ describe("browser bridge transport", () => {
 // [verifies PROC-050]
 describe("message stream factories", () => {
   for (const kind of ["all", "group", "dm"] as const) {
+    it(`cancels a blocked ${kind} opener through its transport signal`, async () => {
+      const { MessageStream } =
+        await import("../../../../apps/xmtp_sdk_bindgen/runtime/ts/streams/reader");
+      let opened!: () => void;
+      const arrived = new Promise<void>((resolve) => {
+        opened = resolve;
+      });
+      let openingSignal: AbortSignal | undefined;
+      let aborted = false;
+      const messageReader = vi.fn(
+        (_selection?: unknown, transport?: { signal: AbortSignal }) => {
+          openingSignal = transport?.signal;
+          opened();
+          return new Promise<{
+            next(): Promise<string | undefined>;
+            end(): Promise<void>;
+          }>((_resolve, reject) => {
+            openingSignal?.addEventListener(
+              "abort",
+              () => {
+                aborted = true;
+                reject(new Error("opening cancelled"));
+              },
+              { once: true },
+            );
+          });
+        },
+      );
+      const source = { messageReader };
+      const owner = { conversations: () => source };
+      const controller = new AbortController();
+      const onClose = vi.fn();
+      const options = { signal: controller.signal, onClose };
+      const stream =
+        kind === "all"
+          ? MessageStream.open(owner, undefined, options)
+          : kind === "group"
+            ? MessageStream.openGroup(owner, source, undefined, options)
+            : MessageStream.openDm(owner, source, undefined, options);
+      await arrived;
+      expect(openingSignal).toBeInstanceOf(AbortSignal);
+      expect(openingSignal?.aborted).toBe(false);
+      controller.abort();
+      expect(openingSignal?.aborted).toBe(true);
+      expect(aborted).toBe(true);
+      await stream.end();
+      expect(await stream.next()).toEqual({ done: true, value: undefined });
+      expect(onClose).toHaveBeenCalledExactlyOnceWith({ kind: "closed" });
+    });
     it(`forwards ${kind} selection and transport separately`, async () => {
       const { MessageStream } =
         await import("../../../../apps/xmtp_sdk_bindgen/runtime/ts/streams/reader");
