@@ -3,28 +3,53 @@ set -euo pipefail
 
 # GitHub runs a stacked PR's checks against the stack trunk, so this diff
 # includes the PRs below it. Only shipped code in sdks/ and bindings/ is
-# guarded: tests and changelogs there may change. A later spec cleanup can
-# remove retired requirement backlinks from shipped SDK comments, but cannot
-# change executable code or other comments.
+# guarded: tests and changelogs there may change. Spec cleanup may change
+# complete requirement-backlink comment lines in existing hand-written SDK
+# source, but cannot change code, scripts, generated output, or file modes.
 base=$(git merge-base HEAD origin/self-hosted)
 if [ -z "$(git diff --name-only "$base" -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
   exit 0
 fi
 
-changed=$(git diff --name-only "$base" -- sdks/ bindings/ \
-  | grep -vE '(^|/)(tests?|Tests|androidTest)/|\.test\.[cm]?[jt]s$|_tests?\.rs$|(^|/)CHANGELOG\.md$' \
-  || true)
+changed=$(git diff --no-renames --name-only "$base" -- sdks/ bindings/)
 blocked=""
 while IFS= read -r path; do
   [ -z "$path" ] && continue
-  status=$(git diff --name-status "$base" -- "$path" | cut -f1)
-  if [[ "$path" != sdks/* || "$status" != M ]] ||
-    ! git diff --no-ext-diff --unified=0 "$base" -- "$path" | awk '
+  status=$(git diff --no-renames --name-status "$base" -- "$path" | cut -f1)
+  case "$path" in
+    *.sh|*.bash|*.zsh|*.command|*.ps1|*.d.ts|*generated*|*Generated*|*/script/*|*/scripts/*|*/dev/*|*/bin/*|sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift)
+      blocked+="$path"$'\n'; continue ;;
+  esac
+  if [[ "$status" == M ]] &&
+    [ -n "$(git diff --no-renames --summary "$base" -- "$path")" ]; then
+    blocked+="$path"$'\n'
+    continue
+  fi
+  case "$path" in
+    */test/*|*/tests/*|*/Tests/*|*/androidTest/*|*.test.ts|*.test.js|*_test.rs|*/CHANGELOG.md)
+      continue ;;
+  esac
+  kdoc=0
+  case "$path" in
+    sdks/node/src/*.ts|sdks/browser/src/*.ts|sdks/ios/Sources/*.swift) ;;
+    sdks/android/library/src/main/*.kt) kdoc=1 ;;
+    *) blocked+="$path"$'\n'; continue ;;
+  esac
+  if [[ "$status" != M ]] ||
+    ! git diff --no-ext-diff --no-renames --unified=0 "$base" -- "$path" | LC_ALL=C awk -v kdoc="$kdoc" '
       /^@@/ { in_hunk = 1; next }
       in_hunk && /^[+-]/ {
         saw_change = 1
         line = substr($0, 2)
-        if (line !~ /^[[:space:]]*(\/\/|\*)[[:space:]]*(implements|verifies):[[:space:]]*[A-Z][A-Z0-9-]*(,[[:space:]]*[A-Z][A-Z0-9-]*)*[[:space:]]*$/) bad = 1
+        if (line ~ /^[ \t]*\/\//) {
+          sub(/^[ \t]*\/\/[ \t]*/, "", line)
+        } else if (kdoc && line ~ /^[ \t]*\*/) {
+          sub(/^[ \t]*\*[ \t]*/, "", line)
+        } else {
+          bad = 1
+          next
+        }
+        if (line !~ /^(implements|verifies):[ \t]*[A-Z][A-Z][A-Z][A-Z]?[A-Z]?-[0-9][0-9][0-9](,[ \t]*[A-Z][A-Z][A-Z][A-Z]?[A-Z]?-[0-9][0-9][0-9])*[ \t]*$/) bad = 1
       }
       END { exit bad || !saw_change }
     '; then
