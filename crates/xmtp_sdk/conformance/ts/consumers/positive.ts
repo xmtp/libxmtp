@@ -117,3 +117,51 @@ export function consumeLiftedCustomValues(message: Message): unknown[] {
   }
   return values;
 }
+
+// [verifies PROC-050] [verifies DMS-017]
+export async function consumeReaderSurface(
+  node: import("../../../../../target/sdk-generated/typescript-napi/index.ts").Client,
+  nodeGroup: import("../../../../../target/sdk-generated/typescript-napi/index.ts").Group,
+  nodeDm: import("../../../../../target/sdk-generated/typescript-napi/index.ts").Dm,
+  browser: import("../../../../../target/sdk-generated/typescript-wasm/index.ts").Client,
+  browserGroup: import("../../../../../target/sdk-generated/typescript-wasm/proxy.gen.ts").Group,
+  browserDm: import("../../../../../target/sdk-generated/typescript-wasm/proxy.gen.ts").Dm,
+): Promise<void> {
+  const N =
+    await import("../../../../../target/sdk-generated/typescript-napi/index.ts");
+  const B =
+    await import("../../../../../target/sdk-generated/typescript-wasm/index.ts");
+  const signal = new AbortController().signal;
+  for (const conversations of [node.conversations(), browser.conversations()]) {
+    await conversations.messageReader();
+    await conversations.messageReader(
+      { consentStates: [], from: undefined, conversationKind: undefined },
+      { signal },
+    );
+  }
+  for (const named of [nodeGroup, nodeDm, browserGroup, browserDm]) {
+    await named.messageReader();
+    await named.messageReader({ from: undefined }, { signal });
+  }
+  const nodePeer: string | null = await nodeDm.peerInboxId();
+  const browserPeer: string | null = await browserDm.peerInboxId();
+  const browserLike: import("../../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.ts").DmLike =
+    browserDm;
+  void [nodePeer, browserPeer, browserLike];
+  N.MessageStream.open(node);
+  N.MessageStream.open(
+    node,
+    { consentStates: [], from: undefined, conversationKind: undefined },
+    { signal },
+  );
+  N.MessageStream.openGroup(node, nodeGroup);
+  N.MessageStream.openDm(node, nodeDm, { from: undefined }, { signal });
+  B.MessageStream.open(browser);
+  B.MessageStream.open(
+    browser,
+    { consentStates: [], from: undefined, conversationKind: undefined },
+    { signal },
+  );
+  B.MessageStream.openGroup(browser, browserGroup);
+  B.MessageStream.openDm(browser, browserDm, { from: undefined }, { signal });
+}

@@ -19,6 +19,7 @@ struct Operation {
     name: String,
     key: String,
     inputs: Vec<(String, Type)>,
+    none_defaults: BTreeSet<String>,
     output: Option<Type>,
     constructor: bool,
     immutable: bool,
@@ -373,6 +374,22 @@ fn ts_name(source: &str) -> String {
     source.to_lower_camel_case()
 }
 
+fn none_defaults(inputs: &[uniffi_meta::FnParamMetadata]) -> BTreeSet<String> {
+    inputs
+        .iter()
+        .rev()
+        .take_while(|input| {
+            matches!(
+                input.default,
+                Some(uniffi_meta::DefaultValueMetadata::Literal(
+                    uniffi_meta::LiteralMetadata::None
+                ))
+            )
+        })
+        .map(|input| ts_name(&input.name))
+        .collect()
+}
+
 fn operations(items: &[Metadata]) -> Vec<Operation> {
     let remote = remote_foreign(items);
     let mut output = Vec::new();
@@ -388,6 +405,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                         .iter()
                         .map(|p| (ts_name(&p.name), p.ty.clone()))
                         .collect(),
+                    none_defaults: none_defaults(&value.inputs),
                     output: value.return_type.clone(),
                     constructor: false,
                     immutable: false,
@@ -402,6 +420,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                     .iter()
                     .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
+                none_defaults: none_defaults(&value.inputs),
                 output: value.return_type.clone(),
                 constructor: false,
                 immutable: !value.is_async,
@@ -415,6 +434,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                     .iter()
                     .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
+                none_defaults: none_defaults(&value.inputs),
                 output: Some(Type::Object {
                     module_path: value.module_path.clone(),
                     name: value.self_name.clone(),
@@ -432,6 +452,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                     .iter()
                     .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
+                none_defaults: none_defaults(&value.inputs),
                 output: value.return_type.clone(),
                 constructor: false,
                 immutable: false,
@@ -1087,7 +1108,18 @@ fn render(
                 let params = op
                     .inputs
                     .iter()
-                    .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
+                    .map(|(name, ty)| {
+                        let optional = if op.none_defaults.contains(name) {
+                            "?"
+                        } else {
+                            ""
+                        };
+                        let ty = match ty {
+                            Type::Optional { inner_type } if !optional.is_empty() => inner_type,
+                            ty => ty,
+                        };
+                        format!("{name}{optional}: {}", ts_type(ty))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let args = op
@@ -1250,7 +1282,7 @@ fn render(
         "const STORAGE_POOL = {:?};",
         xmtp_configuration::WASM_VFS_DIRECTORY
     )?;
-    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)), B.storeLeftOpen);\n}\n");
+    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, key === \"Dm.peerInboxId\" && result === null ? undefined : result)), B.storeLeftOpen);\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
 
     for name in [

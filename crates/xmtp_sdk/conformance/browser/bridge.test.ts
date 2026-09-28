@@ -1264,3 +1264,42 @@ describe("browser bridge transport", () => {
     expect(main.sent.some((message) => message.t === "call")).toBe(true);
   });
 });
+
+// [verifies PROC-050]
+describe("message stream factories", () => {
+  for (const kind of ["all", "group", "dm"] as const) {
+    it(`forwards ${kind} selection and transport separately`, async () => {
+      const { MessageStream } =
+        await import("../../../../apps/xmtp_sdk_bindgen/runtime/ts/streams/reader");
+      const selection = {
+        from: "dc1_exact",
+        consentStates: [],
+        conversationKind: undefined,
+      };
+      const end = vi.fn(async () => {});
+      const next = vi.fn(async () => "value");
+      const messageReader = vi.fn(async () => ({ next, end }));
+      const source = { messageReader };
+      const owner = { conversations: () => source };
+      const controller = new AbortController();
+      const onClose = vi.fn();
+      const options = { signal: controller.signal, onClose };
+      const stream =
+        kind === "all"
+          ? MessageStream.open(owner, selection, options)
+          : kind === "group"
+            ? MessageStream.openGroup(owner, source, selection, options)
+            : MessageStream.openDm(owner, source, selection, options);
+      expect(await stream.next()).toEqual({ done: false, value: "value" });
+      expect(messageReader).toHaveBeenCalledWith(selection, {
+        signal: expect.any(AbortSignal),
+      });
+      controller.abort();
+      await stream.end();
+      expect(end).toHaveBeenCalledTimes(1);
+      expect(onClose).toHaveBeenCalledExactlyOnceWith({ kind: "closed" });
+      expect(next).toHaveBeenCalledTimes(1);
+      expect(await stream.next()).toEqual({ done: true, value: undefined });
+    });
+  }
+});

@@ -686,7 +686,7 @@ export async function runBrowserBridgeConformance(
     const closeReasons: string[] = [];
     const connectionStates: B.ConnectionState[] = [];
     const messageStream = new MessageStream(
-      (signal) => readerGroup.messageReader({ signal }),
+      (signal) => readerGroup.messageReader(undefined, { signal }),
       reopened,
       {
         onClose: (reason) => closeReasons.push(reason.kind),
@@ -712,7 +712,7 @@ export async function runBrowserBridgeConformance(
     await messageStream.return();
     equal(closeReasons.join(), "closed", "reader did not call onClose");
     const replay = new MessageStream(
-      (signal) => readerGroup.messageReader({ signal }),
+      (signal) => readerGroup.messageReader(undefined, { signal }),
       reopened,
     );
     equal(

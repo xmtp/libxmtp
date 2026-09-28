@@ -155,13 +155,9 @@ export async function checkMessageStream(backendURL: string): Promise<void> {
     // and gets the unacknowledged message again.
     step = "stream redelivery";
     const states: B.ConnectionState[] = [];
-    const stream = new MessageStream(
-      (signal) => group.messageReader({ signal }),
-      alice,
-      {
-        onConnectionStateChange: (_previous, current) => states.push(current),
-      },
-    );
+    const stream = MessageStream.openGroup(alice, group, undefined, {
+      onConnectionStateChange: (_previous, current) => states.push(current),
+    });
     const replayed = await withTimeout(stream.next(), "stream redelivery");
     if (replayed.done || replayed.value.id.toString() !== firstId.toString())
       throw new Error("stream did not redeliver the message");

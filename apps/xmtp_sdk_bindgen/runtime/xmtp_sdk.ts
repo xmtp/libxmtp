@@ -429,3 +429,6 @@ export enum ConnectionState {
   Failed,
   Closed,
 }
+
+export type MessageReaderOptions = { conversationKind?: ConversationKind; consentStates?: ConsentState[]; from?: string };
+export type ConversationMessageReaderOptions = { from?: string };

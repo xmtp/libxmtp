@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 
-/// Keep the public DM peer absence equal to null in the Node API.
+/// Keep the public DM peer absence equal to null in both TypeScript APIs.
 pub(crate) fn rewrite(source: &str) -> Result<String> {
     let declaration = "peerInboxId(asyncOpts_?: { signal: AbortSignal }) /*throws*/: Promise<InboxId | undefined>;";
     let method = "async peerInboxId(asyncOpts_?: { signal: AbortSignal }): Promise<InboxId | undefined> /*throws*/ {";

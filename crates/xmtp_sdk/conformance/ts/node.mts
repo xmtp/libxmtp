@@ -325,7 +325,7 @@ const repeated = await replay.next();
 assert.equal(repeated?.id.toString(), messageId.toString());
 await replay.end();
 const stream = new sdk.MessageStream(
-  (signal) => reopenedGroup.messageReader({ signal }),
+  (signal) => reopenedGroup.messageReader(undefined, { signal }),
   reopened,
 );
 assert.equal((await stream.next()).value?.id.toString(), messageId.toString());
@@ -336,7 +336,7 @@ await stream.return();
 const protocolGroup = await reopened.conversations().createGroup([], undefined);
 const firstId = await protocolGroup.sendText("ack on request", undefined);
 const firstStream = new sdk.MessageStream(
-  (signal) => protocolGroup.messageReader({ signal }),
+  (signal) => protocolGroup.messageReader(undefined, { signal }),
   reopened,
 );
 assert.equal(
@@ -345,7 +345,7 @@ assert.equal(
 );
 await firstStream.return();
 const secondStream = new sdk.MessageStream(
-  (signal) => protocolGroup.messageReader({ signal }),
+  (signal) => protocolGroup.messageReader(undefined, { signal }),
   reopened,
 );
 let replayTimer: ReturnType<typeof setTimeout>;
@@ -380,7 +380,7 @@ const breakGroup = await reopened.conversations().createGroup([], undefined);
 const breakId = await breakGroup.sendText("close after break");
 const breakReasons: sdk.StreamCloseReason[] = [];
 const retainedStream = new sdk.MessageStream(
-  (signal) => breakGroup.messageReader({ signal }),
+  (signal) => breakGroup.messageReader(undefined, { signal }),
   reopened,
   { onClose: (reason) => breakReasons.push(reason) },
 );
@@ -833,7 +833,7 @@ const entered = new Promise<void>((resolve) => {
   callbackEntered = resolve;
 });
 const callbackStream = new sdk.MessageStream(
-  (signal) => callbackGroup.messageReader({ signal }),
+  (signal) => callbackGroup.messageReader(undefined, { signal }),
   reopened,
 );
 const consumption = callbackStream.onValue(async (value) => {
@@ -1553,7 +1553,7 @@ const throwingGroup = await ownerWithThrowingCodec
   .createGroup([], undefined);
 // verifies: PROC-045
 const codecStream = new sdk.MessageStream(
-  (signal) => throwingGroup.messageReader({ signal }),
+  (signal) => throwingGroup.messageReader(undefined, { signal }),
   ownerWithThrowingCodec,
 );
 const brokenId = await throwingGroup.send(

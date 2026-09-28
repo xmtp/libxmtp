@@ -3,6 +3,8 @@ import type {
   ClientLike,
   Conversation,
   ConversationReaderOptions,
+  MessageReaderOptions,
+  ConversationMessageReaderOptions,
 } from "../../xmtp_sdk";
 import type { Client } from "../client";
 import type { Message } from "../message";
@@ -31,6 +33,13 @@ type ReaderLike<T> = {
   end(): Promise<void>;
   connectionState?(): Promise<ConnectionState>;
   connectionStateChanged?(previous: ConnectionState): Promise<ConnectionState>;
+};
+
+type MessageReaderSource<T, Selection> = {
+  messageReader(
+    selection?: Selection,
+    transport?: { signal: AbortSignal },
+  ): Promise<ReaderLike<T>>;
 };
 
 /** Each next request acknowledges the value returned by the prior request. */
@@ -213,6 +222,44 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
 }
 
 export class MessageStream<T = Message> extends ReaderStream<T> {
+  static open<T>(
+    owner: { conversations(): MessageReaderSource<T, MessageReaderOptions> },
+    selection?: MessageReaderOptions,
+    options?: StreamOptions,
+  ): MessageStream<T> {
+    return new MessageStream(
+      (signal) => owner.conversations().messageReader(selection, { signal }),
+      owner,
+      options,
+    );
+  }
+
+  static openGroup<T>(
+    owner: object,
+    group: MessageReaderSource<T, ConversationMessageReaderOptions>,
+    selection?: ConversationMessageReaderOptions,
+    options?: StreamOptions,
+  ): MessageStream<T> {
+    return new MessageStream(
+      (signal) => group.messageReader(selection, { signal }),
+      owner,
+      options,
+    );
+  }
+
+  static openDm<T>(
+    owner: object,
+    dm: MessageReaderSource<T, ConversationMessageReaderOptions>,
+    selection?: ConversationMessageReaderOptions,
+    options?: StreamOptions,
+  ): MessageStream<T> {
+    return new MessageStream(
+      (signal) => dm.messageReader(selection, { signal }),
+      owner,
+      options,
+    );
+  }
+
   constructor(
     open: (signal: AbortSignal) => Promise<ReaderLike<T>>,
     owner: object,
