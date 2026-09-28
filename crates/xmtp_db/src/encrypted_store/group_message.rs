@@ -613,6 +613,9 @@ pub trait QueryGroupMessage {
         sequence_id: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
+    /// Mark a message published at the backend's `timestamp` and `cursor`. The
+    /// first publication stores `message_expire_at_ns`; a message already published
+    /// keeps the expiry it was first given.
     fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
@@ -1242,13 +1245,24 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             cursor
         );
         super::stream_storage::stream_transaction(self, |conn| {
-            let Some((group_id, previous_sent_at_ns)) = dsl::group_messages
-                .filter(dsl::id.eq(msg_id.as_ref()))
-                .select((dsl::group_id, dsl::sent_at_ns))
-                .first::<(GroupId, i64)>(conn)
-                .optional()?
+            let Some((group_id, previous_sent_at_ns, previous_status, previous_expire_at_ns)) =
+                dsl::group_messages
+                    .filter(dsl::id.eq(msg_id.as_ref()))
+                    .select((
+                        dsl::group_id,
+                        dsl::sent_at_ns,
+                        dsl::delivery_status,
+                        dsl::expire_at_ns,
+                    ))
+                    .first::<(GroupId, i64, DeliveryStatus, Option<i64>)>(conn)
+                    .optional()?
             else {
                 return Ok(0);
+            };
+            let expire_at_ns = if previous_status == DeliveryStatus::Published {
+                previous_expire_at_ns
+            } else {
+                message_expire_at_ns
             };
             let changed = diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
@@ -1256,7 +1270,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                     dsl::delivery_status.eq(DeliveryStatus::Published),
                     dsl::sent_at_ns.eq(timestamp as i64),
                     dsl::sequence_id.eq(cursor.0 as i64),
-                    dsl::expire_at_ns.eq(message_expire_at_ns),
+                    dsl::expire_at_ns.eq(expire_at_ns),
                 ))
                 .execute(conn)?;
             if changed > 0 {
