@@ -558,7 +558,7 @@ mod tests {
             .get_result::<TableName>(conn)
             .optional()?;
             assert!(old_view.is_none());
-            assert_eq!(conn.applied_migrations().unwrap().len(), 4);
+            assert_eq!(conn.applied_migrations().unwrap().len(), 5);
             Ok(schema)
         })?;
 

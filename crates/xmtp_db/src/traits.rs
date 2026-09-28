@@ -87,6 +87,7 @@ pub trait DbQuery:
     + QueryPreparedEnvelope
     + QueryLocalCommitLog
     + QueryRemoteCommitLog
+    + QueryRestoredGroupMetadata
     + QueryServerConfiguration
     + QueryAssociationStateCache
     + QueryReaddStatus
@@ -123,6 +124,7 @@ impl<T> DbQuery for T where
         + QueryPreparedEnvelope
         + QueryLocalCommitLog
         + QueryRemoteCommitLog
+        + QueryRestoredGroupMetadata
         + QueryServerConfiguration
         + QueryAssociationStateCache
         + QueryReaddStatus

@@ -864,7 +864,7 @@ where
                 "Group is not active".to_string(),
             ));
         }
-        let is_super_admin = mls_group.is_super_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = mls_group.live_is_super_admin(self.context.inbox_id())?;
         if !is_super_admin {
             return Err(CommitLogError::GroupReaddValidationError(
                 "No longer super admin of group".to_string(),

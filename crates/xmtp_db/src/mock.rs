@@ -732,6 +732,12 @@ mock! {
 
     }
 
+    impl QueryRestoredGroupMetadata for DbQuery {
+        fn restored_group_metadata(&self, group_id: &GroupId) -> Result<Option<crate::restored_group_metadata::StoredRestoredGroupMetadata>, StorageError>;
+        fn restored_group_history(&self, group_id: &GroupId) -> Result<Option<xmtp_proto::xmtp::device_sync::group_backup::GroupSave>, StorageError>;
+        fn delete_restored_group_metadata(&self, group_id: &GroupId) -> Result<bool, StorageError>;
+    }
+
     impl QueryServerConfiguration for DbQuery {
         fn server_configuration(&self) -> Result<Option<crate::server_configuration::StoredServerConfiguration>, StorageError>;
 

@@ -1,6 +1,6 @@
 use super::*;
 use openmls::group::MlsGroup;
-use xmtp_db::group::{GroupQueryArgs, StoredGroup};
+use xmtp_db::group::{GroupMembershipState, GroupQueryArgs, StoredGroup};
 use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_mls_common::{
     group_metadata::{GroupMetadata, extract_group_metadata},
@@ -36,73 +36,97 @@ impl BackupRecordProvider for GroupSave {
 
         let cursor = state.cursor.load(Ordering::SeqCst);
         let batch = state.db.find_groups_by_id_paged(args, cursor)?;
-        let storage = SqlKeyStore::new(&state.db);
-        let records = batch
-            .into_iter()
-            .filter_map(|record| {
-                if record.conversation_type.is_virtual() {
-                    return None;
-                }
-                let group_id = record.id;
-                let mls_group = match MlsGroup::load(&storage, &group_id.to_openmls()) {
-                    Ok(Some(mls_group)) => mls_group,
-                    Ok(None) => {
-                        tracing::warn!(
-                            group_id = %group_id,
-                            "skipping group in backup: no MLS group state found"
-                        );
-                        return None;
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            group_id = %group_id,
-                            error = %e,
-                            "skipping group in backup: failed to load MLS group state"
-                        );
-                        return None;
-                    }
-                };
-                let extensions = mls_group.extensions();
-
-                let immutable_metadata = extract_group_metadata(extensions)
-                    .inspect_err(|e| {
-                        tracing::warn!(
-                            group_id = %group_id,
-                            error = %e,
-                            "skipping group in backup: unreadable group metadata"
-                        );
-                    })
-                    .ok()?;
-                let mut mutable_metadata = GroupMutableMetadata::new(
-                    std::collections::HashMap::new(),
-                    Vec::new(),
-                    Vec::new(),
-                );
-                // Per-field degrade, never per-group: a malformed
-                // component loses that one field, not the whole group.
-                // Dropping the group would orphan its exported messages
-                // and make the restore foreign-key check fail.
-                for e in merge_dict_into_mutable_metadata_lossy(&mut mutable_metadata, extensions) {
-                    tracing::warn!(
-                        group_id = %group_id,
-                        error = %e,
-                        "skipping malformed metadata component in backup; \
-                         group still exported"
-                    );
-                }
-
-                Some(BackupElement {
-                    element: Some(Element::Group(GroupSave::new(
-                        record,
-                        immutable_metadata,
-                        mutable_metadata,
-                    ))),
-                })
-            })
-            .collect();
+        let mut records = Vec::with_capacity(batch.len());
+        for record in batch {
+            if record.conversation_type.is_virtual() {
+                continue;
+            }
+            // A Restored conversation re-exports its archived record, with the
+            // presence of its metadata message unchanged. Only the physical
+            // id, membership, and merged activity come from the current row.
+            // implements: ARCH-025
+            if record.membership_state == GroupMembershipState::Restored
+                && let Some(history) = state.db.restored_group_history(&record.id)?
+            {
+                let membership_state: GroupMembershipStateSave = record.membership_state.into();
+                records.push(BackupElement {
+                    element: Some(Element::Group(GroupSave {
+                        id: record.id.to_vec(),
+                        membership_state: membership_state as i32,
+                        last_message_ns: record.last_message_ns,
+                        ..history
+                    })),
+                });
+                continue;
+            }
+            if let Some(element) = live_group_element(record, &state.db) {
+                records.push(element);
+            }
+        }
 
         Ok(records)
     }
+}
+
+/// A group's validated live metadata, or `None` with a log when its MLS
+/// state is unreadable.
+fn live_group_element<D: DbQuery + 'static>(
+    record: StoredGroup,
+    db: &Arc<D>,
+) -> Option<BackupElement> {
+    let storage = SqlKeyStore::new(db);
+    let group_id = record.id;
+    let mls_group = match MlsGroup::load(&storage, &group_id.to_openmls()) {
+        Ok(Some(mls_group)) => mls_group,
+        Ok(None) => {
+            tracing::warn!(
+                group_id = %group_id,
+                "skipping group in backup: no MLS group state found"
+            );
+            return None;
+        }
+        Err(e) => {
+            tracing::warn!(
+                group_id = %group_id,
+                error = %e,
+                "skipping group in backup: failed to load MLS group state"
+            );
+            return None;
+        }
+    };
+    let extensions = mls_group.extensions();
+
+    let immutable_metadata = extract_group_metadata(extensions)
+        .inspect_err(|e| {
+            tracing::warn!(
+                group_id = %group_id,
+                error = %e,
+                "skipping group in backup: unreadable group metadata"
+            );
+        })
+        .ok()?;
+    let mut mutable_metadata =
+        GroupMutableMetadata::new(std::collections::HashMap::new(), Vec::new(), Vec::new());
+    // Per-field degrade, never per-group: a malformed
+    // component loses that one field, not the whole group.
+    // Dropping the group would orphan its exported messages
+    // and make the restore foreign-key check fail.
+    for e in merge_dict_into_mutable_metadata_lossy(&mut mutable_metadata, extensions) {
+        tracing::warn!(
+            group_id = %group_id,
+            error = %e,
+            "skipping malformed metadata component in backup; \
+             group still exported"
+        );
+    }
+
+    Some(BackupElement {
+        element: Some(Element::Group(GroupSave::new(
+            record,
+            immutable_metadata,
+            mutable_metadata,
+        ))),
+    })
 }
 
 trait GroupSaveExt {

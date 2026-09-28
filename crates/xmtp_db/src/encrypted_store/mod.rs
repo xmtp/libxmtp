@@ -35,6 +35,7 @@ pub mod processed_device_sync_messages;
 pub mod readd_status;
 pub mod refresh_state;
 pub mod remote_commit_log;
+pub mod restored_group_metadata;
 pub mod schema;
 mod schema_gen;
 pub mod server_configuration;
@@ -320,6 +321,7 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
                     "20260928000000",
                     "20260928010000",
                     "20260928020000",
+                    "20260928030000",
                 ];
                 let applied = conn.applied_migrations()
                     .map_err(diesel::result::Error::QueryBuilderError)?;
@@ -574,12 +576,12 @@ pub(crate) mod tests {
         use crate::migrations::QueryMigrations;
         use diesel::connection::SimpleConnection;
 
-        assert_eq!(MIGRATIONS.final_migration(), "20260928020000");
+        assert_eq!(MIGRATIONS.final_migration(), "20260928030000");
         let db_path = tmp_path();
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 4);
+            assert_eq!(conn.applied_migrations()?.len(), 5);
             while conn.applied_migrations()?.first().map(String::as_str) != Some("20260928000000") {
                 conn.raw_query(|db| {
                     db.revert_last_migration(MIGRATIONS)
@@ -596,7 +598,7 @@ pub(crate) mod tests {
             // A database at the previous self-hosted version must upgrade.
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 4);
+            assert_eq!(conn.applied_migrations()?.len(), 5);
             while conn.applied_migrations()?.first().map(String::as_str) != Some("20260908000000") {
                 conn.raw_query(|db| {
                     db.revert_last_migration(MIGRATIONS)
@@ -616,7 +618,7 @@ pub(crate) mod tests {
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 4);
+            assert_eq!(conn.applied_migrations()?.len(), 5);
             #[derive(diesel::QueryableByName)]
             struct Count {
                 #[diesel(sql_type = diesel::sql_types::BigInt)]

@@ -498,7 +498,7 @@ id = "ARCH-020"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Import rebuilds only selected metadata and loses the archived creator, adder, timestamps, attributes, and admin information."
+reason = "Core stores the archived record and exposes it while Restored. The SDK bulk list path and the optional creator and adder host projections do not read it yet."
 
 [[waiver]]
 id = "CTYPE-001"

@@ -254,6 +254,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    restored_group_metadata (group_id) {
+        group_id -> Binary,
+        group_save -> Binary,
+    }
+}
+
+diesel::table! {
     server_configuration (id) {
         id -> Integer,
         identifier -> Text,
@@ -308,6 +315,7 @@ diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 diesel::joinable!(group_welcome_discovery -> groups (group_id));
 diesel::joinable!(message_deletions -> group_messages (id));
+diesel::joinable!(restored_group_metadata -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
@@ -332,6 +340,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     readd_status,
     refresh_state,
     remote_commit_log,
+    restored_group_metadata,
     server_configuration,
     tasks,
     user_preferences,
