@@ -220,8 +220,9 @@ fn add_of_current_member_is_rejected() {
 }
 
 /// A smart contract wallet signature names its chain in a CAIP-10 account id.
-/// One outside the `eip155` namespace, or whose reference is not a chain id
-/// in canonical decimal form, can never be verified, so it is rejected
+/// One outside the `eip155` namespace, whose reference is not a chain id in
+/// canonical decimal form, or whose address is not `0x` and 40 hexadecimal
+/// characters, can never be verified, so it is rejected
 /// permanently and before any chain call; routing it would instead fail as
 /// a retryable missing route and keep it pending for ever.
 // verifies: IDENT-060
@@ -229,7 +230,7 @@ fn add_of_current_member_is_rejected() {
 async fn non_eip155_account_id_is_rejected_without_chain_call() {
     let verifier = CountingVerifier::default();
     let account = rand_hexstring();
-    let update = |chain_id: &str| {
+    let update = |chain_id: &str, address: &str| {
         let identifier = Identifier::eth(&account).unwrap();
         UnverifiedIdentityUpdate::new_test(
             vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
@@ -239,7 +240,7 @@ async fn non_eip155_account_id_is_rejected_without_chain_call() {
                 },
                 initial_identifier_signature: UnverifiedSignature::new_smart_contract_wallet(
                     rand_vec::<65>(),
-                    AccountId::new(chain_id.to_string(), account.clone()),
+                    AccountId::new(chain_id.to_string(), address.to_string()),
                     1,
                 ),
             })],
@@ -247,7 +248,7 @@ async fn non_eip155_account_id_is_rejected_without_chain_call() {
         )
     };
 
-    for chain_id in [
+    for (chain_id, address) in [
         "cosmos:cosmoshub-4",
         "eip155",
         "eip155:",
@@ -256,16 +257,28 @@ async fn non_eip155_account_id_is_rejected_without_chain_call() {
         "eip155:0x1",
         "eip155:18446744073709551616",
         "EIP155:1",
-    ] {
-        let err = update(chain_id)
+    ]
+    .map(|chain_id| (chain_id, account.clone()))
+    .into_iter()
+    .chain(
+        [
+            "bad".to_string(),
+            account.trim_start_matches("0x").to_string(),
+            format!("{account}0"),
+            format!("0x{}g", &account[3..]),
+            String::new(),
+        ]
+        .map(|address| ("eip155:1", address)),
+    ) {
+        let err = update(chain_id, &address)
             .to_verified(&verifier)
             .await
-            .expect_err(chain_id);
-        assert!(!err.is_retryable(), "{chain_id}: {err}");
+            .expect_err(&address);
+        assert!(!err.is_retryable(), "{chain_id} {address}: {err}");
     }
     assert_eq!(verifier.0.load(Ordering::SeqCst), 0);
 
-    update("eip155:1").to_verified(&verifier).await?;
+    update("eip155:1", &account).to_verified(&verifier).await?;
     assert_eq!(verifier.0.load(Ordering::SeqCst), 1);
 }
 

@@ -3,9 +3,7 @@ use std::collections::HashSet;
 use tonic::Status;
 use xmtp_id::associations::{Identifier, MemberIdentifier};
 use xmtp_mls_validation::AssociationValidation;
-use xmtp_proto::xmtp::identity::associations::{
-    IdentifierKind, IdentityUpdate, identity_action, signature,
-};
+use xmtp_proto::xmtp::identity::associations::IdentifierKind;
 
 /// Parse and normalize one lookup key.
 ///
@@ -88,35 +86,6 @@ pub(crate) fn projection(validation: &AssociationValidation) -> Projection {
             .filter(|key| !active.contains(key) && prior.contains(key))
             .collect(),
     }
-}
-
-/// Count ERC-6492 signatures in an identity update.
-///
-/// The count covers every signature-bearing action and is used for the request
-/// limit before chain verification begins.
-pub(crate) fn scw_count(update: &IdentityUpdate) -> usize {
-    update
-        .actions
-        .iter()
-        .flat_map(|action| match &action.kind {
-            Some(identity_action::Kind::CreateInbox(value)) => {
-                [value.initial_identifier_signature.as_ref(), None]
-            }
-            Some(identity_action::Kind::Add(value)) => [
-                value.existing_member_signature.as_ref(),
-                value.new_member_signature.as_ref(),
-            ],
-            Some(identity_action::Kind::Revoke(value)) => {
-                [value.recovery_identifier_signature.as_ref(), None]
-            }
-            Some(identity_action::Kind::ChangeRecoveryAddress(value)) => {
-                [value.existing_recovery_identifier_signature.as_ref(), None]
-            }
-            None => [None, None],
-        })
-        .flatten()
-        .filter(|value| matches!(value.signature, Some(signature::Signature::Erc6492(_))))
-        .count()
 }
 
 /// Add backend telemetry at the verifier boundary, including identity validation.

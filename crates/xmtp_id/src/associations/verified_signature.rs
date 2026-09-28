@@ -165,7 +165,7 @@ impl VerifiedSignature {
         block_number: &mut Option<u64>,
     ) -> Result<Self, SignatureError> {
         // implements: IDENT-060
-        let chain_id = account_id.get_chain_id_u64()?;
+        let chain_id = account_id.eip155_chain_id()?;
         let response = signature_verifier
             .is_valid_signature(
                 account_id.clone(),

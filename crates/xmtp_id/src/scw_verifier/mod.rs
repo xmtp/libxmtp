@@ -57,6 +57,11 @@ pub enum VerifierError {
     /// Verifier not configured for the given chain ID. Retryable.
     #[error("verifier not present for chain ID {0}")]
     NoVerifier(String),
+    /// Missing block.
+    ///
+    /// The chain did not return a block at or below its reported head. Retryable.
+    #[error("chain did not return block {0}")]
+    MissingBlock(BlockNumber),
     /// Invalid hash.
     ///
     /// Hash has invalid length or format. Not retryable.
@@ -75,6 +80,7 @@ impl RetryableError for VerifierError {
         match self {
             Io(_) => true,
             NoVerifier(_) => true,
+            MissingBlock(_) => true,
             Provider(_) => true,
             Other(o) => o.is_retryable(),
             _ => false,
@@ -154,6 +160,26 @@ where
     }
 }
 
+/// A block's number and timestamp, in seconds, as a chain reports them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockStamp {
+    pub number: BlockNumber,
+    pub timestamp: u64,
+}
+
+/// Read access to chain blocks, keyed by `eip155:<chain>` identifier.
+///
+/// Admission uses it to judge how fresh a signature's stated block is. An
+/// unrouted chain or failed call is a retryable [`VerifierError`], never a
+/// verdict on the signature.
+#[xmtp_common::async_trait]
+pub trait ChainBlocks: MaybeSend + MaybeSync {
+    /// The chain's head block.
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError>;
+    /// The timestamp of block `number`, which the caller has seen at or below the head.
+    async fn timestamp(&self, chain_id: &str, number: BlockNumber) -> Result<u64, VerifierError>;
+}
+
 #[derive(Clone)]
 /// Result of one smart-contract-wallet signature check.
 ///
@@ -174,7 +200,7 @@ pub struct ValidationResponse {
 /// retryable configuration/provider error so callers can distinguish it from a
 /// bad signature.
 pub struct MultiSmartContractSignatureVerifier {
-    verifiers: HashMap<String, Box<dyn SmartContractSignatureVerifier>>,
+    verifiers: HashMap<String, RpcSmartContractWalletVerifier>,
 }
 
 impl std::fmt::Debug for MultiSmartContractSignatureVerifier {
@@ -196,7 +222,7 @@ impl MultiSmartContractSignatureVerifier {
             .map(|(chain_id, url)| {
                 Ok::<_, VerifierError>((
                     chain_id,
-                    Box::new(RpcSmartContractWalletVerifier::new(url.to_string())?) as Box<_>,
+                    RpcSmartContractWalletVerifier::new(url.to_string())?,
                 ))
             })
             .collect::<Result<HashMap<_, _>, _>>()?;
@@ -213,7 +239,7 @@ impl MultiSmartContractSignatureVerifier {
             .map(|(chain_id, provider)| {
                 (
                     chain_id,
-                    Box::new(RpcSmartContractWalletVerifier::new_from_provider(provider)) as Box<_>,
+                    RpcSmartContractWalletVerifier::new_from_provider(provider),
                 )
             })
             .collect();
@@ -246,7 +272,7 @@ impl MultiSmartContractSignatureVerifier {
             // TODO: coda - update the chain id env var ids to preceded with "EIP155_"
             let eip_id = id.split(":").nth(1).ok_or(VerifierError::MalformedEipUrl)?;
             if let Ok(url) = std::env::var(format!("CHAIN_RPC_{eip_id}")) {
-                *verifier = Box::new(RpcSmartContractWalletVerifier::new(url)?);
+                *verifier = RpcSmartContractWalletVerifier::new(url)?;
             } else {
                 info!("No upgraded chain url for chain {id}, using default.");
             };
@@ -264,10 +290,17 @@ impl MultiSmartContractSignatureVerifier {
         Ok(self)
     }
 
+    /// The verifier routed for `chain_id`, or a retryable error when none is.
+    fn route(&self, chain_id: &str) -> Result<&RpcSmartContractWalletVerifier, VerifierError> {
+        self.verifiers
+            .get(chain_id)
+            .ok_or_else(|| VerifierError::NoVerifier(chain_id.to_string()))
+    }
+
     /// Add or replace one chain verifier backed by an RPC URL.
     pub fn add_verifier(&mut self, id: String, url: String) -> Result<(), VerifierError> {
         self.verifiers
-            .insert(id, Box::new(RpcSmartContractWalletVerifier::new(url)?));
+            .insert(id, RpcSmartContractWalletVerifier::new(url)?);
         Ok(())
     }
 
@@ -275,7 +308,7 @@ impl MultiSmartContractSignatureVerifier {
     pub fn add_anvil(&mut self, url: String) -> Result<(), VerifierError> {
         self.verifiers.insert(
             "eip155:31337".to_string(),
-            Box::new(RpcSmartContractWalletVerifier::new(url)?),
+            RpcSmartContractWalletVerifier::new(url)?,
         );
         Ok(())
     }
@@ -290,12 +323,19 @@ impl SmartContractSignatureVerifier for MultiSmartContractSignatureVerifier {
         signature: Bytes,
         block_number: Option<BlockNumber>,
     ) -> Result<ValidationResponse, VerifierError> {
-        if let Some(verifier) = self.verifiers.get(&account_id.chain_id) {
-            return verifier
-                .is_valid_signature(account_id, hash, signature, block_number)
-                .await;
-        }
+        self.route(&account_id.chain_id)?
+            .is_valid_signature(account_id, hash, signature, block_number)
+            .await
+    }
+}
 
-        Err(VerifierError::NoVerifier(account_id.chain_id))
+#[xmtp_common::async_trait]
+impl ChainBlocks for MultiSmartContractSignatureVerifier {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.route(chain_id)?.head(chain_id).await
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: BlockNumber) -> Result<u64, VerifierError> {
+        self.route(chain_id)?.timestamp(chain_id, number).await
     }
 }
