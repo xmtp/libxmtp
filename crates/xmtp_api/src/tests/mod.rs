@@ -214,7 +214,8 @@ async fn publish_out_of_range_surfaces_without_splitting() {
 
 /// Settlement reads each envelope's topic and matches by hash: a returned
 /// envelope settles with its stored metadata, and one the read does not
-/// return is unstored. Unrelated records on the topic are skipped.
+/// return is unstored. Unrelated records on the topic are skipped, and
+/// identical envelopes all settle from their one stored copy.
 // verifies: SEND-007
 #[xmtp_common::test(unwrap_try = true)]
 async fn settle_units_matches_stored_envelopes_by_hash() {
@@ -251,9 +252,13 @@ async fn settle_units_matches_stored_envelopes_by_hash() {
         .settle_units(&[
             PublishUnit::single(stored.clone())?,
             PublishUnit::single(unstored)?,
+            PublishUnit::single(stored.clone())?,
         ])
         .await?;
-    assert_eq!(settled, vec![Some(meta(&stored, 2)), None]);
+    assert_eq!(
+        settled,
+        vec![Some(meta(&stored, 2)), None, Some(meta(&stored, 2))]
+    );
 }
 
 /// A record without a valid message hash could be any envelope, so the read

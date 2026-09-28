@@ -480,11 +480,13 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         units: &[PublishUnit],
     ) -> Result<Vec<Option<wire::EnvelopeMeta>>> {
         let envelopes: Vec<_> = units.iter().flat_map(|unit| &unit.envelopes).collect();
-        let mut pending: HashMap<_, _> = envelopes
-            .iter()
-            .enumerate()
-            .map(|(index, envelope)| (envelope.canonical.hash.to_vec(), index))
-            .collect();
+        let mut pending: HashMap<_, Vec<_>> = HashMap::new();
+        for (index, envelope) in envelopes.iter().enumerate() {
+            pending
+                .entry(envelope.canonical.hash.to_vec())
+                .or_default()
+                .push(index);
+        }
         let mut settled = vec![None; envelopes.len()];
         let topics: HashSet<_> = envelopes.iter().map(|envelope| &envelope.topic).collect();
         let topics: Vec<_> = topics
@@ -500,13 +502,16 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                     let Ok(hash) = xmtp_api_backend::envelope::message_hash(&meta) else {
                         return true;
                     };
-                    let Some(index) = pending.remove(&hash) else {
+                    let Some(indices) = pending.remove(&hash) else {
                         return false;
                     };
-                    let topic = &envelopes[index].topic;
+                    // Identical envelopes share one hash and one stored copy.
+                    let topic = &envelopes[indices[0]].topic;
                     let valid = xmtp_api_backend::envelope::metadata(&meta, topic.kind())
                         .is_ok_and(|(stored_topic, _, _)| stored_topic == *topic);
-                    settled[index] = Some(meta);
+                    for index in indices {
+                        settled[index] = Some(meta.clone());
+                    }
                     !valid
                 });
                 invalid || pending.is_empty()
