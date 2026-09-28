@@ -32,7 +32,6 @@ DROP INDEX IF EXISTS "group_intents_group_id_state";
 DROP TABLE IF EXISTS "group_intents";
 DROP INDEX IF EXISTS "groups_membership_state_created_at_idx";
 DROP INDEX IF EXISTS "groups_created_at_idx";
-DROP TABLE IF EXISTS "received_proposals";
 DROP TABLE IF EXISTS "group_welcome_discovery";
 DROP TABLE IF EXISTS "groups";
 DROP TABLE IF EXISTS "identity";
