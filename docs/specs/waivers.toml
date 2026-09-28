@@ -819,4 +819,3 @@ id = "EVENT-055"
 kind = "untested"
 owner = "protocol"
 reason = "ClientBuilder registers each client public event writer with its backend AuthHandle, and AuthInner::emit_lockout emits to every registered writer; no test drives two sharing clients."
-
