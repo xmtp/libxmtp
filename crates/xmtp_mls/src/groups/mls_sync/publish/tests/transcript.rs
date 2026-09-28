@@ -771,3 +771,137 @@ async fn reserved_unsent_saved_attempt_has_unknown_outcome_after_restart() {
         Err(GroupError::SendOutcomeUnknown { intent_id }) if intent_id == intent.id
     ));
 }
+
+// verifies: GMOD-035, SEND-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn bulk_publish_reports_older_reserved_unknown_after_later_message_completes() {
+    use xmtp_proto::api::HasStats;
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    group.update_installations().await?;
+    let content = transcript_content("group_updated", 7, "xmtp.org");
+    let (reserved_id, reserved_intent, _) =
+        legacy_saved_attempt(&group, &content, "bulk-reserved").await?;
+    let saved = group
+        .context
+        .db()
+        .prepared_envelopes(reserved_intent.id)?
+        .unwrap();
+    let allowed_id = group.send_message_optimistic(b"later allowed", Default::default())?;
+    let before = alix
+        .context
+        .api()
+        .api_client
+        .as_ref()
+        .mls_stats()
+        .publish
+        .get_count();
+
+    let result = group.publish_messages().await;
+    assert!(
+        matches!(result, Err(GroupError::SendOutcomeUnknown { intent_id }) if intent_id == reserved_intent.id),
+        "{result:?}"
+    );
+    assert_eq!(
+        alix.context
+            .api()
+            .api_client
+            .as_ref()
+            .mls_stats()
+            .publish
+            .get_count(),
+        before + 1,
+        "only the later allowed message may publish"
+    );
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&allowed_id)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Published
+    );
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&reserved_id)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Unpublished
+    );
+    assert_eq!(
+        Fetch::<StoredGroupIntent>::fetch(&group.context.db(), &reserved_intent.id)?
+            .unwrap()
+            .state,
+        IntentState::Published
+    );
+    assert_eq!(
+        group
+            .context
+            .db()
+            .prepared_envelopes(reserved_intent.id)?
+            .unwrap(),
+        saved
+    );
+    assert!(matches!(
+        group.sync_until_intent_resolved(reserved_intent.id).await,
+        Err(GroupError::SendOutcomeUnknown { intent_id }) if intent_id == reserved_intent.id
+    ));
+}
+
+// verifies: GMOD-035
+#[xmtp_common::test(unwrap_try = true)]
+async fn bulk_publish_ignores_historical_local_rejection() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    group.update_installations().await?;
+    let content = transcript_content("group_membership_change", 1, "xmtp.org");
+    let rejected_id = legacy_stored_message(&group, &content, "old-bulk-error")?;
+    let rejected = legacy_message_intent(&group, &content, "old-bulk-error")?;
+    let first_allowed = group.send_message_optimistic(b"first allowed", Default::default())?;
+    assert!(matches!(
+        group.publish_messages().await,
+        Err(GroupError::ReservedTranscriptContentType)
+    ));
+    assert_eq!(
+        group
+            .context
+            .db()
+            .local_intent_rejection_reason(rejected.id)?,
+        Some(xmtp_db::group_intent::LocalIntentRejectionReason::ReservedTranscriptContentType)
+    );
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&rejected_id)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Failed
+    );
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&first_allowed)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Published
+    );
+    let allowed_id = group.send_message_optimistic(b"new allowed", Default::default())?;
+    group.publish_messages().await?;
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&allowed_id)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Published
+    );
+}

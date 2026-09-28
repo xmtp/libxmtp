@@ -83,15 +83,15 @@ where
         Ok(())
     }
 
-    /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
-    /// which publishes all pending intents and reads them back from the network.
+    /// Publish all unpublished messages and report unresolved reserved attempts
+    /// selected by this call after later messages complete.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = self.context.inbox_id()), skip(self)))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
-        self.sync_until_last_intent_resolved().await?;
+        self.sync_until_bulk_messages_resolved().await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;

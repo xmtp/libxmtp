@@ -299,13 +299,58 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         self.prepare_publish_attempt_with_policy(requirements, dependencies, false)
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     fn prepare_reserved_attempt_fixture(
         &self,
         requirements: &PublishRequirements,
         dependencies: &mut PublishDependencies,
     ) -> Result<Option<PreparedAttempt>, GroupError> {
         self.prepare_publish_attempt_with_policy(requirements, dependencies, true)
+    }
+
+    /// Build a prior-client saved attempt with real MLS bytes for SDK tests.
+    #[cfg(feature = "test-utils")]
+    pub async fn prepare_reserved_attempt_for_test(
+        &self,
+        content: &[u8],
+        key: &str,
+    ) -> Result<(Vec<u8>, i32), GroupError> {
+        use xmtp_db::Store;
+
+        if !Self::is_reserved_transcript_content(content) {
+            return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+        }
+        let template_id = self.prepare_message_for_later_publish(
+            b"legacy fixture template",
+            false,
+            Some(format!("template-{key}")),
+        )?;
+        let db = self.context.db();
+        let mut message = db
+            .get_group_message(&template_id)?
+            .ok_or(GroupError::UninitializedResult)?;
+        message.id = calculate_message_id(self.group_id, content, key);
+        message.decrypted_message_bytes = content.to_vec();
+        message.idempotency_key = key.into();
+        message.store(&db)?;
+        let envelope = PlaintextEnvelope {
+            content: Some(Content::V1(V1 {
+                content: content.to_vec(),
+                idempotency_key: key.into(),
+            })),
+        };
+        let data: Vec<u8> = SendMessageIntentData::new(envelope.encode_to_vec()).into();
+        let intent = QueueIntent::send_message().data(data).queue(self)?;
+        let requirements = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            tx.with_group(self.group_id, |group, _| {
+                PublishRequirements::capture(group, &intent).map(Continue)
+            })
+        })?
+        .into_continued();
+        let mut dependencies = self.resolve_publish_dependencies(&requirements).await?;
+        self.prepare_reserved_attempt_fixture(&requirements, &mut dependencies)?
+            .ok_or(GroupError::UninitializedResult)?;
+        Ok((message.id, intent.id))
     }
 
     fn prepare_publish_attempt_with_policy(

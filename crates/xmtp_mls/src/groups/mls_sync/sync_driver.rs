@@ -179,10 +179,20 @@ where
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = %self.context.inbox_id()), skip_all))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub(crate) async fn sync_until_last_intent_resolved(&self) -> Result<SyncSummary, GroupError> {
+        let intents = self.active_intents_for_wait()?;
+
+        let Some(intent) = intents.last() else {
+            return Ok(Default::default());
+        };
+
+        self.sync_until_intent_resolved(intent.id).await
+    }
+
+    fn active_intents_for_wait(&self) -> Result<Vec<StoredGroupIntent>, GroupError> {
         // Filter to kinds this build understands: after a downgrade,
         // rows written by a newer build would otherwise fail `FromSql`
         // and poison the whole query (see `IntentKind::all`).
-        let intents = self.context.db().find_group_intents(
+        Ok(self.context.db().find_group_intents(
             self.group_id,
             Some(vec![
                 IntentState::ToPublish,
@@ -190,13 +200,55 @@ where
                 IntentState::Committed,
             ]),
             Some(IntentKind::all().collect()),
-        )?;
+        )?)
+    }
 
+    /// A bulk call checks the reserved work it selected, even if a later send completes.
+    pub(in crate::groups) async fn sync_until_bulk_messages_resolved(
+        &self,
+    ) -> Result<SyncSummary, GroupError> {
+        let intents = self.active_intents_for_wait()?;
+        let mut reserved = Vec::new();
+        for intent in &intents {
+            if Self::reserved_transcript_intent(intent)? {
+                reserved.push(intent.id);
+            }
+        }
         let Some(intent) = intents.last() else {
             return Ok(Default::default());
         };
+        let summary = self.sync_until_intent_resolved(intent.id).await?;
 
-        self.sync_until_intent_resolved(intent.id).await
+        for id in reserved {
+            if self.exact_local_rejection(id)? {
+                return Err(GroupError::ReservedTranscriptContentType);
+            }
+            let current = Fetch::<StoredGroupIntent>::fetch(&self.context.db(), &id)?
+                .ok_or(NotFound::IntentById(id))?;
+            if current.group_id != self.group_id {
+                return Err(OutgoingPreparationError::StateChanged.into());
+            }
+            if current.state == IntentState::Published {
+                if self.reserved_attempt_without_receipt(id)? {
+                    return Err(GroupError::SendOutcomeUnknown { intent_id: id });
+                }
+                if self.published_intent_target(id)?.is_some()
+                    && Fetch::<StoredGroupIntent>::fetch(&self.context.db(), &id)?
+                        .is_some_and(|intent| intent.state == IntentState::Published)
+                {
+                    return Err(GroupError::PublishedButUnconfirmed {
+                        intent_id: id,
+                        cause: None,
+                    });
+                }
+            } else if matches!(
+                current.state,
+                IntentState::ToPublish | IntentState::Committed
+            ) {
+                return Err(GroupError::SyncFailedToWait(Box::new(summary)));
+            }
+        }
+        Ok(summary)
     }
 
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(err, level = "info", fields(inbox_id = %self.context.inbox_id(), operation = "intent"), skip(self)))]
