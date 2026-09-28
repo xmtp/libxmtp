@@ -639,6 +639,163 @@ mod native {
         assert_eq!(third.inbox_id(), first_inbox);
     }
 
+    // verifies: ATCH-040, CONF-030
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn recorded_data_dir_rejects_mismatched_config_provider() {
+        use crate::utils::test::backend::EphemeralBackend;
+
+        let dir = tempfile::tempdir()?;
+        let backend = EphemeralBackend::start("").await?;
+        let owner = generate_local_wallet();
+        let location = StorageLocation::DataDir(dir.path().to_path_buf());
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(backend.url());
+        let first = Client::builder(identity_setup(&owner))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .data_location(location.clone(), [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let original = first.server_configuration().identifier.clone();
+        let opened_path = location
+            .resolve_identifier(first.inbox_id(), &original)?
+            .db_path;
+        let db = first.context.store.db();
+        let row = db.server_configuration()?.unwrap();
+        drop(first);
+
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(backend.url());
+        let result = Client::builder(identity_setup(&owner))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::edited(|config| {
+                    config.identifier = "other-deployment".into();
+                }),
+            ))
+            .data_location(location.clone(), [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::DeploymentMismatch
+            ))
+        ));
+        assert!(opened_path.is_file());
+        assert_eq!(
+            location.recorder(backend.url()).unwrap().lookup().await?,
+            Some(original.clone())
+        );
+
+        db.store_server_configuration(
+            "other-deployment",
+            &row.backend_url,
+            &row.response,
+            xmtp_common::time::now_ns(),
+        )?;
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(backend.url());
+        let result = Client::builder(identity_setup(&owner))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::edited(|config| {
+                    config.identifier = original.clone();
+                }),
+            ))
+            .data_location(location, [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::DeploymentMismatch
+            ))
+        ));
+    }
+
+    // verifies: ATCH-040, CONF-030
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn first_fetch_data_dir_rejects_mismatched_config_provider_before_identity() {
+        use crate::utils::test::backend::EphemeralBackend;
+
+        let dir = tempfile::tempdir()?;
+        let backend = EphemeralBackend::start("").await?;
+        let owner = generate_local_wallet();
+        let inbox = identity_setup(&owner).inbox_id().unwrap().to_owned();
+        let location = StorageLocation::DataDir(dir.path().to_path_buf());
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(backend.url());
+        let result = Client::builder(identity_setup(&owner))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::edited(|config| {
+                    config.identifier = "other-deployment".into();
+                }),
+            ))
+            .data_location(location.clone(), [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await;
+        assert!(matches!(
+            result,
+            Err(crate::builder::ClientBuilderError::StorageLocation(
+                StorageLocationError::DeploymentMismatch
+            ))
+        ));
+
+        let fetched = location
+            .recorder(backend.url())
+            .unwrap()
+            .lookup()
+            .await?
+            .unwrap();
+        assert_ne!(fetched, "other-deployment");
+        let paths = location.resolve_identifier(&inbox, &fetched)?;
+        let mut api = xmtp_api_backend::MockBackendClient::new();
+        api.expect_get_configuration().times(0);
+        let cached = Client::builder(crate::identity::IdentityStrategy::CachedOnly)
+            .api_client(api)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .config_provider(std::sync::Arc::new(
+                xmtp_configuration::StaticConfigProvider::edited(|config| {
+                    config.identifier = fetched.clone();
+                }),
+            ))
+            .data_location(
+                StorageLocation::Explicit {
+                    db_path: paths.db_path,
+                    attachments_dir: paths.attachments_dir,
+                },
+                [0u8; 32].into(),
+            )
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await;
+        assert!(matches!(
+            cached,
+            Err(crate::builder::ClientBuilderError::Identity(
+                crate::identity::IdentityError::RequiredIdentityNotFound
+            ))
+        ));
+    }
+
     // verifies: ATCH-040, ATCH-069
     #[xmtp_common::test(unwrap_try = true)]
     async fn bound_recorder_keeps_the_opened_deployment() {

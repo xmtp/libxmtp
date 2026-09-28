@@ -608,8 +608,7 @@ mod tests {
             foreign_store
                 .remove_dir_all(&foreign)
                 .await
-                .err()
-                .expect("foreign-owned directory must fail")
+                .expect_err("foreign-owned directory must fail")
                 .cause,
             Cause::LocalStorage
         );

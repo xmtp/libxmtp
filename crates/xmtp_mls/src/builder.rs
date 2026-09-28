@@ -411,6 +411,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             })?;
 
         let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
+        let mut data_dir_opened_identifier = None;
         if let Some((location, key)) = data_location {
             use crate::storage_location::StorageLocationError;
             let inbox_id = match location {
@@ -476,6 +477,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             }
             store = Some(opened);
             attachments_dir = Some(paths.attachments_dir);
+            if matches!(
+                location,
+                crate::storage_location::StorageLocation::DataDir(_)
+            ) {
+                data_dir_opened_identifier = opened_identifier.clone();
+            }
             deployment_recorder = recorder.map(|recorder| match opened_identifier {
                 Some(identifier) => recorder.for_opened_identifier(identifier),
                 None => recorder,
@@ -503,6 +510,20 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             Some(provider) => ServerConfigurationHandle::new(provider),
             None => crate::server_configuration::resolve(&api_client, &conn, allow_offline).await?,
         };
+
+        if has_config_provider && let Some(opened_identifier) = data_dir_opened_identifier {
+            let provider_identifier = &server_configuration.configuration().identifier;
+            let stored_identifier = conn.server_configuration()?.map(|row| row.identifier);
+            if provider_identifier != &opened_identifier
+                || stored_identifier.as_deref().is_some_and(|identifier| {
+                    !identifier.is_empty() && identifier != provider_identifier
+                })
+            {
+                return Err(
+                    crate::storage_location::StorageLocationError::DeploymentMismatch.into(),
+                );
+            }
+        }
 
         let server_configuration = server_configuration.with_chain_restriction(custom_scw_verifier);
         if let Some(recorder) = deployment_recorder {
@@ -994,9 +1015,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
     /// Supply the server configuration instead of reading it.
     ///
-    /// With a provider in place the client never fetches, stores, refreshes, or
-    /// checks the deployment identifier. Rust callers only — the bindings do
-    /// not expose this.
+    /// With a provider in place the client does not fetch, store, or refresh
+    /// the configuration. A data directory still checks its deployment identifier.
+    /// Rust callers only; the bindings do not expose this.
     pub fn config_provider(
         mut self,
         provider: Arc<dyn xmtp_configuration::ConfigProvider>,
