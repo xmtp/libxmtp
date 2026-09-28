@@ -5,7 +5,10 @@ Run commands from the repository root in the Nix shell. Run
 
 - `just sdk generate` builds the SDK libraries and writes Swift, Kotlin, Node,
   worker WASM, and pure browser WASM bindings to `target/sdk-generated/`.
-- `just sdk lint` checks generated names and TypeScript source. It also
+- `just sdk check-file-sizes` checks the 1,000-line limit for every SDK source
+  file, including conformance files. Generated and ignored build files are excluded.
+  Keep most new files below 500 lines.
+- `just sdk lint` checks file sizes, generated names, and TypeScript source. It also
   rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
   benchmark exports in the default bindings and in
   `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks in test source sets.
@@ -33,3 +36,6 @@ Run commands from the repository root in the Nix shell. Run
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 `xmtp_sdk` to this crate root so Swift and Kotlin load `uniffi.toml`.
+
+Content and conversation exports use named `include!` files to keep UniFFI
+module paths stable. Use ordinary modules for helpers without exported metadata.
