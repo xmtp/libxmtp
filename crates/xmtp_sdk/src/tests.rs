@@ -496,7 +496,7 @@ async fn discard_disconnects_store_when_close_fails() {
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     // The reader holds the delivery lease that close must release.
-    let _reader = group.message_reader().await?;
+    let _reader = group.message_reader(None).await?;
     client.inner.context.db().raw_query(|conn| {
         sql_query(
             "CREATE TRIGGER fail_delivery_release BEFORE UPDATE OF delivery_owner \
@@ -529,7 +529,7 @@ async fn discard_reports_store_left_open_when_disconnect_fails() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     // The reader holds the delivery lease that close must release.
-    let _reader = group.message_reader().await?;
+    let _reader = group.message_reader(None).await?;
     client.inner.context.db().raw_query(|conn| {
         sql_query(
             "CREATE TRIGGER fail_delivery_release BEFORE UPDATE OF delivery_owner \
@@ -2092,7 +2092,7 @@ async fn slice_create_send_read_stream_end() {
         matches!(sent.0.content, MessageContent::Text(ref text) if text == "hello from the slice")
     );
 
-    let reader = bo_group.message_reader().await?;
+    let reader = bo_group.message_reader(None).await?;
     let received = xmtp_common::time::timeout(std::time::Duration::from_secs(30), async {
         loop {
             if let Some(message) = reader.next().await?
@@ -2122,7 +2122,7 @@ async fn cancel_idle_read_settles() {
         .await?,
     );
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let idle = reader.idle_read_for_test();
     let pending_reader = reader.clone();
     let pending = tokio::spawn(async move { pending_reader.next().await });
@@ -2144,7 +2144,7 @@ async fn cancel_idle_read_settles() {
 async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let idle = reader.idle_read_for_test();
     let pending_reader = reader.clone();
     let pending = tokio::spawn(async move { pending_reader.next().await });
@@ -2159,7 +2159,7 @@ async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
     assert_eq!(delivered.0.id, message_id);
     reader.end().await?;
 
-    let replay = group.message_reader().await?;
+    let replay = group.message_reader(None).await?;
     let repeated = xmtp_common::time::timeout(Duration::from_secs(5), replay.next())
         .await??
         .expect("message was not acknowledged");
@@ -2315,7 +2315,7 @@ async fn all_scope_message_reader_skips_synced_denied_message() {
     let allowed_id = allowed.send_text("allowed".into(), None).await?;
     bo_allowed.sync().await?;
 
-    let reader = bo_allowed.message_reader().await?;
+    let reader = bo_allowed.message_reader(None).await?;
     reader.update_all_scope_for_test();
     let selected = xmtp_common::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -2339,7 +2339,7 @@ async fn stream_ack_only_on_next_request() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let first_id = group.send_text("first".into(), None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     assert_eq!(
         xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
             .await??
@@ -2350,7 +2350,7 @@ async fn stream_ack_only_on_next_request() {
     );
     reader.end().await?;
 
-    let replay = group.message_reader().await?;
+    let replay = group.message_reader(None).await?;
     assert_eq!(
         xmtp_common::time::timeout(Duration::from_secs(5), replay.next())
             .await??
@@ -2370,7 +2370,7 @@ async fn stream_ack_only_on_next_request() {
     );
     replay.end().await?;
 
-    let remaining = group.message_reader().await?;
+    let remaining = group.message_reader(None).await?;
     assert_eq!(
         xmtp_common::time::timeout(Duration::from_secs(5), remaining.next())
             .await??
@@ -2412,7 +2412,7 @@ async fn streamed_reply_has_the_same_context_as_message_by_id() {
         .reply_to_message(reply_id.clone(), crate::encode_text("child".into())?, None)
         .await?;
 
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     assert_eq!(
         reader.next().await?.expect("parent handoff").0.id,
         parent_id
@@ -2453,14 +2453,14 @@ async fn streamed_reply_has_the_same_context_as_message_by_id() {
 async fn late_reader_released() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let control = reader.control_for_test();
     drop(reader);
     assert_eq!(
         crate::ConnectionState::from(control.catch_up_snapshot().connection),
         crate::ConnectionState::Closed
     );
-    let replacement = group.message_reader().await?;
+    let replacement = group.message_reader(None).await?;
     replacement.end().await?;
     client.end().await?;
 }
@@ -2479,7 +2479,7 @@ async fn raw_message_bytes_are_delivered_and_replayed_until_acknowledged() {
             .send_message(raw, SendMessageOpts::default())
             .await?,
     )?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
         .await??
         .expect("raw message handoff");
@@ -2488,7 +2488,7 @@ async fn raw_message_bytes_are_delivered_and_replayed_until_acknowledged() {
         MessageContent::Unknown { raw_bytes, .. } if raw_bytes == raw));
     reader.end().await?;
 
-    let replacement = group.message_reader().await?;
+    let replacement = group.message_reader(None).await?;
     let replayed = xmtp_common::time::timeout(Duration::from_secs(5), replacement.next())
         .await??
         .expect("unacknowledged raw message replay");
@@ -2507,7 +2507,7 @@ async fn message_decode_error_closes_reader_and_releases_lease() {
     group
         .send_text("invalid stored message".into(), None)
         .await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     reader.corrupt_next_message_for_test();
     assert!(
         xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
@@ -2517,7 +2517,7 @@ async fn message_decode_error_closes_reader_and_releases_lease() {
         "invalid ID must fail conversion"
     );
     assert!(reader.is_ended_for_test(), "decode error left reader open");
-    let replacement = group.message_reader().await?;
+    let replacement = group.message_reader(None).await?;
     replacement.end().await?;
     client.end().await?;
 }
@@ -2653,7 +2653,7 @@ async fn cancelled_connection_state_waits_release_reader_workers() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let messages = group.message_reader().await?;
+    let messages = group.message_reader(None).await?;
     let conversations = client.conversations().conversation_reader(None).await?;
     xmtp_common::time::timeout(Duration::from_secs(20), async {
         tokio::try_join!(
@@ -2725,7 +2725,7 @@ async fn connection_state_across_toxiproxy_drop() {
             .create_group(vec![], None)
             .await
             .expect("group");
-        let messages = group.message_reader().await.expect("message reader");
+        let messages = group.message_reader(None).await.expect("message reader");
         let conversations = client
             .conversations()
             .conversation_reader(None)
@@ -2934,7 +2934,7 @@ async fn storage_delete_waits_for_running_call() {
     settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     // The handoff gate holds next() inside its worker call.
     let gate = Arc::new(reader::HandoffGate {
         arrived: Notify::new(),
@@ -3219,7 +3219,7 @@ async fn group_actions_return_client_closed_after_end() {
         Err(XmtpError::ClientClosed(_))
     ));
     assert!(matches!(
-        group.message_reader().await,
+        group.message_reader(None).await,
         Err(XmtpError::ClientClosed(_))
     ));
 }
@@ -3282,7 +3282,7 @@ async fn message_reader_racing_end_is_closed_and_takes_no_lease() {
     let group = client.conversations().create_group(vec![], None).await?;
     begin_end(&client);
     assert!(matches!(
-        group.message_reader().await,
+        group.message_reader(None).await,
         Err(XmtpError::ClientClosed(_))
     ));
     assert!(client.inner.context.delivery_owner().lock().is_none());
@@ -3297,7 +3297,7 @@ async fn reader_end_rejects_pending_handoff() {
     )
     .await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let gate = Arc::new(reader::HandoffGate {
         arrived: Notify::new(),
         release: Notify::new(),
@@ -3339,7 +3339,7 @@ async fn reader_skips_handoff_removed_from_scope() {
     .await?;
     let stale_group = client.conversations().create_group(vec![], None).await?;
     let live_group = client.conversations().create_group(vec![], None).await?;
-    let reader = stale_group.message_reader().await?;
+    let reader = stale_group.message_reader(None).await?;
     let gate = Arc::new(reader::HandoffGate {
         arrived: Notify::new(),
         release: Notify::new(),
@@ -3933,7 +3933,7 @@ async fn invalid_reply_parent_body_does_not_break_reads() {
         ),
         ("actions", ActionsCodec::encode(actions)?.into()),
     ];
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     for (kind, content) in parents {
         let parent_id = group.send(content, None).await?;
         let reply_id = client
@@ -3988,7 +3988,7 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
         .conversations()
         .reply_to_message(target.clone(), crate::encode_text("reply".into())?, None)
         .await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let original = xmtp_common::time::timeout(Duration::from_secs(5), async {
         loop {
             let item = reader.next().await?.expect("original message");
@@ -4007,7 +4007,7 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
         .delete_message(target.clone())
         .await?;
 
-    let replay = group.message_reader().await?;
+    let replay = group.message_reader(None).await?;
     let replayed = xmtp_common::time::timeout(Duration::from_secs(5), async {
         loop {
             let item = replay.next().await?.expect("deleted message replay");
@@ -4415,7 +4415,7 @@ async fn reaction_message_keeps_its_target_on_single_read_and_reader() {
     let group = client.conversations().create_group(vec![], None).await?;
     let parent = group.send_text("parent".into(), None).await?;
     let parent_sender = client.inbox_id();
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let reaction_id = client
         .conversations()
         .react_to_message(
@@ -5440,14 +5440,19 @@ async fn prepared_message_rechecks_consent_before_admission() {
     let live = client.conversations().create_group(vec![], None).await?;
     stale.send_text("stale".into(), None).await?;
     let live_id = live.send_text("live".into(), None).await?;
-    let reader = stale.message_reader().await?;
+    let reader = stale.message_reader(None).await?;
     reader.update_all_scope_for_test();
-    let gate = Arc::new(reader::HandoffGate { arrived: Notify::new(), release: Notify::new() });
+    let gate = Arc::new(reader::HandoffGate {
+        arrived: Notify::new(),
+        release: Notify::new(),
+    });
     *reader.handoff_gate.lock() = Some(gate.clone());
     let reading = reader.clone();
     let task = xmtp_common::spawn(None, async move { reading.next().await });
     xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
-    stale.inner.update_consent_state(xmtp_db::consent_record::ConsentState::Denied)?;
+    stale
+        .inner
+        .update_consent_state(xmtp_db::consent_record::ConsentState::Denied)?;
     gate.release.notify_one();
     use xmtp_common::StreamHandle;
     let result = xmtp_common::time::timeout(Duration::from_secs(10), task.join()).await???;
@@ -5463,17 +5468,174 @@ async fn prepared_message_rechecks_deletion_before_admission() {
     let group = client.conversations().create_group(vec![], None).await?;
     let stale_id = group.send_text("stale".into(), None).await?;
     let live_id = group.send_text("live".into(), None).await?;
-    let reader = group.message_reader().await?;
-    let gate = Arc::new(reader::HandoffGate { arrived: Notify::new(), release: Notify::new() });
+    let reader = group.message_reader(None).await?;
+    let gate = Arc::new(reader::HandoffGate {
+        arrived: Notify::new(),
+        release: Notify::new(),
+    });
     *reader.handoff_gate.lock() = Some(gate.clone());
     let reading = reader.clone();
     let task = xmtp_common::spawn(None, async move { reading.next().await });
     xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
-    client.conversations().delete_message_locally(stale_id).await?;
+    client
+        .conversations()
+        .delete_message_locally(stale_id)
+        .await?;
     gate.release.notify_one();
     use xmtp_common::StreamHandle;
     let result = xmtp_common::time::timeout(Duration::from_secs(10), task.join()).await???;
     assert_eq!(result.expect("retained item").0.id, live_id);
     reader.end().await?;
     client.end().await?;
+}
+
+// verifies: PROC-029, PROC-030, PROC-050
+#[xmtp_common::test(unwrap_try = true)]
+async fn delivery_cursor_preserves_large_position_across_full_results() {
+    use xmtp_db::{
+        ConnectionExt, delivery::QueryDelivery, diesel::prelude::*, refresh_state::EntityKind,
+        schema::refresh_state::dsl,
+    };
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let start = client.conversations().beginning_delivery_cursor().await?;
+    let db = client.inner.context.db();
+    let high = 1_i64 << 53;
+    db.raw_query(|conn| {
+        xmtp_db::diesel::update(
+            dsl::refresh_state.filter(dsl::entity_kind.eq(EntityKind::DeliveryAllocator)),
+        )
+        .set(dsl::sequence_id.eq(high))
+        .execute(conn)
+    })?;
+    let id = group.send_text("large cursor".into(), None).await?;
+    let expected = db.current_delivery_cursor()?;
+    assert_eq!(expected.delivery_sequence, high as u64 + 1);
+    let history = group
+        .messages(None)
+        .await?
+        .into_iter()
+        .find(|message| message.0.id == id)
+        .expect("history");
+    let cursor = history.0.delivery_cursor.clone().expect("published cursor");
+    assert_eq!(crate::delivery::cursor::parse(&cursor)?, expected);
+    let lookup = client
+        .conversations()
+        .get_message_by_id(id.clone())
+        .await?
+        .expect("lookup");
+    assert_eq!(lookup.0.delivery_cursor.as_ref(), Some(&cursor));
+    assert_eq!(
+        group
+            .last_message()
+            .await?
+            .expect("last")
+            .0
+            .delivery_cursor
+            .as_ref(),
+        Some(&cursor)
+    );
+    let reader = group
+        .message_reader(Some(crate::ConversationMessageReaderOptions {
+            from: Some(start),
+        }))
+        .await?;
+    assert_eq!(
+        reader
+            .next()
+            .await?
+            .expect("replay")
+            .0
+            .delivery_cursor
+            .as_ref(),
+        Some(&cursor)
+    );
+    reader.end().await?;
+    let default = group.message_reader(None).await?;
+    assert_eq!(
+        default
+            .next()
+            .await?
+            .expect("replay did not consume default")
+            .0
+            .id,
+        id
+    );
+    default.end().await?;
+    client.end().await?;
+}
+
+// verifies: PROC-050
+#[xmtp_common::test(unwrap_try = true)]
+async fn delivery_cursor_absent_until_publication() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let id = group
+        .prepare_message(crate::encode_text("pending".into())?, None)
+        .await?;
+    let before = client
+        .conversations()
+        .get_message_by_id(id.clone())
+        .await?
+        .expect("pending row");
+    assert!(before.0.delivery_cursor.is_none());
+    assert!(
+        group
+            .last_message()
+            .await?
+            .expect("pending history")
+            .0
+            .delivery_cursor
+            .is_none()
+    );
+    group.publish_messages().await?;
+    let after = client
+        .conversations()
+        .get_message_by_id(id)
+        .await?
+        .expect("published row");
+    assert!(after.0.delivery_cursor.is_some());
+    assert!(
+        before.0.delivery_cursor.is_none(),
+        "old value changed after publication"
+    );
+    client.end().await?;
+}
+
+// verifies: PROC-029, PROC-030
+#[xmtp_common::test(unwrap_try = true)]
+async fn delivery_cursor_rejects_invalid_and_foreign_before_open() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let foreign = Client::create(crate::generate_local_signer().await, options()).await?;
+    let start = client.conversations().beginning_delivery_cursor().await?;
+    let mut future = crate::delivery::cursor::parse(&start)?;
+    future.delivery_sequence = u64::MAX;
+    for value in [
+        String::new(),
+        "dc2_AAAA".into(),
+        format!("{start}="),
+        crate::delivery::cursor::encode(future),
+    ] {
+        let result = client
+            .conversations()
+            .message_reader(Some(crate::MessageReaderOptions {
+                from: Some(value),
+                ..Default::default()
+            }))
+            .await;
+        assert!(matches!(result, Err(crate::XmtpError::InvalidCursor(_))));
+    }
+    let other = foreign.conversations().beginning_delivery_cursor().await?;
+    let result = client
+        .conversations()
+        .message_reader(Some(crate::MessageReaderOptions {
+            from: Some(other),
+            ..Default::default()
+        }))
+        .await;
+    assert!(matches!(result, Err(crate::XmtpError::ForeignCursor(_))));
+    let reader = client.conversations().message_reader(None).await?;
+    reader.end().await?;
+    client.end().await?;
+    foreign.end().await?;
 }

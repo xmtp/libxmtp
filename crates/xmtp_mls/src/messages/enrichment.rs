@@ -24,6 +24,9 @@ pub fn deleted_message_content_type() -> ContentTypeId {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum EnrichMessageError {
+    #[error("Storage error: {0}")]
+    #[error_code(inherit)]
+    Storage(#[from] xmtp_db::StorageError),
     #[error("DB error: {0}")]
     #[error_code(inherit)]
     DbConnection(#[from] xmtp_db::ConnectionError),
@@ -43,6 +46,7 @@ impl RetryableError for EnrichMessageError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::DbConnection(e) => e.is_retryable(),
+            Self::Storage(e) => e.is_retryable(),
             Self::CodecError(_) => false,
             Self::DecodeError(_) => false,
         }
@@ -57,6 +61,7 @@ type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage
 type DeletionMap = HashMap<Vec<u8>, Vec<StoredMessageDeletion>>;
 
 pub struct EnrichedStoredMessage {
+    pub delivery_cursor: Option<xmtp_db::delivery::DeliveryCursor>,
     pub stored: StoredGroupMessage,
     pub decoded: DecodedMessage,
     pub parent_stored: Option<StoredGroupMessage>,
@@ -226,6 +231,7 @@ pub fn enrich_messages_with_stored(
             }
 
             Some(EnrichedStoredMessage {
+                delivery_cursor: None,
                 stored: stored_message,
                 decoded,
                 parent_stored,

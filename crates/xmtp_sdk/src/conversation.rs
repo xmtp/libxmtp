@@ -17,7 +17,6 @@ use xmtp_db::prelude::QueryGroupMessage;
 use xmtp_mls::MlsContext;
 use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
-use xmtp_mls::messages::decoded_message::{DecodedMessage, MessageBody as CoreMessageBody};
 use xmtp_mls::messages::enrichment::EnrichedStoredMessage;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls::mls_store::MlsStore;
@@ -227,6 +226,52 @@ pub(crate) async fn list_local(
 
 #[xmtp_macro::sdk_export]
 impl Conversations {
+    #[uniffi::method(default(options = None))]
+    pub async fn message_reader(
+        &self,
+        options: Option<crate::MessageReaderOptions>,
+    ) -> Result<Arc<MessageReader>, XmtpError> {
+        use xmtp_mls::subscriptions::local_delivery::{DeliveryScope, LocalDeliveryFilter};
+        let context = self.client.context.clone();
+        let client_key = self.client_key;
+        let options = options.unwrap_or_default();
+        on_sdk_worker(self.client.context.clone(), async move {
+            let filter = LocalDeliveryFilter {
+                conversation_type: options.conversation_kind.map(|kind| match kind {
+                    crate::ConversationKind::Group => ConversationType::Group,
+                    crate::ConversationKind::Dm => ConversationType::Dm,
+                }),
+                consent_states: options
+                    .consent_states
+                    .map(|states| states.into_iter().map(Into::into).collect()),
+            };
+            MessageReader::open(
+                context,
+                DeliveryScope::All,
+                filter,
+                options.from,
+                client_key,
+            )
+        })
+        .await
+    }
+
+    pub async fn beginning_delivery_cursor(&self) -> Result<String, XmtpError> {
+        use xmtp_db::delivery::{DeliveryCursor, QueryDelivery};
+        let context = self.client.context.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            let database_id = context
+                .db()
+                .stream_database_id()
+                .map_err(XmtpError::unknown)?;
+            Ok(crate::delivery::cursor::encode(DeliveryCursor {
+                database_id,
+                delivery_sequence: 0,
+            }))
+        })
+        .await
+    }
+
     pub async fn conversation_reader(
         &self,
         options: Option<crate::ConversationReaderOptions>,
@@ -429,27 +474,33 @@ impl Conversations {
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
             let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
-            let Some((stored, group)) = client
-                .message_with_group(&bytes)
-                .await
+            use xmtp_db::delivery::QueryDelivery;
+            let Some(row) = client
+                .context
+                .db()
+                .app_visible_message_row(&bytes, xmtp_common::time::now_ns())
                 .map_err(XmtpError::unknown)?
             else {
                 return Ok(None);
             };
-            let enriched = xmtp_mls::messages::enrichment::enrich_messages(
-                group.context.db(),
+            let stored = row.stored;
+            let enriched = xmtp_mls::messages::enrichment::enrich_messages_with_stored(
+                client.context.db(),
                 &stored.group_id,
                 vec![stored.clone()],
             )
             .map_err(XmtpError::unknown)?;
-            if let Some(value) = enriched.into_iter().next() {
-                let parent = parent_stored(&group, &value)?;
-                Ok(Some(Message::from_enriched(
-                    stored, value, parent, client_key,
-                )?))
+            let message = if let Some(value) = enriched.into_iter().next() {
+                Message::from_enriched(
+                    value.stored,
+                    value.decoded,
+                    value.parent_stored,
+                    client_key,
+                )?
             } else {
-                Ok(Some(Message::from_stored(stored, client_key)?))
-            }
+                Message::from_stored(stored, client_key)?
+            };
+            Ok(Some(message.with_delivery_cursor(row.cursor)))
         })
         .await
     }
@@ -866,23 +917,6 @@ fn require_content_type(content: &EncodedContent) -> Result<(), XmtpError> {
     Ok(())
 }
 
-fn parent_stored(
-    group: &MlsGroup<xmtp_mls::MlsContext>,
-    message: &DecodedMessage,
-) -> Result<Option<StoredGroupMessage>, XmtpError> {
-    let CoreMessageBody::Reply(reply) = &message.content else {
-        return Ok(None);
-    };
-    let Some(parent) = &reply.in_reply_to else {
-        return Ok(None);
-    };
-    group
-        .context
-        .db()
-        .get_group_message(&parent.metadata.id)
-        .map_err(XmtpError::unknown)
-}
-
 pub(crate) fn lift_history_messages(
     enriched: Vec<EnrichedStoredMessage>,
     client_key: u64,
@@ -897,7 +931,7 @@ pub(crate) fn lift_history_messages(
                 enriched.parent_stored,
                 client_key,
             ) {
-                Ok(message) => Some(message),
+                Ok(message) => Some(message.with_delivery_cursor(enriched.delivery_cursor)),
                 Err(err) => {
                     tracing::warn!(
                         message_id = %hex::encode(&message_id),
@@ -1411,12 +1445,24 @@ macro_rules! common_conversation {
                 .await
             }
 
-            pub async fn message_reader(&self) -> Result<Arc<MessageReader>, XmtpError> {
+            #[uniffi::method(default(options = None))]
+            pub async fn message_reader(
+                &self,
+                options: Option<crate::ConversationMessageReaderOptions>,
+            ) -> Result<Arc<MessageReader>, XmtpError> {
                 let context = self.inner.context.clone();
                 let group_id = self.inner.group_id;
                 let client_key = self.client_key;
                 on_sdk_worker(self.inner.context.clone(), async move {
-                    MessageReader::open(context, group_id, client_key)
+                    MessageReader::open(
+                        context,
+                        xmtp_mls::subscriptions::local_delivery::DeliveryScope::Groups(vec![
+                            group_id,
+                        ]),
+                        Default::default(),
+                        options.unwrap_or_default().from,
+                        client_key,
+                    )
                 })
                 .await
             }

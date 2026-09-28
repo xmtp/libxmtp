@@ -77,9 +77,10 @@ pub use content::{
 pub use conversation::{Conversation, Conversations, Dm, Group};
 #[cfg(not(feature = "pure-only"))]
 pub use conversations::{
-    ConversationKind, ConversationOrder, ConversationReaderOptions, CreateDmOptions,
-    CreateGroupOptions, GroupPermissionMode, ListConversationsOptions, ListMessagesOptions,
-    MessageOrder, MessageSortBy,
+    ConversationKind, ConversationMessageReaderOptions, ConversationOrder,
+    ConversationReaderOptions, CreateDmOptions, CreateGroupOptions, GroupPermissionMode,
+    ListConversationsOptions, ListMessagesOptions, MessageOrder, MessageReaderOptions,
+    MessageSortBy,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use credentials::{

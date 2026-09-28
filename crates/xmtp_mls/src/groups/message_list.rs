@@ -27,11 +27,26 @@ where
         query: &MsgQueryArgs,
     ) -> Result<Vec<EnrichedStoredMessage>, EnrichMessageError> {
         let conn = self.context.db();
-        let initial_messages = conn.get_group_messages(
+        use xmtp_db::delivery::QueryDelivery;
+        let rows = conn
+            .app_visible_message_rows(
+                &self.group_id,
+                &filter_out_hidden_message_types_from_query(query),
+            )
+            .map_err(EnrichMessageError::Storage)?;
+        let cursors: std::collections::HashMap<_, _> = rows
+            .iter()
+            .map(|row| (row.stored.id.clone(), row.cursor))
+            .collect();
+        let mut enriched = enrich_messages_with_stored(
+            conn,
             &self.group_id,
-            &filter_out_hidden_message_types_from_query(query),
+            rows.into_iter().map(|row| row.stored).collect(),
         )?;
-        enrich_messages_with_stored(conn, &self.group_id, initial_messages)
+        for message in &mut enriched {
+            message.delivery_cursor = cursors.get(&message.stored.id).copied().flatten();
+        }
+        Ok(enriched)
     }
 
     #[xmtp_common::mls_span]
