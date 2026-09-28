@@ -553,6 +553,72 @@ async fn discard_reports_store_left_open_when_disconnect_fails() {
     client.end().await?;
 }
 
+/// Signs as a local key, but holds its signer kind until the test releases it.
+struct PendingKindSigner {
+    inner: Arc<dyn Signer>,
+    kind_started: Arc<Notify>,
+    kind_release: Arc<Notify>,
+}
+
+#[xmtp_common::async_trait]
+impl Signer for PendingKindSigner {
+    async fn identity(&self) -> Result<PublicIdentity, SignerError> {
+        self.inner.identity().await
+    }
+
+    async fn kind(&self) -> Result<SignerKind, SignerError> {
+        self.kind_started.notify_one();
+        self.kind_release.notified().await;
+        Ok(SignerKind::Eoa)
+    }
+
+    async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError> {
+        self.inner.sign(request).await
+    }
+}
+
+// A cancelled create drops its future without the cleanup of a failed create.
+// Its store is already open while the signer is pending, so the drop must
+// report the store open. The browser worker then keeps its storage lock.
+#[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_create_reports_store_left_open() {
+    use std::sync::atomic::Ordering;
+
+    let kind_started = Arc::new(Notify::new());
+    let kind_release = Arc::new(Notify::new());
+    let signer: Arc<dyn Signer> = Arc::new(PendingKindSigner {
+        inner: crate::generate_local_signer().await,
+        kind_started: kind_started.clone(),
+        kind_release: kind_release.clone(),
+    });
+    let mut settings = options();
+    let path = std::env::temp_dir().join(format!(
+        "xmtp-sdk-cancelled-create-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let mut create = Box::pin(Client::create(signer, settings));
+    tokio::select! {
+        _ = &mut create => panic!("create finished while its signer was pending"),
+        _ = kind_started.notified() => {}
+    }
+    assert!(
+        !crate::client::STORE_LEFT_OPEN.load(Ordering::Relaxed),
+        "the store was reported open before the create was cancelled"
+    );
+
+    drop(create);
+    // The foreign call runs on a blocking thread that the runtime waits for.
+    kind_release.notify_one();
+
+    assert!(
+        crate::client::STORE_LEFT_OPEN.load(Ordering::Relaxed),
+        "a cancelled create did not report its open store"
+    );
+    let _ = std::fs::remove_file(&path);
+}
+
 // verifies: EVENT-022
 // verifies: EVENT-030
 // verifies: EVENT-031

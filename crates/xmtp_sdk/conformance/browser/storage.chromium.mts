@@ -309,6 +309,50 @@ try {
     "a build without a stored identity left the OPFS pool unpaused",
   );
   console.log("Chromium missing-identity build released the OPFS pool");
+
+  // A cancelled create drops its Rust future without the cleanup of a failed
+  // create. Its store is open while the signer is pending, so the worker must
+  // keep the Web Lock until it ends.
+  await second.evaluate(async () =>
+    (await import("./storage.bridge.chromium.ts")).endOne(),
+  );
+  let aborted: unknown;
+  for (let index = 0; index < 50; index++) {
+    aborted = await first.evaluate(
+      async (path) =>
+        (await import("./storage.bridge.chromium.ts")).abortCreateWhileSigning(
+          path,
+        ),
+      `${base}-aborted.db`,
+    );
+    if (aborted !== "StorageBusy") break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(
+    aborted,
+    "ended",
+    "a cancelled create released the Web Lock while its worker still ran",
+  );
+  let afterAbort: unknown;
+  for (let index = 0; index < 50; index++) {
+    afterAbort = await second.evaluate(async (path) => {
+      const bridge = await import("./storage.bridge.chromium.ts");
+      try {
+        await bridge.open(path);
+        return "opened";
+      } catch (error) {
+        return bridge.codeOf(error);
+      }
+    }, `${base}-after-abort.db`);
+    if (afterAbort !== "StorageBusy") break;
+    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+  }
+  assert.equal(
+    afterAbort,
+    "opened",
+    "the ended worker of a cancelled create kept the OPFS pool",
+  );
+  console.log("Chromium cancelled create kept the Web Lock until its worker ended");
 } finally {
   await first
     .evaluate(async () =>

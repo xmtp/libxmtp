@@ -166,7 +166,8 @@ export function poolName(
  * cannot end, its database can stay open, so the lock stays held and the call
  * throws `UnendedClientError`. The worker host then ends the worker. The
  * browser releases a held Web Lock when the worker ends. A failed create can
- * also leave the store of the client that Rust built open. Then
+ * also leave the store of the client that Rust built open, and so can a
+ * create or build that is cancelled after its store opened. Then
  * `storeLeftOpen` returns true, and the call fails in the same way.
  */
 export async function callWithPool(

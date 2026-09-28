@@ -134,6 +134,77 @@ export async function failRegistration(path: string): Promise<unknown> {
   }
 }
 
+/**
+ * Aborts a create while its signer kind is pending. The store is open then.
+ * Returns "ended" when the worker ends while it still holds the pool lock,
+ * and "released" when the lock is free while the worker still runs.
+ */
+export async function abortCreateWhileSigning(path: string): Promise<string> {
+  const current = await connection();
+  const ended = () => Reflect.get(current, "dead") === true;
+  const bytes = crypto.getRandomValues(new Uint8Array(20));
+  const identifier = `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
+  const abort = new AbortController();
+  let kindStarted: () => void = () => {};
+  const started = new Promise<void>((resolve) => (kindStarted = resolve));
+  const create = Client.create(
+    current,
+    {
+      async identity() {
+        return { identifier, kind: B.PublicIdentityKind.Ethereum };
+      },
+      kind() {
+        kindStarted();
+        return new Promise<never>(() => {});
+      },
+      async sign() {
+        throw new Error("the signer kind never resolves");
+      },
+    },
+    {
+      backend: B.BackendSource.Options.new({
+        options: {
+          url: `${location.origin}/backend`,
+          appVersion: undefined,
+          credential: undefined,
+          credentials: undefined,
+        },
+      }),
+      storage: {
+        location: B.StorageLocation.Path.new(path),
+        label: path,
+        encryptionKey: undefined,
+        pool: undefined,
+        singleConnection: false,
+      },
+      deviceSync: false,
+      registration: { auto: true, nonce: undefined },
+      forkRecovery: undefined,
+      workers: undefined,
+    },
+    { signal: abort.signal },
+  ).then(
+    () => "opened",
+    (error: unknown) => codeOf(error),
+  );
+  const first = await Promise.race([started.then(() => "started"), create]);
+  if (first !== "started") return String(first);
+  abort.abort();
+  await create;
+  for (let index = 0; index < 100; index++) {
+    if (ended()) {
+      worker = undefined;
+      session = undefined;
+      return "ended";
+    }
+    const held = await navigator.locks.query();
+    if (!held.held?.some((lock) => lock.name?.startsWith("xmtp:")))
+      return "released";
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  }
+  return "held";
+}
+
 export async function poolFilenames(): Promise<string[]> {
   const root = await navigator.storage.getDirectory();
   const metadata = await root.getDirectoryHandle(".opfs-libxmtp-metadata");
