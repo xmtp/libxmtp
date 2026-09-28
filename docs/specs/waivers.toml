@@ -431,13 +431,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A same-key retry queues another intent while the existing message row remains failed."
 
 [[waiver]]
-id = "SEND-005"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Optimistic sending does not check active membership before storing work, so it queues into a group the client has been removed from."
-
-[[waiver]]
 id = "SEND-007"
 kind = "gap"
 owner = "protocol"
@@ -457,13 +450,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A rejected echo marks the intent as errored without setting its message row to failed."
-
-[[waiver]]
-id = "SEND-018"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Removal from a group rejects pending intents without failing their message rows."
 
 [[waiver]]
 id = "ARCH-003"

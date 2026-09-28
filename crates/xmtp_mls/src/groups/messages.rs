@@ -127,6 +127,7 @@ where
         idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, GroupError> {
         state_write(self.context.mls_storage(), |tx| {
+            self.ensure_active_for_send(tx)?;
             let storage = tx.storage();
             let message = self.store_message_for_later_publish(
                 &storage.db(),
@@ -204,6 +205,7 @@ where
         self.ensure_not_paused().await?;
 
         let queued = state_write(self.context.mls_storage(), |tx| {
+            self.ensure_active_for_send(tx)?;
             let storage = tx.storage();
             let db = storage.db();
             let message = db
@@ -378,6 +380,7 @@ where
         F: FnOnce(&str) -> PlaintextEnvelope,
     {
         state_write(self.context.mls_storage(), |tx| {
+            self.ensure_active_for_send(tx)?;
             let storage = tx.storage();
             let db = storage.db();
             let stored_message = self.store_message_for_later_publish(
@@ -404,6 +407,30 @@ where
             Ok::<_, GroupError>(Continue(stored_message.id))
         })
         .map(TransactionOutcome::into_continued)
+    }
+
+    /// Check membership while holding the same writer as the new message or intent.
+    // implements: SEND-005
+    fn ensure_active_for_send<T: xmtp_db::TransactionalKeyStore>(
+        &self,
+        tx: &mut crate::state_tx::StateTx<'_, T>,
+    ) -> Result<(), GroupError> {
+        let stored = tx
+            .storage()
+            .db()
+            .find_group(&self.group_id)?
+            .ok_or(NotFound::GroupById(self.group_id))?;
+        if stored.membership_state == GroupMembershipState::Restored {
+            return Err(GroupError::GroupInactive);
+        }
+        let active = tx.with_group(self.group_id, |mls_group, _| {
+            Ok::<_, GroupError>(mls_group.is_active())
+        })?;
+        if active {
+            Ok(())
+        } else {
+            Err(GroupError::GroupInactive)
+        }
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {

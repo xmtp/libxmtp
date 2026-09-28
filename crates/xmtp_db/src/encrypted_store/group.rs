@@ -1640,6 +1640,7 @@ pub(crate) mod tests {
         })
     }
 
+    // verifies: CONS-030
     #[xmtp_common::test]
     fn test_find_groups_by_consent_state() {
         with_connection(|conn| {
