@@ -2,6 +2,7 @@
 
 mod reader_admission;
 mod reader_restored;
+mod reader_selection;
 
 use std::sync::{
     Arc,
@@ -5553,7 +5554,6 @@ async fn delivery_cursor_preserves_large_position_across_full_results() {
             .as_ref(),
         Some(&cursor)
     );
-    reader.end().await?;
     let default = group.message_reader(None).await?;
     assert_eq!(
         default
@@ -5564,6 +5564,27 @@ async fn delivery_cursor_preserves_large_position_across_full_results() {
             .id,
         id
     );
+    let next_id = group.send_text("adjacent position".into(), None).await?;
+    assert_eq!(
+        db.current_delivery_cursor()?.delivery_sequence,
+        expected.delivery_sequence + 1
+    );
+    let resume = group
+        .message_reader(Some(crate::ConversationMessageReaderOptions {
+            from: Some(cursor),
+        }))
+        .await?;
+    assert_eq!(
+        resume
+            .next()
+            .await?
+            .expect("exclusive adjacent resume")
+            .0
+            .id,
+        next_id
+    );
+    resume.end().await?;
+    reader.end().await?;
     default.end().await?;
     client.end().await?;
 }
@@ -5646,18 +5667,32 @@ async fn delivery_cursor_rejects_invalid_and_foreign_before_open() {
 // verifies: PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn delivery_cursor_storage_failure_keeps_typed_cause() {
-    use xmtp_db::{ConnectionExt, diesel::{RunQueryDsl, sql_query}};
+    use xmtp_db::{
+        ConnectionExt,
+        diesel::{RunQueryDsl, sql_query},
+    };
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let beginning = client.conversations().beginning_delivery_cursor().await?;
     let db = client.inner.context.db();
-    db.raw_query(|conn| sql_query("ALTER TABLE user_preferences RENAME TO missing_preferences").execute(conn))?;
+    db.raw_query(|conn| {
+        sql_query("ALTER TABLE user_preferences RENAME TO missing_preferences").execute(conn)
+    })?;
     let beginning_error = client.conversations().beginning_delivery_cursor().await;
-    let replay_error = client.conversations().message_reader(Some(crate::MessageReaderOptions {
-        from: Some(beginning), ..Default::default()
-    })).await;
-    db.raw_query(|conn| sql_query("ALTER TABLE missing_preferences RENAME TO user_preferences").execute(conn))?;
+    let replay_error = client
+        .conversations()
+        .message_reader(Some(crate::MessageReaderOptions {
+            from: Some(beginning),
+            ..Default::default()
+        }))
+        .await;
+    db.raw_query(|conn| {
+        sql_query("ALTER TABLE missing_preferences RENAME TO user_preferences").execute(conn)
+    })?;
     client.end().await?;
     for result in [beginning_error.map(|_| ()), replay_error.map(|_| ())] {
-        assert!(matches!(result, Err(crate::XmtpError::Storage(ref details)) if details.code == "Storage" && matches!(details.category, crate::ErrorCategory::Storage)), "{result:?}");
+        assert!(
+            matches!(result, Err(crate::XmtpError::Storage(ref details)) if details.code == "Storage" && matches!(details.category, crate::ErrorCategory::Storage)),
+            "{result:?}"
+        );
     }
 }

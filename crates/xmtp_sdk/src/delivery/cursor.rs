@@ -25,6 +25,9 @@ pub(crate) fn invalid() -> XmtpError {
 
 pub(crate) fn parse(value: &str) -> Result<DeliveryCursor, XmtpError> {
     let text = value.strip_prefix(PREFIX).ok_or_else(invalid)?;
+    if text.len() != 32 {
+        return Err(invalid());
+    }
     let bytes = URL_SAFE_NO_PAD.decode(text).map_err(|_| invalid())?;
     let bytes: [u8; CURSOR_BYTES] = bytes.try_into().map_err(|_| invalid())?;
     let cursor = DeliveryCursor {
