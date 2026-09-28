@@ -374,6 +374,10 @@ On a file system without POSIX permissions, such as NTFS on Windows, ATCH-077 do
 
 Two processes that share a data directory can each record a deployment identifier at the same time, and one record can be lost; the next online start records it again, and until then an offline start for that backend fails with a storage-location error.
 
+Clients in separate processes, or in separate browser workers, that share one attachments directory do not coordinate reconciliation, deletion, and downloads with each other. Reconciliation in one can record a plaintext file that deletion in another is removing, and deletion in one does not wait for a download that another is running. An app that runs clients in more than one process on one directory serializes deletion itself.
+
+If the deployment record file cannot be parsed, the client treats it as empty and rewrites it at the next record. Until an online start records a backend again, an offline start for that backend fails with a storage-location error.
+
 A client whose app disables background workers, or the attachment cleanup worker, removes expired pending attachments only at the next client creation (ATCH-068), so their staged ciphertext stays on the device until then.
 
 A file that an app removes from the attachments directory without asking the client leaves its record behind until the next client creation, or until the app asks the client to delete the local files of that remote attachment.
