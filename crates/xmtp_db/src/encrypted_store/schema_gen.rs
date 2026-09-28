@@ -32,6 +32,7 @@ diesel::table! {
         should_push -> Bool,
         sequence_id -> Nullable<BigInt>,
         prepared_envelopes -> Nullable<Binary>,
+        local_rejection_reason -> Nullable<Integer>,
     }
 }
 
