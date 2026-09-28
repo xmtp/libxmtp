@@ -469,10 +469,25 @@ impl ChainBlocks for UnreachableChain {
 #[xmtp_common::test]
 // verifies: IDENT-060
 async fn freshness_rejects_any_malformed_account_before_chain_access() {
+    let update = with_second_signature(|scw| {
+        scw.account_id = scw.account_id.replacen("eip155:1:", "eip155:01:", 1);
+        assert!(scw.account_id.starts_with("eip155:01:"));
+    });
+
+    let error = check_freshness(&update, &UnreachableChain)
+        .await
+        .expect_err("a non-canonical chain id is rejected");
+    assert!(!error.is_retryable());
+}
+
+/// Append a copy of the fixture inbox's ERC-6492 signature, edited by `edit`.
+fn with_second_signature(
+    edit: impl FnOnce(&mut xmtp_proto::xmtp::identity::associations::SmartContractWalletSignature),
+) -> IdentityUpdate {
     use xmtp_proto::xmtp::identity::associations::{identity_action, signature};
     let mut update = scw_create_inbox_update_at(1);
-    let mut malformed = update.actions[0].clone();
-    let Some(identity_action::Kind::CreateInbox(create)) = &mut malformed.kind else {
+    let mut second = update.actions[0].clone();
+    let Some(identity_action::Kind::CreateInbox(create)) = &mut second.kind else {
         unreachable!("fixture creates an inbox")
     };
     let Some(signature::Signature::Erc6492(scw)) = create
@@ -482,12 +497,42 @@ async fn freshness_rejects_any_malformed_account_before_chain_access() {
     else {
         unreachable!("fixture signs with a smart-contract wallet")
     };
-    scw.account_id = scw.account_id.replacen("eip155:1:", "eip155:01:", 1);
-    assert!(scw.account_id.starts_with("eip155:01:"));
-    update.actions.push(malformed);
+    edit(scw);
+    update.actions.push(second);
+    update
+}
 
-    let error = check_freshness(&update, &UnreachableChain)
-        .await
-        .expect_err("a non-canonical chain id is rejected");
-    assert!(!error.is_retryable());
+/// Counts the reads it forwards to a [`TestChain`].
+#[derive(Default)]
+struct CountingChain {
+    heads: std::sync::atomic::AtomicUsize,
+    timestamps: std::sync::atomic::AtomicUsize,
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for CountingChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.heads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        TestChain::at(10).head(chain_id).await
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        self.timestamps
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        TestChain::at(10).timestamp(chain_id, number).await
+    }
+}
+
+/// An update may carry up to the configured signature limit, so admission
+/// reads each chain's head once and each distinct block's timestamp once
+/// rather than once per signature.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: IDENT-062
+async fn freshness_reads_each_head_and_block_once() {
+    let chain = CountingChain::default();
+    check_freshness(&with_second_signature(|_| {}), &chain).await?;
+    check_freshness(&with_second_signature(|scw| scw.block_number = 2), &chain).await?;
+    assert_eq!(chain.heads.into_inner(), 2);
+    assert_eq!(chain.timestamps.into_inner(), 3);
 }

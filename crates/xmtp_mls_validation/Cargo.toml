@@ -12,6 +12,7 @@ workspace = true
 
 [dependencies]
 async-trait = { workspace = true, optional = true }
+futures.workspace = true
 hex.workspace = true
 openmls.workspace = true
 openmls_rust_crypto.workspace = true

@@ -1,5 +1,8 @@
 //! Shared payload admission. Storage and transport remain with their callers.
 
+use std::collections::{BTreeSet, HashMap};
+
+use futures::future::try_join_all;
 use openmls::prelude::{ContentType, KeyPackageIn, MlsMessageIn, ProtocolMessage};
 use openmls_rust_crypto::RustCrypto;
 use tls_codec::Deserialize;
@@ -11,7 +14,7 @@ use xmtp_id::{
         verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    scw_verifier::{ChainBlocks, SmartContractSignatureVerifier},
+    scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier, VerifierError},
 };
 use xmtp_mls_common::commit_log::decode_commit_log;
 use xmtp_proto::{
@@ -305,11 +308,11 @@ pub fn erc6492_signatures(
 /// chain's head, or one more than [`MAX_BLOCK_AGE_SECS`] before it.
 ///
 /// Every account id's form is checked before the first chain call, so a
-/// malformed one is rejected without chain access. Each signature is then
-/// judged on its own chain. The head is
-/// read first, so a block after it is rejected without a second call. Chain
-/// failures stay retryable; they are never a verdict on the signature. A
-/// block stamped after the head, as reads straddling a reorg can report, is
+/// malformed one is rejected without chain access. Each chain's head is then
+/// read once, so a block after it is rejected without further calls, and each
+/// distinct block's timestamp once; reads within a round run concurrently.
+/// Chain failures stay retryable; they are never a verdict on the signature.
+/// A block stamped after its head, as reads straddling a reorg can report, is
 /// rejected rather than read as fresh.
 /// Callers run this before signature verification: a verifier asked about a
 /// block the chain has not produced fails retryably instead of rejecting.
@@ -318,34 +321,45 @@ pub async fn check_freshness(
     update: &IdentityUpdate,
     chain: &dyn ChainBlocks,
 ) -> Result<(), ValidationError> {
-    let signatures = erc6492_signatures(update)
+    let blocks = erc6492_signatures(update)
         .map(|signature| {
             let account = AccountId::try_from(signature.account_id.as_str())?;
             account.get_chain_id_u64().map_err(SignatureError::from)?;
-            Ok((signature.block_number, account))
+            Ok((account.get_chain_id().to_owned(), signature.block_number))
         })
-        .collect::<Result<Vec<_>, ValidationError>>()?;
-    for (number, account) in signatures {
-        let head = chain
-            .head(account.get_chain_id())
-            .await
-            .map_err(SignatureError::from)?;
-        if number > head.number {
-            return Err(ValidationError::StaleBlock(number));
-        }
-        let timestamp = chain
-            .timestamp(account.get_chain_id(), number)
-            .await
-            .map_err(SignatureError::from)?;
-        if head
-            .timestamp
-            .checked_sub(timestamp)
-            .is_none_or(|age| age > MAX_BLOCK_AGE_SECS)
-        {
-            return Err(ValidationError::StaleBlock(number));
-        }
+        .collect::<Result<BTreeSet<_>, ValidationError>>()?;
+    let chain_ids: BTreeSet<&str> = blocks.iter().map(|(id, _)| id.as_str()).collect();
+    let heads: HashMap<&str, BlockStamp> = try_join_all(
+        chain_ids
+            .into_iter()
+            .map(|id| async move { Ok::<_, VerifierError>((id, chain.head(id).await?)) }),
+    )
+    .await
+    .map_err(SignatureError::from)?
+    .into_iter()
+    .collect();
+    if let Some((_, number)) = blocks
+        .iter()
+        .find(|(id, number)| *number > heads[id.as_str()].number)
+    {
+        return Err(ValidationError::StaleBlock(*number));
     }
-    Ok(())
+    let timestamps = try_join_all(
+        blocks
+            .iter()
+            .map(|(id, number)| chain.timestamp(id, *number)),
+    )
+    .await
+    .map_err(SignatureError::from)?;
+    blocks
+        .iter()
+        .zip(timestamps)
+        .try_for_each(|((id, number), timestamp)| {
+            match heads[id.as_str()].timestamp.checked_sub(timestamp) {
+                Some(age) if age <= MAX_BLOCK_AGE_SECS => Ok(()),
+                _ => Err(ValidationError::StaleBlock(*number)),
+            }
+        })
 }
 
 /// Validate one parsed envelope after duplicate lookup.
