@@ -690,7 +690,7 @@ id = "META-067"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Membership refresh does not reconcile missing catalogue entries into the committed registry yet. A later PR of the configured-metadata stack adds the Insert after the PERM-023 floor commit."
+reason = "Membership refresh does not reconcile missing catalogue entries into the committed registry yet. A later PR of the configured-metadata stack adds the Insert."
 [[waiver]]
 id = "META-068"
 kind = "gap"

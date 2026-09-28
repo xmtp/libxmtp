@@ -220,7 +220,7 @@ message ComponentMetadata {
 }
 ```
 
-`TLS_MAP_INBOX_ID_STRING` uses the same TLS snapshot and delta encoding as `TLS_MAP_INBOX_ID_BYTES`. The type tag requires UTF-8 validation of every value in an Insert or Update delta and in the resulting snapshot; an invalid value rejects the commit. This is a new type, so an existing group must first raise its protocol version floor under PERM-023 before it registers a field of this type.
+`TLS_MAP_INBOX_ID_STRING` uses the same TLS snapshot and delta encoding as `TLS_MAP_INBOX_ID_BYTES`. The type tag requires UTF-8 validation of every value in an Insert or Update delta and in the resulting snapshot; an invalid value rejects the commit.
 
 `MetadataPolicy` is defined in PERM section 2. PERM-008 owns policy evaluation failure, and PERM-017 owns action-policy validity and the restricted admin policies. Structural decoding of an entry is separate from type dispatch and policy evaluation. An entry with an unknown or unspecified `component_type` can be structurally complete; it supplies no supported dispatch type. A present policy field can still contain an invalid policy tree.
 
