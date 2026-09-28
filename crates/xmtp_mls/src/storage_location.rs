@@ -3,7 +3,7 @@
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
-    sync::OnceLock,
+    sync::{Arc, OnceLock},
 };
 
 use serde::{Deserialize, Serialize};
@@ -55,7 +55,7 @@ struct DeploymentFile {
     deployments: BTreeMap<String, String>,
 }
 
-static RECORD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+static RECORD_LOCK: OnceLock<Arc<Mutex<()>>> = OnceLock::new();
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
 static NATIVE_DEPLOYMENT_WRITE_PAUSE: parking_lot::Mutex<
@@ -130,7 +130,10 @@ impl DeploymentRecorder {
         if self.backend_url.is_empty() {
             return Err(StorageLocationError::BackendUrl);
         }
-        let _guard = RECORD_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        let _guard = RECORD_LOCK
+            .get_or_init(|| Arc::new(Mutex::new(())))
+            .lock()
+            .await;
         Ok(read_file(&self.data_dir)
             .await?
             .deployments
@@ -148,12 +151,25 @@ impl DeploymentRecorder {
         if self.backend_url.is_empty() {
             return Err(StorageLocationError::BackendUrl);
         }
-        let _guard = RECORD_LOCK.get_or_init(|| Mutex::new(())).lock().await;
+        let guard = RECORD_LOCK
+            .get_or_init(|| Arc::new(Mutex::new(())))
+            .clone()
+            .lock_owned()
+            .await;
         let mut file = read_file(&self.data_dir).await?;
         file.version = 1;
         file.deployments
             .insert(self.backend_url.clone(), identifier.to_owned());
-        write_file(&self.data_dir, &serde_json::to_vec(&file)?).await
+        let bytes = serde_json::to_vec(&file)?;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            write_file_with_guard(&self.data_dir, &bytes, Some(guard)).await
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let _guard = guard;
+            write_file(&self.data_dir, &bytes).await
+        }
     }
 }
 
@@ -266,8 +282,17 @@ impl Drop for NativeDeploymentTempGuard {
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocationError> {
+    write_file_with_guard(data_dir, bytes, None).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn write_file_with_guard(
+    data_dir: &Path,
+    bytes: &[u8],
+    record_guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+) -> Result<(), StorageLocationError> {
     xmtp_attachments::create_private_directory(data_dir).await?;
     let path = data_dir.join("deployments.json");
     let temp = data_dir.join(format!(
@@ -276,6 +301,7 @@ async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocation
     ));
     let bytes = bytes.to_vec();
     xmtp_common::task::spawn_blocking(move || -> std::io::Result<()> {
+        let _record_guard = record_guard;
         use std::io::Write as _;
 
         let mut options = std::fs::OpenOptions::new();

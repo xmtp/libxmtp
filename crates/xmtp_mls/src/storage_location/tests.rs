@@ -899,6 +899,54 @@ mod native {
         assert!(temps.is_empty(), "cancelled write left a temporary file");
     }
 
+    // verifies: ATCH-069
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn cancelled_record_write_finishes_before_next_record() {
+        use std::sync::Arc;
+        let dir = tempfile::tempdir()?;
+        let recorder = DeploymentRecorder::new(dir.path().to_path_buf(), "http://localhost");
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        *NATIVE_DEPLOYMENT_WRITE_PAUSE.lock() = Some((entered.clone(), resume.clone()));
+        let first = recorder.clone();
+        let (write, abort) = futures::future::abortable(async move { first.record("first").await });
+        let first_task = xmtp_common::task::spawn(write);
+        xmtp_common::time::timeout(std::time::Duration::from_secs(3), entered.notified()).await?;
+        abort.abort();
+        assert!(first_task.await?.is_err());
+
+        let second = recorder.clone();
+        let (sent, mut received) = tokio::sync::oneshot::channel();
+        drop(xmtp_common::task::spawn(async move {
+            let _ = sent.send(second.record("second").await);
+        }));
+        let early =
+            tokio::time::timeout(std::time::Duration::from_millis(500), &mut received).await;
+        resume.notify_one();
+        match early {
+            Ok(result) => result??,
+            Err(_) => {
+                xmtp_common::time::timeout(std::time::Duration::from_secs(3), received).await???
+            }
+        }
+        xmtp_common::time::timeout(std::time::Duration::from_secs(3), async {
+            while std::fs::read_dir(dir.path())
+                .expect("read deployment directory")
+                .filter_map(Result::ok)
+                .any(|entry| {
+                    entry
+                        .file_name()
+                        .to_string_lossy()
+                        .starts_with(".deployments-")
+                })
+            {
+                xmtp_common::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
+        assert_eq!(recorder.lookup().await?, Some("second".to_owned()));
+    }
+
     // verifies: ATCH-040
     #[xmtp_common::test(unwrap_try = true)]
     async fn data_dir_layout() {
