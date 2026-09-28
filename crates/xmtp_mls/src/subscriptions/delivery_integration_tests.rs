@@ -16,6 +16,9 @@ const WAIT: Duration = Duration::from_secs(20);
 mod tcp_proxy;
 
 #[cfg(not(target_arch = "wasm32"))]
+mod reader_contract;
+
+#[cfg(not(target_arch = "wasm32"))]
 // verifies: EVENT-001, EVENT-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn the_same_reader_recovers_a_missed_commit_after_a_tcp_outage() {

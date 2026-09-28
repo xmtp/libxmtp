@@ -790,27 +790,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
 
 [[waiver]]
-id = "PROC-046"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4272"
-reason = "The public SDK readers do not yet expose the fixed scope and filter options on every target. MessageReader::next also marks a candidate dispatched before enrichment, so a later consent change is not checked at final SDK admission. Follow-up Task 3 supplies the public options and current-state filter proof at that admission point."
-
-[[waiver]]
-id = "PROC-048"
-kind = "untested"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4272"
-reason = "MessageReader::new acquires network interest without awaiting registration, and MessageReader::next_delivery polls LocalDelivery independently of registration acknowledgement. No public reader test holds registration acknowledgement behind a barrier while proving a stored-message handoff. Follow-up Task 3 owns the missing proof."
-
-[[waiver]]
-id = "PROC-049"
-kind = "untested"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4272"
-reason = "MessageReaderControl::close releases its own IncomingLease. The incoming controller removes only that scope and computes network interest from the union of remaining scopes. No public reader test proves that ending one reader preserves another operation's shared interest. Follow-up Task 3 owns the missing proof."
-
-[[waiver]]
 id = "CTYPE-031"
 kind = "untested"
 owner = "protocol"
