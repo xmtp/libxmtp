@@ -757,6 +757,18 @@ owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Attachment storage configuration is not published or validated yet."
 [[waiver]]
+id = "EVENT-015"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "The SDK does not yet deliver the seven attachment.* kinds: its event conversion skips them and the reader and listener continue past them, so an attachment event is not handed off. SDK exposure of these kinds is pending."
+[[waiver]]
+id = "EVENT-020"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "The SDK EventKind and EventFilter do not yet include the seven attachment.* kinds, so a subscription cannot select them. SDK exposure of these kinds is pending."
+[[waiver]]
 id = "ATCH-009"
 kind = "gap"
 owner = "attachments"
