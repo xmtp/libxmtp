@@ -707,8 +707,12 @@ fn read_app_rows(
     } else {
         Vec::new()
     };
+    #[cfg(test)]
+    tests::observe_app_rows(None);
     let mut cursors = std::collections::HashMap::new();
     for batch in rows.chunks(CURSOR_QUERY_BATCH) {
+        #[cfg(test)]
+        tests::observe_app_rows(Some(batch.len()));
         let ids = batch
             .iter()
             .map(|row| row.id.as_slice())

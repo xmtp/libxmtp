@@ -479,3 +479,97 @@ async fn history_snapshot_filters_before_its_limit_in_the_same_database_snapshot
     assert_eq!(snapshot.cursor, db.current_delivery_cursor()?);
     assert!(snapshot.cursor.delivery_sequence > snapshot.messages[0].cursor.delivery_sequence);
 }
+
+thread_local! {
+    static APP_ROWS_PROBE: std::cell::RefCell<Option<Box<dyn FnMut(Option<usize>)>>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(super) fn observe_app_rows(batch: Option<usize>) {
+    APP_ROWS_PROBE.with_borrow_mut(|probe| {
+        if let Some(probe) = probe {
+            probe(batch);
+        }
+    });
+}
+
+// verifies: PROC-050
+#[xmtp_common::test(unwrap_try = true)]
+async fn app_rows_keep_snapshot_across_publication_and_deletion() {
+    let path = xmtp_common::tmp_path();
+    let store = TestDb::create_persistent_store(Some(path.clone())).await;
+    let writer = TestDb::create_persistent_store(Some(path)).await;
+    let db = store.db();
+    let group = generate_group(None);
+    group.store(&db)?;
+    let mut pending = generate_message(None, Some(&group.id), Some(1), None, None, None);
+    pending.delivery_status = DeliveryStatus::Unpublished;
+    pending.store(&db)?;
+    let retained = generate_message(None, Some(&group.id), Some(2), None, None, None);
+    retained.store(&db)?;
+    let committed = db.current_delivery_cursor()?;
+    let pending_id = pending.id.clone();
+    let retained_id = retained.id.clone();
+    APP_ROWS_PROBE.with_borrow_mut(|probe| {
+        *probe = Some(Box::new(move |batch| {
+            if batch.is_none() {
+                let db = writer.db();
+                db.set_delivery_status_to_published(&pending_id, 3, Cursor(3), None)
+                    .unwrap();
+                db.raw_query(|conn| {
+                    diesel::delete(group_messages::table.find(&retained_id)).execute(conn)
+                })
+                .unwrap();
+            }
+        }))
+    });
+    let rows = db.app_visible_message_rows(&group.id, &MsgQueryArgs::default())?;
+    APP_ROWS_PROBE.with_borrow_mut(|probe| *probe = None);
+    let old_pending = rows
+        .iter()
+        .find(|row| row.stored.id == pending.id)
+        .expect("unpublished snapshot row");
+    assert_eq!(
+        old_pending.stored.delivery_status,
+        DeliveryStatus::Unpublished
+    );
+    assert_eq!(old_pending.cursor, None);
+    let old_retained = rows
+        .iter()
+        .find(|row| row.stored.id == retained.id)
+        .expect("retained snapshot row");
+    assert_eq!(old_retained.cursor, Some(committed));
+    assert!(db.app_visible_message_row(&retained.id, 0)?.is_none());
+    assert!(
+        db.app_visible_message_row(&pending.id, 0)?
+            .expect("published")
+            .cursor
+            .is_some()
+    );
+}
+
+// verifies: PROC-050
+#[xmtp_common::test(unwrap_try = true)]
+async fn app_rows_cursor_queries_are_bounded_batches() {
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let group = generate_group(None);
+    group.store(&db)?;
+    for index in 0..1001 {
+        generate_message(None, Some(&group.id), Some(index), None, None, None).store(&db)?;
+    }
+    let batches = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+    let observed = batches.clone();
+    APP_ROWS_PROBE.with_borrow_mut(|probe| {
+        *probe = Some(Box::new(move |batch| {
+            if let Some(size) = batch {
+                observed.borrow_mut().push(size);
+            }
+        }))
+    });
+    let rows = db.app_visible_message_rows(&group.id, &MsgQueryArgs::default())?;
+    APP_ROWS_PROBE.with_borrow_mut(|probe| *probe = None);
+    assert_eq!(rows.len(), 1001);
+    assert!(rows.iter().all(|row| row.cursor.is_some()));
+    assert_eq!(batches.borrow().len(), 3);
+    assert!(batches.borrow().iter().all(|size| *size <= 500));
+}
