@@ -6,7 +6,7 @@ use crate::{Store, group::tests::generate_group, test_utils::with_connection};
 use super::helpers::*;
 
 // verifies: META-051
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 fn expired_relation_rows_are_not_enriched_or_counted() {
     with_connection(|conn| {
         let group = generate_group(None);

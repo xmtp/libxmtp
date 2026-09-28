@@ -134,7 +134,7 @@ fn it_gets_messages() {
 }
 
 // verifies: META-051
-#[xmtp_common::test]
+#[xmtp_common::test(unwrap_try = true)]
 fn app_visible_lookup_uses_a_strict_expiry_boundary() {
     with_connection(|conn| {
         let group = generate_group(None);
