@@ -20,10 +20,8 @@ mod bidi_tests;
 // Randomized delivery fuzz over the live node (same gating as `bidi_tests`).
 #[cfg(all(test, not(target_arch = "wasm32")))]
 mod bidi_fuzz_tests;
-// One-shot bounded catch-up over the bidi wire (native-only, like the
-// connection it rides).
+// One-shot bounded catch-up through the shared receiver.
 pub mod barrier;
-#[cfg(not(target_arch = "wasm32"))]
 pub mod catch_up;
 pub(crate) mod connection_state;
 pub mod incoming;

@@ -29,6 +29,13 @@ declare const process: { cwd(): string } | undefined;
 export function resolveBrowserOptions(
   options: B.ClientOptions,
 ): B.ClientOptions {
+  if (Reflect.get(options.storage, "encryptionKey") !== undefined)
+    throw B.XmtpError.InvalidInput.new({
+      code: "InvalidInput",
+      category: B.ErrorCategory.Input,
+      retryable: false,
+      message: "browser storage does not support encryptionKey",
+    });
   if (options.storage.location.tag !== B.StorageLocation_Tags.Default)
     return options;
   const directory =

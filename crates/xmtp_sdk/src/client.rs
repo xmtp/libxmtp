@@ -98,6 +98,7 @@ pub struct StorageOptions {
     pub location: StorageLocation,
     #[uniffi(default = None)]
     pub label: Option<String>,
+    #[cfg(not(target_arch = "wasm32"))]
     #[uniffi(default = None)]
     pub encryption_key: Option<Vec<u8>>,
     #[uniffi(default = None)]
@@ -686,6 +687,7 @@ impl Client {
 
     pub fn storage(&self) -> Arc<Storage> {
         Arc::new(Storage {
+            #[cfg(not(target_arch = "wasm32"))]
             client: self.inner.clone(),
             path: self.storage_path.clone(),
             listeners: self.listeners.clone(),
@@ -880,11 +882,6 @@ pub(crate) async fn open_store(
 ) -> Result<xmtp_db::DefaultStore, XmtpError> {
     use xmtp_db::{EncryptedMessageStore, WasmDb};
 
-    if options.encryption_key.is_some() {
-        return Err(XmtpError::invalid(
-            "encrypted wasm storage is not available",
-        ));
-    }
     let location = wasm_store_location(options, inbox_id)?;
     if matches!(&location, xmtp_db::StorageOption::Persistent(_)) {
         xmtp_db::try_init_sqlite()

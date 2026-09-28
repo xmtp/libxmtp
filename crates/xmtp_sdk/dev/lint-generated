@@ -34,3 +34,8 @@ sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preser
 node crates/xmtp_sdk/dev/check-bridge-casts.mjs
 node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module esnext --moduleResolution bundler \
   crates/xmtp_sdk/conformance/ts/logging.typecheck.ts
+node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module preserve --moduleResolution bundler \
+  crates/xmtp_sdk/conformance/ts/parity.test-d.ts
+python3 crates/xmtp_sdk/dev/check-parity-signatures.py
+node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module preserve --moduleResolution bundler --allowImportingTsExtensions \
+  crates/xmtp_sdk/conformance/browser/suite.chromium.ts crates/xmtp_sdk/conformance/browser/suite.worker.ts

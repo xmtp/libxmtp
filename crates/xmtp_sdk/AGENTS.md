@@ -10,8 +10,12 @@ Run commands from the repository root in the Nix shell. Run
   benchmark exports in the default bindings and in
   `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks in test source sets.
 - `just sdk wasm-init` loads the staged WASM package in Node.
-- `just sdk conformance <swift|kotlin|node|browser>` runs scenarios 1, 2, and 7
-  against this worktree's backend.
+- `just sdk conformance <swift|kotlin|node>` runs scenarios against this
+  worktree's backend. `just sdk conformance browser` runs scenarios 1-11
+  plus a real WASM trap from a test-only panic fixture in Vitest Playwright
+  Chromium, then checks real OPFS and worker behavior. Its recipe builds the
+  pure codec and panic fixtures in the Rust shell before the JS shell.
+  Scenario 7 checks readers and streams. Scenario 8 checks events and listeners.
 - `just sdk bench` compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
@@ -21,9 +25,6 @@ Run commands from the repository root in the Nix shell. Run
   `bindings/`.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
-- `just sdk conformance browser` runs the browser bridge storage, worker
-  failure, and pure codec checks in Chromium. Its recipe builds the pure codec
-  fixture in the Rust shell before it enters the JS shell.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

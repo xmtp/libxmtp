@@ -113,7 +113,6 @@ pub struct CatchUpSummary {
     pub completed: bool,
 }
 
-#[cfg(not(target_arch = "wasm32"))]
 impl From<xmtp_mls::subscriptions::catch_up::CatchUpSummary> for CatchUpSummary {
     fn from(value: xmtp_mls::subscriptions::catch_up::CatchUpSummary) -> Self {
         Self {

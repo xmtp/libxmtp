@@ -8,5 +8,11 @@ if [ -z "${PLAYWRIGHT_BROWSERS_PATH:-}" ]; then
 fi
 export VITE_XMTP_BACKEND_URL="${XMTP_BACKEND_URL:?load the worktree backend URL}"
 bash crates/xmtp_sdk/dev/check-wasm-init
+ln -sfn "$root/sdks/browser/node_modules/vitest" "$root/node_modules/vitest"
+mkdir -p "$root/node_modules/@vitest"
+ln -sfn "$root/sdks/browser/node_modules/@vitest/browser" "$root/node_modules/@vitest/browser"
+ln -sfn "$root/sdks/browser/node_modules/@vitest/browser-playwright" "$root/node_modules/@vitest/browser-playwright"
+NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run \
+  --config crates/xmtp_sdk/conformance/browser/vitest.browser.config.mts
 sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/storage.chromium.mts
 sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/bridge.chromium.mts

@@ -6,7 +6,7 @@ mod kotlin_callbacks;
 mod kotlin_records;
 mod validate;
 
-use std::{fs, path::Path};
+use std::{collections::BTreeSet, fs, path::Path};
 
 use anyhow::{Context, Result, bail};
 use camino::{Utf8Path, Utf8PathBuf};
@@ -223,6 +223,10 @@ fn generate(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );
             }
+            if matches!(language, Language::TypescriptNapi) {
+                let exports = public_node_exports(&fs::read_to_string(&binding)?, &source);
+                source = source.replace("export * from './xmtp_sdk';", &exports);
+            }
             fs::write(index, source)?;
             if is_wasm && !pure_only {
                 bridge::generate(lib, out)?;
@@ -337,6 +341,59 @@ fn strip_pure_doc_marker(path: &Utf8Path) -> Result<()> {
     Ok(())
 }
 
+fn public_node_exports(binding: &str, index: &str) -> String {
+    let mut values = BTreeSet::new();
+    let mut types = BTreeSet::new();
+    let mut overrides = BTreeSet::new();
+    for line in index.lines() {
+        if let Some(rest) = line.strip_prefix("export { ")
+            && let Some(list) = rest.strip_suffix(" } from './runtime';")
+        {
+            overrides.extend(list.split(", "));
+        }
+    }
+    for line in binding.lines() {
+        let mut words = line.split_whitespace();
+        if words.next() != Some("export") {
+            continue;
+        }
+        let kind = words.next();
+        let name = if kind == Some("async") {
+            if words.next() == Some("function") {
+                words.next()
+            } else {
+                None
+            }
+        } else if matches!(
+            kind,
+            Some("class" | "const" | "enum" | "function" | "interface" | "type")
+        ) {
+            words.next()
+        } else {
+            None
+        };
+        if let Some(name) = name {
+            let name = name
+                .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
+                .next()
+                .unwrap_or("");
+            if name != "setLogSinkQueued" && !overrides.contains(name) {
+                if matches!(kind, Some("interface" | "type")) {
+                    types.insert(name.to_owned());
+                } else {
+                    values.insert(name.to_owned());
+                }
+            }
+        }
+    }
+    types.retain(|name| !values.contains(name));
+    format!(
+        "export {{ {} }} from './xmtp_sdk';\nexport type {{ {} }} from './xmtp_sdk';",
+        values.into_iter().collect::<Vec<_>>().join(", "),
+        types.into_iter().collect::<Vec<_>>().join(", ")
+    )
+}
+
 fn copy_tree(source: &Path, destination: &Path) -> Result<()> {
     fs::create_dir_all(destination)?;
     for entry in fs::read_dir(source).with_context(|| format!("read {}", source.display()))? {
@@ -393,5 +450,17 @@ mod tests {
         strip_pure_doc_marker(&path)?;
         assert!(!fs::read_to_string(path)?.contains("@xmtp-pure"));
         Ok(())
+    }
+
+    #[test]
+    fn queued_log_sink_is_internal_to_node_runtime() {
+        let exports = public_node_exports(
+            "export function setLogSinkQueued() {}\nexport async function create() {}\nexport type Entry = string;",
+            "",
+        );
+        assert_eq!(
+            exports,
+            "export { create } from './xmtp_sdk';\nexport type { Entry } from './xmtp_sdk';"
+        );
     }
 }

@@ -159,6 +159,10 @@ describe("browser bridge transport", () => {
     }
   });
 
+  it("uses the numeric Lifecycle category for transport errors", () => {
+    for (const code of ["contractMismatch", "workerTerminated", "cancelled"] as const)
+      expect(bridgeError(code).category).toBe(6);
+  });
   it("uses the Rust ClientClosed fields for bridge lifecycle errors", () => {
     expect(bridgeError("clientClosed")).toMatchObject({
       variant: "ClientClosed",
