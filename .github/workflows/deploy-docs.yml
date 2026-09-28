@@ -191,6 +191,9 @@ jobs:
         with:
           # Internal links are checked against the built site. Canonical URLs
           # must not depend on the live site's deployment or certificate.
+          # Generated API references link each symbol to its source in this
+          # repository at a commit. A build has hundreds of them, and GitHub
+          # rate-limits them with 503, so they are not checked.
           args: >-
             --no-progress
             --max-retries 2
@@ -200,6 +203,7 @@ jobs:
             --exclude '^https://docs\.xmtp\.org/.*'
             --exclude '^https://self-hosted-docs\.xmtp\.to/.*'
             --exclude '^https://github\.com/xmtp/libxmtp/edit/.*'
+            --exclude '^https://github\.com/xmtp/libxmtp/blob/[0-9a-f]{40}/.*'
             --exclude '^http://collector:4317/?$'
             'apps/docs/_site/*.html'
             'apps/docs/_site/agents/**/*.html'
