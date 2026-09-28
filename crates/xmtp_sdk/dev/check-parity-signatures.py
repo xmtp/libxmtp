@@ -7,6 +7,10 @@ follows every export, value and type-only, to its declaration and compares
 the declaration text. Enum members, literal unions, nested fields, optional
 markers, and `| undefined` are all in that text. The SDK-037 list and the
 exceptions below are the only permitted differences (plan P62).
+
+The two browser entrypoints split the surface. Each one is checked on its
+own: the worker bridge exports every Node export except SDK-037 and the
+pure-only list, and the pure module exports exactly the pure lists.
 """
 
 from __future__ import annotations
@@ -25,7 +29,9 @@ GENERATED = ROOT / "target/sdk-generated"
 TSC = ROOT / "node_modules/.bin/tsc"
 
 NODE = "typescript-napi"
-BROWSER = ("typescript-wasm", "typescript-pure")
+WORKER = "typescript-wasm"
+PURE = "typescript-pure"
+BROWSER = (WORKER, PURE)
 
 # SDK-037 removes these exports from the browser target.
 SDK_037_NODE_ONLY = {
@@ -56,20 +62,86 @@ SDK_037_NODE_ONLY_MEMBERS = {
 # yet, so the list is empty; add the members when it is.
 SDK_037_BROWSER_ONLY_MEMBERS: dict[str, set[str]] = {}
 
-# Exports that are not app API, each with the reason it differs.
+# Exports that are not app API, each with the one browser entrypoint that
+# exports it and the reason it differs.
 INTERNAL_BROWSER_ONLY = {
     # The worker runtime reads it after a failed create. Native builds have
     # no storage lock.
-    "storeLeftOpen": "worker runtime only",
+    "storeLeftOpen": (WORKER, "worker runtime only"),
     # The main-thread pure module loads its own WASM file.
-    "initPureWasm": "loads the main-thread pure module",
+    "initPureWasm": (PURE, "loads the main-thread pure module"),
 }
-# Exports that exist on both targets but take a platform-specific form. `None`
-# skips the whole declaration; a set skips those members on both targets.
-PLATFORM_SPECIFIC: dict[str, set[str] | None] = {
-    # Node loads the native library synchronously; the browser needs the
-    # URL of its WASM file.
-    "uniffiInitAsync": None,
+# The main-thread pure module owns the codecs and the pure helpers. The worker
+# bridge does not export them.
+PURE_ONLY = {
+    "ActionsCodec",
+    "AttachmentCodec",
+    "DeleteMessageCodec",
+    "GroupUpdatedCodec",
+    "IntentCodec",
+    "LeaveRequestCodec",
+    "MarkdownCodec",
+    "MultiRemoteAttachmentCodec",
+    "ReactionV2Codec",
+    "ReadReceiptCodec",
+    "RemoteAttachmentCodec",
+    "ReplyCodec",
+    "TextCodec",
+    "TransactionReferenceCodec",
+    "WalletSendCallsCodec",
+    "decodeStandard",
+    "encodeStandard",
+    "encodeText",
+    "sdkVersion",
+    "standardContentType",
+}
+# The records, enums, and errors that the pure module shares with the worker
+# bridge. With PURE_ONLY and its internal exports, this is the whole pure
+# module surface.
+PURE_SHARED = {
+    "Action",
+    "ActionStyle",
+    "Actions",
+    "Attachment",
+    "Compression",
+    "ContentTypeID",
+    "ConversationID",
+    "DeletedBy",
+    "DeletedBy_Tags",
+    "DeletedMessage",
+    "EncodedContent",
+    "ErrorCategory",
+    "ErrorDetails",
+    "GroupUpdated",
+    "InboxID",
+    "InstallationID",
+    "Intent",
+    "LeaveRequest",
+    "MessageID",
+    "MetadataFieldChange",
+    "MultiRemoteAttachment",
+    "Reaction",
+    "ReactionAction",
+    "ReactionSchema",
+    "RemoteAttachment",
+    "SendOptions",
+    "StandardContent",
+    "StandardContentKind",
+    "StandardContent_Tags",
+    "Timestamp",
+    "TransactionMetadata",
+    "TransactionReference",
+    "WalletCall",
+    "WalletCallMetadata",
+    "WalletSendCalls",
+    "XmtpError",
+    "XmtpError_Tags",
+    "default",
+    "uniffiInitAsync",
+}
+# Members that exist on both targets but take a platform-specific form. The
+# check skips these members on both targets.
+PLATFORM_SPECIFIC: dict[str, set[str]] = {
     # The browser host message needs the main-thread session to reach its
     # client. Apps get messages from the SDK and do not construct them.
     "Message": {"constructor"},
@@ -77,20 +149,134 @@ PLATFORM_SPECIFIC: dict[str, set[str] | None] = {
 # Differences that the owner permitted on 2026-09-28 (plan decision O13), in
 # addition to the SDK-037 list, until the browser surface is aligned with
 # Node. Remove an entry when its difference is fixed.
-OWNER_PERMITTED: dict[str, set[str] | None] = {
-    # Node's Client is the runtime wrapper over ClientLike, with static
-    # helpers, codecs, and callback listeners. The browser's Client is the
-    # generated worker proxy: it implements ClientLike, `create` and `build`
-    # take a MainSession, and every async method takes AbortSignal options.
-    # The parity type test compares ClientLike instead.
-    "Client": None,
+OWNER_PERMITTED: dict[str, set[str]] = {
     # The browser lifts custom reply bodies inside `content`; Node keeps the
     # reply body as stored and lifts it only in `replyContent`.
     "Message": {"content"},
-    # Browser log sink calls cross to the worker, so they are async and take
-    # AbortSignal options; Node's are synchronous.
-    "setLogSink": None,
-    "clearLogSink": None,
+}
+# The pinned Client declarations, as `describe` prints them without indent.
+CLIENT_NODE = """\
+class Client { ... }
+conversations(): ConversationsLike;
+decodeCustom(encoded: EncodedContent): { value?: unknown; error?: string; } | undefined;
+end(): Promise<void>;
+events(filter: EventFilter): Promise<EventStream>;
+inboxID(): InboxID;
+installationID(): InstallationID;
+readonly raw: ClientLike;
+startListener(filter: EventFilter, callback: (event: ClientEvent) => void | Promise<void>): Promise<bigint>;
+static build(identity: PublicIdentity, options: SDKClientOptions, inboxID?: InboxID): Promise<Client>;
+static canMessage(identities: PublicIdentity[], backend: BackendSource): Promise<CanMessageEntry[]>;
+static create(signer: Signer, options: SDKClientOptions): Promise<Client>;
+static fetchServerConfiguration(backend: BackendSource): Promise<ServerConfiguration>;
+static inboxIDFor(identity: PublicIdentity, backend: BackendSource): Promise<InboxID>;
+static inboxStates(ids: InboxID[], backend: BackendSource): Promise<InboxState[]>;
+static isAddressAuthorized(inboxID: InboxID, address: string, backend: BackendSource): Promise<boolean>;
+static isInstallationAuthorized(inboxID: InboxID, installationID: InstallationID, backend: BackendSource): Promise<boolean>;
+static keyPackageStatuses(ids: InstallationID[], backend: BackendSource): Promise<KeyPackageStatusEntry[]>;
+static newestMessageMetadata(ids: ConversationID[], backend: BackendSource): Promise<MessageMetadataEntry[]>;
+static revokeInstallations(signer: Signer, inboxID: InboxID, ids: InstallationID[], backend: BackendSource): Promise<void>;
+static verifySignedWithPublicKey(text: string, signature: ArrayBuffer, publicKey: ArrayBuffer): Promise<boolean>;
+stopListener(id: bigint): Promise<void>;
+storage(): StorageLike;
+"""
+CLIENT_WORKER = """\
+class Client implements ClientLike { ... }
+appVersion(): string | undefined;
+archives(): ArchivesLike;
+canMessage(identities: Array<PublicIdentity>, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<CanMessageEntry>>;
+catchUpToLive(timeoutMs: bigint | undefined, asyncOpts_?: { signal: AbortSignal; }): Promise<CatchUpSummary>;
+changeRecoveryIdentifier(signer: Signer, identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+checkLive(name: string, session?: MainSession): void;
+clientKey(): bigint;
+constructor(session: MainSession, handle: HandleWire);
+conversations(): ConversationsLike;
+decodeContent(encoded: EncodedContent, asyncOpts_?: { signal: AbortSignal; }): Promise<MessageContent>;
+diagnostics(): DiagnosticsLike;
+end(asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+events(filter: EventFilter, asyncOpts_?: { signal: AbortSignal; }): Promise<EventReaderLike>;
+identity(): PublicIdentity;
+inboxID(): InboxID;
+inboxIDFor(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<InboxID | undefined>;
+inboxState(refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<InboxState>;
+inboxStates(ids: Array<InboxID>, refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<InboxState>>;
+installationID(): InstallationID;
+installationIDBytes(): ArrayBuffer;
+isInMemory(): boolean;
+isRegistered(asyncOpts_?: { signal: AbortSignal; }): Promise<boolean>;
+keyPackageStatuses(ids: Array<InstallationID>, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<KeyPackageStatusEntry>>;
+latestInboxUpdatesCount(ids: Array<InboxID>, refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<InboxCountEntry>>;
+libxmtpVersion(): string;
+options(): ClientOptions;
+ownInboxUpdatesCount(refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<bigint>;
+preferences(): PreferencesLike;
+protected call(key: string, args: unknown[] | (() => unknown[]), signal?: AbortSignal): Promise<unknown>;
+protected check(): void;
+protected fence(): void;
+protected readonly session: MainSession;
+protected snapshot(name: string): unknown;
+protected unfence(): void;
+readonly handle: HandleWire;
+refreshServerConfiguration(asyncOpts_?: { signal: AbortSignal; }): Promise<ServerConfiguration>;
+register(asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+release(): void;
+removeAccount(recoverySigner: Signer, identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+revokeAllOtherInstallations(signer: Signer, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+revokeInstallations(signer: Signer, ids: Array<InstallationID>, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+serverConfiguration(): ServerConfiguration;
+setCredential(credential: Credential, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+signWithInstallationKey(text: string, asyncOpts_?: { signal: AbortSignal; }): Promise<ArrayBuffer>;
+startListener(filter: EventFilter, listener: EventListener, asyncOpts_?: { signal: AbortSignal; }): Promise<ListenerID>;
+static build(session: MainSession, identity: PublicIdentity, options: HostClientOptions, inboxID: InboxID | undefined, asyncOpts_?: { signal: AbortSignal; }): Promise<Client>;
+static create(session: MainSession, signer: Signer, options: HostClientOptions, asyncOpts_?: { signal: AbortSignal; }): Promise<Client>;
+stopListener(id: ListenerID, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+storage(): StorageLike;
+storagePath(): string | undefined;
+syncAllDeviceSyncGroups(asyncOpts_?: { signal: AbortSignal; }): Promise<GroupSyncSummary>;
+unsafeAddAccount(signer: Signer, allowInboxReassign: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+unsafeAddAccountSignatureRequest(identity: PublicIdentity, allowInboxReassign: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
+unsafeApplySignatureRequest(request: SignatureRequestLike, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+unsafeChangeRecoveryIdentifierSignatureRequest(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
+unsafeCreateInboxSignatureRequest(asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike | undefined>;
+unsafeRemoveAccountSignatureRequest(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
+unsafeRevokeAllOtherInstallationsSignatureRequest(asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike | undefined>;
+unsafeRevokeInstallationsSignatureRequest(ids: Array<InstallationID>, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
+verifySignedWithInstallationKey(text: string, signature: ArrayBuffer, asyncOpts_?: { signal: AbortSignal; }): Promise<boolean>;
+"""
+# Declarations that differ as a whole. Each target must match its pinned text,
+# as `describe` prints it, so any drift on either target fails. When a pinned
+# declaration changes on purpose, copy the new text from the error.
+PINNED: dict[str, dict[str, str]] = {
+    # Node loads the native library; the browser needs the URL of its WASM
+    # file.
+    "uniffiInitAsync": {
+        NODE: "function uniffiInitAsync(): Promise<void>;",
+        WORKER: "function uniffiInitAsync(source: WasmSource): Promise<void>;",
+        PURE: "function uniffiInitAsync(source: WasmSource): Promise<void>;",
+    },
+    # Owner decision O13 (2026-09-28). Browser log sink calls cross to the
+    # worker, so they are async and take AbortSignal options; Node's are
+    # synchronous.
+    "setLogSink": {
+        NODE: "function setLogSink(sink?: LogSink): void;",
+        WORKER: "function setLogSink(sink: LogSink | undefined, asyncOpts_?: "
+        "{ signal: AbortSignal; }): Promise<void>;",
+    },
+    "clearLogSink": {
+        NODE: "function clearLogSink(): void;",
+        WORKER: "function clearLogSink(asyncOpts_?: { signal: AbortSignal; }): "
+        "Promise<void>;",
+    },
+    # Owner decision O13 (2026-09-28). Node's Client is the runtime wrapper
+    # over ClientLike, with static helpers, codecs, and callback listeners.
+    # The browser's Client is the generated worker proxy: it implements
+    # ClientLike, `create` and `build` take a MainSession, and every async
+    # method takes AbortSignal options. The parity type test compares
+    # ClientLike.
+    "Client": {
+        NODE: CLIENT_NODE,
+        WORKER: CLIENT_WORKER,
+    },
 }
 
 
@@ -358,47 +544,71 @@ def describe(declarations: list[Declaration]) -> str:
     return "\n".join(lines)
 
 
+def pinned_text(text: str) -> str:
+    return "\n".join(line.strip() for line in text.strip().splitlines())
+
+
+def expected_exports(flavor: str, node_exports: set[str]) -> set[str]:
+    if flavor == PURE:
+        return PURE_ONLY | PURE_SHARED
+    return node_exports - SDK_037_NODE_ONLY.keys() - PURE_ONLY
+
+
 def compare(out: Path) -> list[str]:
     node_root = emit(NODE, out)
     node = Surface(node_root)
     node_exports = node.exports(node.module(node_root / "index.d.ts"))
-    browser: dict[str, list[tuple[str, Module, str]]] = defaultdict(list)
-    surfaces: dict[str, Surface] = {}
+    errors = []
+    for name in sorted((PURE_ONLY | PURE_SHARED) - node_exports.keys()):
+        errors.append(f"{name}: the pure list names it and Node does not export it")
     for flavor in BROWSER:
         root = emit(flavor, out)
-        surface = surfaces[flavor] = Surface(root)
-        for name, (module, local) in surface.exports(
-            surface.module(root / "index.d.ts")
-        ).items():
-            browser[name].append((flavor, module, local))
-
-    errors = []
-    for name in sorted(node_exports.keys() - browser.keys()):
-        if name not in SDK_037_NODE_ONLY:
-            errors.append(f"{name}: Node exports it and the browser does not")
-    for name in sorted(browser.keys() - node_exports.keys()):
-        if name not in INTERNAL_BROWSER_ONLY:
-            errors.append(f"{name}: the browser exports it and Node does not")
-    for name in sorted(SDK_037_NODE_ONLY.keys() & browser.keys()):
-        errors.append(f"{name}: SDK-037 removes it from the browser")
-    for name in sorted(node_exports.keys() & browser.keys()):
-        skipped = set()
-        for exceptions in (PLATFORM_SPECIFIC, OWNER_PERMITTED):
-            if name in exceptions:
-                if exceptions[name] is None:
-                    skipped = None
-                    break
-                skipped |= exceptions[name]
-        if skipped is None:
-            continue
-        module, local = node_exports[name]
-        native = without(
-            node.declaration(module, local),
-            SDK_037_NODE_ONLY_MEMBERS.get(name, set()) | skipped,
-        )
-        for flavor, web_module, web_local in browser[name]:
+        surface = Surface(root)
+        exports = surface.exports(surface.module(root / "index.d.ts"))
+        internal = {
+            name
+            for name, (owner, _reason) in INTERNAL_BROWSER_ONLY.items()
+            if owner == flavor
+        }
+        expected = expected_exports(flavor, node_exports.keys())
+        for name in sorted(expected - exports.keys()):
+            errors.append(f"{name}: Node exports it and {flavor} does not")
+        for name in sorted(exports.keys() - expected - internal):
+            if name in SDK_037_NODE_ONLY:
+                errors.append(f"{name}: SDK-037 removes it from {flavor}")
+            elif name in INTERNAL_BROWSER_ONLY or name not in node_exports:
+                errors.append(f"{name}: {flavor} exports it and Node does not")
+            else:
+                errors.append(f"{name}: {flavor} exports it outside its list")
+        for name in sorted(internal - exports.keys()):
+            errors.append(f"{name}: the internal export is missing from {flavor}")
+        for name in sorted(expected & exports.keys()):
+            web_module, web_local = exports[name]
+            if name in PINNED:
+                for target, surface_of, module, local in (
+                    (NODE, node, *node_exports[name]),
+                    (flavor, surface, web_module, web_local),
+                ):
+                    pin = PINNED[name].get(target)
+                    actual = pinned_text(
+                        describe(surface_of.declaration(module, local))
+                    )
+                    if pin is None or pinned_text(pin) != actual:
+                        errors.append(
+                            f"{name}: the {target} declaration differs from its"
+                            f" pin\n{actual}"
+                        )
+                continue
+            skipped = PLATFORM_SPECIFIC.get(name, set()) | OWNER_PERMITTED.get(
+                name, set()
+            )
+            module, local = node_exports[name]
+            native = without(
+                node.declaration(module, local),
+                SDK_037_NODE_ONLY_MEMBERS.get(name, set()) | skipped,
+            )
             web = without(
-                surfaces[flavor].declaration(web_module, web_local),
+                surface.declaration(web_module, web_local),
                 SDK_037_BROWSER_ONLY_MEMBERS.get(name, set()) | skipped,
             )
             if native != web:
@@ -406,7 +616,8 @@ def compare(out: Path) -> list[str]:
                     f"{name}: Node and {flavor} declarations differ\n"
                     f" Node:\n{describe(native)}\n {flavor}:\n{describe(web)}"
                 )
-    return errors
+    # Each flavor checks the Node side of a pin again; report it once.
+    return list(dict.fromkeys(errors))
 
 
 def main() -> None:
