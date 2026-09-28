@@ -173,12 +173,72 @@ mod tests {
     use super::*;
 
     // verifies: ARCH-012
-    #[xmtp_common::test]
-    fn rejects_archive_key_with_extra_bytes() {
-        assert!(matches!(
-            key(vec![7; ENC_KEY_SIZE + 1]),
-            Err(XmtpError::InvalidInput(_))
-        ));
+    #[xmtp_common::test(unwrap_try = true)]
+    fn archive_key_requires_exact_length() {
+        for length in [0, ENC_KEY_SIZE - 1, ENC_KEY_SIZE + 1] {
+            assert!(matches!(
+                key(vec![7; length]),
+                Err(XmtpError::InvalidInput(_))
+            ));
+        }
+        assert_eq!(key(vec![7; ENC_KEY_SIZE])?, vec![7; ENC_KEY_SIZE]);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn archive_options_preserve_element_selection_and_time_bounds() {
+        let all: CoreArchiveOptions = ArchiveOptions {
+            start: None,
+            end: None,
+            elements: None,
+            exclude_disappearing_messages: false,
+        }
+        .into();
+        assert_eq!(all.elements.len(), 2);
+
+        let empty: CoreArchiveOptions = ArchiveOptions {
+            start: Some(Timestamp(7)),
+            end: Some(Timestamp(9)),
+            elements: Some(vec![]),
+            exclude_disappearing_messages: true,
+        }
+        .into();
+        assert!(empty.elements.is_empty());
+        assert_eq!(empty.start_ns, Some(7));
+        assert_eq!(empty.end_ns, Some(9));
+        assert!(empty.exclude_disappearing_messages);
+
+        let messages: CoreArchiveOptions = ArchiveOptions {
+            start: None,
+            end: None,
+            elements: Some(vec![ArchiveElement::Messages]),
+            exclude_disappearing_messages: false,
+        }
+        .into();
+        assert_eq!(messages.elements.len(), 1);
+        assert!(matches!(messages.elements[0], CoreElement::Messages));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn archive_metadata_keeps_fields_and_filters_unspecified() {
+        let metadata = BackupMetadata {
+            backup_version: 1,
+            elements: vec![
+                CoreElement::Messages,
+                CoreElement::Unspecified,
+                CoreElement::Consent,
+            ],
+            exported_at_ns: 12345,
+            start_ns: Some(100),
+            end_ns: Some(200),
+        };
+        let public: ArchiveMetadata = metadata.into();
+        assert_eq!(public.backup_version, 1);
+        assert_eq!(public.elements.len(), 2);
+        assert!(matches!(public.elements[0], ArchiveElement::Messages));
+        assert!(matches!(public.elements[1], ArchiveElement::Consent));
+        assert_eq!(public.exported_at.0, 12345);
+        assert_eq!(public.start.map(|time| time.0), Some(100));
+        assert_eq!(public.end.map(|time| time.0), Some(200));
     }
 }
 

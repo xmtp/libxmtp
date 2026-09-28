@@ -239,22 +239,36 @@ const defaultRoot = await mkdtemp(join(tmpdir(), "xmtp-sdk-default-"));
 const oldCwd = process.cwd();
 process.chdir(defaultRoot);
 try {
-  const defaultClient = await sdk.Client.build(
-    identity,
-    {
-      ...options,
-      storage: {
-        ...options.storage,
-        location: new sdk.StorageLocation.Default(),
+  await assert.rejects(
+    sdk.Client.build(
+      identity,
+      {
+        ...options,
+        storage: {
+          ...options.storage,
+          location: new sdk.StorageLocation.Default(),
+        },
       },
-    },
-    inboxID,
-  );
-  assert.ok(
-    (await readdir(join(defaultRoot, "xmtp"))).some((name) =>
-      name.endsWith(".db3"),
+      inboxID,
     ),
+    (error) => error instanceof sdk.XmtpError.IdentityNotFound,
   );
+  assert.equal((await readdir(join(defaultRoot, "xmtp"))).length, 0);
+  // verifies: STORE-004
+  const defaultClient = await sdk.Client.create(signer, {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: new sdk.StorageLocation.Default(),
+    },
+  });
+  const defaultPath = join(
+    defaultRoot,
+    "xmtp",
+    `xmtp-${defaultClient.inboxID().toString()}.db3`,
+  );
+  assert.equal(await defaultClient.storage().path(), realpathSync(defaultPath));
+  assert.ok((await stat(defaultPath)).isFile());
   await defaultClient.end();
 } finally {
   process.chdir(oldCwd);
@@ -993,7 +1007,7 @@ const credentialOptions = {
       },
     },
   }),
-  storage: { ...options.storage, location: new sdk.StorageLocation.InMemory() },
+  storage: options.storage,
 };
 const credentialClient = await sdk.Client.build(
   identity,
@@ -1072,19 +1086,21 @@ assert.equal(
   )[0]?.canMessage,
   true,
 );
-const connectedClient = await sdk.Client.build(
-  identity,
-  {
-    ...options,
-    backend: new sdk.BackendSource.Connected({ backend: staticBackend }),
-    storage: {
-      ...options.storage,
-      location: new sdk.StorageLocation.InMemory(),
+await assert.rejects(
+  sdk.Client.build(
+    identity,
+    {
+      ...options,
+      backend: new sdk.BackendSource.Connected({ backend: staticBackend }),
+      storage: {
+        ...options.storage,
+        location: new sdk.StorageLocation.InMemory(),
+      },
     },
-  },
-  inboxID,
+    inboxID,
+  ),
+  (error) => error instanceof sdk.XmtpError.IdentityNotFound,
 );
-await connectedClient.end();
 assert.equal(
   (await reopened.raw.refreshServerConfiguration()).identifier,
   snapshot.identifier,
@@ -1237,6 +1253,68 @@ await unsigned.raw.unsafeApplySignatureRequest(request);
 assert.equal(await unsigned.raw.isRegistered(), true);
 await unsigned.end();
 console.log("Node scenario 11: local signer and signature request passed");
+
+// verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
+function recordingSigner(calls: string[]) {
+  const wallet = privateKeyToAccount(generatePrivateKey());
+  return {
+    async identity() {
+      return {
+        identifier: wallet.address.toLowerCase(),
+        kind: sdk.PublicIdentityKind.Ethereum,
+      };
+    },
+    async kind() {
+      return new sdk.SignerKind.Eoa();
+    },
+    async sign(request: { text: string }) {
+      calls.push("sign");
+      const signature = await wallet.signMessage({ message: request.text });
+      return new sdk.Signature.Ecdsa(
+        Uint8Array.from(toBytes(signature)).buffer,
+      );
+    },
+  };
+}
+function preAuthenticateOptions(calls: string[], fail: boolean, auto: boolean) {
+  return {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: new sdk.StorageLocation.InMemory(),
+    },
+    registration: { auto, nonce: undefined },
+    handlers: {
+      preAuthenticate: {
+        async run() {
+          calls.push("pre-authenticate");
+          if (fail) throw new sdk.PreAuthenticateError.Failed();
+        },
+      },
+    },
+  };
+}
+const preAuthCalls: string[] = [];
+const preAuthenticated = await sdk.Client.create(
+  recordingSigner(preAuthCalls),
+  preAuthenticateOptions(preAuthCalls, false, false),
+);
+assert.deepEqual(preAuthCalls, []);
+await preAuthenticated.raw.register();
+assert.deepEqual(preAuthCalls, ["pre-authenticate", "sign"]);
+preAuthCalls.length = 0;
+await preAuthenticated.raw.register();
+assert.deepEqual(preAuthCalls, []);
+await preAuthenticated.end();
+await assert.rejects(
+  sdk.Client.create(
+    recordingSigner(preAuthCalls),
+    preAuthenticateOptions(preAuthCalls, true, true),
+  ),
+  (error) => error instanceof sdk.XmtpError.CallbackFailed,
+);
+assert.deepEqual(preAuthCalls, ["pre-authenticate"]);
+console.log("Node IDENT-073: host preAuthenticate runs before the signer");
 
 const familyGroup = await reopened.conversations().createGroup([], {
   permissions: undefined,

@@ -88,10 +88,23 @@ for sdk in ("Swift", "Kotlin"):
     add(
         sdk,
         client_owner,
-        "create build",
+        "create",
         "static runtime",
         ref,
         note="Host wrapper owns codecs and closures (11.1; plan Decisions).",
+    )
+    add(
+        sdk,
+        client_owner,
+        "build",
+        "static runtime",
+        ref,
+        note=(
+            "Host wrapper owns codecs and closures (11.1; plan Decisions). "
+            "Build requires a stored identity and does not fetch configuration "
+            f"for an empty database. The current {sdk} build starts offline "
+            "with an inbox ID."
+        ),
     )
     add(sdk, client_owner, "createInMemory", "approved removal", ref)
     add(
@@ -337,10 +350,25 @@ for sdk in ("Node", "Browser"):
     add(
         sdk,
         "Client",
-        "create build",
+        "create",
         "static runtime",
         ref,
         note="Host wrapper owns codecs and closures (11.1; plan Decisions).",
+    )
+    add(
+        sdk,
+        "Client",
+        "build",
+        "static runtime",
+        ref,
+        note=(
+            "Host wrapper owns codecs and closures (11.1; plan Decisions). "
+            "The façade build requires a stored identity and does not fetch "
+            f"configuration for an empty database. The current {sdk} build does "
+            "not: it resolves the inbox ID from the backend and creates the "
+            "client online without allowOffline, so an empty database fetches "
+            "configuration and needs no stored identity."
+        ),
     )
     add(
         sdk,

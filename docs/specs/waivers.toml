@@ -732,7 +732,7 @@ reason = "Android Client.deleteLocalDatabase ignores the Boolean from File(dbPat
 id = "IDENT-073"
 kind = "untested"
 owner = "protocol"
-reason = "iOS Client.create calls preAuthenticateToInboxCallback before handleSignature, and Android Client.create calls the callback before handleSignature; no test asserts the order."
+reason = "The façade tests prove the order. The current iOS Client.create and Android Client.create call preAuthenticateToInboxCallback before handleSignature, but no test for these separate code paths asserts the order."
 
 [[waiver]]
 id = "IDENT-074"

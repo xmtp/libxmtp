@@ -5,6 +5,23 @@ import {
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/index.js";
 import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index.ts";
 
+async function poolFilenames(): Promise<string[]> {
+  const root = await navigator.storage.getDirectory();
+  const metadata = await root.getDirectoryHandle(".opfs-libxmtp-metadata");
+  const pool = await metadata.getDirectoryHandle(".opaque");
+  const names: string[] = [];
+  for await (const handle of pool.values()) {
+    if (handle.kind !== "file") continue;
+    // The SAH pool keeps the logical name in the first 512 bytes of each file.
+    const bytes = new Uint8Array(
+      await (await handle.getFile()).slice(0, 512).arrayBuffer(),
+    );
+    const end = bytes.indexOf(0);
+    if (end > 0) names.push(new TextDecoder().decode(bytes.subarray(0, end)));
+  }
+  return names.sort();
+}
+
 async function run(): Promise<void> {
   console.log("loading SDK WASM");
   await sdk.uniffiInitAsync(
@@ -81,6 +98,31 @@ async function run(): Promise<void> {
   if (!(sent instanceof sdk.Message) || sent.client() !== client)
     throw new Error("message lift failed");
   await client.end();
+  const newInbox = sdk.InboxID.fromString(
+    Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+      byte.toString(16).padStart(2, "0"),
+    ).join(""),
+  );
+  const newDefaultOptions = {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: new sdk.StorageLocation.Default(),
+      label: crypto.randomUUID(),
+    },
+  };
+  const filesBeforeBuild = await poolFilenames();
+  // verifies: STORE-007
+  try {
+    await sdk.Client.build(identity, newDefaultOptions, newInbox);
+    throw new Error("build opened a database without a stored identity");
+  } catch (error) {
+    if (!(error instanceof sdk.XmtpError.IdentityNotFound)) throw error;
+  }
+  if (
+    JSON.stringify(await poolFilenames()) !== JSON.stringify(filesBeforeBuild)
+  )
+    throw new Error("build created an OPFS database without a stored identity");
   try {
     sent.client();
     throw new Error("ended client remained in registry");
@@ -90,18 +132,28 @@ async function run(): Promise<void> {
   const reopened = await sdk.Client.build(identity, options, inboxID);
   if (reopened.inboxID().toString() !== inboxID.toString())
     throw new Error("inbox changed");
-  const defaultClient = await sdk.Client.build(
-    identity,
-    {
-      ...options,
-      storage: {
-        ...options.storage,
-        location: new sdk.StorageLocation.Default(),
-      },
+  const defaultOptions = {
+    ...options,
+    storage: {
+      ...options.storage,
+      location: new sdk.StorageLocation.Default(),
     },
-    inboxID,
-  );
+  };
+  const defaultClient = await sdk.Client.create(signer, defaultOptions);
+  // verifies: STORE-005
+  const defaultPath = await defaultClient.storage().path();
+  if (!defaultPath?.startsWith("xmtp-sdk/"))
+    throw new Error("browser default storage is outside xmtp-sdk");
+  const defaultInbox = defaultClient.inboxID();
   await defaultClient.end();
+  const reopenedDefault = await sdk.Client.build(
+    identity,
+    defaultOptions,
+    defaultInbox,
+  );
+  if ((await reopenedDefault.storage().path()) !== defaultPath)
+    throw new Error("browser default database did not reopen");
+  await reopenedDefault.end();
   postMessage({ result: "Browser scenario 2 passed" });
 
   const liveGroup = await reopened.conversations().createGroup([], undefined);

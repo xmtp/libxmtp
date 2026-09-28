@@ -16,6 +16,7 @@ use crate::{
     Archives, BackendSource, Conversations, Diagnostics, InboxID, InstallationID, Preferences,
     PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError, signer,
 };
+use xmtp_common::{MaybeSend, MaybeSync};
 
 pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 
@@ -171,6 +172,32 @@ impl From<WorkerOptions> for xmtp_mls::worker::WorkerConfig {
     }
 }
 
+#[xmtp_macro::callback_error]
+#[derive(Clone, Debug, thiserror::Error, uniffi::Error)]
+pub enum PreAuthenticateError {
+    #[error("pre-authenticate callback failed")]
+    Failed,
+}
+
+impl From<uniffi::UnexpectedUniFFICallbackError> for PreAuthenticateError {
+    fn from(_: uniffi::UnexpectedUniFFICallbackError) -> Self {
+        Self::Failed
+    }
+}
+
+// Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
+#[uniffi::export(with_foreign)]
+#[xmtp_common::async_trait]
+pub trait PreAuthenticate: MaybeSend + MaybeSync + 'static {
+    async fn run(&self) -> Result<(), PreAuthenticateError>;
+}
+
+#[derive(Clone, Default, uniffi::Record)]
+pub struct ClientHandlers {
+    #[uniffi(default = None)]
+    pub pre_authenticate: Option<Arc<dyn PreAuthenticate>>,
+}
+
 #[derive(Clone, uniffi::Record)]
 pub struct ClientOptions {
     /// Omission uses empty connection options, as the old field default did.
@@ -179,12 +206,17 @@ pub struct ClientOptions {
     pub storage: StorageOptions,
     #[uniffi(default = true)]
     pub device_sync: bool,
+    /// Permit startup from stored state when the backend is unavailable.
+    #[uniffi(default = false)]
+    pub allow_offline: bool,
     #[uniffi(default)]
     pub registration: RegistrationOptions,
     #[uniffi(default = None)]
     pub fork_recovery: Option<ForkRecoveryOptions>,
     #[uniffi(default = None)]
     pub workers: Option<WorkerOptions>,
+    #[uniffi(default = None)]
+    pub handlers: Option<ClientHandlers>,
 }
 
 impl Default for ClientOptions {
@@ -193,9 +225,11 @@ impl Default for ClientOptions {
             backend: None,
             storage: StorageOptions::default(),
             device_sync: true,
+            allow_offline: false,
             registration: RegistrationOptions::default(),
             fork_recovery: None,
             workers: None,
+            handlers: None,
         }
     }
 }
@@ -218,6 +252,7 @@ impl Client {
         identity: PublicIdentity,
         mut options: ClientOptions,
         inbox_id: Option<InboxID>,
+        require_stored_identity: bool,
     ) -> Result<Self, XmtpError> {
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
@@ -232,7 +267,18 @@ impl Client {
             }
             StorageLocation::Default | StorageLocation::InMemory => {}
         }
+        if options.allow_offline && inbox_id.is_none() {
+            return Err(XmtpError::invalid("allowOffline requires an inbox ID"));
+        }
         let identifier = identity.to_core()?;
+        // Check a known database before resolving the backend. Build must not
+        // fetch configuration or create an identity for an empty database.
+        let checked_store = match (require_stored_identity, inbox_id.as_ref()) {
+            (true, Some(inbox_id)) => {
+                Some(open_existing_store(&options.storage, &inbox_id.0).await?)
+            }
+            _ => None,
+        };
         let backend = options
             .backend
             .clone()
@@ -256,7 +302,13 @@ impl Client {
                 }
             }
         };
-        let store = open_store(&options.storage, &inbox_id).await?;
+        let store = match checked_store {
+            Some(store) => store,
+            None if require_stored_identity => {
+                open_existing_store(&options.storage, &inbox_id).await?
+            }
+            None => open_store(&options.storage, &inbox_id).await?,
+        };
         #[cfg(not(target_arch = "wasm32"))]
         let storage_path = native_storage_path(&options.storage, &inbox_id)?;
         #[cfg(target_arch = "wasm32")]
@@ -273,6 +325,7 @@ impl Client {
             None,
         ))
         .api_client_with_streams(backend.api.clone())
+        .with_allow_offline(Some(options.allow_offline))
         .with_remote_verifier()
         .map_err(XmtpError::unknown)?
         .store(store)
@@ -315,6 +368,17 @@ impl Client {
         let Some(mut request) = self.inner.identity().signature_request() else {
             return Ok(());
         };
+        if let Some(handler) = self
+            .options
+            .handlers
+            .as_ref()
+            .and_then(|handlers| handlers.pre_authenticate.clone())
+        {
+            crate::foreign::call(async move { handler.run().await })
+                .await
+                .map_err(|_| XmtpError::callback_failed())?
+                .map_err(|_| XmtpError::callback_failed())?;
+        }
         let signature = signer::sign(
             signer,
             SigningRequest {
@@ -382,6 +446,43 @@ impl Client {
     }
 }
 
+async fn open_existing_store(
+    options: &StorageOptions,
+    inbox_id: &str,
+) -> Result<xmtp_db::DefaultStore, XmtpError> {
+    use xmtp_db::{Fetch, identity::StoredIdentity};
+
+    if matches!(options.location, StorageLocation::InMemory) {
+        return Err(XmtpError::identity_not_found());
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    if let Some(path) = native_storage_path(options, inbox_id)?
+        && !std::path::Path::new(&path)
+            .try_exists()
+            .map_err(XmtpError::storage)?
+    {
+        return Err(XmtpError::identity_not_found());
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        let path =
+            wasm_storage_path(options, inbox_id)?.ok_or_else(XmtpError::identity_not_found)?;
+        xmtp_db::init_sqlite().await;
+        let pool = xmtp_db::get_sqlite()
+            .ok_or_else(|| XmtpError::unknown("OPFS pool is unavailable"))?
+            .map_err(XmtpError::unknown)?;
+        if !pool.exists(&path).map_err(XmtpError::unknown)? {
+            return Err(XmtpError::identity_not_found());
+        }
+    }
+    let store = open_store(options, inbox_id).await?;
+    let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::unknown)?;
+    if stored.is_none() {
+        return Err(XmtpError::identity_not_found());
+    }
+    Ok(store)
+}
+
 #[xmtp_macro::sdk_export]
 impl Client {
     #[uniffi::constructor]
@@ -390,7 +491,7 @@ impl Client {
         options: ClientOptions,
     ) -> Result<Self, XmtpError> {
         let identity = signer::identity(signer.clone()).await?;
-        let mut client = Self::build_inner(identity, options, None).await?;
+        let mut client = Self::build_inner(identity, options, None, false).await?;
         if client.options.registration.auto {
             let kind = signer::kind(signer.clone()).await?;
             client.register_with_signer(signer.clone(), kind).await?;
@@ -399,14 +500,15 @@ impl Client {
         Ok(client)
     }
 
-    /// Without an inbox ID, build queries the backend, so an offline app must pass the inbox ID.
+    /// Build requires a stored identity. It fetches server configuration by default.
+    /// Set `allowOffline` to true with a known inbox ID to use stored state offline.
     #[uniffi::constructor]
     pub async fn build(
         identity: PublicIdentity,
         options: ClientOptions,
         inbox_id: Option<InboxID>,
     ) -> Result<Self, XmtpError> {
-        Self::build_inner(identity, options, inbox_id).await
+        Self::build_inner(identity, options, inbox_id, true).await
     }
 
     pub fn inbox_id(&self) -> InboxID {
@@ -580,12 +682,14 @@ pub(crate) async fn open_store(
 
 pub(crate) fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
     let label = options.label.as_deref().unwrap_or("");
-    if [label, inbox_id]
-        .iter()
-        .any(|part| part.contains('/') || part.contains('\\') || part.chars().any(char::is_control))
-    {
+    if [label, inbox_id].iter().any(|part| {
+        part.contains('/')
+            || part.contains('\\')
+            || part.contains(':')
+            || part.chars().any(char::is_control)
+    }) {
         return Err(XmtpError::invalid(
-            "storage label or inbox ID contains a path separator",
+            "storage label or inbox ID contains an unsafe character",
         ));
     }
     let label = if label.is_empty() {

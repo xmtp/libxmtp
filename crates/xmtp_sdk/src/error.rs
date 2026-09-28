@@ -32,6 +32,8 @@ pub enum XmtpError {
     InvalidInput(ErrorDetails),
     #[error("storage location required: {0:?}")]
     StorageLocationRequired(ErrorDetails),
+    #[error("identity not found: {0:?}")]
+    IdentityNotFound(ErrorDetails),
     #[error("signer failed: {0:?}")]
     Signer(ErrorDetails),
     #[error("credential failed: {0:?}")]
@@ -52,6 +54,8 @@ pub enum XmtpError {
     CredentialRejected(ErrorDetails),
     #[error("credential callback failed: {0:?}")]
     CredentialCallbackFailed(ErrorDetails),
+    #[error("callback failed: {0:?}")]
+    CallbackFailed(ErrorDetails),
     #[error("credential attempts exhausted: {0:?}")]
     CredentialExhausted(ErrorDetails),
     #[error("credential missing: {0:?}")]
@@ -154,6 +158,24 @@ impl XmtpError {
         })
     }
 
+    pub(crate) fn storage(error: impl std::fmt::Display) -> Self {
+        Self::Storage(Self::details(
+            "Storage",
+            ErrorCategory::Storage,
+            false,
+            error.to_string(),
+        ))
+    }
+
+    pub(crate) fn identity_not_found() -> Self {
+        Self::IdentityNotFound(Self::details(
+            "IdentityNotFound",
+            ErrorCategory::Identity,
+            false,
+            "database has no stored identity",
+        ))
+    }
+
     pub(crate) fn unknown(error: impl std::fmt::Display) -> Self {
         Self::Unknown(ErrorDetails {
             code: "Unknown".into(),
@@ -170,6 +192,15 @@ impl XmtpError {
             retryable: false,
             message: "signer callback failed".into(),
         })
+    }
+
+    pub(crate) fn callback_failed() -> Self {
+        Self::CallbackFailed(Self::details(
+            "CallbackFailed",
+            ErrorCategory::Callback,
+            false,
+            "pre-authenticate callback failed",
+        ))
     }
 
     pub(crate) fn from_signature_request(

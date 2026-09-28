@@ -87,6 +87,69 @@ final class TestSigner: Signer, @unchecked Sendable {
     }
 }
 
+final class CallLog: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [String] = []
+
+    func append(_ value: String) {
+        lock.lock()
+        values.append(value)
+        lock.unlock()
+    }
+
+    func removeAll() {
+        lock.lock()
+        values.removeAll()
+        lock.unlock()
+    }
+
+    var calls: [String] {
+        lock.lock()
+        defer { lock.unlock() }
+        return values
+    }
+}
+
+final class RecordingSigner: Signer, @unchecked Sendable {
+    private let inner: Signer
+    private let log: CallLog
+
+    init(_ inner: Signer, _ log: CallLog) {
+        self.inner = inner
+        self.log = log
+    }
+
+    func identity() async throws -> PublicIdentity {
+        try await inner.identity()
+    }
+
+    func kind() async throws -> SignerKind {
+        try await inner.kind()
+    }
+
+    func sign(request: SigningRequest) async throws -> Signature {
+        log.append("sign")
+        return try await inner.sign(request: request)
+    }
+}
+
+final class RecordingPreAuthenticate: PreAuthenticate, @unchecked Sendable {
+    private let log: CallLog
+    private let fail: Bool
+
+    init(_ log: CallLog, fail: Bool) {
+        self.log = log
+        self.fail = fail
+    }
+
+    func run() async throws {
+        log.append("pre-authenticate")
+        if fail {
+            throw PreAuthenticateError.Failed
+        }
+    }
+}
+
 final class OrderedLogSink: LogSink, @unchecked Sendable {
     private let lock = NSLock()
     private var values: [String] = []
@@ -302,19 +365,36 @@ struct Conformance {
         let appFolder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent(appName)
         defer { try? FileManager.default.removeItem(at: appFolder) }
-        let defaultHost = try await SDKClient.build(
-            identity: await signer.identity(),
+        do {
+            _ = try await SDKClient.build(
+                identity: await signer.identity(),
+                options: ClientOptions(
+                    backend: options.backend,
+                    storage: StorageOptions(location: .default),
+                    deviceSync: false
+                ), inboxID: inboxID, appName: appName
+            )
+            throw ConformanceFailure("build opened a database with no identity")
+        } catch XmtpError.IdentityNotFound {}
+        let defaultFolder = appFolder.appendingPathComponent("xmtp")
+        let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
+        guard !defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
+            throw ConformanceFailure("build created a new database")
+        }
+        let defaultHost = try await SDKClient.create(
+            signer: TestSigner(),
             options: ClientOptions(
                 backend: options.backend,
                 storage: StorageOptions(location: .default),
                 deviceSync: false
-            ), inboxID: inboxID, appName: appName
+            ),
+            appName: appName
         )
-        let defaultFolder = appFolder.appendingPathComponent("xmtp")
-        let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
-        guard defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
-            throw ConformanceFailure("Default storage has no database file")
-        }
+        let expectedDefaultPath = defaultFolder
+            .appendingPathComponent("xmtp-\(defaultHost.raw.inboxID().value).db3").path
+        guard try await defaultHost.storage().path() == expectedDefaultPath,
+              FileManager.default.fileExists(atPath: expectedDefaultPath)
+        else { throw ConformanceFailure("default storage path is incorrect") }
         try await defaultHost.end()
         try FileManager.default.removeItem(at: appFolder)
         var orphan: Message!
@@ -684,7 +764,7 @@ struct Conformance {
                 url: backendOptions.url,
                 credential: Credential(name: nil, value: "Bearer initial", expiresAtSeconds: largeExpiry)
             )),
-            storage: StorageOptions(location: .inMemory),
+            storage: options.storage,
             deviceSync: false
         )
         let credentialHost = try await SDKClient.build(
@@ -714,12 +794,14 @@ struct Conformance {
         guard try await SDKClient.canMessage([staticIdentity], backend: .options(options: backendOptions)).first?.canMessage == true else {
             throw ConformanceFailure("backend options canMessage did not find this inbox")
         }
-        let connectedHost = try await SDKClient.build(
-            identity: staticIdentity,
-            options: ClientOptions(backend: .connected(backend: staticBackend), storage: StorageOptions(location: .inMemory), deviceSync: false),
-            inboxID: inboxID
-        )
-        try await connectedHost.end()
+        do {
+            _ = try await SDKClient.build(
+                identity: staticIdentity,
+                options: ClientOptions(backend: .connected(backend: staticBackend), storage: StorageOptions(location: .inMemory), deviceSync: false),
+                inboxID: inboxID
+            )
+            throw ConformanceFailure("build opened a database with no identity")
+        } catch XmtpError.IdentityNotFound {}
         guard snapshot.identifier == fetched.identifier else {
             throw ConformanceFailure("configuration fetch returned a different deployment")
         }
@@ -758,6 +840,42 @@ struct Conformance {
         }
         try await unsignedHost.end()
         print("Swift scenario 11: local signer and signature request passed")
+
+        // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
+        let preAuthLog = CallLog()
+        var preAuthOptions = unsignedOptions
+        preAuthOptions.handlers = ClientHandlers(preAuthenticate: RecordingPreAuthenticate(preAuthLog, fail: false))
+        let preAuthenticated = try await SDKClient.create(
+            signer: RecordingSigner(await generateLocalSigner(), preAuthLog),
+            options: preAuthOptions
+        )
+        guard preAuthLog.calls.isEmpty else {
+            throw ConformanceFailure("preAuthenticate ran before registration: \(preAuthLog.calls)")
+        }
+        try await preAuthenticated.raw.register()
+        guard preAuthLog.calls == ["pre-authenticate", "sign"] else {
+            throw ConformanceFailure("preAuthenticate did not run before the signer: \(preAuthLog.calls)")
+        }
+        preAuthLog.removeAll()
+        try await preAuthenticated.raw.register()
+        guard preAuthLog.calls.isEmpty else {
+            throw ConformanceFailure("registered client ran preAuthenticate again: \(preAuthLog.calls)")
+        }
+        try await preAuthenticated.end()
+        var failingOptions = unsignedOptions
+        failingOptions.registration = RegistrationOptions(auto: true)
+        failingOptions.handlers = ClientHandlers(preAuthenticate: RecordingPreAuthenticate(preAuthLog, fail: true))
+        do {
+            _ = try await SDKClient.create(
+                signer: RecordingSigner(await generateLocalSigner(), preAuthLog),
+                options: failingOptions
+            )
+            throw ConformanceFailure("failing preAuthenticate did not stop registration")
+        } catch XmtpError.CallbackFailed {}
+        guard preAuthLog.calls == ["pre-authenticate"] else {
+            throw ConformanceFailure("failing preAuthenticate reached the signer: \(preAuthLog.calls)")
+        }
+        print("Swift IDENT-073: host preAuthenticate runs before the signer")
 
         guard try reopened.notificationState() == .disabled else {
             throw ConformanceFailure("new client notification state was not disabled")
