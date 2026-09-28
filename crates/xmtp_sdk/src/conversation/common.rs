@@ -22,11 +22,11 @@ macro_rules! common_conversation {
                 }
             }
 
-            pub fn added_by_inbox_id(&self) -> InboxId {
+            pub fn added_by_inbox_id(&self) -> Option<InboxId> {
                 self.identity.added_by_inbox_id.clone()
             }
 
-            pub fn creator_inbox_id(&self) -> InboxId {
+            pub fn creator_inbox_id(&self) -> Option<InboxId> {
                 self.identity.creator_inbox_id.clone()
             }
 

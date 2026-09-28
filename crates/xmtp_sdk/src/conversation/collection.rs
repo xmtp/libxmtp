@@ -93,7 +93,7 @@ pub(crate) async fn list_local(
             item.added_by_inbox_id,
             &metadata,
             client.inbox_id(),
-        )?;
+        );
         if let Some(conversation) =
             Conversation::from_preloaded(item.group, client_key, identity, metadata)?
         {
@@ -273,6 +273,59 @@ impl Conversations {
             Box::pin(async move {
                 let group = client
                     .find_or_create_dm(peer.0, Some(metadata))
+                    .await
+                    .map_err(XmtpError::unknown)?;
+                Ok(Arc::new(Dm::from_core(group, client_key).await?))
+            }),
+        )
+        .await
+    }
+
+    /// Create a group from account identities. Hosts present this as a
+    /// `createGroup` overload or union.
+    #[uniffi::method(default(options = None))]
+    pub async fn create_group_with_identities(
+        &self,
+        members: Vec<PublicIdentity>,
+        options: Option<CreateGroupOptions>,
+    ) -> Result<Arc<Group>, XmtpError> {
+        let members = members
+            .iter()
+            .map(PublicIdentity::to_core)
+            .collect::<Result<Vec<_>, _>>()?;
+        let (permissions, metadata) = options.unwrap_or_default().into_core()?;
+        let client = self.client.clone();
+        let client_key = self.client_key;
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                let group = client
+                    .create_group_with_identifiers(&members, permissions, Some(metadata))
+                    .await
+                    .map_err(XmtpError::unknown)?;
+                Ok(Arc::new(Group::from_core(group, client_key).await?))
+            }),
+        )
+        .await
+    }
+
+    /// Find or create a DM with an account identity. Hosts present this as a
+    /// `createDm` overload or union.
+    #[uniffi::method(default(options = None))]
+    pub async fn create_dm_with_identity(
+        &self,
+        peer: PublicIdentity,
+        options: Option<CreateDmOptions>,
+    ) -> Result<Arc<Dm>, XmtpError> {
+        let peer = peer.to_core()?;
+        let client = self.client.clone();
+        let metadata = options.unwrap_or_default().into();
+        let client_key = self.client_key;
+        on_sdk_worker(
+            self.client.context.clone(),
+            Box::pin(async move {
+                let group = client
+                    .find_or_create_dm_by_identity(peer, Some(metadata))
                     .await
                     .map_err(XmtpError::unknown)?;
                 Ok(Arc::new(Dm::from_core(group, client_key).await?))

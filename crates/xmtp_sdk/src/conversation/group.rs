@@ -154,6 +154,53 @@ impl Group {
         .await
     }
 
+    /// Add members by account identity. Hosts present this as an
+    /// `addMembers` overload or union.
+    pub async fn add_members_by_identity(
+        &self,
+        members: Vec<PublicIdentity>,
+    ) -> Result<crate::MembershipResult, XmtpError> {
+        let group = self.inner.clone();
+        let members = members
+            .iter()
+            .map(PublicIdentity::to_core)
+            .collect::<Result<Vec<_>, _>>()?;
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .add_members_by_identity(&members)
+                    .await
+                    .map_err(XmtpError::unknown)?
+                    .try_into()
+            }),
+        )
+        .await
+    }
+
+    /// Remove members by account identity. Hosts present this as a
+    /// `removeMembers` overload or union.
+    pub async fn remove_members_by_identity(
+        &self,
+        members: Vec<PublicIdentity>,
+    ) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        let members = members
+            .iter()
+            .map(PublicIdentity::to_core)
+            .collect::<Result<Vec<_>, _>>()?;
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .remove_members_by_identity(&members)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+
     pub async fn add_admin(&self, inbox_id: InboxId) -> Result<(), XmtpError> {
         self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::Add, inbox_id)
             .await

@@ -492,6 +492,7 @@ mod event_readers;
 mod foreign_callbacks;
 mod group_options;
 mod history_errors;
+mod identity_routes;
 mod lifecycle;
 mod message_actions;
 mod permissions;
