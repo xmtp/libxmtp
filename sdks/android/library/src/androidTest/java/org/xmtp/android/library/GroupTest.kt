@@ -777,7 +777,7 @@ class GroupTest : BaseInstrumentedTest() {
                 val firstId = alixGroup.send("hi")
                 messages.awaitApplications(listOf(firstId to "hi"))
                 val error =
-                    assertThrows(XMTPException::class.java) {
+                    assertThrows(FfiException.Exception::class.java) {
                         runBlocking {
                             alixGroup.send(
                                 content = membershipChange,

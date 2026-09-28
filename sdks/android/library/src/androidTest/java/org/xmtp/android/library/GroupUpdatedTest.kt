@@ -11,6 +11,7 @@ import org.junit.runner.RunWith
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.GroupUpdated
 import org.xmtp.android.library.codecs.GroupUpdatedCodec
+import uniffi.xmtpv3.FfiException
 
 @RunWith(AndroidJUnit4::class)
 class GroupUpdatedTest : BaseInstrumentedTest() {
@@ -79,7 +80,7 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
         assertEquals(messages.size, 1)
         assertEquals(runBlocking { group.members().size }, 3)
         val error =
-            assertThrows(XMTPException::class.java) {
+            assertThrows(FfiException.Exception::class.java) {
                 runBlocking {
                     group.send(
                         content = membershipChange,
