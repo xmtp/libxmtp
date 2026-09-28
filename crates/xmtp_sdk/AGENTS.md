@@ -22,11 +22,11 @@ Run commands from the repository root in the Nix shell. Run
   enables the off-by-default `bench` feature and writes separate bindings to
   `target/sdk-bench/`.
 - `just sdk check-isolation` rejects shipped-code changes in `sdks/` or
-  `bindings/` on a façade branch. It permits only complete `// implements:` and
-  `// verifies:` backlink comment lines in existing Node, browser, iOS, and
-  Android source. Existing Kotlin source also permits KDoc `*` backlink lines.
-  It rejects code, scripts, generated output, file-mode changes, and lines with
-  carriage returns. Tests and changelogs remain outside the shipped-code guard.
+  `bindings/` on a façade branch. Its Task 1 exception accepts only the reviewed
+  PROC-032 backlink removal in four named SDK source files, checked against
+  their full base content. Later backlink changes need a reviewed gate update.
+  The gate rejects code, scripts, generated output, and file-mode changes.
+  Tests and changelogs remain outside the shipped-code guard.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
