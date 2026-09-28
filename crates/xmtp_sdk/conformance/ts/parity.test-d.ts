@@ -152,10 +152,13 @@ type PureHostExports =
   | "Message"
   | "MessageID"
   | "Timestamp";
+// The browser worker runtime reads this export after a failed create. Apps
+// do not call it, and native builds have no storage lock.
+type WorkerOnlyExports = "storeLeftOpen";
 export type ExportParity = Assert<
   Equal<
     Exclude<NativeExports, NativeOnlyExports>,
-    Exclude<BrowserExports, PureHostExports>
+    Exclude<BrowserExports, PureHostExports | WorkerOnlyExports>
   >
 >;
 
