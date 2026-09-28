@@ -131,4 +131,34 @@ export function registerPackageLifetimeTests(): void {
     await turn();
     expect(held.has("xmtp:pool")).toBe(false);
   });
+  it("waits for actual termination before a reentrant replacement starts", async () => {
+    const endpoints: Endpoint[] = [];
+    const stopped = gate();
+    let replacement: Promise<number> | undefined;
+    const sessions = new WorkerSessions(
+      () => {
+        const endpoint = new Endpoint();
+        endpoints.push(endpoint);
+        if (endpoints.length === 1)
+          endpoint.terminate = () => {
+            replacement = sessions.create(async () => 7);
+            return stopped.promise;
+          };
+        return endpoint;
+      },
+      3,
+      "handoff",
+    );
+    const first = sessions.create(async () => 3);
+    endpoints[0].emitRaw({ t: "ready", epoch: 1 });
+    endpoints[0].emitRaw({ t: "idle", revision: 0 });
+    expect(await first).toBe(3);
+    expect(endpoints).toHaveLength(1);
+    stopped.release();
+    await turn();
+    expect(endpoints).toHaveLength(2);
+    endpoints[1].emitRaw({ t: "ready", epoch: 2 });
+    endpoints[1].emitRaw({ t: "idle", revision: 0 });
+    expect(await replacement).toBe(7);
+  });
 }

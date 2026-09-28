@@ -171,7 +171,7 @@ export interface CallbackWire {
 }
 
 export type WireMessage =
-  | { t: "hello"; version: number; hash: string }
+  | { t: "hello"; version: number; hash: string; lifetimeLock?: string }
   | { t: "ready"; epoch: number }
   | { t: "idle"; revision: number }
   | { t: "refused"; error: ErrorWire }
@@ -197,7 +197,7 @@ export interface WireEndpoint {
   onMessage(handler: (message: WireMessage) => void): void;
   onExit(handler: () => void): void;
   close?(): void;
-  terminate?(): void;
+  terminate?(): void | Promise<void>;
 }
 
 export function assertCloneable(value: unknown): void {

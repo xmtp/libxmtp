@@ -9,6 +9,9 @@ import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 let created = 0;
 let terminated = 0;
 const terminationWaiters = new Set<() => void>();
+let holdTermination = false;
+let finishTermination: (() => void) | undefined;
+let onTermination: (() => void) | undefined;
 const OriginalWorker = globalThis.Worker;
 globalThis.Worker = class extends OriginalWorker {
   constructor(url: string | URL, options?: WorkerOptions) {
@@ -17,7 +20,11 @@ globalThis.Worker = class extends OriginalWorker {
   }
   override terminate(): void {
     terminated++;
-    super.terminate();
+    if (holdTermination) {
+      holdTermination = false;
+      finishTermination = () => super.terminate();
+    } else super.terminate();
+    onTermination?.();
     for (const notify of terminationWaiters) notify();
   }
 };
@@ -182,4 +189,44 @@ export async function publicAdminRoundTrip(path: string): Promise<void> {
   await second.clearAll();
   if ((await second.fileCount()) !== 0) throw new Error("public clear failed");
   await second.end();
+}
+
+export async function immediateReplacement(): Promise<void> {
+  const first = await Storage.admin();
+  const before = counts();
+  let requested!: () => void;
+  const request = new Promise<void>((resolve) => {
+    requested = resolve;
+  });
+  let replacement:
+    | Promise<Awaited<ReturnType<typeof Storage.admin>>>
+    | undefined;
+  holdTermination = true;
+  onTermination = () => {
+    onTermination = undefined;
+    replacement = Storage.admin();
+    // Handle a rejected red-control replacement without an unhandled rejection.
+    void replacement.catch(() => {});
+    requested();
+  };
+  try {
+    await first.end();
+    await request;
+    if (created !== before.created)
+      throw new Error(
+        "replacement started before old worker released its locks",
+      );
+    finishTermination?.();
+    finishTermination = undefined;
+    const next = await replacement;
+    if (!next || (await next.poolCapacity()) === 0)
+      throw new Error("replacement did not acquire OPFS");
+    await next.end();
+    await waitForTermination(before.terminated + 2);
+  } finally {
+    onTermination = undefined;
+    holdTermination = false;
+    finishTermination?.();
+    finishTermination = undefined;
+  }
 }

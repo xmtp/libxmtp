@@ -1,9 +1,11 @@
-import type { WireEndpoint } from "../wire.js";
+import { bridgeError, type WireEndpoint } from "../wire.js";
 import { MainSession } from "./session.js";
 
 interface Generation {
-  session: MainSession;
+  session?: MainSession;
   opening: Promise<MainSession>;
+  rejectOpening(error: unknown): void;
+  cancelled: boolean;
   creations: number;
   managed: boolean;
 }
@@ -11,6 +13,7 @@ interface Generation {
 /** Owns the current worker generation and shares its opening handshake. */
 export class WorkerSessions {
   private current?: Generation;
+  private retiring?: MainSession;
 
   constructor(
     private readonly createEndpoint: () => WireEndpoint,
@@ -40,40 +43,69 @@ export class WorkerSessions {
       this.current !== generation ||
       !generation.managed ||
       generation.creations !== 0 ||
-      !generation.session.isIdle
+      !generation.session?.isIdle
     )
       return;
+    // Record the barrier before terminate can call back into a factory.
+    this.retiring = generation.session;
     this.current = undefined;
     generation.session.terminate();
   }
 
   private generation(): Generation {
-    if (this.current && !this.current.session.isTerminated) return this.current;
-    let generation: Generation | undefined = undefined;
-    const session = new MainSession(
-      this.createEndpoint(),
-      this.version,
-      this.hash,
-      () => {
-        if (generation) this.retireIfIdle(generation);
-      },
-    );
-    generation = {
-      session,
-      opening: session.ready().then(() => session),
+    if (this.current) {
+      if (!this.current.session?.isTerminated) return this.current;
+      this.retiring = this.current.session;
+    }
+    let resolveOpening!: (session: MainSession) => void;
+    let rejectOpening!: (error: unknown) => void;
+    const opening = new Promise<MainSession>((resolve, reject) => {
+      resolveOpening = resolve;
+      rejectOpening = reject;
+    });
+    const generation: Generation = {
+      opening,
+      rejectOpening,
+      cancelled: false,
       creations: 0,
       managed: false,
     };
     this.current = generation;
-    void generation.opening.catch(() => {
-      if (this.current === generation) this.current = undefined;
+    const start = () => {
+      if (generation.cancelled) return;
+      try {
+        const session = new MainSession(
+          this.createEndpoint(),
+          this.version,
+          this.hash,
+          () => this.retireIfIdle(generation),
+        );
+        generation.session = session;
+        void session.ready().then(() => resolveOpening(session), rejectOpening);
+      } catch (error) {
+        rejectOpening(error);
+      }
+    };
+    void opening.catch(() => {
+      if (this.current !== generation) return;
+      if (generation.session?.isTerminated) this.retiring = generation.session;
+      this.current = undefined;
     });
+    if (this.retiring && !this.retiring.terminationComplete)
+      void this.retiring.whenTerminated().then(start, rejectOpening);
+    else start();
     return generation;
   }
 
   terminate(): void {
     const generation = this.current;
     this.current = undefined;
-    generation?.session.terminate();
+    if (!generation) return;
+    generation.cancelled = true;
+    generation.rejectOpening(bridgeError("workerTerminated"));
+    if (generation.session) {
+      this.retiring = generation.session;
+      generation.session.terminate();
+    }
   }
 }

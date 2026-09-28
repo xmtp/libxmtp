@@ -836,7 +836,7 @@ fn render(
 ) -> Result<BTreeMap<&'static str, String>> {
     let mut result = BTreeMap::new();
     let mut contract = format!(
-        "export const PROTOCOL_VERSION = 3;\nexport const CONTRACT_HASH = \"{hash}\";\nexport const METHOD_KEYS = [\n"
+        "export const PROTOCOL_VERSION = 4;\nexport const CONTRACT_HASH = \"{hash}\";\nexport const METHOD_KEYS = [\n"
     );
     for op in operations {
         writeln!(contract, "  \"{}\",", op.key)?;

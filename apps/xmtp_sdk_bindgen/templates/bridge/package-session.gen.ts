@@ -6,13 +6,17 @@ import type { WireMessage } from "./runtime/bridge/wire.js";
 // One worker generation for all package client and admin factories.
 const sessions = new WorkerSessions(
   () => {
+    const lifetimeLock = `xmtp-worker:${crypto.randomUUID()}`;
     const worker = new Worker(
       new URL("./worker-entry.gen.js", import.meta.url),
       { type: "module" },
     );
     return {
       postMessage: (message, transfer) =>
-        worker.postMessage(message, transfer ?? []),
+        worker.postMessage(
+          message.t === "hello" ? { ...message, lifetimeLock } : message,
+          transfer ?? [],
+        ),
       onMessage: (handler) =>
         worker.addEventListener("message", (event: MessageEvent<WireMessage>) =>
           handler(event.data),
@@ -21,7 +25,10 @@ const sessions = new WorkerSessions(
         worker.addEventListener("error", handler);
         worker.addEventListener("messageerror", handler);
       },
-      terminate: () => worker.terminate(),
+      terminate: () => {
+        worker.terminate();
+        return navigator.locks.request(lifetimeLock, () => {});
+      },
     };
   },
   PROTOCOL_VERSION,

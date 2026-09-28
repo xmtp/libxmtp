@@ -27,6 +27,13 @@ export class MainSession {
   private readyReject: ((error: Error) => void) | undefined;
   private readonly readyPromise: Promise<void>;
   private dead = false;
+  private stopped = false;
+  private stopResolve!: () => void;
+  private stopReject!: (error: unknown) => void;
+  private readonly stoppedPromise = new Promise<void>((resolve, reject) => {
+    this.stopResolve = resolve;
+    this.stopReject = reject;
+  });
   private epoch = 0;
   private readonly closedOwners = new Set<number>();
   private readonly proxies = new Map<number, Set<WeakRef<RemoteObject>>>();
@@ -42,6 +49,7 @@ export class MainSession {
     hash: string,
     private readonly onIdle?: () => void,
   ) {
+    void this.stoppedPromise.catch(() => {});
     this.callbacks = new MainCallbacks(endpoint);
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
@@ -66,6 +74,14 @@ export class MainSession {
 
   get isTerminated(): boolean {
     return this.dead;
+  }
+
+  get terminationComplete(): boolean {
+    return this.stopped;
+  }
+
+  whenTerminated(): Promise<void> {
+    return this.stoppedPromise;
   }
 
   get isIdle(): boolean {
@@ -310,7 +326,17 @@ export class MainSession {
     this.parents.clear();
     this.releases.clear();
     this.callbacks.close();
-    this.endpoint.terminate?.();
+    const complete = () => {
+      this.stopped = true;
+      this.stopResolve();
+    };
+    try {
+      const stopping = this.endpoint.terminate?.();
+      if (stopping) void stopping.then(complete, this.stopReject);
+      else complete();
+    } catch (error) {
+      this.stopReject(error);
+    }
   }
 
   private receive(message: WireMessage): void {

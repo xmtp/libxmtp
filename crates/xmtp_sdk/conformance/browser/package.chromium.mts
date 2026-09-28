@@ -141,6 +141,12 @@ try {
   console.log(
     "Chromium public Storage.admin byte views, guarded methods, independent end, and cleanup passed",
   );
+  await page.evaluate(async () =>
+    (await import("./package.chromium.ts")).immediateReplacement(),
+  );
+  console.log(
+    "Chromium immediate replacement waited for actual old-worker lock release",
+  );
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );

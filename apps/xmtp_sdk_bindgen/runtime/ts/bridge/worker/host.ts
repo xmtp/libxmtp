@@ -323,7 +323,7 @@ export class WorkerHost {
     private readonly endpoint: WireEndpoint,
     private readonly version: number,
     private readonly hash: string,
-    private readonly initialize: () => Promise<void>,
+    private readonly initialize: (lifetimeLock?: string) => Promise<void>,
     private readonly dispatch: Dispatch,
     private readonly locks?: PoolLocks,
     private readonly prepareIdle: () => void = () => {},
@@ -424,7 +424,7 @@ export class WorkerHost {
       return;
     }
     try {
-      await this.initialize();
+      await this.initialize(message.lifetimeLock);
       this.initialized = true;
       this.endpoint.postMessage({ t: "ready", epoch: this.registry.epoch });
       this.reportIdle();

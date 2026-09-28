@@ -18,7 +18,17 @@ new WorkerHost(
   },
   PROTOCOL_VERSION,
   CONTRACT_HASH,
-  async () => {
+  async (lifetimeLock) => {
+    if (!lifetimeLock) throw new Error("Missing worker lifetime lock");
+    // Hold the marker before opening OPFS. Its release confirms worker exit.
+    await new Promise<void>((resolve, reject) => {
+      void navigator.locks
+        .request(lifetimeLock, async () => {
+          resolve();
+          await new Promise<void>(() => {});
+        })
+        .catch(reject);
+    });
     await uniffiInitAsync(new URL("./xmtp_sdk.wasm", import.meta.url));
   },
   dispatchGenerated,
