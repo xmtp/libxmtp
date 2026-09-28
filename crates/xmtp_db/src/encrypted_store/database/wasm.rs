@@ -284,19 +284,45 @@ impl std::fmt::Debug for WasmDb {
 }
 
 impl WasmDb {
+    /// Open a database for existing callers. If this worker cannot install or
+    /// resume the OPFS pool, log the error and open the path on SQLite's
+    /// default VFS. Such a database is not persistent. For example, a second
+    /// worker cannot take a pool that another worker owns.
     pub async fn new(opts: &StorageOption) -> Result<Self, PlatformStorageError> {
+        Self::open(opts, false).await
+    }
+
+    /// Open a database that must use the OPFS pool. Pool failures return their
+    /// typed error. The path must be plain, and it must have no live connection.
+    /// Its connections stop when the pool becomes unusable.
+    pub async fn new_strict(opts: &StorageOption) -> Result<Self, PlatformStorageError> {
+        Self::open(opts, true).await
+    }
+
+    async fn open(opts: &StorageOption, strict: bool) -> Result<Self, PlatformStorageError> {
         use crate::StorageOption::*;
         let conn = match opts {
             Ephemeral => PersistentOrMem::Mem(WasmDbConnection::new_ephemeral("xmtp-ephemeral")?),
             Persistent(db_path) => {
-                validate_persistent_path(db_path)?;
-                let _opening = restore::PendingOpen::acquire()?;
+                if strict {
+                    validate_persistent_path(db_path)?;
+                }
+                let _opening = restore::PendingOpen::acquire_for(strict)?;
                 let _transition = POOL_TRANSITION.lock().await;
-                restore::closed_target(Some(db_path))?;
-                let util = resume_sqlite().await?;
-                maybe_resize(util).await?;
+                if strict {
+                    restore::closed_target(Some(db_path))?;
+                    let util = resume_sqlite().await?;
+                    maybe_resize(util).await?;
+                } else {
+                    match resume_sqlite().await {
+                        Ok(util) => maybe_resize(util).await?,
+                        Err(error) => tracing::error!(
+                            "OPFS pool is unavailable; {db_path} opens on the default SQLite VFS: {error}"
+                        ),
+                    }
+                }
                 tracing::debug!("creating persistent opfs db @{}", db_path);
-                PersistentOrMem::Persistent(WasmDbConnection::connect(db_path)?)
+                PersistentOrMem::Persistent(WasmDbConnection::connect(db_path, strict)?)
             }
         };
         Ok(Self {
@@ -311,6 +337,8 @@ pub struct WasmDbConnection {
     conn: Rc<RefCell<ConnectionState>>,
     path: String,
     persistent: bool,
+    /// Strict connections need a usable OPFS pool and an exclusive path.
+    strict: bool,
 }
 
 /// Lifecycle state shared by every clone of one database connection.
@@ -330,12 +358,12 @@ impl WasmDbConnection {
             .map_err(|_| PlatformStorageError::DatabaseInUse)?;
         restore::closed_target(Some(path))?;
         check_pool_ready()?;
-        Self::connect(path)
+        Self::connect(path, true)
     }
 
-    // The caller holds persistent-open admission and POOL_TRANSITION, and has
-    // checked that this plain path has no live connection.
-    fn connect(path: &str) -> Result<Self, PlatformStorageError> {
+    // The caller holds persistent-open admission and POOL_TRANSITION. A strict
+    // caller has also checked that this plain path has no live connection.
+    fn connect(path: &str, strict: bool) -> Result<Self, PlatformStorageError> {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
         #[derive(QueryableByName)]
@@ -354,6 +382,7 @@ impl WasmDbConnection {
             conn,
             path: path.to_string(),
             persistent: true,
+            strict,
         })
     }
 
@@ -370,6 +399,7 @@ impl WasmDbConnection {
             })),
             path,
             persistent: false,
+            strict: false,
         })
     }
 
@@ -384,7 +414,7 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
-        if self.persistent {
+        if self.strict {
             check_pool_usable()?;
         }
         let mut state = self
@@ -417,9 +447,9 @@ impl ConnectionExt for WasmDbConnection {
     fn reconnect(&self) -> Result<(), crate::ConnectionError> {
         let _opening = self
             .persistent
-            .then(restore::PendingOpen::acquire)
+            .then(|| restore::PendingOpen::acquire_for(self.strict))
             .transpose()?;
-        let _transition = if self.persistent {
+        let _transition = if self.strict {
             Some(
                 POOL_TRANSITION
                     .try_lock()
@@ -440,7 +470,7 @@ impl ConnectionExt for WasmDbConnection {
                 return Ok(());
             }
         }
-        if self.persistent {
+        if self.strict {
             check_pool_ready()?;
             restore::closed_target(Some(&self.path))?;
         }

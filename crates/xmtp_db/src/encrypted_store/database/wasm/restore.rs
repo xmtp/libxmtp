@@ -25,7 +25,17 @@ pub(super) struct PendingOpen;
 
 impl PendingOpen {
     pub(super) fn acquire() -> Result<Self, PlatformStorageError> {
-        check_open_allowed()?;
+        Self::acquire_for(true)
+    }
+
+    /// Only a strict open needs a usable pool. A default open falls back to
+    /// SQLite's default VFS, so only an active file change excludes it.
+    pub(super) fn acquire_for(strict: bool) -> Result<Self, PlatformStorageError> {
+        if strict {
+            check_open_allowed()?;
+        } else if POOL_CHANGE.with(Cell::get) {
+            return Err(PlatformStorageError::DatabaseInUse);
+        }
         PENDING_OPENS.with(|count| count.set(count.get() + 1));
         Ok(Self)
     }

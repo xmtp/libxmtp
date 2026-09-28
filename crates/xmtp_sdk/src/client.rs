@@ -275,7 +275,7 @@ pub(crate) async fn open_store(
     use xmtp_db::{EncryptedMessageStore, WasmDb};
 
     let location = wasm_store_location(options, inbox_id)?;
-    let db = WasmDb::new(&location)
+    let db = WasmDb::new_strict(&location)
         .await
         .map_err(map_wasm_storage_error)?;
     EncryptedMessageStore::new(db).map_err(map_wasm_storage_error)

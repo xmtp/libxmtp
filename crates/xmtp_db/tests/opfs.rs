@@ -245,17 +245,17 @@ xmtp_common::if_wasm! {
 
         let path = xmtp_common::tmp_path();
         let location = StorageOption::Persistent(path.clone());
-        let first = EncryptedMessageStore::new(WasmDb::new(&location).await?)?;
+        let first = EncryptedMessageStore::new(WasmDb::new_strict(&location).await?)?;
         let identity = first.db().stream_database_id()?;
         let rejected = [
-            matches!(WasmDb::new(&location).await, Err(PlatformStorageError::DatabaseInUse)),
+            matches!(WasmDb::new_strict(&location).await, Err(PlatformStorageError::DatabaseInUse)),
             matches!(WasmDbConnection::new(&path), Err(PlatformStorageError::DatabaseInUse)),
         ];
         assert_eq!(rejected, [true; 2], "both opens must reject a live path before touching the VFS");
         assert_eq!(first.db().stream_database_id()?, identity);
         first.release_connection()?;
 
-        let database = WasmDb::new(&location).await?;
+        let database = WasmDb::new_strict(&location).await?;
         let shared = database.clone();
         let second = EncryptedMessageStore::new(database)?;
         assert!(matches!(first.reconnect(), Err(ConnectionError::Platform(PlatformStorageError::DatabaseInUse))));
@@ -291,8 +291,8 @@ xmtp_common::if_wasm! {
         let rejected = [
             matches!(WasmDbConnection::new("file:uri-path"), Err(PlatformStorageError::InvalidDatabasePath)),
             matches!(WasmDbConnection::new("sqlite://uri-path"), Err(PlatformStorageError::InvalidDatabasePath)),
-            matches!(WasmDb::new(&StorageOption::Persistent("file:uri-path".into())).await, Err(PlatformStorageError::InvalidDatabasePath)),
-            matches!(WasmDb::new(&StorageOption::Persistent("sqlite://uri-path".into())).await, Err(PlatformStorageError::InvalidDatabasePath)),
+            matches!(WasmDb::new_strict(&StorageOption::Persistent("file:uri-path".into())).await, Err(PlatformStorageError::InvalidDatabasePath)),
+            matches!(WasmDb::new_strict(&StorageOption::Persistent("sqlite://uri-path".into())).await, Err(PlatformStorageError::InvalidDatabasePath)),
         ];
         assert_eq!(rejected, [true; 4]);
         assert!(get_sqlite().is_none(), "invalid paths must not initialize OPFS");
@@ -305,7 +305,7 @@ xmtp_common::if_wasm! {
         use xmtp_db::WasmDb;
 
         let path = xmtp_common::tmp_path();
-        let store = EncryptedMessageStore::new(WasmDb::new(&StorageOption::Persistent(path.clone())).await?)?;
+        let store = EncryptedMessageStore::new(WasmDb::new_strict(&StorageOption::Persistent(path.clone())).await?)?;
         store.release_connection()?;
         let expected = xmtp_db::list_opfs_databases().await?;
         xmtp_db::pause_sqlite_if_idle();
@@ -333,7 +333,7 @@ xmtp_common::if_wasm! {
         assert!(list.as_mut().now_or_never().is_none());
         let path = xmtp_common::tmp_path();
         let location = StorageOption::Persistent(path.clone());
-        let mut open = std::pin::pin!(WasmDb::new(&location));
+        let mut open = std::pin::pin!(WasmDb::new_strict(&location));
         assert!(open.as_mut().now_or_never().is_none());
         let (list, open) = futures::join!(list, open);
         assert!(list?.is_empty());
@@ -351,7 +351,7 @@ xmtp_common::if_wasm! {
         use xmtp_db::{WasmDb, WasmDbConnection, PlatformStorageError, ConnectionError};
 
         let path = xmtp_common::tmp_path();
-        let store = EncryptedMessageStore::new(WasmDb::new(&StorageOption::Persistent(path.clone())).await?)?;
+        let store = EncryptedMessageStore::new(WasmDb::new_strict(&StorageOption::Persistent(path.clone())).await?)?;
         store.release_connection()?;
         let util = get_sqlite().unwrap().unwrap();
         let mut clear = std::pin::pin!(xmtp_db::clear_opfs_databases());
@@ -367,7 +367,7 @@ xmtp_common::if_wasm! {
         assert_eq!(rejected, [true; 5], "list/count/capacity/exists/export must all return busy");
         let new_path = xmtp_common::tmp_path();
         let location = StorageOption::Persistent(new_path.clone());
-        assert!(matches!(WasmDb::new(&location).now_or_never(), Some(Err(PlatformStorageError::DatabaseInUse))));
+        assert!(matches!(WasmDb::new_strict(&location).now_or_never(), Some(Err(PlatformStorageError::DatabaseInUse))));
         assert!(matches!(WasmDbConnection::new(&new_path), Err(PlatformStorageError::DatabaseInUse)));
         assert!(matches!(store.reconnect(), Err(ConnectionError::Platform(PlatformStorageError::DatabaseInUse))));
         xmtp_db::pause_sqlite_if_idle();
@@ -385,7 +385,7 @@ xmtp_common::if_wasm! {
         use xmtp_db::WasmDb;
 
         let path = xmtp_common::tmp_path();
-        let store = EncryptedMessageStore::new(WasmDb::new(&StorageOption::Persistent(path.clone())).await?)?;
+        let store = EncryptedMessageStore::new(WasmDb::new_strict(&StorageOption::Persistent(path.clone())).await?)?;
         store.release_connection()?;
         let before = xmtp_db::export_opfs_database(&path).await?;
         xmtp_db::pause_sqlite_if_idle();
@@ -412,12 +412,12 @@ xmtp_common::if_wasm! {
         xmtp_db::clear_opfs_databases().await?;
         let util = get_sqlite().unwrap().unwrap();
         let old_path = xmtp_common::tmp_path();
-        let old = EncryptedMessageStore::new(WasmDb::new(&StorageOption::Persistent(old_path.clone())).await?)?;
+        let old = EncryptedMessageStore::new(WasmDb::new_strict(&StorageOption::Persistent(old_path.clone())).await?)?;
         old.release_connection()?;
         util.reduce_capacity(util.get_capacity() - 2).await?;
         let path = xmtp_common::tmp_path();
         let location = StorageOption::Persistent(path.clone());
-        let mut open = std::pin::pin!(WasmDb::new(&location));
+        let mut open = std::pin::pin!(WasmDb::new_strict(&location));
         assert!(open.as_mut().now_or_never().is_none());
         let rejected = [
             xmtp_db::delete_opfs_database(&path).now_or_never().is_some_and(is_busy),
@@ -444,7 +444,7 @@ xmtp_common::if_wasm! {
         use xmtp_db::prelude::QueryDelivery;
 
         let path = xmtp_common::tmp_path();
-        let store = EncryptedMessageStore::new(WasmDb::new(&StorageOption::Persistent(path.clone())).await?)?;
+        let store = EncryptedMessageStore::new(WasmDb::new_strict(&StorageOption::Persistent(path.clone())).await?)?;
         let database_id = store.db().stream_database_id()?;
         assert!(is_busy(xmtp_db::export_opfs_database(&path).await));
         store.release_connection()?;
@@ -469,7 +469,7 @@ xmtp_common::if_wasm! {
         let mut stores = Vec::new();
         for _ in 0..3 {
             let path = xmtp_common::tmp_path();
-            let store = EncryptedMessageStore::new(WasmDb::new(&StorageOption::Persistent(path.clone())).await?)?;
+            let store = EncryptedMessageStore::new(WasmDb::new_strict(&StorageOption::Persistent(path.clone())).await?)?;
             stores.push((path, store));
         }
         stores[0].1.release_connection()?;
@@ -531,6 +531,31 @@ xmtp_common::if_wasm! {
         sqlite_wasm_vfs::sahpool::install::<sqlite_wasm_rs::WasmOsCallback>(&cfg, false).await.unwrap()
     }
 
+    /// Existing callers keep the old fallback. When another owner holds the
+    /// OPFS pool, the default open logs the failure and opens on SQLite's
+    /// default VFS. A strict open in that worker returns a typed error.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn default_open_falls_back_when_another_owner_holds_the_pool() {
+        use xmtp_db::{PlatformStorageError, WasmDb};
+        use xmtp_db::prelude::QueryDelivery;
+
+        let blocker = occupy_access_handles().await;
+        let path = xmtp_common::tmp_path();
+        let location = StorageOption::Persistent(path.clone());
+        let store = EncryptedMessageStore::new(WasmDb::new(&location).await?)?;
+        let identity = store.db().stream_database_id()?;
+        store.release_connection()?;
+        store.reconnect()?;
+        assert_eq!(store.db().stream_database_id()?, identity);
+        assert!(!blocker.exists(&path)?, "the fallback database used the held pool");
+        assert!(matches!(
+            WasmDb::new_strict(&StorageOption::Persistent(xmtp_common::tmp_path())).await,
+            Err(PlatformStorageError::PoolUnusable)
+        ));
+        store.release_connection()?;
+        blocker.pause_vfs()?;
+    }
+
     /// A real SAH conflict returns its typed cause. Even after that conflict
     /// clears, partial installation requires a fresh worker.
     #[xmtp_common::test(unwrap_try = true)]
@@ -538,7 +563,7 @@ xmtp_common::if_wasm! {
         use xmtp_db::{PlatformStorageError, OpfsSAHError, WasmDb};
 
         let blocker = occupy_access_handles().await;
-        let result = WasmDb::new(&StorageOption::Persistent("blocked-install".into())).await;
+        let result = WasmDb::new_strict(&StorageOption::Persistent("blocked-install".into())).await;
         assert!(matches!(result, Err(PlatformStorageError::SAH(OpfsSAHError::CreateSyncAccessHandle(_)))));
         blocker.pause_vfs()?;
         assert!(xmtp_db::opfs_requires_worker_restart());
