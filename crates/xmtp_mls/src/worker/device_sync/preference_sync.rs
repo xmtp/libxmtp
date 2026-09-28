@@ -357,4 +357,33 @@ mod tests {
         )?;
         assert_eq!(inserted.public, vec![PreferenceUpdate::Consent(unknown)]);
     }
+
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn peer_sync_consent_keeps_the_latest_record() {
+        tester!(alix, disable_workers);
+        let metrics = WorkerMetrics::new(alix.context.installation_id());
+        let db = alix.context.db();
+        let updates = [
+            (ConsentState::Allowed, 10),
+            (ConsentState::Allowed, 30),
+            (ConsentState::Denied, 20),
+        ]
+        .map(|(state, consented_at_ns)| {
+            PreferenceUpdate::Consent(StoredConsentRecord {
+                entity_type: ConsentType::InboxId,
+                state,
+                entity: "peer-inbox".into(),
+                consented_at_ns,
+            })
+            .into()
+        });
+        let changed = store_preference_updates(updates.into(), &db, &metrics)?;
+        assert_eq!(changed.legacy.len(), 2);
+        let stored = db
+            .get_consent_record("peer-inbox".into(), ConsentType::InboxId)?
+            .unwrap();
+        assert_eq!(stored.state, ConsentState::Allowed);
+        assert_eq!(stored.consented_at_ns, 30);
+    }
 }

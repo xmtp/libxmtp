@@ -303,6 +303,38 @@ mod tests {
         ));
     }
 
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archived_consent_keeps_the_latest_record() {
+        tester!(alix, disable_workers);
+        let records = [
+            (xmtp_db::consent_record::ConsentState::Allowed, 10),
+            (xmtp_db::consent_record::ConsentState::Allowed, 30),
+            (xmtp_db::consent_record::ConsentState::Denied, 20),
+        ];
+        let mut elements = futures::stream::iter(records.map(|(state, consented_at_ns)| {
+            let record = StoredConsentRecord {
+                entity_type: xmtp_db::consent_record::ConsentType::InboxId,
+                state,
+                entity: "archived-inbox".into(),
+                consented_at_ns,
+            };
+            Ok::<_, std::io::Error>(BackupElement {
+                element: Some(Element::Consent(record.into())),
+            })
+        }));
+        insert_elements(&mut elements, &alix.context).await?;
+        let stored = alix
+            .db()
+            .get_consent_record(
+                "archived-inbox".into(),
+                xmtp_db::consent_record::ConsentType::InboxId,
+            )?
+            .unwrap();
+        assert_eq!(stored.state, xmtp_db::consent_record::ConsentState::Allowed);
+        assert_eq!(stored.consented_at_ns, 30);
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_timestamp_keeps_a_message_received_during_import() {
         tester!(alix, disable_workers);
