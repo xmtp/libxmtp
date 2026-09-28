@@ -25,6 +25,8 @@ pub struct MessageMetadataEntry {
 }
 
 #[xmtp_macro::sdk_export]
+/// Returns one entry per core identity. Keys use `ethereum:<core text>` or
+/// `passkey:<lowercase core hex>`.
 pub async fn can_message_with_backend(
     backend: BackendSource,
     identities: Vec<PublicIdentity>,
@@ -39,11 +41,10 @@ pub async fn can_message_with_backend(
         .get_inbox_ids(ids)
         .await
         .map_err(XmtpError::from_api)?;
-    Ok(identities
-        .into_iter()
-        .zip(found)
-        .map(|(identity, inbox)| (identity.identifier, inbox.is_some()))
-        .collect())
+    Ok(signer::can_message_results(
+        core.into_iter()
+            .zip(found.into_iter().map(|inbox| inbox.is_some())),
+    ))
 }
 
 #[xmtp_macro::sdk_export]

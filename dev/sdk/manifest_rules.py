@@ -1403,6 +1403,19 @@ def _classify(entry: object) -> Decision:
             "2, generated bridge replacement",
             "Old generated binding is replaced by facade output.",
         )
+    if sdk in {"Swift", "Kotlin", "Node", "Browser"} and name in {
+        "Client.canMessage",
+        "Client.Companion.canMessage",
+    }:
+        return decision(
+            "generated",
+            spelling(name),
+            f"11.4 {sdk}, Client and options"
+            if sdk != "Browser"
+            else "11.4 Browser; 11.4 Node, Client and options",
+            "Behavior change: result keys use `ethereum:<core text>` or "
+            "`passkey:<lowercase core hex>` so identity kinds do not collide.",
+        )
     if (sdk, name) in RULES:
         rule = RULES[(sdk, name)]
         return Decision(rule.status, spelling(rule.final), rule.ref, rule.note)
