@@ -152,8 +152,9 @@ export function poolName(options: unknown): string | undefined {
  * holds that storage pool lock, and the lock stays with the owner of the
  * returned handle. When a created client fails to encode, the client is ended
  * before the lock is released, so its database closes first. If the client
- * cannot end, its database can stay open, so the lock stays held. The browser
- * releases a held Web Lock when the worker ends.
+ * cannot end, its database can stay open, so the lock stays held and the call
+ * throws `UnendedClientError`. The worker host then ends the worker. The
+ * browser releases a held Web Lock when the worker ends.
  */
 export async function callWithPool(
   locks: PoolLocks | undefined,
@@ -177,8 +178,11 @@ export async function callWithPool(
   try {
     encoded = encode(result);
   } catch (error) {
-    const ended = !createsClient || (await endUnencodedClient(result));
-    if (pool && ended) locks?.close(pool);
+    if (createsClient) {
+      const failure = await endUnencodedClient(result);
+      if (failure) throw new UnendedClientError(error, failure.error);
+    }
+    if (pool) locks?.close(pool);
     throw error;
   }
   if (
@@ -192,9 +196,24 @@ export async function callWithPool(
   return encoded;
 }
 
-// The caller gets the encode error, so an error from end is only logged.
-// Returns false when the client did not end.
-async function endUnencodedClient(client: unknown): Promise<boolean> {
+/**
+ * A created client failed to encode and then could not end. The caller gets
+ * `callError`. The worker then fails with `endError`, because the client's
+ * database can still be open and its pool lock stays held.
+ */
+export class UnendedClientError extends Error {
+  constructor(
+    readonly callError: unknown,
+    readonly endError: unknown,
+  ) {
+    super("client that failed to encode could not close");
+  }
+}
+
+// Returns the end error when the client did not end.
+async function endUnencodedClient(
+  client: unknown,
+): Promise<{ error: unknown } | undefined> {
   try {
     const end: unknown =
       client !== null && typeof client === "object"
@@ -202,10 +221,10 @@ async function endUnencodedClient(client: unknown): Promise<boolean> {
         : undefined;
     if (typeof end !== "function") throw new TypeError("Client.end is missing");
     await Reflect.apply(end, client, []);
-    return true;
+    return undefined;
   } catch (error) {
     console.error("client that failed to encode could not close", error);
-    return false;
+    return { error };
   }
 }
 
@@ -389,11 +408,13 @@ export class WorkerHost {
         return;
       }
       if (this.isFailed()) return;
+      const unended = error instanceof UnendedClientError;
       this.endpoint.postMessage({
         t: "error",
         id: message.id,
-        error: encodeError(error),
+        error: encodeError(unended ? error.callError : error),
       });
+      if (unended) this.fatal(error.endError);
     } finally {
       this.active.delete(message.id);
     }

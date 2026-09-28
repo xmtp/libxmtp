@@ -702,18 +702,48 @@ describe("browser bridge transport", () => {
     otherTab.close("client-pool");
   });
 
-  it("keeps the pool lock when a created client that fails to encode cannot end", async () => {
-    const { provider } = heldPoolLocks();
-    const locks = new PoolLocks(provider);
-    const otherTab = new PoolLocks(provider);
+  it("ends the worker and keeps the pool lock when a created client that fails to encode cannot end", async () => {
+    const held = new Set<string>();
+    const first = workerLockManager(held);
+    const locks = new PoolLocks(first.provider);
+    const otherTab = new PoolLocks(workerLockManager(held).provider);
     const client = {
       end: async () => {
         throw new Error("close failed");
       },
     };
+    const [main, worker] = pair();
+    let terminateCalls = 0;
+    main.terminate = () => {
+      terminateCalls++;
+    };
+    const engine = new WorkerHost(
+      worker,
+      1,
+      "unended",
+      async () => {},
+      (_key, _args, context) =>
+        callWithPool(
+          context.locks,
+          "client-pool",
+          true,
+          async () => client,
+          () =>
+            context.registry.scope(() =>
+              context.registry.add(client, "Client", undefined, () => {
+                throw new Error("snapshot failed");
+              }),
+            ),
+        ),
+      locks,
+    );
+    const session = new MainSession(main, 1, "unended");
+    await session.ready();
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
-      await createUnencodableClient(locks, client);
+      await expect(session.call("Client.create", [])).rejects.toThrow(
+        "snapshot failed",
+      );
       expect(logged).toHaveBeenCalledWith(
         "client that failed to encode could not close",
         expect.objectContaining({ message: "close failed" }),
@@ -721,11 +751,14 @@ describe("browser bridge transport", () => {
     } finally {
       logged.mockRestore();
     }
+    expect(engine.registry.size).toBe(0);
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(worker.sent.some((message) => message.t === "fatal")).toBe(true);
+    expect(terminateCalls).toBe(1);
     await expect(otherTab.open("client-pool")).rejects.toMatchObject({
       code: "StorageBusy",
     });
-    locks.closeAll();
+    first.terminate();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await otherTab.open("client-pool");
     otherTab.close("client-pool");
