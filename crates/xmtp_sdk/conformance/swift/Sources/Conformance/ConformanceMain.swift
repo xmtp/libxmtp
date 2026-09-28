@@ -326,7 +326,11 @@ struct Conformance {
         do {
             _ = try await client.conversations().getMessageById(id: "bad")
             throw ConformanceFailure("malformed ID was accepted")
-        } catch XmtpError.InvalidArgument {}
+        } catch let XmtpError.InvalidArgument(details) {
+            precondition(details.code == "InvalidArgument")
+            precondition(details.category == .input)
+            precondition(!details.retryable)
+        }
         let inboxId = client.inboxId()
         guard let storagePath = try await host.storage().path(),
               FileManager.default.fileExists(atPath: storagePath)
@@ -1044,7 +1048,7 @@ struct Conformance {
             throw ConformanceFailure("event reader ended before event")
         }
         try await eventSignal.wait()
-        try await reopenedHost.stopListener(listenerId)
+        await reopenedHost.stopListener(listenerId)
         try await eventReader.end()
         print("Swift scenario 8: event reader and listener passed")
 
@@ -1059,7 +1063,7 @@ struct Conformance {
         }
         _ = try await reopened.conversations().createGroup(members: [], options: nil)
         try await startPause.waitUntilEntered()
-        try await reopenedHost.stopListener(delayedId)
+        await reopenedHost.stopListener(delayedId)
         await startPause.release()
         await EventStartHookForTest.shared.set(nil)
         try await Task.sleep(nanoseconds: 100_000_000)

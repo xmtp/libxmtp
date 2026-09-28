@@ -274,13 +274,11 @@ fun main() =
             )
         val host = SDKClient.create(signer, options)
         val client = host.raw
-        check(
-            runCatching {
-                client.conversations().getMessageById(
-                    "bad",
-                )
-            }.exceptionOrNull() is XmtpException.InvalidArgument,
-        )
+        val invalidId = runCatching { client.conversations().getMessageById("bad") }.exceptionOrNull()
+        check(invalidId is XmtpException.InvalidArgument)
+        check(invalidId.v1.code == "InvalidArgument")
+        check(invalidId.v1.category == ErrorCategory.INPUT)
+        check(!invalidId.v1.retryable)
         val inboxId = client.inboxId()
         val storagePath = checkNotNull(host.storage().path())
         check(Files.isRegularFile(Path.of(storagePath))) { "storage path does not name the database file" }

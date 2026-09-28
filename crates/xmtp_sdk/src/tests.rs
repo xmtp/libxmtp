@@ -191,7 +191,7 @@ async fn event_reader_and_listener_create_no_network_interest() {
         "held subscriptions"
     );
 
-    client.stop_listener(listener_id).await?;
+    client.stop_listener(listener_id).await;
     reader.end().await?;
     assert_eq!((api_counts(), lease_count()), baseline, "subscription end");
     client.end().await?;
@@ -696,7 +696,7 @@ async fn listener_calls_are_sequential() {
         Some(1)
     );
     assert_eq!(probe.maximum.load(Ordering::SeqCst), 1);
-    client.stop_listener(id).await?;
+    client.stop_listener(id).await;
     release.notify_one();
     other.end().await?;
     client.end().await?;
@@ -720,7 +720,7 @@ async fn listener_failure_contained() {
         tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
         Some(1)
     );
-    client.stop_listener(id).await?;
+    client.stop_listener(id).await;
     client.end().await?;
 }
 
@@ -744,7 +744,7 @@ async fn listener_reentrant_call_completes() {
         }
     })
     .await?;
-    client.stop_listener(id).await?;
+    client.stop_listener(id).await;
     client.end().await?;
 }
 
@@ -765,9 +765,7 @@ async fn no_call_after_stop_returns() {
     let (attempted, ready) = std::sync::mpsc::channel();
     let stopping = std::thread::spawn(move || {
         let _ = attempted.send(());
-        runtime
-            .block_on(stopping_client.stop_listener(id))
-            .expect("stop listener");
+        runtime.block_on(stopping_client.stop_listener(id));
     });
     ready.recv_timeout(Duration::from_secs(2))?;
     let stopping_client = client.clone();
@@ -775,9 +773,7 @@ async fn no_call_after_stop_returns() {
     let (attempted, ready) = std::sync::mpsc::channel();
     let stopping_again = std::thread::spawn(move || {
         let _ = attempted.send(());
-        runtime
-            .block_on(stopping_client.stop_listener(id))
-            .expect("stop listener");
+        runtime.block_on(stopping_client.stop_listener(id));
     });
     ready.recv_timeout(Duration::from_secs(2))?;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -866,7 +862,7 @@ async fn blocked_listener_counts_running_event_in_queue_bound() {
         ));
     })
     .await?;
-    client.stop_listener(id).await?;
+    client.stop_listener(id).await;
     client.end().await?;
 }
 
@@ -942,9 +938,7 @@ async fn end_racing_listener_stop_blocks_a_late_callback() {
     let stopping_client = client.clone();
     let runtime = tokio::runtime::Handle::current();
     let stopping = std::thread::spawn(move || {
-        runtime
-            .block_on(stopping_client.stop_listener(id))
-            .expect("stop listener");
+        runtime.block_on(stopping_client.stop_listener(id));
     });
     tokio::time::timeout(Duration::from_secs(5), stop_hook.arrived.notified()).await?;
 

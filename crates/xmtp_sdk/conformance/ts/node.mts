@@ -107,13 +107,17 @@ console.log("Node P69: all 15 standard codecs match Rust bytes");
 const malformedDelete = sdk.StandardContent.DeleteMessage.new({
   messageId: "bad",
 });
-assert.throws(
-  () => sdk.encodeStandard(malformedDelete),
-  sdk.XmtpError.InvalidArgument,
-);
+function isInvalidId(error: unknown): boolean {
+  if (!sdk.XmtpError.InvalidArgument.instanceOf(error)) return false;
+  assert.equal(error.inner[0].code, "InvalidArgument");
+  assert.equal(error.inner[0].category, sdk.ErrorCategory.Input);
+  assert.equal(error.inner[0].retryable, false);
+  return true;
+}
+assert.throws(() => sdk.encodeStandard(malformedDelete), isInvalidId);
 assert.throws(
   () => new sdk.DeleteMessageCodec().encode(malformedDelete),
-  sdk.XmtpError.InvalidArgument,
+  isInvalidId,
 );
 
 const account = privateKeyToAccount(generatePrivateKey());
@@ -161,10 +165,7 @@ assert.equal(
 );
 
 const client = await sdk.Client.create(signer, options);
-await assert.rejects(
-  client.conversations().getMessageById("bad"),
-  sdk.XmtpError.InvalidArgument,
-);
+await assert.rejects(client.conversations().getMessageById("bad"), isInvalidId);
 const inboxId = client.inboxId();
 assert.equal(typeof inboxId.toString(), "string");
 const storagePath = await client.storage().path();

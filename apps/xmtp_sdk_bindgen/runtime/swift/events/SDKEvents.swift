@@ -93,9 +93,9 @@ public extension SDKClient {
         return id
     }
 
-    func stopListener(_ id: ListenerId) async throws {
+    func stopListener(_ id: ListenerId) async {
         listenerGates.stop(id)
-        try await raw.stopListener(id: id)
+        await raw.stopListener(id: id)
     }
 }
 

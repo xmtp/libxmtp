@@ -1,5 +1,4 @@
 import { ErrorCategory } from "../../xmtp_sdk.js";
-import { validatedIdLiftMessage } from "../validated-id-lift.js";
 
 function bridgeCodes<const T extends readonly string[]>(...codes: T): T {
   return codes;
@@ -98,24 +97,6 @@ export function encodeError(error: unknown): ErrorWire {
     };
   }
   if (error instanceof Error) {
-    if (validatedIdLiftMessage(error) !== undefined) {
-      const category = ErrorCategory.Input;
-      return {
-        variant: "InvalidArgument",
-        code: "InvalidArgument",
-        category,
-        retryable: false,
-        message: error.message,
-        details: [
-          {
-            code: "InvalidArgument",
-            category,
-            retryable: false,
-            message: error.message,
-          },
-        ],
-      };
-    }
     if ("tag" in error && typeof error.tag === "string") {
       const inner: unknown = "inner" in error ? error.inner : undefined;
       const detail: unknown = Array.isArray(inner) ? inner[0] : inner;
