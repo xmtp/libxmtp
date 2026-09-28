@@ -8,6 +8,7 @@ mod deadlines;
 mod dictionary_creation;
 mod membership_component;
 mod membership_recovery;
+mod send_state_transitions;
 
 // verifies: GMOD-036
 #[rstest::rstest]

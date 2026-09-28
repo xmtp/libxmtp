@@ -438,13 +438,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current reader does not expose a failed custom codec as a custom item with its error while keeping the stream open."
 
 [[waiver]]
-id = "SEND-003"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A same-key retry queues another intent while the existing message row remains failed."
-
-[[waiver]]
 id = "SEND-005"
 kind = "gap"
 owner = "protocol"
@@ -457,13 +450,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "No recovery is defined or implemented for a publish that may have committed before an OUT_OF_RANGE response."
-
-[[waiver]]
-id = "SEND-009"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A definite backend refusal is not consistently converted into a terminal intent and message failure."
 
 [[waiver]]
 id = "SEND-016"

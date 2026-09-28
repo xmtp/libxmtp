@@ -626,6 +626,13 @@ pub trait QueryGroupMessage {
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
+    /// Return a `Failed` message to `Unpublished` for a queued retry.
+    /// Any other status is left unchanged; returns the number of rows changed.
+    fn set_failed_delivery_status_to_unpublished<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, crate::ConnectionError>;
+
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
     /// The soonest `expire_at_ns` among published Application messages that have
@@ -783,6 +790,13 @@ where
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError> {
         (**self).set_delivery_status_to_failed(msg_id)
+    }
+
+    fn set_failed_delivery_status_to_unpublished<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, crate::ConnectionError> {
+        (**self).set_failed_delivery_status_to_unpublished(msg_id)
     }
 
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
@@ -1277,6 +1291,19 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
+                .execute(conn)
+        })
+    }
+
+    fn set_failed_delivery_status_to_unpublished<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, crate::ConnectionError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::group_messages)
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .filter(dsl::delivery_status.eq(DeliveryStatus::Failed))
+                .set(dsl::delivery_status.eq(DeliveryStatus::Unpublished))
                 .execute(conn)
         })
     }
