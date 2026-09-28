@@ -364,6 +364,29 @@ where
         let metadata =
             extract_group_metadata(staged_welcome.public_group().group_context().extensions())
                 .map_err(MetadataPermissionsError::from)?;
+        // A Restored row carries historical identity. A Welcome can activate
+        // it only when its authenticated kind and DM pair are unchanged.
+        let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
+        let existing_group = db.find_group(&group_id)?;
+        if let Some(existing) = &existing_group
+            && existing.membership_state == GroupMembershipState::Restored
+        {
+            if existing.conversation_type != metadata.conversation_type {
+                return Err(GroupError::InvalidWelcomeMetadata);
+            }
+            if existing.conversation_type == ConversationType::Dm {
+                let archived_pair =
+                    crate::groups::parse_canonical_dm_id(existing.dm_id.as_deref())?;
+                if metadata.dm_members.as_ref().map(String::from).as_deref()
+                    != Some(archived_pair.to_string().as_str())
+                {
+                    return Err(MetadataPermissionsError::from(
+                        crate::groups::DmValidationError::StoredDmIdMismatch,
+                    )
+                    .into());
+                }
+            }
+        }
         if metadata.conversation_type == ConversationType::Oneshot {
             Oneshot::process_welcome(
                 &provider,
@@ -375,9 +398,6 @@ where
             return Ok(None);
         }
 
-        // Extract group_id before consuming staged_welcome
-        let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
-        let existing_group = db.find_group(&group_id)?;
         let mut anchor_mode = JoinAnchorMode::Advance;
 
         if let Some(existing) = &existing_group

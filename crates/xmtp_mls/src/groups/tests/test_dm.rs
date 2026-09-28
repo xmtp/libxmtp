@@ -173,8 +173,9 @@ async fn stored_dm_id_mismatch_fails_client_open() {
 // verifies: DMS-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_dm_with_outside_message_sender_fails_client_open() {
+    use diesel::{QueryDsl, RunQueryDsl};
     use xmtp_db::{
-        Store,
+        ConnectionExt, Store,
         group::GroupMembershipState,
         group_message::{DeliveryStatus, GroupMessageKind, StoredGroupMessage},
     };
@@ -223,10 +224,30 @@ async fn stored_dm_with_outside_message_sender_fails_client_open() {
         .with_disable_workers(true)
         .build()
         .await;
+    assert!(matches!(
+        reopened,
+        Err(crate::builder::ClientBuilderError::GroupError(error))
+            if matches!(
+                *error,
+                crate::groups::GroupError::MetadataPermissionsError(
+                    crate::groups::MetadataPermissionsError::DmValidation(
+                        crate::groups::DmValidationError::StoredMessageSenderOutsidePair
+                    )
+                )
+            )
+    ));
+    db.delete_message_by_id(vec![0x55; 32])?;
+    db.raw_query(|conn| {
+        diesel::delete(xmtp_db::schema::groups::table.find(other_group.id)).execute(conn)
+    })?;
+    // Evidence for the removed sibling remains, but it does not taint this
+    // physical group.
     assert!(
-        reopened.is_ok(),
-        "pair sender must allow client open: {:?}",
-        reopened.err()
+        crate::builder::ClientBuilder::from_client(alix.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await
+            .is_ok()
     );
 
     message.id = vec![0x52; 32];
@@ -351,6 +372,103 @@ async fn restored_dm_backup_stub_activates_with_pair_history() {
     assert_eq!(stored.cursor(), Some(welcome_cursor));
     assert!(db.get_group_message(archived.id)?.is_some());
     assert!(bo.group(&dm.group_id)?.is_active()?);
+}
+
+// verifies: DMS-003, DMS-015, JOIN-080
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_foreign_pair_rejects_different_welcome_pair() {
+    use xmtp_db::group::{GroupMembershipState, QueryGroup};
+    use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::DmMembers};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    let foreign = hex::encode([0x43; 32]);
+    let historical_pair = DmMembers {
+        member_one_inbox_id: alix.inbox_id().to_string(),
+        member_two_inbox_id: foreign,
+    };
+    TestMlsGroup::create_restored_dm_and_insert(
+        &bo.context,
+        historical_pair.clone(),
+        GroupMetadataOptions::default(),
+        dm.group_id.as_ref(),
+    )?;
+    let before = bo.db().find_group(&dm.group_id)?.expect("Restored group");
+    assert_eq!(
+        before.dm_id.as_deref(),
+        Some(historical_pair.to_string().as_str())
+    );
+
+    let _ = bo.sync_welcomes().await;
+    let after = bo.db().find_group(&dm.group_id)?.expect("Restored group");
+    assert_eq!(after.membership_state, GroupMembershipState::Restored);
+    assert_eq!(after.dm_id, before.dm_id);
+}
+
+// verifies: DMS-015, JOIN-080
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_group_rejects_dm_welcome_kind_change() {
+    use xmtp_db::group::{ConversationType, GroupMembershipState, QueryGroup};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    TestMlsGroup::insert(
+        &bo.context,
+        Some(dm.group_id.as_ref()),
+        GroupMembershipState::Restored,
+        ConversationType::Group,
+        crate::groups::group_permissions::PolicySet::default(),
+        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        None,
+        false,
+    )?;
+    let _ = bo.sync_welcomes().await;
+    let stored = bo.db().find_group(&dm.group_id)?.expect("Restored group");
+    assert_eq!(stored.membership_state, GroupMembershipState::Restored);
+    assert_eq!(stored.conversation_type, ConversationType::Group);
+}
+
+// verifies: DMS-015
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_dm_deleted_outside_sender_evidence_fails_client_open() {
+    use xmtp_db::group::GroupMembershipState;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+    TestMlsGroup::create_dm_and_insert(
+        &bo.context,
+        GroupMembershipState::Restored,
+        alix.inbox_id().to_string(),
+        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        Some(dm.group_id.as_ref()),
+    )?;
+    let bad = stored_sender_message(dm.group_id, hex::encode([0x43; 32]), 0x70);
+    bad.store(&bo.db())?;
+    assert_eq!(bo.db().delete_message_by_id(&bad.id)?, 1);
+    assert!(bo.db().get_group_message(&bad.id)?.is_none());
+    assert!(
+        bo.db()
+            .has_sender_outside_pair(&dm.group_id, [alix.inbox_id(), bo.inbox_id()],)?
+    );
+
+    let reopened = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await;
+    let Err(crate::builder::ClientBuilderError::GroupError(error)) = reopened else {
+        panic!("Restored DM with old outside-sender evidence must fail client open");
+    };
+    assert!(matches!(
+        *error,
+        crate::groups::GroupError::MetadataPermissionsError(
+            crate::groups::MetadataPermissionsError::DmValidation(
+                crate::groups::DmValidationError::StoredMessageSenderOutsidePair
+            )
+        )
+    ));
 }
 
 // verifies: DMS-003, JOIN-080

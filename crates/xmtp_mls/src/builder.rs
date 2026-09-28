@@ -58,8 +58,24 @@ fn validate_stored_dm_groups<C: XmtpSharedContext>(context: &C) -> Result<(), Cl
         })
         .map_err(GroupError::from)?;
     for stored in groups {
-        // An archive placeholder has no joined MLS state until its Welcome is processed.
+        // An archive placeholder has no joined MLS state, but its sender
+        // history must agree with its declared pair.
         if stored.membership_state == GroupMembershipState::Restored {
+            let pair = crate::groups::parse_canonical_dm_id(stored.dm_id.as_deref())?;
+            state_write(context.mls_storage(), |tx| -> Result<_, GroupError> {
+                let storage = tx.storage();
+                if storage.db().has_sender_outside_pair(
+                    &stored.id,
+                    [&pair.member_one_inbox_id, &pair.member_two_inbox_id],
+                )? {
+                    return Err(MetadataPermissionsError::from(
+                        DmValidationError::StoredMessageSenderOutsidePair,
+                    )
+                    .into());
+                }
+                Ok(TransactionOutcome::Continue(()))
+            })
+            .map(TransactionOutcome::into_continued)?;
             continue;
         }
         state_write(context.mls_storage(), |tx| {

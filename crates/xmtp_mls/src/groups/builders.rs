@@ -3,6 +3,38 @@
 use super::*;
 use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
 
+// implements: DMS-015
+pub(crate) fn parse_canonical_dm_id(dm_id: Option<&str>) -> Result<DmMembers<String>, GroupError> {
+    let invalid = || {
+        GroupError::from(MetadataPermissionsError::from(
+            DmValidationError::StoredDmIdMismatch,
+        ))
+    };
+    let mut parts = dm_id.ok_or_else(invalid)?.split(':');
+    if parts.next() != Some("dm") {
+        return Err(invalid());
+    }
+    let first = parts.next().ok_or_else(invalid)?;
+    let second = parts.next().ok_or_else(invalid)?;
+    if parts.next().is_some() || first == second {
+        return Err(invalid());
+    }
+    for inbox_id in [first, second] {
+        let bytes = hex::decode(inbox_id).map_err(|_| invalid())?;
+        if bytes.len() != 32 || hex::encode(bytes) != inbox_id {
+            return Err(invalid());
+        }
+    }
+    let members = DmMembers {
+        member_one_inbox_id: first.to_string(),
+        member_two_inbox_id: second.to_string(),
+    };
+    if members.to_string() != dm_id.unwrap_or_default() {
+        return Err(invalid());
+    }
+    Ok(members)
+}
+
 #[cfg(test)]
 pub(crate) fn build_protected_metadata_extension(
     creator_inbox_id: &str,

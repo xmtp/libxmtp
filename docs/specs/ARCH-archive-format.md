@@ -271,6 +271,10 @@ JOIN-080 lets a validated Welcome activate a group created only by archive impor
 
 Successful-import idempotence is separate from failure recovery. A failed import retains completed elements. Retrying after a transient read or storage failure can apply the remaining elements; repeating unchanged malformed input cannot repair it.
 
+DMS-015 checks the declared pair and sender evidence before an archive message enters a DM. This check applies to Restored and joined groups. A known message id remains unchanged under ARCH-013. If a new DM message fails the check, ARCH-021 retains earlier elements and stops import before the failing message becomes visible.
+
+A Restored DM can carry a historical pair that excludes the importing inbox. The stored DM identity remains that archived pair. A later Welcome must join the importing inbox under DMS-003 and match the stored pair and kind before activation. This pair check does not by itself satisfy the other historical metadata requirements of ARCH-020.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | ARCH-011 | Metadata without import | An SDK MUST let an app read an archive's container version and its `metadata` element with the archive key alone, without applying any other element. | |
@@ -284,7 +288,11 @@ Successful-import idempotence is separate from failure recovery. A failed import
 
 ## Known limitations
 
-An archive is authenticated by the key alone. Anyone who holds the key can write an archive with any message under any sender, and an importing client cannot tell it from one the user wrote. The key is the whole trust.
+The key authenticates the archive, but it does not prove that an archived message came from MLS. A key holder can write message content under a claimed sender. DMS-015 rejects a DM message whose claimed sender is outside that DM's pair; it cannot verify a sender who is in the pair.
+
+This check can reject an authentic archive made by an older client that accepted a poisoned DM.
+
+Current import can still replace archived creator, adder, creation time, attributes, and admin lists with placeholder values. Restored DM creation can also write fresh Allowed consent. The historical metadata and consent merge requirements remain open for those values.
 
 A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019.
 

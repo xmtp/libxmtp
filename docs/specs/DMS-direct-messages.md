@@ -19,7 +19,7 @@ flowchart LR
 
 In scope: the identifier a client derives from the DM pair; what a creator writes into a DM; the fixed DM policy and the one addition it permits; what a joiner checks before it accepts a DM; how a client folds the groups that share an identifier into one conversation and which of them it acts in; how consent carries across those groups; deduplication of the membership-change messages they repeat; and what an SDK exposes about a DM.
 
-Out of scope: the join itself and its rejections (`JOIN`), component ids and encodings (`META`), the policy engine and role rules (`PERM`), commit validation (`GMOD`), consent states and defaults (`CONS`), stream ordering (`PROC`), and archives (`ARCH`).
+Out of scope: the join itself and its rejections (`JOIN`), component ids and encodings (`META`), the policy engine and role rules (`PERM`), commit validation (`GMOD`), consent states and defaults (`CONS`), stream ordering (`PROC`), and the archive container and merge order (`ARCH`). This spec owns the DM pair and sender checks for stored and imported history.
 
 | Related | Relation |
 | --- | --- |
@@ -93,6 +93,7 @@ The client does not create a further group while it holds one that is not a rest
 | DMS-007 | One conversation per dm id | When the client lists conversations, or resolves a group id that belongs to a stitched DM, it MUST return the winner and MUST NOT return another group of the set unless the app asked for duplicates. | |
 | DMS-008 | A second group is joined | When a client receives a Welcome for a group whose dm id equals that of a group it holds, it MUST process the Welcome under JOIN and MUST NOT reject it for the equal dm id. | The peer created it and may be sending in it. |
 | DMS-014 | The thread is the union | When an app queries or streams a stitched DM through any of its group ids, the client MUST use the union of the groups' messages and apply the requested filters and limit to that union. For ordinary history queries, it MUST order by `sent_at_ns` ascending by default, or by the app's requested supported sort field and direction. For streams, it MUST apply the eligibility and delivery order of PROC-025, PROC-026, and PROC-034; for legacy history-to-live snapshots, it MUST select the eligible retained messages with the greatest local delivery numbers under one limit across the union and return them in ascending local delivery-number order. | Applying a limit separately to each group gives the app the wrong page. |
+| DMS-015 | Historical DM sender admission | Before a new archive message enters a stored DM, the client MUST check that the physical group's dm id is the canonical distinct pair of DMS-001 and contains the message's sender; it MUST also reject a physical group with retained evidence of a sender outside that pair. It MUST check and insert under one database writer transaction, and MUST ignore an existing message id without changing that message or its sender evidence under ARCH-013. On client open, it MUST check the canonical pair and retained sender evidence for every Restored DM before any reader starts; a Restored pair need not include the importing inbox, but a later Welcome MUST satisfy DMS-003 and match the stored historical pair and kind before activation; import and client open MUST fail when their respective checks fail. | An older poisoned DM must not become readable merely because its history was exported and restored. |
 
 ## 4. Consent and repeated records
 
@@ -113,15 +114,17 @@ An app addresses a DM by the peer, not by group id, and needs to know which grou
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| DMS-012 | Peer and duplicates are readable | An SDK MUST let an app read a DM's peer inbox, list the other groups of its stitched DM, and list conversations with every group of each stitched DM included. | |
+| DMS-012 | Peer and duplicates are readable | An SDK MUST let an app read a DM's peer inbox when its own inbox is in the pair, list the other groups of its stitched DM, and list conversations with every group of each stitched DM included. A foreign Restored DM has no peer relative to the importing inbox; the SDK MUST report peer absence and MUST NOT choose a member as a fabricated peer. | |
 
 ## Known limitations
 
 The winner can change when another group's activity timestamp becomes greater, including through an archive import. A late message with an older timestamp need not change it. An app that keeps state by group id can see the conversation's identifier change.
 
+A Restored DM can contain history for two inboxes other than the importing inbox. It stays inactive until a validated Welcome joins the exact stored pair and kind. Import preserves that pair, but current placeholder metadata can still replace other archived values such as creator and adder; ARCH-020 remains open for those values.
+
 A DM has no super admin, so its registry and `COMMIT_LOG_SIGNER` cannot be changed through the fixed policies. A signer rotation is not possible through those policies.
 
-An older stored DM can fail the current DMS-003 checks or have a stored message from an inbox outside its declared pair. The client then fails to open that database. The sender check keeps a small record for each sender observed in this database. This record survives message and physical group deletion. It can use space after the group is removed, and deleting the group does not clear a failure if the group ID is reused. A restored archive placeholder has no joined MLS state to check; its local backup stub does not prove membership. The Welcome checks its stored senders before activation. Local data cannot prove every past MLS epoch after its Welcome and commit payloads have been deleted.
+An older stored DM can fail the current DMS-003 checks or have a stored message from an inbox outside its declared pair. The client then fails to open that database. A restored archive with such a message fails import, even when the archive was written by the user's old client. The sender check keeps a small record for each sender observed in this database. This record survives message and physical group deletion. It can use space after the group is removed, and deleting the group does not clear a failure if the group ID is reused. A restored archive placeholder has no joined MLS state to check; its local backup stub does not prove membership. The Welcome checks its stored senders before activation. Local data cannot prove every past MLS epoch after its Welcome and commit payloads have been deleted.
 
 Current consent inheritance selects the oldest record and assigns the copy the current time. DMS-010 instead preserves the newest decision and its time.
 

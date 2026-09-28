@@ -598,13 +598,56 @@ where
         opts: GroupMetadataOptions,
         existing_group_id: Option<&[u8]>,
     ) -> Result<Self, GroupError> {
+        Self::create_dm_with_members(
+            context,
+            membership_state,
+            DmMembers {
+                member_one_inbox_id: context.inbox_id().to_string(),
+                member_two_inbox_id: dm_target_inbox_id,
+            },
+            opts,
+            existing_group_id,
+        )
+    }
+
+    // implements: DMS-015
+    pub(crate) fn create_restored_dm_and_insert(
+        context: &Context,
+        dm_members: DmMembers<InboxId>,
+        opts: GroupMetadataOptions,
+        group_id: &[u8],
+    ) -> Result<Self, GroupError> {
+        Self::create_dm_with_members(
+            context,
+            GroupMembershipState::Restored,
+            dm_members,
+            opts,
+            Some(group_id),
+        )
+    }
+
+    fn create_dm_with_members(
+        context: &Context,
+        membership_state: GroupMembershipState,
+        dm_members: DmMembers<InboxId>,
+        opts: GroupMetadataOptions,
+        existing_group_id: Option<&[u8]>,
+    ) -> Result<Self, GroupError> {
         let commit_log_enabled = context.server_configuration().commit_log_enabled();
         let signer =
             commit_log_enabled.then(xmtp_cryptography::rand::rand_secret::<ED25519_KEY_LENGTH>);
-        let dictionary = initial_dictionary(
+        let kind = if membership_state == GroupMembershipState::Restored {
+            InitialGroupKind::RestoredDm {
+                member_one_inbox_id: &dm_members.member_one_inbox_id,
+                member_two_inbox_id: &dm_members.member_two_inbox_id,
+            }
+        } else {
             InitialGroupKind::Dm {
-                target_inbox_id: &dm_target_inbox_id,
-            },
+                target_inbox_id: &dm_members.member_two_inbox_id,
+            }
+        };
+        let dictionary = initial_dictionary(
+            kind,
             &PolicySet::new_dm()
                 .to_proto()
                 .map_err(group_permissions::GroupMutablePermissionsError::from)
@@ -622,7 +665,7 @@ where
                     context,
                     tx,
                     membership_state,
-                    &dm_target_inbox_id,
+                    &dm_members,
                     &opts,
                     existing_group_id,
                     &group_config,
@@ -640,7 +683,7 @@ where
                         context,
                         tx,
                         membership_state,
-                        &dm_target_inbox_id,
+                        &dm_members,
                         &opts,
                         existing_group_id,
                         &group_config,
@@ -702,7 +745,7 @@ where
         context: &Context,
         tx: &mut crate::state_tx::StateTx<'_, impl TransactionalKeyStore>,
         membership_state: GroupMembershipState,
-        dm_target_inbox_id: &InboxId,
+        dm_members: &DmMembers<InboxId>,
         opts: &GroupMetadataOptions,
         existing_group_id: Option<&[u8]>,
         group_config: &MlsGroupCreateConfig,
@@ -745,13 +788,7 @@ where
                     .map(|m| m.from_ns),
             )
             .message_disappear_in_ns(opts.message_disappearing_settings.as_ref().map(|m| m.in_ns))
-            .dm_id(Some(
-                DmMembers {
-                    member_one_inbox_id: dm_target_inbox_id.clone(),
-                    member_two_inbox_id: context.identity().inbox_id().to_string(),
-                }
-                .to_string(),
-            ))
+            .dm_id(Some(dm_members.to_string()))
             .build()?;
         stored_group.store(&db)?;
         let record = StoredConsentRecord::new(

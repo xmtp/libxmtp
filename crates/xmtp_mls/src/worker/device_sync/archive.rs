@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use super::DeviceSyncError;
 use crate::{
     context::XmtpSharedContext,
-    groups::{MlsGroup, group_permissions::PolicySet},
+    groups::{GroupError, MlsGroup, group_permissions::PolicySet},
     worker::device_sync::MissingField,
 };
 use futures::{Stream, StreamExt};
@@ -11,7 +11,7 @@ pub use xmtp_archive::*;
 use xmtp_db::{
     ConnectionExt, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
-    group::{ConversationType, DmIdExt, GroupMembershipState},
+    group::{ConversationType, GroupMembershipState},
     group_message::StoredGroupMessage,
     prelude::*,
 };
@@ -167,14 +167,13 @@ fn insert(
                         ));
                     };
 
-                    let target_inbox_id = dm_id.other_inbox_id(context.inbox_id());
+                    let pair = crate::groups::parse_canonical_dm_id(Some(&dm_id))?;
 
-                    MlsGroup::create_dm_and_insert(
+                    MlsGroup::create_restored_dm_and_insert(
                         context,
-                        GroupMembershipState::Restored,
-                        target_inbox_id,
+                        pair,
                         metadata_options,
-                        Some(&save.id),
+                        &save.id,
                     )?;
                 }
                 _ => {
@@ -194,7 +193,47 @@ fn insert(
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            import_context.changed |= message.store_or_ignore_changed(&context.db())?;
+            // Keep validation and insertion under one writer. A rejected
+            // message cannot enter stitched history between the two steps.
+            let changed = crate::state_tx::state_write(
+                context.mls_storage(),
+                |tx| -> Result<_, GroupError> {
+                    let storage = tx.storage();
+                    let db = storage.db();
+                    let existing: Option<StoredGroupMessage> = db.fetch(&message.id)?;
+                    if existing.is_some() {
+                        return Ok(xmtp_db::TransactionOutcome::Continue(false));
+                    }
+                    let group = db.find_group(&message.group_id)?.ok_or_else(|| {
+                        xmtp_db::StorageError::NotFound(xmtp_db::NotFound::GroupById(
+                            message.group_id,
+                        ))
+                    })?;
+                    if group.conversation_type == ConversationType::Dm {
+                        let pair = crate::groups::parse_canonical_dm_id(group.dm_id.as_deref())?;
+                        if ![
+                            pair.member_one_inbox_id.as_str(),
+                            pair.member_two_inbox_id.as_str(),
+                        ]
+                        .contains(&message.sender_inbox_id.as_str())
+                            || db.has_sender_outside_pair(
+                                &message.group_id,
+                                [&pair.member_one_inbox_id, &pair.member_two_inbox_id],
+                            )?
+                        {
+                            return Err(crate::groups::MetadataPermissionsError::from(
+                                crate::groups::DmValidationError::StoredMessageSenderOutsidePair,
+                            )
+                            .into());
+                        }
+                    }
+                    Ok(xmtp_db::TransactionOutcome::Continue(
+                        message.store_or_ignore_changed(&db)?,
+                    ))
+                },
+            )?
+            .into_continued();
+            import_context.changed |= changed;
         }
         _ => {}
     }
@@ -469,6 +508,216 @@ mod tests {
         let bo_original = bo.group(&alix_bo_dm.group_id)?;
         rejoined_original.test_can_talk_with(&bo_original).await?;
         bo_original.test_can_talk_with(&rejoined_original).await?;
+    }
+
+    // verifies: DMS-015, ARCH-013, ARCH-021, DMS-014
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn authentic_archive_rejects_outside_dm_sender_before_stitched_history() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let source = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let good_id = source
+            .send_message(b"pair history", Default::default())
+            .await?;
+        let mut outside = alix
+            .db()
+            .get_group_message(&good_id)?
+            .expect("source message");
+        // Export orders messages by id. Keep the valid element first so
+        // Completed-prefix behavior is deterministic.
+        outside.id = vec![0xff; 32];
+        outside.sender_inbox_id = hex::encode([0x43; 32]);
+        outside.sender_installation_id = vec![0x43; 32];
+        outside.sent_at_ns += 1;
+        outside.sequence_id += 1000;
+        outside.idempotency_key = "older-poisoned-dm".into();
+        outside.store(&alix.db())?;
+
+        // The normal exporter authenticates both messages under the user's key.
+        let key = vec![0x29; 32];
+        let opts = ArchiveOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![BackupElementSelection::Messages],
+            exclude_disappearing_messages: false,
+        };
+        let mut export = vec![];
+        ArchiveExporter::new(opts, alix.db(), &key)
+            .read_to_end(&mut export)
+            .await?;
+
+        tester!(alix2, from: alix);
+        let active = alix2.find_or_create_dm(bo.inbox_id(), None).await?;
+        assert_ne!(active.group_id, source.group_id);
+        let reader = Box::pin(BufReader::new(Cursor::new(export)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        assert!(
+            insert_importer(&mut importer, &alix2.context)
+                .await
+                .is_err()
+        );
+
+        let restored = alix2
+            .db()
+            .find_group(&source.group_id)?
+            .expect("restored DM");
+        assert_eq!(restored.membership_state, GroupMembershipState::Restored);
+        assert!(alix2.db().get_group_message(&good_id)?.is_some());
+        assert!(alix2.db().get_group_message(&outside.id)?.is_none());
+        assert!(
+            !alix2
+                .db()
+                .has_sender_outside_pair(&source.group_id, [alix2.inbox_id(), bo.inbox_id()],)?
+        );
+        let stitched = active.find_messages(&MsgQueryArgs::default())?;
+        assert!(stitched.iter().any(|message| message.id == good_id));
+        assert!(!stitched.iter().any(|message| message.id == outside.id));
+    }
+
+    // verifies: ARCH-015, ARCH-022, DMS-015
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn foreign_archive_preserves_dm_pair_and_pair_history() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(charlie, disable_workers);
+        let source = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let alix_id = source
+            .send_message(b"from alix", Default::default())
+            .await?;
+        bo.sync_welcomes().await?;
+        let bo_group = bo.group(&source.group_id)?;
+        let bo_id = bo_group
+            .send_message(b"from bo", Default::default())
+            .await?;
+        source.sync().await?;
+        let archived_dm_id = alix
+            .db()
+            .find_group(&source.group_id)?
+            .expect("source DM")
+            .dm_id
+            .expect("DM pair");
+        assert!(!archived_dm_id.contains(charlie.inbox_id()));
+
+        let key = vec![0x38; 32];
+        let opts = ArchiveOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![BackupElementSelection::Messages],
+            exclude_disappearing_messages: false,
+        };
+        let mut export = vec![];
+        ArchiveExporter::new(opts.clone(), alix.db(), &key)
+            .read_to_end(&mut export)
+            .await?;
+        let reader = Box::pin(BufReader::new(Cursor::new(export)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &charlie.context).await?;
+
+        let stored = charlie
+            .db()
+            .find_group(&source.group_id)?
+            .expect("Restored DM");
+        assert_eq!(stored.membership_state, GroupMembershipState::Restored);
+        assert_eq!(stored.dm_id.as_deref(), Some(archived_dm_id.as_str()));
+        let restored = charlie.group(&source.group_id)?;
+        assert_eq!(
+            restored
+                .metadata()
+                .await?
+                .dm_members
+                .expect("stub pair")
+                .to_string(),
+            archived_dm_id
+        );
+        assert!(!restored.is_active()?);
+        for (id, sender, bytes) in [
+            (&alix_id, alix.inbox_id(), b"from alix".as_slice()),
+            (&bo_id, bo.inbox_id(), b"from bo".as_slice()),
+        ] {
+            let message = charlie.db().get_group_message(id)?.expect("pair history");
+            assert_eq!(message.sender_inbox_id, sender);
+            assert_eq!(message.decrypted_message_bytes, bytes);
+        }
+        let mut outside: xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave = charlie
+            .db()
+            .get_group_message(&alix_id)?
+            .expect("pair message")
+            .into();
+        outside.id = vec![0xe3; 32];
+        outside.sender_inbox_id = charlie.inbox_id().to_string();
+        let mut rejected = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::GroupMessage(outside.clone())),
+        })]);
+        assert!(
+            insert_elements(&mut rejected, &charlie.context)
+                .await
+                .is_err()
+        );
+        assert!(charlie.db().get_group_message(&outside.id)?.is_none());
+        crate::builder::ClientBuilder::from_client(charlie.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+    }
+
+    // verifies: DMS-015, ARCH-013
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn joined_dm_archive_import_keeps_duplicate_and_rejects_outside_sender() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let good_id = dm.send_message(b"known", Default::default()).await?;
+        let good = alix
+            .db()
+            .get_group_message(&good_id)?
+            .expect("known message");
+        let mut save: xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave =
+            good.clone().into();
+        save.sender_inbox_id = hex::encode([0x43; 32]);
+        save.decrypted_message_bytes = b"ignored replacement".to_vec();
+        let mut duplicate = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::GroupMessage(save.clone())),
+        })]);
+        insert_elements(&mut duplicate, &alix.context).await?;
+        assert_eq!(alix.db().get_group_message(&good_id)?, Some(good.clone()));
+        assert!(
+            !alix
+                .db()
+                .has_sender_outside_pair(&dm.group_id, [alix.inbox_id(), bo.inbox_id()],)?
+        );
+
+        save.id = vec![0x44; 32];
+        let mut new_message = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::GroupMessage(save.clone())),
+        })]);
+        assert!(
+            insert_elements(&mut new_message, &alix.context)
+                .await
+                .is_err()
+        );
+        assert!(alix.db().get_group_message(&save.id)?.is_none());
+    }
+
+    // verifies: DMS-015, ARCH-021
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn malformed_archived_dm_id_fails_before_group_insert() {
+        tester!(alix, disable_workers);
+        let group_id = vec![0x64; 16];
+        let save = xmtp_proto::xmtp::device_sync::group_backup::GroupSave {
+            id: group_id.clone(),
+            conversation_type: 2,
+            dm_id: Some("dm:malformed".into()),
+            ..Default::default()
+        };
+        let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::Group(save)),
+        })]);
+        assert!(insert_elements(&mut elements, &alix.context).await.is_err());
+        assert!(
+            alix.db()
+                .find_group(&GroupId::try_from(group_id.as_slice())?)?
+                .is_none()
+        );
     }
 
     // verifies: EVENT-001, EVENT-017
@@ -747,8 +996,19 @@ mod tests {
 
         let key = vec![9; 32];
         let path = PathBuf::from("tests/assets/archive-current-legacy-metadata.xmtp");
+        let mut preview = ArchiveImporter::from_file(path.clone(), &key).await?;
+        let mut archived_dm_id = None;
+        while let Some(element) = preview.next().await {
+            if let Some(Element::Group(group)) = element?.element {
+                archived_dm_id = archived_dm_id.or(group.dm_id);
+            }
+        }
+        let archived_dm_id = archived_dm_id.expect("legacy DM pair");
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
         tester!(alix, disable_workers);
+        let pair = crate::groups::parse_canonical_dm_id(Some(&archived_dm_id))?;
+        assert_ne!(pair.member_one_inbox_id, alix.inbox_id());
+        assert_ne!(pair.member_two_inbox_id, alix.inbox_id());
         insert_importer(&mut importer, &alix.context).await?;
 
         let groups: Vec<StoredGroup> = alix
@@ -787,6 +1047,10 @@ mod tests {
             .iter()
             .find(|group| group.conversation_type == ConversationType::Dm)
             .expect("legacy DM archive entry");
+        assert_eq!(
+            restored_dm_record.dm_id.as_deref(),
+            Some(archived_dm_id.as_str())
+        );
         assert_eq!(restored_dm_record.message_disappear_from_ns, Some(123));
         assert_eq!(restored_dm_record.message_disappear_in_ns, Some(456));
         let restored_dm = alix.group(&restored_dm_record.id)?;
