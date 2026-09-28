@@ -17,6 +17,7 @@ ubrn_bindgen.workspace = true
 ubrn_common.workspace = true
 uniffi_bindgen.workspace = true
 uniffi_meta.workspace = true
+xmtp_configuration.workspace = true
 
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ["test-utils"] }

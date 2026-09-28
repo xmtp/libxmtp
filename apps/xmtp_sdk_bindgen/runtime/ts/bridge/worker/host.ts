@@ -129,7 +129,16 @@ export class PoolLocks {
   }
 }
 
-export function poolName(options: unknown): string | undefined {
+/**
+ * Returns the storage lock name for client options, or `undefined` for an
+ * in-memory store. Every persistent store uses the one OPFS pool in
+ * `directory`, so they share one lock. The generated dispatch passes the
+ * directory from the Rust store configuration.
+ */
+export function poolName(
+  options: unknown,
+  directory: string,
+): string | undefined {
   if (
     options === null ||
     typeof options !== "object" ||
@@ -139,12 +148,14 @@ export function poolName(options: unknown): string | undefined {
   const storage = options.storage;
   if (storage === null || typeof storage !== "object") return undefined;
   const location = "location" in storage ? storage.location : undefined;
-  if (location !== null && typeof location === "object" && "tag" in location) {
-    if (location.tag === "InMemory") return undefined;
-    if (location.tag === "Path" || location.tag === "Directory")
-      return ".opfs-libxmtp-metadata";
-  }
-  return ".opfs-libxmtp-metadata";
+  if (
+    location !== null &&
+    typeof location === "object" &&
+    "tag" in location &&
+    location.tag === "InMemory"
+  )
+    return undefined;
+  return directory;
 }
 
 /**

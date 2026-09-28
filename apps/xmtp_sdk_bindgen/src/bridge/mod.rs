@@ -1232,7 +1232,14 @@ fn render(
     }
     dispatch.push_str("};\n\n");
     dispatch.push_str("function snapshot(name: string, value: object, owner: number, context: WorkerContext): Record<string, unknown> {\n  const output: Record<string, unknown> = {};\n  for (const field of immutable[name] ?? []) {\n    const method: unknown = Reflect.get(value, field.name);\n    if (typeof method !== \"function\") throw new TypeError(`missing immutable method ${field.name}`);\n    const result: unknown = Reflect.apply(method, value, []);\n    output[field.name] = workerEncoder(context.registry, owner, (type, nested, nestedOwner) => snapshot(type, nested, nestedOwner, context)).convert(field.shape, result);\n  }\n  return output;\n}\n\n");
-    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1]) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)), B.storeLeftOpen);\n}\n");
+    // Every persistent store opens one OPFS pool in this directory, so the
+    // directory also names the storage lock of that pool.
+    writeln!(
+        dispatch,
+        "const STORAGE_POOL = {:?};",
+        xmtp_configuration::WASM_VFS_DIRECTORY
+    )?;
+    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)), B.storeLeftOpen);\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
 
     for name in [
@@ -1392,6 +1399,30 @@ mod tests {
         });
         validate_bridge(std::slice::from_ref(&item))?;
         assert!(operations(&[item], &BTreeMap::new()).is_empty());
+    }
+
+    // The worker storage lock must name the OPFS directory that the Rust
+    // store opens. Only the generator writes it, from the Rust constant.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn pool_lock_name_comes_from_opfs_directory() {
+        let files = render(&[], &[], "test", &BTreeMap::new())?;
+        let dispatch = &files["dispatch.gen.ts"];
+        assert!(
+            dispatch.contains(&format!(
+                "const STORAGE_POOL = {:?};",
+                xmtp_configuration::WASM_VFS_DIRECTORY
+            )),
+            "dispatch does not hold the OPFS directory"
+        );
+        assert!(
+            dispatch.contains("poolName(decoded[1], STORAGE_POOL)"),
+            "dispatch does not pass the OPFS directory to poolName"
+        );
+        let host = include_str!("../../runtime/ts/bridge/worker/host.ts");
+        assert!(
+            !host.contains(xmtp_configuration::WASM_VFS_DIRECTORY),
+            "host.ts has its own copy of the OPFS directory"
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]

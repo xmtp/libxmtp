@@ -12136,6 +12136,7 @@ dependencies = [
  "uniffi_bindgen",
  "uniffi_meta",
  "xmtp_common",
+ "xmtp_configuration",
 ]
 
 [[package]]

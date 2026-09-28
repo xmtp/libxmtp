@@ -897,8 +897,15 @@ describe("browser bridge transport", () => {
     const options = (path: string) => ({
       storage: { location: { tag: "Path", inner: [path] }, label: path },
     });
-    expect(poolName(options("first.db"))).toBe(".opfs-libxmtp-metadata");
-    expect(poolName(options("second.db"))).toBe(poolName(options("first.db")));
+    expect(poolName(options("first.db"), "opfs-directory")).toBe(
+      "opfs-directory",
+    );
+    expect(poolName(options("second.db"), "opfs-directory")).toBe(
+      "opfs-directory",
+    );
+    expect(
+      poolName({ storage: { location: { tag: "InMemory" } } }, "opfs-directory"),
+    ).toBeUndefined();
   });
 
   it("shares one pool lock between clients in one worker", async () => {
