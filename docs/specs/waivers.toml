@@ -692,12 +692,6 @@ owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Membership refresh does not reconcile missing catalogue entries into the committed registry yet. A later PR of the configured-metadata stack adds the Insert."
 [[waiver]]
-id = "META-068"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The global 8192-byte value and 65536-byte snapshot bounds are not enforced for application components, USER_DISPLAY_NAME, or GROUP_IMAGE. A later PR of the configured-metadata stack applies them."
-[[waiver]]
 id = "META-069"
 kind = "gap"
 owner = "protocol"

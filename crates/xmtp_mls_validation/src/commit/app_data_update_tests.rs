@@ -1137,3 +1137,51 @@ fn immutable_first_write_cannot_be_split_across_proposals() {
         Err(CommitRuleError::InsufficientPermissions)
     ));
 }
+
+/// A DM participant cannot grow an application map without limit by
+/// writing entries one commit at a time: the commit that would push the
+/// serialized snapshot past 65536 bytes is rejected.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn dm_participant_cannot_grow_application_map_past_snapshot_bound() {
+    let (alice, bob) = (fake_inbox(1), fake_inbox(2));
+    let registry = registry_with(
+        PROFILE,
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let entry = |key: u8| {
+        let payload = TlsMapDelta::<VLBytes, VLBytes>::new()
+            .insert(VLBytes::new(vec![key]), VLBytes::new(vec![0; 8000]))
+            .tls_serialize_detached()
+            .unwrap();
+        AppDataUpdateOperation::Update(payload.into())
+    };
+    let dm = dm_of(alice, bob);
+    let mut committed: Option<Vec<u8>> = None;
+    let mut commit = |key: u8| {
+        let operation = entry(key);
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: &alice.to_hex(),
+            }],
+            |_| committed.clone(),
+            &registry,
+            Some(&dm),
+            None,
+        )
+        .map(|post| committed = post[&PROFILE].clone())
+    };
+    for key in 0..8 {
+        commit(key)?;
+    }
+    assert!(matches!(
+        commit(8),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}

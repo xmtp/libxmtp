@@ -9,6 +9,13 @@
 //! raw component bytes; `xmtp_mls` owns the intent and commit paths that
 //! decide when a write is allowed.
 //!
+//! ## Field bounds
+//!
+//! [`apply_app_data_update_payload`] rejects a new value of an application
+//! component, `USER_DISPLAY_NAME`, or `GROUP_IMAGE` whose scalar,
+//! collection key, or collection value exceeds [`MAX_FIELD_ELEMENT_BYTES`],
+//! or whose serialized collection exceeds [`MAX_FIELD_SNAPSHOT_BYTES`].
+//!
 //! ## Inbox-id encoding
 //!
 //! The legacy GMM extension stores inbox ids as 64-character hex strings.
@@ -29,7 +36,7 @@ use crate::{
     },
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     inbox_id::{InboxId, InboxIdError},
-    tls_map::TlsMapError,
+    tls_map::{TlsMap, TlsMapError},
     tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 use openmls::{
@@ -37,8 +44,16 @@ use openmls::{
     group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
     messages::proposals::AppDataUpdateOperation,
 };
-use tls_codec::{Deserialize, Serialize};
+use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
+
+/// Longest scalar, collection key, or collection value that an application
+/// component, `USER_DISPLAY_NAME`, or `GROUP_IMAGE` may hold.
+pub const MAX_FIELD_ELEMENT_BYTES: usize = 8192;
+
+/// Longest serialized collection snapshot that an application component,
+/// `USER_DISPLAY_NAME`, or `GROUP_IMAGE` may hold.
+pub const MAX_FIELD_SNAPSHOT_BYTES: usize = 65536;
 
 /// Errors surfaced by the component_source layer.
 ///
@@ -110,6 +125,19 @@ pub enum ComponentSourceError {
     /// value of a map component from an incoming delta.
     #[error("tls map apply error: {0}")]
     TlsMapApply(#[from] TlsMapError),
+
+    /// An update would leave a bounded component holding a scalar,
+    /// collection element, or collection snapshot longer than its limit
+    /// ([`MAX_FIELD_ELEMENT_BYTES`] or [`MAX_FIELD_SNAPSHOT_BYTES`]).
+    #[error("component {component_id} holds {len} bytes, over the {max}-byte bound")]
+    FieldBoundExceeded {
+        /// The component whose new value is too large.
+        component_id: ComponentId,
+        /// Length of the offending scalar, element, or snapshot.
+        len: usize,
+        /// The bound it exceeds.
+        max: usize,
+    },
 }
 
 impl ComponentSourceError {
@@ -125,6 +153,9 @@ impl ComponentSourceError {
             | Self::ImmutableUpdate(id)
             | Self::MismatchedMutation(id)
             | Self::MalformedComponentValue {
+                component_id: id, ..
+            }
+            | Self::FieldBoundExceeded {
                 component_id: id, ..
             } => Some(*id),
             _ => None,
@@ -570,7 +601,57 @@ pub fn apply_app_data_update_payload(
     //    *newer* release ships that this client has never heard of;
     //    the registry's `component_type` tag is the type oracle.
     let ty = component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)?;
-    apply_update_payload_for_type(id, ty, payload, old_value).map_err(Into::into)
+    let new_value = apply_update_payload_for_type(id, ty, payload, old_value)?;
+    if id.is_app_range() || id == ComponentId::USER_DISPLAY_NAME || id == ComponentId::GROUP_IMAGE {
+        check_field_bounds(id, ty, &new_value)?;
+    }
+    Ok(new_value)
+}
+
+/// Reject `value`, the new bytes of component `id` of type `ty`, when a
+/// scalar, collection key, or collection value is longer than
+/// [`MAX_FIELD_ELEMENT_BYTES`] or a collection snapshot is longer than
+/// [`MAX_FIELD_SNAPSHOT_BYTES`]. `InboxId` keys have a fixed size, so only
+/// byte keys and values are measured element by element.
+// implements: META-068
+fn check_field_bounds(
+    id: ComponentId,
+    ty: ComponentType,
+    value: &[u8],
+) -> Result<(), ComponentSourceError> {
+    let exceeded = |len, max| ComponentSourceError::FieldBoundExceeded {
+        component_id: id,
+        len,
+        max,
+    };
+    let longest_element = match ty {
+        ComponentType::Bytes | ComponentType::String => Some(value.len()),
+        _ if value.len() > MAX_FIELD_SNAPSHOT_BYTES => {
+            return Err(exceeded(value.len(), MAX_FIELD_SNAPSHOT_BYTES));
+        }
+        ComponentType::TlsSetBytes => TlsSet::<VLBytes>::tls_deserialize_exact(value)?
+            .iter()
+            .map(|v| v.as_slice().len())
+            .max(),
+        ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString => {
+            TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(value)?
+                .values()
+                .map(|v| v.as_slice().len())
+                .max()
+        }
+        ComponentType::TlsMapBytesBytes => {
+            TlsMap::<VLBytes, VLBytes>::tls_deserialize_exact(value)?
+                .iter()
+                .flat_map(|(k, v)| [k.as_slice().len(), v.as_slice().len()])
+                .max()
+        }
+        ComponentType::TlsSetInboxId | ComponentType::Unspecified => None,
+    }
+    .unwrap_or(0);
+    if longest_element > MAX_FIELD_ELEMENT_BYTES {
+        return Err(exceeded(longest_element, MAX_FIELD_ELEMENT_BYTES));
+    }
+    Ok(())
 }
 
 /// Look up the [`ComponentType`] registered for a component id in the
@@ -950,11 +1031,10 @@ mod tests {
             component_registry::{ComponentOp, new_component_metadata},
         },
         inbox_id::INBOX_ID_BYTE_LEN,
-        tls_map::{TlsMap, TlsMapDelta},
+        tls_map::TlsMapDelta,
         tls_set::TlsKeyHash,
     };
     use prost::Message;
-    use tls_codec::VLBytes;
     use xmtp_proto::xmtp::mls::message_contents::{
         MetadataPolicy as MetadataPolicyProto,
         metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
@@ -2258,5 +2338,127 @@ mod tests {
             ),
             "expected MalformedComponentValue for ADMIN_LIST, got: {err:?}"
         );
+    }
+
+    // --- field bounds ------------------------------------------------------
+
+    fn bytes(len: usize) -> VLBytes {
+        VLBytes::new(vec![b'a'; len])
+    }
+
+    /// A scalar of an application component or `GROUP_IMAGE` may hold 8192
+    /// bytes and no more, so one writer cannot fill the commit envelope.
+    // verifies: META-068
+    #[xmtp_common::test(unwrap_try = true)]
+    fn bounded_scalar_holds_at_most_the_element_limit() {
+        let app = ComponentId::new(0xC068);
+        let registry = registry_with(app, ComponentType::Bytes);
+        for id in [app, ComponentId::GROUP_IMAGE] {
+            let at_limit = vec![0; MAX_FIELD_ELEMENT_BYTES];
+            assert_eq!(
+                apply_app_data_update_payload(id, &at_limit, None, &registry)?,
+                at_limit
+            );
+            let over = [0; MAX_FIELD_ELEMENT_BYTES + 1];
+            assert!(matches!(
+                apply_app_data_update_payload(id, &over, None, &registry),
+                Err(ComponentSourceError::FieldBoundExceeded {
+                    component_id,
+                    len: 8193,
+                    max: MAX_FIELD_ELEMENT_BYTES,
+                }) if component_id == id
+            ));
+        }
+    }
+
+    /// Each key and value of an application byte map, and each
+    /// `USER_DISPLAY_NAME` value, may hold 8192 bytes and no more.
+    // verifies: META-068
+    #[xmtp_common::test(unwrap_try = true)]
+    fn bounded_map_elements_hold_at_most_the_element_limit() {
+        let app = ComponentId::new(0xC069);
+        let registry = registry_with(app, ComponentType::TlsMapBytesBytes);
+        let app_entry = |key: usize, value: usize| {
+            let delta = TlsMapDelta::<VLBytes, VLBytes>::new().insert(bytes(key), bytes(value));
+            apply_app_data_update_payload(
+                app,
+                &delta.tls_serialize_detached().unwrap(),
+                None,
+                &registry,
+            )
+        };
+        let name = |len: usize| {
+            let delta = TlsMapDelta::<InboxId, VLBytes>::new().insert(fake_inbox(1), bytes(len));
+            apply_app_data_update_payload(
+                ComponentId::USER_DISPLAY_NAME,
+                &delta.tls_serialize_detached().unwrap(),
+                None,
+                &registry,
+            )
+        };
+        let over = |result| {
+            matches!(
+                result,
+                Err(ComponentSourceError::FieldBoundExceeded {
+                    len: 8193,
+                    max: MAX_FIELD_ELEMENT_BYTES,
+                    ..
+                })
+            )
+        };
+
+        app_entry(MAX_FIELD_ELEMENT_BYTES, MAX_FIELD_ELEMENT_BYTES)?;
+        assert!(over(app_entry(MAX_FIELD_ELEMENT_BYTES + 1, 1)));
+        assert!(over(app_entry(1, MAX_FIELD_ELEMENT_BYTES + 1)));
+        name(MAX_FIELD_ELEMENT_BYTES)?;
+        assert!(over(name(MAX_FIELD_ELEMENT_BYTES + 1)));
+    }
+
+    /// A serialized collection may hold 65536 bytes and no more, even when
+    /// every element is within its own limit.
+    // verifies: META-068
+    #[xmtp_common::test(unwrap_try = true)]
+    fn bounded_collection_holds_at_most_the_snapshot_limit() {
+        let app = ComponentId::new(0xC06A);
+        let registry = registry_with(app, ComponentType::TlsMapBytesBytes);
+        // Eight 8000-byte entries plus one of `last` bytes.
+        let write = |last: usize| {
+            let delta = (0..8u8)
+                .fold(TlsMapDelta::<VLBytes, VLBytes>::new(), |d, k| {
+                    d.insert(VLBytes::new(vec![k]), bytes(8000))
+                })
+                .insert(VLBytes::new(vec![8]), bytes(last));
+            apply_app_data_update_payload(
+                app,
+                &delta.tls_serialize_detached().unwrap(),
+                None,
+                &registry,
+            )
+        };
+        // The value length prefix is two bytes from 64 up, so the snapshot
+        // grows one byte per value byte from there.
+        let last = 64 + MAX_FIELD_SNAPSHOT_BYTES - write(64)?.len();
+
+        assert_eq!(write(last)?.len(), MAX_FIELD_SNAPSHOT_BYTES);
+        assert!(matches!(
+            write(last + 1),
+            Err(ComponentSourceError::FieldBoundExceeded {
+                len: 65537,
+                max: MAX_FIELD_SNAPSHOT_BYTES,
+                ..
+            })
+        ));
+    }
+
+    /// The bounds cover application components, `USER_DISPLAY_NAME`, and
+    /// `GROUP_IMAGE` only. Other XMTP components keep their own limits.
+    // verifies: META-068
+    #[xmtp_common::test(unwrap_try = true)]
+    fn field_bounds_skip_other_xmtp_components() {
+        let registered = ComponentId::new(0x80FF);
+        let over = [b'a'; MAX_FIELD_ELEMENT_BYTES + 1];
+        let registry = registry_with(registered, ComponentType::Bytes);
+        apply_app_data_update_payload(registered, &over, None, &registry)?;
+        apply_app_data_update_payload(ComponentId::GROUP_DESCRIPTION, &over, None, &registry)?;
     }
 }
