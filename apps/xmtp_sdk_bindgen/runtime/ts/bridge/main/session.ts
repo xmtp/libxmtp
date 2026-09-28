@@ -165,7 +165,7 @@ export class MainSession {
     signal?: AbortSignal,
   ): Promise<unknown> {
     if (target) this.checkHandle(target);
-    await this.readyPromise;
+    await this.readyOrAbort(signal);
     if (this.dead) throw bridgeError("workerTerminated");
     if (signal?.aborted) throw bridgeError("cancelled", signal.reason);
     const id = this.nextId++;
@@ -189,6 +189,23 @@ export class MainSession {
         signal?.removeEventListener("abort", abort);
         reject(error instanceof Error ? error : new Error(String(error)));
       }
+    });
+  }
+
+  // A call can start before the worker handshake. An abort before the worker
+  // is ready rejects the call with the same error as an abort after it.
+  private readyOrAbort(signal?: AbortSignal): Promise<void> {
+    if (!signal) return this.readyPromise;
+    if (signal.aborted)
+      return Promise.reject(bridgeError("cancelled", signal.reason));
+    return new Promise<void>((resolve, reject) => {
+      const stop = () => signal.removeEventListener("abort", abort);
+      const abort = () => {
+        stop();
+        reject(bridgeError("cancelled", signal.reason));
+      };
+      signal.addEventListener("abort", abort);
+      void this.readyPromise.then(resolve, reject).finally(stop);
     });
   }
 

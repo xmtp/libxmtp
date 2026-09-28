@@ -694,4 +694,42 @@ describe("browser bridge transport", () => {
       session.call("one", [], undefined, abort.signal),
     ).rejects.toMatchObject({ code: "Cancelled" });
   });
+
+  it("cancels a call that waits for the worker handshake", async () => {
+    const [main] = pair();
+    const session = new MainSession(main, 1, "stalled");
+    const abort = new AbortController();
+    const added = vi.spyOn(abort.signal, "addEventListener");
+    const removed = vi.spyOn(abort.signal, "removeEventListener");
+    const call = session.call("waiting", [], undefined, abort.signal);
+    await Promise.resolve();
+    abort.abort("stop");
+    await expect(
+      Promise.race([
+        call,
+        new Promise<never>((_resolve, reject) =>
+          setTimeout(() => reject(new Error("call did not settle")), 100),
+        ),
+      ]),
+    ).rejects.toMatchObject({ code: "Cancelled", details: "stop" });
+    expect(main.sent.some((message) => message.t === "call")).toBe(false);
+    expect(added).toHaveBeenCalledTimes(1);
+    expect(removed).toHaveBeenCalledWith("abort", added.mock.calls[0][1]);
+  });
+
+  it("removes the handshake abort listener when the worker is ready", async () => {
+    const [main] = pair();
+    const session = new MainSession(main, 1, "late");
+    const abort = new AbortController();
+    const added = vi.spyOn(abort.signal, "addEventListener");
+    const removed = vi.spyOn(abort.signal, "removeEventListener");
+    void session.call("waiting", [], undefined, abort.signal);
+    await Promise.resolve();
+    expect(added).toHaveBeenCalledTimes(1);
+    const handshake = added.mock.calls[0][1];
+    main.emitRaw({ t: "ready", epoch: 0 });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(removed).toHaveBeenCalledWith("abort", handshake);
+    expect(main.sent.some((message) => message.t === "call")).toBe(true);
+  });
 });
