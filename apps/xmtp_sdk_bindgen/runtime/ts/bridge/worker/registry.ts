@@ -113,6 +113,10 @@ export class WorkerRegistry {
     this.ownerClients.delete(owner);
   }
 
+  client(owner: number): object | undefined {
+    return this.ownerClients.get(owner);
+  }
+
   takeClient(owner: number): object | undefined {
     const client = this.ownerClients.get(owner);
     this.ownerClients.delete(owner);

@@ -12,7 +12,13 @@ import { enumFactory, type Shape } from "./runtime/bridge/codec.js";
 import { RemoteObject } from "./runtime/bridge/main/remote-object.js";
 import { MainSession } from "./runtime/bridge/main/session.js";
 import type { WireEndpoint, WireMessage } from "./runtime/bridge/wire.js";
-import { RUST_PANIC_PREFIX, WorkerHost } from "./runtime/bridge/worker/host.js";
+import { dispatchGenerated } from "./dispatch.gen.js";
+import {
+  PoolLocks,
+  RUST_PANIC_PREFIX,
+  WorkerHost,
+  type LockProvider,
+} from "./runtime/bridge/worker/host.js";
 import { foreignStub } from "./stubs.gen.js";
 import { BRIDGED_OBJECTS, FOREIGN_OBJECTS, LAYOUTS } from "./wire.gen.js";
 import * as B from "./xmtp_sdk.js";
@@ -519,6 +525,97 @@ describe("generated bridge value conformance", () => {
     ).toBe(true);
     expect(host.registry.size).toBe(0);
     expect(() => session.checkHandle(handle)).toThrow("clientClosed");
+  });
+
+  it("rejects a generated call on a handle of another type", async () => {
+    const held = new Set<string>();
+    const provider: LockProvider = {
+      async request(name, _options, callback) {
+        if (held.has(name)) return callback(null);
+        held.add(name);
+        try {
+          await callback({});
+        } finally {
+          held.delete(name);
+        }
+      },
+    };
+    const locks = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
+    const [main, worker] = endpoints();
+    const host = new WorkerHost(
+      worker,
+      1,
+      "target",
+      async () => {},
+      dispatchGenerated,
+      locks,
+    );
+    const session = new MainSession(main, 1, "target");
+    await session.ready();
+    const start = async (): Promise<{
+      client: P.Client;
+      reader: { h: number };
+      ends: { client: number; reader: number; lockHeld: boolean[] };
+    }> => {
+      const lockHeld: boolean[] = [];
+      const ends = { client: 0, reader: 0, lockHeld };
+      await locks.open("client-pool");
+      const clientHandle = host.registry.add(
+        {
+          end: async () => {
+            ends.client++;
+            ends.lockHeld.push(held.has("xmtp:client-pool"));
+          },
+        },
+        "Client",
+        undefined,
+        () => ({ clientKey: 1n }),
+      );
+      locks.attachOwner(clientHandle.owner, "client-pool");
+      const reader = host.registry.add(
+        {
+          end: async () => {
+            ends.reader++;
+          },
+        },
+        "MessageReader",
+        clientHandle.owner,
+      );
+      await expect(
+        session.call("Client.end", [], reader),
+      ).rejects.toMatchObject({ code: "ContractMismatch" });
+      await expect(
+        session.call("MessageReader.end", [], clientHandle),
+      ).rejects.toMatchObject({ code: "ContractMismatch" });
+      await expect(
+        session.call("Client.create", [], clientHandle),
+      ).rejects.toMatchObject({ code: "ContractMismatch" });
+      expect(ends).toMatchObject({ client: 0, reader: 0 });
+      return { client: new P.Client(session, clientHandle), reader, ends };
+    };
+
+    // An owner release ends the client before it releases the pool lock.
+    const released = await start();
+    main.postMessage({
+      t: "release",
+      handles: [released.client.handle.h, released.reader.h],
+      owners: [released.client.handle.owner],
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(released.ends).toEqual({ client: 1, reader: 0, lockHeld: [true] });
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    // A generated Client.end ends the client once and releases the lock.
+    const ended = await start();
+    await ended.client.end();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(ended.ends).toEqual({ client: 1, reader: 0, lockHeld: [true] });
+    expect(host.registry.size).toBe(0);
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
   });
 
   it("reenters through generated foreign registration and stub", async () => {

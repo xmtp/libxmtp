@@ -449,6 +449,56 @@ describe("browser bridge transport", () => {
     otherTab.close("client-pool");
   });
 
+  it("ends an owner only through the Client.end of its own client", async () => {
+    const { held, provider } = heldPoolLocks();
+    const locks = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
+    const [main, worker] = pair();
+    // This dispatch does not check the target type, so the host check alone
+    // must keep the owner open.
+    const engine = new WorkerHost(
+      worker,
+      1,
+      "pool",
+      async () => {},
+      async (key, _args, context) => {
+        if (key !== "Client.end" || !context.target) return;
+        const end: unknown = Reflect.get(context.target, "end");
+        if (typeof end === "function")
+          await Reflect.apply(end, context.target, []);
+      },
+      locks,
+    );
+    const session = new MainSession(main, 1, "pool");
+    await session.ready();
+    await locks.open("client-pool");
+    const lockHeldAtEnd: boolean[] = [];
+    const clientEnd = vi.fn(async () => {
+      lockHeldAtEnd.push(held.has("xmtp:client-pool"));
+    });
+    const readerEnd = vi.fn(async () => {});
+    const client = engine.registry.add({ end: clientEnd }, "Client");
+    const reader = engine.registry.add(
+      { end: readerEnd },
+      "MessageReader",
+      client.owner,
+    );
+    locks.attachOwner(client.owner, "client-pool");
+    await session.call("Client.end", [], reader);
+    expect(readerEnd).toHaveBeenCalledTimes(1);
+    main.postMessage({
+      t: "release",
+      handles: [client.h, reader.h],
+      owners: [client.owner],
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(clientEnd).toHaveBeenCalledTimes(1);
+    expect(lockHeldAtEnd).toEqual([true]);
+    expect(engine.registry.size).toBe(0);
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
+  });
+
   it("releases the pool owner when the Client handle is collected", async () => {
     const held = new Set<string>();
     const provider: LockProvider = {

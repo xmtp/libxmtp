@@ -207,6 +207,23 @@ export interface WorkerContext {
   targetHandle?: HandleWire;
 }
 
+/**
+ * Rejects a call whose target handle does not fit its operation. A method
+ * needs a handle of its own class. A constructor or a function needs no
+ * handle. The registry resolved the target only if the handle type is the
+ * type that the handle got when it was created, so the handle type is the
+ * type of the target object.
+ */
+export function checkTarget(
+  key: string,
+  type: string | undefined,
+  context: WorkerContext,
+): void {
+  const actual = context.targetHandle?.type;
+  if (actual !== type || (type !== undefined && context.target === undefined))
+    throw bridgeError("contractMismatch", { key, target: actual });
+}
+
 export type Dispatch = (
   key: string,
   args: unknown[],
@@ -332,15 +349,25 @@ export class WorkerHost {
     const controller = new AbortController();
     this.active.set(message.id, controller);
     try {
+      const target = message.target
+        ? this.registry.get(message.target)
+        : undefined;
       const value = await this.dispatch(message.key, message.args, {
         registry: this.registry,
         callbacks: this.callbacks,
         locks: this.locks,
         signal: controller.signal,
-        target: message.target ? this.registry.get(message.target) : undefined,
+        target,
         targetHandle: message.target,
       });
-      if (message.key === "Client.end" && message.target)
+      // Only the owner's own client ends the owner. A `Client.end` call on
+      // another object of the owner leaves the client open.
+      if (
+        message.key === "Client.end" &&
+        message.target &&
+        target !== undefined &&
+        target === this.registry.client(message.target.owner)
+      )
         this.endedOwners.add(message.target.owner);
       const reply: WireMessage = { t: "return", id: message.id, value };
       assertCloneable(reply);
