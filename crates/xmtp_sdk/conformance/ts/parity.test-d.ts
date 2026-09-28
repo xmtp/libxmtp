@@ -248,3 +248,34 @@ export type MessageDataParity = Assert<
 export type StorageOptionsParity = Assert<
   SameFields<Omit<Node.StorageOptions, "encryptionKey">, Browser.StorageOptions>
 >;
+
+// The browser factory owns its session. Its admin bytes use typed arrays.
+import type { Storage as BrowserStorage } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import type { StorageAdmin } from "../../../../target/sdk-generated/typescript-wasm/storage-admin.gen";
+
+export type AdminFactoryArguments = Assert<
+  Equal<Parameters<typeof BrowserStorage.admin>, []>
+>;
+export type AdminFactoryResult = Assert<
+  Equal<ReturnType<typeof BrowserStorage.admin>, Promise<StorageAdmin>>
+>;
+export type AdminExportBytes = Assert<
+  Equal<ReturnType<StorageAdmin["exportDb"]>, Promise<Uint8Array>>
+>;
+export type AdminImportBytes = Assert<
+  Equal<Parameters<StorageAdmin["importDb"]>, [string, Uint8Array]>
+>;
+export type AdminMethods = Assert<
+  Equal<
+    keyof StorageAdmin,
+    | "listFiles"
+    | "fileCount"
+    | "poolCapacity"
+    | "fileExists"
+    | "deleteFile"
+    | "exportDb"
+    | "importDb"
+    | "clearAll"
+    | "end"
+  >
+>;

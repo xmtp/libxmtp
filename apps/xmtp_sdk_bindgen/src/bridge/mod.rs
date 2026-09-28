@@ -1031,6 +1031,16 @@ fn render(
     let mut proxy = String::from(
         "import * as B from \"./xmtp_sdk.js\";\nimport { initPureWasm } from \"../typescript-pure/index.js\";\nimport { Message as HostMessage, registerClient, resolveBrowserOptions, unregisterClient, type HostClientOptions } from \"./host-message.gen.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject, endOwner } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
     );
+    let has_storage_admin = items
+        .iter()
+        .any(|item| matches!(item, Metadata::Object(object) if object.name == "StorageAdmin"));
+    if has_storage_admin {
+        proxy.push_str("import { openStorageAdmin, type StorageAdmin as PublicStorageAdmin } from \"./storage-admin.gen.js\";\n");
+        result.insert(
+            "storage-admin.gen.ts",
+            include_str!("../../templates/bridge/storage-admin.gen.ts").into(),
+        );
+    }
     let remote = remote_foreign(items);
     for item in items {
         if let Metadata::Object(object) = item
@@ -1043,6 +1053,9 @@ fn render(
                 "export class {} extends RemoteObject implements B.{}{like} {{",
                 object.name, object.name
             )?;
+            if has_storage_admin && object.name == "Storage" {
+                proxy.push_str("  static admin(): Promise<PublicStorageAdmin> { return openStorageAdmin(); }\n");
+            }
             for op in operations
                 .iter()
                 .filter(|op| op.owner.as_deref() == Some(&object.name) && op.constructor)

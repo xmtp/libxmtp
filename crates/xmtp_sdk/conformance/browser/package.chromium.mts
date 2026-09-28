@@ -122,6 +122,25 @@ try {
     (await import("./package.chromium.ts")).collectAdmins(),
   );
   await waitForTermination(3, true);
+  const publicPath = `package-public-${crypto.randomUUID()}.db`;
+  await page.evaluate(
+    async (path) => (await import("./package.chromium.ts")).openClient(path),
+    publicPath,
+  );
+  await page.evaluate(async () =>
+    (await import("./package.chromium.ts")).endClient(),
+  );
+  await waitForTermination(4);
+  await page.evaluate(
+    async (path) =>
+      (await import("./package.chromium.ts")).publicAdminRoundTrip(path),
+    publicPath,
+  );
+  await waitForTermination(5);
+  assert.deepEqual(await counts(), { created: 5, terminated: 5 });
+  console.log(
+    "Chromium public Storage.admin byte views, guarded methods, independent end, and cleanup passed",
+  );
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );

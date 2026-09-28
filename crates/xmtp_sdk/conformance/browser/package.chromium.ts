@@ -2,6 +2,7 @@ import { createInWorker } from "../../../../target/sdk-generated/typescript-wasm
 import {
   Client,
   StorageAdmin,
+  Storage,
 } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 
@@ -143,4 +144,42 @@ export async function openClient(path: string): Promise<void> {
 export async function endClient(): Promise<void> {
   await client?.end();
   client = undefined;
+}
+
+export async function publicAdminRoundTrip(path: string): Promise<void> {
+  const first = await Storage.admin();
+  const second = await Storage.admin();
+  if (!(await first.listFiles()).includes(path))
+    throw new Error("public admin file missing");
+  if ((await first.fileCount()) !== (await first.listFiles()).length)
+    throw new Error("public admin count differs");
+  if ((await first.poolCapacity()) === 0)
+    throw new Error("public pool is empty");
+  const data = await first.exportDb(path);
+  if (!(data instanceof Uint8Array))
+    throw new Error("public export must return Uint8Array");
+  const padded = new Uint8Array(data.length + 16);
+  padded.set(data, 8);
+  const view = padded.subarray(8, 8 + data.length);
+  const imported = `${path}.copy`;
+  await first.importDb(imported, view);
+  if (view.byteLength !== data.byteLength || view[0] !== data[0])
+    throw new Error("import changed caller bytes");
+  if (!(await first.fileExists(imported)))
+    throw new Error("public import missing");
+  if (!(await first.deleteFile(imported)))
+    throw new Error("public delete missing");
+  await Promise.all([first.end(), first.end()]);
+  if (!(await second.fileExists(path)))
+    throw new Error("first admin ended second admin");
+  let closed = false;
+  try {
+    await first.fileCount();
+  } catch (error) {
+    closed = B.XmtpError.ClientClosed.instanceOf(error);
+  }
+  if (!closed) throw new Error("public admin did not fence after end");
+  await second.clearAll();
+  if ((await second.fileCount()) !== 0) throw new Error("public clear failed");
+  await second.end();
 }
