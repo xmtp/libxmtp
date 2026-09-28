@@ -577,9 +577,17 @@ mod tests {
     // verifies: ARCH-015, ARCH-022, DMS-015
     #[xmtp_common::test(unwrap_try = true)]
     async fn foreign_archive_preserves_dm_pair_and_pair_history() {
+        use xmtp_db::{
+            consent_record::{ConsentState, ConsentType},
+            group::{DmIdExt, QueryGroup},
+            readd_status::ReaddStatus,
+        };
+        use xmtp_proto::api::HasStats;
+
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
         tester!(charlie, disable_workers);
+        tester!(dana, disable_workers);
         let source = alix.find_or_create_dm(bo.inbox_id(), None).await?;
         let alix_id = source
             .send_message(b"from alix", Default::default())
@@ -619,6 +627,7 @@ mod tests {
             .expect("Restored DM");
         assert_eq!(stored.membership_state, GroupMembershipState::Restored);
         assert_eq!(stored.dm_id.as_deref(), Some(archived_dm_id.as_str()));
+        assert_eq!(archived_dm_id.other_inbox_id(charlie.inbox_id()), None);
         let restored = charlie.group(&source.group_id)?;
         assert_eq!(
             restored
@@ -630,6 +639,101 @@ mod tests {
             archived_dm_id
         );
         assert!(!restored.is_active()?);
+        let stats = charlie.context.api().api_client.mls_stats();
+        stats.clear();
+        assert!(matches!(
+            restored.send_message(b"inactive", Default::default()).await,
+            Err(GroupError::GroupInactive)
+        ));
+        assert!(matches!(
+            restored.sync().await,
+            Err(GroupError::GroupInactive)
+        ));
+        let Err(sync_summary) = restored.sync_with_conn().await else {
+            panic!("Restored sync_with_conn must reject the request");
+        };
+        assert!(matches!(
+            sync_summary.other.as_deref(),
+            Some(GroupError::GroupInactive)
+        ));
+        assert!(matches!(
+            restored.receive().await,
+            Err(GroupError::GroupInactive)
+        ));
+        assert!(matches!(
+            charlie.client.sync_all_groups(vec![restored.clone()]).await,
+            Err(GroupError::GroupInactive)
+        ));
+        assert_eq!(stats.publish.get_count(), 0);
+        let joined = charlie.create_group(None, None)?;
+        joined.add_members(&[dana.inbox_id()]).await?;
+        dana.sync_welcomes().await?;
+        let dana_group = dana.group(&joined.group_id)?;
+        let incoming_id = dana_group
+            .send_message(b"joined group", Default::default())
+            .await?;
+        let Err(GroupError::Sync(summary)) = charlie
+            .client
+            .sync_all_groups(vec![restored.clone(), joined])
+            .await
+        else {
+            panic!("mixed explicit sync must report the inactive group");
+        };
+        assert!(matches!(
+            summary.other.as_deref(),
+            Some(GroupError::GroupInactive)
+        ));
+        assert!(charlie.db().get_group_message(&incoming_id)?.is_some());
+        let sweep = charlie.client.sync_all_welcomes_and_groups(None).await?;
+        assert_eq!(sweep.num_eligible, 1);
+        assert_eq!(sweep.num_synced, 1);
+        assert!(!restored.is_active()?);
+        let db = charlie.db();
+        // Even an allowed archived DM has no authority for remote recovery.
+        db.insert_or_replace_consent_records(&[StoredConsentRecord::new(
+            ConsentType::ConversationId,
+            ConsentState::Allowed,
+            hex::encode(source.group_id),
+        )])?;
+        let excludes_publish = db
+            .get_conversation_ids_for_remote_log_publish()?
+            .iter()
+            .all(|group| group.id != source.group_id);
+        let excludes_download = db
+            .get_conversation_ids_for_remote_log_download()?
+            .iter()
+            .all(|group| group.id != source.group_id);
+        let excludes_fork_check = db
+            .get_conversation_ids_for_fork_check()?
+            .iter()
+            .all(|id| id.as_slice() != source.group_id.as_ref());
+        db.set_group_commit_log_forked_status(&source.group_id, Some(true))?;
+        let excludes_requesting_readds = db
+            .get_conversation_ids_for_requesting_readds()?
+            .iter()
+            .all(|group| group.group_id != source.group_id);
+        ReaddStatus {
+            group_id: source.group_id,
+            installation_id: vec![0x42; 32],
+            requested_at_sequence_id: Some(1),
+            responded_at_sequence_id: None,
+        }
+        .store(&db)?;
+        let excludes_responding_readds = db
+            .get_conversation_ids_for_responding_readds()?
+            .iter()
+            .all(|group| group.group_id != source.group_id);
+        assert_eq!(
+            [
+                excludes_publish,
+                excludes_download,
+                excludes_fork_check,
+                excludes_requesting_readds,
+                excludes_responding_readds,
+            ],
+            [true; 5],
+            "Restored DM must be absent from every recovery selector"
+        );
         for (id, sender, bytes) in [
             (&alix_id, alix.inbox_id(), b"from alix".as_slice()),
             (&bo_id, bo.inbox_id(), b"from bo".as_slice()),
@@ -654,10 +758,36 @@ mod tests {
                 .is_err()
         );
         assert!(charlie.db().get_group_message(&outside.id)?.is_none());
-        crate::builder::ClientBuilder::from_client(charlie.client.clone())
+
+        let mut reexport = vec![];
+        ArchiveExporter::new(opts, charlie.db(), &key)
+            .read_to_end(&mut reexport)
+            .await?;
+        let reader = Box::pin(BufReader::new(Cursor::new(reexport)));
+        let mut exported = ArchiveImporter::load(reader, &key).await?;
+        let mut found_group = false;
+        while let Some(element) = exported.next().await {
+            if let Some(Element::Group(group)) = element?.element
+                && group.id == source.group_id.as_ref()
+            {
+                assert_eq!(group.dm_id.as_deref(), Some(archived_dm_id.as_str()));
+                found_group = true;
+            }
+        }
+        assert!(found_group, "re-export must retain the archived DM pair");
+
+        let reopened = crate::builder::ClientBuilder::from_client(charlie.client.clone())
             .with_disable_workers(true)
             .build()
             .await?;
+        let reopened_group = reopened.group(&source.group_id)?;
+        assert_eq!(
+            reopened_group.dm_id.as_deref(),
+            Some(archived_dm_id.as_str())
+        );
+        assert!(!reopened_group.is_active()?);
+        assert!(reopened.db().get_group_message(&alix_id)?.is_some());
+        assert!(reopened.db().get_group_message(&bo_id)?.is_some());
     }
 
     // verifies: DMS-015, ARCH-013

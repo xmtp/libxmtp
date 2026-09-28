@@ -630,7 +630,7 @@ impl FfiConversation {
         self.inner
             .dm_id
             .as_ref()
-            .map(|dm_id| dm_id.other_inbox_id(self.inner.context.inbox_id()))
+            .and_then(|dm_id| dm_id.other_inbox_id(self.inner.context.inbox_id()))
     }
 
     #[tracing::instrument(level = "debug", skip_all)]
