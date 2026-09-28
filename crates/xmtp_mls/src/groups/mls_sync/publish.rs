@@ -16,6 +16,13 @@ pub(crate) use prepared::{
     OutgoingPreparationError, PreparedAttempt, PreparedBase, PreparedProposal,
 };
 
+/// Only `INVALID_ARGUMENT` proves that an atomic publish stored nothing.
+/// Every other failure, including `OUT_OF_RANGE`, can follow a commit.
+fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
+    xmtp_proto::api::grpc_status(error)
+        .is_some_and(|status| status.code() == tonic::Code::InvalidArgument)
+}
+
 /// The next durable attempt, or immutable inputs that need external resolution.
 enum NextPublish {
     Prepared(StoredGroupIntent, PreparedAttempt),
@@ -140,13 +147,22 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             sent.insert(intent.id);
             if attempt.receipts.is_none() {
                 // The writer and every mutable MLS object were dropped above.
-                // An error keeps this exact attempt eligible for retry.
-                let receipts = self
+                // An ambiguous error keeps this exact attempt eligible for retry.
+                match self
                     .context
                     .api()
                     .send_group_messages(vec![attempt.publish_unit(self.context.api().limits())?])
-                    .await?;
-                self.record_publish_receipts(&intent, &attempt, receipts)?;
+                    .await
+                {
+                    Ok(receipts) => self.record_publish_receipts(&intent, &attempt, receipts)?,
+                    Err(error) if definite_refusal(&error) => {
+                        if self.reject_refused_attempt(&intent, &attempt)? {
+                            rejected_request.get_or_insert(error.into());
+                        }
+                        continue;
+                    }
+                    Err(error) => return Err(error.into()),
+                }
             }
             if intent.kind != IntentKind::SendMessage {
                 return rejected_request.map_or(Ok(()), Err);
@@ -181,30 +197,75 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     {
                         return Ok(Continue(false));
                     }
-                    let message_id = calculate_message_id_for_intent(&current)?;
-                    let previous_status = message_id
-                        .as_ref()
-                        .map(|id| db.get_group_message(id))
-                        .transpose()?
-                        .flatten()
-                        .map(|message| message.delivery_status);
-                    let changed_id = message_id.clone();
-                    db.set_group_intent_error_and_fail_msg(&current, message_id)?;
-                    if previous_status == Some(DeliveryStatus::Unpublished)
-                        && let Some(id) = changed_id
-                    {
-                        self.emit_message_status_changed(
-                            id,
-                            xmtp_events::MessageStatus::Unpublished,
-                            xmtp_events::MessageStatus::Failed,
-                            event_writer,
-                        );
-                    }
+                    self.fail_intent(&db, &current, event_writer)?;
                     Ok::<_, GroupError>(Continue(true))
                 })
             },
         )
         .map(TransactionOutcome::into_continued)
+    }
+
+    /// Fail an attempt the backend refused, only while it is still the current
+    /// attempt with no receipt. A late refusal of replaced bytes changes nothing.
+    // implements: SEND-009
+    fn reject_refused_attempt(
+        &self,
+        intent: &StoredGroupIntent,
+        attempt: &PreparedAttempt,
+    ) -> Result<bool, GroupError> {
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, event_writer| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let Some(current) = Fetch::<StoredGroupIntent>::fetch(&db, &intent.id)? else {
+                    return Ok(Continue(false));
+                };
+                let Some(saved) = db.prepared_envelopes(current.id)? else {
+                    return Ok(Continue(false));
+                };
+                let saved = PreparedAttempt::decode(&saved)?;
+                if current.state != IntentState::Published
+                    || !saved.same_attempt(attempt)
+                    || saved.receipts.is_some()
+                {
+                    return Ok(Continue(false));
+                }
+                self.fail_intent(&db, &current, event_writer)?;
+                Ok::<_, GroupError>(Continue(true))
+            },
+        )
+        .map(TransactionOutcome::into_continued)
+    }
+
+    /// Mark the intent `Error` and its application message `Failed` under the
+    /// caller's writer, so that no later intent waits for an echo.
+    fn fail_intent(
+        &self,
+        db: &impl DbQuery,
+        intent: &StoredGroupIntent,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) -> Result<(), GroupError> {
+        let message_id = calculate_message_id_for_intent(intent)?;
+        let previous_status = message_id
+            .as_ref()
+            .map(|id| db.get_group_message(id))
+            .transpose()?
+            .flatten()
+            .map(|message| message.delivery_status);
+        db.set_group_intent_error_and_fail_msg(intent, message_id.clone())?;
+        if previous_status == Some(DeliveryStatus::Unpublished)
+            && let Some(id) = message_id
+        {
+            self.emit_message_status_changed(
+                id,
+                xmtp_events::MessageStatus::Unpublished,
+                xmtp_events::MessageStatus::Failed,
+                event_writer,
+            );
+        }
+        Ok(())
     }
 
     /// Reload and check the base under one writer, then atomically save crypto

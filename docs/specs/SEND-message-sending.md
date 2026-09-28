@@ -189,10 +189,10 @@ The outcome names below are semantic kinds; an SDK can use its language's typed 
 
 A published state-change attempt whose echo never resolves blocks later intents in its group. Each synchronization call ends under its retry budget or deadline, but no durable age or attempt limit releases that blockage. An attempt with receipts is not republished; an attempt without receipts remains eligible to retry its saved bytes subject to API-284. A later sync can resolve the work, and removal rejects unresolved intents under SEND-018.
 
-The optimistic queue path does not yet check inactive membership before storage. Rejected echoes and removal can leave message status `Unpublished`; a same-key retry after a local oversize rejection can queue new work while the existing message remains `Failed`.
+The optimistic queue path does not yet check inactive membership before storage. Rejected echoes and removal can leave message status `Unpublished`.
 
 A call without an app-supplied idempotency key can use a new key. Retrying without the first key can publish the same content under a second id. Confirmation also replaces the provisional sent timestamp under SEND-013, so a message ordered by that timestamp can move.
 
 V2 plaintext envelopes are decoded but produce no stored application message. Their fields remain in the wire type; no V2 application-message id derivation is promised.
 
-Definite backend refusals are not yet separated from all ambiguous publish failures. The recovery contract for `OUT_OF_RANGE` remains required from API; retaining exact bytes alone cannot resolve it.
+Only `INVALID_ARGUMENT` is treated as a definite backend refusal. Every other publish failure, including `OUT_OF_RANGE`, keeps its attempt pending. The recovery contract for `OUT_OF_RANGE` remains required from API; retaining exact bytes alone cannot resolve it.
