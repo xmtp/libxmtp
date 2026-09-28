@@ -18,8 +18,6 @@ use super::{
     verified_signature::VerifiedSignature,
 };
 
-use alloy::signers::k256::ecdsa::Signature as K256Signature;
-
 #[derive(Debug, Error, ErrorCode)]
 pub enum SignatureError {
     /// Malformed legacy key.
@@ -318,43 +316,10 @@ impl ValidatedLegacySignedPublicKey {
     }
 }
 
-/// Converts a signature to use the lower-s value to prevent signature malleability
-pub fn to_lower_s(sig_bytes: &[u8]) -> Result<Vec<u8>, SignatureError> {
-    // Check if we have a recovery id byte
-    let (sig_data, recovery_id) = match sig_bytes.len() {
-        64 => (sig_bytes, None),                       // No recovery id
-        65 => (&sig_bytes[..64], Some(sig_bytes[64])), // Recovery id present
-        _ => return Err(SignatureError::Invalid),
-    };
-
-    // Parse the signature bytes into a K256Signature
-    let sig = K256Signature::try_from(sig_data)?;
-
-    // If s is already normalized (lower-s), return the original bytes
-    let normalized = match sig.normalize_s() {
-        None => sig_data.to_vec(),
-        Some(normalized) => normalized.to_bytes().to_vec(),
-    };
-
-    // Add back recovery id if it was present
-    if let Some(rid) = recovery_id {
-        let mut result = normalized;
-        result.push(rid);
-        Ok(result)
-    } else {
-        Ok(normalized)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::SignatureError;
-    use super::to_lower_s;
     use crate::scw_verifier::VerifierError;
-    use alloy::signers::k256::ecdsa::Signature as K256Signature;
-    use alloy::signers::k256::elliptic_curve::scalar::IsHigh;
-    use alloy::signers::{SignerSync, local::LocalSigner};
-    use wasm_bindgen_test::wasm_bindgen_test;
     use xmtp_common::RetryableError;
 
     #[xmtp_common::test]
@@ -384,55 +349,5 @@ mod tests {
         assert!(!SignatureError::InvalidPublicKey.is_retryable());
         assert!(!SignatureError::InvalidClientData.is_retryable());
         assert!(!SignatureError::MalformedLegacyKey("missing field".to_string()).is_retryable(),);
-    }
-
-    #[xmtp_common::test]
-    fn test_to_lower_s() {
-        // Create a test wallet
-        let signer = LocalSigner::random();
-
-        // Sign a test message
-        let message = "test message";
-        let signature = signer.sign_message_sync(message.as_bytes()).unwrap();
-        let sig_bytes: Vec<u8> = signature.into();
-
-        // Test normalizing an already normalized signature
-        let normalized = to_lower_s(&sig_bytes).unwrap();
-        assert_eq!(
-            normalized, sig_bytes,
-            "Already normalized signature should not change"
-        );
-
-        // Create a signature with high-s value by manipulating the s component
-        let mut high_s_sig = sig_bytes.clone();
-        // Flip bits in the s component (last 32 bytes) to create a high-s value
-        for byte in high_s_sig[32..64].iter_mut() {
-            *byte = !*byte;
-        }
-
-        // Normalize the manipulated signature
-        let normalized_high_s = to_lower_s(&high_s_sig).unwrap();
-        assert_ne!(
-            normalized_high_s, high_s_sig,
-            "High-s signature should be normalized"
-        );
-
-        // Verify the normalized signature is valid
-        let recovered_sig = K256Signature::try_from(&normalized_high_s.as_slice()[..64]).unwrap();
-        let is_high: bool = recovered_sig.s().is_high().into();
-        assert!(!is_high, "Normalized signature should have low-s value");
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn test_invalid_signature() {
-        // Test with invalid signature bytes
-        let invalid_sig = vec![0u8; 65];
-        let result = to_lower_s(&invalid_sig);
-        assert!(result.is_err(), "Should fail with invalid signature");
-
-        // Test with wrong length
-        let wrong_length = vec![0u8; 63];
-        let result = to_lower_s(&wrong_length);
-        assert!(result.is_err(), "Should fail with wrong length");
     }
 }

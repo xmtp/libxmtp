@@ -12,8 +12,9 @@ use crate::{
 };
 use alloy::{
     primitives::{BlockNumber, Bytes},
-    signers::{Signer, local::PrivateKeySigner},
+    signers::{Signer, k256::ecdsa::Signature as K256Signature, local::PrivateKeySigner},
 };
+use p256::ecdsa::Signature as P256Signature;
 use xmtp_cryptography::CredentialSign;
 use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
 
@@ -61,6 +62,31 @@ impl SmartContractSignatureVerifier for MockSmartContractSignatureVerifier {
             error: None,
         })
     }
+}
+
+/// The same 65-byte secp256k1 signature with its recovery byte moved between the 0/1 and 27/28
+/// forms.
+pub fn ecdsa_recovery_byte_alias(signature: &[u8]) -> Vec<u8> {
+    let (rs, v) = signature.split_at(64);
+    let v = if v[0] < 27 { v[0] + 27 } else { v[0] - 27 };
+    [rs, &[v]].concat()
+}
+
+/// The same 65-byte secp256k1 signature with `s` negated to the other half of the curve order and
+/// the recovery parity flipped to match, keeping the recovery byte's form.
+pub fn ecdsa_negated_s_alias(signature: &[u8]) -> Vec<u8> {
+    let (rs, v) = signature.split_at(64);
+    let (r, s) = K256Signature::from_slice(rs).unwrap().split_scalars();
+    let negated = K256Signature::from_scalars(r, -s).unwrap();
+    let v = if v[0] < 27 { 1 - v[0] } else { 55 - v[0] };
+    [negated.to_bytes().as_slice(), &[v]].concat()
+}
+
+/// The same DER-encoded P-256 signature with `s` negated to the other half of the curve order.
+pub fn p256_negated_s_alias(der: &[u8]) -> Vec<u8> {
+    let (r, s) = P256Signature::from_der(der).unwrap().split_scalars();
+    let negated = P256Signature::from_scalars(r, -s).unwrap();
+    negated.to_der().as_bytes().to_vec()
 }
 
 pub async fn add_wallet_signature(
