@@ -195,4 +195,4 @@ A call without an app-supplied idempotency key can use a new key. Retrying witho
 
 V2 plaintext envelopes are decoded but produce no stored application message. Their fields remain in the wire type; no V2 application-message id derivation is promised.
 
-Definite backend refusals are not yet separated from all ambiguous publish failures. The recovery contract for `OUT_OF_RANGE` remains required from API; retaining exact bytes alone cannot resolve it.
+Only `INVALID_ARGUMENT` is treated as a definite backend refusal. Every other publish failure, including `OUT_OF_RANGE`, keeps its attempt pending. The recovery contract for `OUT_OF_RANGE` remains required from API; retaining exact bytes alone cannot resolve it.
