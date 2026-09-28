@@ -195,4 +195,6 @@ A call without an app-supplied idempotency key can use a new key. Retrying witho
 
 V2 plaintext envelopes are decoded but produce no stored application message. Their fields remain in the wire type; no V2 application-message id derivation is promised.
 
+Only `INVALID_ARGUMENT` is treated as a definite backend refusal. Every other publish failure keeps its attempt pending, except `OUT_OF_RANGE`, which the recovery read settles.
+
 After `OUT_OF_RANGE`, a Welcome envelope the recovery read did not return is published again with its saved bytes. The client assumes that a deployment carries every request within the limits it published, so the status came from a response to a larger request. A deployment that refuses a single envelope within those limits as too long receives that envelope again.
