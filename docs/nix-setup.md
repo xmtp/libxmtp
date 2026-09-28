@@ -199,10 +199,17 @@ Do not stop a server that other worktrees are using. Cache storage is additional
 disk use; the cap does not limit any worktree's `target/` directory.
 
 ```bash
-just cache-stats            # hit rates and current size
-just clean-incremental      # delete incremental/ dirs unused 14+ days
-just clean-incremental 30   # ...or a different age
+just cache-stats                        # hit rates and current size
+just disk                               # free space, target/ size per worktree
+just clean-incremental                  # delete incremental/ dirs unused 14+ days
+just clean-incremental 30               # ...or a different age
+just clean-incremental --minutes 30     # delete crate caches unchanged for 30 min
 ```
+
+During a long run with several worktrees, start a disk guard before the first
+build, for example
+`while just clean-incremental --minutes 30 && df -h .; do sleep 600; done`
+in a background shell.
 
 ### CI and releases
 
