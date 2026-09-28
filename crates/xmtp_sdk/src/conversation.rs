@@ -260,10 +260,11 @@ impl Conversations {
         use xmtp_db::delivery::{DeliveryCursor, QueryDelivery};
         let context = self.client.context.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            let database_id = context
-                .db()
-                .stream_database_id()
-                .map_err(|error| crate::delivery::delivery_error(xmtp_mls::subscriptions::local_delivery::LocalDeliveryError::Storage(error)))?;
+            let database_id = context.db().stream_database_id().map_err(|error| {
+                crate::delivery::delivery_error(
+                    xmtp_mls::subscriptions::local_delivery::LocalDeliveryError::Storage(error),
+                )
+            })?;
             Ok(crate::delivery::cursor::encode(DeliveryCursor {
                 database_id,
                 delivery_sequence: 0,
@@ -686,7 +687,6 @@ pub struct Dm {
     pub(crate) inner: MlsGroup<xmtp_mls::MlsContext>,
     pub(crate) client_key: u64,
     identity: ConversationIdentity,
-    peer_inbox_id: InboxId,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
     #[cfg(test)]
@@ -750,20 +750,13 @@ impl Dm {
         identity: ConversationIdentity,
         metadata: xmtp_mls::mls_common::group_metadata::GroupMetadata,
     ) -> Result<Self, XmtpError> {
-        let members = metadata
+        metadata
             .dm_members
             .ok_or_else(|| XmtpError::invalid("DM has no peer metadata"))?;
-        let peer = if members.member_one_inbox_id == inner.context.inbox_id() {
-            members.member_two_inbox_id
-        } else {
-            members.member_one_inbox_id
-        };
-        let peer_inbox_id = InboxId::try_from(peer.to_string())?;
         Ok(Self {
             inner,
             client_key,
             identity,
-            peer_inbox_id,
             #[cfg(all(test, not(target_arch = "wasm32")))]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
             #[cfg(test)]
@@ -1739,8 +1732,23 @@ impl Group {
 
 #[xmtp_macro::sdk_export]
 impl Dm {
-    pub fn peer_inbox_id(&self) -> InboxId {
-        self.peer_inbox_id.clone()
+    // implements: DMS-017
+    pub async fn peer_inbox_id(&self) -> Result<Option<InboxId>, XmtpError> {
+        use xmtp_db::group::DmIdExt;
+        let group = self.inner.clone();
+        on_sdk_worker(self.inner.context.clone(), async move {
+            let stored = group
+                .context
+                .db()
+                .find_group(&group.group_id)
+                .map_err(XmtpError::unknown)?;
+            stored
+                .and_then(|stored| stored.dm_id)
+                .and_then(|id| id.other_inbox_id(group.context.inbox_id()))
+                .map(InboxId::try_from)
+                .transpose()
+        })
+        .await
     }
 
     pub async fn duplicate_dms(&self) -> Result<Vec<Arc<Dm>>, XmtpError> {

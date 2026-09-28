@@ -1,5 +1,7 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+mod reader_restored;
+
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
