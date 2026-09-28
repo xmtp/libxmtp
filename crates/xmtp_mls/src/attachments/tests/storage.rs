@@ -642,8 +642,20 @@ async fn delete_rejects_symlinked_key_before_removing_pending_row() {
     tokio::fs::remove_dir_all(dir.path().join(&key)).await?;
     std::os::unix::fs::symlink(outside.path(), dir.path().join(&key))?;
 
+    *alix.client.context.attachments.lease_timing.lock() = LeaseTiming::for_test(
+        Duration::from_millis(300),
+        Duration::from_millis(50),
+        Duration::from_millis(20),
+    );
+    let mut upload = Box::pin(pending.upload());
+    assert!(matches!(
+        futures::poll!(upload.as_mut()),
+        std::task::Poll::Pending
+    ));
+
     let result = alix.client.attachments().delete_local(&remote).await;
     assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert_eq!(upload.await.unwrap_err().cause, Cause::Deleted);
     assert!(
         alix.client
             .context
@@ -652,6 +664,11 @@ async fn delete_rejects_symlinked_key_before_removing_pending_row() {
             .is_some()
     );
     assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+    std::fs::remove_file(dir.path().join(&key))?;
+    std::fs::create_dir(dir.path().join(&key))?;
+    tokio::time::sleep(Duration::from_millis(350)).await;
+    tokio::time::timeout(Duration::from_secs(5), pending.upload()).await??;
+    assert_eq!(pending.status(), PendingAttachmentStatus::Complete);
 }
 
 // verifies: EVENT-001

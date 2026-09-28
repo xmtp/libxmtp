@@ -389,7 +389,17 @@ struct PendingShared {
     watch: watch::Sender<PendingAttachmentStatus>,
     lease: Mutex<Option<([u8; 16], i64)>>,
     attempt: Mutex<Option<Arc<PendingAttempt>>>,
-    cancel: CancellationToken,
+    cancel: Mutex<CancellationToken>,
+}
+
+struct RestorePendingCancel(Option<Arc<PendingShared>>);
+
+impl Drop for RestorePendingCancel {
+    fn drop(&mut self) {
+        if let Some(shared) = self.0.take() {
+            *shared.cancel.lock() = CancellationToken::new();
+        }
+    }
 }
 
 struct PendingAttempt {
@@ -439,8 +449,12 @@ impl PendingShared {
             watch,
             lease: Mutex::new(None),
             attempt: Mutex::new(None),
-            cancel: CancellationToken::new(),
+            cancel: Mutex::new(CancellationToken::new()),
         }
+    }
+
+    fn cancel_token(&self) -> CancellationToken {
+        self.cancel.lock().clone()
     }
 }
 
@@ -1420,7 +1434,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         let staged = staged_path(&remote.content_digest)?;
         let store = self.runtime().store()?;
         let lock = self.runtime().event_lock(&key);
-        let (upload_attempt, downloads, _deleting) = {
+        let (upload, upload_attempt, downloads, _deleting) = {
             let _guard = lock.lock().await;
             // Marks the whole key directory, so no download into it can start.
             let deleting = DeleteInProgress::new(&self.runtime().deleting, key.clone());
@@ -1453,12 +1467,12 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 .filter(|shared| shared.lease.lock().is_some())
                 .and_then(|shared| shared.attempt.lock().clone());
             if let Some(shared) = &upload {
-                shared.cancel.cancel();
+                shared.cancel.lock().cancel();
             }
             for shared in &downloads {
                 shared.cancel.cancel();
             }
-            (upload_attempt, downloads, deleting)
+            (upload, upload_attempt, downloads, deleting)
         };
         #[cfg(test)]
         {
@@ -1480,6 +1494,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     .map_err(|_| AttachmentClientError::new(Cause::Network))?;
             }
         }
+        let mut restore_cancel = RestorePendingCancel(upload);
         let _publication = self.runtime().publication_lock.lock().await;
         let _guard = lock.lock().await;
         let mut emitted = false;
@@ -1515,6 +1530,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             } else {
                 false
             };
+        if deleted_pending {
+            restore_cancel.0 = None;
+        }
         if key_exists {
             store.remove_dir_all(&key).await?;
             emit_deleted();
@@ -1956,7 +1974,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         match self.record() {
             Ok(Some(row)) => status_from_row(&row, now_ns()),
             Ok(None) => PendingAttachmentStatus::Failed(AttachmentClientError::new(
-                if self.shared.cancel.is_cancelled() {
+                if self.shared.cancel_token().is_cancelled() {
                     Cause::Deleted
                 } else {
                     Cause::StagedUnusable
@@ -2171,6 +2189,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
     }
 
     async fn run_attempt(&self, token: [u8; 16], attempt: Arc<PendingAttempt>) {
+        let cancel = self.shared.cancel_token();
         #[cfg(all(test, not(target_arch = "wasm32")))]
         {
             let pause = self
@@ -2193,7 +2212,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         let result = loop {
             tokio::select! {
                 biased;
-                _ = self.shared.cancel.cancelled() => break Err(AttachmentClientError::new(Cause::Deleted)),
+                _ = cancel.cancelled() => break Err(AttachmentClientError::new(Cause::Deleted)),
                 result = &mut transfer => break result,
                 _ = tick.next() => {
                     let now = now_ns();
@@ -2272,6 +2291,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         result: Result<(), AttachmentClientError>,
         attempt: &Arc<PendingAttempt>,
     ) {
+        let cancel = self.shared.cancel_token();
         let mut delay = Duration::from_millis(100);
         let mut retrying = false;
         let timing = *self.context.attachment_runtime().lease_timing.lock();
@@ -2279,7 +2299,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         #[cfg(not(target_arch = "wasm32"))]
         renew.next().await;
         loop {
-            if retrying && self.shared.cancel.is_cancelled() {
+            if retrying && cancel.is_cancelled() {
                 self.end_cancelled_attempt(attempt);
                 return;
             }
@@ -2300,7 +2320,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
                 .attachment_runtime()
                 .event_lock(&self.reference().attachment_key);
             let _event_guard = event_lock.lock().await;
-            if self.shared.cancel.is_cancelled() {
+            if cancel.is_cancelled() {
                 drop(_event_guard);
                 self.end_cancelled_attempt(attempt);
                 return;
@@ -2381,7 +2401,7 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
             loop {
                 tokio::select! {
                     biased;
-                    _ = self.shared.cancel.cancelled() => {
+                    _ = cancel.cancelled() => {
                         self.end_cancelled_attempt(attempt);
                         return;
                     }
