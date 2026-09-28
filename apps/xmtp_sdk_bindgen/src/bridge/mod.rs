@@ -1064,7 +1064,7 @@ fn render(
                 }
                 writeln!(
                     proxy,
-                    "    installErrorDecoder(session);\n    const handle = bridgeHandle(await session.call(\"{}\", [{args}], undefined, asyncOpts_?.signal), \"{}\");",
+                    "    installErrorDecoder(session);\n    const handle = bridgeHandle(await session.call(\"{}\", () => [{args}], undefined, asyncOpts_?.signal), \"{}\");",
                     op.key, object.name
                 )?;
                 if object.name == "Client" {
@@ -1132,7 +1132,7 @@ fn render(
                     };
                     writeln!(
                         proxy,
-                        "    installErrorDecoder(this.session);\n    {binding}await this.call(\"{}\", [{args}], asyncOpts_?.signal);",
+                        "    installErrorDecoder(this.session);\n    {binding}await this.call(\"{}\", () => [{args}], asyncOpts_?.signal);",
                         op.key
                     )?;
                     writeln!(

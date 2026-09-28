@@ -27,7 +27,7 @@ export class RemoteObject {
 
   protected call(
     key: string,
-    args: unknown[],
+    args: unknown[] | (() => unknown[]),
     signal?: AbortSignal,
   ): Promise<unknown> {
     this.check();

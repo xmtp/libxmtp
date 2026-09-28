@@ -695,4 +695,72 @@ describe("generated bridge value conformance", () => {
       identifier: "0x01",
     });
   });
+
+  it("drops the callbacks of a generated call that is never sent", async () => {
+    const signer = {
+      async identity(): Promise<B.PublicIdentity> {
+        return { identifier: "0x01", kind: B.PublicIdentityKind.Ethereum };
+      },
+      async kind(): Promise<B.SignerKind> {
+        return B.SignerKind.Eoa.new();
+      },
+      async sign(): Promise<B.Signature> {
+        throw new Error("not signed");
+      },
+    };
+    const registered = (session: MainSession): number => {
+      const targets: unknown = Reflect.get(session.callbacks, "targets");
+      if (!(targets instanceof Map)) throw new TypeError("missing targets");
+      return targets.size;
+    };
+
+    // A later argument fails to encode after the signer was registered.
+    const [main, worker] = endpoints();
+    const host = new WorkerHost(
+      worker,
+      1,
+      "unsent",
+      async () => {},
+      async () => undefined,
+    );
+    const session = new MainSession(main, 1, "unsent");
+    await session.ready();
+    const handle = host.registry.add({}, "Client", undefined, () => ({
+      clientKey: 1n,
+    }));
+    const client = new P.Client(session, handle);
+    await expect(
+      Reflect.apply(client.removeAccount, client, [signer, null]),
+    ).rejects.toThrow("expected bridge record");
+    expect(registered(session)).toBe(0);
+
+    // The endpoint rejects the message.
+    const post = main.postMessage.bind(main);
+    main.postMessage = (message) => {
+      if (message.t === "call") throw new Error("post failed");
+      post(message);
+    };
+    await expect(client.revokeAllOtherInstallations(signer)).rejects.toThrow(
+      "post failed",
+    );
+    expect(registered(session)).toBe(0);
+    client.release();
+
+    // The call is aborted before the worker handshake.
+    const waiting = new MainSession(new Endpoint(), 1, "waiting");
+    const early = new P.Client(waiting, {
+      h: 1,
+      owner: 1,
+      epoch: 0,
+      type: "Client",
+      snap: { clientKey: 1n },
+    });
+    const abort = new AbortController();
+    const call = early.revokeAllOtherInstallations(signer, {
+      signal: abort.signal,
+    });
+    abort.abort();
+    await expect(call).rejects.toMatchObject({ code: "Cancelled" });
+    expect(registered(waiting)).toBe(0);
+  });
 });

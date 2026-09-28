@@ -158,16 +158,30 @@ export class MainSession {
     }
   }
 
+  /**
+   * Sends one call. Generated code passes `args` as a function that encodes
+   * the arguments. The callbacks that the encoding registers belong to this
+   * call until it is posted, so a call that is not posted drops them.
+   */
   async call(
     key: string,
-    args: unknown[],
+    args: unknown[] | (() => unknown[]),
     target?: HandleWire,
     signal?: AbortSignal,
   ): Promise<unknown> {
     if (target) this.checkHandle(target);
-    await this.readyOrAbort(signal);
-    if (this.dead) throw bridgeError("workerTerminated");
-    if (signal?.aborted) throw bridgeError("cancelled", signal.reason);
+    const { value, registered } =
+      typeof args === "function"
+        ? this.callbacks.collect(args)
+        : { value: args, registered: [] };
+    try {
+      await this.readyOrAbort(signal);
+      if (this.dead) throw bridgeError("workerTerminated");
+      if (signal?.aborted) throw bridgeError("cancelled", signal.reason);
+    } catch (error) {
+      this.callbacks.dropAll(registered);
+      throw error;
+    }
     const id = this.nextId++;
     return new Promise<unknown>((resolve, reject) => {
       const abort = () => this.endpoint.postMessage({ t: "cancel", id });
@@ -183,8 +197,9 @@ export class MainSession {
       });
       signal?.addEventListener("abort", abort, { once: true });
       try {
-        this.endpoint.postMessage({ t: "call", id, key, target, args });
+        this.endpoint.postMessage({ t: "call", id, key, target, args: value });
       } catch (error) {
+        this.callbacks.dropAll(registered);
         this.pending.delete(id);
         signal?.removeEventListener("abort", abort);
         reject(error instanceof Error ? error : new Error(String(error)));

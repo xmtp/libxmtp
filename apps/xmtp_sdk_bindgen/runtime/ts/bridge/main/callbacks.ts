@@ -20,6 +20,8 @@ interface Registered {
 export class MainCallbacks {
   private readonly targets = new Map<number, Registered>();
   private nextId = 1;
+  // The ids registered by the `collect` call that is running.
+  private scope: number[] | undefined;
 
   constructor(private readonly endpoint: WireEndpoint) {}
 
@@ -51,11 +53,35 @@ export class MainCallbacks {
     } else {
       this.targets.set(cb, { target, methods: new Set(methods) });
     }
+    this.scope?.push(cb);
     return { cb, type };
+  }
+
+  /**
+   * Runs `encode` and returns the callback ids that it registered. The
+   * caller drops them if the encoded value is not sent. If `encode` throws,
+   * this drops them.
+   */
+  collect<T>(encode: () => T): { value: T; registered: readonly number[] } {
+    const outer = this.scope;
+    const registered: number[] = [];
+    this.scope = registered;
+    try {
+      return { value: encode(), registered };
+    } catch (error) {
+      this.dropAll(registered);
+      throw error;
+    } finally {
+      this.scope = outer;
+    }
   }
 
   drop(cb: number): void {
     this.targets.delete(cb);
+  }
+
+  dropAll(cbs: readonly number[]): void {
+    for (const cb of cbs) this.targets.delete(cb);
   }
 
   clear(): void {
