@@ -450,8 +450,79 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         topics: Vec<(Topic, Cursor)>,
         limit: u32,
     ) -> Result<Vec<wire::ServerEnvelope>> {
-        let mut pending = VecDeque::from([(topics, limit)]);
         let mut output = Vec::new();
+        self.scan_chunk(topics, limit, |page| {
+            output.extend(page);
+            false
+        })
+        .await?;
+        Ok(output)
+    }
+
+    /// Settle a publish whose outcome is unknown without resending it: a
+    /// `Query` of every topic in `units`, from the start, returns the stored
+    /// metadata of each envelope in envelope order, matched by its canonical
+    /// hash. `None` marks an envelope the backend did not store. Pages that
+    /// match nothing are dropped, and the read stops once every envelope matched.
+    #[xmtp_common::rpc_span]
+    pub async fn settle_units(
+        &self,
+        units: &[PublishUnit],
+    ) -> Result<Vec<Option<wire::EnvelopeMeta>>> {
+        let envelopes: Vec<_> = units.iter().flat_map(|unit| &unit.envelopes).collect();
+        let mut pending: HashMap<_, _> = envelopes
+            .iter()
+            .enumerate()
+            .map(|(index, envelope)| (envelope.canonical.hash.to_vec(), index))
+            .collect();
+        let mut settled = vec![None; envelopes.len()];
+        let topics: HashSet<_> = envelopes.iter().map(|envelope| &envelope.topic).collect();
+        let topics: Vec<_> = topics
+            .into_iter()
+            .map(|topic| (topic.clone(), Cursor(0)))
+            .collect();
+        let limit = self.limits().max_query_limit as u32;
+        for chunk in topics.chunks(self.limits().max_query_topics) {
+            let mut invalid = None;
+            self.scan_chunk(chunk.to_vec(), limit, |page| {
+                for stored in page {
+                    let Some(meta) = stored.meta else { continue };
+                    let Some(index) = xmtp_api_backend::envelope::message_hash(&meta)
+                        .ok()
+                        .and_then(|hash| pending.remove(&hash))
+                    else {
+                        continue;
+                    };
+                    let topic = &envelopes[index].topic;
+                    match xmtp_api_backend::envelope::metadata(&meta, topic.kind()) {
+                        Ok((stored_topic, _, _)) if stored_topic == *topic => {
+                            settled[index] = Some(meta)
+                        }
+                        _ => invalid = Some(ApiError::InvalidResponse("settled metadata")),
+                    }
+                }
+                invalid.is_some() || pending.is_empty()
+            })
+            .await?;
+            if let Some(error) = invalid {
+                return Err(error);
+            }
+            if pending.is_empty() {
+                break;
+            }
+        }
+        Ok(settled)
+    }
+
+    /// Read pages of `topics` in cursor order until `visit` returns true or
+    /// every topic is exhausted.
+    async fn scan_chunk(
+        &self,
+        topics: Vec<(Topic, Cursor)>,
+        limit: u32,
+        mut visit: impl FnMut(Vec<wire::ServerEnvelope>) -> bool,
+    ) -> Result<()> {
+        let mut pending = VecDeque::from([(topics, limit)]);
         while let Some((mut topics, mut limit)) = pending.pop_front() {
             loop {
                 let request = wire::QueryRequest {
@@ -511,7 +582,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                             **cursor = Cursor(sequence);
                             advanced = true;
                         }
-                        output.extend(response.envelopes);
+                        if visit(response.envelopes) {
+                            return Ok(());
+                        }
                         if !has_more {
                             break;
                         }
@@ -532,7 +605,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 }
             }
         }
-        Ok(output)
+        Ok(())
     }
 
     pub(crate) async fn newest(

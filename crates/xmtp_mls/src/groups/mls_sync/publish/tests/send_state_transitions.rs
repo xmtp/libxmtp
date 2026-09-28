@@ -1,130 +1,10 @@
 //! Durable send state across same-key retries, backend refusals, and
 //! ambiguous publish failures.
 
+use super::faults::refusing_group;
 use super::*;
 use crate::groups::send_message_opts::SendMessageOpts;
-use parking_lot::Mutex;
-use std::collections::VecDeque;
-use std::sync::Arc;
 use xmtp_db::group_message::DeliveryStatus;
-use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
-
-type RefusingContext = Arc<
-    crate::context::XmtpMlsLocalContext<
-        RefusingApi,
-        xmtp_db::DefaultStore,
-        crate::utils::TestMlsStorage,
-    >,
->;
-
-/// Fails the next queued group-message publishes with the given status, before
-/// they reach the backend. Every other request passes through.
-#[derive(Clone)]
-struct RefusingApi {
-    inner: crate::utils::TestClient,
-    statuses: Arc<Mutex<VecDeque<tonic::Code>>>,
-}
-
-#[xmtp_common::async_trait]
-impl XmtpBackendClient for RefusingApi {
-    type Error = ApiClientError;
-
-    async fn publish(
-        &self,
-        request: wire::PublishRequest,
-    ) -> Result<wire::PublishResponse, Self::Error> {
-        let group_message = request
-            .envelopes
-            .iter()
-            .any(|envelope| matches!(envelope.payload, Some(Payload::GroupMessage(_))));
-        match group_message
-            .then(|| self.statuses.lock().pop_front())
-            .flatten()
-        {
-            Some(code) => Err(ApiClientError::client(
-                xmtp_api_grpc::error::GrpcError::Status(tonic::Status::new(code, "refused")),
-            )),
-            None => self.inner.publish(request).await,
-        }
-    }
-
-    async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse, Self::Error> {
-        self.inner.query(request).await
-    }
-
-    async fn query_newest(
-        &self,
-        request: wire::QueryNewestRequest,
-    ) -> Result<wire::QueryNewestResponse, Self::Error> {
-        self.inner.query_newest(request).await
-    }
-
-    async fn get_inbox_ids(
-        &self,
-        request: wire::GetInboxIdsRequest,
-    ) -> Result<wire::GetInboxIdsResponse, Self::Error> {
-        self.inner.get_inbox_ids(request).await
-    }
-
-    async fn get_configuration(
-        &self,
-        request: wire::GetConfigurationRequest,
-    ) -> Result<wire::GetConfigurationResponse, Self::Error> {
-        self.inner.get_configuration(request).await
-    }
-
-    async fn verify_smart_contract_wallet_signatures(
-        &self,
-        request: wire::VerifySmartContractWalletSignaturesRequest,
-    ) -> Result<wire::VerifySmartContractWalletSignaturesResponse, Self::Error> {
-        self.inner
-            .verify_smart_contract_wallet_signatures(request)
-            .await
-    }
-
-    async fn register(
-        &self,
-        request: wire::RegisterRequest,
-    ) -> Result<wire::RecipientState, Self::Error> {
-        self.inner.register(request).await
-    }
-
-    async fn unregister(
-        &self,
-        request: wire::UnregisterRequest,
-    ) -> Result<wire::UnregisterResponse, Self::Error> {
-        self.inner.unregister(request).await
-    }
-
-    async fn update_subscriptions(
-        &self,
-        request: wire::UpdateSubscriptionsRequest,
-    ) -> Result<wire::RecipientState, Self::Error> {
-        self.inner.update_subscriptions(request).await
-    }
-}
-
-/// The tester's group behind an API whose next group publishes fail with `statuses`.
-async fn refusing_group(
-    tester: &crate::utils::ClientTester,
-    group_id: &GroupId,
-    statuses: impl IntoIterator<Item = tonic::Code>,
-) -> MlsGroup<RefusingContext> {
-    let api = RefusingApi {
-        inner: tester.context.api().api_client.clone(),
-        statuses: Arc::new(Mutex::new(statuses.into_iter().collect())),
-    };
-    let client = crate::builder::ClientBuilder::from_client(tester.client.clone())
-        .api_client(api)
-        .with_disable_workers(true)
-        .with_allow_offline(Some(true))
-        .build()
-        .await
-        .unwrap();
-    MlsGroup::new_cached(client.context.clone(), group_id)
-        .unwrap()
-        .0
-}
 
 fn intents_in<C: XmtpSharedContext>(
     group: &MlsGroup<C>,
@@ -301,9 +181,10 @@ async fn send_state_transitions_definite_refusal_fails_both_records_and_releases
 /// A status that can follow a committed publish is not a refusal.
 /// The attempt must stay published with its exact bytes and no receipt, and
 /// its message must stay `Unpublished`, so that the outcome can still settle.
+/// `OUT_OF_RANGE` is settled by a recovery read instead; see
+/// `out_of_range_settlement`.
 // verifies: SEND-009
 #[rstest::rstest]
-#[case::out_of_range(tonic::Code::OutOfRange)]
 #[case::permission_denied(tonic::Code::PermissionDenied)]
 #[case::internal(tonic::Code::Internal)]
 #[xmtp_common::test(unwrap_try = true)]
