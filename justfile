@@ -163,20 +163,51 @@ worktree:
 cache-stats:
     sccache --show-stats
 
+# Free space, and the target/ and incremental/ size of each worktree.
+[script("bash")]
+disk:
+    set -euo pipefail
+    df -h "$(git rev-parse --git-common-dir)" | awk 'NR == 2 { print "free " $4 " of " $2 " (" $5 " used) on " $NF }'
+    git worktree list --porcelain | sed -n 's/^worktree //p' | while IFS= read -r root; do
+      [ -d "$root/target" ] || { printf '0\t0\t%s\n' "$root"; continue; }
+      # One du pass: depth 0 is target/, incremental/ is at depth 2 or 3.
+      du -k -d 3 "$root/target" 2>/dev/null | awk -F'\t' -v t="$root/target" -v r="$root" '
+        $2 == t { total = $1 } $2 ~ /\/incremental$/ { inc += $1 }
+        END { printf "%d\t%d\t%s\n", total, inc, r }' || true
+    done | sort -rn | awk -F'\t' '
+      BEGIN { print "  target  incremental  worktree" }
+      { printf "%7.1fG %11.1fG  %s\n", $1 / 1048576, $2 / 1048576, $3; sum += $1 }
+      END { printf "%7.1fG total target/\n", sum / 1048576 }'
+
+# `--minutes N` deletes each crate cache in incremental/ that has not changed
+# for N minutes. A crate that a running build uses is newer, so it stays.
 # Delete stale incremental/ dirs across all worktrees (default: unused 14+ days).
 [script("bash")]
-clean-incremental days="14":
+[arg("minutes", long="minutes")]
+clean-incremental days="14" minutes="":
     set -euo pipefail
-    roots=$(git worktree list --porcelain | awk '/^worktree /{print $2}')
+    minutes="{{ minutes }}"
+    if [ -n "$minutes" ] && ! [[ $minutes =~ ^[0-9]+$ ]]; then
+      echo "--minutes takes a whole number" >&2
+      exit 1
+    fi
+    stale() {
+      if [ -n "$minutes" ]; then
+        find "$1/target" -maxdepth 4 -type d -path '*/incremental/*' ! -path '*/incremental/*/*' -mmin +"$minutes" -prune 2>/dev/null
+      else
+        find "$1/target" -maxdepth 3 -type d -name incremental -atime +{{ days }} 2>/dev/null
+      fi
+    }
     total=0
-    for root in $roots; do
-      for dir in $(find "$root/target" -maxdepth 3 -type d -name incremental -atime +{{ days }} 2>/dev/null); do
+    while IFS= read -r root; do
+      while IFS= read -r dir; do
+        [ -n "$dir" ] || continue
         size=$(du -sk "$dir" | cut -f1)
         total=$((total + size))
-        echo "removing $dir ($((size / 1024)) MB)"
+        [ -n "$minutes" ] || echo "removing $dir ($((size / 1024)) MB)"
         rm -rf "$dir"
-      done
-    done
+      done < <(stale "$root" || true)
+    done < <(git worktree list --porcelain | sed -n 's/^worktree //p')
     echo "reclaimed $((total / 1024)) MB"
 
 # --- AGENT HELPERS ---
