@@ -244,7 +244,8 @@ mod tests {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let path = xmtp_common::tmp_path();
-            let failure = ArchiveExporter::export_to_file(messages.clone(), &db, &path, &KEY).await;
+            let failure =
+                ArchiveExporter::export_to_file(messages.clone(), db.clone(), &path, &KEY).await;
             assert!(failure.is_err());
             assert!(
                 !std::path::Path::new(&path).exists(),

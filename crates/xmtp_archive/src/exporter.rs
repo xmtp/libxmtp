@@ -91,26 +91,31 @@ impl ArchiveExporter {
         Self { archive }
     }
 
-    /// Exports to a new file at `path`, as [`export`], and removes the file
-    /// if the export fails.
+    /// Exports to a new file at `path`, as [`export`], on tokio's blocking
+    /// pool so the snapshot never stalls an async worker, and removes the file
+    /// if the export fails. Must be called within a tokio runtime.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file(
         options: ArchiveOptions,
-        db: impl ConnectionExt,
+        db: impl ConnectionExt + 'static,
         path: impl AsRef<std::path::Path>,
         key: &[u8],
     ) -> Result<BackupMetadataSave, ArchiveError> {
-        let path = path.as_ref();
-        let mut file = io::BufWriter::new(std::fs::File::create(path)?);
-        let exported = export(options, db, key, &mut file).and_then(|metadata| {
-            io::Write::flush(&mut file)?;
-            Ok(metadata)
-        });
-        if exported.is_err() {
-            drop(file);
-            let _ = std::fs::remove_file(path);
-        }
-        exported
+        let (path, key) = (path.as_ref().to_owned(), key.to_vec());
+        tokio::task::spawn_blocking(move || {
+            let mut file = io::BufWriter::new(std::fs::File::create(&path)?);
+            let exported = export(options, db, &key, &mut file).and_then(|metadata| {
+                io::Write::flush(&mut file)?;
+                Ok(metadata)
+            });
+            if exported.is_err() {
+                drop(file);
+                let _ = std::fs::remove_file(&path);
+            }
+            exported
+        })
+        .await
+        .map_err(io::Error::other)?
     }
 }
 
