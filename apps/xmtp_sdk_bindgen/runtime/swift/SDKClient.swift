@@ -114,12 +114,39 @@ public final class SDKClient: @unchecked Sendable {
     /// The reader acknowledges a value when the next read starts.
     public func messages(
         in group: Group,
+        options: ConversationMessageReaderOptions? = nil,
         onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)? = nil,
         onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
     ) async throws -> SDKMessageStream {
         try Task.checkCancellation()
         return makeSDKMessageStream(
-            group: group, owner: self, onClose: onClose,
+            open: { try await group.messageReader(options: options) }, owner: self, onClose: onClose,
+            onConnectionStateChange: onConnectionStateChange
+        )
+    }
+
+    public func messages(
+        in dm: Dm,
+        options: ConversationMessageReaderOptions? = nil,
+        onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)? = nil,
+        onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
+    ) async throws -> SDKMessageStream {
+        try Task.checkCancellation()
+        return makeSDKMessageStream(
+            open: { try await dm.messageReader(options: options) }, owner: self, onClose: onClose,
+            onConnectionStateChange: onConnectionStateChange
+        )
+    }
+
+    public func messages(
+        options: MessageReaderOptions? = nil,
+        onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)? = nil,
+        onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)? = nil
+    ) async throws -> SDKMessageStream {
+        try Task.checkCancellation()
+        let conversations = raw.conversations()
+        return makeSDKMessageStream(
+            open: { try await conversations.messageReader(options: options) }, owner: self, onClose: onClose,
             onConnectionStateChange: onConnectionStateChange
         )
     }

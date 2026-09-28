@@ -143,12 +143,38 @@ class SDKClient private constructor(
     /** A value is acknowledged only when the next collection request starts. */
     fun messages(
         group: Group,
+        options: ConversationMessageReaderOptions? = null,
         onClose: ((SDKStreamCloseReason) -> Unit)? = null,
         onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
     ): Flow<Message> =
         messageFlow(
             this,
-            open = { group.messageReader() },
+            open = { group.messageReader(options) },
+            onClose = onClose,
+            onConnectionStateChange = onConnectionStateChange,
+        )
+
+    fun messages(
+        dm: Dm,
+        options: ConversationMessageReaderOptions? = null,
+        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
+        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
+    ): Flow<Message> =
+        messageFlow(
+            this,
+            open = { dm.messageReader(options) },
+            onClose = onClose,
+            onConnectionStateChange = onConnectionStateChange,
+        )
+
+    fun messages(
+        options: MessageReaderOptions? = null,
+        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
+        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
+    ): Flow<Message> =
+        messageFlow(
+            this,
+            open = { raw.conversations().messageReader(options) },
             onClose = onClose,
             onConnectionStateChange = onConnectionStateChange,
         )

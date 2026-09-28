@@ -249,6 +249,7 @@ impl TryFrom<xmtp_mls::messages::decoded_message::DeletedBy> for crate::DeletedB
 pub struct MessageData {
     pub id: MessageId,
     pub client_key: u64,
+    #[uniffi(default = None)]
     pub delivery_cursor: Option<String>,
     pub conversation_id: ConversationId,
     pub topic: String,

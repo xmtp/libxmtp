@@ -13,6 +13,7 @@ export type DeliveryStatus = string;
 export type MessageData = {
   id: MessageId;
   clientKey: bigint;
+  deliveryCursor?: string;
   conversationId: ConversationId;
   topic: string;
   senderInboxId: InboxId;

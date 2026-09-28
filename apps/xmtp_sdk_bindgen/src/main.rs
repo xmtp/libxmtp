@@ -3,6 +3,7 @@ mod callback_cursor;
 mod forwarding;
 mod kotlin_callbacks;
 mod kotlin_records;
+mod nullable_peer;
 mod validate;
 mod validated_id_lift;
 
@@ -194,6 +195,12 @@ fn generate(
                 fs::write(
                     &binding,
                     callback_cursor::rewrite(&fs::read_to_string(&binding)?)?,
+                )?;
+            }
+            if !pure_only && matches!(language, Language::TypescriptNapi) {
+                fs::write(
+                    &binding,
+                    nullable_peer::rewrite(&fs::read_to_string(&binding)?)?,
                 )?;
             }
             if pure_only || matches!(language, Language::TypescriptNapi) {

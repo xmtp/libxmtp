@@ -182,6 +182,10 @@ export class Message extends B.Message {
         : undefined;
   }
 
+  get deliveryCursor(): string | null {
+    return this.data.deliveryCursor ?? null;
+  }
+
   get conversationId(): B.ConversationId {
     return this.data.conversationId;
   }

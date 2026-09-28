@@ -121,6 +121,7 @@ class Message(
         data.inReplyTo?.let { decodeReplyBody(it.content, data.clientKey) }
     val replyContent: SDKReplyContent? =
         (data.content as? MessageContent.Reply)?.let { decodeReplyBody(it.body, data.clientKey) }
+    val deliveryCursor: String? get() = data.deliveryCursor
     val id get() = data.id
     val conversationId get() = data.conversationId
     val topic get() = data.topic
@@ -176,6 +177,7 @@ class Message(
         other is Message &&
             id == other.id && data.clientKey == other.data.clientKey &&
             data.conversationId == other.data.conversationId && data.topic == other.data.topic &&
+            data.deliveryCursor == other.data.deliveryCursor &&
             data.senderInboxId == other.data.senderInboxId && data.sentAt == other.data.sentAt &&
             data.kind == other.data.kind && data.deliveryStatus == other.data.deliveryStatus &&
             data.contentType == other.data.contentType && data.fallback == other.data.fallback &&
@@ -226,6 +228,7 @@ class Message(
     override fun hashCode(): Int {
         var result = id.hashCode()
         result = 31 * result + data.clientKey.hashCode()
+        result = 31 * result + (data.deliveryCursor?.hashCode() ?: 0)
         result = 31 * result + data.conversationId.hashCode()
         result = 31 * result + data.senderInboxId.hashCode()
         result = 31 * result + data.sentAt.hashCode()

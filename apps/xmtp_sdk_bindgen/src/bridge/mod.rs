@@ -1101,6 +1101,12 @@ fn render(
                     .as_ref()
                     .map(ts_type)
                     .unwrap_or_else(|| "void".into());
+                let nullable_peer = object.name == "Dm" && op.name == "peerInboxId";
+                let output = if nullable_peer {
+                    output.replace("undefined", "null")
+                } else {
+                    output
+                };
                 if op.immutable {
                     writeln!(
                         proxy,
@@ -1137,14 +1143,17 @@ fn render(
                         "    installErrorDecoder(this.session);\n    {binding}await this.call(\"{}\", () => [{args}], asyncOpts_?.signal);",
                         op.key
                     )?;
-                    writeln!(
-                        proxy,
-                        "    return {};",
-                        op.output
-                            .as_ref()
-                            .map(|ty| decode_expr(ty, "raw", "this.session"))
-                            .unwrap_or_else(|| "undefined".into())
-                    )?;
+                    let value = op
+                        .output
+                        .as_ref()
+                        .map(|ty| decode_expr(ty, "raw", "this.session"))
+                        .unwrap_or_else(|| "undefined".into());
+                    let value = if nullable_peer {
+                        format!("({value}) ?? null")
+                    } else {
+                        value
+                    };
+                    writeln!(proxy, "    return {value};")?;
                     proxy.push_str("  }\n");
                 }
             }
