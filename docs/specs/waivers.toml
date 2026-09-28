@@ -333,13 +333,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Message expiry is computed from processing time without the sent-time threshold or the checked, clamped addition the requirement states."
 
 [[waiver]]
-id = "META-051"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A direct lookup by message id returns an expired message until cleanup deletes it."
-
-[[waiver]]
 id = "DMS-010"
 kind = "gap"
 owner = "protocol"

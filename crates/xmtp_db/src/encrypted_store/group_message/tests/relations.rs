@@ -5,6 +5,82 @@ use crate::{Store, group::tests::generate_group, test_utils::with_connection};
 
 use super::helpers::*;
 
+// verifies: META-051
+#[xmtp_common::test]
+fn expired_relation_rows_are_not_enriched_or_counted() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+        let mut expired_parent = generate_message(
+            None,
+            Some(&group.id),
+            None,
+            Some(ContentType::Text),
+            Some(1),
+            None,
+        );
+        expired_parent.idempotency_key = "expired parent".into();
+        expired_parent.store(conn).unwrap();
+        let visible_parent = generate_message(
+            None,
+            Some(&group.id),
+            None,
+            Some(ContentType::Text),
+            None,
+            None,
+        );
+        visible_parent.store(conn).unwrap();
+
+        let mut expired_reply = generate_message(
+            None,
+            Some(&group.id),
+            None,
+            Some(ContentType::Reply),
+            Some(1),
+            None,
+        );
+        expired_reply.reference_id = Some(visible_parent.id.clone());
+        expired_reply.store(conn).unwrap();
+        let mut visible_reply = generate_message(
+            None,
+            Some(&group.id),
+            None,
+            Some(ContentType::Reply),
+            None,
+            None,
+        );
+        visible_reply.reference_id = Some(visible_parent.id.clone());
+        visible_reply.store(conn).unwrap();
+
+        let parents = conn
+            .get_outbound_relations(
+                &group.id,
+                &[expired_parent.id.as_slice(), visible_parent.id.as_slice()],
+            )
+            .unwrap();
+        assert!(!parents.contains_key(&expired_parent.id));
+        assert!(parents.contains_key(&visible_parent.id));
+
+        let query = || {
+            RelationQuery::builder()
+                .content_types(Some(vec![ContentType::Reply]))
+                .build()
+                .unwrap()
+        };
+        let relations = conn
+            .get_inbound_relations(&group.id, &[visible_parent.id.as_slice()], query())
+            .unwrap();
+        let replies = relations.get(&visible_parent.id).unwrap();
+        assert_eq!(replies.len(), 1);
+        assert_eq!(replies[0].id, visible_reply.id);
+
+        let counts = conn
+            .get_inbound_relation_counts(&group.id, &[visible_parent.id.as_slice()], query())
+            .unwrap();
+        assert_eq!(counts.get(&visible_parent.id), Some(&1));
+    })
+}
+
 #[xmtp_common::test]
 fn test_inbound_relations_with_results() {
     with_connection(|conn| {

@@ -133,6 +133,34 @@ fn it_gets_messages() {
     })
 }
 
+// verifies: META-051
+#[xmtp_common::test]
+fn app_visible_lookup_uses_a_strict_expiry_boundary() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn).unwrap();
+        let now = 1_000_000;
+        for (expiry, visible) in [
+            (Some(now - 1), false),
+            (Some(now), false),
+            (Some(now + 1), true),
+            (None, true),
+        ] {
+            let mut message = generate_message(None, Some(&group.id), None, None, None, None);
+            message.expire_at_ns = expiry;
+            message.store(conn).unwrap();
+            assert!(conn.get_group_message(&message.id).unwrap().is_some());
+            assert_eq!(
+                conn.get_app_visible_group_message(&message.id, now)
+                    .unwrap()
+                    .is_some(),
+                visible,
+                "expiry {expiry:?}"
+            );
+        }
+    })
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 fn it_cannot_insert_message_without_group() {
     use diesel::result::DatabaseErrorKind::ForeignKeyViolation;

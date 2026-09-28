@@ -749,3 +749,49 @@ async fn enrichment_does_not_dispatch_and_stale_selection_remains_nonterminal() 
         message.id
     );
 }
+
+// verifies: META-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn queued_message_that_expires_before_enrichment_is_not_delivered() {
+    use prost::Message;
+    use xmtp_content_types::{ContentCodec, text::TextCodec};
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    let mut expiring = generate_stored_msg(Cursor(100), group.group_id);
+    expiring.decrypted_message_bytes = TextCodec::encode("expiring".into())?.encode_to_vec();
+    expiring.expire_at_ns = Some(i64::MAX);
+    expiring.store(&alix.context.db())?;
+    let mut retained = generate_stored_msg(Cursor(200), group.group_id);
+    retained.decrypted_message_bytes = TextCodec::encode("retained".into())?.encode_to_vec();
+    retained.store(&alix.context.db())?;
+
+    let mut reader = LocalDelivery::new(
+        alix.context.clone(),
+        DeliveryScope::Groups(vec![group.group_id]),
+        LocalDeliveryFilter::default(),
+        None,
+        LocalDeliveryConfig::default(),
+    )?;
+    let selected = reader.next_delivery().await?.unwrap();
+    assert_eq!(selected.message.id, expiring.id);
+    use diesel::prelude::*;
+    use xmtp_db::schema::group_messages::dsl as messages;
+    alix.context.db().raw_query(|conn| {
+        diesel::update(messages::group_messages.find(&expiring.id))
+            .set(messages::expire_at_ns.eq(Some(xmtp_common::time::now_ns() - 1)))
+            .execute(conn)
+    })?;
+    assert!(alix.context.db().get_group_message(&expiring.id)?.is_some());
+    assert!(matches!(
+        selected.acknowledgement.enriched_message(),
+        Err(LocalDeliveryError::SelectionChanged)
+    ));
+    assert!(!reader.session.is_closed());
+    drop(selected);
+    let next = reader.next_delivery().await?.unwrap();
+    assert_eq!(next.message.id, retained.id);
+    assert_eq!(
+        next.acknowledgement.enriched_message()?.metadata.id,
+        retained.id
+    );
+}

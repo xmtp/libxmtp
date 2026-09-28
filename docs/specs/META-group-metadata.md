@@ -341,6 +341,6 @@ An absent immutable collection can receive an authorized insert-only delta. A sc
 
 Every rejection of an `AppDataUpdate` proposal, whether for authority, for a malformed payload, or for an invariant, is reported to the sender as one error kind. An app cannot tell a permission failure from a malformed value.
 
-Current expiry uses processing time plus the duration, without the sent-time threshold or checked addition required by META-050. History queries exclude expired messages, but direct message-id lookups can return them until deletion, contrary to META-051. Cleanup depends on local execution; META-063 imposes no wall-clock deadline while the client or cleanup work is stopped. Apps can retain copies already delivered to them.
+Current expiry uses processing time plus the duration, without the sent-time threshold or checked addition required by META-050. Cleanup depends on local execution; META-063 imposes no wall-clock deadline while the client or cleanup work is stopped. Apps can retain copies already delivered to them.
 
 Legacy-only groups lack the dictionary identity required by META-019. This spec defines no migration procedure. Previously migrated groups and dictionary-bearing groups with ignored legacy extensions are not excluded.

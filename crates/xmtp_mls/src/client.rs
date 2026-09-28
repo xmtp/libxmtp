@@ -1044,7 +1044,9 @@ where
     /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
     pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, ClientError> {
         let conn = &mut self.context.db();
-        let message = conn.get_group_message(&message_id)?;
+        // implements: META-051
+        let message =
+            conn.get_app_visible_group_message(&message_id, xmtp_common::time::now_ns())?;
         Ok(message.ok_or(NotFound::MessageById(message_id))?)
     }
 
@@ -1071,7 +1073,7 @@ where
     pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
         let conn = self.context.db();
         let message = conn
-            .get_group_message(&message_id)?
+            .get_app_visible_group_message(&message_id, xmtp_common::time::now_ns())?
             .ok_or_else(|| NotFound::MessageById(message_id.clone()))?;
 
         let group_id = message.group_id;

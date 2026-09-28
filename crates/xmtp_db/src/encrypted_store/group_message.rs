@@ -596,6 +596,14 @@ pub trait QueryGroupMessage {
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
+    /// Get a message that is still visible to an app at the given time.
+    // implements: META-051
+    fn get_app_visible_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+        current_time_ns: i64,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
+
     fn get_latest_message_times_by_sender<Id: AsRef<[u8]>>(
         &self,
         group_id: Id,
@@ -757,6 +765,14 @@ where
         id: MessageId,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
         (**self).get_group_message(id)
+    }
+
+    fn get_app_visible_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+        current_time_ns: i64,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        (**self).get_app_visible_group_message(id, current_time_ns)
     }
 
     /// Get a particular group message using the write connection
@@ -1081,6 +1097,11 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
+            .filter(
+                dsl::expire_at_ns
+                    .is_null()
+                    .or(dsl::expire_at_ns.gt(now_ns())),
+            )
             .into_boxed();
 
         if relation_query.direction == SortDirection::Descending {
@@ -1125,6 +1146,11 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         let outbound_references_query = dsl::group_messages
             .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::id.eq_any(reference_ids))
+            .filter(
+                dsl::expire_at_ns
+                    .is_null()
+                    .or(dsl::expire_at_ns.gt(now_ns())),
+            )
             .into_boxed();
 
         let raw_outbound_references: Vec<StoredGroupMessage> = self.raw_query(|conn| {
@@ -1150,6 +1176,11 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             .filter(group_id_filter(group_id.as_ref()))
             .filter(dsl::reference_id.is_not_null())
             .filter(dsl::reference_id.eq_any(message_ids))
+            .filter(
+                dsl::expire_at_ns
+                    .is_null()
+                    .or(dsl::expire_at_ns.gt(now_ns())),
+            )
             .group_by(dsl::reference_id)
             .select((dsl::reference_id, diesel::dsl::count_star()))
             .into_boxed();
@@ -1198,6 +1229,25 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
         self.raw_query(|conn| {
             dsl::group_messages
                 .filter(dsl::id.eq(id.as_ref()))
+                .select(StoredGroupMessage::as_select())
+                .first::<StoredGroupMessage>(conn)
+                .optional()
+        })
+    }
+
+    fn get_app_visible_group_message<MessageId: AsRef<[u8]>>(
+        &self,
+        id: MessageId,
+        current_time_ns: i64,
+    ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError> {
+        self.raw_query(|conn| {
+            dsl::group_messages
+                .filter(dsl::id.eq(id.as_ref()))
+                .filter(
+                    dsl::expire_at_ns
+                        .is_null()
+                        .or(dsl::expire_at_ns.gt(current_time_ns)),
+                )
                 .select(StoredGroupMessage::as_select())
                 .first::<StoredGroupMessage>(conn)
                 .optional()
