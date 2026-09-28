@@ -72,6 +72,7 @@ INTERNAL_BROWSER_ONLY = {
     # The worker runtime reads it after a failed storage call. Native builds have
     # no storage lock.
     "storageRequiresWorkerRestart": (WORKER, "worker runtime only"),
+    "prepareStorageForShutdown": (WORKER, "final worker cleanup only"),
     # The main-thread pure module loads its own WASM file.
     "initPureWasm": (PURE, "loads the main-thread pure module"),
 }

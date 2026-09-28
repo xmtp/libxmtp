@@ -20,6 +20,9 @@ export class MainSession {
   readonly callbacks: MainCallbacks;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
+  private revision = 0;
+  private idleRevision = -1;
+  private localCalls = 0;
   private readyResolve: (() => void) | undefined;
   private readyReject: ((error: Error) => void) | undefined;
   private readonly readyPromise: Promise<void>;
@@ -37,6 +40,7 @@ export class MainSession {
     private readonly endpoint: WireEndpoint,
     version: number,
     hash: string,
+    private readonly onIdle?: () => void,
   ) {
     this.callbacks = new MainCallbacks(endpoint);
     this.readyPromise = new Promise<void>((resolve, reject) => {
@@ -62,6 +66,28 @@ export class MainSession {
 
   get isTerminated(): boolean {
     return this.dead;
+  }
+
+  get isIdle(): boolean {
+    return (
+      !this.dead &&
+      this.localCalls === 0 &&
+      !this.releaseScheduled &&
+      this.releases.size === 0 &&
+      this.idleRevision === this.revision
+    );
+  }
+
+  private notifyIdle(): void {
+    if (this.isIdle) this.onIdle?.();
+  }
+
+  private postWork(
+    message: Extract<WireMessage, { t: "call" | "release" }>,
+  ): void {
+    const revision = this.revision + 1;
+    this.endpoint.postMessage({ ...message, revision });
+    this.revision = revision;
   }
 
   setErrorDecoder(decode: (error: ErrorWire) => Error): void {
@@ -173,6 +199,21 @@ export class MainSession {
     target?: HandleWire,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    this.localCalls++;
+    try {
+      return await this.sendCall(key, args, target, signal);
+    } finally {
+      this.localCalls--;
+      this.notifyIdle();
+    }
+  }
+
+  private async sendCall(
+    key: string,
+    args: unknown[] | (() => unknown[]),
+    target?: HandleWire,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
     if (target) this.checkHandle(target);
     const { value, registered } =
       typeof args === "function"
@@ -201,7 +242,7 @@ export class MainSession {
       });
       signal?.addEventListener("abort", abort, { once: true });
       try {
-        this.endpoint.postMessage({ t: "call", id, key, target, args: value });
+        this.postWork({ t: "call", id, key, target, args: value });
       } catch (error) {
         this.callbacks.dropAll(registered);
         this.pending.delete(id);
@@ -238,14 +279,13 @@ export class MainSession {
       if (this.dead || this.releases.size === 0) return;
       const batch = [...this.releases];
       this.releases.clear();
-      this.endpoint.postMessage({ t: "release", handles: batch });
+      this.postWork({ t: "release", handles: batch });
     });
   }
 
   closeOwner(owner: number, handles: number[]): void {
     this.closedOwners.add(owner);
-    if (!this.dead)
-      this.endpoint.postMessage({ t: "release", handles, owners: [owner] });
+    if (!this.dead) this.postWork({ t: "release", handles, owners: [owner] });
   }
 
   fenceOwner(owner: number): void {
@@ -279,6 +319,10 @@ export class MainSession {
       case "ready":
         this.epoch = message.epoch;
         this.readyResolve?.();
+        break;
+      case "idle":
+        this.idleRevision = message.revision;
+        this.notifyIdle();
         break;
       case "refused":
         this.terminate(this.errorDecoder(message.error));

@@ -173,12 +173,20 @@ export interface CallbackWire {
 export type WireMessage =
   | { t: "hello"; version: number; hash: string }
   | { t: "ready"; epoch: number }
+  | { t: "idle"; revision: number }
   | { t: "refused"; error: ErrorWire }
-  | { t: "call"; id: number; key: string; target?: HandleWire; args: unknown[] }
+  | {
+      t: "call";
+      id: number;
+      key: string;
+      target?: HandleWire;
+      args: unknown[];
+      revision?: number;
+    }
   | { t: "return"; id: number; value: unknown }
   | { t: "error"; id: number; error: ErrorWire; fatal?: boolean }
   | { t: "cancel"; id: number }
-  | { t: "release"; handles: number[]; owners?: number[] }
+  | { t: "release"; handles: number[]; owners?: number[]; revision?: number }
   | { t: "callback"; id: number; cb: number; method: string; args: unknown[] }
   | { t: "callbackResult"; id: number; value?: unknown; error?: ErrorWire }
   | { t: "callbackDrop"; cb: number }

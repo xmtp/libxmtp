@@ -56,6 +56,10 @@ conformance-bridge:
 conformance-storage: wasm-init
     {{ _env }} && cd "{{ root }}" && NODE_OPTIONS= sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/storage.chromium.mts
 
+# Real package worker ownership and final cleanup in Chromium.
+conformance-package: wasm-init
+    {{ _env }} && cd "{{ root }}" && NODE_OPTIONS= sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/package.chromium.mts
+
 conformance-bridge-unit *args: wasm-init
     cd "{{ root }}" && NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/browser/vitest.config.mts --browser.enabled=false {{ args }}
 

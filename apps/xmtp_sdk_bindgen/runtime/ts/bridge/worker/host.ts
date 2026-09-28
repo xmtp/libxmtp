@@ -18,11 +18,14 @@ export interface LockProvider {
   ): Promise<void>;
 }
 
-export function browserPoolLocks(): PoolLocks {
-  return new PoolLocks({
-    request: (name, options, callback) =>
-      navigator.locks.request(name, options, (lock) => callback(lock)),
-  });
+export function browserPoolLocks(retainIdleLocks = false): PoolLocks {
+  return new PoolLocks(
+    {
+      request: (name, options, callback) =>
+        navigator.locks.request(name, options, (lock) => callback(lock)),
+    },
+    retainIdleLocks,
+  );
 }
 
 export class PoolLocks {
@@ -33,7 +36,10 @@ export class PoolLocks {
   private readonly users = new Map<string, number>();
   private closed = false;
 
-  constructor(private readonly provider: LockProvider) {}
+  constructor(
+    private readonly provider: LockProvider,
+    private readonly retainIdleLocks = false,
+  ) {}
 
   async open(pool: string): Promise<void> {
     if (this.closed) throw bridgeError("workerTerminated");
@@ -94,6 +100,7 @@ export class PoolLocks {
       return;
     }
     this.users.delete(pool);
+    if (this.retainIdleLocks) return;
     this.releases.get(pool)?.();
     this.releases.delete(pool);
   }
@@ -305,6 +312,9 @@ export class WorkerHost {
   // Owners whose root ended through a successful client or admin end call.
   private readonly endedOwners = new Set<number>();
   private initialized = false;
+  private revision = 0;
+  private idleRevision = -1;
+  private releasesPending = 0;
   private failed = false;
   private restorePanicLogger?: () => void;
   private restoreWorkerFailures?: () => void;
@@ -316,6 +326,7 @@ export class WorkerHost {
     private readonly initialize: () => Promise<void>,
     private readonly dispatch: Dispatch,
     private readonly locks?: PoolLocks,
+    private readonly prepareIdle: () => void = () => {},
   ) {
     const random = crypto.getRandomValues(new Uint32Array(2));
     this.registry = new WorkerRegistry(
@@ -337,13 +348,21 @@ export class WorkerHost {
         void this.hello(message);
         break;
       case "call":
+        this.revision = message.revision ?? this.revision;
         void this.run(message);
         break;
       case "cancel":
         this.active.get(message.id)?.abort();
         break;
       case "release": {
-        void this.releaseHandles(message);
+        this.revision = message.revision ?? this.revision;
+        this.releasesPending++;
+        void this.releaseHandles(message)
+          .catch((error: unknown) => this.fatal(error))
+          .finally(() => {
+            this.releasesPending--;
+            this.reportIdle();
+          });
         break;
       }
       case "callbackResult":
@@ -408,6 +427,7 @@ export class WorkerHost {
       await this.initialize();
       this.initialized = true;
       this.endpoint.postMessage({ t: "ready", epoch: this.registry.epoch });
+      this.reportIdle();
     } catch (error) {
       this.fatal(error);
     }
@@ -482,6 +502,26 @@ export class WorkerHost {
     } finally {
       accepted?.finish();
       this.active.delete(message.id);
+      this.reportIdle();
+    }
+  }
+
+  private reportIdle(): void {
+    if (
+      !this.initialized ||
+      this.failed ||
+      this.active.size !== 0 ||
+      this.releasesPending !== 0 ||
+      this.registry.size !== 0 ||
+      this.idleRevision === this.revision
+    )
+      return;
+    try {
+      this.prepareIdle();
+      this.idleRevision = this.revision;
+      this.endpoint.postMessage({ t: "idle", revision: this.revision });
+    } catch (error) {
+      this.fatal(error);
     }
   }
 

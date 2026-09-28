@@ -4,6 +4,7 @@ import { registerAdminTests } from "./bridge-admin";
 import { registerCallbacksTests } from "./bridge-callbacks";
 import { registerCreateTests } from "./bridge-create";
 import { registerOwnershipTests } from "./bridge-ownership";
+import { registerPackageLifetimeTests } from "./bridge-package-lifetime";
 import { registerTransportTests } from "./bridge-transport";
 import { registerWorkerSessionTests } from "./bridge-worker-sessions";
 
@@ -14,6 +15,7 @@ describe("browser bridge transport", () => {
   registerCallbacksTests();
   registerAdminTests();
   registerWorkerSessionTests();
+  registerPackageLifetimeTests();
 });
 
 // verifies: PROC-046

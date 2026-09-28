@@ -836,7 +836,7 @@ fn render(
 ) -> Result<BTreeMap<&'static str, String>> {
     let mut result = BTreeMap::new();
     let mut contract = format!(
-        "export const PROTOCOL_VERSION = 2;\nexport const CONTRACT_HASH = \"{hash}\";\nexport const METHOD_KEYS = [\n"
+        "export const PROTOCOL_VERSION = 3;\nexport const CONTRACT_HASH = \"{hash}\";\nexport const METHOD_KEYS = [\n"
     );
     for op in operations {
         writeln!(contract, "  \"{}\",", op.key)?;
@@ -1286,8 +1286,14 @@ fn render(
     )?;
     dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const createsAdmin = key === \"StorageAdmin.open\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : createsAdmin ? STORAGE_POOL : context.targetHandle ? context.locks?.poolForOwner(context.targetHandle.owner) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient || createsAdmin, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, key === \"Dm.peerInboxId\" && result === null ? undefined : result)), B.storageRequiresWorkerRestart, context.started, (owner) => { context.createdOwner = owner; });\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
+    result.insert(
+        "worker-entry.gen.js",
+        "import \"./worker.gen.js\";\n".into(),
+    );
 
     for name in [
+        "package-session.gen.ts",
+        "worker.gen.ts",
         "codec.main.gen.ts",
         "codec.worker.gen.ts",
         "stubs.gen.ts",
@@ -1295,6 +1301,10 @@ fn render(
         "conformance.gen.test.ts",
     ] {
         let template = match name {
+            "package-session.gen.ts" => {
+                include_str!("../../templates/bridge/package-session.gen.ts")
+            }
+            "worker.gen.ts" => include_str!("../../templates/bridge/worker.gen.ts"),
             "codec.main.gen.ts" => include_str!("../../templates/bridge/codec.main.gen.ts"),
             "codec.worker.gen.ts" => include_str!("../../templates/bridge/codec.worker.gen.ts"),
             "stubs.gen.ts" => include_str!("../../templates/bridge/stubs.gen.ts"),
