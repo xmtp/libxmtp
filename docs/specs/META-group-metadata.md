@@ -273,7 +273,7 @@ enum ConversationType {
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| META-030 | The DM pair is exactly two | When `DM_MEMBERS` is present and does not decode to a set of exactly two `InboxId` values, the client MUST reject the Welcome or commit that carries it. | A pair of one or three is not a conversation between two people, and DMS derives the conversation's identifier from exactly two. |
+| META-030 | The DM pair is exactly two | When `DM_MEMBERS` is present and does not decode to a set of exactly two `InboxId` values, or `CONVERSATION_TYPE` is not `CONVERSATION_TYPE_DM`, the client MUST reject the Welcome or commit that carries it. | A pair of one or three is not a conversation between two people, and DMS derives the conversation's identifier from exactly two. The pair grants DM-only authority, so a conversation of another type must not carry one. |
 
 ## 5. Mutable settings and what an app reads
 
