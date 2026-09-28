@@ -167,7 +167,8 @@ impl DeviceSync {
 
     let key = check_key(&key)?;
     let db = self.inner_client.context.db();
-    let mut exporter = ArchiveExporter::new(opts.into(), db, &key);
+    let mut exporter = ArchiveExporter::new(opts.into(), db, &key)
+      .map_err(|e| JsError::new(&format!("Failed to export archive: {}", e)))?;
 
     let mut buffer = Vec::new();
     exporter

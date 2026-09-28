@@ -121,7 +121,8 @@ impl Archives {
                     .into(),
                 client.context.db(),
                 &key,
-            );
+            )
+            .map_err(XmtpError::unknown)?;
             let mut bytes = Vec::new();
             exporter
                 .read_to_end(&mut bytes)

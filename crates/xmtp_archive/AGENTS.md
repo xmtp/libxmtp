@@ -14,3 +14,4 @@ just test workspace -p xmtp_archive util::   # one module
 ## Gotchas
 
 - On-disk format is versioned. Old archives must still load.
+- Export reads the whole selection in one read transaction inside `ArchiveExporter::new` and holds it in memory. Never hold that transaction across an await.

@@ -12389,7 +12389,6 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "openmls",
- "pin-project",
  "prost",
  "serde_json",
  "sha2 0.10.9",

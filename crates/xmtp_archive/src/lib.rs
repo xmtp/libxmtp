@@ -1,10 +1,18 @@
-use crate::archive_options::{ArchiveOptions, BackupElementSelection};
+//! Encrypted XMTP history archives.
+//!
+//! [`exporter::ArchiveExporter`] reads one consistent database snapshot when it is
+//! constructed (see `snapshot`), then streams it as an encrypted, compressed
+//! archive. Construction fails with [`ArchiveError`] before any byte is written if
+//! selected data cannot be read. [`ArchiveImporter`] decrypts and decodes an archive
+//! into [`xmtp_proto::xmtp::device_sync::BackupElement`]s for the caller to restore.
+//! [`archive_options::ArchiveOptions`] selects the elements and message window.
+
+use crate::archive_options::BackupElementSelection;
 pub use importer::ArchiveImporter;
 use thiserror::Error;
-use xmtp_common::time::now_ns;
-use xmtp_proto::xmtp::device_sync::{
-    BackupElementSelection as BackupElementSelectionProto, BackupMetadataSave,
-};
+use xmtp_db::{ConnectionError, StorageError, diesel, sql_key_store::SqlKeyStoreError};
+use xmtp_mls_common::group_metadata::GroupMetadataError;
+use xmtp_proto::{types::GroupId, xmtp::device_sync::BackupMetadataSave};
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
 pub const NONCE_SIZE: usize = 12; // 96-bit nonce
@@ -13,9 +21,9 @@ pub const NONCE_SIZE: usize = 12; // 96-bit nonce
 pub const BACKUP_VERSION: u16 = 0;
 
 pub mod archive_options;
-mod export_stream;
 pub mod exporter;
 pub mod importer;
+mod snapshot;
 mod util;
 
 #[derive(Debug, Error)]
@@ -30,6 +38,37 @@ pub enum ArchiveError {
     IO(#[from] std::io::Error),
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
+    #[error(transparent)]
+    Storage(#[from] StorageError),
+    #[error("group {group_id} cannot be exported: {source}")]
+    UnreadableGroup {
+        group_id: GroupId,
+        #[source]
+        source: UnreadableGroup,
+    },
+}
+
+impl From<ConnectionError> for ArchiveError {
+    fn from(e: ConnectionError) -> Self {
+        Self::Storage(e.into())
+    }
+}
+
+impl From<diesel::result::Error> for ArchiveError {
+    fn from(e: diesel::result::Error) -> Self {
+        Self::Storage(e.into())
+    }
+}
+
+/// Why an eligible group could not be exported.
+#[derive(Debug, Error)]
+pub enum UnreadableGroup {
+    #[error("no MLS group state")]
+    MissingState,
+    #[error(transparent)]
+    State(#[from] SqlKeyStoreError),
+    #[error(transparent)]
+    Metadata(#[from] GroupMetadataError),
 }
 
 #[derive(Default)]
@@ -54,26 +93,5 @@ impl BackupMetadata {
 
     pub fn from_metadata_version_unknown(save: BackupMetadataSave) -> Self {
         Self::from_metadata_save(save, u16::MAX)
-    }
-}
-
-pub(crate) trait OptionsToSave {
-    fn from_options(options: ArchiveOptions) -> BackupMetadataSave;
-}
-impl OptionsToSave for BackupMetadataSave {
-    fn from_options(options: ArchiveOptions) -> BackupMetadataSave {
-        Self {
-            end_ns: options.end_ns,
-            start_ns: options.start_ns,
-            elements: options
-                .elements
-                .into_iter()
-                .map(|e| {
-                    let e: BackupElementSelectionProto = e.into();
-                    e as i32
-                })
-                .collect(),
-            exported_at_ns: now_ns(),
-        }
     }
 }

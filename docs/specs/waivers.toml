@@ -419,13 +419,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The importer reads the container version and never compares it, so an archive of an unsupported version is parsed with the version 0 parser."
 
 [[waiver]]
-id = "ARCH-007"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Group export windows on creation time while message export windows on send time, so a message can be exported without its group and the import then fails on the group foreign key."
-
-[[waiver]]
 id = "ARCH-008"
 kind = "gap"
 owner = "protocol"
@@ -445,13 +438,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The mobile, node, and wasm bindings truncate an archive key longer than 32 bytes instead of rejecting it."
-
-[[waiver]]
-id = "ARCH-017"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Batched reads provide no fixed export snapshot and can silently omit groups whose MLS state or immutable metadata cannot be read."
 
 [[waiver]]
 id = "ARCH-018"

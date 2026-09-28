@@ -20,7 +20,6 @@ async-trait.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
 futures-util.workspace = true
 openmls.workspace = true
-pin-project.workspace = true
 prost.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
@@ -36,6 +35,7 @@ xmtp_proto.workspace = true
 
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ["test-utils"] }
+xmtp_db = { workspace = true, features = ["test-utils"] }
 
 [target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
 xmtp_common.workspace = true

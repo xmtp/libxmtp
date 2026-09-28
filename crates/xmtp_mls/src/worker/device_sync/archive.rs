@@ -229,6 +229,55 @@ mod tests {
         group_mutable_metadata::MessageDisappearingSettings,
     };
 
+    /// With MESSAGES selected, a restore into a new installation holds every
+    /// eligible conversation whatever its creation time or messages: an empty
+    /// group, an empty DM, a group whose messages all precede the window, and
+    /// an old group with its in-window message. Writes after the export
+    /// starts are not in the archive.
+    // verifies: ARCH-007, ARCH-017
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_snapshot_is_complete() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        let empty_group = alix.create_group(None, None)?;
+        let empty_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let outside = alix.create_group(None, None)?;
+        let outside_message = outside.send_message_optimistic(b"before", Default::default())?;
+        let old = alix.create_group(None, None)?;
+        let start_ns = xmtp_common::time::now_ns();
+        let in_window = old.send_message_optimistic(b"inside", Default::default())?;
+
+        let opts = ArchiveOptions {
+            elements: vec![BackupElementSelection::Messages],
+            start_ns: Some(start_ns),
+            end_ns: None,
+            exclude_disappearing_messages: false,
+        };
+        let key = vec![7; 32];
+        let mut exporter = ArchiveExporter::new(opts, alix.db(), &key)?;
+        let late_group = alix.create_group(None, None)?;
+        let late_message = old.send_message_optimistic(b"late", Default::default())?;
+        let mut archive = vec![];
+        exporter.read_to_end(&mut archive).await?;
+
+        tester!(alix2, from: alix);
+        let reader = Box::pin(BufReader::new(Cursor::new(archive)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix2.context).await?;
+
+        let db = alix2.db();
+        for group in [&empty_group, &empty_dm, &outside, &old] {
+            assert_eq!(
+                db.find_group(&group.group_id)??.membership_state,
+                GroupMembershipState::Restored
+            );
+        }
+        assert!(db.get_group_message(&in_window)?.is_some());
+        assert!(db.get_group_message(&outside_message)?.is_none());
+        assert!(db.find_group(&late_group.group_id)?.is_none());
+        assert!(db.get_group_message(&late_message)?.is_none());
+    }
+
     // verifies: EVENT-001, EVENT-017
     #[xmtp_common::test(unwrap_try = true)]
     async fn partial_import_reports_incomplete_after_a_stored_change() {
@@ -320,7 +369,7 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key)?;
             exporter.read_to_end(&mut file).await?;
             file
         };
@@ -384,7 +433,7 @@ mod tests {
         let export = {
             let mut file = vec![];
 
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key)?;
             exporter.read_to_end(&mut file).await?;
             file
         };
@@ -502,7 +551,7 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key).unwrap();
             exporter.read_to_end(&mut file).await.unwrap();
             file
         };
@@ -622,7 +671,7 @@ mod tests {
         };
 
         let key = xmtp_common::rand_vec::<32>();
-        let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+        let mut exporter = ArchiveExporter::new(opts, alix.db(), &key)?;
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
         exporter.write_to_file(path).await?;
@@ -846,7 +895,7 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
+            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key)?;
             exporter.read_to_end(&mut file).await?;
             file
         };
