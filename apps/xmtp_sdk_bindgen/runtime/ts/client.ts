@@ -19,7 +19,6 @@ import {
   type ClientEvent,
   type EventFilter,
   ListenerError,
-  type ContentTypeID,
   type EncodedContent,
   type InboxState,
   type KeyPackageStatusEntry,
@@ -28,30 +27,16 @@ import {
   type ServerConfiguration,
   type Signer,
 } from "../xmtp_sdk";
+import { codecKey, decodeCustom, type AnyCodec } from "./custom-codec";
 import { EventStream } from "./events/reader";
 import type { ConversationID, InboxID, InstallationID } from "./ids";
+export type { ContentCodec } from "./codec-type";
 
 declare const process: { cwd(): string } | undefined;
-
-export interface ContentCodec<T> {
-  readonly type: ContentTypeID;
-  encode(value: T): EncodedContent;
-  decode(encoded: EncodedContent): T;
-}
-
-type AnyCodec = {
-  readonly type: ContentTypeID;
-  decode(encoded: EncodedContent): unknown;
-  encode(value: never): EncodedContent;
-};
 
 export type SDKClientOptions = ClientOptions & {
   codecs?: readonly AnyCodec[];
 };
-
-function codecKey(type: ContentTypeID): string {
-  return JSON.stringify([type.authorityID, type.typeID, type.versionMajor]);
-}
 
 class CodecRegistry {
   private readonly codecs: ReadonlyMap<string, AnyCodec>;
@@ -63,13 +48,7 @@ class CodecRegistry {
   decode(
     encoded: EncodedContent,
   ): { value?: unknown; error?: string } | undefined {
-    const codec = this.codecs.get(codecKey(encoded.type));
-    if (codec === undefined) return undefined;
-    try {
-      return { value: codec.decode(encoded) };
-    } catch (error) {
-      return { error: String(error) };
-    }
+    return decodeCustom(this.codecs, encoded);
   }
 }
 

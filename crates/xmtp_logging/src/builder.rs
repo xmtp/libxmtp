@@ -160,7 +160,7 @@ mod tests {
     #[test]
     fn install_then_set_level() {
         use crate::error::Error;
-        use crate::{LogRecord, LogSinkTarget, SinkError};
+        use crate::{LogRecord, LogSinkTarget, SinkBusy, SinkError};
         use std::sync::{Arc, Mutex};
 
         struct Capture(Arc<Mutex<Vec<LogRecord>>>);
@@ -168,6 +168,12 @@ mod tests {
             fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
                 self.0.lock().unwrap().push(record);
                 Ok(())
+            }
+        }
+        struct Busy;
+        impl LogSinkTarget for Busy {
+            fn on_record(&self, _record: LogRecord) -> Result<(), SinkError> {
+                Err(Box::new(SinkBusy))
             }
         }
 
@@ -188,6 +194,12 @@ mod tests {
         handle.set_sink(None);
         tracing::info!(target: "xmtp_common", "sink cleared");
         assert_eq!(records.lock().unwrap().len(), 1);
+
+        handle.set_sink(Some(Arc::new(Busy)));
+        tracing::info!(target: "xmtp_mls", "busy");
+        assert_eq!(handle.sink_dropped_count(), 1);
+        assert_eq!(handle.sink_error_count(), 0);
+        handle.set_sink(None);
 
         // With `with_native(true)`, the server native layer now carries a
         // reloadable filter handle, so this drives a live filter (not a no-op).

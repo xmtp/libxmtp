@@ -34,6 +34,8 @@ pub enum XmtpError {
     StorageLocationRequired(ErrorDetails),
     #[error("identity not found: {0:?}")]
     IdentityNotFound(ErrorDetails),
+    #[error("storage pool busy: {0:?}")]
+    StorageBusy(ErrorDetails),
     #[error("signer failed: {0:?}")]
     Signer(ErrorDetails),
     #[error("credential failed: {0:?}")]
@@ -98,6 +100,7 @@ pub enum XmtpError {
     Unknown(ErrorDetails),
 }
 
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
 impl XmtpError {
     fn details(
         code: &str,
@@ -173,6 +176,16 @@ impl XmtpError {
             ErrorCategory::Identity,
             false,
             "database has no stored identity",
+        ))
+    }
+
+    #[cfg(any(target_arch = "wasm32", test))]
+    pub(crate) fn storage_busy(message: impl Into<String>) -> Self {
+        Self::StorageBusy(Self::details(
+            "StorageBusy",
+            ErrorCategory::Storage,
+            true,
+            message,
         ))
     }
 
@@ -427,5 +440,20 @@ impl XmtpError {
                 source.to_string(),
             )),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ErrorCategory, XmtpError};
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn storage_busy_matches_browser_bridge_fields() {
+        let XmtpError::StorageBusy(details) = XmtpError::storage_busy("busy") else {
+            panic!("expected StorageBusy");
+        };
+        assert_eq!(details.code, "StorageBusy");
+        assert!(matches!(details.category, ErrorCategory::Storage));
+        assert!(details.retryable);
     }
 }

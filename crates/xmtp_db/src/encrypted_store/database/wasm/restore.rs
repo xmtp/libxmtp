@@ -33,12 +33,17 @@ impl Drop for PendingOpen {
     }
 }
 
+/// True while a persistent open has unpaused the pool but has not opened its file.
+pub(super) fn open_pending() -> bool {
+    PENDING_OPENS.with(Cell::get) != 0
+}
+
 /// Exclude persistent opens for the full duration of an OPFS file change.
 struct PoolChange;
 
 impl PoolChange {
     fn acquire() -> Result<Self, PlatformStorageError> {
-        if PENDING_OPENS.with(Cell::get) != 0 {
+        if open_pending() {
             return Err(PlatformStorageError::DatabaseInUse);
         }
         POOL_CHANGE.with(|active| {

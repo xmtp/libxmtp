@@ -228,8 +228,16 @@ export type SendOptions = object;
 
 export enum ErrorCategory {
   Input,
-  Lifecycle,
+  Network,
+  Storage,
   Identity,
+  Conversation,
+  Callback,
+  Lifecycle,
+  Configuration,
+  Notification,
+  Stream,
+  Unknown,
 }
 
 export type ErrorDetails = {
@@ -295,7 +303,7 @@ export type ConversationReaderOptions = {
 export interface ConversationReaderLike {
   next(options?: { signal: AbortSignal }): Promise<Conversation | undefined>;
   end(): Promise<void>;
-  connectionState(): ConnectionState;
+  connectionState(): Promise<ConnectionState>;
   connectionStateChanged(previous: ConnectionState): Promise<ConnectionState>;
 }
 export type LogRecord = {

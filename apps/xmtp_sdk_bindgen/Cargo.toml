@@ -10,12 +10,14 @@ anyhow.workspace = true
 camino.workspace = true
 clap.workspace = true
 heck = "0.5"
+sha2.workspace = true
 tempfile = "3.27"
 toml.workspace = true
 ubrn_bindgen.workspace = true
 ubrn_common.workspace = true
 uniffi_bindgen.workspace = true
 uniffi_meta.workspace = true
+xmtp_configuration.workspace = true
 
 [dev-dependencies]
 xmtp_common = { workspace = true, features = ["test-utils"] }

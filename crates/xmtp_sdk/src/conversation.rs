@@ -609,7 +609,7 @@ pub struct Group {
     pub(crate) inner: MlsGroup<xmtp_mls::MlsContext>,
     pub(crate) client_key: u64,
     identity: ConversationIdentity,
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
     #[cfg(test)]
     pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
@@ -621,7 +621,7 @@ pub struct Dm {
     pub(crate) client_key: u64,
     identity: ConversationIdentity,
     peer_inbox_id: InboxID,
-    #[cfg(test)]
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
     #[cfg(test)]
     pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
@@ -669,7 +669,7 @@ impl Group {
             inner,
             client_key,
             identity,
-            #[cfg(test)]
+            #[cfg(all(test, not(target_arch = "wasm32")))]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
             #[cfg(test)]
             history_query_count: Arc::new(parking_lot::Mutex::new(0)),
@@ -698,7 +698,7 @@ impl Dm {
             client_key,
             identity,
             peer_inbox_id,
-            #[cfg(test)]
+            #[cfg(all(test, not(target_arch = "wasm32")))]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
             #[cfg(test)]
             history_query_count: Arc::new(parking_lot::Mutex::new(0)),
@@ -956,10 +956,10 @@ macro_rules! common_conversation {
 
             pub async fn state(&self) -> Result<$state, XmtpError> {
                 let group = self.inner.clone();
-                #[cfg(test)]
+                #[cfg(all(test, not(target_arch = "wasm32")))]
                 let counts = self.state_counts.clone();
                 on_sdk_worker(self.inner.context.clone(), async move {
-                    #[cfg(test)]
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
                     {
                         let ((state, key_reads), queries, writes) =
                             xmtp_db::count_sql_queries(|| {
@@ -972,7 +972,7 @@ macro_rules! common_conversation {
                         *counts.lock() = (queries.saturating_sub(key_reads), key_reads, writes);
                         return state;
                     }
-                    #[cfg(not(test))]
+                    #[cfg(any(not(test), target_arch = "wasm32"))]
                     {
                         let snapshot = group.state_snapshot().map_err(XmtpError::unknown)?;
                         ($map)(snapshot)

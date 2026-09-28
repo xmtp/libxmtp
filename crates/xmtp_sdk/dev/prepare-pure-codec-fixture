@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+
+fixture=target/sdk-pure-conformance/typescript-pure
+raw=target/sdk-pure-conformance/build/wasm32-unknown-unknown/release/xmtp_sdk.wasm
+dev/agent-run cargo build --locked --release -p xmtp_sdk \
+  --target wasm32-unknown-unknown --target-dir target/sdk-pure-conformance/build \
+  --features pure-only,conformance
+mkdir -p "$fixture"
+target/debug/xmtp-sdk-bindgen generate \
+  --lib "$raw" --language typescript-wasm --pure-only \
+  --out "$fixture" --config apps/xmtp_sdk_bindgen/uniffi-global.toml
+target/debug/xmtp-sdk-bindgen stage-wasm --lib "$raw" --out "$fixture"
+ln -sfn ../../sdk-generated/typescript-pure/node_modules "$fixture/node_modules"

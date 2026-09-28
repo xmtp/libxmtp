@@ -22,6 +22,62 @@ pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 
 static NEXT_CLIENT_KEY: AtomicU64 = AtomicU64::new(1);
 
+/// Set when a failed create cannot close the store of its client, or when a
+/// create or build is cancelled after its store opened. The store
+/// can still hold OPFS access handles, so the browser worker must keep its
+/// storage lock and end. The flag stays set because the store stays open.
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) static STORE_LEFT_OPEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Makes the next `discard` disconnect fail, to test a store that stays open.
+#[cfg(test)]
+pub(crate) static FAIL_DISCARD_DISCONNECT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Reports the store open when a create or build future is dropped after its
+/// store may have opened. A cancelled call drops its future at an await, so
+/// the cleanup of a failed create does not run. The store and its OPFS access
+/// handles can then stay open, so the browser worker must keep its storage
+/// lock and end. A create or build that returns disarms the guard, because
+/// its own error path closes the store or reports it open.
+#[derive(Default)]
+struct OpenStoreGuard {
+    armed: bool,
+}
+
+impl OpenStoreGuard {
+    /// Call before a step that can open the store. An in-memory store holds
+    /// no OPFS access handles and no storage lock.
+    fn arm(&mut self, storage: &StorageOptions) {
+        self.armed |= !matches!(storage.location, StorageLocation::InMemory);
+    }
+
+    fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for OpenStoreGuard {
+    fn drop(&mut self) {
+        if !self.armed {
+            return;
+        }
+        tracing::error!("a cancelled client create or build can leave its store open");
+        #[cfg(any(test, target_arch = "wasm32"))]
+        STORE_LEFT_OPEN.store(true, Ordering::Relaxed);
+    }
+}
+
+/// @xmtp-worker Reports whether a failed create left the store of its client
+/// open. The browser worker reads this after a failed create, before it
+/// releases the storage lock. Apps do not call it.
+#[cfg(all(target_arch = "wasm32", not(feature = "pure-only")))]
+#[uniffi::export]
+pub fn store_left_open() -> bool {
+    STORE_LEFT_OPEN.load(Ordering::Relaxed)
+}
+
 #[derive(Default)]
 pub(crate) struct EventReaderRegistry {
     closing: bool,
@@ -248,11 +304,69 @@ pub struct Client {
 }
 
 impl Client {
+    /// End a client that a failed create does not return. The built client
+    /// already runs background work on its store. The browser host releases
+    /// the storage lock when create fails, so the store must not stay
+    /// connected, even when close fails and keeps it connected for a retry.
+    /// Returns an error when the store stays connected. Then
+    /// `store_left_open` reports it to the browser worker, which keeps the
+    /// storage lock.
+    pub(crate) async fn discard(&self) -> Result<(), XmtpError> {
+        let Err(error) = self.end().await else {
+            return Ok(());
+        };
+        tracing::warn!(%error, "closing the client of a failed create");
+        let disconnected = self.disconnect_discarded();
+        #[cfg(target_arch = "wasm32")]
+        xmtp_db::pause_sqlite_if_idle();
+        if let Err(error) = &disconnected {
+            tracing::error!(%error, "the store of a failed create stays connected");
+            #[cfg(any(test, target_arch = "wasm32"))]
+            STORE_LEFT_OPEN.store(true, Ordering::Relaxed);
+        }
+        disconnected
+    }
+
+    fn disconnect_discarded(&self) -> Result<(), XmtpError> {
+        use xmtp_db::ConnectionExt;
+
+        #[cfg(test)]
+        if FAIL_DISCARD_DISCONNECT.swap(false, Ordering::Relaxed) {
+            return Err(XmtpError::storage("injected disconnect failure"));
+        }
+        self.inner
+            .context
+            .db()
+            .disconnect()
+            .map_err(XmtpError::storage)
+    }
+
     async fn build_inner(
+        identity: PublicIdentity,
+        options: ClientOptions,
+        inbox_id: Option<InboxID>,
+        require_stored_identity: bool,
+        guard: &mut OpenStoreGuard,
+    ) -> Result<Self, XmtpError> {
+        let built =
+            Self::build_client(identity, options, inbox_id, require_stored_identity, guard).await;
+        // A failed build can unpause the OPFS pool and then drop its store,
+        // for example when the database has no stored identity. The browser
+        // host releases the storage lock after the failure, so the pool must
+        // not keep its access handles. A live database keeps the pool open.
+        #[cfg(target_arch = "wasm32")]
+        if built.is_err() {
+            xmtp_db::pause_sqlite_if_idle();
+        }
+        built
+    }
+
+    async fn build_client(
         identity: PublicIdentity,
         mut options: ClientOptions,
         inbox_id: Option<InboxID>,
         require_stored_identity: bool,
+        guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
@@ -275,6 +389,7 @@ impl Client {
         // fetch configuration or create an identity for an empty database.
         let checked_store = match (require_stored_identity, inbox_id.as_ref()) {
             (true, Some(inbox_id)) => {
+                guard.arm(&options.storage);
                 Some(open_existing_store(&options.storage, &inbox_id.0).await?)
             }
             _ => None,
@@ -302,6 +417,7 @@ impl Client {
                 }
             }
         };
+        guard.arm(&options.storage);
         let store = match checked_store {
             Some(store) => store,
             None if require_stored_identity => {
@@ -358,6 +474,29 @@ impl Client {
             listeners: Arc::new(crate::events::dispatch::ListenerRegistry::default()),
             event_readers: Arc::new(parking_lot::Mutex::new(EventReaderRegistry::default())),
         })
+    }
+
+    async fn create_with_guard(
+        signer: Arc<dyn Signer>,
+        identity: PublicIdentity,
+        options: ClientOptions,
+        guard: &mut OpenStoreGuard,
+    ) -> Result<Self, XmtpError> {
+        let mut client = Self::build_inner(identity, options, None, false, guard).await?;
+        if client.options.registration.auto {
+            let registered = match signer::kind(signer.clone()).await {
+                Ok(kind) => client.register_with_signer(signer.clone(), kind).await,
+                Err(error) => Err(error),
+            };
+            if let Err(error) = registered {
+                // The caller gets the registration error. A store that stays
+                // open is reported through `store_left_open`.
+                let _ = client.discard().await;
+                return Err(error);
+            }
+        }
+        client.signer = Some(signer);
+        Ok(client)
     }
 
     pub(crate) async fn register_with_signer(
@@ -467,7 +606,9 @@ async fn open_existing_store(
     {
         let path =
             wasm_storage_path(options, inbox_id)?.ok_or_else(XmtpError::identity_not_found)?;
-        xmtp_db::init_sqlite().await;
+        xmtp_db::try_init_sqlite()
+            .await
+            .map_err(map_wasm_storage_error)?;
         let pool = xmtp_db::get_sqlite()
             .ok_or_else(|| XmtpError::unknown("OPFS pool is unavailable"))?
             .map_err(XmtpError::unknown)?;
@@ -491,13 +632,10 @@ impl Client {
         options: ClientOptions,
     ) -> Result<Self, XmtpError> {
         let identity = signer::identity(signer.clone()).await?;
-        let mut client = Self::build_inner(identity, options, None, false).await?;
-        if client.options.registration.auto {
-            let kind = signer::kind(signer.clone()).await?;
-            client.register_with_signer(signer.clone(), kind).await?;
-        }
-        client.signer = Some(signer);
-        Ok(client)
+        let mut guard = OpenStoreGuard::default();
+        let created = Self::create_with_guard(signer, identity, options, &mut guard).await;
+        guard.disarm();
+        created
     }
 
     /// Build requires a stored identity. It fetches server configuration by default.
@@ -508,7 +646,10 @@ impl Client {
         options: ClientOptions,
         inbox_id: Option<InboxID>,
     ) -> Result<Self, XmtpError> {
-        Self::build_inner(identity, options, inbox_id, true).await
+        let mut guard = OpenStoreGuard::default();
+        let built = Self::build_inner(identity, options, inbox_id, true, &mut guard).await;
+        guard.disarm();
+        built
     }
 
     pub fn inbox_id(&self) -> InboxID {
@@ -559,7 +700,10 @@ impl Client {
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {
-        end_client(&self.inner, &self.listeners, &self.event_readers).await
+        end_client(&self.inner, &self.listeners, &self.event_readers).await?;
+        #[cfg(target_arch = "wasm32")]
+        xmtp_db::pause_sqlite_if_idle();
+        Ok(())
     }
 
     // implements: EVENT-014
@@ -742,8 +886,38 @@ pub(crate) async fn open_store(
         ));
     }
     let location = wasm_store_location(options, inbox_id)?;
-    let db = WasmDb::new(&location).await.map_err(XmtpError::unknown)?;
+    if matches!(&location, xmtp_db::StorageOption::Persistent(_)) {
+        xmtp_db::try_init_sqlite()
+            .await
+            .map_err(map_wasm_storage_error)?;
+    }
+    let db = WasmDb::new(&location)
+        .await
+        .map_err(map_wasm_storage_error)?;
     EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn map_wasm_storage_error(error: xmtp_db::PlatformStorageError) -> XmtpError {
+    match error {
+        xmtp_db::PlatformStorageError::SAH(xmtp_db::OpfsSAHError::CreateSyncAccessHandle(_)) => {
+            XmtpError::storage_busy(error.to_string())
+        }
+        other => XmtpError::unknown(other),
+    }
+}
+
+#[cfg(all(test, target_arch = "wasm32"))]
+mod wasm_storage_error_tests {
+    use super::*;
+
+    #[xmtp_common::test]
+    fn unsupported_opfs_is_not_storage_busy() {
+        let error = map_wasm_storage_error(xmtp_db::PlatformStorageError::SAH(
+            xmtp_db::OpfsSAHError::NotSupported,
+        ));
+        assert!(matches!(error, XmtpError::Unknown(_)));
+    }
 }
 
 #[cfg(any(test, target_arch = "wasm32"))]

@@ -12128,6 +12128,7 @@ dependencies = [
  "camino",
  "clap",
  "heck",
+ "sha2 0.10.9",
  "tempfile",
  "toml 1.1.3+spec-1.1.0",
  "ubrn_bindgen",
@@ -12135,6 +12136,7 @@ dependencies = [
  "uniffi_bindgen",
  "uniffi_meta",
  "xmtp_common",
+ "xmtp_configuration",
 ]
 
 [[package]]
@@ -12691,6 +12693,7 @@ dependencies = [
  "futures",
  "hkdf 0.12.4",
  "http 1.4.2",
+ "js-sys",
  "metrics",
  "metrics-util",
  "opentelemetry",
@@ -12941,6 +12944,7 @@ dependencies = [
  "uniffi",
  "uniffi-runtime-wasm",
  "wasm-bindgen-futures",
+ "wasm-bindgen-test",
  "xmtp-workspace-hack",
  "xmtp_api",
  "xmtp_api_backend",
