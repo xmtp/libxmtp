@@ -1741,7 +1741,7 @@ pub(crate) mod tests {
     }
 
     // verifies: JOIN-080
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn restored_replacement_returns_activated_group() {
         with_connection(|conn| {
             let restored = generate_group(Some(GroupMembershipState::Restored));
