@@ -4654,6 +4654,68 @@ async fn bulk_publish_keeps_unknown_reserved_outcome_in_public_details() {
     client.end().await?;
 }
 
+// verifies: GMOD-035, SEND-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn bulk_publish_exposes_selected_terminal_ordered_rejection() {
+    use crate::{ContentTypeId, EncodedContent, ErrorCategory, SendOptions};
+    use xmtp_db::group_message::{DeliveryStatus, QueryGroupMessage};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    group.inner.key_update().await?;
+    group.inner.update_installations().await?;
+    let content = EncodedContent {
+        r#type: ContentTypeId {
+            authority_id: "xmtp.org".into(),
+            type_id: "group_updated".into(),
+            version_major: 7,
+            version_minor: 3,
+        },
+        parameters: Default::default(),
+        fallback: None,
+        content: b"prior-client fixture".to_vec(),
+    };
+    let wire: xmtp_proto::xmtp::mls::message_contents::EncodedContent = content.into();
+    let (reserved_id, reserved_intent) = group
+        .inner
+        .prepare_reserved_attempt_for_test(&prost::Message::encode_to_vec(&wire), "sdk-rejected")
+        .await?;
+    group
+        .inner
+        .publish_future_epoch_reserved_echo_for_test(reserved_intent)
+        .await?;
+    let allowed = group
+        .send_text(
+            "later allowed".into(),
+            Some(SendOptions {
+                optimistic: true,
+                ..Default::default()
+            }),
+        )
+        .await?;
+
+    let result = group.publish_messages().await;
+    assert!(
+        matches!(result, Err(XmtpError::Unknown(ref details))
+        if details.code == "Unknown"
+            && matches!(details.category, ErrorCategory::Unknown)
+            && !details.retryable),
+        "{result:?}"
+    );
+    let db = group.inner.context.db();
+    assert_eq!(
+        db.get_group_message(&hex::decode(allowed.0)?)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Published
+    );
+    assert_eq!(
+        db.get_group_message(&reserved_id)?.unwrap().delivery_status,
+        DeliveryStatus::Failed
+    );
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn custom_content_type_filter_rejects_unknown_storage_type() {
     use crate::{ContentTypeId, EncodedContent, ListMessagesOptions};

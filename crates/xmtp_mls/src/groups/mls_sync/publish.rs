@@ -353,6 +353,87 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         Ok((message.id, intent.id))
     }
 
+    /// Put a saved reserved attempt with a future MLS epoch in backend order.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub async fn publish_future_epoch_reserved_echo_for_test(
+        &self,
+        intent_id: i32,
+    ) -> Result<(), GroupError> {
+        use xmtp_db::ConnectionExt;
+        use xmtp_db::diesel::prelude::*;
+        use xmtp_db::schema::group_intents::dsl;
+
+        let attempt = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let intent = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?
+                .ok_or(NotFound::IntentById(intent_id))?;
+            if intent.group_id != self.group_id
+                || intent.state != IntentState::Published
+                || !Self::reserved_transcript_intent(&intent)?
+            {
+                return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+            }
+            let original = db
+                .prepared_envelopes(intent_id)?
+                .ok_or(OutgoingPreparationError::MissingPreparedAttempt(intent_id))?;
+            let mut attempt = PreparedAttempt::decode(&original)?;
+            attempt.validate_intent(&intent)?;
+            let last = attempt
+                .envelopes
+                .last_mut()
+                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
+            let mut envelope = ClientEnvelope::decode(last.as_slice())?;
+            let Some(Payload::GroupMessage(message)) = &mut envelope.payload else {
+                return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+            };
+            // The fixture uses a one-byte TLS length for its 16-byte group ID.
+            // Epoch is the following eight-byte integer in the MLS header.
+            let group_id_len = *message
+                .data
+                .get(4)
+                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?
+                as usize;
+            if group_id_len >= 64 || group_id_len != self.group_id.as_ref().len() {
+                return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+            }
+            let epoch_low = message
+                .data
+                .get_mut(5 + group_id_len + 7)
+                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
+            *epoch_low = epoch_low
+                .checked_add(1)
+                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
+            attempt.payload_hash = sha256(&message.data).to_vec();
+            *last = envelope.encode_to_vec();
+            let replacement = xmtp_db::db_serialize(&attempt)?;
+            if !db.compare_and_set_prepared_envelopes(
+                intent_id,
+                Some(&original),
+                Some(&replacement),
+            )? {
+                return Err(OutgoingPreparationError::StateChanged.into());
+            }
+            let changed = db.raw_query(|conn| {
+                xmtp_db::diesel::update(dsl::group_intents)
+                    .filter(dsl::id.eq(intent_id))
+                    .filter(dsl::state.eq(IntentState::Published))
+                    .set(dsl::payload_hash.eq(attempt.payload_hash.as_slice()))
+                    .execute(conn)
+            })?;
+            if changed != 1 {
+                return Err(OutgoingPreparationError::StateChanged.into());
+            }
+            Ok::<_, GroupError>(Continue(attempt))
+        })?
+        .into_continued();
+        self.context
+            .api()
+            .send_group_messages(vec![attempt.publish_unit(self.context.api().limits())?])
+            .await?;
+        Ok(())
+    }
+
     fn prepare_publish_attempt_with_policy(
         &self,
         requirements: &PublishRequirements,

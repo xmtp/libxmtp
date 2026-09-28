@@ -905,3 +905,109 @@ async fn bulk_publish_ignores_historical_local_rejection() {
         DeliveryStatus::Published
     );
 }
+
+// verifies: GMOD-035, SEND-019
+#[xmtp_common::test(unwrap_try = true)]
+async fn bulk_publish_reports_selected_terminal_ordered_rejection_after_later_progress() {
+    use xmtp_proto::api::HasStats;
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    group.update_installations().await?;
+    let content = transcript_content("group_updated", 7, "xmtp.org");
+    let (reserved_id, reserved_intent, _) =
+        legacy_saved_attempt(&group, &content, "bulk-ordered-rejection").await?;
+    group
+        .publish_future_epoch_reserved_echo_for_test(reserved_intent.id)
+        .await?;
+    let allowed_id = group.send_message_optimistic(b"later allowed", Default::default())?;
+    let before = alix
+        .context
+        .api()
+        .api_client
+        .as_ref()
+        .mls_stats()
+        .publish
+        .get_count();
+
+    let result = group.publish_messages().await;
+    let Err(GroupError::Sync(summary)) = result else {
+        panic!("selected terminal rejection was lost: {result:?}");
+    };
+    assert!(summary.is_errored());
+    assert!(matches!(
+        summary.process.errored.as_slice(),
+        [(
+            _,
+            GroupMessageProcessingError::RejectedIntent("impossible_future_epoch")
+        )]
+    ));
+    assert_eq!(
+        alix.context
+            .api()
+            .api_client
+            .as_ref()
+            .mls_stats()
+            .publish
+            .get_count(),
+        before + 1,
+        "the saved reserved attempt must not publish again"
+    );
+    assert_eq!(
+        Fetch::<StoredGroupIntent>::fetch(&group.context.db(), &reserved_intent.id)?
+            .unwrap()
+            .state,
+        IntentState::Error
+    );
+    assert_eq!(
+        group
+            .context
+            .db()
+            .local_intent_rejection_reason(reserved_intent.id)?,
+        None
+    );
+    let saved = group
+        .context
+        .db()
+        .prepared_envelopes(reserved_intent.id)?
+        .unwrap();
+    assert!(PreparedAttempt::decode(&saved)?.rejection.is_some());
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&reserved_id)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Failed
+    );
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&allowed_id)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Published
+    );
+    assert!(matches!(
+        group.sync_until_intent_resolved(reserved_intent.id).await,
+        Err(GroupError::Sync(exact))
+            if matches!(
+                exact.process.errored.as_slice(),
+                [(_, GroupMessageProcessingError::RejectedIntent("impossible_future_epoch"))]
+            )
+    ));
+    let later_id = group.send_message_optimistic(b"still allowed", Default::default())?;
+    group.publish_messages().await?;
+    assert_eq!(
+        group
+            .context
+            .db()
+            .get_group_message(&later_id)?
+            .unwrap()
+            .delivery_status,
+        DeliveryStatus::Published
+    );
+}

@@ -246,6 +246,8 @@ where
                 IntentState::ToPublish | IntentState::Committed
             ) {
                 return Err(GroupError::SyncFailedToWait(Box::new(summary)));
+            } else if current.state == IntentState::Error {
+                return Err(GroupError::from(self.rejected_intent_summary(id)?));
             }
         }
         Ok(summary)
