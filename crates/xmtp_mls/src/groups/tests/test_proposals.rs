@@ -1023,7 +1023,15 @@ async fn missing_proposal_absent_vs_lost() {
     assert_eq!(bo_before, caro_before);
 
     // A membership update is proposals by reference, then their commit.
+    let epoch = alix_group.epoch().await? as i64;
     alix_group.add_members(&[dan.inbox_id()]).await?;
+    assert!(
+        alix.context
+            .db()
+            .received_proposals(alix_group.group_id, epoch)?
+            .is_empty(),
+        "a merged commit clears the evidence of the proposals it consumed"
+    );
     let mut envelopes = bo
         .context
         .api()
