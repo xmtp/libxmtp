@@ -677,15 +677,54 @@ export async function runBrowserBridgeConformance(
       config.identifier,
       "server configuration changed",
     );
-    const catchUp = await reopened.catchUpToLive(10_000n);
-    equal(typeof catchUp.messages, "bigint", "catch-up message count is missing");
+    // A peer adds this client to a new group and sends to it. This client
+    // has not synced, so the Welcome and the messages are outstanding work
+    // that only catch-up can process.
+    const peer = await Client.create(session, signer(session), {
+      ...clientOptions,
+      storage: {
+        ...clientOptions.storage,
+        location: B.StorageLocation.InMemory.new(),
+      },
+    });
+    const owedGroup = await peer
+      .conversations()
+      .createGroup([reopened.inboxID()], undefined);
+    const owed = ["owed 0", "owed 1", "owed 2"];
+    for (const text of owed) await owedGroup.sendText(text, undefined);
     equal(
-      typeof catchUp.conversations,
-      "bigint",
-      "catch-up conversation count is missing",
+      await reopened.conversations().getByID(owedGroup.id()),
+      undefined,
+      "the group was known before catch-up",
     );
-    equal(typeof catchUp.failed, "bigint", "catch-up failure count is missing");
-    equal(typeof catchUp.completed, "boolean", "catch-up result is missing");
+    // verifies: PROC-016
+    // Strict bigint and boolean comparisons also check the field types.
+    const catchUp = await reopened.catchUpToLive(10_000n);
+    equal(catchUp.completed, true, "catch-up did not complete");
+    equal(catchUp.conversations, 1n, "catch-up did not count the new group");
+    expect(
+      typeof catchUp.messages === "bigint" &&
+        catchUp.messages >= BigInt(owed.length),
+      `catch-up counted ${catchUp.messages} messages`,
+    );
+    equal(catchUp.failed, 0n, "catch-up reported a failed group");
+    const joined = await reopened.conversations().getByID(owedGroup.id());
+    if (joined?.tag !== B.Conversation_Tags.Group)
+      throw new Error("catch-up did not store the new group");
+    const received = (await joined.inner.group.messages(undefined)).flatMap(
+      (message) => {
+        expect(message instanceof Message, "caught-up message was not lifted");
+        return message.content.tag === B.MessageContent_Tags.Text
+          ? [message.content.inner[0]]
+          : [];
+      },
+    );
+    equal(received.join(), owed.join(), "catch-up did not store the messages");
+    const again = await reopened.catchUpToLive(10_000n);
+    equal(again.completed, true, "second catch-up did not complete");
+    equal(again.conversations, 0n, "second catch-up counted the group again");
+    equal(again.messages, 0n, "second catch-up counted the messages again");
+    await peer.end();
     const backend = await Backend.connect(session, {
       url: backendURL,
       appVersion: undefined,
