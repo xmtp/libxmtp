@@ -14,12 +14,6 @@
 # The issue links below are placeholders. Each needs a real issue before its
 # spec is approved.
 [[waiver]]
-id = "JOIN-076"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A Welcome's stated wrapper algorithm is used as given and never compared with the algorithm the addressed key package advertised. A message naming the classical wrapper over the package's init key is accepted even when the package advertised the post-quantum one, so the stronger wrapper can be stripped by relabelling."
-[[waiver]]
 id = "JOIN-077"
 kind = "gap"
 owner = "protocol"
@@ -31,12 +25,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "An installation whose key package fails verification is recorded in failed_installations. An installation for which the backend serves no key package at all is dropped from the add and not recorded, so a joiner cannot tell it from one the sender never saw."
-[[waiver]]
-id = "JOIN-056"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A resolved pointee's installation_key is checked against the topic it was fetched from when the envelope is decoded, but its wrapper_algorithm is never checked against WELCOME_WRAPPER_ALGORITHM_SYMMETRIC_KEY; the pointee is accepted on its authenticated decryption alone."
 [[waiver]]
 id = "JOIN-060"
 kind = "gap"
