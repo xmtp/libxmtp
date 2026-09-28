@@ -57,6 +57,50 @@ enum RejectionCode {
 }
 
 impl RejectionCode {
+    /// Public-safe validation class for an ordered intent rejection.
+    fn stable_code(self) -> &'static str {
+        match self {
+            Self::InsufficientPermissions => "insufficient_permissions",
+            Self::ActorCouldNotBeFound => "actor_could_not_be_found",
+            Self::ActorNotMember => "actor_not_member",
+            Self::SubjectDoesNotExist => "subject_does_not_exist",
+            Self::MultipleActors => "multiple_actors",
+            Self::MissingGroupMembership => "missing_group_membership",
+            Self::MissingMutableMetadata => "missing_mutable_metadata",
+            Self::SequenceIdDecreased => "sequence_id_decreased",
+            Self::NoPskSupport => "no_psk_support",
+            Self::ProposerNotFound => "proposer_not_found",
+            Self::ProposalsNotEnabled => "proposals_not_enabled",
+            Self::IntentAlreadyProcessed => "intent_already_processed",
+            Self::InvalidPayload => "invalid_payload",
+            Self::OwnMessageWithoutAttempt => "own_message_without_attempt",
+            Self::InvalidSender => "invalid_sender",
+            Self::MalformedEnvelope => "malformed_envelope",
+            Self::InvalidMlsInput => "invalid_mls_input",
+            Self::WrongCredentialType => "wrong_credential_type",
+            Self::UnsupportedMessageType => "unsupported_message_type",
+            Self::FutureEpoch => "impossible_future_epoch",
+            Self::MessageAlreadyProcessed => "message_already_processed",
+            Self::IdentityReference => "invalid_identity_reference",
+            Self::IdentitySequenceOrder => "identity_sequence_order",
+            Self::InboxValidation => "inbox_validation",
+            Self::InvalidVersion => "invalid_version",
+            Self::UnexpectedInstallationAdded => "unexpected_installation_added",
+            Self::UnexpectedInstallationsRemoved => "unexpected_installations_removed",
+            Self::GroupMetadata => "group_metadata",
+            Self::MlsCredential => "mls_credential",
+            Self::GroupMutableMetadata => "group_mutable_metadata",
+            Self::GroupMutablePermissions => "group_mutable_permissions",
+            Self::TooManyCharacters => "too_many_characters",
+            Self::MinVersionDowngrade => "min_version_downgrade",
+            Self::MinVersionRemove => "min_version_remove",
+            Self::ComponentSource => "component_source",
+            Self::Bootstrap => "bootstrap_validation",
+            Self::Conversion => "conversion",
+            Self::OtherSupportedInput => "supported_input_rejected",
+        }
+    }
+
     fn capture(error: &GroupMessageProcessingError) -> Self {
         use CommitRuleError as C;
         use CommitValidationError as V;
@@ -240,6 +284,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
             }
             let mut summary = SyncSummary::other(GroupError::ReceiveError(rejection.code.error()));
+            summary.rejected_intent_code = Some(rejection.code.stable_code());
             let cursor = Cursor(rejection.sequence_id);
             summary.process.add_id(cursor);
             summary

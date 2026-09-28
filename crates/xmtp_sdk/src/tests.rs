@@ -4697,8 +4697,8 @@ async fn bulk_publish_exposes_selected_terminal_ordered_rejection() {
     let result = group.publish_messages().await;
     assert!(
         matches!(result, Err(XmtpError::Unknown(ref details))
-        if details.code == "Unknown"
-            && matches!(details.category, ErrorCategory::Unknown)
+        if details.code == "impossible_future_epoch"
+            && matches!(details.category, ErrorCategory::Conversation)
             && !details.retryable),
         "{result:?}"
     );
@@ -4712,6 +4712,19 @@ async fn bulk_publish_exposes_selected_terminal_ordered_rejection() {
     assert_eq!(
         db.get_group_message(&reserved_id)?.unwrap().delivery_status,
         DeliveryStatus::Failed
+    );
+    let exact = group
+        .inner
+        .publish_stored_message(&reserved_id)
+        .await
+        .unwrap_err();
+    let exact = XmtpError::from_group(exact);
+    assert!(
+        matches!(exact, XmtpError::Unknown(ref details)
+        if details.code == "impossible_future_epoch"
+            && matches!(details.category, ErrorCategory::Conversation)
+            && !details.retryable),
+        "{exact:?}"
     );
     client.end().await?;
 }

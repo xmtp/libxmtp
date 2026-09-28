@@ -936,6 +936,10 @@ async fn bulk_publish_reports_selected_terminal_ordered_rejection_after_later_pr
         panic!("selected terminal rejection was lost: {result:?}");
     };
     assert!(summary.is_errored());
+    assert_eq!(
+        summary.rejected_intent_code(),
+        Some("impossible_future_epoch")
+    );
     assert!(matches!(
         summary.process.errored.as_slice(),
         [(
@@ -994,7 +998,8 @@ async fn bulk_publish_reports_selected_terminal_ordered_rejection_after_later_pr
     assert!(matches!(
         group.sync_until_intent_resolved(reserved_intent.id).await,
         Err(GroupError::Sync(exact))
-            if matches!(
+            if exact.rejected_intent_code() == Some("impossible_future_epoch")
+                && matches!(
                 exact.process.errored.as_slice(),
                 [(_, GroupMessageProcessingError::RejectedIntent("impossible_future_epoch"))]
             )

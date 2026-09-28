@@ -229,6 +229,10 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
         panic!("expected a typed intent rejection, got {result:?}");
     };
     assert!(summary.is_errored());
+    assert_eq!(
+        summary.rejected_intent_code(),
+        Some("insufficient_permissions")
+    );
     let rejected_cursor = summary
         .process
         .errored
@@ -323,6 +327,10 @@ async fn rejected_intent_keeps_its_typed_cause_after_restart_and_later_rejection
         panic!("reopened intent lost its rejection: {result:?}");
     };
     assert!(summary.is_errored());
+    assert_eq!(
+        summary.rejected_intent_code(),
+        Some("insufficient_permissions")
+    );
     assert!(summary.process.errored.iter().any(|(cursor, error)| {
         *cursor == rejected_cursor
             && matches!(

@@ -219,6 +219,15 @@ impl XmtpError {
                 true,
                 e.to_string(),
             )),
+            GroupError::Sync(summary) => match summary.rejected_intent_code() {
+                Some(code) => Self::Unknown(Self::details(
+                    code,
+                    ErrorCategory::Conversation,
+                    false,
+                    summary.to_string(),
+                )),
+                None => Self::unknown(summary),
+            },
             other => Self::unknown(other),
         }
     }

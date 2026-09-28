@@ -81,6 +81,7 @@ pub fn generate_successful_summary(messages: &[xmtp_proto::types::GroupMessage])
         },
         post_commit_errors: vec![],
         other: None,
+        rejected_intent_code: None,
     }
 }
 
@@ -107,6 +108,7 @@ pub fn generate_errored_summary(error_cursors: &[u64], successful_cursors: &[u64
         },
         post_commit_errors: vec![],
         other: None,
+        rejected_intent_code: None,
     }
 }
 
@@ -142,6 +144,7 @@ pub fn generate_errored_summary_with_group(
         },
         post_commit_errors: vec![],
         other: None,
+        rejected_intent_code: None,
     }
 }
 
