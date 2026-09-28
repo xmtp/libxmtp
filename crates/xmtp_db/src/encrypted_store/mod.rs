@@ -33,6 +33,7 @@ pub mod pending_remove;
 pub mod pragmas;
 pub mod processed_device_sync_messages;
 pub mod readd_status;
+pub mod received_proposal;
 pub mod refresh_state;
 pub mod remote_commit_log;
 pub mod schema;

@@ -349,20 +349,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Duplicate detection compares accumulated hashes of the most recent non-empty fields and ignores the initiator, rather than comparing complete payloads."
 
 [[waiver]]
-id = "PROC-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "MissingProposal is classified as terminal without distinguishing a proposal absent from the prefix from lost local proposal state."
-
-[[waiver]]
-id = "PROC-012"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The same classification can discard work that should remain held after a loss of local state."
-
-[[waiver]]
 id = "PROC-021"
 kind = "gap"
 owner = "protocol"

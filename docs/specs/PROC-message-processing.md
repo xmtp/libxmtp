@@ -185,4 +185,6 @@ A backend-sampled target includes replica lag. Completion through it does not cl
 
 Push-envelope entry points accept a backend `ServerEnvelope` and use its metadata as an ordered-fetch target. These entry points do not accept the PUSH JSON body containing `topic` and `sequence_id`; automatic Welcome discovery for an unknown group named by that body is not part of their interface.
 
+A commit that names a proposal missing from local state is rejected only when the client durably recorded every proposal the prefix delivered in that epoch and still holds each one. Once a delivered proposal is lost, the client holds any commit in that epoch that fails for a missing proposal, even one whose missing reference the prefix never carried, because the failure does not name the reference.
+
 A held group or identity prefix has no retention deadline. Unsupported input can require a client upgrade; invalid identity history can require repair. Retrying a local failure does not make invalid history valid.
