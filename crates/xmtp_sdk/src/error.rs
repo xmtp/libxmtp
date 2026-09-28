@@ -198,6 +198,31 @@ impl XmtpError {
         })
     }
 
+    pub(crate) fn from_group(error: xmtp_mls::groups::GroupError) -> Self {
+        use xmtp_mls::groups::GroupError;
+        match error {
+            GroupError::ReservedTranscriptContentType => Self::InvalidInput(Self::details(
+                "ReservedTranscriptContentType",
+                ErrorCategory::Input,
+                false,
+                "reserved transcript content type",
+            )),
+            e @ GroupError::PublishedButUnconfirmed { .. } => Self::Unknown(Self::details(
+                "PublishedButUnconfirmed",
+                ErrorCategory::Conversation,
+                true,
+                e.to_string(),
+            )),
+            e @ GroupError::SendOutcomeUnknown { .. } => Self::Unknown(Self::details(
+                "SendOutcomeUnknown",
+                ErrorCategory::Conversation,
+                true,
+                e.to_string(),
+            )),
+            other => Self::unknown(other),
+        }
+    }
+
     pub(crate) fn signer() -> Self {
         Self::Signer(ErrorDetails {
             code: "SignerFailed".into(),
@@ -455,5 +480,41 @@ mod tests {
         assert_eq!(details.code, "StorageBusy");
         assert!(matches!(details.category, ErrorCategory::Storage));
         assert!(details.retryable);
+    }
+
+    // verifies: GMOD-035
+    #[xmtp_common::test(unwrap_try = true)]
+    fn transcript_send_outcomes_keep_distinct_public_details() {
+        use xmtp_mls::groups::GroupError;
+
+        let XmtpError::InvalidInput(refused) =
+            XmtpError::from_group(GroupError::ReservedTranscriptContentType)
+        else {
+            panic!("expected InvalidInput");
+        };
+        assert_eq!(refused.code, "ReservedTranscriptContentType");
+        assert!(matches!(refused.category, ErrorCategory::Input));
+        assert!(!refused.retryable);
+
+        let XmtpError::Unknown(pending) =
+            XmtpError::from_group(GroupError::PublishedButUnconfirmed {
+                intent_id: 7,
+                cause: None,
+            })
+        else {
+            panic!("expected Unknown");
+        };
+        assert_eq!(pending.code, "PublishedButUnconfirmed");
+        assert!(matches!(pending.category, ErrorCategory::Conversation));
+        assert!(pending.retryable);
+
+        let XmtpError::Unknown(unknown) =
+            XmtpError::from_group(GroupError::SendOutcomeUnknown { intent_id: 7 })
+        else {
+            panic!("expected Unknown");
+        };
+        assert_eq!(unknown.code, "SendOutcomeUnknown");
+        assert!(matches!(unknown.category, ErrorCategory::Conversation));
+        assert!(unknown.retryable);
     }
 }

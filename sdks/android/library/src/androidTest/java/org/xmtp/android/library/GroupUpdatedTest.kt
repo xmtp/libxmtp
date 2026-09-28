@@ -3,6 +3,8 @@ package org.xmtp.android.library
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -76,13 +78,17 @@ class GroupUpdatedTest : BaseInstrumentedTest() {
         val messages = runBlocking { group.messages() }
         assertEquals(messages.size, 1)
         assertEquals(runBlocking { group.members().size }, 3)
-        runBlocking {
-            group.send(
-                content = membershipChange,
-                options = SendOptions(contentType = ContentTypeGroupUpdated),
-            )
-            group.sync()
-        }
+        val error =
+            assertThrows(XMTPException::class.java) {
+                runBlocking {
+                    group.send(
+                        content = membershipChange,
+                        options = SendOptions(contentType = ContentTypeGroupUpdated),
+                    )
+                }
+            }
+        assertTrue(error.message.orEmpty().contains("GroupError::ReservedTranscriptContentType"))
+        runBlocking { group.sync() }
         val updatedMessages = runBlocking { group.messages() }
         assertEquals(updatedMessages.size, 1)
     }

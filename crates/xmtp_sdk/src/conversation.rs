@@ -843,12 +843,12 @@ async fn send_encoded(
             let id = if options.optimistic {
                 group
                     .send_message_optimistic(&bytes, opts)
-                    .map_err(XmtpError::unknown)?
+                    .map_err(XmtpError::from_group)?
             } else {
                 group
                     .send_message(&bytes, opts)
                     .await
-                    .map_err(XmtpError::unknown)?
+                    .map_err(XmtpError::from_group)?
             };
             MessageID::from_bytes(&id)
         })
@@ -1133,9 +1133,12 @@ macro_rules! common_conversation {
                 let group = self.inner.clone();
                 on_sdk_worker(
                     self.inner.context.clone(),
-                    Box::pin(
-                        async move { group.publish_messages().await.map_err(XmtpError::unknown) },
-                    ),
+                    Box::pin(async move {
+                        group
+                            .publish_messages()
+                            .await
+                            .map_err(XmtpError::from_group)
+                    }),
                 )
                 .await
             }
@@ -1149,7 +1152,7 @@ macro_rules! common_conversation {
                         group
                             .publish_stored_message(&bytes)
                             .await
-                            .map_err(XmtpError::unknown)
+                            .map_err(XmtpError::from_group)
                     }),
                 )
                 .await

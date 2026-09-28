@@ -707,13 +707,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The Node and browser SDKs accept no pre-authentication handler; the façade adds handlers.preAuthenticate."
 
 [[waiver]]
-id = "GMOD-035"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The send path does not check the content type, so an app can publish an application message under the group_updated or group_membership_change type. A mobile binding test sends both types and expects success."
-
-[[waiver]]
 id = "EVENT-001"
 kind = "gap"
 owner = "protocol"
