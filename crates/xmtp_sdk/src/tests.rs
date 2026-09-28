@@ -5513,8 +5513,16 @@ async fn delivery_cursor_preserves_large_position_across_full_results() {
         ConnectionExt, delivery::QueryDelivery, diesel::prelude::*, refresh_state::EntityKind,
         schema::refresh_state::dsl,
     };
-    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let path = std::env::temp_dir().join(format!(
+        "sdk-large-cursor-{}.db3",
+        xmtp_common::time::now_ns()
+    ));
+    let signer = crate::generate_local_signer().await;
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let client = Client::create(signer.clone(), settings.clone()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
+    let group_id = group.id();
     let start = client.conversations().beginning_delivery_cursor().await?;
     let db = client.inner.context.db();
     let high = 1_i64 << 53;
@@ -5577,6 +5585,15 @@ async fn delivery_cursor_preserves_large_position_across_full_results() {
             .id,
         id
     );
+    let owner_before: Option<Vec<u8>> = db.raw_query(|conn| {
+        use xmtp_db::schema::user_preferences::dsl;
+        dsl::user_preferences
+            .select(dsl::delivery_owner)
+            .first(conn)
+    })?;
+    assert!(owner_before.is_some());
+    use xmtp_db::refresh_state::QueryRefreshState;
+    let progress_before = db.get_last_cursor(&group.inner.group_id, EntityKind::Delivery)?;
     let next_id = group.send_text("adjacent position".into(), None).await?;
     assert_eq!(
         db.current_delivery_cursor()?.delivery_sequence,
@@ -5584,7 +5601,7 @@ async fn delivery_cursor_preserves_large_position_across_full_results() {
     );
     let resume = group
         .message_reader(Some(crate::ConversationMessageReaderOptions {
-            from: Some(cursor),
+            from: Some(cursor.clone()),
         }))
         .await?;
     assert_eq!(
@@ -5597,9 +5614,57 @@ async fn delivery_cursor_preserves_large_position_across_full_results() {
         next_id
     );
     resume.end().await?;
+    let owner_after: Option<Vec<u8>> = db.raw_query(|conn| {
+        use xmtp_db::schema::user_preferences::dsl;
+        dsl::user_preferences
+            .select(dsl::delivery_owner)
+            .first(conn)
+    })?;
+    assert_eq!(
+        owner_after, owner_before,
+        "replay must not replace the default owner"
+    );
+    assert_eq!(
+        db.get_last_cursor(&group.inner.group_id, EntityKind::Delivery)?,
+        progress_before
+    );
     reader.end().await?;
     default.end().await?;
     client.end().await?;
+    drop((db, resume, reader, default, group, client));
+    let reopened = Client::create(signer, settings).await?;
+    let crate::Conversation::Group { group } = reopened
+        .conversations()
+        .get_by_id(group_id)
+        .await?
+        .expect("persisted group")
+    else {
+        panic!("group")
+    };
+    let replay = group
+        .message_reader(Some(crate::ConversationMessageReaderOptions {
+            from: Some(cursor.clone()),
+        }))
+        .await?;
+    let adjacent = replay.next().await?.expect("persisted adjacent resume");
+    assert_eq!(adjacent.0.id, next_id);
+    assert_eq!(
+        crate::delivery::cursor::parse(adjacent.0.delivery_cursor.as_ref().expect("cursor"))?
+            .delivery_sequence,
+        expected.delivery_sequence + 1
+    );
+    replay.end().await?;
+    let default = group.message_reader(None).await?;
+    let unchanged = default
+        .next()
+        .await?
+        .expect("default progress remains unacknowledged");
+    assert_eq!(unchanged.0.id, id);
+    assert_eq!(unchanged.0.delivery_cursor.as_ref(), Some(&cursor));
+    default.end().await?;
+    reopened.end().await?;
+    drop((default, replay, group, reopened));
+    std::fs::remove_file(path)?;
 }
 
 // verifies: PROC-050

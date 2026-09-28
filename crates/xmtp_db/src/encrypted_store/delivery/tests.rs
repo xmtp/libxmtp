@@ -554,8 +554,11 @@ async fn app_rows_cursor_queries_are_bounded_batches() {
     let db = store.db();
     let group = generate_group(None);
     group.store(&db)?;
+    let mut expected = Vec::new();
     for index in 0..1001 {
-        generate_message(None, Some(&group.id), Some(index), None, None, None).store(&db)?;
+        let message = generate_message(None, Some(&group.id), Some(index), None, None, None);
+        message.store(&db)?;
+        expected.push((message.id, Some(db.current_delivery_cursor()?)));
     }
     let batches = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
     let observed = batches.clone();
@@ -566,10 +569,18 @@ async fn app_rows_cursor_queries_are_bounded_batches() {
             }
         }))
     });
-    let rows = db.app_visible_message_rows(&group.id, &MsgQueryArgs::default())?;
+    let rows = db.app_visible_message_rows(
+        &group.id,
+        &MsgQueryArgs {
+            direction: Some(crate::group_message::SortDirection::Ascending),
+            ..Default::default()
+        },
+    )?;
     APP_ROWS_PROBE.with_borrow_mut(|probe| *probe = None);
-    assert_eq!(rows.len(), 1001);
-    assert!(rows.iter().all(|row| row.cursor.is_some()));
+    assert_eq!(rows.len(), expected.len());
+    for (index, (row, expected)) in rows.into_iter().zip(expected).enumerate() {
+        assert_eq!((row.stored.id, row.cursor), expected, "row {index}");
+    }
     assert_eq!(batches.borrow().len(), 3);
     assert!(batches.borrow().iter().all(|size| *size <= 500));
 }
