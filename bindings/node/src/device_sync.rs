@@ -6,7 +6,9 @@ use std::sync::Arc;
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::worker::device_sync::{
   ArchiveOptions as XmtpArchiveOptions, BackupElementSelection, DeviceSyncError,
-  archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_importer},
+  archive::{
+    ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
+  },
 };
 use xmtp_proto::xmtp::device_sync::BackupElementSelection as BackupElementSelectionProto;
 
@@ -148,7 +150,8 @@ impl DeviceSync {
   ) -> Result<()> {
     let key = check_key(&key)?;
     let db = self.inner_client.context.db();
-    exporter::export_to_file(opts.into(), db, path, &key)
+    ArchiveExporter::export_to_file(opts.into(), db, path, &key)
+      .await
       .map_err(DeviceSyncError::Archive)
       .map_err(ErrorWrapper::from)?;
     Ok(())

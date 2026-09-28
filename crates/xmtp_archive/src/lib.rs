@@ -1,8 +1,8 @@
 //! The XMTP archive container: a versioned header, then AES-256-GCM frames of `BackupElement`s
 //! inside one zstd stream.
 //!
-//! `xmtp_mls`, `xmtp_sdk`, and the bindings use [`exporter::export`] and
-//! [`exporter::export_to_file`] to write an archive from the database and [`ArchiveImporter`] to
+//! `xmtp_mls`, `xmtp_sdk`, and the bindings use [`exporter::export`], or its
+//! [`exporter::ArchiveExporter`] stream and file adapters, to write an archive from the database and [`ArchiveImporter`] to
 //! read one back. The exporter streams one consistent snapshot of every selected element (see
 //! `snapshot`) and fails with [`ArchiveError`] if selected data cannot be read. The importer rejects
 //! any container version above [`BACKUP_VERSION`] and ends with an error on any incomplete or

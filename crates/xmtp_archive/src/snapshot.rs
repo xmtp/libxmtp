@@ -167,10 +167,10 @@ mod tests {
     use crate::{
         ArchiveError, ArchiveImporter,
         archive_options::{ArchiveOptions, BackupElementSelection},
-        exporter,
+        exporter::{self, ArchiveExporter},
     };
     use futures::{
-        StreamExt,
+        AsyncReadExt, StreamExt,
         io::{BufReader, Cursor},
     };
     use xmtp_db::{
@@ -244,12 +244,21 @@ mod tests {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let path = xmtp_common::tmp_path();
-            assert!(exporter::export_to_file(messages, &db, &path, &KEY).is_err());
+            let failure = ArchiveExporter::export_to_file(messages.clone(), &db, &path, &KEY).await;
+            assert!(failure.is_err());
             assert!(
                 !std::path::Path::new(&path).exists(),
                 "failed export left a file"
             );
         }
+        let mut read = Vec::new();
+        let failure = ArchiveExporter::new(messages, &db, &KEY)
+            .read_to_end(&mut read)
+            .await;
+        assert!(
+            failure.is_err() && read.is_empty(),
+            "stream served a failed export"
+        );
 
         let mut archive = Vec::new();
         let metadata = exporter::export(options(&[]), &db, &KEY, &mut archive)?;

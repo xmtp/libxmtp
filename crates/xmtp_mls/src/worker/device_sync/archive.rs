@@ -735,7 +735,7 @@ mod tests {
         let key = xmtp_common::rand_vec::<32>();
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
-        exporter::export_to_file(opts, alix.db(), path, &key)?;
+        exporter::ArchiveExporter::export_to_file(opts, alix.db(), path, &key).await?;
 
         tester!(alix2, sync_worker);
         alix2.device_sync_client().wait_for_sync_worker_init().await;
