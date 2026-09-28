@@ -74,9 +74,10 @@ PLATFORM_SPECIFIC: dict[str, set[str] | None] = {
     # client. Apps get messages from the SDK and do not construct them.
     "Message": {"constructor"},
 }
-# Differences that SDK-037 does not list. P62 does not permit them; each one
-# needs an owner decision, so the check names it here instead of hiding it.
-UNLISTED_DIFFERENCES: dict[str, set[str] | None] = {
+# Differences that the owner permitted on 2026-09-28 (plan decision O13), in
+# addition to the SDK-037 list, until the browser surface is aligned with
+# Node. Remove an entry when its difference is fixed.
+OWNER_PERMITTED: dict[str, set[str] | None] = {
     # Node's Client is the runtime wrapper over ClientLike, with static
     # helpers, codecs, and callback listeners. The browser's Client is the
     # generated worker proxy: it implements ClientLike, `create` and `build`
@@ -116,10 +117,13 @@ def emit(flavor: str, out: Path) -> Path:
             "--moduleResolution",
             "bundler",
             "--allowImportingTsExtensions",
+            # One root for every flavor: a flavor imports files from another
+            # (WASM from pure), and tsc writes a file outside the root next to
+            # its source, inside the generated tree.
             "--rootDir",
-            str(source),
+            str(GENERATED),
             "--outDir",
-            str(out / flavor),
+            str(out),
             str(source / "index.ts"),
         ],
         check=True,
@@ -379,7 +383,7 @@ def compare(out: Path) -> list[str]:
         errors.append(f"{name}: SDK-037 removes it from the browser")
     for name in sorted(node_exports.keys() & browser.keys()):
         skipped = set()
-        for exceptions in (PLATFORM_SPECIFIC, UNLISTED_DIFFERENCES):
+        for exceptions in (PLATFORM_SPECIFIC, OWNER_PERMITTED):
             if name in exceptions:
                 if exceptions[name] is None:
                     skipped = None
