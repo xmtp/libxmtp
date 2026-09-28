@@ -172,6 +172,7 @@ pub async fn opfs_database_exists(path: &str) -> Result<bool, StorageError> {
 /// Export a closed database without changing its bytes or fencing its objects.
 /// The VFS exports file bytes, not a transaction snapshot of an open database.
 pub async fn export_opfs_database(path: &str) -> Result<Vec<u8>, StorageError> {
+    super::validate_persistent_path(path)?;
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
     let util = resume_sqlite().await?;
@@ -220,6 +221,7 @@ async fn restored_bytes(data: &[u8]) -> Result<Vec<u8>, StorageError> {
 /// A failed import leaves prior user data unchanged.
 /// No await occurs between the lifecycle check and publication of the file.
 pub async fn import_opfs_database(path: &str, data: &[u8]) -> Result<(), StorageError> {
+    super::validate_persistent_path(path)?;
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
     let util = resume_sqlite().await?;
@@ -242,6 +244,7 @@ pub async fn import_opfs_database(path: &str, data: &[u8]) -> Result<(), Storage
 
 /// Delete a closed database and permanently fence its old local objects.
 pub async fn delete_opfs_database(path: &str) -> Result<bool, StorageError> {
+    super::validate_persistent_path(path)?;
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
     let util = resume_sqlite().await?;

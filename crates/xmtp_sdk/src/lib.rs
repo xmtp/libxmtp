@@ -51,6 +51,8 @@ mod state;
 mod static_helpers;
 #[cfg(not(feature = "pure-only"))]
 mod storage;
+#[cfg(all(target_arch = "wasm32", not(feature = "pure-only")))]
+mod storage_admin;
 
 #[cfg(not(feature = "pure-only"))]
 pub use archives::{ArchiveElement, ArchiveMetadata, ArchiveOptions, Archives};
@@ -137,6 +139,8 @@ pub use state::{
 pub use static_helpers::MessageMetadataEntry;
 #[cfg(not(feature = "pure-only"))]
 pub use storage::Storage;
+#[cfg(all(target_arch = "wasm32", not(feature = "pure-only")))]
+pub use storage_admin::StorageAdmin;
 
 #[cfg(feature = "pure-only")]
 #[derive(Clone, Debug, uniffi::Record)]

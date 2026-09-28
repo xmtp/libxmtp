@@ -58,6 +58,10 @@ SDK_037_NODE_ONLY_MEMBERS = {
     "Storage": {"delete_", "reconnect"},
     "StorageOptions": {"encryptionKey"},
 }
+# SDK-037 adds the browser-only admin handle. Its public factory is added
+# by the browser adapter. The stock interface alias follows the generated type.
+SDK_037_BROWSER_ONLY = {"StorageAdmin", "StorageAdminLike", "StorageAdminInterface"}
+
 # SDK-037 adds `Storage.admin()` to the browser target. It is not generated
 # yet, so the list is empty; add the members when it is.
 SDK_037_BROWSER_ONLY_MEMBERS: dict[str, set[str]] = {}
@@ -551,7 +555,7 @@ def pinned_text(text: str) -> str:
 def expected_exports(flavor: str, node_exports: set[str]) -> set[str]:
     if flavor == PURE:
         return PURE_ONLY | PURE_SHARED
-    return node_exports - SDK_037_NODE_ONLY.keys() - PURE_ONLY
+    return (node_exports - SDK_037_NODE_ONLY.keys() - PURE_ONLY) | SDK_037_BROWSER_ONLY
 
 
 def compare(out: Path) -> list[str]:
@@ -559,6 +563,8 @@ def compare(out: Path) -> list[str]:
     node = Surface(node_root)
     node_exports = node.exports(node.module(node_root / "index.d.ts"))
     errors = []
+    for name in sorted(SDK_037_BROWSER_ONLY & node_exports.keys()):
+        errors.append(f"{name}: SDK-037 permits it only in the browser")
     for name in sorted((PURE_ONLY | PURE_SHARED) - node_exports.keys()):
         errors.append(f"{name}: the pure list names it and Node does not export it")
     for flavor in BROWSER:
@@ -583,6 +589,8 @@ def compare(out: Path) -> list[str]:
         for name in sorted(internal - exports.keys()):
             errors.append(f"{name}: the internal export is missing from {flavor}")
         for name in sorted(expected & exports.keys()):
+            if name in SDK_037_BROWSER_ONLY:
+                continue
             web_module, web_local = exports[name]
             if name in PINNED:
                 for target, surface_of, module, local in (

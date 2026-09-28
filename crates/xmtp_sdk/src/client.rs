@@ -275,15 +275,19 @@ pub(crate) async fn open_store(
 
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn map_wasm_storage_error(error: impl std::error::Error + 'static) -> XmtpError {
-    use xmtp_db::{OpfsSAHError, PlatformStorageError, StorageError};
+    use xmtp_db::{ConnectionError, OpfsSAHError, PlatformStorageError, StorageError};
 
     let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&error);
     while let Some(current) = cause {
-        // A transparent StorageError delegates source() to the platform error.
-        // Inspect its variant so a platform error with no source is not lost.
+        // Transparent storage and connection errors delegate source(). Inspect
+        // their variants so a platform error with no source is not lost.
         let platform = match current.downcast_ref::<StorageError>() {
             Some(StorageError::Platform(platform)) => Some(platform),
-            _ => current.downcast_ref::<PlatformStorageError>(),
+            Some(StorageError::Connection(ConnectionError::Platform(platform))) => Some(platform),
+            _ => match current.downcast_ref::<ConnectionError>() {
+                Some(ConnectionError::Platform(platform)) => Some(platform),
+                _ => current.downcast_ref::<PlatformStorageError>(),
+            },
         };
         match platform {
             Some(PlatformStorageError::InvalidDatabasePath) => {

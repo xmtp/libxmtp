@@ -2,7 +2,10 @@ import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
-import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import {
+  Client,
+  StorageAdmin,
+} from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
 import type { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import { WorkerSessions } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/worker-sessions";
 import type {
@@ -13,6 +16,7 @@ import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 
 let worker: Worker | undefined;
 const clients: Client[] = [];
+const admins: StorageAdmin[] = [];
 let generations = 0;
 let holdFatal = false;
 let closing: Promise<void> | undefined;
@@ -37,8 +41,8 @@ const sessions = new WorkerSessions(
         current.addEventListener(
           "message",
           (event: MessageEvent<WireMessage>) => {
-        if ("__fatalClosing" in event.data) {
-          if (worker === current) markClosing?.();
+            if ("__fatalClosing" in event.data) {
+              if (worker === current) markClosing?.();
               return;
             }
             const message = event.data;
@@ -72,6 +76,73 @@ function connection(): Promise<MainSession> {
 
 export function workerGenerations(): number {
   return generations;
+}
+
+export async function openAdmins(): Promise<void> {
+  const current = await connection();
+  admins.push(
+    ...(await Promise.all([
+      StorageAdmin.open(current),
+      StorageAdmin.open(current),
+    ])),
+  );
+}
+
+export async function adminFiles(): Promise<string[]> {
+  const admin = admins.at(-1);
+  if (!admin) throw new Error("no admin handle");
+  const files = await admin.listFiles();
+  if (files.length !== (await admin.fileCount()))
+    throw new Error("admin count differs");
+  if ((await admin.poolCapacity()) < files.length)
+    throw new Error("admin capacity differs");
+  return files;
+}
+
+export async function adminOpenFileIsBusy(path: string): Promise<void> {
+  const admin = admins.at(-1);
+  if (!admin) throw new Error("no admin handle");
+  const before = await admin.listFiles();
+  for (const call of [
+    () => admin.exportDb(path),
+    () => admin.deleteFile(path),
+    () => admin.clearAll(),
+  ]) {
+    try {
+      await call();
+      throw new Error("admin accepted an open database");
+    } catch (error) {
+      if (!isStorageBusy(error)) throw error;
+    }
+  }
+  if (JSON.stringify(before) !== JSON.stringify(await admin.listFiles()))
+    throw new Error("busy admin call changed files");
+}
+
+export async function adminRoundTrip(path: string): Promise<void> {
+  const admin = admins.at(-1);
+  if (!admin) throw new Error("no admin handle");
+  const data = await admin.exportDb(path);
+  const target = "admin-round-trip.db";
+  await admin.importDb(target, data);
+  if (!(await admin.fileExists(target)))
+    throw new Error("admin import missing");
+  if (!(await admin.deleteFile(target)))
+    throw new Error("admin delete missing");
+  if (await admin.deleteFile(target))
+    throw new Error("admin deleted absent file");
+}
+
+export async function endAdmin(): Promise<void> {
+  const admin = admins.shift();
+  if (!admin) throw new Error("no admin handle");
+  await Promise.all([admin.end(), admin.end()]);
+  try {
+    await admin.fileCount();
+    throw new Error("ended admin accepted a call");
+  } catch (error) {
+    if (codeOf(error) !== "ClientClosed") throw error;
+  }
 }
 
 export function holdFailureTermination(): void {
@@ -401,5 +472,6 @@ export function isStorageBusy(error: unknown): boolean {
 
 export async function stop(): Promise<void> {
   while (clients.length > 0) await endOne();
+  while (admins.length > 0) await endAdmin();
   sessions.terminate();
 }

@@ -21,6 +21,12 @@ fn storage_busy_keeps_direct_and_wrapped_causes() {
         client::map_wasm_storage_error(PlatformStorageError::DatabaseInUse),
         client::map_wasm_storage_error(StorageError::from(PlatformStorageError::DatabaseInUse)),
         client::map_wasm_storage_error(Wrapped(PlatformStorageError::DatabaseInUse.into())),
+        client::map_wasm_storage_error(xmtp_db::ConnectionError::Platform(
+            PlatformStorageError::DatabaseInUse,
+        )),
+        client::map_wasm_storage_error(StorageError::from(xmtp_db::ConnectionError::Platform(
+            PlatformStorageError::DatabaseInUse,
+        ))),
     ] {
         let XmtpError::StorageBusy(details) = error else {
             panic!("expected StorageBusy, got {error:?}");
@@ -38,6 +44,9 @@ fn storage_invalid_path_keeps_direct_and_wrapped_causes() {
         client::map_wasm_storage_error(StorageError::from(
             PlatformStorageError::InvalidDatabasePath,
         )),
+        client::map_wasm_storage_error(StorageError::from(xmtp_db::ConnectionError::Platform(
+            PlatformStorageError::InvalidDatabasePath,
+        ))),
     ] {
         let XmtpError::InvalidInput(details) = error else {
             panic!("expected InvalidInput, got {error:?}");

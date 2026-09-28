@@ -297,9 +297,7 @@ try {
     typed: false,
   });
   assert.equal(await generation(third), failedInstallGeneration + 1);
-  console.log(
-    "Chromium replaced workers after failed OPFS install and resume",
-  );
+  console.log("Chromium replaced workers after failed OPFS install and resume");
 
   // A failed registration must end the client it built before the Web Lock
   // is released. Otherwise its SQLite connections keep the OPFS pool.
@@ -413,6 +411,52 @@ try {
   );
   console.log(
     "Chromium cancelled create kept the Web Lock until its worker ended",
+  );
+  await second.evaluate(async () =>
+    (await import("./storage.bridge.chromium.ts")).endOne(),
+  );
+  await first.evaluate(async () =>
+    (await import("./storage.bridge.chromium.ts")).openAdmins(),
+  );
+  assert.equal(
+    await first.evaluate(async () => {
+      const locks = await navigator.locks.query();
+      return locks.held?.filter((lock) => lock.name?.startsWith("xmtp:"))
+        .length;
+    }),
+    1,
+    "admin creation must hold the shared Web Lock",
+  );
+  assert.deepEqual(
+    await opfsAttempt(second, `${base}-admin-other.db`),
+    busyFields,
+  );
+  const adminPath = `${base}-admin.db`;
+  await first.evaluate(async (path) => {
+    const bridge = await import("./storage.bridge.chromium.ts");
+    await bridge.open(path);
+    if (!(await bridge.adminFiles()).includes(path))
+      throw new Error("admin file missing");
+    await bridge.adminOpenFileIsBusy(path);
+    await bridge.endOne();
+    await bridge.adminRoundTrip(path);
+    await bridge.endAdmin();
+    if (!(await bridge.adminFiles()).includes(path))
+      throw new Error("second admin closed early");
+  }, adminPath);
+  assert.deepEqual(
+    await opfsAttempt(second, `${base}-admin-other.db`),
+    busyFields,
+  );
+  await first.evaluate(async () =>
+    (await import("./storage.bridge.chromium.ts")).endAdmin(),
+  );
+  assert.equal(
+    (await opfsAttempt(second, `${base}-admin-other.db`)).code,
+    "opened",
+  );
+  console.log(
+    "Chromium independent admins held the shared pool and guarded open databases",
   );
 } finally {
   await first

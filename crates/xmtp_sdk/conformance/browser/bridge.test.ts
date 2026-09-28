@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { registerAdminTests } from "./bridge-admin";
 import { registerCallbacksTests } from "./bridge-callbacks";
 import { registerCreateTests } from "./bridge-create";
 import { registerOwnershipTests } from "./bridge-ownership";
@@ -11,6 +12,7 @@ describe("browser bridge transport", () => {
   registerOwnershipTests();
   registerCreateTests();
   registerCallbacksTests();
+  registerAdminTests();
   registerWorkerSessionTests();
 });
 

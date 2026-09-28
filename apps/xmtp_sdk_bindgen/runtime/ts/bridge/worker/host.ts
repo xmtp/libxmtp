@@ -7,6 +7,7 @@ import {
   type WireMessage,
 } from "../wire.js";
 import { WorkerCallbacks } from "./callback-stub.js";
+import { OwnerCalls } from "./owner-calls.js";
 import { WorkerRegistry } from "./registry.js";
 
 export interface LockProvider {
@@ -101,6 +102,10 @@ export class PoolLocks {
     this.owners.set(owner, pool);
   }
 
+  poolForOwner(owner: number): string | undefined {
+    return this.owners.get(owner);
+  }
+
   closeOwner(owner: number): void {
     const pool = this.owners.get(owner);
     this.owners.delete(owner);
@@ -160,9 +165,10 @@ export function poolName(
 
 /**
  * Runs one binding call and encodes its result. When `pool` is set, the call
- * holds that storage pool lock, and the lock stays with the owner of the
- * returned handle. When a created client fails to encode, the client is ended
- * before the lock is released, so its database closes first. If the client
+ * holds that storage pool lock. Only an explicit client or admin creation
+ * transfers its lease to the returned owner. Other calls release their lease.
+ * When a created owner fails to encode, it is ended before the lock is
+ * released, so its database closes first. If the owner
  * cannot end, its database can stay open, so the lock stays held and the call
  * throws `UnendedClientError`. The worker host then ends the worker. The
  * browser releases a held Web Lock when the worker ends. A failed create can
@@ -174,10 +180,12 @@ export function poolName(
 export async function callWithPool(
   locks: PoolLocks | undefined,
   pool: string | undefined,
-  createsClient: boolean,
+  createsOwner: boolean,
   call: () => unknown,
   encode: (result: unknown) => unknown,
   requiresWorkerRestart: () => boolean,
+  started: () => void = () => {},
+  created: (owner: number) => void = () => {},
 ): Promise<unknown> {
   if (pool) {
     if (!locks) throw new TypeError("storage lock provider missing");
@@ -185,6 +193,7 @@ export async function callWithPool(
   }
   let result: unknown;
   try {
+    started();
     result = await call();
   } catch (error) {
     if (requiresWorkerRestart())
@@ -199,7 +208,7 @@ export async function callWithPool(
   try {
     encoded = encode(result);
   } catch (error) {
-    if (createsClient) {
+    if (createsOwner) {
       const failure = await endUnencodedClient(result);
       if (failure) throw new UnendedClientError(error, failure.error);
     }
@@ -207,13 +216,15 @@ export async function callWithPool(
     throw error;
   }
   if (
-    pool &&
+    createsOwner &&
     encoded !== null &&
     typeof encoded === "object" &&
     "owner" in encoded &&
     typeof encoded.owner === "number"
-  )
-    locks?.attachOwner(encoded.owner, pool);
+  ) {
+    if (pool) locks?.attachOwner(encoded.owner, pool);
+    created(encoded.owner);
+  } else if (pool) locks?.close(pool);
   return encoded;
 }
 
@@ -257,6 +268,8 @@ export interface WorkerContext {
   signal: AbortSignal;
   target?: object;
   targetHandle?: HandleWire;
+  started?: () => void;
+  createdOwner?: number;
 }
 
 /**
@@ -288,7 +301,8 @@ export class WorkerHost {
   readonly registry: WorkerRegistry;
   readonly callbacks: WorkerCallbacks;
   private readonly active = new Map<number, AbortController>();
-  // Owners whose client ended through a successful `Client.end` call.
+  private readonly ownerCalls = new OwnerCalls();
+  // Owners whose root ended through a successful client or admin end call.
   private readonly endedOwners = new Set<number>();
   private initialized = false;
   private failed = false;
@@ -342,9 +356,9 @@ export class WorkerHost {
   }
 
   // An owner in `message.owners` is closed with all of its handles. The main
-  // thread sends one after `Client.end` resolved. If that client did not end
-  // through a `Client.end` call, it is ended here before its storage lock is
-  // released, as for a collected client.
+  // thread sends one after client or admin end resolved. If that root did
+  // not end through an explicit call, it is ended here before its storage
+  // lock is released, as for a collected root.
   private async releaseHandles(
     message: Extract<WireMessage, { t: "release" }>,
   ): Promise<void> {
@@ -352,19 +366,23 @@ export class WorkerHost {
     const closedOwners = new Set(message.owners ?? []);
     const clients = new Map<number, object | undefined>();
     for (const owner of new Set([...closedOwners, ...emptyOwners]))
-      clients.set(owner, this.registry.takeClient(owner));
+      clients.set(owner, this.registry.takeRoot(owner));
     for (const owner of closedOwners) this.registry.closeOwner(owner);
     for (const [owner, client] of clients) {
       if (this.endedOwners.delete(owner)) {
         this.locks?.closeOwner(owner);
+        this.ownerCalls.forget(owner);
         continue;
       }
       if (client) {
         try {
+          const closing = this.ownerCalls.fence(owner);
+          await closing.started;
           const end: unknown = Reflect.get(client, "end");
           if (typeof end !== "function")
             throw new TypeError("Client.end is missing");
           await Reflect.apply(end, client, []);
+          await closing.drained;
         } catch (error) {
           console.error("collected client could not close", error);
           this.fatal(error);
@@ -372,6 +390,7 @@ export class WorkerHost {
         }
       }
       this.locks?.closeOwner(owner);
+      this.ownerCalls.forget(owner);
     }
   }
 
@@ -400,45 +419,68 @@ export class WorkerHost {
     if (!this.initialized || this.failed) return;
     const controller = new AbortController();
     this.active.set(message.id, controller);
+    let accepted: ReturnType<OwnerCalls["accept"]> | undefined;
+    let closing: ReturnType<OwnerCalls["fence"]> | undefined;
+    const context: WorkerContext = {
+      registry: this.registry,
+      callbacks: this.callbacks,
+      locks: this.locks,
+      signal: controller.signal,
+      targetHandle: message.target,
+    };
     try {
       const target = message.target
         ? this.registry.get(message.target)
         : undefined;
-      const value = await this.dispatch(message.key, message.args, {
-        registry: this.registry,
-        callbacks: this.callbacks,
-        locks: this.locks,
-        signal: controller.signal,
-        target,
-        targetHandle: message.target,
-      });
-      // Only the owner's own client ends the owner. A `Client.end` call on
-      // another object of the owner leaves the client open.
-      if (
-        message.key === "Client.end" &&
-        message.target &&
+      const owner = message.target?.owner;
+      const endsOwner =
+        owner !== undefined &&
         target !== undefined &&
-        target === this.registry.client(message.target.owner)
-      )
-        this.endedOwners.add(message.target.owner);
+        target === this.registry.root(owner) &&
+        (message.key === "Client.end" || message.key === "StorageAdmin.end");
+      if (owner !== undefined) {
+        if (endsOwner) {
+          closing = this.ownerCalls.fence(owner);
+          await closing.started;
+        } else accepted = this.ownerCalls.accept(owner);
+      }
+      context.target = target;
+      context.started = () => accepted?.start();
+      const value = await this.dispatch(message.key, message.args, context);
+      if (closing) {
+        await closing.drained;
+        this.endedOwners.add(message.target!.owner);
+      }
       const reply: WireMessage = { t: "return", id: message.id, value };
       assertCloneable(reply);
       this.endpoint.postMessage(reply, transferBuffers(reply));
-    } catch (error) {
+    } catch (caught) {
+      let error = caught;
+      if (closing && message.target)
+        this.ownerCalls.reopen(message.target.owner);
+      if (context.createdOwner !== undefined) {
+        const owner = context.createdOwner;
+        const root = this.registry.takeRoot(owner);
+        this.registry.closeOwner(owner);
+        const failure = await endUnencodedClient(root);
+        if (failure) error = new UnendedClientError(error, failure.error);
+        else this.locks?.closeOwner(owner);
+      }
       if (error instanceof WebAssembly.RuntimeError) {
         this.fatal(error);
         return;
       }
       if (this.isFailed()) return;
-      const unended = error instanceof UnendedClientError;
+      const unended = error instanceof UnendedClientError ? error : undefined;
       this.endpoint.postMessage({
         t: "error",
         id: message.id,
-        error: encodeError(unended ? error.callError : error),
-        fatal: unended,
+        error: encodeError(unended ? unended.callError : error),
+        fatal: unended !== undefined,
       });
-      if (unended) this.fatal(error.endError);
+      if (unended) this.fatal(unended.endError);
     } finally {
+      accepted?.finish();
       this.active.delete(message.id);
     }
   }
