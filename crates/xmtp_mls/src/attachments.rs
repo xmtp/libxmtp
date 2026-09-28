@@ -492,9 +492,14 @@ async fn publish_download_outcome<Context: XmtpSharedContext>(
     relative: &str,
     key: &str,
     shared: &Arc<DownloadShared>,
+    publication: Option<tokio::sync::OwnedMutexGuard<()>>,
     result: Result<DownloadedAttachment, AttachmentClientError>,
 ) {
     let runtime = context.attachment_runtime();
+    let _publication = match publication {
+        Some(guard) => guard,
+        None => runtime.publication_lock.clone().lock_owned().await,
+    };
     let lock = runtime.event_lock(key);
     let _guard = lock.lock().await;
     if shared.outcome.borrow().is_some() {
@@ -529,10 +534,10 @@ impl<Context: XmtpSharedContext + 'static> DownloadAttemptGuard<Context> {
             &self.relative,
             &self.key,
             &self.shared,
+            self.publication.take(),
             result,
         )
         .await;
-        self.publication.take();
         self.finished = true;
     }
 }
@@ -549,13 +554,13 @@ impl<Context: XmtpSharedContext + 'static> Drop for DownloadAttemptGuard<Context
         let shared = self.shared.clone();
         let publication = self.publication.take();
         drop(xmtp_common::task::spawn(async move {
-            let _publication = publication;
             publish_download_outcome(
                 &context,
                 &remote,
                 &relative,
                 &key,
                 &shared,
+                publication,
                 Err(AttachmentClientError::new(Cause::LocalStorage)),
             )
             .await;
@@ -818,6 +823,8 @@ pub struct AttachmentRuntime {
     #[cfg(all(test, not(target_arch = "wasm32")))]
     download_completion_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
+    download_failure_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     download_existing_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     reconcile_snapshot_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
@@ -879,6 +886,8 @@ impl Default for AttachmentRuntime {
             download_publish_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_completion_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_failure_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_existing_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -960,6 +969,8 @@ impl AttachmentRuntime {
             download_publish_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_completion_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_failure_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_existing_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1280,10 +1291,22 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                         )
                         .await;
                     #[cfg(all(test, not(target_arch = "wasm32")))]
-                    let completion_pause =
-                        { task.runtime().download_completion_pause.lock().take() };
+                    let completion_pause = result
+                        .is_ok()
+                        .then(|| task.runtime().download_completion_pause.lock().take())
+                        .flatten();
                     #[cfg(all(test, not(target_arch = "wasm32")))]
                     if let Some((entered, resume)) = completion_pause {
+                        entered.notify_one();
+                        resume.notified().await;
+                    }
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    let failure_pause = result
+                        .is_err()
+                        .then(|| task.runtime().download_failure_pause.lock().take())
+                        .flatten();
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    if let Some((entered, resume)) = failure_pause {
                         entered.notify_one();
                         resume.notified().await;
                     }
