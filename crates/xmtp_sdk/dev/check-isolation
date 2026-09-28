@@ -3,18 +3,36 @@ set -euo pipefail
 
 # GitHub runs a stacked PR's checks against the stack trunk, so this diff
 # includes the PRs below it. Only shipped code in sdks/ and bindings/ is
-# guarded: tests and changelogs there may change (spec evidence, and
-# owner-approved behaviour changes made in core).
+# guarded: tests and changelogs there may change. A later spec cleanup can
+# remove retired requirement backlinks from shipped SDK comments, but cannot
+# change executable code or other comments.
 base=$(git merge-base HEAD origin/self-hosted)
-if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
+if [ -z "$(git diff --name-only "$base" -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
   exit 0
 fi
 
-changed=$(git diff --name-only "$base"...HEAD -- sdks/ bindings/ \
+changed=$(git diff --name-only "$base" -- sdks/ bindings/ \
   | grep -vE '(^|/)(tests?|Tests|androidTest)/|\.test\.[cm]?[jt]s$|_tests?\.rs$|(^|/)CHANGELOG\.md$' \
   || true)
-if [ -n "$changed" ]; then
+blocked=""
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  status=$(git diff --name-status "$base" -- "$path" | cut -f1)
+  if [[ "$path" != sdks/* || "$status" != M ]] ||
+    ! git diff --no-ext-diff --unified=0 "$base" -- "$path" | awk '
+      /^@@/ { in_hunk = 1; next }
+      in_hunk && /^[+-]/ {
+        saw_change = 1
+        line = substr($0, 2)
+        if (line !~ /^[[:space:]]*(\/\/|\*)[[:space:]]*(implements|verifies):[[:space:]]*[A-Z][A-Z0-9-]*(,[[:space:]]*[A-Z][A-Z0-9-]*)*[[:space:]]*$/) bad = 1
+      }
+      END { exit bad || !saw_change }
+    '; then
+    blocked+="$path"$'\n'
+  fi
+done <<< "$changed"
+if [ -n "$blocked" ]; then
   echo "SDK facade changes cannot alter shipped code in sdks/ or bindings/:" >&2
-  echo "$changed" >&2
+  printf '%s' "$blocked" >&2
   exit 1
 fi

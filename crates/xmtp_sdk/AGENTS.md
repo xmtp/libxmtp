@@ -21,8 +21,10 @@ Run commands from the repository root in the Nix shell. Run
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
   enables the off-by-default `bench` feature and writes separate bindings to
   `target/sdk-bench/`.
-- `just sdk check-isolation` rejects a façade branch that changes `sdks/` or
-  `bindings/`.
+- `just sdk check-isolation` rejects shipped-code changes in `sdks/` or
+  `bindings/` on a façade branch. It permits only `implements:` and `verifies:`
+  backlink comment edits in shipped SDK source; tests and changelogs remain
+  outside the guard.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.

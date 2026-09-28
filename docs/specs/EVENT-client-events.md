@@ -25,11 +25,11 @@ flowchart LR
 
 In scope: the event kinds and what each one carries, when the client emits an event, the order of events, which client instance's subscriptions receive it, the typed filter, the queue bound and the `lagged` event, callback delivery, and ending a subscription.
 
-Out of scope: durable message delivery and acknowledgement (PROC section 7), catch-up snapshots and their change notifications (PROC-023), the changes themselves and their validation (the specs in the Related table), push notifications (`PUSH`), and how an SDK names its methods.
+Out of scope: durable message delivery and acknowledgement (PROC section 7), internal catch-up state, the changes themselves and their validation (the specs in the Related table), push notifications (`PUSH`), and how an SDK names its methods.
 
 | Related | Relation |
 | --- | --- |
-| `PROC` | Owns durable delivery, delivery numbers (PROC-024), eligibility (PROC-025), deletion (PROC-037), and PROC-023 catch-up notifications. Events do not replace them. |
+| `PROC` | Owns durable delivery, delivery numbers (PROC-024), eligibility (PROC-025), and deletion (PROC-037). Events do not replace them. |
 | `CONS` | Owns consent records and their changes. CONS-041 gives an app access to consent and uses `consent.changed` for stored-state changes, subject to EVENT-030 and EVENT-031. |
 | `JOIN` | Owns the join from a Welcome (JOIN-045), replacing an ended group (JOIN-042), activating a restored group (JOIN-080), and the adder (JOIN-025). |
 | `GMOD` | Owns commits, removal, and leave (GMOD-031 to GMOD-033). |

@@ -389,13 +389,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Recovery can discard the old receiver before the replacement is ready, and retries failures that a terminal authentication or request-size error excludes from general recovery."
 
 [[waiver]]
-id = "PROC-023"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A live catch-up snapshot exposes the count of unresolved Welcomes, not their identifiers."
-
-[[waiver]]
 id = "PROC-036"
 kind = "gap"
 owner = "protocol"
@@ -844,3 +837,129 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
+
+[[waiver]]
+id = "PROC-046"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "The public SDK readers do not yet expose the fixed scope and filter options on every target; follow-up Task 3 closes the gap."
+
+[[waiver]]
+id = "PROC-047"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "The fixed public reader selection has no test of distinct scope and filter effects on default delivery progress; follow-up Task 3 closes the gap."
+
+[[waiver]]
+id = "PROC-048"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "No test holds network registration acknowledgement behind a barrier while a public reader hands off a stored message; follow-up Task 3 closes the gap."
+
+[[waiver]]
+id = "PROC-049"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "No test ends one public reader while another operation still needs the same network interest; follow-up Task 3 closes the gap."
+
+[[waiver]]
+id = "PROC-050"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Full stored message results do not yet expose committed cursors and their absence through every public read path; follow-up Task 3 closes the gap."
+
+[[waiver]]
+id = "CTYPE-031"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "The no-compression default is not yet proven for every public send path; follow-up Task 6 closes the gap."
+
+[[waiver]]
+id = "LOG-001"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Default native log delivery is not yet proven across the generated SDK targets; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Current targets do not share one asynchronous, ordered sink dispatcher across generations; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Current app log queues and transports do not enforce one 4096-record limit; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-004"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Mobile log callbacks can still run inline with client work; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-005"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Not every target discards new records at the shared queue limit and counts those drops; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-006"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Current sink callbacks do not keep a failed drop report pending within its generation; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Sink replacement has no shared boundary that stops old handoffs without waiting for the active callback; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Reentrant SDK calls from a held log callback are not proven on every target; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-009"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Sink rejection and native layer survival are not yet proven across all targets; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-010"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "The client sink and native layers have no complete test for credential, signing-key, and database-key redaction; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Current targets do not discard old-generation queued records and pending drops on replacement; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-012"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "A late callback result is not yet isolated from the installed generation on every target; follow-up Task 7 closes the gap."

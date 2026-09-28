@@ -124,7 +124,7 @@ Leaving a group and being added back replaces previously set consent state with 
 
 ## 4. Gating listing and streaming
 
-An app can filter conversation listings and streams by consent state. The client returns or delivers only conversations in the requested states, and a conversation with no record counts as unknown (CONS-001). An empty filter names no state and so includes nothing; it is not the same as no filter. Without a filter, a listing and a message stream across conversations include allowed and unknown conversations. A conversation stream without a filter includes every consent state. PROC-032 owns what a message stream does with a candidate the filter excludes.
+An app can filter conversation listings and streams by consent state. The client returns or delivers only conversations in the requested states, and a conversation with no record counts as unknown (CONS-001). An empty filter names no state and so includes nothing; it is not the same as no filter. Without a filter, a listing and a message stream across conversations include allowed and unknown conversations. A conversation stream without a filter includes every consent state. PROC-047 owns default delivery progress when a message filter excludes a candidate.
 
 A message listing within one conversation is not filtered: the app named the conversation. A sync group is never listed or streamed unless the app asks for sync groups (SYNC-005).
 

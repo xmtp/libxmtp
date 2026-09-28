@@ -30,6 +30,7 @@ A prefix appears exactly once. A prefix whose document was deleted is removed fr
 | `CTYPE` | Content types | `docs/specs/CTYPE-content-types.md` |
 | `STORE` | Client storage | `docs/specs/STORE-client-storage.md` |
 | `EVENT` | Client events | `docs/specs/EVENT-client-events.md` |
+| `LOG` | Client logging | `docs/specs/LOG-client-logging.md` |
 
 ## Reused prefixes and their floors
 

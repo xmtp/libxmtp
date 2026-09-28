@@ -2627,7 +2627,6 @@ where
     }
 }
 
-// verifies: PROC-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn initial_connection_can_reconnect_before_connected() {
     use crate::ConnectionState;
@@ -2646,7 +2645,6 @@ async fn initial_connection_can_reconnect_before_connected() {
     );
 }
 
-// verifies: PROC-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_connection_state_waits_release_reader_workers() {
     use crate::ConnectionState;
@@ -2697,7 +2695,6 @@ async fn cancelled_connection_state_waits_release_reader_workers() {
     client.end().await?;
 }
 
-// verifies: PROC-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn connection_state_across_toxiproxy_drop() {
     use crate::ConnectionState;
