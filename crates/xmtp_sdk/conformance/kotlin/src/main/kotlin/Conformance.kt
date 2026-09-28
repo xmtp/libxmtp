@@ -535,16 +535,34 @@ fun main() =
             SDKClient.canMessage(
                 listOf(signer.identity()),
                 BackendSource.Connected(staticBackend),
-            )[signer.identity().identifier] ==
+            )["ethereum:${signer.identity().identifier}"] ==
                 true,
         )
         check(
             SDKClient.canMessage(
                 listOf(signer.identity()),
                 BackendSource.Options(backendOptions),
-            )[signer.identity().identifier] ==
+            )["ethereum:${signer.identity().identifier}"] ==
                 true,
         )
+        val sameText = "1111111111111111111111111111111111111111"
+        val mixedIdentities =
+            listOf(
+                PublicIdentity(sameText, PublicIdentityKind.ETHEREUM),
+                PublicIdentity(sameText, PublicIdentityKind.PASSKEY),
+                signer.identity(),
+            )
+        val registeredKey = "ethereum:${signer.identity().identifier}"
+
+        fun checkMixedCanMessage(result: Map<String, Boolean>) {
+            check(result.size == 3)
+            check(result["ethereum:$sameText"] == false)
+            check(result["passkey:$sameText"] == false)
+            check(result[registeredKey] == true)
+        }
+        checkMixedCanMessage(reopened.canMessage(mixedIdentities))
+        checkMixedCanMessage(SDKClient.canMessage(mixedIdentities, BackendSource.Connected(staticBackend)))
+        checkMixedCanMessage(SDKClient.canMessage(mixedIdentities, BackendSource.Options(backendOptions)))
         check(
             runCatching {
                 SDKClient.build(

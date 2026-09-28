@@ -726,6 +726,23 @@ export async function runBrowserBridgeConformance(
       credential: undefined,
     });
     equal(backend.handle.type, "Backend", "backend handle type changed");
+    const sameText = "1111111111111111111111111111111111111111";
+    const mixedIdentities = [
+      { identifier: sameText, kind: B.PublicIdentityKind.Ethereum },
+      { identifier: sameText, kind: B.PublicIdentityKind.Passkey },
+      identity,
+    ];
+    const checkMixedCanMessage = (result: Map<string, boolean>) => {
+      equal(result.size, 3, "canMessage lost an identity kind");
+      equal(result.get(`ethereum:${sameText}`), false, "Ethereum value changed");
+      equal(result.get(`passkey:${sameText}`), false, "passkey value changed");
+      equal(
+        result.get(`ethereum:${identity.identifier}`),
+        true,
+        "registered Ethereum value changed",
+      );
+    };
+    checkMixedCanMessage(await reopened.canMessage(mixedIdentities));
     // verifies: STORE-005
     const defaultSigner = signer(session);
     const defaultIdentity = await defaultSigner.identity();

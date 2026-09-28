@@ -1078,6 +1078,19 @@ def self_test() -> None:
         "Node": ts_inventory("Node"),
         "Browser": ts_inventory("Browser"),
     }
+    for sdk, current in (
+        ("Swift", "Client.canMessage"),
+        ("Kotlin", "Client.Companion.canMessage"),
+        ("Kotlin", "Client.canMessage"),
+        ("Node", "Client.canMessage"),
+        ("Browser", "Client.canMessage"),
+    ):
+        entry = next(entry for entry in inventories[sdk] if entry.name == current)
+        result = classify(entry)
+        assert result.status == "generated", (sdk, current, result)
+        assert result.final == "Client.canMessage", (sdk, current, result)
+        assert "`ethereum:<core text>`" in result.note, (sdk, current, result)
+        assert "`passkey:<lowercase core hex>`" in result.note, (sdk, current, result)
     family_source = "sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
     families = [
         entry
