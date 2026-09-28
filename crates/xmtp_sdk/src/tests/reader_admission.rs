@@ -253,7 +253,7 @@ async fn cancelled_prepared_fallback_redelivers_after_reopen() {
     std::fs::remove_file(path)?;
 }
 
-// verifies: PROC-025, PROC-028
+// verifies: PROC-025, PROC-028, PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn prepared_admission_storage_failure_is_terminal_without_acknowledgement() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;

@@ -1,17 +1,17 @@
 import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
-} from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
-import { dispatchGenerated } from "../../../../target/sdk-generated/typescript-wasm/dispatch.gen";
-import { uniffiInitAsync } from "../../../../target/sdk-generated/typescript-wasm/index";
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen";
+import { dispatchGenerated } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/dispatch.gen";
+import { uniffiInitAsync } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
 import type {
   WireEndpoint,
   WireMessage,
-} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/wire";
 import {
   browserPoolLocks,
   WorkerHost,
-} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host";
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/worker/host";
 
 const endpoint: WireEndpoint = {
   postMessage(message, transfer) {
@@ -57,7 +57,7 @@ new WorkerHost(
   () =>
     uniffiInitAsync(
       new URL(
-        "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.wasm",
+        "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/xmtp_sdk.wasm",
         import.meta.url,
       ),
     ),

@@ -321,6 +321,8 @@ struct Conformance {
             storage: StorageOptions(location: .directory(directory.path)),
             deviceSync: false
         )
+        try await checkReaderCursor(signer: signer, backend: backendOptions)
+        try await checkRestoredPeer(backend: backendOptions)
         let host = try await SDKClient.create(signer: signer, options: options)
         let client = host.raw
         do {

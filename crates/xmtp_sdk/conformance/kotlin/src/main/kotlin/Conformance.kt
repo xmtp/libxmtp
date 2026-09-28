@@ -272,6 +272,8 @@ fun main() =
                 storage = androidStorage,
                 deviceSync = false,
             )
+        checkReaderCursor(signer, backendOptions)
+        checkRestoredPeer(backendOptions)
         val host = SDKClient.create(signer, options)
         val client = host.raw
         check(

@@ -5614,6 +5614,22 @@ async fn delivery_cursor_preserves_large_position_across_full_results() {
         next_id
     );
     resume.end().await?;
+    let advanced_replay = reader
+        .next()
+        .await?
+        .expect("replay acknowledgement progress");
+    assert_eq!(advanced_replay.0.id, next_id);
+    assert_eq!(
+        crate::delivery::cursor::parse(
+            advanced_replay
+                .0
+                .delivery_cursor
+                .as_ref()
+                .expect("adjacent cursor")
+        )?
+        .delivery_sequence,
+        expected.delivery_sequence + 1
+    );
     let owner_after: Option<Vec<u8>> = db.raw_query(|conn| {
         use xmtp_db::schema::user_preferences::dsl;
         dsl::user_preferences

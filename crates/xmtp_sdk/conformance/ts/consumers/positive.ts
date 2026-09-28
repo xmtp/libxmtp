@@ -118,7 +118,7 @@ export function consumeLiftedCustomValues(message: Message): unknown[] {
   return values;
 }
 
-// [verifies PROC-050] [verifies DMS-017]
+// verifies: PROC-050, DMS-017
 export async function consumeReaderSurface(
   node: import("../../../../../target/sdk-generated/typescript-napi/index.ts").Client,
   nodeGroup: import("../../../../../target/sdk-generated/typescript-napi/index.ts").Group,

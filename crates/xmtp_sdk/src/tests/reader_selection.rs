@@ -102,3 +102,94 @@ async fn fixed_reader_selection_preserves_none_and_empty_filters() {
     client.end().await?;
     peer.end().await?;
 }
+
+// verifies: PROC-047
+#[xmtp_common::test(unwrap_try = true)]
+async fn scope_exclusion_preserves_d_filter_exclusion_advances_d() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let filtered = client.conversations().create_group(vec![], None).await?;
+    let selected = client.conversations().create_group(vec![], None).await?;
+    let outside = client.conversations().create_group(vec![], None).await?;
+    let filtered_id = filtered.send_text("filtered".into(), None).await?;
+    let filtered_cursor = client
+        .inner
+        .context
+        .db()
+        .current_delivery_cursor()?
+        .delivery_sequence;
+    let selected_id = selected.send_text("selected".into(), None).await?;
+    let outside_id = outside
+        .send_text("outside named scope".into(), None)
+        .await?;
+    filtered
+        .inner
+        .update_consent_state(xmtp_db::consent_record::ConsentState::Denied)?;
+    let db = client.inner.context.db();
+    let named = selected.message_reader(None).await?;
+    assert_eq!(
+        named.next().await?.expect("named selection").0.id,
+        selected_id
+    );
+    named.end().await?;
+    for group in [&filtered, &selected, &outside] {
+        assert_eq!(
+            db.get_last_cursor(&group.inner.group_id, EntityKind::Delivery)?
+                .0,
+            0,
+            "named scope must not consume other groups or its last handoff"
+        );
+    }
+    let all = client
+        .conversations()
+        .message_reader(Some(crate::MessageReaderOptions {
+            consent_states: Some(vec![crate::ConsentState::Allowed]),
+            ..Default::default()
+        }))
+        .await?;
+    assert_eq!(
+        all.next().await?.expect("allowed selection").0.id,
+        selected_id
+    );
+    all.end().await?;
+    assert_eq!(
+        db.get_last_cursor(&filtered.inner.group_id, EntityKind::Delivery)?
+            .0,
+        filtered_cursor
+    );
+    assert_eq!(
+        db.get_last_cursor(&outside.inner.group_id, EntityKind::Delivery)?
+            .0,
+        0
+    );
+    let new_id = filtered.send_text("after exclusion".into(), None).await?;
+    let reopened = filtered.message_reader(None).await?;
+    assert_eq!(
+        reopened
+            .next()
+            .await?
+            .expect("consumed filter exclusion")
+            .0
+            .id,
+        new_id
+    );
+    reopened.end().await?;
+    let outside_reader = outside.message_reader(None).await?;
+    assert_eq!(
+        outside_reader
+            .next()
+            .await?
+            .expect("preserved outside backlog")
+            .0
+            .id,
+        outside_id
+    );
+    outside_reader.end().await?;
+    assert!(
+        filtered
+            .messages(None)
+            .await?
+            .iter()
+            .any(|message| message.0.id == filtered_id)
+    );
+    client.end().await?;
+}

@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
+import { checkReaderCursor, checkRestoredPeer } from "./reader-cursor.mts";
 
 async function assertNoUnhandledRejection(
   action: () => Promise<void>,
@@ -160,6 +161,8 @@ assert.equal(
   undefined,
 );
 
+await checkReaderCursor(signer, backendOptions);
+await checkRestoredPeer(backendOptions);
 const client = await sdk.Client.create(signer, options);
 await assert.rejects(
   client.conversations().getMessageById("bad"),

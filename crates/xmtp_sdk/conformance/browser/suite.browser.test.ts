@@ -29,6 +29,8 @@ import {
   type AdmissionCase,
 } from "./reader.admission.chromium";
 for (const mode of [
+  "large-cursor",
+  "restored-peer",
   "admitted",
   "cancel",
   "owner-end",

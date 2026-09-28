@@ -24,8 +24,8 @@ if language == "kotlin":
     )
     source = replace_once(
         source,
-        "            open = { group.messageReader() },",
-        "            open = { group.messageReader().also { readerOpenedForTest?.invoke(it) } },",
+        "            open = { group.messageReader(options) },",
+        "            open = { group.messageReader(options).also { readerOpenedForTest?.invoke(it) } },",
     )
     readers = path.parent / "streams" / "Readers.kt"
     readers.write_text(
@@ -48,8 +48,8 @@ elif language == "swift":
     readers = path.parent / "streams" / "Readers.swift"
     readers_source = replace_once(
         readers.read_text(),
-        "        let reader = try await group.messageReader()\n",
-        "        let reader = try await group.messageReader()\n"
+        "        let reader = try await open()\n",
+        "        let reader = try await open()\n"
         "        await SDKClient.readerOpenedForTest?(reader)\n",
     )
     readers_source = replace_once(

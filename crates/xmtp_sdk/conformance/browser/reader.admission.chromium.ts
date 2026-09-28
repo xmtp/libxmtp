@@ -9,18 +9,20 @@ import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/e
 import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
-} from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen";
 import {
   Client,
+  Message,
   MessageStream,
-} from "../../../../target/sdk-generated/typescript-wasm/index";
-import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
+import { MainSession } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
   WireMessage,
-} from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
-import type { StreamCloseReason } from "../../../../target/sdk-generated/typescript-wasm/runtime/streams/reader";
-import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/wire";
+import type { StreamCloseReason } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/streams/reader";
+import * as B from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/xmtp_sdk";
+import { encodeText } from "../../../../target/sdk-generated/typescript-pure/index";
 
 function latch() {
   let resolve!: () => void;
@@ -31,6 +33,8 @@ function latch() {
 }
 
 export type AdmissionCase =
+  | "large-cursor"
+  | "restored-peer"
   | "admitted"
   | "cancel"
   | "owner-end"
@@ -122,6 +126,182 @@ export async function checkWorkerAdmission(
       options,
     );
     const inbox = client.inboxId();
+    if (mode === "restored-peer") {
+      const makePeer = async () => {
+        const account = privateKeyToAccount(generatePrivateKey());
+        const peerPath = `peer-${crypto.randomUUID()}.db`;
+        return Client.create(
+          session,
+          {
+            async identity() {
+              return {
+                identifier: account.address.toLowerCase(),
+                kind: B.PublicIdentityKind.Ethereum,
+              };
+            },
+            async kind() {
+              return B.SignerKind.Eoa.new();
+            },
+            async sign(request: { text: string }) {
+              return B.Signature.Ecdsa.new(
+                Uint8Array.from(
+                  toBytes(await account.signMessage({ message: request.text })),
+                ).buffer,
+              );
+            },
+          },
+          {
+            ...options,
+            storage: {
+              ...options.storage,
+              location: B.StorageLocation.Path.new(peerPath),
+              label: peerPath,
+            },
+          },
+        );
+      };
+      const b = await makePeer();
+      const c = await makePeer();
+      try {
+        const dm = await client
+          .conversations()
+          .createDm(b.inboxId(), undefined);
+        const other = await b
+          .conversations()
+          .createDm(client.inboxId(), undefined);
+        expect(dm.id()).not.toBe(other.id());
+        expect(await dm.peerInboxId()).toBe(b.inboxId());
+        expect(await other.peerInboxId()).toBe(client.inboxId());
+        await client.conversations().syncAll(undefined);
+        const id = await dm.sendText("foreign restored DM", undefined);
+        const key = new Uint8Array(32).fill(9).buffer;
+        const archive = await client
+          .archives()
+          .exportToBytes(
+            key,
+            B.ArchiveOptions.create({ elements: [B.ArchiveElement.Messages] }),
+          );
+        await c.archives().importFromBytes(archive, key);
+        const conversation = await c.conversations().getById(dm.id());
+        if (conversation?.tag !== B.Conversation_Tags.Dm)
+          throw new Error("DM missing");
+        const restored = conversation.inner.dm;
+        expect(await restored.peerInboxId()).toBe(null);
+        const listed = await c
+          .conversations()
+          .listDms(
+            B.ListConversationsOptions.create({ includeDuplicateDms: true }),
+          );
+        expect(listed).toHaveLength(2);
+        for (const item of listed) expect(await item.peerInboxId()).toBe(null);
+        const duplicates = await restored.duplicateDms();
+        expect(duplicates).toHaveLength(1);
+        expect(await duplicates[0].peerInboxId()).toBe(null);
+        const cursor = (await restored.messages(undefined)).find(
+          (message) => message.id === id,
+        )!.deliveryCursor;
+        expect(cursor).toEqual(expect.any(String));
+        const stream = MessageStream.openDm(c, restored, {
+          from: await c.conversations().beginningDeliveryCursor(),
+        });
+        const first = (await stream.next()).value;
+        expect(first?.id).toBe(id);
+        expect(first?.deliveryCursor).toBe(cursor);
+        await stream.end();
+        const reader = await restored.messageReader();
+        expect((await reader.next())?.deliveryCursor).toBe(cursor);
+        await reader.end();
+        await expect(
+          restored.messageReader({ from: "invalid" }),
+        ).rejects.toBeInstanceOf(B.XmtpError.InvalidCursor);
+        await expect(
+          restored.messageReader({
+            from: await client.conversations().beginningDeliveryCursor(),
+          }),
+        ).rejects.toBeInstanceOf(B.XmtpError.ForeignCursor);
+      } finally {
+        await c.end();
+        await b.end();
+      }
+      return;
+    }
+    if (mode === "large-cursor") {
+      await client.conversations().sdkConformanceSeedDeliveryCursor();
+      const group = await client.conversations().createGroup([], undefined);
+      const groupId = group.id();
+      const beginning = await client.conversations().beginningDeliveryCursor();
+      const firstId = await group.sendText("large A", undefined);
+      const first = (await group.messages(undefined)).find(
+        (message) => message.id === firstId,
+      )!;
+      if (!(first instanceof Message))
+        throw new Error("history did not lift Message");
+      const cursor = first.deliveryCursor!;
+      const sequence = (value: string) => {
+        expect(value.startsWith("dc1_")).toBe(true);
+        const bytes = Uint8Array.from(
+          atob(value.slice(4).replaceAll("-", "+").replaceAll("_", "/")),
+          (byte) => byte.charCodeAt(0),
+        );
+        expect(bytes.byteLength).toBe(24);
+        return new DataView(bytes.buffer).getBigUint64(16);
+      };
+      expect(sequence(cursor)).toBe(9007199254740993n);
+      expect(
+        (await client.conversations().getMessageById(firstId))?.deliveryCursor,
+      ).toBe(cursor);
+      expect((await first.refresh())?.deliveryCursor).toBe(cursor);
+      const all = MessageStream.open(client, {
+        from: beginning,
+        consentStates: undefined,
+        conversationKind: B.ConversationKind.Group,
+      });
+      expect((await all.next()).value?.deliveryCursor).toBe(cursor);
+      await all.end();
+      const named = MessageStream.openGroup(client, group);
+      expect((await named.next()).value?.deliveryCursor).toBe(cursor);
+      await named.end();
+      const secondId = await group.sendText("large B", undefined);
+      const resume = await group.messageReader({ from: cursor });
+      const second = await resume.next();
+      expect(second?.id).toBe(secondId);
+      expect(sequence(second!.deliveryCursor!)).toBe(9007199254740994n);
+      await resume.end();
+      const encoded = encodeText("reply");
+      const replyId = await group.sendReply(
+        firstId,
+        undefined,
+        encoded,
+        undefined,
+      );
+      const reply = await client.conversations().getMessageById(replyId);
+      if (!(reply instanceof Message))
+        throw new Error("lookup did not lift Message");
+      expect((await reply.parent())?.deliveryCursor).toBe(cursor);
+      const preparedId = await group.prepareMessage(encoded, undefined);
+      expect(
+        (await client.conversations().getMessageById(preparedId))
+          ?.deliveryCursor,
+      ).toBe(null);
+      await group.publishMessage(preparedId);
+      expect(
+        (await client.conversations().getMessageById(preparedId))
+          ?.deliveryCursor,
+      ).toEqual(expect.any(String));
+      await client.end();
+      client = await Client.build(session, identity, options, inbox);
+      const restored = await client.conversations().getById(groupId);
+      if (restored?.tag !== B.Conversation_Tags.Group)
+        throw new Error("group missing");
+      const replay = MessageStream.openGroup(client, restored.inner.group, {
+        from: cursor,
+      });
+      const repeated = (await replay.next()).value;
+      expect(repeated?.id).toBe(secondId);
+      expect(repeated?.deliveryCursor).toBe(second?.deliveryCursor);
+      await replay.end();
+      return;
+    }
     let group = await client.conversations().createGroup([], undefined);
     const groupId = group.id();
     const ids: string[] = [];
@@ -173,6 +353,16 @@ export async function checkWorkerAdmission(
       );
       expect(await session.call("__f3WaitHeld", [])).toBe(release);
       const late = returns.get(lastNext)!.promise;
+      const bytes = Uint8Array.from(
+        atob(cursors[0].slice(4).replaceAll("-", "+").replaceAll("_", "/")),
+        (byte) => byte.charCodeAt(0),
+      );
+      const acknowledgedA = new DataView(bytes.buffer)
+        .getBigUint64(16)
+        .toString();
+      expect(
+        await client.conversations().sdkConformanceDeliveryPosition(groupId),
+      ).toBe(acknowledgedA);
       if (mode === "admitted") {
         await group.updateConsentState(B.ConsentState.Denied);
       } else if (mode === "cancel") {
@@ -192,6 +382,10 @@ export async function checkWorkerAdmission(
           endCalls: mode === "owner-end" ? 0 : 1,
           endCompletions: mode === "owner-end" ? 0 : 1,
         });
+      if (client)
+        expect(
+          await client.conversations().sdkConformanceDeliveryPosition(groupId),
+        ).toBe(acknowledgedA);
       await session.call("__f3Release", [release]);
       release = undefined;
       await late;
