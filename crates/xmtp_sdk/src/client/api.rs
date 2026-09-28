@@ -140,8 +140,7 @@ impl Client {
 
     // implements: EVENT-053
     // implements: EVENT-054
-    pub async fn stop_listener(&self, id: crate::ListenerId) -> Result<(), XmtpError> {
+    pub async fn stop_listener(&self, id: crate::ListenerId) {
         self.listeners.stop(id);
-        Ok(())
     }
 }

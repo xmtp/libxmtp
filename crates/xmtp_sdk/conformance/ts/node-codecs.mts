@@ -12,6 +12,14 @@ export function assertEncodedEqual(
   assert.deepEqual(Buffer.from(actual.content), Buffer.from(expected.content));
 }
 
+export function isInvalidId(error: unknown): boolean {
+  if (!sdk.XmtpError.InvalidArgument.instanceOf(error)) return false;
+  assert.equal(error.inner[0].code, "InvalidArgument");
+  assert.equal(error.inner[0].category, sdk.ErrorCategory.Input);
+  assert.equal(error.inner[0].retryable, false);
+  return true;
+}
+
 export function checkStandardCodecs() {
   const standardCodecs = new Map([
     [sdk.StandardContent_Tags.Text, new sdk.TextCodec()],
@@ -61,13 +69,10 @@ export function checkStandardCodecs() {
   const malformedDelete = sdk.StandardContent.DeleteMessage.new({
     messageId: "bad",
   });
-  assert.throws(
-    () => sdk.encodeStandard(malformedDelete),
-    sdk.XmtpError.InvalidArgument,
-  );
+  assert.throws(() => sdk.encodeStandard(malformedDelete), isInvalidId);
   assert.throws(
     () => new sdk.DeleteMessageCodec().encode(malformedDelete),
-    sdk.XmtpError.InvalidArgument,
+    isInvalidId,
   );
 
   return codecSamples;

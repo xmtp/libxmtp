@@ -71,7 +71,9 @@ export async function runBrowserBridgeConformance(
       () => reopened!.conversations().getMessageById("bad"),
       (error) =>
         B.XmtpError.InvalidArgument.instanceOf(error) &&
-        error.inner[0].code === "InvalidArgument",
+        error.inner[0].code === "InvalidArgument" &&
+        error.inner[0].category === B.ErrorCategory.Input &&
+        error.inner[0].retryable === false,
       "browser worker accepted a malformed message ID",
     );
     const firstGroup = await reopened
