@@ -1,5 +1,10 @@
 import XmtpSdk
 
+func consumeInfallibleListenerStop(_ host: SDKClient, _ raw: Client, _ id: ListenerId) async {
+    await host.stopListener(id)
+    await raw.stopListener(id: id)
+}
+
 func consumeOmittedSendOptions(
     _ group: Group, _ conversations: Conversations, _ id: MessageId,
     _ reaction: Reaction, _ encoded: EncodedContent

@@ -28,6 +28,7 @@ import {
   LogSinkError_Tags,
   PreAuthenticateError_Tags,
   SignerError_Tags,
+  XmtpError,
   XmtpError_Tags,
   type MessageData,
   type SendOptions,
@@ -63,19 +64,36 @@ export function registerTransportTests(): void {
     }
   });
 
-  it("keeps InvalidArgument from validated ID lift failures", () => {
+  it("preserves structured error fields independently of diagnostic text", () => {
+    for (const message of [
+      "invalid lowercase hex ID",
+      "different diagnostic",
+    ]) {
+      const details = {
+        code: "InvalidArgument",
+        category: ErrorCategory.Input,
+        retryable: false,
+        message,
+      };
+      expect(encodeError(new XmtpError.InvalidArgument(details))).toMatchObject(
+        {
+          variant: "InvalidArgument",
+          code: "InvalidArgument",
+          category: ErrorCategory.Input,
+          retryable: false,
+          details: [details],
+        },
+      );
+    }
+  });
+
+  it("does not classify rendered ID errors as structured failures", () => {
     const cause =
       'invalid argument: ErrorDetails { code: "InvalidArgument", category: Input, retryable: false, message: "invalid lowercase hex ID" }';
     const malformed = new Error(
       `Failed to convert arg 'id':\nLifting custom type \`xmtp_sdk::ids::MessageId\` from FFI type \`alloc::string::String\` failed\n\nCaused by:\n    ${cause}`,
     );
-    expect(encodeError(malformed)).toMatchObject({
-      variant: "InvalidArgument",
-      code: "InvalidArgument",
-      category: ErrorCategory.Input,
-      retryable: false,
-      details: [{ code: "InvalidArgument", category: ErrorCategory.Input }],
-    });
+    expect(encodeError(malformed).code).toBe("Unknown");
     expect(
       encodeError(new Error(`Lifting custom type \`OtherId\` failed: ${cause}`))
         .code,

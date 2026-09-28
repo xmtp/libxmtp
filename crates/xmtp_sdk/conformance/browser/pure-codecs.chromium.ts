@@ -80,7 +80,8 @@ export async function checkPureCodecs(): Promise<number> {
         error instanceof Error &&
         sdk.XmtpError.InvalidArgument.instanceOf(error) &&
         error.inner[0].code === "InvalidArgument" &&
-        error.inner[0].category === sdk.ErrorCategory.Input
+        error.inner[0].category === sdk.ErrorCategory.Input &&
+        error.inner[0].retryable === false
       ) {
         return;
       }
@@ -174,7 +175,9 @@ export async function checkPureCodecs(): Promise<number> {
     if (
       !(error instanceof Error) ||
       !sdk.XmtpError.InvalidInput.instanceOf(error) ||
-      error.inner[0].code !== "InvalidInput"
+      error.inner[0].code !== "InvalidInput" ||
+      error.inner[0].category !== sdk.ErrorCategory.Input ||
+      error.inner[0].retryable !== false
     ) {
       throw new Error("non-ID codec error changed", { cause: error });
     }

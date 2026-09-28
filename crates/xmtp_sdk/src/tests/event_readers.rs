@@ -86,7 +86,7 @@ async fn event_reader_and_listener_create_no_network_interest() {
         "held subscriptions"
     );
 
-    client.stop_listener(listener_id).await?;
+    client.stop_listener(listener_id).await;
     reader.end().await?;
     assert_eq!((api_counts(), lease_count()), baseline, "subscription end");
     client.end().await?;

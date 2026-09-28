@@ -97,6 +97,8 @@ let
       dummySrc = rust.mkDummySrc {
         src = dummyInputFileset;
         extraDummyScript = ''
+          # Registry crates compile against this local patch during dependency builds.
+          cp --recursive --remove-destination ${depsFileset}/vendor $out/
           mkdir -p $out/proto $out/crates/xmtp_proto
           cp --recursive ${depsFileset}/proto/. $out/proto
           cp ${depsFileset}/crates/xmtp_proto/build.rs $out/crates/xmtp_proto/build.rs

@@ -8,7 +8,13 @@ members = [
   "crates/*",
 ]
 
-exclude = ["apps/android", "apps/cli", "apps/docs", "apps/web-chat"]
+exclude = [
+  "apps/android",
+  "apps/cli",
+  "apps/docs",
+  "apps/web-chat",
+  "vendor/uniffi_core",
+]
 
 # Default build and test members. Portable crates do not inherit the client workspace hack.
 default-members = [
@@ -304,6 +310,8 @@ lto = true
 # are made public for third-party dependencies: https://github.com/diesel-rs/diesel/pull/4236
 # (cfg-specific patche support does not exist)
 [patch.crates-io]
+# Preserve typed argument-lift errors on single-threaded WASM; see vendor/uniffi_core/PATCH.md.
+uniffi_core = { path = "vendor/uniffi_core" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 diesel_migrations = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite" }
 # xmtp/hpke-rs fork of v0.6.1 with one extra commit adding

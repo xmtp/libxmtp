@@ -7,7 +7,11 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
-import { assertEncodedEqual, checkStandardCodecs } from "./node-codecs.mts";
+import {
+  assertEncodedEqual,
+  checkStandardCodecs,
+  isInvalidId,
+} from "./node-codecs.mts";
 import { logging } from "./node-logging.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
 import { streamFailures } from "./node-stream-failures.mts";
@@ -87,10 +91,7 @@ assert.equal(
 );
 
 const client = await sdk.Client.create(signer, options);
-await assert.rejects(
-  client.conversations().getMessageById("bad"),
-  sdk.XmtpError.InvalidArgument,
-);
+await assert.rejects(client.conversations().getMessageById("bad"), isInvalidId);
 const inboxId = client.inboxId();
 assert.equal(typeof inboxId.toString(), "string");
 const storagePath = await client.storage().path();
