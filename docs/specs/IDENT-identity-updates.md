@@ -369,7 +369,7 @@ Several rules reject updates that an earlier validator accepted and stored:
 - IDENT-040 rejects an add of a current member.
 - IDENT-060 rejects an `account_id` outside the `eip155` namespace or with a chain id not in canonical decimal form.
 
-A validator applies each of them to every update it reads, on admission and when it replays a stored log. A log holding an update any of them rejects cannot be read past that update, and no replay path accepts it. A database written by an earlier build of this backend, or imported from the earlier networks, must hold no such update before this validator reads it.
+A validator applies each of them to every update it reads, on admission and when it replays a stored log. A log holding an update any of them rejects cannot be read past that update, and no replay path accepts it. A database written by an earlier build of this backend, or imported from the earlier networks, must hold no such update before this validator reads it. A deployment is assumed to start from an empty database, which meets this condition.
 
 `client_timestamp_ns` is not checked against any clock. A sender sets any value; it orders members for display and nothing else.
 
