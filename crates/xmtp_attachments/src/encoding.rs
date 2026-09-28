@@ -120,7 +120,7 @@ fn decode_varint(bytes: &[u8]) -> Result<Option<u64>, AttachmentError> {
 #[derive(Debug, Clone, Copy)]
 enum ParseState {
     Tag,
-    Length { field: u64 },
+    Length { field: u64, tag_len: usize },
     Data { remaining: usize, kind: DataKind },
     OtherVarint { retain: bool },
     Fixed { remaining: usize },
@@ -392,13 +392,16 @@ impl AttachmentDecoder {
                                     };
                                 }
                                 2 => {
-                                    self.state = ParseState::Length { field };
+                                    self.state = ParseState::Length {
+                                        field,
+                                        tag_len: self.header.len(),
+                                    };
                                     self.header.clear();
                                 }
                                 _ => return Err(invalid()),
                             }
                         }
-                        ParseState::Length { field } => {
+                        ParseState::Length { field, tag_len } => {
                             let remaining = usize::try_from(value).map_err(|_| invalid())?;
                             let kind = match field {
                                 1 => DataKind::Type,
@@ -418,14 +421,16 @@ impl AttachmentDecoder {
                                 let mut header = Vec::new();
                                 encode_varint((field << 3) | 2, &mut header);
                                 header.extend_from_slice(&self.header);
-                                self.append_metadata(&header)?;
+                                // The retained bytes use a canonical tag; the limit uses the input tag.
+                                self.append_retained(&header, tag_len + self.header.len())?;
                                 if remaining
                                     > MAX_METADATA_BYTES.saturating_sub(self.retained_bytes)
                                 {
                                     return Err(invalid());
                                 }
                             } else if matches!(kind, DataKind::Parameter) {
-                                self.parameter = Some(ParameterEntry::new(1 + self.header.len()));
+                                self.parameter =
+                                    Some(ParameterEntry::new(tag_len + self.header.len()));
                             }
                             self.header.clear();
                             if remaining == 0 && matches!(kind, DataKind::Parameter) {
@@ -674,6 +679,13 @@ mod tests {
         Ok((temporary.into_inner(), decompressed, meta))
     }
 
+    fn decode_split_metadata(bytes: &[u8], split: usize) -> Result<DecodedMeta, AttachmentError> {
+        let mut decoder = AttachmentDecoder::new();
+        decoder.push(&bytes[..split])?;
+        decoder.push(&bytes[split..])?;
+        decoder.finish(&mut Cursor::new(Vec::new()), &mut Vec::new())
+    }
+
     struct FaultingSource {
         bytes: Cursor<Vec<u8>>,
         seeks: usize,
@@ -887,6 +899,57 @@ mod tests {
             decode(&one_over.encode_to_vec()).unwrap_err().cause,
             AttachmentFailureCause::NotAnAttachment
         );
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn overlong_outer_tags_count_toward_retained_cap() {
+        let type_field = EncodedContent {
+            r#type: envelope(Vec::new()).r#type,
+            ..Default::default()
+        }
+        .encode_to_vec();
+        assert_eq!(type_field[0], 0x0a);
+
+        let build = |value_len: usize, overlong_type: bool| {
+            let mut bytes = type_field.clone();
+            if overlong_type {
+                bytes.splice(0..1, [0x8a, 0x00]);
+            }
+            let split = if overlong_type { 1 } else { bytes.len() + 1 };
+            let mut entry = b"\x0a\x08filename\x12".to_vec();
+            encode_varint(value_len as u64, &mut entry);
+            entry.extend(std::iter::repeat_n(b'f', value_len));
+            bytes.extend_from_slice(if overlong_type {
+                &[0x12][..]
+            } else {
+                &[0x92, 0x00][..]
+            });
+            encode_varint(entry.len() as u64, &mut bytes);
+            bytes.extend_from_slice(&entry);
+            (bytes, split)
+        };
+
+        for overlong_type in [false, true] {
+            // The length varints stay three bytes at these sizes.
+            let overhead = build(64_000, overlong_type).0.len() - 64_000;
+            let at_cap = MAX_METADATA_BYTES - overhead;
+            for (size, accepted) in [(at_cap, true), (at_cap + 1, false)] {
+                let (bytes, split) = build(size, overlong_type);
+                assert_eq!(bytes.len(), MAX_METADATA_BYTES + usize::from(!accepted));
+                assert!(EncodedContent::decode(bytes.as_slice()).is_ok());
+                let result = decode_split_metadata(&bytes, split);
+                if accepted {
+                    assert!(result.is_ok(), "at cap with overlong_type={overlong_type}");
+                } else {
+                    match result {
+                        Err(error) => {
+                            assert_eq!(error.cause, AttachmentFailureCause::NotAnAttachment);
+                        }
+                        Ok(_) => panic!("one byte over cap must fail"),
+                    }
+                }
+            }
+        }
     }
 
     #[xmtp_common::test(unwrap_try = true)]
