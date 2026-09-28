@@ -624,7 +624,7 @@ where
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     #[xmtp_common::db_span]
-    // implements: CONS-031
+    // implements: CONS-030, CONS-031
     fn find_groups<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
@@ -647,6 +647,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             should_publish_commit_log,
             order_by,
         } = args.as_ref();
+
+        if matches!(consent_states, Some(states) if states.is_empty()) {
+            return Ok(Vec::new());
+        }
 
         let order_expression = match order_by.clone().unwrap_or_default() {
             GroupQueryOrderBy::CreatedAt => {
@@ -720,9 +724,9 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             query = query.filter(dsl::conversation_type.eq(conversation_type));
         }
 
-        let effective_consent_states = match &consent_states {
-            Some(states) if !states.is_empty() => states.clone(),
-            _ => vec![ConsentState::Allowed, ConsentState::Unknown],
+        let effective_consent_states = match consent_states {
+            Some(states) => states.clone(),
+            None => vec![ConsentState::Allowed, ConsentState::Unknown],
         };
 
         let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
@@ -1722,7 +1726,26 @@ pub(crate) mod tests {
                     ..Default::default()
                 })
                 .unwrap();
-            assert_eq!(empty_array_results.len(), 3);
+            assert!(empty_array_results.is_empty());
+
+            let mut sync_group = generate_group(Some(GroupMembershipState::Allowed));
+            sync_group.conversation_type = ConversationType::Sync;
+            sync_group.store(conn).unwrap();
+            let with_sync = conn
+                .find_groups(GroupQueryArgs {
+                    include_sync_groups: true,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(with_sync.iter().any(|group| group.id == sync_group.id));
+            let empty_with_sync = conn
+                .find_groups(GroupQueryArgs {
+                    consent_states: Some(vec![]),
+                    include_sync_groups: true,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert!(empty_with_sync.is_empty());
         })
     }
 

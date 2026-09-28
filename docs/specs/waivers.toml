@@ -184,13 +184,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
 
 [[waiver]]
-id = "CONS-030"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An explicit empty consent filter is treated as an absent filter and returns allowed and unknown conversations."
-
-[[waiver]]
 id = "SYNC-010"
 kind = "gap"
 owner = "protocol"
@@ -555,13 +548,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A raw-envelope send uses a fixed default for the push flag instead of the value the catalogue gives for the content type."
-
-[[waiver]]
-id = "CTYPE-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The reply encoder accepts an inner envelope that carries no type."
 
 [[waiver]]
 id = "CTYPE-022"
