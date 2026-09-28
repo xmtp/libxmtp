@@ -680,6 +680,7 @@ describe("browser bridge transport", () => {
               throw new Error("snapshot failed");
             }),
           ),
+        () => false,
       ),
     ).rejects.toThrow("snapshot failed");
     expect(registry.size).toBe(0);
@@ -734,6 +735,7 @@ describe("browser bridge transport", () => {
                 throw new Error("snapshot failed");
               }),
             ),
+          () => false,
         ),
       locks,
     );
@@ -752,6 +754,51 @@ describe("browser bridge transport", () => {
       logged.mockRestore();
     }
     expect(engine.registry.size).toBe(0);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(worker.sent.some((message) => message.t === "fatal")).toBe(true);
+    expect(terminateCalls).toBe(1);
+    await expect(otherTab.open("client-pool")).rejects.toMatchObject({
+      code: "StorageBusy",
+    });
+    first.terminate();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
+  });
+
+  it("ends the worker and keeps the pool lock when a failed create leaves its store open", async () => {
+    const held = new Set<string>();
+    const first = workerLockManager(held);
+    const locks = new PoolLocks(first.provider);
+    const otherTab = new PoolLocks(workerLockManager(held).provider);
+    const [main, worker] = pair();
+    let terminateCalls = 0;
+    main.terminate = () => {
+      terminateCalls++;
+    };
+    new WorkerHost(
+      worker,
+      1,
+      "left-open",
+      async () => {},
+      (_key, _args, context) =>
+        callWithPool(
+          context.locks,
+          "client-pool",
+          true,
+          async () => {
+            throw new Error("registration failed");
+          },
+          (result) => result,
+          () => true,
+        ),
+      locks,
+    );
+    const session = new MainSession(main, 1, "left-open");
+    await session.ready();
+    await expect(session.call("Client.create", [])).rejects.toThrow(
+      "registration failed",
+    );
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(worker.sent.some((message) => message.t === "fatal")).toBe(true);
     expect(terminateCalls).toBe(1);

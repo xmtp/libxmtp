@@ -154,7 +154,9 @@ export function poolName(options: unknown): string | undefined {
  * before the lock is released, so its database closes first. If the client
  * cannot end, its database can stay open, so the lock stays held and the call
  * throws `UnendedClientError`. The worker host then ends the worker. The
- * browser releases a held Web Lock when the worker ends.
+ * browser releases a held Web Lock when the worker ends. A failed create can
+ * also leave the store of the client that Rust built open. Then
+ * `storeLeftOpen` returns true, and the call fails in the same way.
  */
 export async function callWithPool(
   locks: PoolLocks | undefined,
@@ -162,6 +164,7 @@ export async function callWithPool(
   createsClient: boolean,
   call: () => unknown,
   encode: (result: unknown) => unknown,
+  storeLeftOpen: () => boolean,
 ): Promise<unknown> {
   if (pool) {
     if (!locks) throw new TypeError("storage lock provider missing");
@@ -171,6 +174,11 @@ export async function callWithPool(
   try {
     result = await call();
   } catch (error) {
+    if (pool && createsClient && storeLeftOpen())
+      throw new UnendedClientError(
+        error,
+        new Error("failed client left its store open"),
+      );
     if (pool) locks?.close(pool);
     throw error;
   }
@@ -197,7 +205,8 @@ export async function callWithPool(
 }
 
 /**
- * A created client failed to encode and then could not end. The caller gets
+ * A created client could not close: it failed to encode and then could not
+ * end, or the create failed and left its store open. The caller gets
  * `callError`. The worker then fails with `endError`, because the client's
  * database can still be open and its pool lock stays held.
  */
@@ -206,7 +215,7 @@ export class UnendedClientError extends Error {
     readonly callError: unknown,
     readonly endError: unknown,
   ) {
-    super("client that failed to encode could not close");
+    super("client that failed could not close");
   }
 }
 

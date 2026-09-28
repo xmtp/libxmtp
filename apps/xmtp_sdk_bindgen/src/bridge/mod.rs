@@ -130,7 +130,7 @@ const IMMUTABLE_PROPERTIES: &[&str] = &[
 
 fn validate_bridge(items: &[Metadata]) -> Result<()> {
     for item in items {
-        if pure_function(item) {
+        if outside_bridge(item) {
             continue;
         }
         match item {
@@ -220,7 +220,7 @@ fn validate_results(items: &[Metadata]) -> Result<()> {
                 format!("{}.{}", value.self_name, value.name),
                 &value.return_type,
             ),
-            Metadata::Func(value) if !pure_function(item) => {
+            Metadata::Func(value) if !outside_bridge(item) => {
                 (value.name.clone(), &value.return_type)
             }
             Metadata::TraitMethod(value) if remote.contains(&value.trait_name) => (
@@ -275,8 +275,11 @@ fn unproxied_foreign(
     }
 }
 
-fn pure_function(item: &Metadata) -> bool {
-    matches!(item, Metadata::Func(function) if function.docstring.as_deref().is_some_and(|doc| doc.contains("@xmtp-pure")))
+/// A `@xmtp-pure` function runs in the main-thread pure module. A
+/// `@xmtp-worker` function is for the worker runtime only. Neither crosses
+/// the bridge.
+fn outside_bridge(item: &Metadata) -> bool {
+    matches!(item, Metadata::Func(function) if function.docstring.as_deref().is_some_and(|doc| doc.contains("@xmtp-pure") || doc.contains("@xmtp-worker")))
 }
 
 fn item_types(item: &Metadata) -> Vec<&Type> {
@@ -425,7 +428,7 @@ fn operations(items: &[Metadata], names: &BTreeMap<String, String>) -> Vec<Opera
                 constructor: true,
                 immutable: false,
             }),
-            Metadata::Func(value) if !pure_function(item) => output.push(Operation {
+            Metadata::Func(value) if !outside_bridge(item) => output.push(Operation {
                 owner: None,
                 name: ts_name(&value.name, names),
                 key: ts_name(&value.name, names),
@@ -1229,7 +1232,7 @@ fn render(
     }
     dispatch.push_str("};\n\n");
     dispatch.push_str("function snapshot(name: string, value: object, owner: number, context: WorkerContext): Record<string, unknown> {\n  const output: Record<string, unknown> = {};\n  for (const field of immutable[name] ?? []) {\n    const method: unknown = Reflect.get(value, field.name);\n    if (typeof method !== \"function\") throw new TypeError(`missing immutable method ${field.name}`);\n    const result: unknown = Reflect.apply(method, value, []);\n    output[field.name] = workerEncoder(context.registry, owner, (type, nested, nestedOwner) => snapshot(type, nested, nestedOwner, context)).convert(field.shape, result);\n  }\n  return output;\n}\n\n");
-    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1]) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)));\n}\n");
+    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1]) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)), B.storeLeftOpen);\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
 
     for name in [
@@ -1386,6 +1389,23 @@ mod tests {
             throws: None,
             checksum: None,
             docstring: Some("@xmtp-pure".into()),
+        });
+        validate_bridge(std::slice::from_ref(&item))?;
+        assert!(operations(&[item], &BTreeMap::new()).is_empty());
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn worker_function_stays_out_of_bridge() {
+        let item = Metadata::Func(FnMetadata {
+            module_path: "test".into(),
+            name: "store_left_open".into(),
+            orig_name: None,
+            is_async: false,
+            inputs: vec![],
+            return_type: Some(Type::Boolean),
+            throws: None,
+            checksum: None,
+            docstring: Some("@xmtp-worker Reports a store.".into()),
         });
         validate_bridge(std::slice::from_ref(&item))?;
         assert!(operations(&[item], &BTreeMap::new()).is_empty());

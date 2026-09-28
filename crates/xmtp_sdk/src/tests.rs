@@ -507,7 +507,7 @@ async fn discard_disconnects_store_when_close_fails() {
     })?;
     assert!(client.end().await.is_err(), "close did not fail");
 
-    client.discard().await;
+    client.discard().await?;
 
     let query = client
         .inner
@@ -516,6 +516,41 @@ async fn discard_disconnects_store_when_close_fails() {
         .raw_query(|conn| sql_query("SELECT 1").execute(conn));
     assert!(query.is_err(), "discard left the store connected");
     let _ = std::fs::remove_file(&path);
+}
+
+// When close and disconnect both fail, the store of a failed create stays
+// open. Discard must report it, so the browser worker keeps the storage lock.
+#[xmtp_common::test(unwrap_try = true)]
+async fn discard_reports_store_left_open_when_disconnect_fails() {
+    use std::sync::atomic::Ordering;
+    use xmtp_db::ConnectionExt;
+    use xmtp_db::diesel::{RunQueryDsl, sql_query};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    // The reader holds the delivery lease that close must release.
+    let _reader = group.message_reader().await?;
+    client.inner.context.db().raw_query(|conn| {
+        sql_query(
+            "CREATE TRIGGER fail_delivery_release BEFORE UPDATE OF delivery_owner \
+             ON user_preferences WHEN NEW.delivery_owner IS NULL \
+             BEGIN SELECT RAISE(ABORT, 'injected release failure'); END",
+        )
+        .execute(conn)
+    })?;
+    crate::client::FAIL_DISCARD_DISCONNECT.store(true, Ordering::Relaxed);
+
+    assert!(client.discard().await.is_err(), "discard hid an open store");
+    assert!(
+        crate::client::STORE_LEFT_OPEN.load(Ordering::Relaxed),
+        "the open store was not reported"
+    );
+    client
+        .inner
+        .context
+        .db()
+        .raw_query(|conn| sql_query("DROP TRIGGER fail_delivery_release").execute(conn))?;
+    client.end().await?;
 }
 
 // verifies: EVENT-022

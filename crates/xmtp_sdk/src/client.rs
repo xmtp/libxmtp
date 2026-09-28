@@ -22,6 +22,27 @@ pub(crate) type CoreClient = xmtp_mls::Client<xmtp_mls::MlsContext>;
 
 static NEXT_CLIENT_KEY: AtomicU64 = AtomicU64::new(1);
 
+/// Set when a failed create cannot close the store of its client. The store
+/// can still hold OPFS access handles, so the browser worker must keep its
+/// storage lock and end. The flag stays set because the store stays open.
+#[cfg(any(test, target_arch = "wasm32"))]
+pub(crate) static STORE_LEFT_OPEN: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Makes the next `discard` disconnect fail, to test a store that stays open.
+#[cfg(test)]
+pub(crate) static FAIL_DISCARD_DISCONNECT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// @xmtp-worker Reports whether a failed create left the store of its client
+/// open. The browser worker reads this after a failed create, before it
+/// releases the storage lock. Apps do not call it.
+#[cfg(all(target_arch = "wasm32", not(feature = "pure-only")))]
+#[uniffi::export]
+pub fn store_left_open() -> bool {
+    STORE_LEFT_OPEN.load(Ordering::Relaxed)
+}
+
 #[derive(Default)]
 pub(crate) struct EventReaderRegistry {
     closing: bool,
@@ -252,17 +273,37 @@ impl Client {
     /// already runs background work on its store. The browser host releases
     /// the storage lock when create fails, so the store must not stay
     /// connected, even when close fails and keeps it connected for a retry.
-    pub(crate) async fn discard(&self) {
+    /// Returns an error when the store stays connected. Then
+    /// `store_left_open` reports it to the browser worker, which keeps the
+    /// storage lock.
+    pub(crate) async fn discard(&self) -> Result<(), XmtpError> {
+        let Err(error) = self.end().await else {
+            return Ok(());
+        };
+        tracing::warn!(%error, "closing the client of a failed create");
+        let disconnected = self.disconnect_discarded();
+        #[cfg(target_arch = "wasm32")]
+        xmtp_db::pause_sqlite_if_idle();
+        if let Err(error) = &disconnected {
+            tracing::error!(%error, "the store of a failed create stays connected");
+            #[cfg(any(test, target_arch = "wasm32"))]
+            STORE_LEFT_OPEN.store(true, Ordering::Relaxed);
+        }
+        disconnected
+    }
+
+    fn disconnect_discarded(&self) -> Result<(), XmtpError> {
         use xmtp_db::ConnectionExt;
 
-        if let Err(error) = self.end().await {
-            tracing::warn!(%error, "closing the client of a failed create");
-            if let Err(error) = self.inner.context.db().disconnect() {
-                tracing::warn!(%error, "disconnecting the client of a failed create");
-            }
-            #[cfg(target_arch = "wasm32")]
-            xmtp_db::pause_sqlite_if_idle();
+        #[cfg(test)]
+        if FAIL_DISCARD_DISCONNECT.swap(false, Ordering::Relaxed) {
+            return Err(XmtpError::storage("injected disconnect failure"));
         }
+        self.inner
+            .context
+            .db()
+            .disconnect()
+            .map_err(XmtpError::storage)
     }
 
     async fn build_inner(
@@ -535,7 +576,9 @@ impl Client {
                 Err(error) => Err(error),
             };
             if let Err(error) = registered {
-                client.discard().await;
+                // The caller gets the registration error. A store that stays
+                // open is reported through `store_left_open`.
+                let _ = client.discard().await;
                 return Err(error);
             }
         }
