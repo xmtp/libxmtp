@@ -160,6 +160,7 @@ pub async fn opfs_pool_capacity() -> Result<u32, StorageError> {
 
 /// Check for a file without observing maps during a VFS transition.
 pub async fn opfs_database_exists(path: &str) -> Result<bool, StorageError> {
+    super::validate_persistent_path(path)?;
     let _utility = ActiveUtility::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
     Ok(resume_sqlite()

@@ -38,7 +38,7 @@ impl Conversation {
                     inner: group,
                     client_key,
                     identity,
-                    #[cfg(test)]
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
                     state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
                     #[cfg(test)]
                     history_query_count: Arc::new(parking_lot::Mutex::new(0)),

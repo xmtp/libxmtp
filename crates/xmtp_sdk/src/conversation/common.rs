@@ -409,7 +409,7 @@ macro_rules! common_conversation {
                 let query: MsgQueryArgs = options.unwrap_or_default().try_into()?;
                 let group = self.inner.clone();
                 let client_key = self.client_key;
-                #[cfg(test)]
+                #[cfg(all(test, not(target_arch = "wasm32")))]
                 let history_query_count = self.history_query_count.clone();
                 on_sdk_worker(self.inner.context.clone(), async move {
                     let load = || -> Result<Vec<Message>, XmtpError> {
@@ -418,13 +418,13 @@ macro_rules! common_conversation {
                             .map_err(XmtpError::unknown)?;
                         Ok(lift_history_messages(enriched, client_key))
                     };
-                    #[cfg(test)]
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
                     {
                         let (messages, queries, _) = xmtp_db::count_sql_queries(load);
                         *history_query_count.lock() = queries;
                         messages
                     }
-                    #[cfg(not(test))]
+                    #[cfg(any(not(test), target_arch = "wasm32"))]
                     {
                         load()
                     }
