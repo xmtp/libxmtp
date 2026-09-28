@@ -4,6 +4,8 @@ use std::{
     sync::Arc,
 };
 
+#[cfg(windows)]
+use cap_fs_ext::DirExt;
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 #[cfg(windows)]
 use cap_std::fs::MetadataExt;
