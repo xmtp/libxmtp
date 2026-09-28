@@ -116,7 +116,7 @@ A base policy reads the authenticated proposer, its roles, the element operation
 | `METADATA_BASE_POLICY_DENY` | Never |
 | `METADATA_BASE_POLICY_ALLOW_IF_ADMIN` | The proposer is an admin or a super admin |
 | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | The proposer is a super admin |
-| `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | For a `TLS_MAP_INBOX_ID_BYTES` or `TLS_MAP_INBOX_ID_STRING` element, Insert or Update: proposer inbox equals the element's key; Delete: proposer inbox equals the key or the key is absent from the membership after the commit. For a standalone proposal, the absence test uses the committed membership. Deny for whole-component Remove and all other component types. |
+| `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | For a `TLS_MAP_INBOX_ID_BYTES` or `TLS_MAP_INBOX_ID_STRING` element, Insert or Update: proposer inbox equals the element's key; Delete: proposer inbox equals the key or the key is absent from the membership after the commit. When a standalone proposal is validated on receipt, the absence test uses the committed membership. Deny for whole-component Remove and all other component types. |
 
 `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` is an ordinary registry policy. A super admin can replace it on an application mutable-range entry, and META-015 still prevents changes to immutable-range entries. A delete that needs the membership after the commit is inline in the member-removal commit and is validated there under GMOD-019; a standalone proposal is judged against the committed membership.
 
@@ -124,7 +124,7 @@ A policy can be malformed: no `kind`, a `base` value the table does not list, or
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PERM-027 | Evaluate base policy context | When the client evaluates a `MetadataPolicy.base`, it MUST use the base-policy table in section 2 with the authenticated proposer, the element operation and key, and the membership after the commit; for a standalone proposal it MUST use the committed membership. | A self-owned policy cannot be judged from role flags or map values alone. |
+| PERM-027 | Evaluate base policy context | When the client evaluates a `MetadataPolicy.base`, it MUST use the base-policy table in section 2 with the authenticated proposer, the element operation and key, and the membership after the commit that carries the proposal, whether inline or by reference; when it validates a standalone proposal on receipt, it MUST use the committed membership. | A self-owned policy cannot be judged from role flags or map values alone. |
 | PERM-007 | Condition semantics | The client MUST evaluate the children of an `and_condition` in order and stop at the first child that is denied or malformed, with that child's result, and MUST evaluate the children of an `any_condition` in order and stop at the first child that is allowed or malformed, with that child's result. An `and_condition` whose children are all allowed MUST be allowed, and an `any_condition` whose children are all denied MUST be denied. | Two clients that stop at different children reach different answers for the same tree. |
 | PERM-008 | A malformed policy denies | When the policy that governs a write has no `kind`, has a `base` value not in the table above, or is a condition with no children, the client MUST deny the write. | A policy that fails open turns a corrupt registry entry into an open door. |
 
@@ -156,7 +156,7 @@ DMS-004 owns the participant-add exception. That exception takes precedence over
 | PERM-011 | Operation selects the policy | For each element change, the client MUST select `insert_policy`, `update_policy`, or `delete_policy` under the element-change table above and MUST reject the proposal if any selected policy denies, except for the membership insertion authorized by DMS-004. | |
 | PERM-012 | Deny by default | When a write targets a component other than `COMPONENT_REGISTRY` or `SUPER_ADMIN_LIST` and the committed registry has no entry that decodes as a `ComponentMetadata` with all three policies present, the client MUST reject the write. | |
 | PERM-014 | Unknown components are judged, not refused | When a proposal names a component the client has no built-in definition for, the client MUST evaluate it under the committed registry entry's `component_type` and policies, and MUST NOT reject it because the component is unknown. | A client that refuses what it does not know forks the group at the first component a newer release adds. |
-| PERM-028 | DM application policy role | When a proposer whose inbox is in a DM's `DM_MEMBERS` writes an application component, the client MUST evaluate `ALLOW_IF_SUPER_ADMIN` as allowed for that proposer, without granting that role for well-known components or membership changes. | A DM's empty super-admin list would otherwise make application policies that use this option impossible to satisfy. |
+| PERM-028 | DM application policy role | When a proposer whose inbox is in a DM's `DM_MEMBERS` writes an application component, the client MUST evaluate `ALLOW_IF_SUPER_ADMIN` and `ALLOW_IF_ADMIN` as allowed for that proposer, without granting that role for well-known components or membership changes. | A DM's empty super-admin list would otherwise make application policies that use this option impossible to satisfy. |
 | PERM-015 | Membership proposals use membership policies | When a commit adds or removes an inbox from `GROUP_MEMBERSHIP`, the client MUST evaluate the corresponding `insert_policy` or `delete_policy` against each proposer of an Add or Remove for that inbox under PERM-009 and reject a denial, subject to DMS-004 for adds and PERM-003 for removals. The client MUST apply the same policy checks to each standalone Add or Remove proposal. | |
 
 ## 4. The registry
@@ -205,7 +205,7 @@ An app creates a non-DM group with All members, Admins only, or custom policies.
 
 The registry and super-admin list have no registry policies; PERM-026 applies. PERM-029 sets the policies of `USER_DISPLAY_NAME` and `GROUP_IMAGE`. META section 2 owns which component values exist at creation.
 
-Preset recognition reports a policy view, not equality of the registry. The recognition table lists every comparison. Policies compare as ordered trees, including their base values and condition kinds. Metadata policies with a missing field or any malformed node are represented as Deny in this view. Invalid action policies fail under PERM-017.
+Preset recognition reports a policy view, not equality of the registry. The recognition table lists every comparison. Policies compare as ordered trees, including their base values and condition kinds. Metadata policies with a missing field or any malformed node are represented as Deny in this view. An `ALLOW_IF_SELF_OR_NON_MEMBER` node, which always denies on a scalar metadata field, is represented as Deny in place, and its sibling nodes keep their values. Invalid action policies fail under PERM-017.
 
 | Policy in the recognition view | Comparison |
 | --- | --- |

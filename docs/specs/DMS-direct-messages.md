@@ -58,14 +58,14 @@ A DM is between two different inboxes. A client does not create a DM with itself
 
 ## 2. The fixed DM policy
 
-A DM's fixed policies deny inbox additions, inbox removals, and admin changes. DMS-004 permits the other participant's addition. Updates to existing membership entries still support installation changes under GMOD. The registry and super-admin list require a super admin under PERM-026; a DM starts with neither role. PERM-026 lets either participant change application registry entries, and PERM-028 lets it satisfy `ALLOW_IF_SUPER_ADMIN` on application components. Neither exception reaches membership, the role lists, or a well-known component.
+A DM's fixed policies deny inbox additions, inbox removals, and admin changes. DMS-004 permits the other participant's addition. Updates to existing membership entries still support installation changes under GMOD. The registry and super-admin list require a super admin under PERM-026; a DM starts with neither role. PERM-026 lets either participant change application registry entries, and PERM-028 lets it satisfy `ALLOW_IF_SUPER_ADMIN` and `ALLOW_IF_ADMIN` on application components. Neither exception reaches membership, the role lists, or a well-known component.
 
 | Registry entry | `insert_policy` | `update_policy` | `delete_policy` |
 | --- | --- | --- | --- |
 | `GROUP_MEMBERSHIP` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_DENY` |
 | `ADMIN_LIST` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
-The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. The commit-log signer is separate from the settings either participant can update; clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row carries the policies of PERM-029 and is written under META-066. A DM registry has no `GROUP_IMAGE` entry.
+The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. The commit-log signer is separate from the settings either participant can update; clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row applies under META-066 rather than DMS-002, with the policies of PERM-029. A DM registry has no `GROUP_IMAGE` entry.
 
 | Registry entries | `insert_policy` | `update_policy` | `delete_policy` |
 | --- | --- | --- | --- |

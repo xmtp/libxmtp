@@ -979,7 +979,7 @@ fn dm_of(one: InboxId, two: InboxId) -> DmMembers<String> {
     }
 }
 
-fn registry_insert(id: ComponentId) -> AppDataUpdateOperation {
+fn registry_insert(ids: &[ComponentId]) -> AppDataUpdateOperation {
     let entry = new_component_metadata(
         component_permissions()
             .insert(allow())
@@ -989,8 +989,11 @@ fn registry_insert(id: ComponentId) -> AppDataUpdateOperation {
         ComponentType::Bytes,
     )
     .encode_to_vec();
-    let payload = TlsMapDelta::<ComponentId, VLBytes>::new()
-        .insert(id, VLBytes::new(entry))
+    let payload = ids
+        .iter()
+        .fold(TlsMapDelta::<ComponentId, VLBytes>::new(), |delta, id| {
+            delta.insert(*id, VLBytes::new(entry.clone()))
+        })
         .tls_serialize_detached()
         .unwrap();
     AppDataUpdateOperation::Update(payload.into())
@@ -1004,10 +1007,10 @@ fn dm_participant_registers_application_components_only() {
     let (alice, bob, carol) = (fake_inbox(1), fake_inbox(2), fake_inbox(3));
     let dm = dm_of(alice, bob);
     let registry = ComponentRegistry::new();
-    let register = |proposer: InboxId, id: ComponentId| {
+    let register = |proposer: InboxId, ids: &[ComponentId]| {
         validate_one_app_data_update_with_old_value(
             ComponentId::COMPONENT_REGISTRY,
-            &registry_insert(id),
+            &registry_insert(ids),
             member(),
             &proposer.to_hex(),
             &registry,
@@ -1016,10 +1019,11 @@ fn dm_participant_registers_application_components_only() {
             None,
         )
     };
-    register(alice, PROFILE)?;
-    register(bob, ComponentId::new(0xFD00))?;
-    assert!(register(alice, ComponentId::GROUP_IMAGE).is_err());
-    assert!(register(carol, PROFILE).is_err());
+    register(alice, &[PROFILE])?;
+    register(bob, &[ComponentId::new(0xFD00)])?;
+    assert!(register(alice, &[ComponentId::GROUP_IMAGE]).is_err());
+    assert!(register(alice, &[PROFILE, ComponentId::GROUP_IMAGE]).is_err());
+    assert!(register(carol, &[PROFILE]).is_err());
 }
 
 /// Immutability still holds for a DM participant: an immutable-range
@@ -1037,7 +1041,7 @@ fn dm_participant_cannot_update_immutable_registry_entry() {
     let err = validate_one_app_data_update_with_old_value(
         ComponentId::COMPONENT_REGISTRY,
         &AppDataUpdateOperation::Update(payload.into()),
-        super_admin(),
+        member(),
         &alice.to_hex(),
         &registry,
         Some(&registry.to_bytes()?),

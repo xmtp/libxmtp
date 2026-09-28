@@ -696,7 +696,7 @@ id = "META-068"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The global 8192-byte value and 65536-byte snapshot bounds are not enforced for application components or USER_DISPLAY_NAME, and the GROUP_IMAGE bound is not enforced. A later PR of the configured-metadata stack applies them."
+reason = "The global 8192-byte value and 65536-byte snapshot bounds are not enforced for application components, USER_DISPLAY_NAME, or GROUP_IMAGE. A later PR of the configured-metadata stack applies them."
 [[waiver]]
 id = "META-069"
 kind = "gap"
