@@ -362,9 +362,14 @@ One identifier can be a live member of several inboxes at once: a user creates t
 
 ## Known limitations
 
-IDENT-013 replaces an earlier rule that stored an Ethereum identifier in whatever case it was given. A deployment of this backend holds no log written under that rule, because it accepts no data from the earlier networks, so no stored log becomes unreadable. A log imported from elsewhere would.
+Several rules reject updates that an earlier validator accepted and stored:
 
-The same holds for the retired legacy delegated signature, field 4 of `Signature`, and for the rules that reject an update with no actions (IDENT-001), an add of a current member (IDENT-040), and an `account_id` outside the `eip155` namespace or with a chain id not in canonical decimal form (IDENT-060). A validator applies each of them to every update it reads, on admission and when it replays a stored log, so a log holding an update any of them rejects can no longer be read past that update. A deployment of this backend holds no such update.
+- IDENT-013 replaces a rule that stored an Ethereum identifier in whatever case it was given.
+- IDENT-001 rejects an update with no actions, and a `Signature` that carries the retired legacy delegated signature, field 4.
+- IDENT-040 rejects an add of a current member.
+- IDENT-060 rejects an `account_id` outside the `eip155` namespace or with a chain id not in canonical decimal form.
+
+A validator applies each of them to every update it reads, on admission and when it replays a stored log. A log holding an update any of them rejects cannot be read past that update, and no replay path accepts it. A database written by an earlier build of this backend, or imported from the earlier networks, must hold no such update before this validator reads it.
 
 `client_timestamp_ns` is not checked against any clock. A sender sets any value; it orders members for display and nothing else.
 
