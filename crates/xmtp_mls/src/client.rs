@@ -1145,6 +1145,12 @@ where
             .into_iter()
             .map(|conversation_item: DbConversationListItem| {
                 let message = conversation_item.message_id.and_then(|message_id| {
+                    if conversation_item
+                        .expire_at_ns
+                        .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
+                    {
+                        return None;
+                    }
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
@@ -1162,11 +1168,11 @@ where
                         reference_id: None, // conversation_item does not use message reference_id
                         sequence_id: conversation_item.sequence_id?,
                         envelope_hash: None,
-                        expiry_ns: None,
-                        expire_at_ns: None, //Question: do we need to include this in conversation last message?
+                        expiry_ns: conversation_item.expiry_ns,
+                        expire_at_ns: conversation_item.expire_at_ns,
                         inserted_at_ns: 0, // Not used for conversation list display
                         should_push: true, // Not used for conversation list display
-                        // The conversation_list view does not carry the key; use
+                        // The conversation-list query does not carry the key; use
                         // the timestamp proxy (display-only, never republished).
                         idempotency_key: conversation_item.sent_at_ns.unwrap_or_default().to_string(),
                     });

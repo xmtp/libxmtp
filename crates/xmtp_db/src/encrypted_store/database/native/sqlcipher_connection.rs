@@ -552,8 +552,13 @@ mod tests {
                 if !has_primary_key { columns.insert(0, ("rowid".into(), "Integer".into())); }
                 schema.insert(table.name, columns);
             }
-            diesel::sql_query("SELECT * FROM conversation_list").execute(conn)?;
-            assert_eq!(conn.applied_migrations().unwrap().len(), 2);
+            let old_view = diesel::sql_query(
+                "SELECT name FROM sqlite_master WHERE type = 'view' AND name = 'conversation_list'",
+            )
+            .get_result::<TableName>(conn)
+            .optional()?;
+            assert!(old_view.is_none());
+            assert_eq!(conn.applied_migrations().unwrap().len(), 3);
             Ok(schema)
         })?;
 

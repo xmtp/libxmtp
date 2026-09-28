@@ -314,12 +314,13 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             if let Some(table) = migration_table {
                 debug_assert_eq!(table.name, "__diesel_schema_migrations");
                 let baseline = "20260908000000";
+                let sender_summary = "20260928000000";
                 let latest = MIGRATIONS.final_migration();
                 let applied = conn.applied_migrations()
                     .map_err(diesel::result::Error::QueryBuilderError)?;
                 if applied.iter().any(|version| {
                     let version = version.to_string();
-                    version != baseline && version != latest
+                    version != baseline && version != sender_summary && version != latest
                 }) {
                     return Ok(Err(StorageError::PreTransitionDatabase));
                 }
@@ -564,16 +565,36 @@ pub(crate) mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn sender_summary_upgrades_baseline_database() {
+    async fn sender_summary_and_list_upgrade_baseline_database() {
         use crate::migrations::QueryMigrations;
         use diesel::connection::SimpleConnection;
 
-        assert_eq!(MIGRATIONS.final_migration(), "20260928000000");
+        assert_eq!(MIGRATIONS.final_migration(), "20260928010000");
         let db_path = tmp_path();
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 2);
+            assert_eq!(conn.applied_migrations()?.len(), 3);
+            conn.raw_query(|db| {
+                db.revert_last_migration(MIGRATIONS)
+                    .map(|_| ())
+                    .map_err(diesel::result::Error::QueryBuilderError)
+            })?;
+            assert_eq!(
+                conn.applied_migrations()?,
+                ["20260928000000", "20260908000000"]
+            );
+        }
+        {
+            // A database at the previous self-hosted version must upgrade.
+            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
+            let conn = store.db();
+            assert_eq!(conn.applied_migrations()?.len(), 3);
+            conn.raw_query(|db| {
+                db.revert_last_migration(MIGRATIONS)
+                    .map(|_| ())
+                    .map_err(diesel::result::Error::QueryBuilderError)
+            })?;
             conn.raw_query(|db| {
                 db.revert_last_migration(MIGRATIONS)
                     .map(|_| ())
@@ -591,7 +612,7 @@ pub(crate) mod tests {
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 2);
+            assert_eq!(conn.applied_migrations()?.len(), 3);
             #[derive(diesel::QueryableByName)]
             struct Count {
                 #[diesel(sql_type = diesel::sql_types::BigInt)]

@@ -2,6 +2,59 @@ use super::*;
 
 // verifies: META-051
 #[xmtp_common::test(unwrap_try = true)]
+async fn expired_conversation_preview_is_not_returned() {
+    use crate::test::mock::generate_stored_msg;
+    use xmtp_db::{Store, group_message::QueryGroupMessage};
+    use xmtp_proto::types::Cursor;
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let all_expired_group = alix.create_group(None, None)?;
+    let db = alix.context.db();
+    let now = now_ns();
+
+    let mut live = generate_stored_msg(Cursor(100), group.group_id);
+    live.sent_at_ns = 200;
+    live.decrypted_message_bytes = TextCodec::encode("live preview".into())?.encode_to_vec();
+    live.expire_at_ns = Some(now + xmtp_common::NS_IN_DAY);
+    live.expiry_ns = Some(now + xmtp_common::NS_IN_DAY * 2);
+    live.store(&db)?;
+
+    let mut expired = generate_stored_msg(Cursor(200), group.group_id);
+    expired.sent_at_ns = 300;
+    expired.decrypted_message_bytes = TextCodec::encode("expired preview".into())?.encode_to_vec();
+    expired.expire_at_ns = Some(now - 1);
+    expired.store(&db)?;
+
+    let mut only_expired = generate_stored_msg(Cursor(300), all_expired_group.group_id);
+    only_expired.sent_at_ns = 400;
+    only_expired.decrypted_message_bytes =
+        TextCodec::encode("only expired preview".into())?.encode_to_vec();
+    only_expired.expire_at_ns = Some(now - 1);
+    only_expired.store(&db)?;
+
+    assert!(db.get_group_message(&expired.id)?.is_some());
+    assert!(db.get_group_message(&only_expired.id)?.is_some());
+    let listed = alix.list_conversations(GroupQueryArgs::default())?;
+    let visible = listed
+        .iter()
+        .find(|item| item.group.group_id == group.group_id)
+        .expect("group remains listed");
+    let last = visible.last_message.as_ref().expect("older live preview");
+    assert_eq!(last.id, live.id);
+    assert_eq!(last.decrypted_message_bytes, live.decrypted_message_bytes);
+    assert_eq!(last.expire_at_ns, live.expire_at_ns);
+    assert_eq!(last.expiry_ns, live.expiry_ns);
+
+    let all_expired = listed
+        .iter()
+        .find(|item| item.group.group_id == all_expired_group.group_id)
+        .expect("all-expired group remains listed");
+    assert!(all_expired.last_message.is_none());
+}
+
+// verifies: META-051
+#[xmtp_common::test(unwrap_try = true)]
 async fn expired_message_is_absent_from_history_and_direct_lookup() {
     use crate::test::mock::generate_stored_msg;
     use xmtp_db::Store;
