@@ -474,11 +474,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .prefixes()
             .map(|(_, group, _)| Topic::new_group_message(group))
             .collect();
-        if self.scopes.values().any(|scope| {
-            matches!(scope.scope, ScopeKind::Groups(_))
-                && scope.topics.iter().any(|topic| self.is_retired(topic))
+        if self.scopes.values().any(|scope| match &scope.scope {
+            ScopeKind::Groups(requested) => requested
+                .iter()
+                .any(|id| self.is_retired(&Topic::new_group_message(id))),
+            _ => false,
         }) {
-            // This is a processing dependency, not a new fixed target or delivery scope.
+            // Only explicitly requested inactive groups add Welcome recovery.
+            // The dependency does not add a fixed target or a delivery scope.
             self.extra_topics
                 .insert(Topic::new_welcome_message(self.context.installation_id()));
         }

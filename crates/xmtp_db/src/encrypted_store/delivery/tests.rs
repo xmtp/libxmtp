@@ -96,7 +96,7 @@ async fn scope_progress_and_replay_remain_independent() {
     );
 }
 
-// verifies: DMS-009, PROC-026, PROC-034
+// verifies: DMS-014, PROC-026, PROC-034
 #[xmtp_common::test(unwrap_try = true)]
 async fn scoped_delivery_reads_the_stitched_dm_union_before_limits() {
     let store = TestDb::create_persistent_store(None).await;
@@ -157,7 +157,7 @@ async fn scoped_delivery_reads_the_stitched_dm_union_before_limits() {
     assert_eq!(remaining[0].message.id, first_message.id);
 }
 
-// verifies: DMS-009
+// verifies: DMS-014
 #[xmtp_common::test(unwrap_try = true)]
 async fn stitched_history_snapshot_keeps_the_recent_delivery_tail() {
     let store = TestDb::create_persistent_store(None).await;
@@ -237,7 +237,7 @@ async fn stitched_history_snapshot_keeps_the_recent_delivery_tail() {
     assert!(replay[0].cursor.delivery_sequence > boundary.delivery_sequence);
 }
 
-// verifies: DMS-009
+// verifies: DMS-014
 #[xmtp_common::test(unwrap_try = true)]
 async fn scoped_delivery_includes_a_duplicate_added_after_the_first_read() {
     let store = TestDb::create_persistent_store(None).await;
