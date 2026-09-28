@@ -2519,6 +2519,46 @@ async fn storage_delete_waits_for_running_call() {
     std::fs::remove_dir_all(directory)?;
 }
 
+// A direct client call does not run on the SDK worker, so it enters the call
+// gate itself. end() must wait for it and must not disconnect the database
+// under it.
+#[xmtp_common::test(unwrap_try = true)]
+async fn end_waits_for_running_direct_call() {
+    let client = Arc::new(Client::create(crate::generate_local_signer().await, options()).await?);
+    let gate = Arc::new(reader::HandoffGate {
+        arrived: Notify::new(),
+        release: Notify::new(),
+    });
+    *client.call_gate.lock() = Some(gate.clone());
+    let running_client = client.clone();
+    let running = tokio::spawn(async move { running_client.inbox_state(true).await });
+    xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
+
+    let ending_client = client.clone();
+    let mut ending = tokio::spawn(async move { ending_client.end().await });
+    xmtp_common::time::timeout(Duration::from_secs(10), async {
+        while !client.inner.context.is_closed() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(500), &mut ending)
+            .await
+            .is_err(),
+        "end finished while a direct call was running"
+    );
+    assert!(matches!(
+        client.inbox_id_for(client.identity()).await,
+        Err(XmtpError::ClientClosed(_))
+    ));
+
+    gate.release.notify_one();
+    let state = xmtp_common::time::timeout(Duration::from_secs(10), running).await???;
+    assert_eq!(state.inbox_id, client.inbox_id());
+    xmtp_common::time::timeout(Duration::from_secs(10), ending).await???;
+}
+
 #[cfg(unix)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_delete_can_retry_after_file_removal_fails() {

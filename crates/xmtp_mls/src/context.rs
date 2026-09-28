@@ -56,6 +56,7 @@ struct ForegroundCallState {
 }
 
 /// One running call. Drop it when the call no longer uses the database.
+#[must_use = "the call leaves the gate when this guard drops"]
 pub struct ForegroundCall {
     calls: Arc<ForegroundCalls>,
 }

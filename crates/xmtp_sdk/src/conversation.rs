@@ -16,7 +16,7 @@ use xmtp_db::prelude::QueryDms;
 use xmtp_db::prelude::QueryGroup;
 use xmtp_db::prelude::QueryGroupMessage;
 use xmtp_mls::MlsContext;
-use xmtp_mls::context::XmtpSharedContext;
+use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
 use xmtp_mls::messages::decoded_message::{DecodedMessage, MessageBody as CoreMessageBody};
 use xmtp_mls::messages::enrichment::EnrichedStoredMessage;
@@ -63,20 +63,27 @@ where
     while_open(context, work).await
 }
 
+/// Enter the call gate, or fail with `ClientClosed` after end() has begun.
+/// Hold the guard until the call stops using the database, so end() does not
+/// disconnect the database under it. A call that holds the guard must not wait
+/// for end() of its own client: end() waits for that call.
+pub(crate) fn enter_call(context: &MlsContext) -> Result<ForegroundCall, XmtpError> {
+    let call = context
+        .foreground_calls()
+        .enter()
+        .ok_or_else(XmtpError::closed)?;
+    if context.is_closed() {
+        return Err(XmtpError::closed());
+    }
+    Ok(call)
+}
+
 // Check the closed state in the task because end() can run before it starts.
-// The call holds its gate entry until the work ends, so end() does not
-// disconnect the database under it. Work in here must not wait for end() of
-// its own client: end() waits for this call.
 async fn while_open<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
 where
     F: Future<Output = Result<T, XmtpError>>,
 {
-    let Some(_call) = context.foreground_calls().enter() else {
-        return Err(XmtpError::closed());
-    };
-    if context.is_closed() {
-        return Err(XmtpError::closed());
-    }
+    let _call = enter_call(&context)?;
     work.await.map_err(|error| {
         if context.is_closed() {
             XmtpError::closed()

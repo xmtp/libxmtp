@@ -97,7 +97,7 @@ impl Client {
         &self,
         config: NotificationConfig,
     ) -> Result<NotificationState, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .enable_notifications(config.into())
             .await
@@ -106,7 +106,7 @@ impl Client {
     }
 
     pub async fn disable_notifications(&self) -> Result<(), XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .disable_notifications()
             .await
@@ -114,7 +114,7 @@ impl Client {
     }
 
     pub fn notification_state(&self) -> Result<NotificationState, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .notification_state()
             .map(Into::into)
