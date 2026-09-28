@@ -2461,6 +2461,16 @@ def _classify(entry: object) -> Decision:
             ref,
             "Behavior change: no consent list now selects allowed and unknown conversations.",
         )
+    if name in {"Client.canMessage", "Client.Companion.canMessage"}:
+        return decision(
+            "generated",
+            spelling(name),
+            f"11.4 {sdk}, Client and options"
+            if sdk != "Browser"
+            else "11.4 Browser; 11.4 Node, Client and options",
+            "Behavior change: result keys use `ethereum:<core text>` or "
+            "`passkey:<lowercase core hex>` so identity kinds do not collide.",
+        )
     # These are explicit unchanged lists in the four Section 11.4 tables.
     owner, _, leaf = name.rpartition(".")
     if owner in {"Client", "Client.Companion"} and leaf in {

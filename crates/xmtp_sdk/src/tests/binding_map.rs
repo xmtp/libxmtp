@@ -1207,11 +1207,11 @@ async fn can_message_changes_after_peer_registration() {
     let bo_identity = bo_signer.identity().await?;
     let before = alix.can_message(vec![bo_identity.clone()]).await?;
     assert_eq!(before.len(), 1);
-    assert!(!before[&bo_identity.identifier]);
+    assert!(!before[&format!("ethereum:{}", bo_identity.identifier)]);
     let bo = Client::create(bo_signer, options()).await?;
     let after = alix.can_message(vec![bo_identity.clone()]).await?;
     assert_eq!(after.len(), 1);
-    assert!(after[&bo_identity.identifier]);
+    assert!(after[&format!("ethereum:{}", bo_identity.identifier)]);
     alix.end().await?;
     bo.end().await?;
 }

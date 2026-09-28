@@ -1593,7 +1593,7 @@ async fn backend_only_identity_and_message_queries() {
     let availability =
         crate::static_helpers::can_message_with_backend(source.clone(), vec![identity.clone()])
             .await?;
-    assert!(availability[&identity.identifier]);
+    assert!(availability[&format!("ethereum:{}", identity.identifier)]);
     let states =
         crate::static_helpers::inbox_states_with_backend(source.clone(), vec![inbox.clone()])
             .await?;
@@ -1660,6 +1660,46 @@ async fn backend_only_identity_and_message_queries() {
     connected_client.end().await?;
     client.end().await?;
     std::fs::remove_file(path)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn can_message_keeps_kinds_for_static_and_instance_queries() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let Some(BackendSource::Options {
+        options: backend_options,
+    }) = options().backend
+    else {
+        panic!("test uses backend options");
+    };
+    let backend = Arc::new(crate::Backend::connect(backend_options.clone()).await?);
+    let same_text = "1111111111111111111111111111111111111111";
+    let ethereum = PublicIdentity {
+        identifier: same_text.into(),
+        kind: PublicIdentityKind::Ethereum,
+    };
+    let passkey = PublicIdentity {
+        identifier: same_text.into(),
+        kind: PublicIdentityKind::Passkey,
+    };
+    let registered = client.identity();
+    let identities = vec![ethereum, passkey, registered.clone()];
+    let expected_registered = format!("ethereum:{}", registered.identifier);
+    let verify = |result: std::collections::HashMap<String, bool>| {
+        assert_eq!(result.len(), 3);
+        assert!(!result["ethereum:1111111111111111111111111111111111111111"]);
+        assert!(!result["passkey:1111111111111111111111111111111111111111"]);
+        assert!(result[&expected_registered]);
+    };
+    verify(client.can_message(identities.clone()).await?);
+    for source in [
+        BackendSource::Connected { backend },
+        BackendSource::Options {
+            options: backend_options,
+        },
+    ] {
+        verify(crate::static_helpers::can_message_with_backend(source, identities.clone()).await?);
+    }
+    client.end().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -1779,7 +1819,7 @@ async fn facade_api_statistics_track_and_clear_requests() {
     client.conversations().create_group(vec![], None).await?;
     let can_message = client.can_message(vec![client.identity()]).await?;
     assert_eq!(can_message.len(), 1);
-    assert!(can_message[&client.identity().identifier]);
+    assert!(can_message[&format!("ethereum:{}", client.identity().identifier)]);
     let api = diagnostics.api_statistics().await?;
     let identity = diagnostics.identity_statistics().await?;
     assert!(api.publish > 0);

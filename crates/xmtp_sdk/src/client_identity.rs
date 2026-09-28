@@ -385,6 +385,8 @@ impl Client {
             .transpose()
     }
 
+    /// Returns one entry per core identity. Keys use `ethereum:<core text>` or
+    /// `passkey:<lowercase core hex>`.
     pub async fn can_message(
         &self,
         identities: Vec<PublicIdentity>,
@@ -399,16 +401,12 @@ impl Client {
             .can_message(&core)
             .await
             .map_err(XmtpError::from_client)?;
-        Ok(identities
-            .into_iter()
-            .zip(core)
-            .map(|(identity, key)| {
-                (
-                    identity.identifier,
-                    answer.get(&key).copied().unwrap_or(false),
-                )
-            })
-            .collect())
+        Ok(crate::signer::can_message_results(core.into_iter().map(
+            |key| {
+                let available = answer.get(&key).copied().unwrap_or(false);
+                (key, available)
+            },
+        )))
     }
 
     pub async fn latest_inbox_updates_count(

@@ -810,12 +810,30 @@ struct Conformance {
         guard try await SDKClient.inboxId(for: staticIdentity, backend: .connected(backend: staticBackend)) == inboxId else {
             throw ConformanceFailure("backend-only inbox lookup returned a different ID")
         }
-        guard try await SDKClient.canMessage([staticIdentity], backend: .connected(backend: staticBackend))[staticIdentity.identifier] == true else {
+        guard try await SDKClient.canMessage([staticIdentity], backend: .connected(backend: staticBackend))["ethereum:\(staticIdentity.identifier)"] == true else {
             throw ConformanceFailure("backend-only canMessage did not find this inbox")
         }
-        guard try await SDKClient.canMessage([staticIdentity], backend: .options(options: backendOptions))[staticIdentity.identifier] == true else {
+        guard try await SDKClient.canMessage([staticIdentity], backend: .options(options: backendOptions))["ethereum:\(staticIdentity.identifier)"] == true else {
             throw ConformanceFailure("backend options canMessage did not find this inbox")
         }
+        let sameText = "1111111111111111111111111111111111111111"
+        let mixedIdentities = [
+            PublicIdentity(identifier: sameText, kind: .ethereum),
+            PublicIdentity(identifier: sameText, kind: .passkey),
+            staticIdentity,
+        ]
+        func checkMixedCanMessage(_ result: [String: Bool]) throws {
+            guard result.count == 3,
+                  result["ethereum:\(sameText)"] == false,
+                  result["passkey:\(sameText)"] == false,
+                  result["ethereum:\(staticIdentity.identifier)"] == true
+            else {
+                throw ConformanceFailure("canMessage lost an identity kind or value")
+            }
+        }
+        try checkMixedCanMessage(await reopened.canMessage(identities: mixedIdentities))
+        try checkMixedCanMessage(await SDKClient.canMessage(mixedIdentities, backend: .connected(backend: staticBackend)))
+        try checkMixedCanMessage(await SDKClient.canMessage(mixedIdentities, backend: .options(options: backendOptions)))
         do {
             _ = try await SDKClient.build(
                 identity: staticIdentity,

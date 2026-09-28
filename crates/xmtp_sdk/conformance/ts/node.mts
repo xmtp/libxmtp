@@ -1089,7 +1089,7 @@ assert.equal(
       [identity],
       new sdk.BackendSource.Connected({ backend: staticBackend }),
     )
-  ).get(identity.identifier),
+  ).get(`ethereum:${identity.identifier}`),
   true,
 );
 assert.equal(
@@ -1098,8 +1098,33 @@ assert.equal(
       [identity],
       new sdk.BackendSource.Options({ options: backendOptions }),
     )
-  ).get(identity.identifier),
+  ).get(`ethereum:${identity.identifier}`),
   true,
+);
+const sameText = "1111111111111111111111111111111111111111";
+const mixedIdentities = [
+  { identifier: sameText, kind: sdk.PublicIdentityKind.Ethereum },
+  { identifier: sameText, kind: sdk.PublicIdentityKind.Passkey },
+  identity,
+];
+const checkMixedCanMessage = (result: Map<string, boolean>) => {
+  assert.equal(result.size, 3);
+  assert.equal(result.get(`ethereum:${sameText}`), false);
+  assert.equal(result.get(`passkey:${sameText}`), false);
+  assert.equal(result.get(`ethereum:${identity.identifier}`), true);
+};
+checkMixedCanMessage(await reopened.raw.canMessage(mixedIdentities));
+checkMixedCanMessage(
+  await sdk.Client.canMessage(
+    mixedIdentities,
+    new sdk.BackendSource.Connected({ backend: staticBackend }),
+  ),
+);
+checkMixedCanMessage(
+  await sdk.Client.canMessage(
+    mixedIdentities,
+    new sdk.BackendSource.Options({ options: backendOptions }),
+  ),
 );
 await assert.rejects(
   sdk.Client.build(
