@@ -95,15 +95,13 @@ pub trait IdentityAction: Send {
         existing_state: Option<AssociationState>,
         client_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError>;
-    fn signatures(&self) -> Vec<Vec<u8>>;
+    /// The canonical replay key of every signature the action carries (see [`VerifiedSignature`]).
+    fn replay_keys(&self) -> Vec<Vec<u8>>;
+    // implements: IDENT-050
     fn replay_check(&self, state: &AssociationState) -> Result<(), AssociationError> {
-        let signatures = self.signatures();
-        for signature in signatures {
-            if state.has_seen(&signature) {
-                return Err(AssociationError::Replay);
-            }
+        if self.replay_keys().iter().any(|key| state.has_seen(key)) {
+            return Err(AssociationError::Replay);
         }
-
         Ok(())
     }
 }
@@ -151,8 +149,8 @@ impl IdentityAction for CreateInbox {
         )
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.initial_identifier_signature.raw_bytes.clone()]
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
+        vec![self.initial_identifier_signature.replay_key.clone()]
     }
 }
 
@@ -253,10 +251,10 @@ impl IdentityAction for AddAssociation {
         Ok(existing_state.add(new_member))
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
         vec![
-            self.existing_member_signature.raw_bytes.clone(),
-            self.new_member_signature.raw_bytes.clone(),
+            self.existing_member_signature.replay_key.clone(),
+            self.new_member_signature.replay_key.clone(),
         ]
     }
 }
@@ -317,8 +315,8 @@ impl IdentityAction for RevokeAssociation {
             }))
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.recovery_identifier_signature.raw_bytes.clone()]
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
+        vec![self.recovery_identifier_signature.replay_key.clone()]
     }
 }
 
@@ -358,8 +356,8 @@ impl IdentityAction for ChangeRecoveryIdentity {
         Ok(existing_state.set_recovery_identifier(self.new_recovery_identifier.clone()))
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
-        vec![self.recovery_identifier_signature.raw_bytes.clone()]
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
+        vec![self.recovery_identifier_signature.replay_key.clone()]
     }
 }
 
@@ -392,12 +390,12 @@ impl IdentityAction for Action {
         }
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
         match self {
-            Action::CreateInbox(event) => event.signatures(),
-            Action::AddAssociation(event) => event.signatures(),
-            Action::RevokeAssociation(event) => event.signatures(),
-            Action::ChangeRecoveryIdentity(event) => event.signatures(),
+            Action::CreateInbox(event) => event.replay_keys(),
+            Action::AddAssociation(event) => event.replay_keys(),
+            Action::RevokeAssociation(event) => event.replay_keys(),
+            Action::ChangeRecoveryIdentity(event) => event.replay_keys(),
         }
     }
 }
@@ -458,13 +456,13 @@ impl IdentityAction for IdentityUpdate {
 
         // After all the updates in the LogEntry have been processed, add the list of signatures to the state
         // so that the signatures can not be re-used in subsequent updates
-        Ok(new_state.add_seen_signatures(self.signatures()))
+        Ok(new_state.add_seen_signatures(self.replay_keys()))
     }
 
-    fn signatures(&self) -> Vec<Vec<u8>> {
+    fn replay_keys(&self) -> Vec<Vec<u8>> {
         self.actions
             .iter()
-            .flat_map(|action| action.signatures())
+            .flat_map(|action| action.replay_keys())
             .collect()
     }
 }
@@ -529,4 +527,182 @@ fn verify_chain_id_matches(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{
+        InboxOwner,
+        associations::{
+            apply_update,
+            builder::SignatureRequestBuilder,
+            get_state,
+            test_utils::{
+                MockSmartContractSignatureVerifier, WalletTestExt, ecdsa_negated_s_alias,
+                ecdsa_recovery_byte_alias, p256_negated_s_alias,
+            },
+            unverified::{UnverifiedAction, UnverifiedIdentityUpdate, UnverifiedSignature},
+        },
+        utils::passkey::PasskeyUser,
+    };
+    use alloy::signers::local::PrivateKeySigner;
+
+    async fn sign(
+        builder: SignatureRequestBuilder,
+        owners: &[&dyn InboxOwner],
+    ) -> UnverifiedIdentityUpdate {
+        let mut request = builder.build();
+        for owner in owners {
+            let signature = owner.sign(&request.signature_text()).unwrap();
+            request
+                .add_signature(signature, MockSmartContractSignatureVerifier::new(false))
+                .await
+                .unwrap();
+        }
+        request.build_identity_update().unwrap()
+    }
+
+    async fn verify(update: &UnverifiedIdentityUpdate) -> IdentityUpdate {
+        update
+            .to_verified(MockSmartContractSignatureVerifier::new(false))
+            .await
+            .unwrap()
+    }
+
+    /// `update` with every signature rewritten by `alias`; what was signed is untouched.
+    fn reencode(
+        update: &UnverifiedIdentityUpdate,
+        alias: impl Fn(&mut UnverifiedSignature),
+    ) -> UnverifiedIdentityUpdate {
+        let mut update = update.clone();
+        for action in &mut update.actions {
+            match action {
+                UnverifiedAction::CreateInbox(a) => alias(&mut a.initial_identifier_signature),
+                UnverifiedAction::AddAssociation(a) => {
+                    alias(&mut a.existing_member_signature);
+                    alias(&mut a.new_member_signature);
+                }
+                UnverifiedAction::RevokeAssociation(a) => {
+                    alias(&mut a.recovery_identifier_signature)
+                }
+                UnverifiedAction::ChangeRecoveryAddress(a) => {
+                    alias(&mut a.recovery_identifier_signature)
+                }
+            }
+        }
+        update
+    }
+
+    fn recovery_byte_form(signature: &mut UnverifiedSignature) {
+        if let UnverifiedSignature::RecoverableEcdsa(s) = signature {
+            s.signature_bytes = ecdsa_recovery_byte_alias(&s.signature_bytes);
+        }
+    }
+
+    fn negated_s_form(signature: &mut UnverifiedSignature) {
+        match signature {
+            UnverifiedSignature::RecoverableEcdsa(s) => {
+                s.signature_bytes = ecdsa_negated_s_alias(&s.signature_bytes)
+            }
+            UnverifiedSignature::Passkey(s) => s.signature = p256_negated_s_alias(&s.signature),
+            _ => {}
+        }
+    }
+
+    /// Adds `member` with `owner`'s signature, then revokes it. Returns the state just before the
+    /// add, the state after the revoke, and the signed add for replaying.
+    async fn add_then_revoke(
+        recovery: &PrivateKeySigner,
+        member: &dyn InboxOwner,
+    ) -> (AssociationState, AssociationState, UnverifiedIdentityUpdate) {
+        let inbox_id = recovery.get_inbox_id(0);
+        let recovery_id = recovery.identifier();
+        let member_id: MemberIdentifier = member.get_identifier().unwrap().into();
+        let create = sign(
+            SignatureRequestBuilder::new(&inbox_id).create_inbox(recovery_id.clone(), 0),
+            &[recovery],
+        )
+        .await;
+        let add = sign(
+            SignatureRequestBuilder::new(&inbox_id)
+                .add_association(member_id.clone(), recovery_id.clone().into()),
+            &[recovery, member],
+        )
+        .await;
+        let revoke = sign(
+            SignatureRequestBuilder::new(&inbox_id)
+                .revoke_association(recovery_id.into(), member_id.clone()),
+            &[recovery],
+        )
+        .await;
+
+        let created = get_state([verify(&create).await]).unwrap();
+        let added = apply_update(created.clone(), verify(&add).await).unwrap();
+        assert!(added.get(&member_id).is_some());
+        let revoked = apply_update(added, verify(&revoke).await).unwrap();
+        assert!(revoked.get(&member_id).is_none());
+        (created, revoked, add)
+    }
+
+    /// Replays `add` re-encoded by `alias` after the revoke. The re-encoding is a valid add in its
+    /// own right, yet shares its replay keys with the original, so it is rejected and the member
+    /// stays revoked.
+    async fn assert_alias_is_replay(
+        created: &AssociationState,
+        revoked: &AssociationState,
+        add: &UnverifiedIdentityUpdate,
+        member: &MemberIdentifier,
+        alias: impl Fn(&mut UnverifiedSignature),
+    ) {
+        let replay = reencode(add, alias);
+        assert_ne!(&replay, add, "the alias must change the signature bytes");
+        let replay = verify(&replay).await;
+        let fresh = apply_update(created.clone(), replay.clone()).unwrap();
+        assert!(fresh.get(member).is_some(), "the alias is a valid add");
+
+        let result = apply_update(revoked.clone(), replay);
+        assert!(
+            matches!(result, Err(AssociationError::Replay)),
+            "{result:?}"
+        );
+        assert!(revoked.get(member).is_none());
+    }
+
+    /// A revoked wallet's add, republished with its wallet signatures moved between the 0/1 and
+    /// 27/28 recovery-byte forms or with `s` negated, is the same add and must not re-add the
+    /// wallet.
+    #[xmtp_common::test]
+    // verifies: IDENT-050
+    async fn identity_replay_aliases_wallet_add_after_revoke() {
+        let recovery = PrivateKeySigner::random();
+        let member = PrivateKeySigner::random();
+        let member_id = member.member_identifier();
+        let (created, revoked, add) = add_then_revoke(&recovery, &member).await;
+
+        assert_alias_is_replay(&created, &revoked, &add, &member_id, recovery_byte_form).await;
+        assert_alias_is_replay(&created, &revoked, &add, &member_id, negated_s_form).await;
+        assert_alias_is_replay(&created, &revoked, &add, &member_id, |s| {
+            negated_s_form(s);
+            recovery_byte_form(s);
+        })
+        .await;
+    }
+
+    /// A revoked passkey's add, republished with the passkey's `s` negated and the recovery
+    /// wallet's recovery byte re-encoded, is the same add and must not re-add the passkey.
+    #[xmtp_common::test]
+    // verifies: IDENT-050
+    async fn identity_replay_aliases_passkey_add_after_revoke() {
+        let recovery = PrivateKeySigner::random();
+        let passkey = PasskeyUser::new().await;
+        let member_id: MemberIdentifier = passkey.identifier().into();
+        let (created, revoked, add) = add_then_revoke(&recovery, &passkey).await;
+
+        assert_alias_is_replay(&created, &revoked, &add, &member_id, |s| match s {
+            UnverifiedSignature::Passkey(_) => negated_s_form(s),
+            _ => recovery_byte_form(s),
+        })
+        .await;
+    }
 }
