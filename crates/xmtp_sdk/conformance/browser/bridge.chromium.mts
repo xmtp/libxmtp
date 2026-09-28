@@ -34,6 +34,8 @@ try {
     const { checkDeletedMessages } =
       await import("./message.deleted.chromium.ts");
     await checkDeletedMessages(url);
+    const { checkMessageStream } = await import("./stream.chromium.ts");
+    await checkMessageStream(url);
     const { checkCustomMessageLift } =
       await import("./message.custom.chromium.ts");
     checkCustomMessageLift();
@@ -45,7 +47,7 @@ try {
   }, backendURL);
   assert.equal(result, 15);
   console.log(
-    "Chromium worker failure, 15 pure codecs, deleted messages, custom lift, and standard messages passed",
+    "Chromium worker failure, 15 pure codecs, deleted messages, message stream, custom lift, and standard messages passed",
   );
 } finally {
   await browser.close();
