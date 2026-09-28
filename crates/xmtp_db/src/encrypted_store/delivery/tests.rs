@@ -2,7 +2,7 @@ use super::*;
 use crate::group::tests::generate_group;
 use crate::group_message::tests::generate_message;
 use crate::schema::group_messages;
-use crate::{Store, StoreOrIgnore, TestDb, XmtpTestDb, prelude::*};
+use crate::{Store, StoreOrIgnore, TestDb, XmtpTestDb};
 use xmtp_proto::types::Cursor;
 
 // verifies: PROC-024
@@ -480,8 +480,10 @@ async fn history_snapshot_filters_before_its_limit_in_the_same_database_snapshot
     assert!(snapshot.cursor.delivery_sequence > snapshot.messages[0].cursor.delivery_sequence);
 }
 
+type AppRowsObserver = Box<dyn FnMut(Option<usize>)>;
+
 thread_local! {
-    static APP_ROWS_PROBE: std::cell::RefCell<Option<Box<dyn FnMut(Option<usize>)>>> = const { std::cell::RefCell::new(None) };
+    static APP_ROWS_PROBE: std::cell::RefCell<Option<AppRowsObserver>> = const { std::cell::RefCell::new(None) };
 }
 
 pub(super) fn observe_app_rows(batch: Option<usize>) {
