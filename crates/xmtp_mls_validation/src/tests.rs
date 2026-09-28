@@ -12,7 +12,7 @@ use xmtp_id::{
         AssociationError, SignatureError, test_utils::MockSmartContractSignatureVerifier,
     },
     key_package::{KeyPackageOptions, create_credential},
-    scw_verifier::{MultiSmartContractSignatureVerifier, VerifierError},
+    scw_verifier::{BlockStamp, ChainBlocks, MultiSmartContractSignatureVerifier, VerifierError},
 };
 use xmtp_proto::xmtp::backend::v1::{
     ClientEnvelope, KeyPackage, WelcomeMessage, client_envelope::Payload,
@@ -416,5 +416,35 @@ fn identity_topics_require_a_32_byte_hex_inbox() {
     assert!(matches!(
         parse_envelope(identity_envelope(fixture)),
         Err(ValidationError::Inbox(_))
+    ));
+}
+
+/// Reports a head stamped before its own earlier blocks, as separate reads
+/// straddling a reorg can.
+struct SkewedChain;
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for SkewedChain {
+    async fn head(&self, _: &str) -> Result<BlockStamp, VerifierError> {
+        Ok(BlockStamp {
+            number: 10,
+            timestamp: 100,
+        })
+    }
+
+    async fn timestamp(&self, _: &str, _: u64) -> Result<u64, VerifierError> {
+        Ok(200)
+    }
+}
+
+/// The age check must fail closed: a block whose timestamp exceeds the head's
+/// has no provable age, and treating it as fresh would let a removed signer
+/// replay an old signature through an inconsistent chain read.
+#[xmtp_common::test]
+// verifies: IDENT-062
+async fn freshness_rejects_a_block_stamped_after_the_head() {
+    assert!(matches!(
+        check_freshness(&scw_create_inbox_update_at(5), &SkewedChain).await,
+        Err(ValidationError::StaleBlock(5))
     ));
 }

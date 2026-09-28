@@ -307,7 +307,9 @@ pub fn erc6492_signatures(
 /// Each signature is judged on its own chain, after the account id's form
 /// check so a malformed one is rejected before any chain call. The head is
 /// read first, so a block after it is rejected without a second call. Chain
-/// failures stay retryable; they are never a verdict on the signature.
+/// failures stay retryable; they are never a verdict on the signature. A
+/// block stamped after the head, as reads straddling a reorg can report, is
+/// rejected rather than read as fresh.
 /// Callers run this before signature verification: a verifier asked about a
 /// block the chain has not produced fails retryably instead of rejecting.
 // implements: IDENT-062
@@ -330,7 +332,11 @@ pub async fn check_freshness(
             .timestamp(account.get_chain_id(), number)
             .await
             .map_err(SignatureError::from)?;
-        if head.timestamp.saturating_sub(timestamp) > MAX_BLOCK_AGE_SECS {
+        if head
+            .timestamp
+            .checked_sub(timestamp)
+            .is_none_or(|age| age > MAX_BLOCK_AGE_SECS)
+        {
             return Err(ValidationError::StaleBlock(number));
         }
     }
