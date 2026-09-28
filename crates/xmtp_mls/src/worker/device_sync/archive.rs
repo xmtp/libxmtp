@@ -510,7 +510,7 @@ mod tests {
         bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
-    // verifies: DMS-015, ARCH-013, ARCH-021, DMS-009
+    // verifies: DMS-015, ARCH-013, ARCH-021, ARCH-023, DMS-009
     #[xmtp_common::test(unwrap_try = true)]
     async fn authentic_archive_rejects_outside_dm_sender_before_stitched_history() {
         tester!(alix, disable_workers);
@@ -574,7 +574,7 @@ mod tests {
         assert!(!stitched.iter().any(|message| message.id == outside.id));
     }
 
-    // verifies: ARCH-015, ARCH-022, DMS-015
+    // verifies: ARCH-015, ARCH-023, DMS-015
     #[xmtp_common::test(unwrap_try = true)]
     async fn foreign_archive_preserves_dm_pair_and_pair_history() {
         use xmtp_db::{
