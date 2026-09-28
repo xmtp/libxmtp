@@ -1265,7 +1265,7 @@ describe("browser bridge transport", () => {
   });
 });
 
-// verifies: PROC-050
+// verifies: PROC-046
 describe("message stream factories", () => {
   for (const kind of ["all", "group", "dm"] as const) {
     it(`cancels a blocked ${kind} opener through its transport signal`, async () => {

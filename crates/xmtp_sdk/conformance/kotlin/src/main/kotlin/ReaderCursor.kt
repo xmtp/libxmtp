@@ -43,7 +43,9 @@ suspend fun checkReaderCursor(signer: Signer, backend: BackendOptions) {
     val reply = checkNotNull(host.raw.conversations().getMessageById(replyId))
     check(reply.parent()?.deliveryCursor == cursor)
     val preparedId = group.prepareMessage(encoded)
-    check(host.raw.conversations().getMessageById(preparedId)?.deliveryCursor == null)
+    val pending = checkNotNull(host.raw.conversations().getMessageById(preparedId)) { "optimistic message missing" }
+    check(pending.id == preparedId)
+    check(pending.deliveryCursor == null)
     group.publishMessage(preparedId)
     check(host.raw.conversations().getMessageById(preparedId)?.deliveryCursor != null)
     host.end()

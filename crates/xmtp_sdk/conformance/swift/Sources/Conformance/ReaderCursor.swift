@@ -30,11 +30,15 @@ func checkReaderCursor(signer: Signer, backend: BackendOptions) async throws {
     precondition(Message(data: changed) != first)
     let allClosed = AsyncStream<Void>.makeStream()
     let all = try await host.messages(options: MessageReaderOptions(conversationKind: .group, from: beginning), onClose: { _ in allClosed.continuation.finish() })
-    for try await item in all { precondition(item.deliveryCursor == cursor); break }
+    var allCount = 0
+    for try await item in all { allCount += 1; precondition(item.deliveryCursor == cursor); break }
+    precondition(allCount == 1, "all reader ended before its first item")
     for await _ in allClosed.stream {}
     let namedClosed = AsyncStream<Void>.makeStream()
     let named = try await host.messages(in: group, onClose: { _ in namedClosed.continuation.finish() })
-    for try await item in named { precondition(item.deliveryCursor == cursor); break }
+    var namedCount = 0
+    for try await item in named { namedCount += 1; precondition(item.deliveryCursor == cursor); break }
+    precondition(namedCount == 1, "named reader ended before its first item")
     for await _ in namedClosed.stream {}
     let secondId = try await group.sendText(text: "large B")
     let resume = try await group.messageReader(options: ConversationMessageReaderOptions(from: cursor))
@@ -49,8 +53,9 @@ func checkReaderCursor(signer: Signer, backend: BackendOptions) async throws {
     let parent = try await reply?.parent()
     precondition(parent?.deliveryCursor == cursor)
     let preparedId = try await group.prepareMessage(encoded: encoded)
-    let pending = try await host.raw.conversations().getMessageById(id: preparedId)
-    precondition(pending?.deliveryCursor == nil)
+    guard let pending = try await host.raw.conversations().getMessageById(id: preparedId) else { throw ConformanceFailure("optimistic message missing") }
+    precondition(pending.id == preparedId)
+    precondition(pending.deliveryCursor == nil)
     try await group.publishMessage(id: preparedId)
     let published = try await host.raw.conversations().getMessageById(id: preparedId)
     precondition(published?.deliveryCursor != nil)
@@ -59,10 +64,13 @@ func checkReaderCursor(signer: Signer, backend: BackendOptions) async throws {
     guard case let .group(restored)? = try await host.raw.conversations().getById(id: groupId) else { throw ConformanceFailure("group missing") }
     let replayClosed = AsyncStream<Void>.makeStream()
     let replay = try await host.messages(in: restored, options: ConversationMessageReaderOptions(from: cursor), onClose: { _ in replayClosed.continuation.finish() })
+    var replayCount = 0
     for try await repeated in replay {
+        replayCount += 1
         precondition(repeated.id == secondId && repeated.deliveryCursor == second?.deliveryCursor)
         break
     }
+    precondition(replayCount == 1, "replay reader ended before its first item")
     for await _ in replayClosed.stream {}
     try await host.end()
     print("Swift F3 exact large cursor, full message, equality, selection, and reopen passed")
@@ -100,7 +108,9 @@ func checkRestoredPeer(backend: BackendOptions) async throws {
     let beginning = try await c.raw.conversations().beginningDeliveryCursor()
     let closed = AsyncStream<Void>.makeStream()
     let stream = try await c.messages(in: restored, options: ConversationMessageReaderOptions(from: beginning), onClose: { _ in closed.continuation.finish() })
-    for try await first in stream { precondition(first.id == id && first.deliveryCursor == cursor); break }
+    var dmCount = 0
+    for try await first in stream { dmCount += 1; precondition(first.id == id && first.deliveryCursor == cursor); break }
+    precondition(dmCount == 1, "DM reader ended before its first item")
     for await _ in closed.stream {}
     let reader = try await restored.messageReader()
     let first = try await reader.next()
