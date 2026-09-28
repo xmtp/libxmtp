@@ -37,7 +37,7 @@ pub(crate) fn rewrite(source: &str) -> Result<String> {
 mod tests {
     use super::*;
 
-    #[test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn fails_closed_if_generator_moves_the_export() {
         assert!(rewrite("export function somethingElse() {}").is_err());
         assert!(rewrite(&format!("{ENCODE_STANDARD}\n{ENCODE_STANDARD}")).is_err());

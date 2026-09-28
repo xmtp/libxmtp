@@ -916,13 +916,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "Not every target discards new records at the shared queue limit and counts those drops; follow-up Task 7 closes the gap."
 
 [[waiver]]
-id = "LOG-006"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "Current sink callbacks do not keep a failed drop report pending within its generation; follow-up Task 7 closes the gap."
-
-[[waiver]]
 id = "LOG-007"
 kind = "gap"
 owner = "protocol"
@@ -945,10 +938,10 @@ reason = "layers::sink::deliver contains callback errors and panics, and native 
 
 [[waiver]]
 id = "LOG-010"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4274"
-reason = "IdentityStrategy::initialize_identity logs the derived Debug value of IdentityStrategy, including the legacy_signed_private_key bytes supplied through the mobile create_client API. With debug logging enabled, the private signing key reaches the app sink and native message output. Follow-up Task 7 must remove this secret from the emitter and prove secret omission."
+reason = "IdentityStrategy::initialize_identity logs only a fixed strategy name and stored-identity presence. AuthBridge::on_auth_required replaces credential callback failures with fixed messages, and mobile create_client logs database-key presence and length rather than key bytes. The identity source-event test proves the removed legacy-key leak stays closed, but no complete test proves authentication credential, private signing-key, and database encryption-key omission through app sinks and native output on every public target. Follow-up Task 7 owns the remaining emitter audit and destination proof."
 
 [[waiver]]
 id = "LOG-011"
@@ -963,3 +956,10 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "A late callback result is not yet isolated from the installed generation on every target; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-013"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Current sink paths do not capture one pending-drop snapshot when selecting each record for dispatch or preserve post-dispatch drops for later attempts across targets; follow-up Task 7 closes the gap."
