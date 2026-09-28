@@ -42,6 +42,12 @@ impl std::fmt::Display for FailedInstallationIds {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum GroupError {
+    /// Application messages cannot use a reserved transcript content type. Not retryable.
+    #[error("reserved transcript content type")]
+    ReservedTranscriptContentType,
+    /// A saved publish attempt may have reached the backend. Retry confirmation only.
+    #[error("send outcome unknown for intent {intent_id}")]
+    SendOutcomeUnknown { intent_id: i32 },
     #[error(transparent)]
     #[error_code(inherit)]
     OutgoingPreparation(#[from] super::mls_sync::publish::OutgoingPreparationError),
@@ -617,6 +623,7 @@ impl RetryableError for GroupError {
             Self::SyncFailedToWait(_) => true,
             Self::StreamBarrier(error) => error.is_retryable(),
             Self::PublishedButUnconfirmed { .. } => true,
+            Self::SendOutcomeUnknown { .. } => true,
             Self::CodecError(_) => true,
             Self::Sync(s) => s.is_retryable(),
             Self::Db(e) => e.is_retryable(),
@@ -658,6 +665,7 @@ impl RetryableError for GroupError {
             | Self::AppDataSuperseded { .. }
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
+            | Self::ReservedTranscriptContentType
             | Self::FailedToVerifyInstallations(_)
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)

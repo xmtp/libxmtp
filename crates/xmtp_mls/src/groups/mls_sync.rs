@@ -159,7 +159,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         })
     }
 
-    fn emit_message_status_changed(
+    pub(in crate::groups) fn emit_message_status_changed(
         &self,
         message_id: Vec<u8>,
         previous: xmtp_events::MessageStatus,

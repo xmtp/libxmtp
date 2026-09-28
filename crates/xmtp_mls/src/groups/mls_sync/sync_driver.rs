@@ -1,5 +1,6 @@
 //! Sync entry points and the intent-resolution loop.
 
+use super::publish::{OutgoingPreparationError, PreparedAttempt};
 use super::*;
 
 impl<Context> MlsGroup<Context>
@@ -250,6 +251,9 @@ where
     ) -> Result<SyncSummary, GroupError> {
         let mut summary = SyncSummary::default();
         let db = self.context.db();
+        if self.exact_local_rejection(intent_id)? {
+            return Err(GroupError::ReservedTranscriptContentType);
+        }
 
         let time_spent = xmtp_common::time::Instant::now();
         let backoff = ExponentialBackoff::builder()
@@ -355,6 +359,9 @@ where
                     kind,
                     ..
                 })) => {
+                    if self.exact_local_rejection(intent_id)? {
+                        return Err(GroupError::ReservedTranscriptContentType);
+                    }
                     // The summary itself is logged once by GroupSyncFinished;
                     // this event only marks which intent errored.
                     log_event!(
@@ -411,6 +418,12 @@ where
         {
             return Ok(summary);
         }
+        if self.exact_local_rejection(intent_id)? {
+            return Err(GroupError::ReservedTranscriptContentType);
+        }
+        if self.reserved_attempt_without_receipt(intent_id)? {
+            return Err(GroupError::SendOutcomeUnknown { intent_id });
+        }
         if self.published_intent_target(intent_id)?.is_some() {
             return Err(GroupError::PublishedButUnconfirmed {
                 intent_id,
@@ -418,6 +431,51 @@ where
             });
         }
         Err(GroupError::SyncFailedToWait(Box::new(summary)))
+    }
+
+    fn exact_local_rejection(&self, intent_id: ID) -> Result<bool, GroupError> {
+        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let intent = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?
+                .ok_or(NotFound::IntentById(intent_id))?;
+            if intent.group_id != self.group_id {
+                return Err(OutgoingPreparationError::StateChanged.into());
+            }
+            let reason = db.local_intent_rejection_reason(intent_id)?;
+            if reason.is_some()
+                && (intent.state != IntentState::Error
+                    || intent.kind != IntentKind::SendMessage
+                    || db.prepared_envelopes(intent_id)?.is_some())
+            {
+                return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+            }
+            Ok::<_, GroupError>(Continue(reason.is_some()))
+        })
+        .map(TransactionOutcome::into_continued)
+    }
+
+    fn reserved_attempt_without_receipt(&self, intent_id: ID) -> Result<bool, GroupError> {
+        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let intent = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?
+                .ok_or(NotFound::IntentById(intent_id))?;
+            if intent.group_id != self.group_id {
+                return Err(OutgoingPreparationError::StateChanged.into());
+            }
+            if intent.state != IntentState::Published || !Self::reserved_transcript_intent(&intent)?
+            {
+                return Ok(Continue(false));
+            }
+            let bytes = db
+                .prepared_envelopes(intent_id)?
+                .ok_or(OutgoingPreparationError::MissingPreparedAttempt(intent_id))?;
+            let attempt = PreparedAttempt::decode(&bytes)?;
+            attempt.validate_intent(&intent)?;
+            Ok::<_, GroupError>(Continue(attempt.receipts.is_none()))
+        })
+        .map(TransactionOutcome::into_continued)
     }
 
     /// Observe the current attempt at its accepted receipt target, not a later topic head.

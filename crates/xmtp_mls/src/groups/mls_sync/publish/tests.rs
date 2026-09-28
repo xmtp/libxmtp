@@ -9,6 +9,8 @@ mod dictionary_creation;
 mod membership_component;
 mod membership_recovery;
 
+mod transcript;
+
 // verifies: GMOD-036
 #[rstest::rstest]
 #[case::name_first(true)]

@@ -199,7 +199,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     }
 
     /// Read the failed attempt under one writer, including after client reconstruction.
-    pub(in crate::groups::mls_sync) fn rejected_intent_summary(
+    pub(in crate::groups) fn rejected_intent_summary(
         &self,
         intent_id: i32,
     ) -> Result<SyncSummary, GroupError> {
@@ -211,7 +211,19 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             if intent.group_id != self.group_id || intent.state != IntentState::Error {
                 return Err(OutgoingPreparationError::StateChanged.into());
             }
-            let rejection = match db.prepared_envelopes(intent_id)? {
+            let prepared = db.prepared_envelopes(intent_id)?;
+            if let Some(reason) = db.local_intent_rejection_reason(intent_id)? {
+                if intent.kind != IntentKind::SendMessage || prepared.is_some() {
+                    return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+                }
+                let error = match reason {
+                    xmtp_db::group_intent::LocalIntentRejectionReason::ReservedTranscriptContentType => {
+                        GroupError::ReservedTranscriptContentType
+                    }
+                };
+                return Ok(Continue(SyncSummary::other(error)));
+            }
+            let rejection = match prepared {
                 Some(encoded) => {
                     let attempt = PreparedAttempt::decode(&encoded)?;
                     attempt.validate_intent(&intent)?;

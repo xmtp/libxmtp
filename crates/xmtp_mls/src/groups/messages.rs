@@ -1,6 +1,16 @@
 //! Sending, preparing, and querying messages.
 
 use super::*;
+use crate::utils::id::calculate_message_id_for_intent;
+use xmtp_db::group_intent::IntentKind;
+
+enum StoredPublishAction {
+    AlreadyPublished,
+    ResumeExisting(i32),
+    Queued(i32),
+    Rejected(GroupError),
+    RejectedWithoutCause(i32),
+}
 
 impl<Context> MlsGroup<Context>
 where
@@ -17,6 +27,8 @@ where
             tracing::warn!("Unable to send a message on an inactive group.");
             return Err(GroupError::GroupInactive);
         }
+
+        Self::reject_reserved_transcript_content(message)?;
 
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
@@ -148,6 +160,7 @@ where
         should_push: bool,
         idempotency_key: Option<String>,
     ) -> Result<StoredGroupMessage, GroupError> {
+        Self::reject_reserved_transcript_content(message)?;
         let now = now_ns();
         // Resolve the key once. Random defaults do not depend on clock resolution.
         let idempotency_key = idempotency_key.unwrap_or_else(|| {
@@ -204,7 +217,10 @@ where
         }
         self.ensure_not_paused().await?;
 
-        let queued = state_write(self.context.mls_storage(), |tx| {
+        let action = crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, event_writer| {
             self.ensure_active_for_send(tx)?;
             let storage = tx.storage();
             let db = storage.db();
@@ -213,26 +229,81 @@ where
                 .filter(|message| message.group_id == self.group_id)
                 .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
             if message.delivery_status == DeliveryStatus::Published {
-                return Ok(Continue(false));
+                return Ok(Continue(StoredPublishAction::AlreadyPublished));
+            }
+            let active = db.find_group_intents(
+                self.group_id,
+                Some(vec![IntentState::ToPublish, IntentState::Published, IntentState::Committed]),
+                Some(vec![IntentKind::SendMessage]),
+            )?;
+            for intent in active {
+                if calculate_message_id_for_intent(&intent)?.as_deref() == Some(message_id) {
+                    return Ok(Continue(StoredPublishAction::ResumeExisting(intent.id)));
+                }
+            }
+            for intent in db.locally_rejected_message_intents(self.group_id)? {
+                if calculate_message_id_for_intent(&intent)?.as_deref() == Some(message_id) {
+                    let reason = db.local_intent_rejection_reason(intent.id)?;
+                    if reason == Some(
+                        xmtp_db::group_intent::LocalIntentRejectionReason::ReservedTranscriptContentType,
+                    ) {
+                        return Ok(Continue(StoredPublishAction::Rejected(
+                            GroupError::ReservedTranscriptContentType,
+                        )));
+                    }
+                }
+            }
+            if Self::is_reserved_transcript_content(&message.decrypted_message_bytes) {
+                let terminal = db.find_group_intents(
+                    self.group_id,
+                    Some(vec![IntentState::Error]),
+                    Some(vec![IntentKind::SendMessage]),
+                )?;
+                for intent in terminal.into_iter().rev() {
+                    if calculate_message_id_for_intent(&intent)?.as_deref() == Some(message_id) {
+                        return Ok(Continue(StoredPublishAction::RejectedWithoutCause(intent.id)));
+                    }
+                }
+                if message.delivery_status == DeliveryStatus::Unpublished {
+                    db.set_delivery_status_to_failed(&message.id)?;
+                    self.emit_message_status_changed(
+                        message.id,
+                        xmtp_events::MessageStatus::Unpublished,
+                        xmtp_events::MessageStatus::Failed,
+                        event_writer,
+                    );
+                }
+                return Ok(Continue(StoredPublishAction::Rejected(
+                    GroupError::ReservedTranscriptContentType,
+                )));
             }
             let envelope =
                 Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
             let intent_data: Vec<u8> = SendMessageIntentData::new(envelope.encode_to_vec()).into();
-            QueueIntent::send_message()
+            let intent = QueueIntent::send_message()
                 .data(intent_data)
                 .should_push(message.should_push)
                 .queue_in(&db, self)?;
-            Ok::<_, GroupError>(Continue(true))
-        })?
+            Ok::<_, GroupError>(Continue(StoredPublishAction::Queued(intent.id)))
+        },
+        )?
         .into_continued();
-        if !queued {
-            return Ok(());
-        }
+        let (intent_id, needs_installation_update) = match action {
+            StoredPublishAction::AlreadyPublished => return Ok(()),
+            StoredPublishAction::Rejected(error) => return Err(error),
+            StoredPublishAction::RejectedWithoutCause(id) => {
+                return Err(GroupError::from(self.rejected_intent_summary(id)?));
+            }
+            StoredPublishAction::ResumeExisting(id) => (id, false),
+            StoredPublishAction::Queued(id) => (id, true),
+        };
 
         // Publish
-        self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
-            .await?;
-        self.sync_until_last_intent_resolved().await?;
+        if needs_installation_update {
+            self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
+                .await?;
+        }
+        self.sync_until_intent_resolved(intent_id).await?;
 
         // Implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
@@ -342,6 +413,30 @@ where
     }
 
     /// Helper function to extract queryable content fields from a message
+    // implements: GMOD-035
+    pub(in crate::groups) fn is_reserved_transcript_content(message: &[u8]) -> bool {
+        EncodedContent::decode(message)
+            .ok()
+            .and_then(|content| content.r#type)
+            .is_some_and(|content_type| {
+                content_type.authority_id == "xmtp.org"
+                    && matches!(
+                        content_type.type_id.as_str(),
+                        "group_updated" | "group_membership_change"
+                    )
+            })
+    }
+
+    pub(in crate::groups) fn reject_reserved_transcript_content(
+        message: &[u8],
+    ) -> Result<(), GroupError> {
+        if Self::is_reserved_transcript_content(message) {
+            Err(GroupError::ReservedTranscriptContentType)
+        } else {
+            Ok(())
+        }
+    }
+
     pub(in crate::groups) fn extract_queryable_content_fields(
         message: &[u8],
     ) -> QueryableContentFields {
