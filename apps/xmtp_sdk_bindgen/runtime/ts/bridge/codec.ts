@@ -146,7 +146,9 @@ export class ValueCodec {
     switch (shape.kind) {
       case "value":
         if (shape.type === "Bytes" && this.direction === "encode") {
-          if (value instanceof Uint8Array) return value.slice();
+          // UniFFI bytes are an ArrayBuffer. Copy only the bytes of the view,
+          // not the whole buffer under it.
+          if (value instanceof Uint8Array) return Uint8Array.from(value).buffer;
           if (value instanceof ArrayBuffer) return value.slice(0);
         }
         return value;

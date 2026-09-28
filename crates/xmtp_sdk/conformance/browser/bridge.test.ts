@@ -224,6 +224,14 @@ describe("browser bridge transport", () => {
     expect(decoder.convert(shape, structuredClone(encoded))).toBe(object);
   });
 
+  it("encodes a Bytes view as an ArrayBuffer with only the view bytes", () => {
+    const encoder = new ValueCodec({ records: {}, enums: {} }, "main", "encode");
+    const view = new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4);
+    const encoded = encoder.convert({ kind: "value", type: "Bytes" }, view);
+    expect(encoded).toBeInstanceOf(ArrayBuffer);
+    expect([...new Uint8Array(encoded as ArrayBuffer)]).toEqual([1, 2, 3]);
+  });
+
   it("rolls back sibling handles when a later snapshot throws", () => {
     const { engine } = host(async () => undefined);
     const registry = engine.registry;
