@@ -941,6 +941,31 @@ describe("browser bridge transport", () => {
     expect(removed).toHaveBeenCalledWith("abort", added.mock.calls[0][1]);
   });
 
+  it("leaves no unhandled rejection when a handshake fails", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const [main] = pair();
+      const session = new MainSession(main, 1, "refused");
+      const call = session.call(
+        "waiting",
+        [],
+        undefined,
+        new AbortController().signal,
+      );
+      main.emitRaw({
+        t: "refused",
+        error: encodeError(bridgeError("contractMismatch")),
+      });
+      await expect(call).rejects.toMatchObject({ code: "ContractMismatch" });
+      await new Promise<void>((resolve) => setTimeout(resolve, 10));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
   it("removes the handshake abort listener when the worker is ready", async () => {
     const [main] = pair();
     const session = new MainSession(main, 1, "late");
