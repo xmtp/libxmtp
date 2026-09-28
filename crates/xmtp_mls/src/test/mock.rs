@@ -89,6 +89,7 @@ impl Clone for NewMockContext {
             worker_metrics: self.worker_metrics.clone(),
             cancellation_token: self.cancellation_token.clone(),
             shutdown_complete: self.shutdown_complete.clone(),
+            foreground_calls: self.foreground_calls.clone(),
             delivery_owner: self.delivery_owner.clone(),
             incoming_runtime: self.incoming_runtime.clone(),
             identity_resolutions: self.identity_resolutions.clone(),
@@ -208,5 +209,9 @@ impl XmtpSharedContext for NewMockContext {
     fn mark_shutdown_complete(&self) {
         self.shutdown_complete
             .store(true, std::sync::atomic::Ordering::Release);
+    }
+
+    fn foreground_calls(&self) -> &Arc<crate::context::ForegroundCalls> {
+        &self.foreground_calls
     }
 }

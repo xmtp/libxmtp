@@ -64,10 +64,16 @@ where
 }
 
 // Check the closed state in the task because end() can run before it starts.
+// The call holds its gate entry until the work ends, so end() does not
+// disconnect the database under it. Work in here must not wait for end() of
+// its own client: end() waits for this call.
 async fn while_open<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
 where
     F: Future<Output = Result<T, XmtpError>>,
 {
+    let Some(_call) = context.foreground_calls().enter() else {
+        return Err(XmtpError::closed());
+    };
     if context.is_closed() {
         return Err(XmtpError::closed());
     }

@@ -453,6 +453,9 @@ where
         // Keep the database connected when lease release fails so a later
         // close call can retry it.
         delivery_result?;
+        // A running host call can hold a pooled connection. Disconnect only
+        // after the last one finishes, so no connection outlives the pool.
+        self.context.foreground_calls().close_and_wait().await;
         self.context
             .db()
             .disconnect()
