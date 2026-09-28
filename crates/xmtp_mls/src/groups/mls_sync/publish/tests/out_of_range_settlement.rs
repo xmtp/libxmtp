@@ -193,31 +193,25 @@ async fn publish_out_of_range_settlement_reads_every_page_of_the_topic() {
     assert_eq!(status(&group, &message_id), DeliveryStatus::Published);
 }
 
-/// A required Welcome batch spans several topics and several requests. After
-/// `OUT_OF_RANGE`, the stored envelopes must settle from their topics with the
-/// receipts their publish assigned, including after a restart, and only the
-/// envelopes the read proved unstored may be published again, with their
-/// saved bytes. No envelope is stored twice, and every new member can join.
+/// A required Welcome batch spans several topics and several requests. A
+/// request that commits can still return `OUT_OF_RANGE`, so the status must
+/// reach the recovery read, never smaller requests with the same envelopes.
+/// The stored envelopes must settle with the receipts their publish assigned,
+/// including after a restart, and only the envelopes the read proved unstored
+/// may be published again, with their saved bytes. No envelope is stored
+/// twice, and every new member can join.
 // verifies: SEND-007, SEND-011
 #[xmtp_common::test(unwrap_try = true)]
 async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch() {
-    tester!(alix, disable_workers);
+    tester!(alix, disable_workers, configured: |c| c.limits.max_publish_topics = 2);
     tester!(bo, disable_workers);
     tester!(caro, disable_workers);
     tester!(dan, disable_workers);
     let group = alix.create_group(None, None)?;
-    // The batch is one request. Its refusal splits it in two, the first half
-    // is stored with its response lost, and the first envelope alone is
-    // refused, so the second half was never stored.
-    let api = FaultyApi::new(
-        &alix,
-        welcome,
-        [
-            Fault::Refuse(tonic::Code::OutOfRange),
-            Fault::LoseResponse,
-            Fault::Refuse(tonic::Code::OutOfRange),
-        ],
-    );
+    // The batch spans at least two requests. The first to reach the backend
+    // commits with its response lost, which ends the batch before the others
+    // are sent.
+    let api = FaultyApi::new(&alix, welcome, [Fault::LoseResponse]);
     api.stop_before_recovery.store(true, Ordering::SeqCst);
     let lossy = faulty_group(&alix, &group.group_id, api.clone()).await;
 
@@ -254,9 +248,11 @@ async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch()
         batch.len() >= 4,
         "the batch must carry pointers and a pointee"
     );
-    let before_recovery = api.requests.lock().len();
-    assert_eq!(before_recovery, 3);
-    let (stored, unstored) = batch.split_at(batch.len() / 2);
+    let sent = api.requests.lock().clone();
+    assert_eq!(sent.len(), 1, "the lost request was sent again");
+    let stored = &sent[0].envelopes;
+    let unstored: Vec<_> = batch.iter().filter(|e| !stored.contains(e)).collect();
+    assert!(!unstored.is_empty());
 
     api.restart();
     let restarted = faulty_group(&alix, &group.group_id, api.clone()).await;
@@ -274,22 +270,23 @@ async fn publish_out_of_range_settlement_completes_a_mixed_topic_welcome_batch()
         "the batch was re-encrypted"
     );
     let receipts = settled_welcomes.receipts?;
-    assert_eq!(
-        receipts[..stored.len()].to_vec(),
-        api.lost
-            .lock()
-            .iter()
-            .map(Message::encode_to_vec)
-            .collect::<Vec<_>>(),
-        "the recovery read must return the receipts the publish assigned"
-    );
-    let resent = api.requests.lock()[before_recovery..].to_vec();
+    let lost = api.lost.lock().clone();
+    assert_eq!(lost.len(), stored.len());
+    for (envelope, meta) in stored.iter().zip(&lost) {
+        let index = batch.iter().position(|e| e == envelope)?;
+        assert_eq!(
+            receipts[index],
+            meta.encode_to_vec(),
+            "the recovery read must return the receipts the publish assigned"
+        );
+    }
+    let resent = api.requests.lock()[1..].to_vec();
     for envelope in stored {
         assert!(
             resent
                 .iter()
                 .all(|request| !request.envelopes.contains(envelope)),
-            "a stored envelope was sent again after the recovery read"
+            "a stored envelope was sent again"
         );
     }
     for envelope in unstored {

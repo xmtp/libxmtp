@@ -188,6 +188,14 @@ pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
     }
 }
 
+/// A size refusal that proves nothing was stored, so smaller requests may
+/// follow. `OUT_OF_RANGE` proves nothing: the request can commit before its
+/// response outgrows the transport, so its caller settles it with a read.
+// implements: API-284
+fn publish_size_error(error: &(dyn std::error::Error + 'static)) -> bool {
+    size_error(error) && grpc_status(error).is_none_or(|status| status.code() != Code::OutOfRange)
+}
+
 /// Size failures bypass backoff while the caller can reduce the request.
 #[derive(Debug, thiserror::Error)]
 enum CallError<E> {
@@ -277,7 +285,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                     }
                     metas.extend(response.envelope_metas);
                 }
-                Err(error) if size_error(&error) && units.len() > 1 => {
+                Err(error) if publish_size_error(&error) && units.len() > 1 => {
                     let (left, right) = units.split_at(units.len() / 2);
                     pending.push_front(right);
                     pending.push_front(left);
@@ -464,6 +472,8 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     /// metadata of each envelope in envelope order, matched by its canonical
     /// hash. `None` marks an envelope the backend did not store. Pages that
     /// match nothing are dropped, and the read stops once every envelope matched.
+    /// A record without valid metadata fails the read: it could be any envelope,
+    /// so the read cannot prove one absent.
     #[xmtp_common::rpc_span]
     pub async fn settle_units(
         &self,
@@ -483,29 +493,27 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
             .collect();
         let limit = self.limits().max_query_limit as u32;
         for chunk in topics.chunks(self.limits().max_query_topics) {
-            let mut invalid = None;
+            let mut invalid = false;
             self.scan_chunk(chunk.to_vec(), limit, |page| {
-                for stored in page {
-                    let Some(meta) = stored.meta else { continue };
-                    let Some(index) = xmtp_api_backend::envelope::message_hash(&meta)
-                        .ok()
-                        .and_then(|hash| pending.remove(&hash))
-                    else {
-                        continue;
+                invalid = page.into_iter().any(|stored| {
+                    let Some(meta) = stored.meta else { return true };
+                    let Ok(hash) = xmtp_api_backend::envelope::message_hash(&meta) else {
+                        return true;
+                    };
+                    let Some(index) = pending.remove(&hash) else {
+                        return false;
                     };
                     let topic = &envelopes[index].topic;
-                    match xmtp_api_backend::envelope::metadata(&meta, topic.kind()) {
-                        Ok((stored_topic, _, _)) if stored_topic == *topic => {
-                            settled[index] = Some(meta)
-                        }
-                        _ => invalid = Some(ApiError::InvalidResponse("settled metadata")),
-                    }
-                }
-                invalid.is_some() || pending.is_empty()
+                    let valid = xmtp_api_backend::envelope::metadata(&meta, topic.kind())
+                        .is_ok_and(|(stored_topic, _, _)| stored_topic == *topic);
+                    settled[index] = Some(meta);
+                    !valid
+                });
+                invalid || pending.is_empty()
             })
             .await?;
-            if let Some(error) = invalid {
-                return Err(error);
+            if invalid {
+                return Err(ApiError::InvalidResponse("settled metadata"));
             }
             if pending.is_empty() {
                 break;

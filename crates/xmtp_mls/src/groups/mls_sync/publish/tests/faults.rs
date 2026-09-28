@@ -25,7 +25,7 @@ pub(super) enum Fault {
 }
 
 /// Passes every request to the test backend, except that each publish carrying
-/// an envelope `intercepts` selects takes the next queued fault.
+/// an envelope `intercepts` selects takes the next queued fault, one at a time.
 #[derive(Clone)]
 pub(super) struct FaultyApi {
     inner: crate::utils::TestClient,
@@ -39,6 +39,9 @@ pub(super) struct FaultyApi {
     /// [`Self::restart`], as if the process stopped before its recovery read.
     pub stop_before_recovery: Arc<AtomicBool>,
     poisoned: Arc<AtomicBool>,
+    /// Intercepted publishes run one at a time, so the first to fail ends a
+    /// concurrent batch before any other intercepted request is sent.
+    serial: Arc<futures::lock::Mutex<()>>,
 }
 
 impl FaultyApi {
@@ -55,6 +58,7 @@ impl FaultyApi {
             lost: Default::default(),
             stop_before_recovery: Default::default(),
             poisoned: Default::default(),
+            serial: Default::default(),
         }
     }
 
@@ -102,6 +106,7 @@ impl XmtpBackendClient for FaultyApi {
         if !intercepted {
             return self.inner.publish(request).await;
         }
+        let _serial = self.serial.lock().await;
         let fault = self.faults.lock().pop_front();
         self.requests.lock().push(request.clone());
         let out_of_range = match fault {
