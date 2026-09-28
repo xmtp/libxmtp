@@ -181,6 +181,100 @@ async fn existing_file_record_cannot_race_another_clients_deletion() {
     );
 }
 
+// verifies: EVENT-057
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn download_completion_keeps_publication_order_for_one_key() {
+    let sender = tempfile::tempdir()?;
+    let recipient = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: sender.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let mut first_remote = pending.remote_attachment().clone();
+    let body = tokio::fs::read(
+        sender
+            .path()
+            .join(staged_path(&first_remote.content_digest)?),
+    )
+    .await?;
+    let (second_url, _) = serve_body(body.clone()).await;
+    let (url, _) = serve_body(body).await;
+    first_remote.url = url;
+    let mut second_remote = first_remote.clone();
+    second_remote.filename = Some("second.txt".into());
+    second_remote.url = second_url;
+    assert_eq!(
+        attachment_key(&first_remote)?,
+        attachment_key(&second_remote)?
+    );
+    assert_ne!(
+        plaintext_rel_path(&first_remote)?,
+        plaintext_rel_path(&second_remote)?
+    );
+
+    tester!(bo, attachments_dir: recipient.path(), disable_workers);
+    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let events = client.context.events().subscribe_app(EventFilter::new([
+        EventKind::AttachmentDownloadStarted,
+        EventKind::AttachmentDownloadCompleted,
+    ]))?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    *client.context.attachments.download_completion_pause.lock() =
+        Some((entered.clone(), resume.clone()));
+    let first_client = client.clone();
+    let first = first_remote.clone();
+    let first_download =
+        tokio::spawn(async move { first_client.attachments().download(&first).await });
+    tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+    assert!(
+        client
+            .context
+            .db()
+            .get_local_attachment(&plaintext_rel_path(&first_remote)?)?
+            .is_some()
+    );
+
+    let second_client = client.clone();
+    let second = second_remote.clone();
+    let mut second_download =
+        tokio::spawn(async move { second_client.attachments().download(&second).await });
+    let second_finished_early =
+        tokio::time::timeout(Duration::from_millis(500), &mut second_download).await;
+    let passed_before_first_event = second_finished_early.is_ok();
+    resume.notify_one();
+    tokio::time::timeout(Duration::from_secs(5), first_download).await???;
+    match second_finished_early {
+        Ok(result) => {
+            result??;
+        }
+        Err(_) => {
+            tokio::time::timeout(Duration::from_secs(5), second_download).await???;
+        }
+    }
+    assert!(
+        !passed_before_first_event,
+        "second download passed the first completion event"
+    );
+    let completed: Vec<_> = events
+        .drain()
+        .into_iter()
+        .filter_map(|event| match event.client {
+            Some(ClientEvent::AttachmentDownloadCompleted(reference)) => Some(reference),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(completed.len(), 2);
+    assert_eq!(completed[0].url, first_remote.url);
+    assert_eq!(completed[1].url, second_remote.url);
+}
+
 // verifies: ATCH-051, ATCH-063
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_metadata_write_removes_downloaded_file() {

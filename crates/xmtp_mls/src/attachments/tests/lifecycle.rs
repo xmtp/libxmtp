@@ -115,6 +115,7 @@ async fn delete_stops_retrying_unrecorded_upload_outcome() {
         kinds,
         [
             EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadFailed,
             EventKind::AttachmentDeleted
         ]
     );
@@ -186,6 +187,7 @@ async fn deletion_wins_before_outcome_write_under_event_lock() {
         kinds,
         [
             EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadFailed,
             EventKind::AttachmentDeleted
         ]
     );
@@ -494,6 +496,7 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
         kinds,
         [
             EventKind::AttachmentUploadStarted,
+            EventKind::AttachmentUploadFailed,
             EventKind::AttachmentDeleted
         ]
     );

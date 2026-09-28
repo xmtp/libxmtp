@@ -482,6 +482,7 @@ struct DownloadAttemptGuard<Context: XmtpSharedContext + 'static> {
     relative: String,
     key: String,
     shared: Arc<DownloadShared>,
+    publication: Option<tokio::sync::OwnedMutexGuard<()>>,
     finished: bool,
 }
 
@@ -531,6 +532,7 @@ impl<Context: XmtpSharedContext + 'static> DownloadAttemptGuard<Context> {
             result,
         )
         .await;
+        self.publication.take();
         self.finished = true;
     }
 }
@@ -545,7 +547,9 @@ impl<Context: XmtpSharedContext + 'static> Drop for DownloadAttemptGuard<Context
         let relative = self.relative.clone();
         let key = self.key.clone();
         let shared = self.shared.clone();
+        let publication = self.publication.take();
         drop(xmtp_common::task::spawn(async move {
+            let _publication = publication;
             publish_download_outcome(
                 &context,
                 &remote,
@@ -812,6 +816,8 @@ pub struct AttachmentRuntime {
     #[cfg(all(test, not(target_arch = "wasm32")))]
     download_publish_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
+    download_completion_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     download_existing_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     reconcile_snapshot_pause: Mutex<Option<(Arc<tokio::sync::Notify>, Arc<tokio::sync::Notify>)>>,
@@ -871,6 +877,8 @@ impl Default for AttachmentRuntime {
             download_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_publish_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_completion_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_existing_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -950,6 +958,8 @@ impl AttachmentRuntime {
             download_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_publish_pause: Mutex::new(None),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            download_completion_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             download_existing_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1248,6 +1258,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     relative: relative.clone(),
                     key: key.clone(),
                     shared: shared.clone(),
+                    publication: None,
                     finished: false,
                 };
                 drop(xmtp_common::task::spawn(async move {
@@ -1261,8 +1272,21 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                         panic!("forced download attempt panic");
                     }
                     let result = task
-                        .download_once(&attempt.remote, &attempt.relative, &attempt.shared.cancel)
+                        .download_once(
+                            &attempt.remote,
+                            &attempt.relative,
+                            &attempt.shared.cancel,
+                            &mut attempt.publication,
+                        )
                         .await;
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    let completion_pause =
+                        { task.runtime().download_completion_pause.lock().take() };
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
+                    if let Some((entered, resume)) = completion_pause {
+                        entered.notify_one();
+                        resume.notified().await;
+                    }
                     attempt.finish(result).await;
                 }));
                 shared
@@ -1287,6 +1311,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
         remote: &RemoteAttachment,
         relative: &str,
         cancel: &CancellationToken,
+        publication_guard: &mut Option<tokio::sync::OwnedMutexGuard<()>>,
     ) -> Result<DownloadedAttachment, AttachmentClientError> {
         let store = self.runtime().store()?;
         let material = KeyMaterial::from_remote(remote)?;
@@ -1334,9 +1359,9 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             }
             let publication = self.runtime().publication_lock.clone().lock_owned().await;
             #[cfg(not(target_arch = "wasm32"))]
-            let (move_result, _publication) = (store.rename(final_tmp, relative).await, publication);
+            let (move_result, move_publication) = (store.rename(final_tmp, relative).await, publication);
             #[cfg(target_arch = "wasm32")]
-            let (move_result, _publication) = {
+            let (move_result, move_publication) = {
                 // Keep the lock in the task until the OPFS move promise settles.
                 let store = store.clone();
                 let source = final_tmp.to_owned();
@@ -1358,6 +1383,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     .await
                     .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
             };
+            *publication_guard = Some(move_publication);
             match move_result {
                 Ok(()) => {}
                 Err(StoreMoveError::DestinationExists) => {
