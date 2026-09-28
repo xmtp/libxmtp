@@ -282,7 +282,7 @@ where
             return Err(DeleteMessageError::NotAuthorized.into());
         }
 
-        if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
+        if !crate::messages::enrichment::is_deletable_stored_message(&original_msg) {
             return Err(DeleteMessageError::NonDeletableMessage.into());
         }
 

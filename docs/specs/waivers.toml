@@ -578,13 +578,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Remote-attachment decoding accepts a missing required parameter as an empty value."
 
 [[waiver]]
-id = "CTYPE-018"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Deletion eligibility is read from the stored type enum without validating the target's authority and major version."
-
-[[waiver]]
 id = "CTYPE-023"
 kind = "gap"
 owner = "protocol"
