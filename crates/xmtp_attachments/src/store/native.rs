@@ -4,7 +4,7 @@ use std::{
     sync::Arc,
 };
 
-use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 #[cfg(windows)]
 use cap_std::fs::MetadataExt;
 #[cfg(windows)]
@@ -707,16 +707,40 @@ impl LocalStore for NativeStore {
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
         validate_relative(path)?;
         let (parent, name) = self.parent(path, false).map_err(storage_error)?;
-        parent
-            .open_dir_nofollow(&name)
-            .map_err(storage_error)?
-            .remove_open_dir_all()
-            .map_err(storage_error)
+        #[cfg(unix)]
+        let child = self
+            .open_managed_child(&parent, &name, false)
+            .map_err(storage_error)?;
+        #[cfg(not(unix))]
+        let child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        child.remove_open_dir_all().map_err(storage_error)
+    }
+
+    async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError> {
+        validate_relative(path)?;
+        let (parent, name) = match self.parent(path, false) {
+            Ok(value) => value,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(storage_error(error)),
+        };
+        if !exists_nofollow(&parent, &name).map_err(storage_error)? {
+            return Ok(false);
+        }
+        #[cfg(unix)]
+        self.open_managed_child(&parent, &name, false)
+            .map_err(storage_error)?;
+        #[cfg(not(unix))]
+        parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        Ok(true)
     }
 
     async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError> {
         validate_relative(path)?;
         let (parent, name) = self.parent(path, false).map_err(storage_error)?;
+        #[cfg(unix)]
+        self.open_managed_child(&parent, &name, false)
+            .map_err(storage_error)?;
+        #[cfg(not(unix))]
         parent.open_dir_nofollow(&name).map_err(storage_error)?;
         parent.remove_dir(&name).map_err(storage_error)
     }

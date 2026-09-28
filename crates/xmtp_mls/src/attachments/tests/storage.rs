@@ -587,6 +587,73 @@ async fn delete_removes_every_record_in_key_directory() {
     assert!(!dir.path().join(&key).exists());
 }
 
+// verifies: ATCH-047, ATCH-077
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_repairs_inaccessible_key_before_removing_pending_row() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    struct RestoreMode(std::path::PathBuf);
+    impl Drop for RestoreMode {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let key = attachment_key(&remote)?;
+    let key_path = dir.path().join(&key);
+    let relative = plaintext_rel_path(&remote)?;
+    let _restore = RestoreMode(key_path.clone());
+    std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o000))?;
+
+    alix.client.attachments().delete_local(&remote).await?;
+    assert!(!key_path.exists());
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_none()
+    );
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_local_attachment(&relative)?
+            .is_none()
+    );
+}
+
+// verifies: ATCH-047, ATCH-077
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_rejects_symlinked_key_before_removing_pending_row() {
+    let dir = tempfile::tempdir()?;
+    let outside = tempfile::tempdir()?;
+    std::fs::write(outside.path().join("file"), b"outside")?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let key = attachment_key(&remote)?;
+    tokio::fs::remove_dir_all(dir.path().join(&key)).await?;
+    std::os::unix::fs::symlink(outside.path(), dir.path().join(&key))?;
+
+    let result = alix.client.attachments().delete_local(&remote).await;
+    assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert!(
+        alix.client
+            .context
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_some()
+    );
+    assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+}
+
 // verifies: EVENT-001
 #[xmtp_common::test(unwrap_try = true)]
 async fn deletion_event_survives_later_row_failure() {

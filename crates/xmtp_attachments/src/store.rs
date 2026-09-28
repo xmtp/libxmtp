@@ -187,6 +187,10 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     /// Atomically replace the destination with a completed temporary file.
     async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
+    /// Check a managed directory before its related record is removed.
+    async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError> {
+        self.exists(path).await
+    }
     /// Remove only an empty directory.
     async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError>;
     async fn remove_file(&self, path: &str) -> Result<(), AttachmentError>;
@@ -561,6 +565,55 @@ mod tests {
             Cause::LocalStorage
         );
         assert_eq!(std::fs::read(outside.path().join("sub/file"))?, b"outside");
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn direct_managed_directory_removal_repairs_mode_and_checks_owner() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreModes(Vec<std::path::PathBuf>);
+        impl Drop for RestoreModes {
+            fn drop(&mut self) {
+                for path in &self.0 {
+                    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+                }
+            }
+        }
+
+        let root = tempfile::tempdir()?;
+        let store = NativeStore::new(root.path()).await?;
+        let full = "a".repeat(64);
+        let empty = "b".repeat(64);
+        let foreign = "c".repeat(64);
+        let full_path = root.path().join(&full);
+        let empty_path = root.path().join(&empty);
+        let foreign_path = root.path().join(&foreign);
+        std::fs::create_dir(&full_path)?;
+        std::fs::write(full_path.join("file"), b"plain")?;
+        std::fs::create_dir(&empty_path)?;
+        std::fs::create_dir(&foreign_path)?;
+        let _restore = RestoreModes(vec![full_path.clone(), empty_path.clone()]);
+        for path in [&full_path, &empty_path] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))?;
+        }
+
+        store.remove_dir_all(&full).await?;
+        store.remove_empty_dir(&empty).await?;
+        assert!(!full_path.exists());
+        assert!(!empty_path.exists());
+        let foreign_store = store.with_forced_foreign_owner();
+        assert_eq!(
+            foreign_store
+                .remove_dir_all(&foreign)
+                .await
+                .err()
+                .expect("foreign-owned directory must fail")
+                .cause,
+            Cause::LocalStorage
+        );
+        assert!(foreign_path.is_dir());
     }
 
     #[cfg(unix)]

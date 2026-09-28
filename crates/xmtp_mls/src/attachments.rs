@@ -1501,6 +1501,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             .db()
             .get_pending_attachment(&remote.content_digest)
             .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
+        let key_exists = store.prepare_remove_dir(&key).await?;
         let deleted_pending =
             if let Some(row) = pending_row.filter(|row| pending_row_matches_key(row, &key)) {
                 self.context
@@ -1514,7 +1515,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             } else {
                 false
             };
-        if store.exists(&key).await? {
+        if key_exists {
             store.remove_dir_all(&key).await?;
             emit_deleted();
         }
