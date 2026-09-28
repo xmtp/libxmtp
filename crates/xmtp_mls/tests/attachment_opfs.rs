@@ -31,7 +31,8 @@ use xmtp_mls::{
         pause_next_download_move, set_next_download_body,
     },
     storage_location::{
-        DeploymentWriteFault, set_deployment_write_fault, write_deployments_for_test,
+        DeploymentWriteFault, record_deployment_for_test, set_deployment_write_fault,
+        write_deployments_for_test,
     },
     utils::test::identity_setup,
 };
@@ -177,6 +178,48 @@ async fn deployment_temp_removed_after_cancel() {
             .await?,
         b"prior record"
     );
+}
+
+// verifies: ATCH-069
+#[xmtp_common::test(unwrap_try = true)]
+async fn cancelled_record_keeps_both_backend_urls() {
+    let root = test_root("deployment-record-cancel-race");
+    let path = std::path::PathBuf::from(&root);
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    let settled = Arc::new(tokio::sync::Notify::new());
+    set_deployment_write_fault(DeploymentWriteFault::PauseReplace {
+        entered: entered.clone(),
+        resume: resume.clone(),
+        settled: settled.clone(),
+    });
+    let first_path = path.clone();
+    let (first, abort) = futures::future::abortable(async move {
+        record_deployment_for_test(&first_path, "https://first.example", "first").await
+    });
+    let first_task = xmtp_common::task::spawn(first);
+    xmtp_common::time::timeout(Duration::from_secs(3), entered.notified()).await?;
+    abort.abort();
+    assert!(first_task.await?.is_err());
+
+    let (sent, mut received) = tokio::sync::oneshot::channel();
+    drop(xmtp_common::task::spawn(async move {
+        let _ =
+            sent.send(record_deployment_for_test(&path, "https://second.example", "second").await);
+    }));
+    let early = xmtp_common::time::timeout(Duration::from_millis(500), &mut received).await;
+    resume.notify_one();
+    match early {
+        Ok(result) => result??,
+        Err(_) => xmtp_common::time::timeout(Duration::from_secs(3), received).await???,
+    }
+    xmtp_common::time::timeout(Duration::from_secs(3), settled.notified()).await?;
+    let store = OpfsStore::new(&root).await?;
+    let file = store.open_read("deployments.json").await?;
+    let bytes = file.read_chunk(0, 64 * 1024).await?;
+    let document: serde_json::Value = serde_json::from_slice(&bytes)?;
+    assert_eq!(document["deployments"]["https://first.example"], "first");
+    assert_eq!(document["deployments"]["https://second.example"], "second");
 }
 
 // verifies: ATCH-048
