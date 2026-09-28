@@ -274,7 +274,7 @@ struct Conformance {
                 )
                 throw ConformanceFailure("default storage accepted a missing bundle identifier")
             } catch XmtpError.StorageLocationRequired {}
-            print("Swift STORE-006: missing bundle identifier rejected")
+            print("Swift missing bundle identifier rejected")
             return
         }
         precondition(sdkVersion().hasPrefix("1.12.0"))
