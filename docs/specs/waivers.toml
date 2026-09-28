@@ -842,124 +842,124 @@ reason = "Not every current binding is known to reject an out-of-range Actions e
 id = "PROC-046"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
 reason = "The public SDK readers do not yet expose the fixed scope and filter options on every target; follow-up Task 3 closes the gap."
 
 [[waiver]]
 id = "PROC-047"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "The fixed public reader selection has no test of distinct scope and filter effects on default delivery progress; follow-up Task 3 closes the gap."
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "LocalDelivery::next_inner selects candidates within the current scope, and LocalDelivery::skip_candidate persists filter exclusions for the default owner. No public fixed-selection test proves both the preserved out-of-scope position and consumed in-scope exclusion. Follow-up Task 3 owns the missing proof."
 
 [[waiver]]
 id = "PROC-048"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "No test holds network registration acknowledgement behind a barrier while a public reader hands off a stored message; follow-up Task 3 closes the gap."
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "MessageReader::new acquires network interest without awaiting registration, and MessageReader::next_delivery polls LocalDelivery independently of registration acknowledgement. No public reader test holds registration acknowledgement behind a barrier while proving a stored-message handoff. Follow-up Task 3 owns the missing proof."
 
 [[waiver]]
 id = "PROC-049"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "No test ends one public reader while another operation still needs the same network interest; follow-up Task 3 closes the gap."
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "MessageReaderControl::close releases its own IncomingLease. The incoming controller removes only that scope and computes network interest from the union of remaining scopes. No public reader test proves that ending one reader preserves another operation's shared interest. Follow-up Task 3 owns the missing proof."
 
 [[waiver]]
 id = "PROC-050"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
 reason = "Full stored message results do not yet expose committed cursors and their absence through every public read path; follow-up Task 3 closes the gap."
 
 [[waiver]]
 id = "CTYPE-031"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "The no-compression default is not yet proven for every public send path; follow-up Task 6 closes the gap."
+issue = "https://github.com/xmtp/libxmtp/issues/4273"
+reason = "SendOptions defaults compression to None, and conversation::send_encoded calls compress_if_requested with that option. message_actions_use_ids_and_compression_is_opt_in checks that an omitted compression option leaves the stored envelope uncompressed. Public-package coverage of all send paths remains due in follow-up Task 6."
 
 [[waiver]]
 id = "LOG-001"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "Default native log delivery is not yet proven across the generated SDK targets; follow-up Task 7 closes the gap."
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "init_logging installs the native primary layer or browser console layer independently of SinkSlot. Clearing the app sink leaves those layers installed. No generated-target test proves default log delivery on every target. Follow-up Task 7 owns the missing proof."
 
 [[waiver]]
 id = "LOG-002"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "Current targets do not share one asynchronous, ordered sink dispatcher across generations; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "LOG-003"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "Current app log queues and transports do not enforce one 4096-record limit; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "LOG-004"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "Mobile log callbacks can still run inline with client work; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "LOG-005"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "Not every target discards new records at the shared queue limit and counts those drops; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "LOG-006"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "Current sink callbacks do not keep a failed drop report pending within its generation; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "LOG-007"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "Sink replacement has no shared boundary that stops old handoffs without waiting for the active callback; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "LOG-008"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "Reentrant SDK calls from a held log callback are not proven on every target; follow-up Task 7 closes the gap."
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "The native SinkBridge calls LogSink::log inline during SDK operations. A callback that calls and waits for Client::end deadlocks when the emitting operation holds a ForegroundCall: end waits for that guard, which cannot drop until the callback returns. Follow-up Task 7 must dispatch callbacks independently of guarded client work."
 
 [[waiver]]
 id = "LOG-009"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "Sink rejection and native layer survival are not yet proven across all targets; follow-up Task 7 closes the gap."
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "layers::sink::deliver contains callback errors and panics, and native logging layers remain separate from SinkSlot. Existing sink error and panic tests do not prove messaging and native-log survival through every public target. Follow-up Task 7 owns the missing proof."
 
 [[waiver]]
 id = "LOG-010"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "The client sink and native layers have no complete test for credential, signing-key, and database-key redaction; follow-up Task 7 closes the gap."
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "IdentityStrategy::initialize_identity logs the derived Debug value of IdentityStrategy, including the legacy_signed_private_key bytes supplied through the mobile create_client API. With debug logging enabled, the private signing key reaches the app sink and native message output. Follow-up Task 7 must remove this secret from the emitter and prove secret omission."
 
 [[waiver]]
 id = "LOG-011"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "Current targets do not discard old-generation queued records and pending drops on replacement; follow-up Task 7 closes the gap."
 
 [[waiver]]
 id = "LOG-012"
 kind = "gap"
 owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
 reason = "A late callback result is not yet isolated from the installed generation on every target; follow-up Task 7 closes the gap."

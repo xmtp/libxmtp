@@ -1,4 +1,5 @@
 import { ErrorCategory } from "../../xmtp_sdk.js";
+import { validatedIdLiftMessage } from "../validated-id-lift.js";
 
 function bridgeCodes<const T extends readonly string[]>(...codes: T): T {
   return codes;
@@ -38,9 +39,6 @@ export class BridgeError extends Error {
     this.name = variant;
   }
 }
-
-const validatedIdLift =
-  /Lifting custom type `xmtp_sdk::ids::(?:InboxId|InstallationId|ConversationId|MessageId)` from FFI type `alloc::string::String` failed/;
 
 export function bridgeError(
   code: BridgeErrorCode,
@@ -100,12 +98,7 @@ export function encodeError(error: unknown): ErrorWire {
     };
   }
   if (error instanceof Error) {
-    if (
-      validatedIdLift.test(error.message) &&
-      error.message.includes(
-        'invalid argument: ErrorDetails { code: "InvalidArgument"',
-      )
-    ) {
+    if (validatedIdLiftMessage(error) !== undefined) {
       const category = ErrorCategory.Input;
       return {
         variant: "InvalidArgument",

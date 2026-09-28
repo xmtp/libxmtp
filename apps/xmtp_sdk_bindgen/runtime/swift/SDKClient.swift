@@ -38,10 +38,12 @@ public final class SDKClient: @unchecked Sendable {
         var result = options
         if case .default = result.storage.location {
             guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
-                  let name = Bundle.main.bundleIdentifier, !name.isEmpty, !name.contains("\0") else {
+                  let name = Bundle.main.bundleIdentifier, !name.isEmpty, !name.contains("\0")
+            else {
                 throw XmtpError.StorageLocationRequired(ErrorDetails(
                     code: "StorageLocationRequired", category: .storage, retryable: false,
-                    message: "Default storage needs an application bundle identifier and Application Support directory"))
+                    message: "Default storage needs an application bundle identifier and Application Support directory"
+                ))
             }
             result.storage.location = .directory(base.appendingPathComponent(name)
                 .appendingPathComponent("xmtp").path)
@@ -53,14 +55,14 @@ public final class SDKClient: @unchecked Sendable {
         signer: Signer, options: ClientOptions,
         codecs: [any SDKContentCodec] = []
     ) async throws -> SDKClient {
-        try await SDKClient(Client.create(signer: signer, options: try resolved(options)), codecs: codecs)
+        try await SDKClient(Client.create(signer: signer, options: resolved(options)), codecs: codecs)
     }
 
     public static func build(
         identity: PublicIdentity, options: ClientOptions, inboxId: InboxId? = nil,
         codecs: [any SDKContentCodec] = []
     ) async throws -> SDKClient {
-        try await SDKClient(Client.build(identity: identity, options: try resolved(options), inboxId: inboxId), codecs: codecs)
+        try await SDKClient(Client.build(identity: identity, options: resolved(options), inboxId: inboxId), codecs: codecs)
     }
 
     public static func fetchServerConfiguration(backend: BackendSource) async throws -> ServerConfiguration {

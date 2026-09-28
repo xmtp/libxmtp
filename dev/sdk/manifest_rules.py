@@ -996,6 +996,7 @@ REMOVED_TYPES = {
     },
 }
 
+
 def spelling(name: str) -> str:
     name = re.sub(
         r"(?:^|(?<=\.))unsafe_([a-z])",

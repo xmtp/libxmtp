@@ -267,7 +267,13 @@ fun main() =
             )
         val host = SDKClient.create(signer, options)
         val client = host.raw
-        check(runCatching { client.conversations().getMessageById("bad") }.exceptionOrNull() is XmtpException.InvalidArgument)
+        check(
+            runCatching {
+                client.conversations().getMessageById(
+                    "bad",
+                )
+            }.exceptionOrNull() is XmtpException.InvalidArgument,
+        )
         val inboxId = client.inboxId()
         val storagePath = checkNotNull(host.storage().path())
         check(Files.isRegularFile(Path.of(storagePath))) { "storage path does not name the database file" }
@@ -660,9 +666,19 @@ fun main() =
         val staticBackend = Backend.connect(backendOptions)
         check(SDKClient.inboxIdFor(signer.identity(), BackendSource.Connected(staticBackend)) == inboxId)
         check(
-            SDKClient.canMessage(listOf(signer.identity()), BackendSource.Connected(staticBackend))[signer.identity().identifier] == true,
+            SDKClient.canMessage(
+                listOf(signer.identity()),
+                BackendSource.Connected(staticBackend),
+            )[signer.identity().identifier] ==
+                true,
         )
-        check(SDKClient.canMessage(listOf(signer.identity()), BackendSource.Options(backendOptions))[signer.identity().identifier] == true)
+        check(
+            SDKClient.canMessage(
+                listOf(signer.identity()),
+                BackendSource.Options(backendOptions),
+            )[signer.identity().identifier] ==
+                true,
+        )
         check(
             runCatching {
                 SDKClient.build(

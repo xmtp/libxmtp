@@ -4,6 +4,7 @@ mod forwarding;
 mod kotlin_callbacks;
 mod kotlin_records;
 mod validate;
+mod validated_id_lift;
 
 use std::{collections::BTreeSet, fs, path::Path};
 
@@ -195,6 +196,12 @@ fn generate(
                     callback_cursor::rewrite(&fs::read_to_string(&binding)?)?,
                 )?;
             }
+            if pure_only || matches!(language, Language::TypescriptNapi) {
+                fs::write(
+                    &binding,
+                    validated_id_lift::rewrite(&fs::read_to_string(&binding)?)?,
+                )?;
+            }
             if is_wasm && !pure_only {
                 let mut body = fs::read_to_string(&binding)?;
                 body.push_str("\nexport { Message, Timestamp } from './runtime';\n");
@@ -254,7 +261,12 @@ fn generate(
     if pure_only {
         let pure_runtime = out.join("runtime");
         fs::create_dir_all(&pure_runtime)?;
-        for name in ["codecs.ts", "codec-type.ts", "ids.ts"] {
+        for name in [
+            "codecs.ts",
+            "codec-type.ts",
+            "ids.ts",
+            "validated-id-lift.ts",
+        ] {
             fs::copy(runtime.join(name), pure_runtime.join(name))?;
         }
         fs::copy(runtime.join("pure-index.ts"), pure_runtime.join("index.ts"))?;

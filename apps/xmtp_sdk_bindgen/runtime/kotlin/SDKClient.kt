@@ -36,12 +36,15 @@ class SDKClient private constructor(
         ): ClientOptions {
             val location =
                 if (options.storage.location is StorageLocation.Default) {
-                    val directory = defaultDirectory ?: throw XmtpException.StorageLocationRequired(
-                        ErrorDetails(
-                            "StorageLocationRequired", ErrorCategory.STORAGE, false,
-                            "Default storage needs an Android context directory",
-                        ),
-                    )
+                    val directory =
+                        defaultDirectory ?: throw XmtpException.StorageLocationRequired(
+                            ErrorDetails(
+                                "StorageLocationRequired",
+                                ErrorCategory.STORAGE,
+                                false,
+                                "Default storage needs an Android context directory",
+                            ),
+                        )
                     StorageLocation.Directory(directory)
                 } else {
                     options.storage.location

@@ -104,6 +104,18 @@ for (const sample of codecSamples) {
 }
 console.log("Node P69: all 15 standard codecs match Rust bytes");
 
+const malformedDelete = sdk.StandardContent.DeleteMessage.new({
+  messageId: "bad",
+});
+assert.throws(
+  () => sdk.encodeStandard(malformedDelete),
+  sdk.XmtpError.InvalidArgument,
+);
+assert.throws(
+  () => new sdk.DeleteMessageCodec().encode(malformedDelete),
+  sdk.XmtpError.InvalidArgument,
+);
+
 const account = privateKeyToAccount(generatePrivateKey());
 const identity = {
   identifier: account.address.toLowerCase(),
