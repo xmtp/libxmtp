@@ -371,13 +371,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Optimistic sending does not check active membership before storing work, so it queues into a group the client has been removed from."
 
 [[waiver]]
-id = "SEND-007"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No recovery is defined or implemented for a publish that may have committed before an OUT_OF_RANGE response."
-
-[[waiver]]
 id = "SEND-016"
 kind = "gap"
 owner = "protocol"
