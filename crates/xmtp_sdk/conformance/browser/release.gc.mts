@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 
+import { registerClient } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen.ts";
 import {
   Client,
   Group,
@@ -14,6 +15,7 @@ import {
   WorkerHost,
   type LockProvider,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/worker/host.ts";
+import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.ts";
 
 if (typeof global.gc !== "function")
   throw new Error("run this proof with --expose-gc");
@@ -145,6 +147,38 @@ assert.ok(
     (message) => message.t === "release" && message.handles.includes(4),
   ),
   "collected snapshot did not release its handle",
+);
+
+// A client collected without end() must not keep its custom codecs.
+function temporaryCodecClient(): WeakRef<object> {
+  const codec = {
+    type: B.ContentTypeID.create({
+      authorityID: "example.org",
+      typeID: "collected-codec",
+      versionMajor: 1,
+      versionMinor: 0,
+    }),
+    encode(): B.EncodedContent {
+      throw new Error("unused");
+    },
+    decode(): unknown {
+      return undefined;
+    },
+  };
+  const owner = { clientKey: () => 91n } as unknown as Client;
+  registerClient(session, owner, [codec]);
+  return new WeakRef(codec);
+}
+const collectedCodec = temporaryCodecClient();
+// Do not call deref() in this loop: it keeps the codec alive for the job.
+for (let attempt = 0; attempt < 30; attempt++) {
+  global.gc();
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+}
+assert.equal(
+  collectedCodec.deref(),
+  undefined,
+  "collected client kept its codecs",
 );
 
 const held = new Set<string>();

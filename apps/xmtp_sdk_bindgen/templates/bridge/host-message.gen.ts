@@ -49,17 +49,30 @@ interface Owner {
 
 const owners = new WeakMap<MainSession, Map<bigint, Owner>>();
 
+// A client that is collected without `end()` must not keep its codecs. Remove
+// the entry only if its client is gone: `end()` can already have removed it,
+// and a later client can use the same key.
+const collectedClients = new FinalizationRegistry<{
+  session: MainSession;
+  key: bigint;
+}>(({ session, key }) => {
+  if (owners.get(session)?.get(key)?.client.deref() === undefined)
+    unregisterClient(session, key);
+});
+
 export function registerClient(
   session: MainSession,
   client: Client,
   codecs: readonly AnyCodec[],
 ): void {
+  const key = client.clientKey();
   const entries = owners.get(session) ?? new Map<bigint, Owner>();
-  entries.set(client.clientKey(), {
+  entries.set(key, {
     client: new WeakRef(client),
     codecs: new Map(codecs.map((codec) => [codecKey(codec.type), codec])),
   });
   owners.set(session, entries);
+  collectedClients.register(client, { session, key });
 }
 
 export function unregisterClient(session: MainSession, key: bigint): void {
