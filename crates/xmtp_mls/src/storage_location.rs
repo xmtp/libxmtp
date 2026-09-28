@@ -89,10 +89,6 @@ pub async fn write_deployments_for_test(
     write_file(data_dir, bytes).await
 }
 
-fn normalized_url(url: &str) -> String {
-    url.trim_end_matches('/').to_owned()
-}
-
 /// The file name table applies before the suffix. The suffix distinguishes
 /// identifiers whose file name table result is the same.
 pub fn deployment_component(identifier: &str) -> String {
@@ -112,7 +108,7 @@ impl DeploymentRecorder {
     pub(crate) fn new(data_dir: PathBuf, backend_url: &str) -> Self {
         Self {
             data_dir,
-            backend_url: normalized_url(backend_url),
+            backend_url: crate::server_configuration::normalized_url(backend_url).to_owned(),
             opened_identifier: None,
         }
     }

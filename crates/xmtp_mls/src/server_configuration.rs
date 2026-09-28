@@ -370,7 +370,7 @@ where
 /// A transport reports the URI it dialled, which for `http://host:port` carries
 /// a trailing slash the app never typed. Normalising both sides keeps a purely
 /// cosmetic difference from looking like a move to another deployment.
-fn normalized_url(url: &str) -> &str {
+pub(crate) fn normalized_url(url: &str) -> &str {
     url.trim_end_matches('/')
 }
 
