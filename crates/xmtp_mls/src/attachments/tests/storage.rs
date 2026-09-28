@@ -702,7 +702,7 @@ async fn deletion_event_survives_later_row_failure() {
     ));
 }
 
-// verifies: ATCH-047, EVENT-057
+// verifies: ATCH-047, EVENT-001, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_cancels_upload() {
     let dir = tempfile::tempdir()?;
@@ -742,13 +742,18 @@ async fn delete_cancels_upload() {
     );
     let emitted = events.drain();
     let key = attachment_key(&remote)?;
-    assert_eq!(emitted.len(), 2);
+    assert_eq!(emitted.len(), 3);
     assert!(
         matches!(&emitted[0].client, Some(ClientEvent::AttachmentUploadStarted(reference)) if reference.attachment_key == key)
     );
     assert!(
-        matches!(&emitted[1].client, Some(ClientEvent::AttachmentDeleted(reference)) if reference.attachment_key == key)
+        matches!(&emitted[1].client, Some(ClientEvent::AttachmentUploadFailed(failed)) if failed.attachment_key == key && failed.url == remote.url && failed.content_digest == remote.content_digest && failed.cause == Cause::Deleted.as_str())
     );
+    assert!(
+        matches!(&emitted[2].client, Some(ClientEvent::AttachmentDeleted(reference)) if reference.attachment_key == key)
+    );
+    alix.client.attachments().delete_local(&remote).await?;
+    assert!(events.drain().is_empty());
 }
 
 // verifies: EVENT-001, ATCH-047

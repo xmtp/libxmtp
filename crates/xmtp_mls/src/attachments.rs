@@ -1482,6 +1482,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 resume.notified().await;
             }
         }
+        let cancelled_upload = upload_attempt.is_some();
         if let Some(attempt) = upload_attempt {
             attempt.done.cancelled().await;
         }
@@ -1494,7 +1495,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     .map_err(|_| AttachmentClientError::new(Cause::Network))?;
             }
         }
-        let mut restore_cancel = RestorePendingCancel(upload);
+        let mut restore_cancel = RestorePendingCancel(upload.clone());
         let _publication = self.runtime().publication_lock.lock().await;
         let _guard = lock.lock().await;
         let mut emitted = false;
@@ -1532,6 +1533,24 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             };
         if deleted_pending {
             restore_cancel.0 = None;
+            if cancelled_upload {
+                let deleted = AttachmentClientError::new(Cause::Deleted);
+                if let Some(shared) = &upload {
+                    shared
+                        .watch
+                        .send_replace(PendingAttachmentStatus::Failed(deleted));
+                }
+                let reference = attachment_reference(remote, &key);
+                self.context.events().emit(
+                    Some(ClientEvent::AttachmentUploadFailed(AttachmentFailed {
+                        attachment_key: key.clone(),
+                        url: reference.url,
+                        content_digest: reference.content_digest,
+                        cause: Cause::Deleted.as_str().to_owned(),
+                    })),
+                    None,
+                );
+            }
         }
         if key_exists {
             store.remove_dir_all(&key).await?;
