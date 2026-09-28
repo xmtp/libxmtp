@@ -833,6 +833,56 @@ async fn close_cancels_callback_stream() {
     .expect("on_close must fire within 1s of Client::close");
 }
 
+// verifies: STORE-017
+// A reconnect that passed its closed check before close began starts workers.
+// Close must wait for it and then stop those workers, so no worker outlives
+// close.
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 2)]
+#[cfg(not(target_arch = "wasm32"))]
+async fn close_stops_workers_started_by_a_running_reconnect() {
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tokio::sync::Barrier;
+
+    tester!(alix, persistent_db);
+    let entered = Arc::new(Barrier::new(2));
+    let release = Arc::new(Barrier::new(2));
+    *crate::client::test_hooks::PAUSE_RECONNECT.lock() = Some((
+        alix.installation_id.to_vec(),
+        entered.clone(),
+        release.clone(),
+    ));
+    let reconnecting_client = alix.client.clone();
+    let reconnecting = tokio::task::spawn_blocking(move || reconnecting_client.reconnect_db());
+    xmtp_common::time::timeout(Duration::from_secs(10), entered.wait()).await?;
+
+    let closing_client = alix.client.clone();
+    let mut closing = tokio::spawn(async move { closing_client.close().await });
+    // Close refuses new calls once it waits for the running ones.
+    xmtp_common::time::timeout(Duration::from_secs(10), async {
+        while alix.context.foreground_calls().enter().is_some() {
+            xmtp_common::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert!(
+        tokio::time::timeout(Duration::from_millis(200), &mut closing)
+            .await
+            .is_err(),
+        "close finished while a reconnect was running"
+    );
+
+    release.wait().await;
+    xmtp_common::time::timeout(Duration::from_secs(10), reconnecting).await???;
+    xmtp_common::time::timeout(Duration::from_secs(10), closing).await???;
+    let worker_outlived_close = alix.client.workers.is_running();
+    alix.client.workers.shutdown().await;
+    assert!(
+        !worker_outlived_close,
+        "a worker supervisor started by reconnect outlived close"
+    );
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn reconnect_after_close_errors() {
     tester!(client);

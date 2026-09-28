@@ -38,9 +38,11 @@ use crate::worker::device_sync::DeviceSyncClient;
 
 /// Counts the running host calls that can use the database.
 ///
-/// `Client::close` closes this gate and waits until no call runs before it
-/// disconnects the database. A call that is inside the gate must not wait for
-/// `Client::close` of its own client, because close waits for that call.
+/// `Client::close` cancels the client, then closes this gate and waits until
+/// no call runs. Only after that does it stop the workers and disconnect the
+/// database, so a call such as `reconnect_db` cannot start work that outlives
+/// close. A call that is inside the gate must not wait for `Client::close` of
+/// its own client, or for a worker, because close waits for that call.
 /// Only request calls enter the gate. A stream or a reader must stop on
 /// cancellation, or close does not finish.
 #[derive(Default)]
