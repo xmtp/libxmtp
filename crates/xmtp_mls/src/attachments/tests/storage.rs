@@ -618,7 +618,7 @@ async fn deletion_event_survives_later_row_failure() {
     ));
 }
 
-// verifies: ATCH-047, EVENT-055
+// verifies: ATCH-047, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_cancels_upload() {
     let dir = tempfile::tempdir()?;

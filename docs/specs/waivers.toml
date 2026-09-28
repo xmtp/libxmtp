@@ -716,12 +716,6 @@ owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
 [[waiver]]
-id = "EVENT-057"
-kind = "gap"
-owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Attachment event ordering is not implemented yet."
-[[waiver]]
 id = "ATCH-053"
 kind = "gap"
 owner = "attachments"
@@ -856,3 +850,9 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Client-level test proves streaming (at most 2 MiB process growth for a 64 MiB attachment); the per-attachment 1,048,576-byte bound is not attributable in a test."
+[[waiver]]
+id = "EVENT-055"
+kind = "untested"
+owner = "protocol"
+reason = "ClientBuilder registers each client public event writer with its backend AuthHandle, and AuthInner::emit_lockout emits to every registered writer; no test drives two sharing clients."
+

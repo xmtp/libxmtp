@@ -910,7 +910,7 @@ async fn one_pending_per_digest() {
     assert_eq!(alix.client.attachments().list_pending().await?.len(), 1);
 }
 
-// verifies: ATCH-036, ATCH-034, EVENT-055
+// verifies: ATCH-036, ATCH-034, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn staged_unusable() {
     let dir = tempfile::tempdir()?;
@@ -1276,7 +1276,7 @@ async fn put_status_999_is_recorded() {
     assert_eq!(row.failure_http_status, Some(999));
 }
 
-// verifies: ATCH-024, ATCH-025, ATCH-037, ATCH-034, EVENT-055
+// verifies: ATCH-024, ATCH-025, ATCH-037, ATCH-034, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn put_as_signed() {
     let dir = tempfile::tempdir()?;

@@ -191,7 +191,7 @@ async fn deletion_wins_before_outcome_write_under_event_lock() {
     );
 }
 
-// verifies: ATCH-025, ATCH-074, EVENT-055
+// verifies: ATCH-025, ATCH-074, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn outcome_retry_renews_lease_without_another_upload() {
     let dir = tempfile::tempdir()?;
@@ -1041,7 +1041,7 @@ async fn pending_persist_restart() {
     assert_eq!(resumed.status(), PendingAttachmentStatus::Waiting);
 }
 
-// verifies: ATCH-034, ATCH-035, EVENT-055
+// verifies: ATCH-034, ATCH-035, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn dropped_upload_waiter_does_not_cancel_attempt() {
     let dir = tempfile::tempdir()?;
@@ -1401,7 +1401,7 @@ async fn extension_storage_error_is_retried() {
     );
 }
 
-// verifies: EVENT-055
+// verifies: EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn attachment_event_order() {
     let dir = tempfile::tempdir()?;
@@ -1459,7 +1459,7 @@ async fn attachment_event_order() {
     );
 }
 
-// verifies: EVENT-001, EVENT-055
+// verifies: EVENT-001, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn attachment_event_kinds() {
     fn expected_reference(remote: &RemoteAttachment) -> AttachmentRef {

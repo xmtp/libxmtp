@@ -665,7 +665,7 @@ async fn one_fetch_per_path() {
     assert_eq!(requests.load(Ordering::SeqCst), 1);
 }
 
-// verifies: ATCH-047, ATCH-051, EVENT-055
+// verifies: ATCH-047, ATCH-051, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_cancels_running() {
     let sender = tempfile::tempdir()?;
