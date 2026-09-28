@@ -37,11 +37,15 @@ try {
     const { checkCustomMessageLift } =
       await import("./message.custom.chromium.ts");
     checkCustomMessageLift();
+    const { checkStandardMessageLift, checkStandardMessages } =
+      await import("./message.standard.chromium.ts");
+    checkStandardMessageLift();
+    await checkStandardMessages(url);
     return count;
   }, backendURL);
   assert.equal(result, 15);
   console.log(
-    "Chromium worker failure, 15 pure codecs, deleted messages, and custom lift passed",
+    "Chromium worker failure, 15 pure codecs, deleted messages, custom lift, and standard messages passed",
   );
 } finally {
   await browser.close();

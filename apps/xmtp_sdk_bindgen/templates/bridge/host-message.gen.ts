@@ -101,11 +101,14 @@ type HostContent =
   | HostReply
   | LiftedCustomContent;
 
+// The worker sends each message with the content that Rust decoded, with
+// bounded decompression and the Unknown fallback for bytes that fail to
+// decode. The host keeps that content and only lifts custom content with the
+// client's codecs. The encoded bytes are not decoded again here.
 function decodeContent(
   session: MainSession,
   key: bigint,
   content: B.MessageContent,
-  encoded: B.EncodedContent,
 ): HostContent {
   if (content.tag === B.MessageContent_Tags.Custom) {
     const entry = owner(session, key);
@@ -115,117 +118,28 @@ function decodeContent(
       decodeCustom(entry?.codecs, content.inner.encoded),
     );
   }
-  // Deleted messages keep their original encoded bytes. Keep the Rust marker.
-  if (
-    content.tag === B.MessageContent_Tags.Unknown ||
-    content.tag === B.MessageContent_Tags.DeletedMessage
-  )
-    return content;
-
-  // Standard bytes are decoded by the main-thread pure WASM module.
-  const standard = Pure.decodeStandard(encoded);
-  switch (standard.tag) {
-    case Pure.StandardContent_Tags.Text:
-      return B.MessageContent.Text.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.Markdown:
-      return B.MessageContent.Markdown.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.ReadReceipt:
-      return B.MessageContent.ReadReceipt.new();
-    case Pure.StandardContent_Tags.Reaction:
-      if (content.tag !== B.MessageContent_Tags.Reaction) return content;
-      return B.MessageContent.Reaction.new({
-        reference: content.inner.reference,
-        referenceInboxID: content.inner.referenceInboxID,
-        reaction: standard.inner.reaction,
-      });
-    case Pure.StandardContent_Tags.Attachment:
-      return B.MessageContent.Attachment.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.RemoteAttachment:
-      return B.MessageContent.RemoteAttachment.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.MultiRemoteAttachment:
-      return B.MessageContent.MultiRemoteAttachment.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.TransactionReference:
-      return B.MessageContent.TransactionReference.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.WalletSendCalls:
-      return B.MessageContent.WalletSendCalls.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.Actions:
-      return B.MessageContent.Actions.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.Intent:
-      return B.MessageContent.Intent.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.GroupUpdated:
-      return B.MessageContent.GroupUpdated.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.LeaveRequest:
-      return B.MessageContent.LeaveRequest.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.Reply:
-      if (content.tag !== B.MessageContent_Tags.Reply) return content;
-      return {
-        tag: B.MessageContent_Tags.Reply,
-        inner: {
-          referenceID: content.inner.referenceID,
-          body: decodeBody(
-            session,
-            key,
-            content.inner.body,
-            standard.inner.content,
-          ),
-        },
-      };
-    case Pure.StandardContent_Tags.DeleteMessage:
-      return content;
-  }
+  if (content.tag !== B.MessageContent_Tags.Reply) return content;
+  return {
+    tag: B.MessageContent_Tags.Reply,
+    inner: {
+      referenceID: content.inner.referenceID,
+      body: decodeBody(session, key, content.inner.body),
+    },
+  };
 }
 
 function decodeBody(
   session: MainSession,
   key: bigint,
   body: B.MessageBody,
-  encoded: B.EncodedContent,
 ): LiftedReplyBody {
-  if (body.tag === B.MessageBody_Tags.Custom) {
-    const entry = owner(session, key);
-    return liftCustomBody(
-      body,
-      entry !== undefined,
-      decodeCustom(entry?.codecs, body.inner.encoded),
-    );
-  }
-  // A deleted reply parent also keeps its original encoded bytes.
-  if (
-    body.tag === B.MessageBody_Tags.Unknown ||
-    body.tag === B.MessageBody_Tags.DeletedMessage
-  )
-    return body;
-  const standard = Pure.decodeStandard(encoded);
-  switch (standard.tag) {
-    case Pure.StandardContent_Tags.Text:
-      return B.MessageBody.Text.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.Markdown:
-      return B.MessageBody.Markdown.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.ReadReceipt:
-      return B.MessageBody.ReadReceipt.new();
-    case Pure.StandardContent_Tags.Attachment:
-      return B.MessageBody.Attachment.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.RemoteAttachment:
-      return B.MessageBody.RemoteAttachment.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.MultiRemoteAttachment:
-      return B.MessageBody.MultiRemoteAttachment.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.TransactionReference:
-      return B.MessageBody.TransactionReference.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.WalletSendCalls:
-      return B.MessageBody.WalletSendCalls.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.Actions:
-      return B.MessageBody.Actions.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.Intent:
-      return B.MessageBody.Intent.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.GroupUpdated:
-      return B.MessageBody.GroupUpdated.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.LeaveRequest:
-      return B.MessageBody.LeaveRequest.new(standard.inner[0]);
-    case Pure.StandardContent_Tags.Reaction:
-    case Pure.StandardContent_Tags.Reply:
-    case Pure.StandardContent_Tags.DeleteMessage:
-      return body;
-  }
+  if (body.tag !== B.MessageBody_Tags.Custom) return body;
+  const entry = owner(session, key);
+  return liftCustomBody(
+    body,
+    entry !== undefined,
+    decodeCustom(entry?.codecs, body.inner.encoded),
+  );
 }
 
 export class Message extends B.Message {
@@ -238,19 +152,9 @@ export class Message extends B.Message {
     private readonly session: MainSession,
   ) {
     super(data);
-    this.content = decodeContent(
-      session,
-      data.clientKey,
-      data.content,
-      data.encoded,
-    );
+    this.content = decodeContent(session, data.clientKey, data.content);
     this.inReplyToContent = data.inReplyTo
-      ? decodeBody(
-          session,
-          data.clientKey,
-          data.inReplyTo.content,
-          data.inReplyTo.encoded,
-        )
+      ? decodeBody(session, data.clientKey, data.inReplyTo.content)
       : undefined;
     this.replyContent =
       this.content.tag === B.MessageContent_Tags.Reply
