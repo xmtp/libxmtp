@@ -20,6 +20,8 @@ mod util;
 
 #[derive(Debug, Error)]
 pub enum ArchiveError {
+    #[error("Unsupported archive version: {0}")]
+    UnsupportedVersion(u16),
     #[error("Missing metadata")]
     MissingMetadata,
     #[error("Invalid archive frame: {0}")]

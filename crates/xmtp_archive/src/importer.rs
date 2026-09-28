@@ -1,4 +1,4 @@
-use super::{ArchiveError, BackupMetadata};
+use super::{ArchiveError, BACKUP_VERSION, BackupMetadata};
 use crate::{NONCE_SIZE, util::GenericArrayExt};
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::bufread::ZstdDecoder;
@@ -51,9 +51,11 @@ impl Stream for ArchiveImporter {
                 let bytes = this.decoded.drain(..4).collect::<Vec<_>>();
                 let element_len =
                     u32::from_le_bytes(bytes.try_into().expect("is 4 bytes")) as usize;
-                if element_len == 0 {
+                if element_len < 16 {
                     this.finished = true;
-                    return Poll::Ready(Some(Err(ArchiveError::InvalidFrame("empty frame"))));
+                    return Poll::Ready(Some(Err(ArchiveError::InvalidFrame(
+                        "ciphertext shorter than authentication tag",
+                    ))));
                 }
                 this.element_len = Some(element_len);
             }
@@ -70,22 +72,39 @@ impl Stream for ArchiveImporter {
                     // Attempt to decrypt using a decremented nonce to support legacy archives.
                     Err(_) => {
                         this.nonce.decrement();
-                        this.cipher
+                        match this
+                            .cipher
                             .decrypt(&this.nonce, &this.decoded[..element_len])
-                            .inspect_err(|_| this.nonce.increment())?
+                        {
+                            Ok(decrypted) => decrypted,
+                            Err(error) => {
+                                this.nonce.increment();
+                                this.finished = true;
+                                return Poll::Ready(Some(Err(error.into())));
+                            }
+                        }
                     }
                 };
 
-                let element = BackupElement::decode(&*decrypted);
+                let element = match BackupElement::decode(&*decrypted) {
+                    Ok(element) => element,
+                    Err(error) => {
+                        this.finished = true;
+                        return Poll::Ready(Some(Err(error.into())));
+                    }
+                };
                 this.decoded.drain(..element_len);
                 this.element_len = None;
                 this.nonce.increment();
-                return Poll::Ready(Some(element.map_err(ArchiveError::from)));
+                return Poll::Ready(Some(Ok(element)));
             }
 
             let amount = match this.decoder.read(&mut buffer).poll_unpin(cx) {
                 Poll::Ready(Ok(amt)) => amt,
-                Poll::Ready(Err(err)) => return Poll::Ready(Err(err)?),
+                Poll::Ready(Err(error)) => {
+                    this.finished = true;
+                    return Poll::Ready(Some(Err(error.into())));
+                }
                 Poll::Pending => return Poll::Pending,
             };
             if amount == 0 {
@@ -106,6 +125,9 @@ impl ArchiveImporter {
         let mut version = [0; 2];
         reader.read_exact(&mut version).await?;
         let version = u16::from_le_bytes(version);
+        if version > BACKUP_VERSION {
+            return Err(ArchiveError::UnsupportedVersion(version));
+        }
 
         let mut nonce = [0; NONCE_SIZE];
         reader.read_exact(&mut nonce).await?;
@@ -141,48 +163,4 @@ impl ArchiveImporter {
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
-mod tests {
-    use super::*;
-    use async_compression::futures::write::ZstdEncoder;
-    use futures_util::{AsyncWriteExt, io::BufReader};
-    use std::sync::mpsc;
-    use xmtp_common::time::Duration;
-
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn malformed_frames_return_errors_without_hanging() {
-        for frame in [vec![0, 0, 0, 0, 0xaa], vec![8, 0, 0, 0, 1, 2, 3]] {
-            let mut encoder = ZstdEncoder::new(Vec::new());
-            encoder.write_all(&frame).await?;
-            encoder.close().await?;
-            let reader = Box::pin(BufReader::new(futures::io::Cursor::new(
-                encoder.into_inner(),
-            ))) as AsyncReader;
-            let importer = ArchiveImporter {
-                metadata: BackupMetadata::default(),
-                decoded: Vec::new(),
-                element_len: None,
-                finished: false,
-                decoder: ZstdDecoder::new(reader),
-                #[allow(deprecated)]
-                cipher: Aes256Gcm::new(GenericArray::from_slice(&[0; crate::ENC_KEY_SIZE])),
-                #[allow(deprecated)]
-                nonce: GenericArray::from([0; NONCE_SIZE]),
-            };
-            let (sender, receiver) = mpsc::channel();
-            std::thread::spawn(move || {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .build()
-                    .unwrap();
-                let result = runtime.block_on(async { importer.take(1).next().await });
-                let _ = sender.send(result);
-            });
-            let result = receiver
-                .recv_timeout(Duration::from_secs(2))
-                .expect("malformed frame import hung");
-            assert!(
-                matches!(result, Some(Err(ArchiveError::InvalidFrame(_)))),
-                "malformed frame was accepted: {result:?}"
-            );
-        }
-    }
-}
+mod tests;
