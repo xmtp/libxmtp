@@ -15,10 +15,11 @@ use crate::{
     archive_options::{ArchiveOptions, BackupElementSelection},
 };
 use openmls::group::MlsGroup;
+use xmtp_common::time::now_ns;
 use xmtp_db::{
     ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
-    diesel::{Connection, SqliteConnection, connection::DefaultLoadingMode, prelude::*},
+    diesel::{Connection, SqliteConnection, connection::DefaultLoadingMode, prelude::*, sql_query},
     group::{ConversationType, StoredGroup},
     group_message::{GroupMessageKind, StoredGroupMessage},
     schema::{consent_records, group_messages, groups},
@@ -28,6 +29,7 @@ use xmtp_mls_common::{
     group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata_lossy},
 };
 use xmtp_proto::xmtp::device_sync::{
+    BackupElementSelection as BackupElementSelectionProto, BackupMetadataSave,
     backup_element::Element,
     group_backup::{
         ConversationTypeSave, GroupMembershipStateSave, GroupSave, ImmutableMetadataSave,
@@ -39,28 +41,40 @@ use xmtp_proto::xmtp::device_sync::{
 /// connection, so groups are paged by key rather than read through a cursor.
 const GROUP_PAGE: i64 = 100;
 
-/// Passes `emit` every element `opts` selects, as stored when the transaction
-/// began: all eligible groups, then their messages, then consent. Fails, rather
-/// than omitting it, on any eligible group whose MLS state or immutable
-/// metadata cannot be read. `emit` runs inside the transaction and must not use
-/// the database.
+/// Passes `emit` the archive metadata, then every element `opts` selects, as
+/// stored when the transaction began: all eligible groups, then their
+/// messages, then consent. The export time is measured once the snapshot is
+/// taken, so nothing emitted postdates it. Fails, rather than omitting it, on
+/// any eligible group whose MLS state or immutable metadata cannot be read.
+/// `emit` runs inside the transaction and must not use the database. Returns
+/// the metadata.
 pub(crate) fn read(
     db: &impl ConnectionExt,
     opts: &ArchiveOptions,
-    exported_at_ns: i64,
     mut emit: impl FnMut(Element) -> Result<(), ArchiveError>,
-) -> Result<(), ArchiveError> {
-    db.raw_query(|conn| {
-        Ok(conn.transaction(|conn| read_in_transaction(conn, opts, exported_at_ns, &mut emit)))
-    })?
+) -> Result<BackupMetadataSave, ArchiveError> {
+    db.raw_query(|conn| Ok(conn.transaction(|conn| read_in_transaction(conn, opts, &mut emit))))?
 }
 
 fn read_in_transaction(
     conn: &mut SqliteConnection,
     opts: &ArchiveOptions,
-    exported_at_ns: i64,
     emit: &mut impl FnMut(Element) -> Result<(), ArchiveError>,
-) -> Result<(), ArchiveError> {
+) -> Result<BackupMetadataSave, ArchiveError> {
+    // A deferred transaction takes its snapshot at its first read.
+    sql_query("SELECT 1 FROM sqlite_master LIMIT 1").execute(conn)?;
+    let exported_at_ns = now_ns();
+    let metadata = BackupMetadataSave {
+        elements: opts
+            .elements
+            .iter()
+            .map(|&e| BackupElementSelectionProto::from(e) as i32)
+            .collect(),
+        exported_at_ns,
+        start_ns: opts.start_ns,
+        end_ns: opts.end_ns,
+    };
+    emit(Element::Metadata(metadata.clone()))?;
     let selects = |s| opts.elements.contains(&s);
     if selects(BackupElementSelection::Messages) {
         let mut after = None;
@@ -115,7 +129,7 @@ fn read_in_transaction(
             emit(Element::Consent(record?.into()))?;
         }
     }
-    Ok(())
+    Ok(metadata)
 }
 
 /// The group element for `group`, with metadata read from its MLS state.
@@ -175,6 +189,7 @@ mod tests {
     };
     use xmtp_db::{
         Store, TestDb, XmtpTestDb,
+        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         group::{ConversationType, GroupMembershipState, StoredGroup},
     };
     use xmtp_proto::{types::GroupId, xmtp::device_sync::backup_element::Element};
@@ -265,5 +280,54 @@ mod tests {
         let metadata = exporter::export(options(&[]), &db, &KEY, &mut archive)?;
         assert!(metadata.elements.is_empty());
         assert_eq!(elements(archive).await, vec![]);
+    }
+
+    /// Writes `on_first` into the database when the export first writes, i.e.
+    /// the header, before the snapshot's transaction opens.
+    struct WriteBeforeSnapshot<F: FnMut()>(Vec<u8>, Option<F>);
+
+    impl<F: FnMut()> std::io::Write for WriteBeforeSnapshot<F> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if let Some(mut f) = self.1.take() {
+                f();
+            }
+            self.0.write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// The export time is measured once the snapshot is taken, so nothing in
+    /// the archive postdates it: a record committed while a slow sink takes
+    /// the header is exported at a time after that record, never before it.
+    // verifies: ARCH-017
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_export_time_follows_its_contents() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        let consent = options(&[BackupElementSelection::Consent]);
+        let mut sink = WriteBeforeSnapshot(
+            Vec::new(),
+            Some(|| {
+                StoredConsentRecord::new(
+                    ConsentType::InboxId,
+                    ConsentState::Allowed,
+                    "carol".into(),
+                )
+                .store(&db)
+                .unwrap();
+            }),
+        );
+
+        let metadata = exporter::export(consent, &db, &KEY, &mut sink)?;
+        let [Element::Consent(record)] = &elements(sink.0).await[..] else {
+            panic!("the record committed before the snapshot is missing");
+        };
+        assert!(
+            record.consented_at_ns <= metadata.exported_at_ns,
+            "archived a record from after its export time"
+        );
     }
 }

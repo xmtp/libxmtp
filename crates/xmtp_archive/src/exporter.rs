@@ -19,12 +19,8 @@ use std::{
     pin::Pin,
     task::{Context, Poll},
 };
-use xmtp_common::time::now_ns;
 use xmtp_db::ConnectionExt;
-use xmtp_proto::xmtp::device_sync::{
-    BackupElement, BackupElementSelection as BackupElementSelectionProto, BackupMetadataSave,
-    backup_element::Element,
-};
+use xmtp_proto::xmtp::device_sync::{BackupElement, BackupMetadataSave, backup_element::Element};
 
 /// Writes an archive of everything `options` selects, read in one snapshot
 /// measured at one export time, to `sink`, and returns its metadata. Fails,
@@ -38,17 +34,6 @@ pub fn export(
     key: &[u8],
     mut sink: impl io::Write,
 ) -> Result<BackupMetadataSave, ArchiveError> {
-    let exported_at_ns = now_ns();
-    let metadata = BackupMetadataSave {
-        elements: options
-            .elements
-            .iter()
-            .map(|&e| BackupElementSelectionProto::from(e) as i32)
-            .collect(),
-        exported_at_ns,
-        start_ns: options.start_ns,
-        end_ns: options.end_ns,
-    };
     let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
     sink.write_all(&BACKUP_VERSION.to_le_bytes())?;
     sink.write_all(&nonce)?;
@@ -58,7 +43,7 @@ pub fn export(
     #[allow(deprecated)]
     let mut nonce = GenericArray::clone_from_slice(&nonce);
     let mut zstd = ZstdEncoder::new(AllowStdIo::new(sink));
-    let mut write = |element: Element| -> Result<(), ArchiveError> {
+    let write = |element: Element| -> Result<(), ArchiveError> {
         let plaintext = BackupElement {
             element: Some(element),
         }
@@ -68,8 +53,7 @@ pub fn export(
         ready(zstd.write_all(&(ciphertext.len() as u32).to_le_bytes()))?;
         Ok(ready(zstd.write_all(&ciphertext))?)
     };
-    write(Element::Metadata(metadata.clone()))?;
-    snapshot::read(&db, &options, exported_at_ns, write)?;
+    let metadata = snapshot::read(&db, &options, write)?;
     ready(zstd.close())?;
     Ok(metadata)
 }
@@ -110,7 +94,9 @@ impl ArchiveExporter {
             });
             if exported.is_err() {
                 drop(file);
-                let _ = std::fs::remove_file(&path);
+                if let Err(e) = std::fs::remove_file(&path) {
+                    tracing::warn!(path = %path.display(), error = %e, "failed export left a partial archive");
+                }
             }
             exported
         })
