@@ -349,3 +349,24 @@ async fn encoder_write_zero_is_an_error() {
         io::ErrorKind::WriteZero
     );
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn storage_failure_reaches_the_archive_reader() {
+    let (mut reader, metadata, _, _) = fixture(usize::MAX, Failure::None);
+    reader.stream.input_streams = vec![Box::pin(futures::stream::iter([Err(
+        xmtp_db::StorageError::DbDeserialize,
+    )]))];
+    let error = collect(&mut reader, &metadata).unwrap_err();
+    assert_eq!(error.kind(), io::ErrorKind::Other);
+    assert_eq!(
+        error.to_string(),
+        xmtp_db::StorageError::DbDeserialize.to_string()
+    );
+    #[cfg(not(target_arch = "wasm32"))]
+    assert!(matches!(
+        error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<xmtp_db::StorageError>()),
+        Some(xmtp_db::StorageError::DbDeserialize)
+    ));
+}

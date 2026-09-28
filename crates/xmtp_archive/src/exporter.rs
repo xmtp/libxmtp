@@ -188,7 +188,7 @@ impl<E: BufferedEncoder> ArchiveReader<E> {
                         element: Some(Element::Metadata(metadata.clone())),
                     },
                     Stage::Elements => match ready!(this.stream.as_mut().poll_next(cx)) {
-                        Some(element) => element.map_err(io::Error::other)?,
+                        Some(element) => element.map_err(storage_io_error)?,
                         None => {
                             *this.stage = Stage::Closing;
                             continue;
@@ -216,6 +216,18 @@ impl<E: BufferedEncoder> ArchiveReader<E> {
             }
         }
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn storage_io_error(error: xmtp_db::StorageError) -> io::Error {
+    io::Error::other(error)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn storage_io_error(error: xmtp_db::StorageError) -> io::Error {
+    // I/O errors require Send + Sync sources, but WASM storage errors can
+    // contain local sources. Keep their message; native keeps the typed cause.
+    io::Error::other(error.to_string())
 }
 
 #[cfg(test)]
