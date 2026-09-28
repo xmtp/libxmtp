@@ -876,6 +876,32 @@ async fn reconcile_after_crash_points() {
     assert_eq!(adopted.filename, None);
 }
 
+// verifies: ATCH-076
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn reconcile_keeps_pre_epoch_modification_time() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let relative = plaintext_rel_path(pending.remote_attachment())?;
+    let path = pending.local_path()?;
+    alix.client
+        .context
+        .db()
+        .delete_local_attachment(&relative)?;
+    std::fs::File::open(path)?.set_modified(std::time::UNIX_EPOCH - Duration::from_secs(5))?;
+    let next = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let row = next
+        .context
+        .db()
+        .get_local_attachment(&relative)?
+        .expect("reconciliation adopts the file");
+    assert_eq!(row.created_at_ns, -5_000_000_000);
+}
+
 // verifies: ATCH-068, ATCH-076
 #[xmtp_common::test(unwrap_try = true)]
 async fn staged_orphan_older_than_pending_age_is_removed() {

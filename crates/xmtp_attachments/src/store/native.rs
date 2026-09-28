@@ -53,6 +53,8 @@ pub struct NativeStore {
     forced_chmod_error: bool,
     #[cfg(test)]
     forced_foreign_owner: bool,
+    #[cfg(test)]
+    forced_modified_error: bool,
 }
 
 impl NativeStore {
@@ -86,6 +88,8 @@ impl NativeStore {
             forced_chmod_error: false,
             #[cfg(test)]
             forced_foreign_owner: false,
+            #[cfg(test)]
+            forced_modified_error: false,
         })
     }
 
@@ -116,6 +120,12 @@ impl NativeStore {
     #[cfg(test)]
     pub(crate) fn with_forced_foreign_owner(mut self) -> Self {
         self.forced_foreign_owner = true;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_forced_modified_error(mut self) -> Self {
+        self.forced_modified_error = true;
         self
     }
 
@@ -821,7 +831,7 @@ impl LocalStore for NativeStore {
     async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError> {
         use cap_std::time::SystemClock;
         let root = self.root_dir.clone();
-        #[cfg(unix)]
+        #[cfg(any(unix, test))]
         let store = self.clone();
         xmtp_common::task::spawn_blocking(move || -> Result<Vec<StoreFile>, AttachmentError> {
             let mut files = Vec::new();
@@ -850,11 +860,23 @@ impl LocalStore for NativeStore {
                             dirs.push((child, path));
                         }
                     } else if metadata.is_file() && !is_link(&metadata) && !prefix.is_empty() {
-                        let modified_at_ns = metadata
-                            .modified()
-                            .ok()
-                            .and_then(|time| time.duration_since(SystemClock::UNIX_EPOCH).ok())
-                            .map_or(0, |age| age.as_nanos().min(i64::MAX as u128) as i64);
+                        #[cfg(test)]
+                        let modified = if store.forced_modified_error {
+                            Err(io::Error::other("forced modification time error"))
+                        } else {
+                            metadata.modified()
+                        };
+                        #[cfg(not(test))]
+                        let modified = metadata.modified();
+                        let modified_at_ns = match modified
+                            .map_err(storage_error)?
+                            .duration_since(SystemClock::UNIX_EPOCH)
+                        {
+                            Ok(age) => age.as_nanos().min(i64::MAX as u128) as i64,
+                            Err(error) => {
+                                -(error.duration().as_nanos().min(i64::MAX as u128) as i64)
+                            }
+                        };
                         files.push(StoreFile {
                             path,
                             modified_at_ns,

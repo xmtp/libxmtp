@@ -915,6 +915,24 @@ mod tests {
         assert_eq!(files[0].path, format!("{key}/plain.txt"));
     }
 
+    // verifies: ATCH-076
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_reconcile_scan_reports_modified_time_error() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let key = "a".repeat(64);
+        tokio::fs::create_dir(directory.path().join(&key)).await?;
+        tokio::fs::write(directory.path().join(key).join("plain"), b"file").await?;
+        let error = store
+            .with_forced_modified_error()
+            .list_files()
+            .await
+            .err()
+            .expect("unreadable modification time must fail");
+        assert_eq!(error.cause, Cause::LocalStorage);
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn native_writer_reset_rewinds() {
