@@ -204,7 +204,11 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   /** Resolve after the callback; the next read then acknowledges this value. */
   async onValue(callback: (value: T) => void | Promise<void>): Promise<void> {
     try {
-      for await (const value of this) await callback(value);
+      while (true) {
+        const item = await this.next();
+        if (item.done) return;
+        await callback(item.value);
+      }
     } catch (error) {
       await this.fail(error);
       throw error;
