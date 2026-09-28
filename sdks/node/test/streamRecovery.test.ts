@@ -412,6 +412,9 @@ describe("public message stream recovery", () => {
 const EXHAUSTION_WAIT_MS = 660_000;
 const EXHAUSTION_TEST_MS = 1_560_000;
 const EXHAUSTED = "[LocalDeliveryError::NetworkRecoveryExhausted]";
+// Each budget test waits for the real outage budget two times, about nine
+// minutes. CI does not run them. See sdks/node/AGENTS.md for when to run them.
+const BUDGET_TESTS = process.env.XMTP_RECOVERY_BUDGET_TESTS === "1";
 
 async function within<T>(
   operation: Promise<T>,
@@ -431,7 +434,7 @@ async function within<T>(
   }
 }
 
-describe("public message stream recovery budget", () => {
+describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
   it.each(["callback", "iterator"] as const)(
     "exhausts twice and opens fresh streams on the same offline client in %s mode",
     async (mode) => {

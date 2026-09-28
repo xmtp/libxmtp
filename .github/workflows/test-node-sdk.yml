@@ -31,8 +31,9 @@ jobs:
   recovery:
     name: Test (node-sdk) recovery
     runs-on: blacksmith-16vcpu-ubuntu-2404
-    # Preserve per-test production deadlines, including two full outage budgets.
-    timeout-minutes: 120
+    # A normal run takes about 15 minutes. The limit leaves room for several
+    # tests to reach their own production deadlines and report a failure.
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -47,6 +48,7 @@ jobs:
         run: just backend up
       - name: Build backend for graceful restart
         run: just backend build
+      # The budget exhaustion tests run only locally. See sdks/node/AGENTS.md.
       - name: Run public recovery matrix
         env:
           XMTP_RECOVERY_BACKEND_BINARY: ${{ github.workspace }}/result/bin/xmtp-backend

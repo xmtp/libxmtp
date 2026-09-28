@@ -37,7 +37,7 @@ impl PreparedWelcomes {
             .collect()
     }
 
-    fn same_batch(&self, other: &Self) -> bool {
+    pub(super) fn same_batch(&self, other: &Self) -> bool {
         self.commit_sequence_id == other.commit_sequence_id && self.envelopes == other.envelopes
     }
 }
@@ -68,14 +68,52 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 .as_ref()
                 .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
             // All crypto and durable state writes finished before this request.
-            let receipts = self
-                .context
-                .api()
-                .publish_units(welcomes.units(self.context.api().limits())?)
-                .await?;
+            let units = welcomes.units(self.context.api().limits())?;
+            let receipts = if attempt.unsettled == Some(Unsettled::Welcomes) {
+                self.settle_welcomes(units).await?
+            } else {
+                match self.context.api().publish_units(units.clone()).await {
+                    Ok(receipts) => receipts,
+                    Err(error) if out_of_range(&error) => {
+                        self.mark_unsettled(id, &attempt, Unsettled::Welcomes)?;
+                        self.settle_welcomes(units).await?
+                    }
+                    Err(error) => return Err(error.into()),
+                }
+            };
             self.record_welcome_receipts(id, &attempt, receipts)?;
         }
         Ok(())
+    }
+
+    /// Settle a Welcome batch whose publish returned `OUT_OF_RANGE` with a
+    /// `Query` of every topic it carried, then publish again only the saved
+    /// envelopes that read proved unstored. The batch is never re-encrypted.
+    /// A deployment carries every request within its published limits, so the
+    /// status came from a response, and an unstored envelope belonged to a
+    /// request that never completed.
+    // implements: SEND-007
+    async fn settle_welcomes(
+        &self,
+        units: Vec<PublishUnit>,
+    ) -> Result<Vec<EnvelopeMeta>, GroupError> {
+        let api = self.context.api();
+        let mut settled = api.settle_units(&units).await?;
+        let unstored: Vec<_> = (0..settled.len())
+            .filter(|&index| settled[index].is_none())
+            .collect();
+        if !unstored.is_empty() {
+            let resent = api
+                .publish_units(unstored.iter().map(|&index| units[index].clone()).collect())
+                .await?;
+            for (index, meta) in unstored.into_iter().zip(resent) {
+                settled[index] = Some(meta);
+            }
+        }
+        settled
+            .into_iter()
+            .collect::<Option<_>>()
+            .ok_or_else(|| xmtp_api::ApiError::InvalidResponse("Welcome metadata count").into())
     }
 
     /// Save follow-up bytes once, after a positive ordered commit cursor is known.
@@ -130,6 +168,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             };
             welcomes.units(self.context.api().limits())?;
             attempt.welcomes = Some(welcomes);
+            attempt.unsettled = None;
             let replacement = xmtp_db::db_serialize(&attempt)?;
             if !db.compare_and_set_prepared_envelopes(id, Some(&encoded), Some(&replacement))? {
                 return Err(OutgoingPreparationError::StateChanged.into());
@@ -192,6 +231,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             } else {
                 welcomes.receipts = Some(receipt_bytes);
             }
+            current.unsettled = None;
             let replacement = xmtp_db::db_serialize(&current)?;
             if db.compare_and_set_prepared_envelopes(id, Some(&encoded), Some(&replacement))? {
                 db.set_group_intent_processed(id)?;

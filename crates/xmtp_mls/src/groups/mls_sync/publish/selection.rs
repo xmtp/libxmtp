@@ -351,7 +351,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 .await?
         };
         #[cfg(any(test, feature = "test-utils"))]
-        inject_failed_installations_for_test(&mut packages, &mut Vec::new()).await;
+        inject_failed_installations_for_test(&mut packages);
         let mut reusable = HashMap::new();
         for (index, id, _, retained) in &pending {
             let Some(Ok(current)) = packages.get(id) else {
