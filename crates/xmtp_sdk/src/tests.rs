@@ -5489,7 +5489,7 @@ async fn prepared_message_rechecks_deletion_before_admission() {
     client.end().await?;
 }
 
-// verifies: PROC-029, PROC-030, PROC-050
+// verifies: PROC-033, PROC-034, PROC-050
 #[xmtp_common::test(unwrap_try = true)]
 async fn delivery_cursor_preserves_large_position_across_full_results() {
     use xmtp_db::{
@@ -5602,7 +5602,7 @@ async fn delivery_cursor_absent_until_publication() {
     client.end().await?;
 }
 
-// verifies: PROC-029, PROC-030
+// verifies: PROC-033
 #[xmtp_common::test(unwrap_try = true)]
 async fn delivery_cursor_rejects_invalid_and_foreign_before_open() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
