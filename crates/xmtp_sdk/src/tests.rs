@@ -1723,6 +1723,22 @@ async fn facade_authorization_and_installation_signatures() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn latest_inbox_update_counts_preserve_registered_and_unknown_keys() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let own = client.inbox_id();
+    let unknown = InboxId::try_from("00".repeat(32))?;
+    assert_ne!(own, unknown);
+
+    let counts = client
+        .latest_inbox_updates_count(vec![own.clone(), unknown.clone()], false)
+        .await?;
+    assert_eq!(counts.len(), 2);
+    assert!(counts[&own.0] > 0);
+    assert_eq!(counts[&unknown.0], 0);
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn facade_key_package_statuses_keep_missing_entries() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let missing = crate::InstallationId::try_from("00".repeat(32))?;
@@ -1735,6 +1751,23 @@ async fn facade_key_package_statuses_keep_missing_entries() {
     assert!(entries[&own.0].validation_error.is_none());
     assert!(entries[&missing.0].lifetime.is_none());
     assert!(entries[&missing.0].validation_error.is_some());
+
+    let backend_entries = crate::static_helpers::key_package_statuses_with_backend(
+        options().backend.expect("backend options"),
+        vec![own.clone(), missing.clone()],
+    )
+    .await?;
+    assert_eq!(backend_entries.len(), 2);
+    let registered = &backend_entries[&own.0];
+    let lifetime = registered.lifetime.as_ref().expect("registered package");
+    assert!(lifetime.not_after > lifetime.not_before);
+    assert!(registered.validation_error.is_none());
+    let absent = &backend_entries[&missing.0];
+    assert!(absent.lifetime.is_none());
+    assert_eq!(
+        absent.validation_error.as_deref(),
+        Some("key package not found")
+    );
     client.end().await?;
 }
 
