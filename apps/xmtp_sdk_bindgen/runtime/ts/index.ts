@@ -4,13 +4,7 @@ export {
   type ContentCodec,
   type SDKClientOptions,
 } from "./client";
-export {
-  ConversationID,
-  InboxID,
-  InstallationID,
-  MessageID,
-  Timestamp,
-} from "./ids";
+export { Timestamp } from "./ids";
 export { Message } from "./message";
 export { EventStream } from "./events/reader";
 export {

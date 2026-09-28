@@ -56,8 +56,8 @@ const client = new Client(session, {
   type: "Client",
   snap: {
     conversations: { h: 2, owner: 1, epoch: 1, type: "Conversations" },
-    inboxID: "inbox",
-    installationID: "install",
+    inboxId: "inbox",
+    installationId: "install",
   },
 });
 assert.strictEqual(
@@ -88,8 +88,8 @@ const duplicateHandle = {
   type: "Client",
   snap: {
     conversations: { h: 7, owner: 6, epoch: 1, type: "Conversations" },
-    inboxID: "x",
-    installationID: "y",
+    inboxId: "x",
+    installationId: "y",
   },
 };
 const first = new Client(session, duplicateHandle);
@@ -119,8 +119,8 @@ function temporary(): void {
     type: "Client",
     snap: {
       conversations: { h: 4, owner: 3, epoch: 1, type: "Conversations" },
-      inboxID: "x",
-      installationID: "y",
+      inboxId: "x",
+      installationId: "y",
     },
   });
   proxy.conversations();
@@ -152,9 +152,9 @@ assert.ok(
 // A client collected without end() must not keep its custom codecs.
 function temporaryCodecClient(): WeakRef<object> {
   const codec = {
-    type: B.ContentTypeID.create({
-      authorityID: "example.org",
-      typeID: "collected-codec",
+    type: B.ContentTypeId.create({
+      authorityId: "example.org",
+      typeId: "collected-codec",
       versionMajor: 1,
       versionMinor: 0,
     }),

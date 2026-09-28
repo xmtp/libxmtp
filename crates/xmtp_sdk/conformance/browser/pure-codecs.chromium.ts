@@ -10,9 +10,18 @@ export async function checkPureCodecs(): Promise<number> {
     [sdk.StandardContent_Tags.ReadReceipt, new sdk.ReadReceiptCodec()],
     [sdk.StandardContent_Tags.Reaction, new sdk.ReactionV2Codec()],
     [sdk.StandardContent_Tags.Attachment, new sdk.AttachmentCodec()],
-    [sdk.StandardContent_Tags.RemoteAttachment, new sdk.RemoteAttachmentCodec()],
-    [sdk.StandardContent_Tags.MultiRemoteAttachment, new sdk.MultiRemoteAttachmentCodec()],
-    [sdk.StandardContent_Tags.TransactionReference, new sdk.TransactionReferenceCodec()],
+    [
+      sdk.StandardContent_Tags.RemoteAttachment,
+      new sdk.RemoteAttachmentCodec(),
+    ],
+    [
+      sdk.StandardContent_Tags.MultiRemoteAttachment,
+      new sdk.MultiRemoteAttachmentCodec(),
+    ],
+    [
+      sdk.StandardContent_Tags.TransactionReference,
+      new sdk.TransactionReferenceCodec(),
+    ],
     [sdk.StandardContent_Tags.WalletSendCalls, new sdk.WalletSendCallsCodec()],
     [sdk.StandardContent_Tags.Actions, new sdk.ActionsCodec()],
     [sdk.StandardContent_Tags.Intent, new sdk.IntentCodec()],
@@ -22,7 +31,8 @@ export async function checkPureCodecs(): Promise<number> {
     [sdk.StandardContent_Tags.LeaveRequest, new sdk.LeaveRequestCodec()],
   ]);
   const samples = sdk.sdkConformanceStandardSamples();
-  if (samples.length !== 15) throw new Error(`expected 15 samples, got ${samples.length}`);
+  if (samples.length !== 15)
+    throw new Error(`expected 15 samples, got ${samples.length}`);
   for (const sample of samples) {
     const codec = codecs.get(sample.value.tag);
     if (!codec) throw new Error(`missing codec ${sample.value.tag}`);
@@ -46,12 +56,16 @@ export async function checkPureCodecs(): Promise<number> {
       throw new Error(`codec bytes differ for ${sample.value.tag}`);
     }
     const parameters = (value: Map<string, string>): string =>
-      JSON.stringify([...value].sort(([left], [right]) => left.localeCompare(right)));
-    if (parameters(encoded.parameters) !== parameters(sample.expected.parameters)) {
+      JSON.stringify(
+        [...value].sort(([left], [right]) => left.localeCompare(right)),
+      );
+    if (
+      parameters(encoded.parameters) !== parameters(sample.expected.parameters)
+    ) {
       throw new Error(`codec parameters differ for ${sample.value.tag}`);
     }
     if (
-      encoded.type.typeID !== sample.expected.type.typeID ||
+      encoded.type.typeId !== sample.expected.type.typeId ||
       encoded.fallback !== sample.expected.fallback
     ) {
       throw new Error(`codec metadata differs for ${sample.value.tag}`);

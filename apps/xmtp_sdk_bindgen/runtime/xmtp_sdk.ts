@@ -1,20 +1,21 @@
 // Type view for linting the maintained runtime before generation. The generated
 // package resolves this import to its own xmtp_sdk.ts instead.
-import type {
-  ConversationID,
-  InboxID,
-  InstallationID,
-  MessageID,
-  Timestamp,
-} from "./ts/ids";
+import type { Timestamp } from "./ts/ids";
 import type { Message } from "./ts/message";
 
+export type ConversationId = string;
+export type InboxId = string;
+export type InstallationId = string;
+export type MessageId = string;
+export type MessageKind = string;
+export type DeliveryStatus = string;
+
 export type MessageData = {
-  id: MessageID;
+  id: MessageId;
   clientKey: bigint;
-  conversationID: ConversationID;
+  conversationId: ConversationId;
   topic: string;
-  senderInboxID: InboxID;
+  senderInboxId: InboxId;
   sentAt: Timestamp;
   insertedAt: Timestamp;
   expiresAt?: Timestamp;
@@ -26,15 +27,15 @@ export type MessageData = {
   content: MessageContent;
   replyCount: bigint;
   reactions: object[];
-  inReplyTo?: { id: MessageID; content: MessageBody };
+  inReplyTo?: { id: MessageId; content: MessageBody };
 };
-export type ContentTypeID = {
-  authorityID: string;
-  typeID: string;
+export type ContentTypeId = {
+  authorityId: string;
+  typeId: string;
   versionMajor: number;
   versionMinor: number;
 };
-export type EncodedContent = { type: ContentTypeID; content: ArrayBuffer };
+export type EncodedContent = { type: ContentTypeId; content: ArrayBuffer };
 export type Attachment = object;
 export type RemoteAttachment = object;
 export type MultiRemoteAttachment = object;
@@ -165,7 +166,7 @@ export const StandardContent = {
     }
   },
 };
-export function standardContentType(_kind: StandardContentKind): ContentTypeID {
+export function standardContentType(_kind: StandardContentKind): ContentTypeId {
   throw new Error("lint only");
 }
 export function encodeStandard(_value: StandardContent): EncodedContent {
@@ -199,7 +200,7 @@ export const MessageBody = {
 export type MessageContent =
   | {
       tag: MessageContent_Tags.Reply;
-      inner: { referenceID: MessageID; body: MessageBody };
+      inner: { referenceId: MessageId; body: MessageBody };
     }
   | {
       tag: MessageContent_Tags.Text;
@@ -281,9 +282,8 @@ export declare const BackendSource: {
   Options: new (options: BackendOptions) => object;
   Connected: new (backend: BackendLike) => object;
 };
-export type CanMessageEntry = { identity: PublicIdentity; canMessage: boolean };
 export type InboxState = object;
-export type KeyPackageStatusEntry = object;
+export type KeyPackageStatus = object;
 export type MessageMetadataEntry = object;
 export type ServerConfiguration = object;
 export type Conversation = object;
@@ -311,7 +311,7 @@ export type LogRecord = {
   target: string;
   message: string;
   fields: Map<string, string>;
-  timestampNs: bigint;
+  timestamp: Timestamp;
   droppedRecords: bigint;
 };
 export type ClientEvent = object;
@@ -326,20 +326,20 @@ export type ConversationsLike = {
     options: ConversationReaderOptions | undefined,
     asyncOptions?: { signal: AbortSignal },
   ): Promise<ConversationReaderLike>;
-  getMessageByID(id: MessageID): Promise<Message | undefined>;
-  getByID(id: ConversationID): Promise<Conversation | undefined>;
-  deleteMessage(id: MessageID): Promise<MessageID>;
-  deleteMessageLocally(id: MessageID): Promise<void>;
+  getMessageById(id: MessageId): Promise<Message | undefined>;
+  getById(id: ConversationId): Promise<Conversation | undefined>;
+  deleteMessage(id: MessageId): Promise<MessageId>;
+  deleteMessageLocally(id: MessageId): Promise<void>;
   reactToMessage(
-    id: MessageID,
+    id: MessageId,
     reaction: Reaction,
     options?: SendOptions,
-  ): Promise<MessageID>;
+  ): Promise<MessageId>;
   replyToMessage(
-    id: MessageID,
+    id: MessageId,
     content: EncodedContent,
     options?: SendOptions,
-  ): Promise<MessageID>;
+  ): Promise<MessageId>;
 };
 export declare function encodeText(text: string): EncodedContent;
 
@@ -349,38 +349,38 @@ export declare function fetchServerConfiguration(
 export declare function canMessageWithBackend(
   backend: BackendLike,
   identities: PublicIdentity[],
-): Promise<CanMessageEntry[]>;
+): Promise<Map<string, boolean>>;
 export declare function inboxIdForWithBackend(
   backend: BackendLike,
   identity: PublicIdentity,
-): Promise<InboxID>;
+): Promise<InboxId>;
 export declare function inboxStatesWithBackend(
   backend: BackendLike,
-  ids: InboxID[],
+  ids: InboxId[],
 ): Promise<InboxState[]>;
 export declare function keyPackageStatusesWithBackend(
   backend: BackendLike,
-  ids: InstallationID[],
-): Promise<KeyPackageStatusEntry[]>;
+  ids: InstallationId[],
+): Promise<Map<string, KeyPackageStatus>>;
 export declare function newestMessageMetadataWithBackend(
   backend: BackendLike,
-  ids: ConversationID[],
-): Promise<MessageMetadataEntry[]>;
+  ids: ConversationId[],
+): Promise<Map<string, MessageMetadataEntry>>;
 export declare function revokeInstallationsWithBackend(
   backend: BackendLike,
   signer: Signer,
-  inboxID: InboxID,
-  ids: InstallationID[],
+  inboxId: InboxId,
+  ids: InstallationId[],
 ): Promise<void>;
 export declare function isAddressAuthorizedWithBackend(
   backend: BackendLike,
-  inboxID: InboxID,
+  inboxId: InboxId,
   address: string,
 ): Promise<boolean>;
 export declare function isInstallationAuthorizedWithBackend(
   backend: BackendLike,
-  inboxID: InboxID,
-  installationID: InstallationID,
+  inboxId: InboxId,
+  installationId: InstallationId,
 ): Promise<boolean>;
 export declare function verifySignedWithPublicKey(
   text: string,
@@ -390,8 +390,8 @@ export declare function verifySignedWithPublicKey(
 
 export interface ClientLike {
   clientKey(): bigint;
-  inboxID(): InboxID;
-  installationID(): InstallationID;
+  inboxId(): InboxId;
+  installationId(): InstallationId;
   conversations(): ConversationsLike;
   events(filter: EventFilter): Promise<EventReaderLike>;
   startListener(
@@ -412,7 +412,7 @@ export declare const Client: {
   build(
     identity: PublicIdentity,
     options: ClientOptions,
-    inboxID?: InboxID,
+    inboxId?: InboxId,
   ): Promise<ClientLike>;
 };
 

@@ -34,12 +34,15 @@ public final class SDKClient: @unchecked Sendable {
         codecs.decode(encoded)
     }
 
-    private static func resolved(_ options: ClientOptions, appName: String?) -> ClientOptions {
+    private static func resolved(_ options: ClientOptions) throws -> ClientOptions {
         var result = options
         if case .default = result.storage.location {
-            let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
-                .first ?? FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-            let name = appName ?? Bundle.main.bundleIdentifier ?? "xmtp-sdk"
+            guard let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first,
+                  let name = Bundle.main.bundleIdentifier, !name.isEmpty, !name.contains("\0") else {
+                throw XmtpError.StorageLocationRequired(ErrorDetails(
+                    code: "StorageLocationRequired", category: .storage, retryable: false,
+                    message: "Default storage needs an application bundle identifier and Application Support directory"))
+            }
             result.storage.location = .directory(base.appendingPathComponent(name)
                 .appendingPathComponent("xmtp").path)
         }
@@ -47,53 +50,53 @@ public final class SDKClient: @unchecked Sendable {
     }
 
     public static func create(
-        signer: Signer, options: ClientOptions, appName: String? = nil,
+        signer: Signer, options: ClientOptions,
         codecs: [any SDKContentCodec] = []
     ) async throws -> SDKClient {
-        try await SDKClient(Client.create(signer: signer, options: resolved(options, appName: appName)), codecs: codecs)
+        try await SDKClient(Client.create(signer: signer, options: try resolved(options)), codecs: codecs)
     }
 
     public static func build(
-        identity: PublicIdentity, options: ClientOptions, inboxID: InboxID? = nil,
-        appName: String? = nil, codecs: [any SDKContentCodec] = []
+        identity: PublicIdentity, options: ClientOptions, inboxId: InboxId? = nil,
+        codecs: [any SDKContentCodec] = []
     ) async throws -> SDKClient {
-        try await SDKClient(Client.build(identity: identity, options: resolved(options, appName: appName), inboxID: inboxID), codecs: codecs)
+        try await SDKClient(Client.build(identity: identity, options: try resolved(options), inboxId: inboxId), codecs: codecs)
     }
 
     public static func fetchServerConfiguration(backend: BackendSource) async throws -> ServerConfiguration {
         try await XmtpSdk.fetchServerConfiguration(backend: backend)
     }
 
-    public static func canMessage(_ identities: [PublicIdentity], backend: BackendSource) async throws -> [CanMessageEntry] {
+    public static func canMessage(_ identities: [PublicIdentity], backend: BackendSource) async throws -> [String: Bool] {
         try await canMessageWithBackend(backend: backend, identities: identities)
     }
 
-    public static func inboxID(for identity: PublicIdentity, backend: BackendSource) async throws -> InboxID {
-        try await inboxIDForWithBackend(backend: backend, identity: identity)
+    public static func inboxId(for identity: PublicIdentity, backend: BackendSource) async throws -> InboxId {
+        try await inboxIdForWithBackend(backend: backend, identity: identity)
     }
 
-    public static func inboxStates(_ ids: [InboxID], backend: BackendSource) async throws -> [InboxState] {
+    public static func inboxStates(_ ids: [InboxId], backend: BackendSource) async throws -> [InboxState] {
         try await inboxStatesWithBackend(backend: backend, ids: ids)
     }
 
-    public static func keyPackageStatuses(_ ids: [InstallationID], backend: BackendSource) async throws -> [KeyPackageStatusEntry] {
+    public static func keyPackageStatuses(_ ids: [InstallationId], backend: BackendSource) async throws -> [String: KeyPackageStatus] {
         try await keyPackageStatusesWithBackend(backend: backend, ids: ids)
     }
 
-    public static func newestMessageMetadata(_ ids: [ConversationID], backend: BackendSource) async throws -> [MessageMetadataEntry] {
+    public static func newestMessageMetadata(_ ids: [ConversationId], backend: BackendSource) async throws -> [String: MessageMetadataEntry] {
         try await newestMessageMetadataWithBackend(backend: backend, ids: ids)
     }
 
-    public static func revokeInstallations(signer: Signer, inboxID: InboxID, ids: [InstallationID], backend: BackendSource) async throws {
-        try await revokeInstallationsWithBackend(backend: backend, signer: signer, inboxID: inboxID, ids: ids)
+    public static func revokeInstallations(signer: Signer, inboxId: InboxId, ids: [InstallationId], backend: BackendSource) async throws {
+        try await revokeInstallationsWithBackend(backend: backend, signer: signer, inboxId: inboxId, ids: ids)
     }
 
-    public static func isAddressAuthorized(_ address: String, inboxID: InboxID, backend: BackendSource) async throws -> Bool {
-        try await isAddressAuthorizedWithBackend(backend: backend, inboxID: inboxID, address: address)
+    public static func isAddressAuthorized(_ address: String, inboxId: InboxId, backend: BackendSource) async throws -> Bool {
+        try await isAddressAuthorizedWithBackend(backend: backend, inboxId: inboxId, address: address)
     }
 
-    public static func isInstallationAuthorized(_ installationID: InstallationID, inboxID: InboxID, backend: BackendSource) async throws -> Bool {
-        try await isInstallationAuthorizedWithBackend(backend: backend, inboxID: inboxID, installationID: installationID)
+    public static func isInstallationAuthorized(_ installationId: InstallationId, inboxId: InboxId, backend: BackendSource) async throws -> Bool {
+        try await isInstallationAuthorizedWithBackend(backend: backend, inboxId: inboxId, installationId: installationId)
     }
 
     public static func verifySignedWithPublicKey(_ text: String, signature: Data, publicKey: Data) async throws -> Bool {

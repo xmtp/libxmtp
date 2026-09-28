@@ -7,7 +7,7 @@ async fn build_on_new_database_fails_identity_not_found(
 
     let signer = crate::generate_local_signer().await;
     let identity = signer::identity(signer).await?;
-    let inbox_id = InboxID(
+    let inbox_id = InboxId(
         identity
             .to_core()?
             .inbox_id(0)
@@ -74,7 +74,7 @@ async fn build_with_inaccessible_database_path_returns_storage_error() {
     settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
     let signer = crate::generate_local_signer().await;
     let identity = signer::identity(signer).await?;
-    let inbox_id = InboxID(
+    let inbox_id = InboxId(
         identity
             .to_core()?
             .inbox_id(0)
@@ -530,7 +530,7 @@ fn facade_content_records_preserve_codec_fields() {
     };
     use xmtp_proto::xmtp::mls::message_contents::content_types as proto;
 
-    let reference = MessageID::try_from("a".repeat(64))?;
+    let reference = MessageId::try_from("a".repeat(64))?;
     let reaction = crate::Reaction {
         content: "👍".into(),
         action: crate::ReactionAction::Added,
@@ -539,7 +539,7 @@ fn facade_content_records_preserve_codec_fields() {
     let encoded_reaction = ReactionCodec::encode(
         reaction
             .clone()
-            .into_proto(reference.clone(), InboxID::try_from("inbox".to_owned())?),
+            .into_proto(reference.clone(), InboxId::try_from("inbox".to_owned())?),
     )?;
     let decoded_reaction = MessageContent::decode(encoded_reaction.encode_to_vec())?;
     assert!(
@@ -857,7 +857,7 @@ async fn conversation_list_limit_and_activity_cursor_cover_all_groups() {
             );
         }
         let last = page.last().expect("page is not empty");
-        before = Some(last.last_activity_at_ns(None).await?);
+        before = Some(last.last_activity_at(None).await?);
         if page.len() < 2 {
             break;
         }
@@ -1207,11 +1207,11 @@ async fn can_message_changes_after_peer_registration() {
     let bo_identity = bo_signer.identity().await?;
     let before = alix.can_message(vec![bo_identity.clone()]).await?;
     assert_eq!(before.len(), 1);
-    assert!(!before[0].can_message);
+    assert!(!before[&bo_identity.identifier]);
     let bo = Client::create(bo_signer, options()).await?;
-    let after = alix.can_message(vec![bo_identity]).await?;
+    let after = alix.can_message(vec![bo_identity.clone()]).await?;
     assert_eq!(after.len(), 1);
-    assert!(after[0].can_message);
+    assert!(after[&bo_identity.identifier]);
     alix.end().await?;
     bo.end().await?;
 }

@@ -39,6 +39,9 @@ export class BridgeError extends Error {
   }
 }
 
+const validatedIdLift =
+  /Lifting custom type `xmtp_sdk::ids::(?:InboxId|InstallationId|ConversationId|MessageId)` from FFI type `alloc::string::String` failed/;
+
 export function bridgeError(
   code: BridgeErrorCode,
   details?: unknown,
@@ -97,6 +100,29 @@ export function encodeError(error: unknown): ErrorWire {
     };
   }
   if (error instanceof Error) {
+    if (
+      validatedIdLift.test(error.message) &&
+      error.message.includes(
+        'invalid argument: ErrorDetails { code: "InvalidArgument"',
+      )
+    ) {
+      const category = ErrorCategory.Input;
+      return {
+        variant: "InvalidArgument",
+        code: "InvalidArgument",
+        category,
+        retryable: false,
+        message: error.message,
+        details: [
+          {
+            code: "InvalidArgument",
+            category,
+            retryable: false,
+            message: error.message,
+          },
+        ],
+      };
+    }
     if ("tag" in error && typeof error.tag === "string") {
       const inner: unknown = "inner" in error ? error.inner : undefined;
       const detail: unknown = Array.isArray(inner) ? inner[0] : inner;

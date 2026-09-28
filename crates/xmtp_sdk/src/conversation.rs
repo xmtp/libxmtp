@@ -1,5 +1,4 @@
-use std::future::Future;
-use std::sync::Arc;
+use std::{collections::HashMap, future::Future, sync::Arc};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_common::StreamHandle;
 use xmtp_content_types::{
@@ -25,12 +24,11 @@ use xmtp_mls::mls_store::MlsStore;
 use xmtp_proto::types::{ConversationType, GroupId};
 
 use crate::{
-    ConsentState, ContentTypeId, ConversationHmacKeys, ConversationID, ConversationReader,
-    ConversationState, CreateDmOptions, CreateGroupOptions, DisappearingSettings, EncodedContent,
-    GroupState, GroupSyncSummary, HmacKey, InboxID, LastReadTimeEntry, ListConversationsOptions,
-    ListMessagesOptions, Member, Message, MessageID, MessageReader, NotificationOverride,
-    PublicIdentity, Reaction, SendOptions, StandardContent, Timestamp, XmtpError,
-    client::CoreClient,
+    ConsentState, ContentTypeId, ConversationId, ConversationReader, ConversationState,
+    CreateDmOptions, CreateGroupOptions, DisappearingSettings, EncodedContent, GroupState,
+    GroupSyncSummary, HmacKey, InboxId, ListConversationsOptions, ListMessagesOptions, Member,
+    Message, MessageId, MessageReader, NotificationOverride, PublicIdentity, Reaction, SendOptions,
+    StandardContent, Timestamp, XmtpError, client::CoreClient,
 };
 
 // Native calls run on an owned task in every profile. This keeps SQLite work
@@ -241,6 +239,7 @@ impl Conversations {
         .await
     }
 
+    #[uniffi::method(default(options = None))]
     pub async fn create_group_optimistic(
         &self,
         options: Option<CreateGroupOptions>,
@@ -257,7 +256,7 @@ impl Conversations {
         .await
     }
 
-    pub async fn get_dm_by_inbox_id(&self, peer: InboxID) -> Result<Option<Arc<Dm>>, XmtpError> {
+    pub async fn get_dm_by_inbox_id(&self, peer: InboxId) -> Result<Option<Arc<Dm>>, XmtpError> {
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
@@ -312,9 +311,10 @@ impl Conversations {
         .await
     }
 
+    #[uniffi::method(default(options = None))]
     pub async fn create_group(
         &self,
-        members: Vec<InboxID>,
+        members: Vec<InboxId>,
         options: Option<CreateGroupOptions>,
     ) -> Result<Arc<Group>, XmtpError> {
         let members: Vec<String> = members.into_iter().map(|member| member.0).collect();
@@ -334,9 +334,10 @@ impl Conversations {
         .await
     }
 
+    #[uniffi::method(default(options = None))]
     pub async fn create_dm(
         &self,
-        peer: InboxID,
+        peer: InboxId,
         options: Option<CreateDmOptions>,
     ) -> Result<Arc<Dm>, XmtpError> {
         let client = self.client.clone();
@@ -355,7 +356,7 @@ impl Conversations {
         .await
     }
 
-    pub async fn get_by_id(&self, id: ConversationID) -> Result<Option<Conversation>, XmtpError> {
+    pub async fn get_by_id(&self, id: ConversationId) -> Result<Option<Conversation>, XmtpError> {
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
@@ -375,6 +376,7 @@ impl Conversations {
         .await
     }
 
+    #[uniffi::method(default(options = None))]
     pub async fn list(
         &self,
         options: Option<ListConversationsOptions>,
@@ -422,7 +424,7 @@ impl Conversations {
             .collect())
     }
 
-    pub async fn get_message_by_id(&self, id: MessageID) -> Result<Option<Message>, XmtpError> {
+    pub async fn get_message_by_id(&self, id: MessageId) -> Result<Option<Message>, XmtpError> {
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
@@ -452,7 +454,7 @@ impl Conversations {
         .await
     }
 
-    pub async fn delete_message_locally(&self, id: MessageID) -> Result<(), XmtpError> {
+    pub async fn delete_message_locally(&self, id: MessageId) -> Result<(), XmtpError> {
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
             client
@@ -463,14 +465,14 @@ impl Conversations {
         .await
     }
 
-    pub async fn delete_message(&self, id: MessageID) -> Result<MessageID, XmtpError> {
+    pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
         let (stored, group) = self.message_group(&id).await?;
         on_sdk_worker(self.client.context.clone(), async move {
             let group = deletion_group(group, &stored)?;
             let deletion_id = group
                 .delete_message(stored.id)
                 .map_err(XmtpError::unknown)?;
-            MessageID::from_bytes(&deletion_id)
+            MessageId::from_bytes(&deletion_id)
         })
         .await
     }
@@ -478,15 +480,15 @@ impl Conversations {
     #[uniffi::method(default(options = None))]
     pub async fn react_to_message(
         &self,
-        id: MessageID,
+        id: MessageId,
         reaction: Reaction,
         options: Option<SendOptions>,
-    ) -> Result<MessageID, XmtpError> {
+    ) -> Result<MessageId, XmtpError> {
         let (stored, group) = self.message_group(&id).await?;
         on_sdk_worker(self.client.context.clone(), async move {
             Box::pin(async move {
                 let content = ReactionCodec::encode(
-                    reaction.into_proto(id, InboxID::try_from(stored.sender_inbox_id)?),
+                    reaction.into_proto(id, InboxId::try_from(stored.sender_inbox_id)?),
                 )
                 .map_err(XmtpError::unknown)?;
                 send_encoded(group, content.into(), options.unwrap_or_default()).await
@@ -499,10 +501,10 @@ impl Conversations {
     #[uniffi::method(default(options = None))]
     pub async fn reply_to_message(
         &self,
-        id: MessageID,
+        id: MessageId,
         content: EncodedContent,
         options: Option<SendOptions>,
-    ) -> Result<MessageID, XmtpError> {
+    ) -> Result<MessageId, XmtpError> {
         require_content_type(&content)?;
         let (stored, group) = self.message_group(&id).await?;
         on_sdk_worker(self.client.context.clone(), async move {
@@ -549,7 +551,7 @@ impl Conversations {
         .await
     }
 
-    pub async fn hmac_keys(&self) -> Result<Vec<ConversationHmacKeys>, XmtpError> {
+    pub async fn hmac_keys(&self) -> Result<HashMap<String, Vec<HmacKey>>, XmtpError> {
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
             let mut groups = client
@@ -558,17 +560,17 @@ impl Conversations {
                     ..Default::default()
                 })
                 .map_err(XmtpError::unknown)?;
-            let mut entries = Vec::with_capacity(groups.len());
+            let mut entries = HashMap::with_capacity(groups.len());
             for group in groups.drain(..) {
-                entries.push(ConversationHmacKeys {
-                    conversation_id: group.group_id.into(),
-                    keys: group
+                entries.insert(
+                    hex::encode(group.group_id.as_slice()),
+                    group
                         .hmac_keys(-1..=1)
                         .map_err(XmtpError::unknown)?
                         .into_iter()
                         .map(Into::into)
                         .collect(),
-                });
+                );
             }
             Ok(entries)
         })
@@ -579,7 +581,7 @@ impl Conversations {
 impl Conversations {
     async fn message_group(
         &self,
-        id: &MessageID,
+        id: &MessageId,
     ) -> Result<
         (
             xmtp_db::group_message::StoredGroupMessage,
@@ -604,7 +606,7 @@ impl Conversations {
 #[xmtp_macro::sdk_export]
 impl Conversations {
     /// Open a group already stored in this client's database for the benchmark.
-    pub async fn get_group(&self, id: ConversationID) -> Result<Arc<Group>, XmtpError> {
+    pub async fn get_group(&self, id: ConversationId) -> Result<Arc<Group>, XmtpError> {
         let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
         let group_id = xmtp_proto::types::GroupId::try_from(bytes).map_err(XmtpError::unknown)?;
         let client = self.client.clone();
@@ -633,7 +635,7 @@ pub struct Dm {
     pub(crate) inner: MlsGroup<xmtp_mls::MlsContext>,
     pub(crate) client_key: u64,
     identity: ConversationIdentity,
-    peer_inbox_id: InboxID,
+    peer_inbox_id: InboxId,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
     #[cfg(test)]
@@ -641,8 +643,8 @@ pub struct Dm {
 }
 
 struct ConversationIdentity {
-    added_by_inbox_id: InboxID,
-    creator_inbox_id: InboxID,
+    added_by_inbox_id: InboxId,
+    creator_inbox_id: InboxId,
     is_creator: bool,
 }
 
@@ -653,8 +655,8 @@ impl ConversationIdentity {
         own_inbox_id: &str,
     ) -> Result<Self, XmtpError> {
         Ok(Self {
-            added_by_inbox_id: InboxID::try_from(added_by_inbox_id)?,
-            creator_inbox_id: InboxID::try_from(metadata.creator_inbox_id.clone())?,
+            added_by_inbox_id: InboxId::try_from(added_by_inbox_id)?,
+            creator_inbox_id: InboxId::try_from(metadata.creator_inbox_id.clone())?,
             is_creator: metadata.creator_inbox_id == own_inbox_id,
         })
     }
@@ -663,7 +665,7 @@ impl ConversationIdentity {
         group: &MlsGroup<xmtp_mls::MlsContext>,
     ) -> Result<(Self, xmtp_mls::mls_common::group_metadata::GroupMetadata), XmtpError> {
         let added_by_inbox_id =
-            InboxID::try_from(group.added_by_inbox_id().map_err(XmtpError::unknown)?)?;
+            InboxId::try_from(group.added_by_inbox_id().map_err(XmtpError::unknown)?)?;
         let metadata = group.metadata().await.map_err(XmtpError::unknown)?;
         Ok((
             Self::from_metadata(added_by_inbox_id.0, &metadata, group.context.inbox_id())?,
@@ -705,7 +707,7 @@ impl Dm {
         } else {
             members.member_one_inbox_id
         };
-        let peer_inbox_id = InboxID::try_from(peer.to_string())?;
+        let peer_inbox_id = InboxId::try_from(peer.to_string())?;
         Ok(Self {
             inner,
             client_key,
@@ -809,7 +811,7 @@ async fn send_standard(
     group: MlsGroup<xmtp_mls::MlsContext>,
     value: StandardContent,
     options: Option<SendOptions>,
-) -> Result<MessageID, XmtpError> {
+) -> Result<MessageId, XmtpError> {
     send_encoded(
         group,
         crate::encode_standard(value)?,
@@ -822,7 +824,7 @@ async fn send_encoded(
     group: MlsGroup<xmtp_mls::MlsContext>,
     content: EncodedContent,
     options: SendOptions,
-) -> Result<MessageID, XmtpError> {
+) -> Result<MessageId, XmtpError> {
     require_content_type(&content)?;
     on_sdk_worker(group.context.clone(), async move {
         // Build the send future on the worker. Swift cooperative threads have
@@ -850,7 +852,7 @@ async fn send_encoded(
                     .await
                     .map_err(XmtpError::unknown)?
             };
-            MessageID::from_bytes(&id)
+            MessageId::from_bytes(&id)
         })
         .await
     })
@@ -936,7 +938,7 @@ macro_rules! common_conversation {
     ($name:ident, $state:ty, $map:expr) => {
         #[xmtp_macro::sdk_export]
         impl $name {
-            pub fn id(&self) -> ConversationID {
+            pub fn id(&self) -> ConversationId {
                 self.inner.group_id.into()
             }
 
@@ -955,11 +957,11 @@ macro_rules! common_conversation {
                 }
             }
 
-            pub fn added_by_inbox_id(&self) -> InboxID {
+            pub fn added_by_inbox_id(&self) -> InboxId {
                 self.identity.added_by_inbox_id.clone()
             }
 
-            pub fn creator_inbox_id(&self) -> InboxID {
+            pub fn creator_inbox_id(&self) -> InboxId {
                 self.identity.creator_inbox_id.clone()
             }
 
@@ -994,7 +996,7 @@ macro_rules! common_conversation {
                 .await
             }
 
-            pub async fn last_activity_at_ns(
+            pub async fn last_activity_at(
                 &self,
                 content_types: Option<Vec<ContentTypeId>>,
             ) -> Result<Timestamp, XmtpError> {
@@ -1070,19 +1072,14 @@ macro_rules! common_conversation {
                 .await
             }
 
-            pub async fn last_read_times(&self) -> Result<Vec<LastReadTimeEntry>, XmtpError> {
+            pub async fn last_read_times(&self) -> Result<HashMap<String, Timestamp>, XmtpError> {
                 let group = self.inner.clone();
                 on_sdk_worker(self.inner.context.clone(), async move {
                     group
                         .get_last_read_times()
                         .map_err(XmtpError::unknown)?
                         .into_iter()
-                        .map(|(inbox_id, ns)| {
-                            Ok(LastReadTimeEntry {
-                                inbox_id: InboxID::try_from(inbox_id)?,
-                                read_at: Timestamp(ns),
-                            })
-                        })
+                        .map(|(inbox_id, ns)| Ok((InboxId::try_from(inbox_id)?.0, Timestamp(ns))))
                         .collect()
                 })
                 .await
@@ -1140,7 +1137,7 @@ macro_rules! common_conversation {
                 .await
             }
 
-            pub async fn publish_message(&self, id: MessageID) -> Result<(), XmtpError> {
+            pub async fn publish_message(&self, id: MessageId) -> Result<(), XmtpError> {
                 let group = self.inner.clone();
                 let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
                 on_sdk_worker(
@@ -1160,7 +1157,7 @@ macro_rules! common_conversation {
                 &self,
                 encoded: EncodedContent,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 let mut options = options.unwrap_or_default();
                 options.optimistic = true;
                 send_encoded(self.inner.clone(), encoded, options).await
@@ -1171,7 +1168,7 @@ macro_rules! common_conversation {
                 &self,
                 encoded: EncodedContent,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_encoded(self.inner.clone(), encoded, options.unwrap_or_default()).await
             }
 
@@ -1180,7 +1177,7 @@ macro_rules! common_conversation {
                 &self,
                 text: String,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(self.inner.clone(), StandardContent::Text(text), options).await
             }
 
@@ -1189,7 +1186,7 @@ macro_rules! common_conversation {
                 &self,
                 markdown: String,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::Markdown(markdown),
@@ -1201,11 +1198,11 @@ macro_rules! common_conversation {
             #[uniffi::method(default(options = None))]
             pub async fn send_reaction(
                 &self,
-                reference: MessageID,
-                reference_inbox_id: Option<InboxID>,
+                reference: MessageId,
+                reference_inbox_id: Option<InboxId>,
                 reaction: Reaction,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::Reaction {
@@ -1221,11 +1218,11 @@ macro_rules! common_conversation {
             #[uniffi::method(default(options = None))]
             pub async fn send_reply(
                 &self,
-                reference: MessageID,
-                reference_inbox_id: Option<InboxID>,
+                reference: MessageId,
+                reference_inbox_id: Option<InboxId>,
                 content: EncodedContent,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::Reply {
@@ -1242,7 +1239,7 @@ macro_rules! common_conversation {
             pub async fn send_read_receipt(
                 &self,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(self.inner.clone(), StandardContent::ReadReceipt, options).await
             }
 
@@ -1251,7 +1248,7 @@ macro_rules! common_conversation {
                 &self,
                 attachment: crate::Attachment,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::Attachment(attachment),
@@ -1265,7 +1262,7 @@ macro_rules! common_conversation {
                 &self,
                 attachment: crate::RemoteAttachment,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::RemoteAttachment(attachment),
@@ -1279,7 +1276,7 @@ macro_rules! common_conversation {
                 &self,
                 attachment: crate::MultiRemoteAttachment,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::MultiRemoteAttachment(attachment),
@@ -1293,7 +1290,7 @@ macro_rules! common_conversation {
                 &self,
                 reference: crate::TransactionReference,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::TransactionReference(reference),
@@ -1307,7 +1304,7 @@ macro_rules! common_conversation {
                 &self,
                 calls: crate::WalletSendCalls,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::WalletSendCalls(calls),
@@ -1321,7 +1318,7 @@ macro_rules! common_conversation {
                 &self,
                 actions: crate::Actions,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(
                     self.inner.clone(),
                     StandardContent::Actions(actions),
@@ -1335,10 +1332,11 @@ macro_rules! common_conversation {
                 &self,
                 intent: crate::Intent,
                 options: Option<SendOptions>,
-            ) -> Result<MessageID, XmtpError> {
+            ) -> Result<MessageId, XmtpError> {
                 send_standard(self.inner.clone(), StandardContent::Intent(intent), options).await
             }
 
+            #[uniffi::method(default(options = None))]
             pub async fn messages(
                 &self,
                 options: Option<ListMessagesOptions>,
@@ -1396,7 +1394,7 @@ macro_rules! common_conversation {
                     .next())
             }
 
-            pub async fn delete_message(&self, id: MessageID) -> Result<MessageID, XmtpError> {
+            pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
                 let group = self.inner.clone();
                 on_sdk_worker(self.inner.context.clone(), async move {
                     let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
@@ -1408,7 +1406,7 @@ macro_rules! common_conversation {
                         .ok_or_else(|| XmtpError::invalid("message not found"))?;
                     let group = deletion_group(group, &stored)?;
                     let deletion_id = group.delete_message(bytes).map_err(XmtpError::unknown)?;
-                    MessageID::from_bytes(&deletion_id)
+                    MessageId::from_bytes(&deletion_id)
                 })
                 .await
             }
@@ -1433,7 +1431,7 @@ common_conversation!(Dm, ConversationState, |snapshot| Ok(
 
 #[xmtp_macro::sdk_export]
 impl Group {
-    pub async fn peer_inbox_ids(&self) -> Result<Vec<InboxID>, XmtpError> {
+    pub async fn peer_inbox_ids(&self) -> Result<Vec<InboxId>, XmtpError> {
         let own = self.inner.context.inbox_id().to_string();
         Ok(self
             .members()
@@ -1554,7 +1552,7 @@ impl Group {
 
     pub async fn add_members(
         &self,
-        members: Vec<InboxID>,
+        members: Vec<InboxId>,
     ) -> Result<crate::MembershipResult, XmtpError> {
         let group = self.inner.clone();
         let ids = members.into_iter().map(|id| id.0).collect::<Vec<_>>();
@@ -1571,7 +1569,7 @@ impl Group {
         .await
     }
 
-    pub async fn remove_members(&self, members: Vec<InboxID>) -> Result<(), XmtpError> {
+    pub async fn remove_members(&self, members: Vec<InboxId>) -> Result<(), XmtpError> {
         let group = self.inner.clone();
         let ids = members.into_iter().map(|id| id.0).collect::<Vec<_>>();
         on_sdk_worker(
@@ -1587,27 +1585,27 @@ impl Group {
         .await
     }
 
-    pub async fn add_admin(&self, inbox_id: InboxID) -> Result<(), XmtpError> {
+    pub async fn add_admin(&self, inbox_id: InboxId) -> Result<(), XmtpError> {
         self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::Add, inbox_id)
             .await
     }
 
-    pub async fn remove_admin(&self, inbox_id: InboxID) -> Result<(), XmtpError> {
+    pub async fn remove_admin(&self, inbox_id: InboxId) -> Result<(), XmtpError> {
         self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::Remove, inbox_id)
             .await
     }
 
-    pub async fn add_super_admin(&self, inbox_id: InboxID) -> Result<(), XmtpError> {
+    pub async fn add_super_admin(&self, inbox_id: InboxId) -> Result<(), XmtpError> {
         self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::AddSuper, inbox_id)
             .await
     }
 
-    pub async fn remove_super_admin(&self, inbox_id: InboxID) -> Result<(), XmtpError> {
+    pub async fn remove_super_admin(&self, inbox_id: InboxId) -> Result<(), XmtpError> {
         self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::RemoveSuper, inbox_id)
             .await
     }
 
-    pub async fn is_admin(&self, inbox_id: InboxID) -> Result<bool, XmtpError> {
+    pub async fn is_admin(&self, inbox_id: InboxId) -> Result<bool, XmtpError> {
         let group = self.inner.clone();
         on_sdk_worker(self.inner.context.clone(), async move {
             group.is_admin(inbox_id.0).map_err(XmtpError::unknown)
@@ -1615,7 +1613,7 @@ impl Group {
         .await
     }
 
-    pub async fn is_super_admin(&self, inbox_id: InboxID) -> Result<bool, XmtpError> {
+    pub async fn is_super_admin(&self, inbox_id: InboxId) -> Result<bool, XmtpError> {
         let group = self.inner.clone();
         on_sdk_worker(self.inner.context.clone(), async move {
             group.is_super_admin(inbox_id.0).map_err(XmtpError::unknown)
@@ -1623,27 +1621,27 @@ impl Group {
         .await
     }
 
-    pub async fn list_admins(&self) -> Result<Vec<InboxID>, XmtpError> {
+    pub async fn list_admins(&self) -> Result<Vec<InboxId>, XmtpError> {
         let group = self.inner.clone();
         on_sdk_worker(self.inner.context.clone(), async move {
             group
                 .admin_list()
                 .map_err(XmtpError::unknown)?
                 .into_iter()
-                .map(InboxID::try_from)
+                .map(InboxId::try_from)
                 .collect()
         })
         .await
     }
 
-    pub async fn list_super_admins(&self) -> Result<Vec<InboxID>, XmtpError> {
+    pub async fn list_super_admins(&self) -> Result<Vec<InboxId>, XmtpError> {
         let group = self.inner.clone();
         on_sdk_worker(self.inner.context.clone(), async move {
             group
                 .super_admin_list()
                 .map_err(XmtpError::unknown)?
                 .into_iter()
-                .map(InboxID::try_from)
+                .map(InboxId::try_from)
                 .collect()
         })
         .await
@@ -1677,7 +1675,7 @@ impl Group {
     async fn update_admin_list(
         &self,
         action: xmtp_mls::groups::UpdateAdminListType,
-        inbox_id: InboxID,
+        inbox_id: InboxId,
     ) -> Result<(), XmtpError> {
         let group = self.inner.clone();
         on_sdk_worker(
@@ -1695,7 +1693,7 @@ impl Group {
 
 #[xmtp_macro::sdk_export]
 impl Dm {
-    pub fn peer_inbox_id(&self) -> InboxID {
+    pub fn peer_inbox_id(&self) -> InboxId {
         self.peer_inbox_id.clone()
     }
 

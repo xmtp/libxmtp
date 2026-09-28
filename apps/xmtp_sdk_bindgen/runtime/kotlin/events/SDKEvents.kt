@@ -17,13 +17,13 @@ internal class ListenerStartGate {
 
 internal class ListenerGates {
     private val lock = Any()
-    private val active = mutableMapOf<ListenerID, ListenerStartGate>()
+    private val active = mutableMapOf<ListenerId, ListenerStartGate>()
     private val pending = mutableSetOf<ListenerStartGate>()
 
     fun pending(gate: ListenerStartGate) = synchronized(lock) { pending.add(gate) }
 
     fun registered(
-        id: ListenerID,
+        id: ListenerId,
         gate: ListenerStartGate,
     ) = synchronized(lock) {
         pending.remove(gate)
@@ -32,7 +32,7 @@ internal class ListenerGates {
 
     fun discard(gate: ListenerStartGate) = synchronized(lock) { pending.remove(gate) }
 
-    fun stop(id: ListenerID) = synchronized(lock) { active.remove(id)?.stop() }
+    fun stop(id: ListenerId) = synchronized(lock) { active.remove(id)?.stop() }
 
     fun stopAll() =
         synchronized(lock) {
@@ -62,7 +62,7 @@ suspend fun SDKClient.events(filter: EventFilter): Flow<ClientEvent> {
 suspend fun SDKClient.startListener(
     filter: EventFilter,
     onEvent: suspend (ClientEvent) -> Unit,
-): ListenerID {
+): ListenerId {
     val handler = onEvent
     val gate = ListenerStartGate()
     listenerGates.pending(gate)
@@ -92,7 +92,7 @@ suspend fun SDKClient.startListener(
     }
 }
 
-suspend fun SDKClient.stopListener(id: ListenerID) {
+suspend fun SDKClient.stopListener(id: ListenerId) {
     listenerGates.stop(id)
     raw.stopListener(id)
 }

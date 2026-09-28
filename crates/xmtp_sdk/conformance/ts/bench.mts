@@ -112,10 +112,10 @@ const options = (directory: string) => ({
 const seedClient = await sdk.Client.create(signer, options(seedDirectory));
 const seededPage = await seedClient.conversations().createGroup([]);
 const seededEmpty = await seedClient.conversations().createGroup([]);
-const pageID = seededPage.id().toString();
-const emptyID = seededEmpty.id().toString();
-const inboxID = seedClient.inboxID().toString();
-const dbName = `xmtp-${inboxID}.db3`;
+const pageId = seededPage.id().toString();
+const emptyId = seededEmpty.id().toString();
+const inboxId = seedClient.inboxId().toString();
+const dbName = `xmtp-${inboxId}.db3`;
 const dbPath = join(seedDirectory, dbName);
 await seedClient.end();
 seededPage.uniffiDestroy();
@@ -124,7 +124,7 @@ seedClient.raw.uniffiDestroy();
 const nativeClient = await native.createClient(
   url,
   { dbPath },
-  inboxID,
+  inboxId,
   {
     identifier: identity.identifier,
     identifierKind: native.IdentifierKind.Ethereum,
@@ -133,10 +133,10 @@ const nativeClient = await native.createClient(
   undefined,
   { level: native.LogLevel.Error },
 );
-const nativeGroup = nativeClient.conversations().getConversationById(pageID);
+const nativeGroup = nativeClient.conversations().getConversationById(pageId);
 const nativeEmptyGroup = nativeClient
   .conversations()
-  .getConversationById(emptyID);
+  .getConversationById(emptyId);
 
 for (let i = 0; i < 10_000; i++) {
   await nativeGroup.sendText(`message ${i}`, {
@@ -151,17 +151,9 @@ for (const suffix of ["", "-wal", "-shm"]) {
     await copyFile(dbPath + suffix, join(sdkDirectory, dbName + suffix));
   }
 }
-const client = await sdk.Client.build(
-  identity,
-  options(sdkDirectory),
-  sdk.InboxID.fromString(inboxID),
-);
-const group = client
-  .conversations()
-  .getGroup(sdk.ConversationID.fromString(pageID));
-const emptyGroup = client
-  .conversations()
-  .getGroup(sdk.ConversationID.fromString(emptyID));
+const client = await sdk.Client.build(identity, options(sdkDirectory), inboxId);
+const group = client.conversations().getGroup(pageId);
+const emptyGroup = client.conversations().getGroup(emptyId);
 const sdkEmptyCount = (await emptyGroup.messages()).length;
 const nativeEmptyCount = (await nativeEmptyGroup.listMessages()).length;
 if (sdkEmptyCount !== 0 || nativeEmptyCount !== 0) {

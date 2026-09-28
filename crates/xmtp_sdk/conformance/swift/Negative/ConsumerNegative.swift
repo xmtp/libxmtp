@@ -6,7 +6,7 @@ final class NonSendableValue {
 }
 
 struct NonSendableCodec: SDKContentCodec {
-    let type = ContentTypeID(authorityID: "example.org", typeID: "non-sendable", versionMajor: 1, versionMinor: 0)
+    let type = ContentTypeId(authorityId: "example.org", typeId: "non-sendable", versionMajor: 1, versionMinor: 0)
 
     func encode(_: Any) throws -> EncodedContent {
         EncodedContent(type: type, content: Data())
@@ -19,7 +19,7 @@ struct NonSendableCodec: SDKContentCodec {
 
 final class MutableCodec: SDKContentCodec {
     var count = 0
-    let type = ContentTypeID(authorityID: "example.org", typeID: "mutable", versionMajor: 1, versionMinor: 0)
+    let type = ContentTypeId(authorityId: "example.org", typeId: "mutable", versionMajor: 1, versionMinor: 0)
 
     func encode(_: any Sendable) throws -> EncodedContent {
         count += 1
@@ -32,8 +32,9 @@ final class MutableCodec: SDKContentCodec {
 }
 
 func consumeNegative(_ conversation: Conversation, _ content: MessageContent) {
-    let _: ConversationID = "raw string"
+    let _: ConversationId = 42
+    let _ = MessageId.fromString("bad")
     let _: EncodedContent = content
     let _: Group = conversation
-    let _: StandardContent = .deleteMessage(messageID: "raw string")
+    let _: StandardContent = .deleteMessage(messageId: 42)
 }

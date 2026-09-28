@@ -8,7 +8,7 @@ use xmtp_id::associations::{
 };
 
 use crate::{
-    InboxID, InstallationID, PublicIdentity, Signature, Signer, SigningRequest, Timestamp,
+    InboxId, InstallationId, PublicIdentity, Signature, Signer, SigningRequest, Timestamp,
     XmtpError, client::CoreClient, signer,
 };
 
@@ -35,13 +35,13 @@ impl From<CoreSignatureKind> for SignatureKind {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct Installation {
-    pub id: InstallationID,
-    pub created_at_ns: Option<Timestamp>,
+    pub id: InstallationId,
+    pub created_at: Option<Timestamp>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct InboxState {
-    pub inbox_id: InboxID,
+    pub inbox_id: InboxId,
     pub identities: Vec<PublicIdentity>,
     pub installations: Vec<Installation>,
     pub recovery_identity: PublicIdentity,
@@ -58,33 +58,21 @@ impl InboxState {
             .into_iter()
             .map(|installation| {
                 Ok(Installation {
-                    id: InstallationID::try_from(hex::encode(installation.id))?,
-                    created_at_ns: installation
+                    id: InstallationId::try_from(hex::encode(installation.id))?,
+                    created_at: installation
                         .client_timestamp_ns
                         .map(|ns| Timestamp(i64::try_from(ns).unwrap_or(i64::MAX))),
                 })
             })
             .collect::<Result<Vec<_>, XmtpError>>()?;
         Ok(Self {
-            inbox_id: InboxID::try_from(state.inbox_id().to_owned())?,
+            inbox_id: InboxId::try_from(state.inbox_id().to_owned())?,
             identities: state.identifiers().into_iter().map(Into::into).collect(),
             installations,
             recovery_identity: state.recovery_identifier().clone().into(),
             creation_signature_kind: creation_signature_kind.map(Into::into),
         })
     }
-}
-
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct InboxCountEntry {
-    pub inbox_id: InboxID,
-    pub count: u64,
-}
-
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct CanMessageEntry {
-    pub identity: PublicIdentity,
-    pub can_message: bool,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -97,12 +85,6 @@ pub struct KeyPackageLifetime {
 pub struct KeyPackageStatus {
     pub lifetime: Option<KeyPackageLifetime>,
     pub validation_error: Option<String>,
-}
-
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct KeyPackageStatusEntry {
-    pub installation_id: InstallationID,
-    pub status: KeyPackageStatus,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]

@@ -1,7 +1,6 @@
 mod bridge;
 mod callback_cursor;
 mod forwarding;
-mod id_names;
 mod kotlin_callbacks;
 mod kotlin_records;
 mod validate;
@@ -189,12 +188,6 @@ fn generate(
             fs::write(manifest_dir.join("src/lib.rs"), "")?;
             let manifest = manifest_dir.join("Cargo.toml");
             args.run(Some(&manifest))?;
-            let names = if pure_only {
-                id_names::typescript_rename_map_partial(&metadata, &crate_root.join("uniffi.toml"))?
-            } else {
-                id_names::typescript_rename_map(&metadata, &crate_root.join("uniffi.toml"))?
-            };
-            id_names::rewrite_generated_bindings(out, &names)?;
             let binding = out.join("xmtp_sdk.ts");
             if !pure_only {
                 fs::write(
@@ -204,21 +197,21 @@ fn generate(
             }
             if is_wasm && !pure_only {
                 let mut body = fs::read_to_string(&binding)?;
-                body.push_str("\nexport { ConversationID, InboxID, InstallationID, Message, MessageID, Timestamp } from './runtime';\n");
+                body.push_str("\nexport { Message, Timestamp } from './runtime';\n");
                 fs::write(&binding, body)?;
             }
             let index = out.join("index.ts");
             let mut source = fs::read_to_string(&index)?;
             if pure_only {
                 source.push_str("\nlet pureLoading: Promise<void> | undefined;\nexport function initPureWasm(wasm: URL = new URL('./xmtp_sdk.wasm', import.meta.url)): Promise<void> { pureLoading ??= uniffiInitAsync(wasm); return pureLoading; }\nexport { TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime/codecs';\n");
-                source.push_str("export { ConversationID, InboxID, InstallationID, MessageID, Timestamp } from './runtime';\n");
+                source.push_str("export { Timestamp } from './runtime';\n");
             } else if is_wasm {
-                source.push_str("\nexport { Client } from './proxy.gen';\nexport { Message } from './host-message.gen';\nexport { InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream, ConversationStream, EventStream } from './runtime';\n");
+                source.push_str("\nexport { Client } from './proxy.gen';\nexport { Message } from './host-message.gen';\nexport { Timestamp, MessageStream, ConversationStream, EventStream } from './runtime';\n");
                 source.push_str(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );
             } else {
-                source.push_str("\nexport { Client, Message, InboxID, InstallationID, ConversationID, MessageID, Timestamp, MessageStream, ConversationStream, EventStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
+                source.push_str("\nexport { Client, Message, Timestamp, MessageStream, ConversationStream, EventStream, setLogSink, TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime';\n");
                 source.push_str(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );

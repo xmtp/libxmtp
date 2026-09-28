@@ -13,7 +13,7 @@ use xmtp_mls::{
 };
 
 use crate::{
-    Archives, BackendSource, Conversations, Diagnostics, InboxID, InstallationID, Preferences,
+    Archives, BackendSource, Conversations, Diagnostics, InboxId, InstallationId, Preferences,
     PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError, signer,
 };
 use xmtp_common::{MaybeSend, MaybeSync};
@@ -144,7 +144,7 @@ pub enum ForkRecoveryPolicy {
 pub struct ForkRecoveryOptions {
     pub policy: ForkRecoveryPolicy,
     #[uniffi(default)]
-    pub groups: Vec<crate::ConversationID>,
+    pub groups: Vec<crate::ConversationId>,
     #[uniffi(default = false)]
     pub disable_responses: bool,
     #[uniffi(default = None)]
@@ -348,7 +348,7 @@ impl Client {
     async fn build_inner(
         identity: PublicIdentity,
         options: ClientOptions,
-        inbox_id: Option<InboxID>,
+        inbox_id: Option<InboxId>,
         require_stored_identity: bool,
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
@@ -368,7 +368,7 @@ impl Client {
     async fn build_client(
         identity: PublicIdentity,
         mut options: ClientOptions,
-        inbox_id: Option<InboxID>,
+        inbox_id: Option<InboxId>,
         require_stored_identity: bool,
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
@@ -651,7 +651,7 @@ impl Client {
     pub async fn build(
         identity: PublicIdentity,
         options: ClientOptions,
-        inbox_id: Option<InboxID>,
+        inbox_id: Option<InboxId>,
     ) -> Result<Self, XmtpError> {
         let mut guard = OpenStoreGuard::default();
         let built = Self::build_inner(identity, options, inbox_id, true, &mut guard).await;
@@ -659,12 +659,12 @@ impl Client {
         built
     }
 
-    pub fn inbox_id(&self) -> InboxID {
-        InboxID(self.inner.inbox_id().to_owned())
+    pub fn inbox_id(&self) -> InboxId {
+        InboxId(self.inner.inbox_id().to_owned())
     }
 
-    pub fn installation_id(&self) -> InstallationID {
-        InstallationID(self.inner.installation_public_key().to_string())
+    pub fn installation_id(&self) -> InstallationId {
+        InstallationId(self.inner.installation_public_key().to_string())
     }
 
     /// Host runtimes use this key to find the owner of a lifted message.
@@ -754,7 +754,7 @@ impl Client {
         &self,
         filter: crate::EventFilter,
         listener: Arc<dyn crate::EventListener>,
-    ) -> Result<crate::ListenerID, XmtpError> {
+    ) -> Result<crate::ListenerId, XmtpError> {
         // The filter reads stored conversations. Leave the gate before the
         // subscription starts: that step does not use the database, and end()
         // must not wait for it.
@@ -773,8 +773,9 @@ impl Client {
 
     // implements: EVENT-053
     // implements: EVENT-054
-    pub async fn stop_listener(&self, id: crate::ListenerID) {
+    pub async fn stop_listener(&self, id: crate::ListenerId) -> Result<(), XmtpError> {
         self.listeners.stop(id);
+        Ok(())
     }
 }
 
