@@ -208,7 +208,7 @@ just clean-incremental --minutes 30     # delete crate caches unchanged for 30 m
 
 During a long run with several worktrees, start a disk guard before the first
 build, for example
-`while just clean-incremental --minutes 30 && just disk | head -1; do sleep 600; done`
+`while just clean-incremental --minutes 30 && df -h .; do sleep 600; done`
 in a background shell.
 
 ### CI and releases

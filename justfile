@@ -179,24 +179,31 @@ disk:
       { printf "%7.1fG %11.1fG  %s\n", $1 / 1048576, $2 / 1048576, $3; sum += $1 }
       END { printf "%7.1fG total target/\n", sum / 1048576 }'
 
-# `--minutes N` deletes each crate cache in incremental/ that has not changed
-# for N minutes. A crate that a running build uses is newer, so it stays.
+# `--minutes N` deletes each crate cache in incremental/ in which nothing
+# changed for N minutes. A cache with a `-working` session (rustc is compiling
+# that crate now) stays, so this is safe during builds.
 # Delete stale incremental/ dirs across all worktrees (default: unused 14+ days).
 [script("bash")]
 [arg("minutes", long="minutes")]
 clean-incremental days="14" minutes="":
     set -euo pipefail
-    minutes="{{ minutes }}"
-    if [ -n "$minutes" ] && ! [[ $minutes =~ ^[0-9]+$ ]]; then
-      echo "--minutes takes a whole number" >&2
+    days={{ quote(days) }}
+    minutes={{ quote(minutes) }}
+    if ! [[ $days =~ ^[0-9]+$ ]] || { [ -n "$minutes" ] && ! [[ $minutes =~ ^[0-9]+$ ]]; }; then
+      echo "days and --minutes take a whole number" >&2
       exit 1
     fi
     stale() {
-      if [ -n "$minutes" ]; then
-        find "$1/target" -maxdepth 4 -type d -path '*/incremental/*' ! -path '*/incremental/*/*' -mmin +"$minutes" -prune 2>/dev/null
-      else
-        find "$1/target" -maxdepth 3 -type d -name incremental -atime +{{ days }} 2>/dev/null
+      if [ -z "$minutes" ]; then
+        find "$1/target" -maxdepth 3 -type d -name incremental -atime +"$days" 2>/dev/null
+        return
       fi
+      find "$1/target" -maxdepth 4 -type d -path '*/incremental/*' ! -path '*/incremental/*/*' -prune 2>/dev/null |
+        while IFS= read -r crate; do
+          [ -z "$(find "$crate" -maxdepth 1 -name '*-working' -print -quit)" ] || continue
+          [ -z "$(find "$crate" -maxdepth 2 -mmin -"$minutes" -print -quit)" ] || continue
+          echo "$crate"
+        done
     }
     total=0
     while IFS= read -r root; do
