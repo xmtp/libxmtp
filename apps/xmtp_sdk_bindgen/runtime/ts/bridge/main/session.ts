@@ -265,7 +265,7 @@ export class MainSession {
     this.snapshots.clear();
     this.parents.clear();
     this.releases.clear();
-    this.callbacks.clear();
+    this.callbacks.close();
   }
 
   private receive(message: WireMessage): void {

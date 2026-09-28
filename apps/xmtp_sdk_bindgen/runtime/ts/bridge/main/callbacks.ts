@@ -22,6 +22,7 @@ export class MainCallbacks {
   private nextId = 1;
   // The ids registered by the `collect` call that is running.
   private scope: number[] | undefined;
+  private closed = false;
 
   constructor(private readonly endpoint: WireEndpoint) {}
 
@@ -84,14 +85,21 @@ export class MainCallbacks {
     for (const cb of cbs) this.targets.delete(cb);
   }
 
-  clear(): void {
+  /** Drops every callback. Replies to calls that are still running go nowhere. */
+  close(): void {
+    this.closed = true;
     this.targets.clear();
   }
 
+  /**
+   * Runs one worker callback and sends its result. Delivery is best-effort:
+   * this never rejects, because the session does not wait for it.
+   */
   async receive(
     message: Extract<WireMessage, { t: "callback" }>,
   ): Promise<void> {
     const registered = this.targets.get(message.cb);
+    let value: unknown;
     try {
       if (!registered) throw new Error("callback was released");
       const method = registered.methods.has(message.method)
@@ -99,14 +107,40 @@ export class MainCallbacks {
         : undefined;
       if (typeof method !== "function")
         throw bridgeError("contractMismatch", { method: message.method });
-      const value = await method(...message.args);
-      this.endpoint.postMessage({ t: "callbackResult", id: message.id, value });
+      value = await method(...message.args);
     } catch (error) {
-      this.endpoint.postMessage({
-        t: "callbackResult",
-        id: message.id,
-        error: encodeError(error),
-      });
+      this.replyError(message.id, error);
+      return;
+    }
+    try {
+      this.post({ t: "callbackResult", id: message.id, value });
+    } catch (error) {
+      // Only a value that cannot be cloned gets a second send. Any other
+      // failure means that the endpoint is closed, so the reply is dropped.
+      if (isDataCloneError(error)) this.replyError(message.id, error);
     }
   }
+
+  private replyError(id: number, error: unknown): void {
+    try {
+      this.post({ t: "callbackResult", id, error: encodeError(error) });
+    } catch (sendError) {
+      // The error details cannot be cloned. The worker still gets an error.
+      if (!isDataCloneError(sendError)) return;
+      try {
+        this.post({ t: "callbackResult", id, error: encodeError(sendError) });
+      } catch {
+        // The endpoint closed. The worker is gone, so nobody waits.
+      }
+    }
+  }
+
+  private post(message: WireMessage): void {
+    if (this.closed) return;
+    this.endpoint.postMessage(message);
+  }
+}
+
+function isDataCloneError(error: unknown): boolean {
+  return error instanceof Error && error.name === "DataCloneError";
 }

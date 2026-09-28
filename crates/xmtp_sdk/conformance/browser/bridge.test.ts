@@ -107,6 +107,21 @@ class TestProxy extends RemoteObject {
   }
 }
 
+async function withoutUnhandledRejections(
+  run: () => Promise<void>,
+): Promise<void> {
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    await run();
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+}
+
 function stringKeys(value: object): string[] {
   const keys: string[] = [];
   for (let item: object | null = value; item; item = Object.getPrototypeOf(item))
@@ -897,6 +912,76 @@ describe("browser bridge transport", () => {
     await session.ready();
     await expect(session.call("outer", [])).resolves.toBe("inner result");
     expect(engine.registry.size).toBe(0);
+  });
+
+  it("drops a callback reply after the worker endpoint closes", async () => {
+    await withoutUnhandledRejections(async () => {
+      for (const exits of [false, true]) {
+        const { main, session } = host(async (_key, _args, context) =>
+          context.callbacks.invoke(1, "sign", []),
+        );
+        let finish: (value: string) => void = () => {};
+        const started = new Promise<void>((resolve) => {
+          session.callbacks.register(
+            "Signer",
+            {
+              sign: () => {
+                resolve();
+                return new Promise<string>((done) => (finish = done));
+              },
+            },
+            ["sign"],
+          );
+        });
+        await session.ready();
+        const call = session.call("outer", []).catch((error: unknown) => error);
+        await started;
+        let attempts = 0;
+        main.postMessage = () => {
+          attempts++;
+          throw new Error("endpoint closed");
+        };
+        if (exits) main.exit();
+        finish("signed");
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        // An exit settles the call. A silent close leaves the call to the
+        // application, as the worker can never answer it.
+        if (exits)
+          await expect(call).resolves.toMatchObject({
+            code: "WorkerTerminated",
+          });
+        expect(attempts).toBe(exits ? 0 : 1);
+      }
+    });
+  });
+
+  it("sends an error for a callback reply that cannot be cloned", async () => {
+    await withoutUnhandledRejections(async () => {
+      const { session } = host(async (key, _args, context) =>
+        context.callbacks.invoke(1, key, []),
+      );
+      const detailed = Object.assign(new Error("signer failed"), {
+        tag: "Signer",
+        inner: [() => undefined],
+      });
+      session.callbacks.register(
+        "Signer",
+        {
+          sign: async () => () => "not cloneable",
+          kind: async () => {
+            throw detailed;
+          },
+        },
+        ["kind", "sign"],
+      );
+      await session.ready();
+      await expect(session.call("sign", [])).rejects.toMatchObject({
+        variant: "DataCloneError",
+      });
+      await expect(session.call("kind", [])).rejects.toMatchObject({
+        variant: "DataCloneError",
+      });
+    });
   });
 
   it("rejects a worker call to an undeclared callback method", async () => {
