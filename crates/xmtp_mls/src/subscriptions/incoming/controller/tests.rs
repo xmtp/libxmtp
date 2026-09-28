@@ -104,7 +104,7 @@ fn add_barrier_scope<C: XmtpSharedContext + 'static>(
     });
 }
 
-// verifies: DMS-014
+// verifies: DMS-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn one_dm_interest_reconciles_a_later_joined_duplicate() {
     tester!(alix, disable_workers);
@@ -137,7 +137,7 @@ async fn one_dm_interest_reconciles_a_later_joined_duplicate() {
     assert!(!controller.interested().contains(&welcome_topic));
 }
 
-// verifies: DMS-014
+// verifies: DMS-009
 #[rstest::rstest]
 #[case::stored_before_reader(false)]
 #[case::stored_after_reader(true)]

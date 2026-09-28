@@ -35,7 +35,7 @@ Out of scope: durable message delivery and acknowledgement (PROC section 7), cat
 | `GMOD` | Owns commits, removal, and leave (GMOD-031 to GMOD-033). |
 | `META` | Owns components and their names (section 2, META-040), disappearing messages (META-050, META-051, META-063), and the protocol version floor (section 7, META-062). |
 | `PERM` | Owns the permission policy set and the admin lists. |
-| `DMS` | Owns stitched DMs (DMS-007, DMS-014). |
+| `DMS` | Owns stitched DMs (DMS-007, DMS-009). |
 | `SEND` | Owns message delivery status (SEND-003, SEND-009, SEND-013, SEND-016, SEND-018). |
 | `CTYPE` | Owns content type ids (CTYPE-001), deletion eligibility (CTYPE-018), and the reply and reaction encodings. |
 | `IDENT` | Owns installation keys (section 8), and installation addition and revocation (section 5, IDENT-044). |
@@ -284,11 +284,11 @@ dictionary EventFilter {
 };
 ```
 
-A stitched DM is one conversation to an app (DMS-007, DMS-014), so a filter that names any group of the DM selects the events of every group of it.
+A stitched DM is one conversation to an app (DMS-007, DMS-009), so a filter that names any group of the DM selects the events of every group of it.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| EVENT-020 | Filter before queueing | An SDK MUST place an event in a subscription's queue, subject to EVENT-030, if and only if its kind is in the `kinds` of the subscription's `EventFilter`; when `group_ids` is present and the event names a group, that group or another group of the same stitched DM under DMS-014 is in `group_ids`; and, for `message.received` when `content_types` is present, its content type is present and matches an entry of `content_types` under CTYPE-001; and it passes EVENT-021. | Events a subscription did not select would fill its queue and discard events it did select; a DM screen would miss messages stored in the DM's other groups. |
+| EVENT-020 | Filter before queueing | An SDK MUST place an event in a subscription's queue, subject to EVENT-030, if and only if its kind is in the `kinds` of the subscription's `EventFilter`; when `group_ids` is present and the event names a group, that group or another group of the same stitched DM under DMS-009 is in `group_ids`; and, for `message.received` when `content_types` is present, its content type is present and matches an entry of `content_types` under CTYPE-001; and it passes EVENT-021. | Events a subscription did not select would fill its queue and discard events it did select; a DM screen would miss messages stored in the DM's other groups. |
 | EVENT-021 | References to own messages | Where `references_own_messages` is true, an SDK MUST pass a `message.received` event only when the message is an `xmtp.org/reply:1.0` whose `reference` parameter, or an `xmtp.org/reaction:2.0` whose `ReactionV2.reference`, names a message that the client holds at emission and whose sender inbox is the own inbox. | |
 | EVENT-022 | Lagged is always selected | An SDK MUST hand off a `lagged` event to its subscription whether or not the `kinds` of its `EventFilter` names `lagged`. | A subscription that did not select `lagged` loses events without any signal. |
 

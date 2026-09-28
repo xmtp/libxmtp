@@ -38,7 +38,7 @@ fn stored_sender_message(
     }
 }
 
-// verifies: DMS-003
+// verifies: DMS-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_dm_with_outside_membership_fails_client_open() {
     use openmls::prelude::{CredentialWithKey, MlsGroup as OpenMlsGroup};
@@ -133,7 +133,7 @@ async fn stored_dm_with_outside_membership_fails_client_open() {
     ));
 }
 
-// verifies: DMS-003
+// verifies: DMS-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_dm_id_mismatch_fails_client_open() {
     use diesel::{ExpressionMethods, QueryDsl, RunQueryDsl};
@@ -170,7 +170,7 @@ async fn stored_dm_id_mismatch_fails_client_open() {
     ));
 }
 
-// verifies: DMS-003
+// verifies: DMS-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_dm_with_outside_message_sender_fails_client_open() {
     use diesel::{QueryDsl, RunQueryDsl};

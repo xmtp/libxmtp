@@ -510,7 +510,7 @@ mod tests {
         bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
-    // verifies: DMS-015, ARCH-013, ARCH-021, DMS-014
+    // verifies: DMS-015, ARCH-013, ARCH-021, DMS-009
     #[xmtp_common::test(unwrap_try = true)]
     async fn authentic_archive_rejects_outside_dm_sender_before_stitched_history() {
         tester!(alix, disable_workers);

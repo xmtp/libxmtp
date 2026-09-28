@@ -33,6 +33,7 @@ use xmtp_proto::xmtp::mls::database::{
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
+// implements: DMS-015, DMS-018
 fn validate_stored_dm_groups<C: XmtpSharedContext>(context: &C) -> Result<(), ClientBuilderError> {
     use crate::{
         groups::{DmValidationError, GroupError, MetadataPermissionsError},

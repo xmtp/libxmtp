@@ -276,7 +276,7 @@ mod tests {
     use xmtp_db::Store;
     use xmtp_proto::types::Cursor;
 
-    // verifies: DMS-014
+    // verifies: DMS-009
     #[xmtp_common::test(unwrap_try = true)]
     async fn one_dm_reader_receives_a_later_explicitly_joined_duplicate() {
         tester!(alix, disable_workers);

@@ -675,7 +675,7 @@ fn resolve_group_scope(
         .collect::<Vec<_>>();
     let mut selected = requested.to_vec();
     if !dm_ids.is_empty() {
-        // implements: DMS-014, DMS-015
+        // implements: DMS-009, DMS-015
         // Restored history enters the stitched union after pair and sender
         // evidence checks at import and client open.
         // This read scope does not authorize sending or decrypting traffic.

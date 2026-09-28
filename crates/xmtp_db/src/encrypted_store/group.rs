@@ -1372,7 +1372,7 @@ pub(crate) mod tests {
     };
     use xmtp_common::{Generate, assert_ok, rand_vec, time::now_ns};
 
-    // verifies: DMS-012
+    // verifies: DMS-017
     #[xmtp_common::test(unwrap_try = true)]
     fn dm_peer_requires_member_and_pair_structure() {
         let pair = "dm:alix:bo".to_string();
