@@ -4688,33 +4688,46 @@ async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
     client.end().await?;
 }
 
+// verifies: CTYPE-003, CTYPE-008
 #[xmtp_common::test(unwrap_try = true)]
 async fn reply_with_empty_nested_identifier_stays_unknown_on_all_read_paths() {
+    use prost::Message as _;
     use xmtp_content_types::{
         ContentCodec,
         reply::{Reply, ReplyCodec},
         text::TextCodec,
     };
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_proto::xmtp::mls::message_contents::EncodedContent as ProtoEncodedContent;
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let parent = group.send_text("parent".into(), None).await?;
     for empty_authority in [true, false] {
-        let mut nested = TextCodec::encode("nested".into())?;
+        let outer = ReplyCodec::encode(Reply {
+            reference: parent.0.clone(),
+            reference_inbox_id: Some(client.inbox_id().0.clone()),
+            content: TextCodec::encode("nested".into())?,
+        })?;
+        let id = group.send(outer.into(), None).await?;
+        let id_bytes = hex::decode(&id.0)?;
+        let stored = client.inner.message(id_bytes.clone())?;
+        let mut outer = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
+        let mut nested = ProtoEncodedContent::decode(outer.content.as_slice())?;
         let kind = nested.r#type.as_mut().expect("typed text");
         if empty_authority {
             kind.authority_id.clear();
         } else {
             kind.type_id.clear();
         }
-        let outer = ReplyCodec::encode(Reply {
-            reference: parent.0.clone(),
-            reference_inbox_id: Some(client.inbox_id().0.clone()),
-            content: nested,
+        outer.content = nested.encode_to_vec();
+        let raw = outer.encode_to_vec();
+        client.inner.context.db().raw_query(|conn| {
+            xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&id_bytes)))
+                .set(dsl::decrypted_message_bytes.eq(&raw))
+                .execute(conn)
         })?;
-        let id = group.send(outer.into(), None).await?;
-        let stored = client.inner.message(hex::decode(&id.0)?)?;
-        let raw = stored.decrypted_message_bytes.clone();
+        let stored = client.inner.message(id_bytes)?;
         let direct = crate::Message::from_stored(stored, client.client_key())?;
         let by_id = client
             .conversations()

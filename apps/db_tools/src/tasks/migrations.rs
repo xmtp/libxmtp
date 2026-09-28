@@ -53,24 +53,28 @@ mod tests {
     use xmtp_db::{NativeDb, XmtpDb, diesel::connection::SimpleConnection};
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn baseline_migration_status_and_rollback() {
+    async fn latest_migration_status_and_rollback() {
         let database = NativeDb::builder().ephemeral().build_unencrypted()?;
         database.init()?;
         let conn = database.conn();
         let db = DbConnection::new(&conn);
         let available = db.available_migrations()?;
-        assert_eq!(available.len(), 1);
+        assert_eq!(available.len(), 3);
         let applied = applied_migrations(&conn)?;
-        assert_eq!(applied.len(), 1);
-        rollback_confirmed(&conn, &applied[0])?;
-        assert!(applied_migrations(&conn)?.is_empty());
+        assert_eq!(applied.len(), 3);
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))
                 .is_err()
         );
+        rollback_confirmed(&conn, &applied[0])?;
+        assert_eq!(applied_migrations(&conn)?, applied[1..].to_vec());
+        conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
         db.run_pending_migrations()?;
         assert_eq!(applied_migrations(&conn)?, applied);
-        conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
+        assert!(
+            conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))
+                .is_err()
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]

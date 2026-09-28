@@ -1138,9 +1138,25 @@ pub(crate) mod pure_codec_tests {
     }
 
     #[cfg(test)]
+    // verifies: CTYPE-011
     // verifies: CTYPE-024
     #[xmtp_common::test(unwrap_try = true)]
     fn malformed_nested_reply_content_is_rejected() {
+        use prost::Message as _;
+
+        let valid = xmtp_content_types::text::TextCodec::encode("valid".into())?;
+        let reply = xmtp_content_types::reply::Reply {
+            reference: "a".repeat(64),
+            reference_inbox_id: None,
+            content: valid,
+        };
+        assert!(matches!(
+            xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
+                content: ProtoEncodedContent::default(),
+                ..reply.clone()
+            }),
+            Err(xmtp_content_types::CodecError::InvalidContentType)
+        ));
         for nested in [
             ProtoEncodedContent::default(),
             ProtoEncodedContent {
@@ -1150,12 +1166,8 @@ pub(crate) mod pure_codec_tests {
                 ..Default::default()
             },
         ] {
-            let outer =
-                xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
-                    reference: "a".repeat(64),
-                    reference_inbox_id: None,
-                    content: nested,
-                })?;
+            let mut outer = xmtp_content_types::reply::ReplyCodec::encode(reply.clone())?;
+            outer.content = nested.encode_to_vec();
             assert!(decode_standard(outer.into()).is_err());
         }
     }

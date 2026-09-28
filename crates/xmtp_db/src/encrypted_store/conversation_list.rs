@@ -1,16 +1,13 @@
 use super::ConnectionExt;
-use super::schema::conversation_list::dsl::conversation_list;
 use crate::consent_record::ConsentState;
 use crate::group::{ConversationType, GroupMembershipState, GroupQueryArgs, GroupQueryOrderBy};
 use crate::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 use crate::{DbConnection, StorageError};
-use diesel::dsl::sql;
-use diesel::{
-    BoolExpressionMethods, ExpressionMethods, JoinOnDsl, QueryDsl, Queryable, RunQueryDsl, Table,
-};
+use diesel::sql_types::{BigInt, Integer};
+use diesel::{QueryableByName, RunQueryDsl, sql_query};
 use serde::{Deserialize, Serialize};
 
-/// Content types used by the `conversation_list` view for its latest message.
+/// Content types eligible for the latest conversation message.
 pub const CONVERSATION_LIST_CONTENT_TYPES: &[ContentType] = &[
     ContentType::Unknown,
     ContentType::Text,
@@ -22,80 +19,132 @@ pub const CONVERSATION_LIST_CONTENT_TYPES: &[ContentType] = &[
     ContentType::WalletSendCalls,
 ];
 
-#[cfg(test)]
-mod content_type_tests {
-    use super::*;
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn test_conversation_list_content_types_match_view() {
-        let migration = include_str!("../../migrations/2026-09-08-000000_baseline/up.sql");
-        let view = migration
-            .split("CREATE VIEW conversation_list AS")
-            .nth(1)
-            .unwrap();
-        let filter = view.split("gm.content_type IN (").nth(1).unwrap();
-        let values = filter.split(')').next().unwrap();
-        let actual: Vec<i32> = values
-            .split(',')
-            .map(|value| value.trim().parse().unwrap())
-            .collect();
-        let expected: Vec<i32> = CONVERSATION_LIST_CONTENT_TYPES
-            .iter()
-            .map(|value| *value as i32)
-            .collect();
-        assert_eq!(actual, expected);
-    }
+#[derive(QueryableByName, Debug, Clone, Deserialize, Serialize)]
+/// A group and its latest app-visible message, when one exists.
+pub struct ConversationListItem {
+    /// Group ID.
+    #[diesel(sql_type = diesel::sql_types::Binary)]
+    pub id: xmtp_proto::types::GroupId,
+    /// Time of the Welcome.
+    #[diesel(sql_type = BigInt)]
+    pub created_at_ns: i64,
+    /// Current membership state.
+    #[diesel(sql_type = Integer)]
+    pub membership_state: GroupMembershipState,
+    /// Last installation check.
+    #[diesel(sql_type = BigInt)]
+    pub installations_last_checked: i64,
+    /// Inbox that added this installation.
+    #[diesel(sql_type = diesel::sql_types::Text)]
+    pub added_by_inbox_id: String,
+    /// Welcome sequence ID.
+    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+    pub welcome_sequence_id: Option<i64>,
+    /// Canonical DM identity, if this is a DM.
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub dm_id: Option<String>,
+    /// Last leaf-key rotation.
+    #[diesel(sql_type = BigInt)]
+    pub rotated_at_ns: i64,
+    /// Conversation kind.
+    #[diesel(sql_type = Integer)]
+    pub conversation_type: ConversationType,
+    /// Whether the remote commit log is forked.
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Bool>)]
+    pub is_commit_log_forked: Option<bool>,
+    /// Message ID, absent when no eligible live message exists.
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
+    pub message_id: Option<Vec<u8>>,
+    /// Decrypted message content.
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
+    pub decrypted_message_bytes: Option<Vec<u8>>,
+    /// Message send time.
+    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+    pub sent_at_ns: Option<i64>,
+    /// Message kind.
+    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
+    pub kind: Option<GroupMessageKind>,
+    /// Sender installation.
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Binary>)]
+    pub sender_installation_id: Option<Vec<u8>>,
+    /// Sender inbox.
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub sender_inbox_id: Option<String>,
+    /// Delivery state.
+    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
+    pub delivery_status: Option<DeliveryStatus>,
+    /// Content type.
+    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
+    pub content_type: Option<ContentType>,
+    /// Content type major version.
+    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
+    pub version_major: Option<i32>,
+    /// Content type minor version.
+    #[diesel(sql_type = diesel::sql_types::Nullable<Integer>)]
+    pub version_minor: Option<i32>,
+    /// Content type authority.
+    #[diesel(sql_type = diesel::sql_types::Nullable<diesel::sql_types::Text>)]
+    pub authority_id: Option<String>,
+    /// Message sequence ID.
+    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+    pub sequence_id: Option<i64>,
+    /// Backend retention deadline, separate from disappearing-message expiry.
+    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+    pub expiry_ns: Option<i64>,
+    /// Disappearing-message deadline.
+    #[diesel(sql_type = diesel::sql_types::Nullable<BigInt>)]
+    pub expire_at_ns: Option<i64>,
 }
 
-#[derive(Queryable, Debug, Clone, Deserialize, Serialize)]
-#[diesel(table_name = conversation_list)]
-#[diesel(primary_key(id))]
-/// Combined view of a group and its messages, now named `conversation_list`.
-pub struct ConversationListItem {
-    /// group_id
-    pub id: xmtp_proto::types::GroupId,
-    /// Based on timestamp of the welcome message
-    pub created_at_ns: i64,
-    /// Enum, [`GroupMembershipState`] representing access to the group
-    pub membership_state: GroupMembershipState,
-    /// Track when the latest, most recent installations were checked
-    pub installations_last_checked: i64,
-    /// The inbox_id of who added the user to the group
-    pub added_by_inbox_id: String,
-    /// The sequence id of the welcome message
-    pub welcome_sequence_id: Option<i64>,
-    /// concatenation of dm participant inbox_ids in alphanumeric order
-    pub dm_id: Option<String>,
-    /// The last time the leaf node encryption key was rotated
-    pub rotated_at_ns: i64,
-    /// Enum, [`ConversationType`] signifies the group conversation type which extends to who can access it.
-    pub conversation_type: ConversationType,
-    /// Whether the commit log for this conversation is forked
-    pub is_commit_log_forked: Option<bool>,
-    /// Id of the message. Nullable because not every group has messages.
-    pub message_id: Option<Vec<u8>>,
-    /// Contents of message after decryption.
-    pub decrypted_message_bytes: Option<Vec<u8>>,
-    /// Time in nanoseconds the message was sent.
-    pub sent_at_ns: Option<i64>,
-    /// Group Message Kind Enum: 1 = Application, 2 = MembershipChange
-    pub kind: Option<GroupMessageKind>,
-    /// The ID of the App Installation this message was sent from.
-    pub sender_installation_id: Option<Vec<u8>>,
-    /// The Inbox ID of the Sender
-    pub sender_inbox_id: Option<String>,
-    /// We optimistically store messages before sending.
-    pub delivery_status: Option<DeliveryStatus>,
-    /// The Content Type of the message
-    pub content_type: Option<ContentType>,
-    /// The content type version major
-    pub version_major: Option<i32>,
-    /// The content type version minor
-    pub version_minor: Option<i32>,
-    /// The ID of the authority defining the content type
-    pub authority_id: Option<String>,
-    /// sequence id of the message
-    pub sequence_id: Option<i64>,
+/// Build one row per group with the latest message still visible at the supplied
+/// time. The expiry predicate must remain inside the ranked set.
+fn conversation_list_cte() -> String {
+    let content_types = CONVERSATION_LIST_CONTENT_TYPES
+        .iter()
+        .map(|value| (*value as i32).to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "WITH ranked_messages AS (
+            SELECT gm.group_id, gm.id AS message_id,
+                   gm.decrypted_message_bytes, gm.sent_at_ns, gm.kind,
+                   gm.sender_installation_id, gm.sender_inbox_id,
+                   gm.delivery_status, gm.content_type, gm.version_major,
+                   gm.version_minor, gm.authority_id, gm.sequence_id,
+                   gm.expiry_ns, gm.expire_at_ns,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY gm.group_id
+                       ORDER BY gm.sent_at_ns DESC, gm.id DESC
+                   ) AS row_num
+            FROM group_messages gm
+            WHERE gm.kind = {application_kind}
+              AND gm.content_type IN ({content_types})
+              AND (gm.expire_at_ns IS NULL OR gm.expire_at_ns > ?)
+        ), conversation_list AS (
+            SELECT g.id, g.created_at_ns, g.membership_state,
+                   g.installations_last_checked, g.added_by_inbox_id,
+                   g.sequence_id AS welcome_sequence_id, g.dm_id,
+                   g.rotated_at_ns, g.conversation_type,
+                   g.is_commit_log_forked, rm.message_id,
+                   rm.decrypted_message_bytes, rm.sent_at_ns, rm.kind,
+                   rm.sender_installation_id, rm.sender_inbox_id,
+                   rm.delivery_status, rm.content_type, rm.version_major,
+                   rm.version_minor, rm.authority_id, rm.sequence_id,
+                   rm.expiry_ns, rm.expire_at_ns
+            FROM groups g
+            LEFT JOIN ranked_messages rm
+              ON g.id = rm.group_id AND rm.row_num = 1
+        )",
+        application_kind = GroupMessageKind::Application as i32,
+    )
+}
+
+fn enum_values<T>(values: &[T], to_i32: impl Fn(&T) -> i32) -> String {
+    values
+        .iter()
+        .map(|value| to_i32(value).to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 pub trait QueryConversationList {
@@ -118,168 +167,149 @@ where
 }
 
 impl<C: ConnectionExt> QueryConversationList for DbConnection<C> {
-    // implements: CONS-030
     fn fetch_conversation_list<A: AsRef<GroupQueryArgs>>(
         &self,
         args: A,
     ) -> Result<Vec<ConversationListItem>, StorageError> {
-        use crate::schema::consent_records::dsl as consent_dsl;
-        use crate::schema::conversation_list::dsl as conversation_list_dsl;
+        self.fetch_conversation_list_at(args.as_ref(), xmtp_common::time::now_ns())
+    }
+}
 
-        args.as_ref().validate()?;
-
-        let GroupQueryArgs {
-            allowed_states,
-            created_after_ns,
-            created_before_ns,
-            limit,
-            conversation_type,
-            consent_states,
-            include_sync_groups,
-            include_duplicate_dms,
-            last_activity_after_ns,
-            last_activity_before_ns,
-            order_by,
-            ..
-        } = args.as_ref();
-
-        if matches!(consent_states, Some(states) if states.is_empty()) {
+impl<C: ConnectionExt> DbConnection<C> {
+    // implements: CONS-030
+    // implements: META-051
+    fn fetch_conversation_list_at(
+        &self,
+        args: &GroupQueryArgs,
+        current_time_ns: i64,
+    ) -> Result<Vec<ConversationListItem>, StorageError> {
+        args.validate()?;
+        if matches!(&args.consent_states, Some(states) if states.is_empty()) {
             return Ok(Vec::new());
         }
 
-        let order_expression = match order_by.clone().unwrap_or_default() {
-            GroupQueryOrderBy::CreatedAt => {
-                diesel::dsl::sql::<diesel::sql_types::BigInt>("created_at_ns DESC")
-            }
-            GroupQueryOrderBy::LastActivity => diesel::dsl::sql::<diesel::sql_types::BigInt>(
-                "COALESCE(sent_at_ns, created_at_ns) DESC",
-            ),
-        };
-
-        let mut query = conversation_list
-            .select(conversation_list::all_columns())
-            .filter(
-                conversation_list_dsl::conversation_type.ne_all(ConversationType::virtual_types()),
-            )
-            .order(order_expression)
-            .into_boxed();
-
-        if !include_duplicate_dms {
-            // Fast DM deduplication using EXISTS - avoids expensive window functions.
-            // For each group, ensure no other group with the same dm_id outranks
-            // it: a joined row before a `Restored` archive placeholder, then the
-            // latest message, then the highest id. `find_groups` and
-            // `fetch_stitched` rank the same way.
-            query = query.filter(sql::<diesel::sql_types::Bool>(&format!(
-                "NOT EXISTS (
-                    SELECT 1 FROM groups g2
-                    WHERE COALESCE(g2.dm_id, g2.id) = COALESCE(conversation_list.dm_id, conversation_list.id)
-                    AND (g2.membership_state != {restored}, COALESCE(g2.last_message_ns, 0), g2.id)
-                      > (conversation_list.membership_state != {restored}, COALESCE((
-                            SELECT g1.last_message_ns FROM groups g1 WHERE g1.id = conversation_list.id
-                        ), 0), conversation_list.id)
-                )",
-                restored = GroupMembershipState::Restored as i32,
-            )));
-        }
-
-        if let Some(limit) = limit {
-            query = query.limit(*limit);
-        }
-
-        if let Some(allowed_states) = allowed_states {
-            query = query.filter(conversation_list_dsl::membership_state.eq_any(allowed_states));
-        }
-
-        // last_activity_after_ns takes precedence over created_after_ns
-        if let Some(last_activity_after_ns) = last_activity_after_ns {
-            // "Activity after" means groups that were either created,
-            // or have sent a message after the specified time.
-            query = query.filter(
-                diesel::dsl::sql::<diesel::sql_types::BigInt>(
-                    "COALESCE(sent_at_ns, created_at_ns)",
-                )
-                .gt(last_activity_after_ns),
-            );
-        }
-
-        if let Some(created_after_ns) = created_after_ns {
-            query = query.filter(conversation_list_dsl::created_at_ns.gt(created_after_ns));
-        }
-
-        if let Some(last_activity_before_ns) = last_activity_before_ns {
-            query = query.filter(
-                diesel::dsl::sql::<diesel::sql_types::BigInt>(
-                    "COALESCE(sent_at_ns, created_at_ns)",
-                )
-                .lt(last_activity_before_ns),
-            );
-        }
-
-        if let Some(created_before_ns) = created_before_ns {
-            query = query.filter(conversation_list_dsl::created_at_ns.lt(created_before_ns));
-        }
-
-        if let Some(conversation_type) = conversation_type {
-            query = query.filter(conversation_list_dsl::conversation_type.eq(conversation_type));
-        }
-
-        let effective_consent_states = match consent_states {
-            Some(states) => states.clone(),
-            None => vec![ConsentState::Allowed, ConsentState::Unknown],
-        };
-
+        let effective_consent_states = args
+            .consent_states
+            .clone()
+            .unwrap_or_else(|| vec![ConsentState::Allowed, ConsentState::Unknown]);
         let includes_unknown = effective_consent_states.contains(&ConsentState::Unknown);
         let includes_all = effective_consent_states.len() == 3;
-
         let filtered_states: Vec<_> = effective_consent_states
             .iter()
             .filter(|state| **state != ConsentState::Unknown)
-            .cloned()
+            .copied()
             .collect();
 
-        let mut conversations = if includes_all {
-            // No filtering at all
-            self.raw_query(|conn| query.load::<ConversationListItem>(conn))?
-        } else if includes_unknown {
-            // LEFT JOIN: include Unknown + NULL + filtered states
-            let left_joined_query = query
-                .left_join(
-                    consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
-                        "lower(hex(conversation_list.id))",
-                    )
-                    .eq(consent_dsl::entity)),
-                )
-                .filter(
-                    consent_dsl::state
-                        .is_null()
-                        .or(consent_dsl::state.eq(ConsentState::Unknown))
-                        .or(consent_dsl::state.eq_any(filtered_states.clone())),
-                )
-                .select(conversation_list::all_columns());
+        let mut query = sql_query(format!(
+            "{} SELECT c.* FROM conversation_list c",
+            conversation_list_cte()
+        ))
+        .into_boxed::<diesel::sqlite::Sqlite>()
+        .bind::<BigInt, _>(current_time_ns);
 
-            self.raw_query(|conn| left_joined_query.load::<ConversationListItem>(conn))?
-        } else {
-            // INNER JOIN: strict match only to specific states (no Unknown or NULL)
-            let inner_joined_query = query
-                .inner_join(
-                    consent_dsl::consent_records.on(sql::<diesel::sql_types::Text>(
-                        "lower(hex(conversation_list.id))",
-                    )
-                    .eq(consent_dsl::entity)),
-                )
-                .filter(consent_dsl::state.eq_any(filtered_states.clone()))
-                .select(conversation_list::all_columns());
+        if !includes_all {
+            query = query.sql(
+                " LEFT JOIN consent_records consent
+                  ON consent.entity = lower(hex(c.id))",
+            );
+        }
+        query = query.sql(format!(
+            " WHERE c.conversation_type NOT IN ({}, {})",
+            ConversationType::Sync as i32,
+            ConversationType::Oneshot as i32
+        ));
 
-            self.raw_query(|conn| inner_joined_query.load::<ConversationListItem>(conn))?
+        if !args.include_duplicate_dms {
+            query = query.sql(format!(
+                " AND NOT EXISTS (
+                    SELECT 1 FROM groups g2
+                    WHERE COALESCE(g2.dm_id, g2.id) = COALESCE(c.dm_id, c.id)
+                    AND (g2.membership_state != {restored}, COALESCE(g2.last_message_ns, 0), g2.id)
+                      > (c.membership_state != {restored}, COALESCE((
+                           SELECT g1.last_message_ns FROM groups g1 WHERE g1.id = c.id
+                         ), 0), c.id)
+                )",
+                restored = GroupMembershipState::Restored as i32,
+            ));
+        }
+
+        if let Some(states) = &args.allowed_states {
+            if states.is_empty() {
+                query = query.sql(" AND 0");
+            } else {
+                query = query.sql(format!(
+                    " AND c.membership_state IN ({})",
+                    enum_values(states, |state| *state as i32)
+                ));
+            }
+        }
+        if let Some(after) = args.last_activity_after_ns {
+            query = query
+                .sql(" AND COALESCE(c.sent_at_ns, c.created_at_ns) > ?")
+                .bind::<BigInt, _>(after);
+        }
+        if let Some(after) = args.created_after_ns {
+            query = query
+                .sql(" AND c.created_at_ns > ?")
+                .bind::<BigInt, _>(after);
+        }
+        if let Some(before) = args.last_activity_before_ns {
+            query = query
+                .sql(" AND COALESCE(c.sent_at_ns, c.created_at_ns) < ?")
+                .bind::<BigInt, _>(before);
+        }
+        if let Some(before) = args.created_before_ns {
+            query = query
+                .sql(" AND c.created_at_ns < ?")
+                .bind::<BigInt, _>(before);
+        }
+        if let Some(conversation_type) = args.conversation_type {
+            query = query
+                .sql(" AND c.conversation_type = ?")
+                .bind::<Integer, _>(conversation_type as i32);
+        }
+
+        if !includes_all {
+            if includes_unknown {
+                query = query.sql(" AND (consent.state IS NULL OR consent.state = 0");
+                if !filtered_states.is_empty() {
+                    query = query.sql(format!(
+                        " OR consent.state IN ({})",
+                        enum_values(&filtered_states, |state| *state as i32)
+                    ));
+                }
+                query = query.sql(")");
+            } else {
+                query = query.sql(format!(
+                    " AND consent.state IN ({})",
+                    enum_values(&filtered_states, |state| *state as i32)
+                ));
+            }
+        }
+
+        query = match args.order_by.clone().unwrap_or_default() {
+            GroupQueryOrderBy::CreatedAt => query.sql(" ORDER BY c.created_at_ns DESC"),
+            GroupQueryOrderBy::LastActivity => {
+                query.sql(" ORDER BY COALESCE(c.sent_at_ns, c.created_at_ns) DESC")
+            }
         };
+        if let Some(limit) = args.limit {
+            query = query.sql(" LIMIT ?").bind::<BigInt, _>(limit);
+        }
 
-        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
-        // Then query for those separately
-        if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
-            let query = conversation_list_dsl::conversation_list
-                .filter(conversation_list_dsl::conversation_type.eq(ConversationType::Sync));
-            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
+        let mut conversations = self.raw_query(|conn| query.load::<ConversationListItem>(conn))?;
+
+        // Sync groups bypass the regular filters and limit, as before.
+        if matches!(args.conversation_type, Some(ConversationType::Sync))
+            || args.include_sync_groups
+        {
+            let sync = sql_query(format!(
+                "{} SELECT c.* FROM conversation_list c WHERE c.conversation_type = ?",
+                conversation_list_cte()
+            ))
+            .bind::<BigInt, _>(current_time_ns)
+            .bind::<Integer, _>(ConversationType::Sync as i32);
+            let mut sync_groups = self.raw_query(|conn| sync.load::<ConversationListItem>(conn))?;
             conversations.append(&mut sync_groups);
         }
 
@@ -299,6 +329,106 @@ pub(crate) mod tests {
     use crate::group_message::tests::generate_message;
     use crate::prelude::*;
     use crate::test_utils::with_connection;
+
+    // verifies: META-051
+    #[xmtp_common::test(unwrap_try = true)]
+    fn latest_conversation_preview_uses_live_rows_before_ranking() {
+        let now = 1_000_000;
+        with_connection(|conn| -> Result<(), crate::StorageError> {
+            let mixed = generate_group_with_created_at(None, 100);
+            let persistent = generate_group_with_created_at(None, 150);
+            let empty = generate_group_with_created_at(None, 175);
+            let all_expired = generate_group_with_created_at(None, 250);
+            for group in [&mixed, &persistent, &empty, &all_expired] {
+                group.store(conn)?;
+            }
+
+            let mut older_live = generate_message(
+                None,
+                Some(&mixed.id),
+                Some(300),
+                Some(ContentType::Text),
+                Some(now + 1),
+                None,
+            );
+            older_live.expiry_ns = Some(now + 100);
+            older_live.store(conn)?;
+            let newer_expired = generate_message(
+                None,
+                Some(&mixed.id),
+                Some(500),
+                Some(ContentType::Text),
+                Some(now - 1),
+                None,
+            );
+            newer_expired.store(conn)?;
+            let equality_expired = generate_message(
+                None,
+                Some(&all_expired.id),
+                Some(450),
+                Some(ContentType::Text),
+                Some(now),
+                None,
+            );
+            equality_expired.store(conn)?;
+            let no_deadline = generate_message(
+                None,
+                Some(&persistent.id),
+                Some(350),
+                Some(ContentType::Text),
+                None,
+                None,
+            );
+            no_deadline.store(conn)?;
+
+            assert!(conn.get_group_message(&newer_expired.id)?.is_some());
+            assert!(conn.get_group_message(&equality_expired.id)?.is_some());
+            let args = GroupQueryArgs {
+                order_by: Some(GroupQueryOrderBy::LastActivity),
+                ..Default::default()
+            };
+            let listed = conn.fetch_conversation_list_at(&args, now)?;
+            assert_eq!(listed.len(), 4);
+            assert_eq!(listed[0].id, persistent.id);
+            assert_eq!(
+                listed[0].message_id.as_deref(),
+                Some(no_deadline.id.as_slice())
+            );
+            assert_eq!(listed[1].id, mixed.id);
+            assert_eq!(
+                listed[1].message_id.as_deref(),
+                Some(older_live.id.as_slice())
+            );
+            assert_eq!(listed[1].expire_at_ns, older_live.expire_at_ns);
+            assert_eq!(listed[1].expiry_ns, older_live.expiry_ns);
+            assert_eq!(listed[2].id, all_expired.id);
+            assert!(listed[2].message_id.is_none());
+            assert_eq!(listed[3].id, empty.id);
+            assert!(listed[3].message_id.is_none());
+
+            let after = conn.fetch_conversation_list_at(
+                &GroupQueryArgs {
+                    last_activity_after_ns: Some(325),
+                    ..args.clone()
+                },
+                now,
+            )?;
+            assert_eq!(after.len(), 1);
+            assert_eq!(after[0].id, persistent.id);
+
+            let bounded = conn.fetch_conversation_list_at(
+                &GroupQueryArgs {
+                    limit: Some(2),
+                    ..args
+                },
+                now,
+            )?;
+            assert_eq!(bounded.len(), 2);
+            assert_eq!(bounded[0].id, persistent.id);
+            assert_eq!(bounded[1].id, mixed.id);
+            Ok(())
+        })?;
+    }
 
     #[xmtp_common::test]
     fn test_single_group_multiple_messages() {

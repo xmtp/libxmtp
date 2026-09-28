@@ -217,13 +217,14 @@ async fn test_attachment_roundtrip() {
     assert_eq!(original.content, decoded.content);
 }
 
+// verifies: CTYPE-007
 #[tokio::test]
 async fn test_reply_roundtrip() {
     let original = FfiReply {
         reference: "0x1234567890abcdef".to_string(),
         reference_inbox_id: Some("test_inbox_id".to_string()),
         content: FfiEncodedContent {
-            type_id: None,
+            type_id: Some(TextCodec::content_type().into()),
             parameters: HashMap::new(),
             fallback: Some("This is a reply".to_string()),
             compression: None,
