@@ -253,8 +253,8 @@ message RecoverablePasskeySignature {
 
 // A wrapper for all possible signature types
 message Signature {
-  // Field 4 was the retired legacy delegated signature. A validator rejects
-  // an update carrying it, so neither its number nor its name may be reused.
+  // Field 4 was the retired legacy delegated signature. Neither its number
+  // nor its name may be reused.
   reserved 4;
   reserved "delegated_erc_191";
 
@@ -276,7 +276,7 @@ The verification of each kind, the signer it yields, and its replay key. A repla
 | `installation_key` | Installation | Ed25519ph ([RFC 8032 §5.1](https://www.rfc-editor.org/rfc/rfc8032.html#section-5.1)) over the signature text with the context string `IDENTITY UPDATE SIGNATURE`, under `public_key`. | The 32-byte `public_key` | The 64 signature bytes |
 | `passkey` | Passkey | `client_data_json` parses as WebAuthn client data whose `challenge` equals the base64url encoding without padding of the signature text. `signature` is a DER-encoded ECDSA P-256 signature, under the SEC1 key `public_key`, over `authenticator_data` followed by the SHA-256 digest of `client_data_json` ([WebAuthn Level 2 §6.1](https://www.w3.org/TR/webauthn-2/#sctn-authenticator-data), [§7.2 step 20](https://www.w3.org/TR/webauthn-2/#sctn-verifying-assertion)). | `Passkey` with `key` equal to `public_key`; `relying_party` is the client data's `origin` | 64 bytes: `r`, `s` in the lower half |
 
-A `Signature` whose `signature` is unset, or set to a field this definition does not list, is rejected under IDENT-001. Field 4 carried a legacy delegated signature, which this definition retires.
+A `Signature` whose `signature` is unset, or set to a field this definition does not list, is rejected under IDENT-001. Field 4 carried a legacy delegated signature, which this definition retires. It is now an unknown field: a `Signature` holding only field 4 has `signature` unset and is rejected, and field 4 beside a listed field is ignored like any unknown field, so it never changes which signature is verified.
 
 A `passkey` signature proves possession of the P-256 key bound to this signature text. It is not a WebAuthn assertion verification: the ceremony `type`, the relying party id hash, the flags, the counter, the minimum authenticator data length, and the `origin` are not checked (Known limitations).
 
@@ -365,7 +365,7 @@ One identifier can be a live member of several inboxes at once: a user creates t
 Several rules reject updates that an earlier validator accepted and stored:
 
 - IDENT-013 replaces a rule that stored an Ethereum identifier in whatever case it was given.
-- IDENT-001 rejects an update with no actions, and a `Signature` that carries the retired legacy delegated signature, field 4.
+- IDENT-001 rejects an update with no actions, and a `Signature` whose only signature is the retired legacy delegated signature, field 4.
 - IDENT-040 rejects an add of a current member.
 - IDENT-060 rejects an `account_id` outside the `eip155` namespace or with a chain id not in canonical decimal form.
 

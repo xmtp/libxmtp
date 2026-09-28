@@ -46,8 +46,8 @@ message Signature {
   //    recoverable, or specified as a field.
   // 2. The signer certifies that the signing payload is correct. The payload
   //    must be inferred from the context in which the signature is provided.
-  // Field 4 was the retired legacy delegated signature. A validator rejects
-  // an update carrying it, so neither its number nor its name may be reused.
+  // Field 4 was the retired legacy delegated signature. Neither its number
+  // nor its name may be reused.
   reserved 4;
   reserved "delegated_erc_191";
 

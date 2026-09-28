@@ -308,4 +308,27 @@ fn retired_legacy_signature_is_rejected() {
             "{result:?}"
         );
     }
+
+    // Beside a listed signature, field 4 is an unknown field like any other:
+    // it is ignored, and the listed signature is the one verified.
+    let mixed = [
+        CreateInboxProto {
+            initial_identifier: LEGACY_WALLET.to_string(),
+            ..Default::default()
+        }
+        .encode_to_vec(),
+        length_delimited(3, &[erc191().encode_to_vec(), retired_signature()].concat()),
+    ]
+    .concat();
+    let decoded = decode(&identity_update(
+        &own_inbox,
+        vec![length_delimited(1, &mixed)],
+    ))?;
+    assert!(matches!(
+        &decoded.actions[..],
+        [UnverifiedAction::CreateInbox(UnverifiedCreateInbox {
+            initial_identifier_signature: UnverifiedSignature::RecoverableEcdsa(_),
+            ..
+        })]
+    ));
 }
