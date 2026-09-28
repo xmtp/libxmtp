@@ -12,7 +12,7 @@ use xmtp_id::{
         AssociationError, SignatureError, test_utils::MockSmartContractSignatureVerifier,
     },
     key_package::{KeyPackageOptions, create_credential},
-    scw_verifier::{MultiSmartContractSignatureVerifier, VerifierError},
+    scw_verifier::{BlockStamp, ChainBlocks, MultiSmartContractSignatureVerifier, VerifierError},
 };
 use xmtp_proto::xmtp::backend::v1::{
     ClientEnvelope, KeyPackage, WelcomeMessage, client_envelope::Payload,
@@ -141,7 +141,13 @@ async fn commit_log_admission_preserves_unverified_bytes_and_signature() {
     );
     assert!(!parsed.is_commit_or_proposal);
     assert_eq!(parsed.envelope, expected);
-    validate_envelope(&parsed, &[], MockSmartContractSignatureVerifier::new(false)).await?;
+    validate_envelope(
+        &parsed,
+        &[],
+        MockSmartContractSignatureVerifier::new(false),
+        &TestChain::at(1),
+    )
+    .await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -193,9 +199,14 @@ async fn key_package_admission_accepts_the_existing_credential_shape() {
             expected_topic(TopicKind::KeyPackagesV1, &fixture.installation_id)
         );
         assert!(
-            validate_envelope(&parsed, &[], MockSmartContractSignatureVerifier::new(false))
-                .await?
-                .is_none()
+            validate_envelope(
+                &parsed,
+                &[],
+                MockSmartContractSignatureVerifier::new(false),
+                &TestChain::at(1),
+            )
+            .await?
+            .is_none()
         );
         assert_eq!(
             verify_key_package(&fixture.tls_bytes)?.credential.inbox_id,
@@ -257,10 +268,15 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
             parsed.topic.cloned_vec(),
             expected_topic(TopicKind::KeyPackagesV1, &fixture.installation_id)
         );
-        let error = validate_envelope(&parsed, &[], MockSmartContractSignatureVerifier::new(false))
-            .await
-            .err()
-            .expect("semantic key-package validation must still run");
+        let error = validate_envelope(
+            &parsed,
+            &[],
+            MockSmartContractSignatureVerifier::new(false),
+            &TestChain::at(1),
+        )
+        .await
+        .err()
+        .expect("semantic key-package validation must still run");
         assert!(matches!(&error, ValidationError::KeyPackage(_)));
         assert_eq!(error.reason(), Reason::InvalidKeyPackage);
     }
@@ -292,6 +308,7 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
         &parsed,
         &fixture.history,
         MockSmartContractSignatureVerifier::new(false),
+        &TestChain::at(1),
     )
     .await?
     .expect("identity admission returns state and diff");
@@ -400,4 +417,139 @@ fn identity_topics_require_a_32_byte_hex_inbox() {
         parse_envelope(identity_envelope(fixture)),
         Err(ValidationError::Inbox(_))
     ));
+}
+
+/// Reports a head stamped before its own earlier blocks, as separate reads
+/// straddling a reorg can.
+struct SkewedChain;
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for SkewedChain {
+    async fn head(&self, _: &str) -> Result<BlockStamp, VerifierError> {
+        Ok(BlockStamp {
+            number: 10,
+            timestamp: 100,
+        })
+    }
+
+    async fn timestamp(&self, _: &str, _: u64) -> Result<u64, VerifierError> {
+        Ok(200)
+    }
+}
+
+/// The age check must fail closed: a block whose timestamp exceeds the head's
+/// has no provable age, and treating it as fresh would let a removed signer
+/// replay an old signature through an inconsistent chain read.
+#[xmtp_common::test]
+// verifies: IDENT-062
+async fn freshness_rejects_a_block_stamped_after_the_head() {
+    assert!(matches!(
+        check_freshness(&scw_create_inbox_update_at(5), &SkewedChain).await,
+        Err(ValidationError::StaleBlock(5))
+    ));
+}
+
+/// Counts reads and, like a chain the deployment does not route, answers
+/// each with a retryable missing route.
+#[derive(Default)]
+struct RoutelessChain(std::sync::atomic::AtomicUsize);
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for RoutelessChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Err(VerifierError::NoVerifier(chain_id.into()))
+    }
+
+    async fn timestamp(&self, chain_id: &str, _: u64) -> Result<u64, VerifierError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Err(VerifierError::NoVerifier(chain_id.into()))
+    }
+}
+
+/// A malformed account id anywhere in an update, in its chain id or its
+/// address, rejects it permanently before any chain access, even behind a
+/// well-formed signature and on a chain with no route, so an invalid update
+/// cannot buy RPC work or wait as retryable for ever. A well-formed one on
+/// that chain reaches it and stays retryable.
+#[xmtp_common::test]
+// verifies: IDENT-060, IDENT-061
+async fn freshness_rejects_any_malformed_account_before_chain_access() {
+    let chain = RoutelessChain::default();
+    for malformed in [
+        "eip155:01:0x1111111111111111111111111111111111111111",
+        "eip155:1:bad",
+        "eip155:1:1111111111111111111111111111111111111111",
+        "eip155:1:0x111111111111111111111111111111111111111g",
+        "eip155:1:0x11111111111111111111111111111111111111111",
+    ] {
+        let update = with_second_signature(|scw| scw.account_id = malformed.into());
+        let error = check_freshness(&update, &chain).await.expect_err(malformed);
+        assert!(!error.is_retryable(), "{malformed}: {error}");
+        assert_eq!(error.reason(), Reason::InvalidSignature, "{malformed}");
+    }
+    assert_eq!(chain.0.load(std::sync::atomic::Ordering::Relaxed), 0);
+
+    let error = check_freshness(&scw_create_inbox_update_at(1), &chain)
+        .await
+        .expect_err("a chain without a route cannot judge freshness");
+    assert!(error.is_retryable());
+    assert_eq!(chain.0.into_inner(), 1);
+}
+
+/// Append a copy of the fixture inbox's ERC-6492 signature, edited by `edit`.
+fn with_second_signature(
+    edit: impl FnOnce(&mut xmtp_proto::xmtp::identity::associations::SmartContractWalletSignature),
+) -> IdentityUpdate {
+    use xmtp_proto::xmtp::identity::associations::{identity_action, signature};
+    let mut update = scw_create_inbox_update_at(1);
+    let mut second = update.actions[0].clone();
+    let Some(identity_action::Kind::CreateInbox(create)) = &mut second.kind else {
+        unreachable!("fixture creates an inbox")
+    };
+    let Some(signature::Signature::Erc6492(scw)) = create
+        .initial_identifier_signature
+        .as_mut()
+        .and_then(|value| value.signature.as_mut())
+    else {
+        unreachable!("fixture signs with a smart-contract wallet")
+    };
+    edit(scw);
+    update.actions.push(second);
+    update
+}
+
+/// Counts the reads it forwards to a [`TestChain`].
+#[derive(Default)]
+struct CountingChain {
+    heads: std::sync::atomic::AtomicUsize,
+    timestamps: std::sync::atomic::AtomicUsize,
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for CountingChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.heads
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        TestChain::at(10).head(chain_id).await
+    }
+
+    async fn timestamp(&self, chain_id: &str, number: u64) -> Result<u64, VerifierError> {
+        self.timestamps
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        TestChain::at(10).timestamp(chain_id, number).await
+    }
+}
+
+/// An update may carry up to the configured signature limit, so admission
+/// reads each chain's head once and each distinct block's timestamp once
+/// rather than once per signature.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: IDENT-062
+async fn freshness_reads_each_head_and_block_once() {
+    let chain = CountingChain::default();
+    check_freshness(&with_second_signature(|_| {}), &chain).await?;
+    check_freshness(&with_second_signature(|scw| scw.block_number = 2), &chain).await?;
+    assert_eq!(chain.heads.into_inner(), 2);
+    assert_eq!(chain.timestamps.into_inner(), 3);
 }

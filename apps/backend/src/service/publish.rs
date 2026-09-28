@@ -4,13 +4,13 @@ use crate::{
     api::{self, client_envelope::Payload, publish_error::Reason},
     db::{IdentityAdmission, PendingEnvelope},
     error::AdmissionError,
-    validation::{projection, scw_count},
+    validation::projection,
 };
 use prost::Message;
 use std::collections::{HashMap, HashSet};
 use tonic::{Request, Response, Status};
 use xmtp_common::time::{Duration, timeout};
-use xmtp_mls_validation::{ParsedEnvelope, parse_envelope, validate_envelope};
+use xmtp_mls_validation::{ParsedEnvelope, erc6492_signatures, parse_envelope, validate_envelope};
 use xmtp_proto::types::TopicKind;
 
 #[cfg(test)]
@@ -226,7 +226,7 @@ impl Backend {
                     .as_mut()
                     .ok_or_else(|| Status::internal("identity metadata missing"))?
                     .head = history.head;
-                if scw_count(update) > self.config.limits.max_scw_signatures {
+                if erc6492_signatures(update).count() > self.config.limits.max_scw_signatures {
                     item.validation = Err(AdmissionError::TooLarge(
                         "identity update exceeds signature limit",
                     ));
@@ -260,6 +260,7 @@ impl Backend {
                 parsed,
                 &history,
                 crate::validation::ObservedVerifier(&self.verifier),
+                &*self.chains,
             )
             .await
             .map(|result| result.as_ref().map(projection))
