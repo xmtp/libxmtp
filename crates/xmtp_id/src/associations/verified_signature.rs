@@ -19,8 +19,9 @@ use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKey
 pub struct VerifiedSignature {
     pub signer: MemberIdentifier,
     pub kind: SignatureKind,
-    /// The signature in canonical form: every encoding that verifies as this signature by this
-    /// signer yields the same key, so the association log can refuse to apply it twice.
+    /// The association-log replay key. Recoverable ECDSA and passkey signatures are canonicalised
+    /// so every accepted encoding yields one key; installation-key and ERC-1271 signatures use the
+    /// submitted bytes.
     pub replay_key: Vec<u8>,
     pub chain_id: Option<u64>,
 }
