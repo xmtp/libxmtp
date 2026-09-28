@@ -71,8 +71,6 @@ pub struct DeliverySnapshot {
 pub struct ResolvedGroupScope {
     /// Requested IDs and all currently stored groups of those DMs.
     pub group_ids: Vec<GroupId>,
-    /// A selected group is a DM, so its Welcome topic can add another group.
-    pub includes_dm: bool,
 }
 
 /// Local message order, retained-history reads, and fenced per-group D positions.
@@ -665,7 +663,6 @@ fn resolve_group_scope(
     if requested.is_empty() {
         return Ok(ResolvedGroupScope {
             group_ids: Vec::new(),
-            includes_dm: false,
         });
     }
     let dm_ids = groups::table
@@ -676,7 +673,6 @@ fn resolve_group_scope(
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
-    let includes_dm = !dm_ids.is_empty();
     let mut selected = requested.to_vec();
     if !dm_ids.is_empty() {
         selected.extend(
@@ -691,7 +687,6 @@ fn resolve_group_scope(
     selected.dedup();
     Ok(ResolvedGroupScope {
         group_ids: selected,
-        includes_dm,
     })
 }
 

@@ -444,20 +444,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             scope.topics = match &scope.scope {
                 ScopeKind::Topics(topics) => topics.iter().cloned().collect(),
-                ScopeKind::Groups(_) => {
-                    let mut topics = selected_scope
-                        .iter()
-                        .flat_map(|scope| scope.group_ids.iter())
-                        .map(Topic::new_group_message)
-                        .collect::<HashSet<_>>();
-                    if selected_scope
-                        .as_ref()
-                        .is_some_and(|scope| scope.includes_dm)
-                    {
-                        topics.insert(Topic::new_welcome_message(self.context.installation_id()));
-                    }
-                    topics
-                }
+                ScopeKind::Groups(_) => selected_scope
+                    .iter()
+                    .flat_map(|scope| scope.group_ids.iter())
+                    .map(Topic::new_group_message)
+                    .collect(),
                 ScopeKind::Barrier { .. } => scope.targets.keys().cloned().collect(),
                 ScopeKind::AllGroups => discoveries
                     .iter()

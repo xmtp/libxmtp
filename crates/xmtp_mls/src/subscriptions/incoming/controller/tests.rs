@@ -121,7 +121,8 @@ async fn one_dm_interest_reconciles_a_later_joined_duplicate() {
     let first_topic = Topic::new_group_message(first.group_id);
     assert!(controller.interested().contains(&first_topic));
     let welcome_topic = Topic::new_welcome_message(alix.context.installation_id());
-    assert!(controller.scopes[&lease.id].topics.contains(&welcome_topic));
+    assert!(!controller.scopes[&lease.id].topics.contains(&welcome_topic));
+    assert!(!controller.interested().contains(&welcome_topic));
 
     let second = bo
         .find_or_create_dm(alix.inbox_id().to_string(), None)
@@ -130,8 +131,10 @@ async fn one_dm_interest_reconciles_a_later_joined_duplicate() {
     alix.sync_welcomes().await?;
     controller.reconcile()?;
     let second_topic = Topic::new_group_message(second.group_id);
+    assert!(controller.scopes[&lease.id].topics.contains(&first_topic));
     assert!(controller.scopes[&lease.id].topics.contains(&second_topic));
     assert!(controller.interested().contains(&second_topic));
+    assert!(!controller.interested().contains(&welcome_topic));
 }
 
 // verifies: PROC-032

@@ -278,7 +278,7 @@ mod tests {
 
     // verifies: DMS-009
     #[xmtp_common::test(unwrap_try = true)]
-    async fn one_dm_reader_receives_a_later_duplicate_without_an_all_group_reader() {
+    async fn one_dm_reader_receives_a_later_explicitly_joined_duplicate() {
         tester!(alix, disable_workers);
         tester!(bo, disable_workers);
         let first = alix
@@ -294,6 +294,11 @@ mod tests {
             .find_or_create_dm(alix.inbox_id().to_string(), None)
             .await?;
         assert_ne!(first.group_id, second.group_id);
+        // This operation owns Welcome interest only until it returns.
+        alix.sync_welcomes().await?;
+        let installed: Option<xmtp_db::group::StoredGroup> =
+            xmtp_db::Fetch::fetch(&alix.context.db(), &second.group_id)?;
+        assert!(installed.is_some());
         let message_id = second
             .send_message(b"later duplicate", SendMessageOpts::default())
             .await?;

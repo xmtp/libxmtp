@@ -159,6 +159,86 @@ async fn scoped_delivery_reads_the_stitched_dm_union_before_limits() {
 
 // verifies: DMS-009
 #[xmtp_common::test(unwrap_try = true)]
+async fn stitched_history_snapshot_keeps_the_recent_delivery_tail() {
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let mut first = generate_group(None);
+    first.conversation_type = ConversationType::Dm;
+    first.dm_id = Some("dm:one:two".into());
+    let mut second = generate_group(None);
+    second.conversation_type = ConversationType::Dm;
+    second.dm_id = first.dm_id.clone();
+    let unrelated = generate_group(None);
+    for group in [&first, &second, &unrelated] {
+        group.store(&db)?;
+    }
+
+    let oldest_delivery = generate_message(None, Some(&first.id), Some(400), None, None, None);
+    let middle_delivery = generate_message(None, Some(&second.id), Some(300), None, None, None);
+    let newest_delivery = generate_message(None, Some(&first.id), Some(100), None, None, None);
+    oldest_delivery.store(&db)?;
+    middle_delivery.store(&db)?;
+    let middle_cursor = db.current_delivery_cursor()?;
+    newest_delivery.store(&db)?;
+    let newest_cursor = db.current_delivery_cursor()?;
+
+    // Ordinary history selects one timestamp-ordered page across both groups.
+    for id in [first.id, second.id] {
+        let history = db.get_group_messages(
+            &id,
+            &crate::group_message::MsgQueryArgs {
+                limit: Some(2),
+                ..Default::default()
+            },
+        )?;
+        assert_eq!(
+            history.iter().map(|row| &row.id).collect::<Vec<_>>(),
+            [&newest_delivery.id, &middle_delivery.id]
+        );
+    }
+
+    // Expired and unrelated rows cannot consume the snapshot's global limit.
+    generate_message(None, Some(&second.id), Some(500), None, Some(10), None).store(&db)?;
+    generate_message(None, Some(&unrelated.id), Some(550), None, None, None).store(&db)?;
+    let removed = generate_message(None, Some(&unrelated.id), Some(600), None, None, None);
+    removed.store(&db)?;
+    let boundary = db.current_delivery_cursor()?;
+    db.raw_query(|conn| diesel::delete(group_messages::table.find(&removed.id)).execute(conn))?;
+    assert!(boundary.delivery_sequence > newest_cursor.delivery_sequence);
+
+    for id in [first.id, second.id] {
+        let snapshot = db.delivery_history_snapshot(&DeliveryScope::Groups(vec![id]), 20, 2)?;
+        assert_eq!(
+            snapshot
+                .messages
+                .iter()
+                .map(|row| &row.message.id)
+                .collect::<Vec<_>>(),
+            [&middle_delivery.id, &newest_delivery.id]
+        );
+        assert_eq!(
+            snapshot
+                .messages
+                .iter()
+                .map(|row| row.cursor)
+                .collect::<Vec<_>>(),
+            [middle_cursor, newest_cursor]
+        );
+        assert_eq!(snapshot.cursor, boundary);
+    }
+
+    let late = generate_message(None, Some(&second.id), Some(50), None, None, None);
+    late.store(&db)?;
+    let replay =
+        db.replay_delivery_messages(boundary, &DeliveryScope::Groups(vec![first.id]), 20, 2)?;
+    assert_eq!(replay.len(), 1);
+    assert_eq!(replay[0].message.id, late.id);
+    assert_eq!(replay[0].cursor, db.current_delivery_cursor()?);
+    assert!(replay[0].cursor.delivery_sequence > boundary.delivery_sequence);
+}
+
+// verifies: DMS-009
+#[xmtp_common::test(unwrap_try = true)]
 async fn scoped_delivery_includes_a_duplicate_added_after_the_first_read() {
     let store = TestDb::create_persistent_store(None).await;
     let db = store.db();
