@@ -4,6 +4,7 @@ mod forwarding;
 mod kotlin_callbacks;
 mod kotlin_records;
 mod nullable_peer;
+mod public_projection;
 mod reader_defaults;
 mod validate;
 
@@ -289,6 +290,14 @@ fn generate(
                 out.join("runtime/message.ts"),
             )?;
         }
+    }
+    if !pure_only
+        && matches!(
+            language,
+            Language::TypescriptNapi | Language::TypescriptWasm
+        )
+    {
+        public_projection::generate(&metadata, out)?;
     }
     if matches!(language, Language::Swift | Language::Kotlin) {
         forwarding::generate(&metadata, language, out)?;

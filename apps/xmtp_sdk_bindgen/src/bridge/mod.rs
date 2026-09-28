@@ -374,7 +374,7 @@ fn ts_name(source: &str) -> String {
     source.to_lower_camel_case()
 }
 
-fn none_defaults(inputs: &[uniffi_meta::FnParamMetadata]) -> BTreeSet<String> {
+pub(super) fn none_defaults(inputs: &[uniffi_meta::FnParamMetadata]) -> BTreeSet<String> {
     inputs
         .iter()
         .rev()

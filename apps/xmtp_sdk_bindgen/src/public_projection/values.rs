@@ -1,0 +1,171 @@
+use std::fmt::Write as _;
+
+use anyhow::Result;
+use uniffi_meta::{EnumMetadata, RecordMetadata, Type};
+
+use super::{camel, convert, public_type};
+
+pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
+    let name = &record.name;
+    writeln!(code, "export type {name} = {{")?;
+    for field in &record.fields {
+        let optional = if matches!(field.ty, Type::Optional { .. }) {
+            "?"
+        } else {
+            ""
+        };
+        writeln!(
+            code,
+            "readonly {}{optional}: {};",
+            camel(&field.name),
+            public_type(&field.ty)
+        )?;
+    }
+    code.push_str("};\n");
+    for lower in [false, true] {
+        let (direction, source, target) = if lower {
+            ("lower", name.to_owned(), format!("B.{name}"))
+        } else {
+            ("lift", format!("B.{name}"), name.to_owned())
+        };
+        writeln!(
+            code,
+            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; return {{"
+        )?;
+        for field in &record.fields {
+            let field_name = camel(&field.name);
+            writeln!(
+                code,
+                "{field_name}: {},",
+                convert(&field.ty, &format!("value.{field_name}"), lower)
+            )?;
+        }
+        code.push_str("}; }\n");
+    }
+    Ok(())
+}
+
+pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()> {
+    let name = &value.name;
+    let flat = !value.shape.is_error() && value.variants.iter().all(|v| v.fields.is_empty());
+    writeln!(code, "export type {name} =")?;
+    for variant in &value.variants {
+        let kind = camel(&variant.name);
+        if flat {
+            writeln!(code, "| '{kind}'")?;
+            continue;
+        }
+        writeln!(code, "| {{ readonly kind: '{kind}';")?;
+        for (i, field) in variant.fields.iter().enumerate() {
+            let field_name = if field.name.is_empty() {
+                if variant.fields.len() == 1 {
+                    "value".into()
+                } else {
+                    format!("value{i}")
+                }
+            } else {
+                camel(&field.name)
+            };
+            writeln!(code, "readonly {field_name}: {};", public_type(&field.ty))?;
+        }
+        code.push_str("}\n");
+    }
+    code.push_str(";\n");
+    for lower in [false, true] {
+        let (direction, source, target) = if lower {
+            ("lower", name.to_owned(), format!("B.{name}"))
+        } else {
+            ("lift", format!("B.{name}"), name.to_owned())
+        };
+        let discriminant = if flat {
+            "value"
+        } else if lower {
+            "value.kind"
+        } else {
+            "value.tag"
+        };
+        let single = value.variants.len() == 1;
+        writeln!(
+            code,
+            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection;"
+        )?;
+        if !single {
+            writeln!(code, "switch ({discriminant}) {{")?;
+        }
+        for variant in &value.variants {
+            let kind = camel(&variant.name);
+            let raw_variant = format!("B.{name}.{}", variant.name);
+            let case = if lower {
+                format!("'{kind}'")
+            } else if flat {
+                raw_variant.clone()
+            } else {
+                format!("B.{name}_Tags.{}", variant.name)
+            };
+            let prefix = if single {
+                format!("checkedVariant({discriminant}, {case});")
+            } else {
+                format!("case {case}:")
+            };
+            if flat {
+                writeln!(
+                    code,
+                    "{prefix} return {};",
+                    if lower {
+                        raw_variant
+                    } else {
+                        format!("'{kind}'")
+                    }
+                )?;
+                continue;
+            }
+            let named = variant.fields.first().is_some_and(|f| !f.name.is_empty());
+            let fields = variant
+                .fields
+                .iter()
+                .enumerate()
+                .map(|(i, field)| {
+                    let field_name = if field.name.is_empty() {
+                        if variant.fields.len() == 1 {
+                            "value".into()
+                        } else {
+                            format!("value{i}")
+                        }
+                    } else {
+                        camel(&field.name)
+                    };
+                    let raw = if lower {
+                        format!("value.{field_name}")
+                    } else if named {
+                        format!("value.inner.{field_name}")
+                    } else {
+                        format!("value.inner[{i}]")
+                    };
+                    let converted = convert(&field.ty, &raw, lower);
+                    if !lower || named {
+                        format!("{field_name}: {converted}")
+                    } else {
+                        converted
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            let result = if lower {
+                let args = if named {
+                    format!("{{{fields}}}")
+                } else {
+                    fields
+                };
+                format!("{raw_variant}.new({args})")
+            } else {
+                format!("{{kind: '{kind}', {fields}}}")
+            };
+            writeln!(code, "{prefix} return {result};")?;
+        }
+        if !single {
+            code.push_str("default: throw new TypeError('invalid public enum'); }\n");
+        }
+        code.push_str("}\n");
+    }
+    Ok(())
+}

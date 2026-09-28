@@ -8,7 +8,9 @@ Run commands from the repository root in the Nix shell. Run
 - `just sdk check-file-sizes` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
-- `just sdk lint` checks file sizes, generated names, and TypeScript source. It also
+- `just sdk lint` checks file sizes, generated names, and TypeScript source.
+  It checks shared public value types on Node and browser, including negative
+  consumers for readonly records, transport fields, credentials, and bytes. It also
   rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
   benchmark exports in the default bindings and in
   `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks in test source sets.

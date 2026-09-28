@@ -147,6 +147,14 @@ try {
   console.log(
     "Chromium immediate replacement waited for actual old-worker lock release",
   );
+  await page.evaluate(
+    async (path) =>
+      (await import("./public-projection.chromium.ts")).exercise(path),
+    `projection-${crypto.randomUUID()}.db`,
+  );
+  console.log(
+    "Chromium shared projection registered a client through projected signer callbacks",
+  );
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );
