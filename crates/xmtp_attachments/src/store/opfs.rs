@@ -132,6 +132,12 @@ pub struct OpfsStore {
         std::sync::Arc<tokio::sync::Notify>,
         std::sync::Arc<tokio::sync::Notify>,
     )>,
+    #[cfg(test)]
+    move_promise_pause: Option<(
+        std::sync::Arc<tokio::sync::Notify>,
+        std::sync::Arc<tokio::sync::Notify>,
+        std::sync::Arc<tokio::sync::Notify>,
+    )>,
 }
 
 impl OpfsStore {
@@ -148,6 +154,8 @@ impl OpfsStore {
             root_path: String::new(),
             #[cfg(test)]
             rename_pause: None,
+            #[cfg(test)]
+            move_promise_pause: None,
         })
     }
 
@@ -160,6 +168,8 @@ impl OpfsStore {
             root_path: path.to_owned(),
             #[cfg(test)]
             rename_pause: None,
+            #[cfg(test)]
+            move_promise_pause: None,
         })
     }
 
@@ -242,13 +252,46 @@ impl OpfsStore {
 
     /// Atomically replace one OPFS file with a completed temporary file.
     pub async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
-        let _guard = self.destination_lock(to).await?;
-        self.replace_unlocked(from, to).await
+        let guard = self.destination_lock(to).await?;
+        let store = self.clone();
+        let source = from.to_owned();
+        let destination = to.to_owned();
+        let task = xmtp_common::task::spawn(async move {
+            let _guard = guard;
+            store.replace_unlocked(&source, &destination).await
+        });
+        task.await.map_err(storage_error)?
     }
 
     async fn replace_unlocked(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
         let source = self.file_handle(from, false).await?;
         let (target_parent, target_name) = self.parent(to, true).await?;
+        #[cfg(test)]
+        if let Some((entered, resume, settled)) = &self.move_promise_pause {
+            let (entered, resume, settled) = (entered.clone(), resume.clone(), settled.clone());
+            let promise = wasm_bindgen_futures::future_to_promise(async move {
+                entered.notify_one();
+                resume.notified().await;
+                let move_method =
+                    js_sys::Reflect::get(source.as_ref(), &JsValue::from_str("move"))?;
+                let move_method: js_sys::Function = move_method.dyn_into()?;
+                let result = async {
+                    let promise: js_sys::Promise = move_method
+                        .call2(
+                            source.as_ref(),
+                            target_parent.as_ref(),
+                            &JsValue::from_str(&target_name),
+                        )?
+                        .dyn_into()?;
+                    JsFuture::from(promise).await
+                }
+                .await;
+                settled.notify_one();
+                result
+            });
+            JsFuture::from(promise).await.map_err(storage_error)?;
+            return Ok(());
+        }
         let move_method = js_sys::Reflect::get(source.as_ref(), &JsValue::from_str("move"))
             .map_err(storage_error)?;
         let move_method = move_method
@@ -291,7 +334,7 @@ impl LocalStore for OpfsStore {
     }
 
     async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError> {
-        let _guard = self.destination_lock(to).await?;
+        let guard = self.destination_lock(to).await?;
         if self.exists(to).await? {
             return Err(StoreMoveError::DestinationExists);
         }
@@ -300,13 +343,21 @@ impl LocalStore for OpfsStore {
             entered.notify_one();
             resume.notified().await;
         }
-        match self.replace_unlocked(from, to).await {
-            Ok(()) => Ok(()),
-            Err(_error) if self.exists(to).await.unwrap_or(false) => {
-                Err(StoreMoveError::DestinationExists)
+        let store = self.clone();
+        let source = from.to_owned();
+        let destination = to.to_owned();
+        let task = xmtp_common::task::spawn(async move {
+            let _guard = guard;
+            match store.replace_unlocked(&source, &destination).await {
+                Ok(()) => Ok(()),
+                Err(_error) if store.exists(&destination).await.unwrap_or(false) => {
+                    Err(StoreMoveError::DestinationExists)
+                }
+                Err(error) => Err(error.into()),
             }
-            Err(error) => Err(error.into()),
-        }
+        });
+        task.await
+            .map_err(|error| StoreMoveError::Other(storage_error(error)))?
     }
 
     async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
@@ -639,6 +690,62 @@ mod tests {
             Some(result) => result,
             None => timeout(Duration::from_secs(3), received).await??,
         };
+        assert!(matches!(
+            second_result,
+            Err(StoreMoveError::DestinationExists)
+        ));
+        let store = OpfsStore::new(&path).await?;
+        let file = store.file_handle("key/file", false).await?.get_file();
+        let file: web_sys::File = JsFuture::from(file).await?.dyn_into()?;
+        let bytes = JsFuture::from(file.array_buffer()).await?;
+        assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"first");
+    }
+
+    // verifies: ATCH-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn cancelled_move_keeps_destination_locked_until_promise_settles() {
+        use std::sync::Arc;
+        use xmtp_common::time::{Duration, timeout};
+
+        let path = test_path();
+        let mut first = OpfsStore::new(&path).await?;
+        let second = OpfsStore::new(&path).await?;
+        for (store, source, bytes) in [
+            (&first, ".tmp/first", b"first".as_slice()),
+            (&second, ".tmp/second", b"second".as_slice()),
+        ] {
+            let mut writer = store.create_temp(source).await?;
+            DownloadSink::write(&mut writer, bytes).await?;
+            store.sync(&mut writer).await?;
+            drop(writer);
+        }
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        let settled = Arc::new(tokio::sync::Notify::new());
+        first.move_promise_pause = Some((entered.clone(), resume.clone(), settled.clone()));
+        let (move_future, abort) =
+            futures_util::future::abortable(
+                async move { first.rename(".tmp/first", "key/file").await },
+            );
+        let first_move = xmtp_common::task::spawn(move_future);
+        timeout(Duration::from_secs(3), entered.notified()).await?;
+        abort.abort();
+        assert!(timeout(Duration::from_secs(3), first_move).await??.is_err());
+
+        let (sent, mut received) = tokio::sync::oneshot::channel();
+        drop(xmtp_common::task::spawn(async move {
+            let _ = sent.send(second.rename(".tmp/second", "key/file").await);
+        }));
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+        let early = received.try_recv().ok();
+        let finished_early = early.is_some();
+        resume.notify_one();
+        timeout(Duration::from_secs(3), settled.notified()).await?;
+        let second_result = match early {
+            Some(result) => result,
+            None => timeout(Duration::from_secs(3), received).await??,
+        };
+        assert!(!finished_early, "second publish passed an unsettled move");
         assert!(matches!(
             second_result,
             Err(StoreMoveError::DestinationExists)
