@@ -259,6 +259,10 @@ impl LocalStore for OpfsStore {
 
     async fn remove_file(&self, path: &str) -> Result<(), AttachmentError> {
         let (parent, name) = self.parent(path, false).await?;
+        // A file handle lookup rejects a directory at this name.
+        JsFuture::from(parent.get_file_handle(&name))
+            .await
+            .map_err(storage_error)?;
         JsFuture::from(parent.remove_entry(&name))
             .await
             .map_err(storage_error)?;
@@ -523,6 +527,19 @@ mod tests {
         let file: web_sys::File = JsFuture::from(file).await?.dyn_into()?;
         let bytes = JsFuture::from(file.array_buffer()).await?;
         assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"original");
+    }
+
+    // verifies: ATCH-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_remove_file_rejects_directory() {
+        let store = OpfsStore::new(&test_path()).await?;
+        store.create_dir_if_absent("key/filename").await?;
+        let error = match store.remove_file("key/filename").await {
+            Ok(()) => panic!("directory was removed as a file"),
+            Err(error) => error,
+        };
+        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(store.exists("key/filename").await?);
     }
 
     // verifies: ATCH-043, ATCH-051
