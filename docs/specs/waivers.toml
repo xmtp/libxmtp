@@ -100,13 +100,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
 
 [[waiver]]
-id = "IDENT-050"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Replay keys are not canonical: ERC-191 signatures record the recovery byte as received (0 or 1 against 27 or 28) and passkey signatures record s as received, so one signature has several replay keys."
-
-[[waiver]]
 id = "IDENT-062"
 kind = "gap"
 owner = "protocol"
