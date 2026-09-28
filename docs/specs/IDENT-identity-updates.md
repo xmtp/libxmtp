@@ -141,7 +141,7 @@ An `IdentifierKind` of `IDENTIFIER_KIND_UNSPECIFIED` reads as Ethereum. The `rel
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| IDENT-001 | Identity update wire format | A validator MUST accept an identity update only as the `IdentityUpdate` defined above, with the field numbers and types shown, and MUST reject an update whose `actions` is empty or in which any action's `kind` or any `MemberIdentifier`'s `kind` is unset. | An empty update passes every signature rule, because it carries no signature, and each one stored spends a slot of the inbox's finite log. |
+| IDENT-001 | Identity update wire format | A validator MUST accept an identity update only as the `IdentityUpdate` defined above, with the field numbers and types shown, and MUST reject an update whose `actions` is empty or in which any action's `kind`, any `MemberIdentifier`'s `kind`, or any `Signature`'s `signature` is unset or a field the definition does not list. | An empty update passes every signature rule, because it carries no signature, and each one stored spends a slot of the inbox's finite log. |
 | IDENT-002 | Whole update or nothing | If any action of an update fails a rule in sections 2 to 7, then a validator MUST reject the whole update and MUST leave the association state as it was before the update. | A half-applied update gives two validators two member sets from one log. |
 | IDENT-003 | The update names its inbox | When the inbox id of the association state after an update's actions are applied differs from the update's `inbox_id`, a validator MUST reject the update. | The topic is derived from `inbox_id`, so a mismatch stores one inbox's log under another's topic. |
 | IDENT-004 | Apply in log order | A validator MUST apply an inbox's updates in ascending sequence id order, and each update's actions in the order listed, each starting from the state the previous one produced. | |
@@ -251,24 +251,17 @@ message RecoverablePasskeySignature {
   bytes client_data_json = 4;
 }
 
-// An existing address on xmtpv2 may have already signed a legacy identity key
-// of type SignedPublicKey via the 'Create Identity' signature.
-// For migration to xmtpv3, the legacy key is permitted to sign on behalf of the
-// address to create a matching xmtpv3 installation key.
-// This signature type can ONLY be used for CreateXid and AddAssociation
-// payloads, and can only be used once in xmtpv3.
-message LegacyDelegatedSignature {
-  xmtp.message_contents.SignedPublicKey delegated_key = 1;
-  RecoverableEcdsaSignature signature = 2;
-}
-
 // A wrapper for all possible signature types
 message Signature {
+  // Field 4 was the retired legacy delegated signature. Neither its number
+  // nor its name may be reused.
+  reserved 4;
+  reserved "delegated_erc_191";
+
   oneof signature {
     RecoverableEcdsaSignature erc_191 = 1;
     SmartContractWalletSignature erc_6492 = 2;
     RecoverableEd25519Signature installation_key = 3;
-    LegacyDelegatedSignature delegated_erc_191 = 4;
     RecoverablePasskeySignature passkey = 5;
   }
 }
@@ -281,8 +274,9 @@ The verification of each kind, the signer it yields, and its replay key. A repla
 | `erc_191` | Ethereum | `bytes` is 65 bytes `r`, `s`, recovery. Recover the secp256k1 public key from the personal-message hash ([EIP 191](https://eips.ethereum.org/EIPS/eip-191), version `0x45`) of the signature text. | The recovered address, lowercase, `0x`-prefixed | 65 bytes: `r`, `s` in the lower half, recovery as 0 or 1 |
 | `erc_6492` | Ethereum | Section 7: the account at `account_id` validates `signature` over the personal-message hash of the signature text at block `block_number`. | The address part of `account_id`, lowercase; chain id from its `eip155` reference | The `signature` bytes as given (Known limitations) |
 | `installation_key` | Installation | Ed25519ph ([RFC 8032 §5.1](https://www.rfc-editor.org/rfc/rfc8032.html#section-5.1)) over the signature text with the context string `IDENTITY UPDATE SIGNATURE`, under `public_key`. | The 32-byte `public_key` | The 64 signature bytes |
-| `delegated_erc_191` | Ethereum | `signature` is an `erc_191` signature over the signature text whose recovered address equals the address of the secp256k1 key in `delegated_key`. `delegated_key`'s own signature is a personal-message signature by the wallet over the text `XMTP : Create Identity`, a newline, the lowercase hexadecimal of `delegated_key.key_bytes`, two newlines, and `For more info: https://xmtp.org/signatures/`. | The wallet address recovered from `delegated_key`'s signature, lowercase | The wallet's signature in `delegated_key`, canonicalised as for `erc_191` |
 | `passkey` | Passkey | `client_data_json` parses as WebAuthn client data whose `challenge` equals the base64url encoding without padding of the signature text. `signature` is a DER-encoded ECDSA P-256 signature, under the SEC1 key `public_key`, over `authenticator_data` followed by the SHA-256 digest of `client_data_json` ([WebAuthn Level 2 §6.1](https://www.w3.org/TR/webauthn-2/#sctn-authenticator-data), [§7.2 step 20](https://www.w3.org/TR/webauthn-2/#sctn-verifying-assertion)). | `Passkey` with `key` equal to `public_key`; `relying_party` is the client data's `origin` | 64 bytes: `r`, `s` in the lower half |
+
+A `Signature` whose `signature` is unset, or set to a field this definition does not list, is rejected under IDENT-001. Field 4 carried a legacy delegated signature, which this definition retires. It is now an unknown field: a `Signature` holding only field 4 has `signature` unset and is rejected, and field 4 beside a listed field is ignored like any unknown field, so it never changes which signature is verified.
 
 A `passkey` signature proves possession of the P-256 key bound to this signature text. It is not a WebAuthn assertion verification: the ceremony `type`, the relying party id hash, the flags, the counter, the minimum authenticator data length, and the `origin` are not checked (Known limitations).
 
@@ -290,7 +284,6 @@ A `passkey` signature proves possession of the P-256 key bound to this signature
 | --- | --- | --- | --- |
 | IDENT-030 | Verify by kind | A validator MUST verify each signature by the verification the table above states for its field, MUST derive its signer as the table states, and MUST reject the update when the verification fails. | |
 | IDENT-031 | The kind matches the member | If a signature's field is not one the table above lists for the member kind of the party it stands for, whether the initial identifier, the new member, the existing member, or the recovery identifier, then a validator MUST reject the update. | Without it an installation key stands for a wallet, and the app that holds the key adds members the user never approved. |
-| IDENT-032 | Legacy signatures only migrate | A validator MUST accept a `delegated_erc_191` signature only as the `initial_identifier_signature` of a `CreateInbox` whose `nonce` is 0, or as the `existing_member_signature` or `new_member_signature` of an `AddAssociation` on an inbox whose `inbox_id` equals the derivation under IDENT-010 of that signature's own signer with nonce 0. If it is the `recovery_identifier_signature` of a `RevokeAssociation`, the `existing_recovery_identifier_signature` of a `ChangeRecoveryAddress`, or an `existing_member_signature` whose signer is not a current member, then it MUST reject the update. | The legacy key was signed once for a different purpose, so it is limited to the one migration and never to revocation. |
 
 ## 5. Adding, revoking, and recovery
 
@@ -335,7 +328,7 @@ Validation needs chain access. A deployment publishes the chains it verifies (CO
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| IDENT-060 | Verify at the stated block | If an `erc_6492` signature's `account_id` is not a [CAIP-10](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md) account id whose namespace is `eip155` and whose reference is a decimal chain id, then a validator MUST reject the update before any chain access. Otherwise it MUST verify `signature` by [ERC-6492](https://eips.ethereum.org/EIPS/eip-6492) universal signature validation for the account named, over the personal-message hash of the signature text as the table in section 4 states, against the chain state at `block_number`, and MUST reject the update when the result is not valid. | Judged at the current block instead, a signer rotation would invalidate the whole log behind it. |
+| IDENT-060 | Verify at the stated block | If an `erc_6492` signature's `account_id` is not a [CAIP-10](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md) account id whose namespace is `eip155` and whose reference is a chain id in decimal with no sign and no leading zero, then a validator MUST reject the update before any chain access. Otherwise it MUST verify `signature` by [ERC-6492](https://eips.ethereum.org/EIPS/eip-6492) universal signature validation for the account named, over the personal-message hash of the signature text as the table in section 4 states, against the chain state at `block_number`, and MUST reject the update when the result is not valid. | Judged at the current block instead, a signer rotation would invalidate the whole log behind it. |
 | IDENT-061 | Unreachable is not invalid | If a validator cannot obtain a result under IDENT-060 for a signature that passed its form check, because it has no route for the chain or the chain call fails, then it MUST NOT reject the update and MUST leave it eligible for a later attempt. | A rejection recorded for an outage is permanent, and the update behind it is valid. |
 | IDENT-062 | Fresh block at admission | When the backend validates an update it has not stored, if an `erc_6492` signature's `block_number` is greater than the chain's head block number, or the timestamp of that block is more than 1800 seconds before the timestamp of the head block, then the backend MUST reject the update. | A signer removed from a wallet can otherwise sign for it for ever by naming a block from before its removal. |
 
@@ -369,7 +362,14 @@ One identifier can be a live member of several inboxes at once: a user creates t
 
 ## Known limitations
 
-IDENT-013 replaces an earlier rule that stored an Ethereum identifier in whatever case it was given. A deployment of this backend holds no log written under that rule, because it accepts no data from the earlier networks, so no stored log becomes unreadable. A log imported from elsewhere would.
+Several rules reject updates that an earlier validator accepted and stored:
+
+- IDENT-013 replaces a rule that stored an Ethereum identifier in whatever case it was given.
+- IDENT-001 rejects an update with no actions, and a `Signature` whose only signature is the retired legacy delegated signature, field 4.
+- IDENT-040 rejects an add of a current member.
+- IDENT-060 rejects an `account_id` outside the `eip155` namespace or with a chain id not in canonical decimal form.
+
+A validator applies each of them to every update it reads, on admission and when it replays a stored log. A log holding an update any of them rejects cannot be read past that update, and no replay path accepts it. A database written by an earlier build of this backend, or imported from the earlier networks, must hold no such update before this validator reads it. A deployment is assumed to start from an empty database, which meets this condition.
 
 `client_timestamp_ns` is not checked against any clock. A sender sets any value; it orders members for display and nothing else.
 

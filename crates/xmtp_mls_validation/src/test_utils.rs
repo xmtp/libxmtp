@@ -374,19 +374,12 @@ pub fn identity_envelope(update: IdentityUpdate) -> ClientEnvelope {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RawRecoveryFixture {
-    pub history: Vec<IdentityUpdate>,
-    pub rejected_update: IdentityUpdate,
-    pub raw_recovery_identifier: String,
-}
-
-/// Preserve the current raw recovery-identifier behavior.
-pub async fn identity_history_with_raw_recovery() -> RawRecoveryFixture {
+/// A signed inbox creation, and a signed update that hands its recovery role
+/// to an uppercase Ethereum identifier.
+pub async fn mixed_case_recovery_change() -> (IdentityUpdate, IdentityUpdate) {
     let original_recovery = generate_local_wallet();
     let next_recovery = generate_local_wallet();
     let original_identifier = original_recovery.identifier();
-    let next_identifier = next_recovery.identifier();
     let inbox_id = original_recovery.get_inbox_id(0);
 
     let mut create = SignatureRequestBuilder::new(&inbox_id)
@@ -398,12 +391,11 @@ pub async fn identity_history_with_raw_recovery() -> RawRecoveryFixture {
         .expect("signed create update is complete")
         .into();
 
-    let raw_recovery_identifier = next_identifier.to_string().to_ascii_uppercase();
-    let raw_recovery =
-        Identifier::from_proto(&raw_recovery_identifier, IdentifierKind::Ethereum, None)
-            .expect("raw Ethereum recovery identifier decodes without normalization");
+    let mixed_case = next_recovery.identifier().to_string().to_ascii_uppercase();
+    let mixed_case = Identifier::from_proto(&mixed_case, IdentifierKind::Ethereum, None)
+        .expect("the builder takes an Ethereum identifier as given");
     let mut change = SignatureRequestBuilder::new(&inbox_id)
-        .change_recovery_address(original_identifier.clone().into(), raw_recovery)
+        .change_recovery_address(original_identifier.into(), mixed_case)
         .build();
     add_wallet_signature(&mut change, &original_recovery).await;
     let change = change
@@ -411,20 +403,7 @@ pub async fn identity_history_with_raw_recovery() -> RawRecoveryFixture {
         .expect("signed recovery update is complete")
         .into();
 
-    let mut revoke = SignatureRequestBuilder::new(&inbox_id)
-        .revoke_association(next_identifier.clone().into(), original_identifier.into())
-        .build();
-    add_wallet_signature(&mut revoke, &next_recovery).await;
-    let rejected_update = revoke
-        .build_identity_update()
-        .expect("signed revoke update is complete")
-        .into();
-
-    RawRecoveryFixture {
-        history: vec![create, change],
-        rejected_update,
-        raw_recovery_identifier,
-    }
+    (create, change)
 }
 
 pub fn commit_log_envelope(group_id: impl AsRef<[u8]>) -> ClientEnvelope {

@@ -36,11 +36,16 @@ pub enum AssociationError {
     /// Required signer not found or signer identity mismatch. Not retryable.
     #[error("Missing existing member")]
     MissingExistingMember,
-    /// Legacy signature reuse.
+    /// Already a member.
     ///
-    /// Legacy delegated signature used in disallowed context. Not retryable.
-    #[error("Legacy key is only allowed to be associated using a legacy signature with nonce 0")]
-    LegacySignatureReuse,
+    /// The member being added is already a member of the inbox. Not retryable.
+    #[error("The new member is already a member of the inbox")]
+    AlreadyMember,
+    /// Empty update.
+    ///
+    /// The identity update carries no actions. Not retryable.
+    #[error("Identity update has no actions")]
+    EmptyUpdate,
     /// New member ID signature mismatch.
     ///
     /// Signer doesn't match new member identifier. Not retryable.
@@ -136,12 +141,6 @@ impl IdentityAction for CreateInbox {
             &self.initial_identifier_signature.kind,
         )?;
 
-        if self.initial_identifier_signature.kind == SignatureKind::LegacyDelegated
-            && self.nonce != 0
-        {
-            return Err(AssociationError::LegacySignatureReuse);
-        }
-
         AssociationState::new(
             account_address,
             self.nonce,
@@ -163,7 +162,7 @@ pub struct AddAssociation {
 }
 
 impl IdentityAction for AddAssociation {
-    // implements: IDENT-042
+    // implements: IDENT-040, IDENT-042
     fn update_state(
         &self,
         maybe_existing_state: Option<AssociationState>,
@@ -186,16 +185,9 @@ impl IdentityAction for AddAssociation {
             return Err(AssociationError::Generic("tried to add self".to_string()));
         }
 
-        // Only allow LegacyDelegated signatures on XIDs with a nonce of 0
-        // Otherwise the client should use the regular wallet signature to create
-        let existing_member_identifier = existing_member_identifier.clone();
-        let identifier: Option<Identifier> = existing_member_identifier.clone().into();
-        if let Some(identifier) = identifier
-            && (is_legacy_signature(&self.new_member_signature)
-                || is_legacy_signature(&self.existing_member_signature))
-            && existing_state.inbox_id() != identifier.inbox_id(0)?
-        {
-            return Err(AssociationError::LegacySignatureReuse);
+        // Re-adding a member would rewrite its adder and spend a log slot
+        if existing_state.get(&self.new_member_identifier).is_some() {
+            return Err(AssociationError::AlreadyMember);
         }
 
         allowed_signature_for_kind(
@@ -203,7 +195,7 @@ impl IdentityAction for AddAssociation {
             &self.new_member_signature.kind,
         )?;
 
-        let existing_member = existing_state.get(&existing_member_identifier);
+        let existing_member = existing_state.get(existing_member_identifier);
 
         if let Some(member) = existing_member {
             verify_chain_id_matches(member, &self.existing_member_signature)?;
@@ -217,14 +209,9 @@ impl IdentityAction for AddAssociation {
                 let recovery_identifier = existing_state.recovery_identifier().clone().into();
 
                 // Check if it is a signature from the recovery address, which is allowed to add members
-                if existing_member_identifier != recovery_identifier {
+                if *existing_member_identifier != recovery_identifier {
                     return Err(AssociationError::MissingExistingMember);
                 }
-                // BUT, the recovery address has to be used with a real wallet signature, can't be delegated
-                if is_legacy_signature(&self.existing_member_signature) {
-                    return Err(AssociationError::LegacySignatureReuse);
-                }
-                // If it is a real wallet signature, then it is allowed to add members
                 recovery_identifier
             }
         };
@@ -282,12 +269,6 @@ impl IdentityAction for RevokeAssociation {
             verify_chain_id_matches(member, &self.recovery_identifier_signature)?;
         }
 
-        if is_legacy_signature(&self.recovery_identifier_signature) {
-            return Err(AssociationError::SignatureNotAllowed(
-                MemberKind::Ethereum.to_string(),
-                SignatureKind::LegacyDelegated.to_string(),
-            ));
-        }
         // Don't need to check for replay here since revocation is idempotent
         let recovery_signer = &self.recovery_identifier_signature.signer;
         // Make sure there is a recovery address set on the state
@@ -339,13 +320,6 @@ impl IdentityAction for ChangeRecoveryIdentity {
         let existing_member = existing_state.get(&self.recovery_identifier_signature.signer);
         if let Some(member) = existing_member {
             verify_chain_id_matches(member, &self.recovery_identifier_signature)?;
-        }
-
-        if is_legacy_signature(&self.recovery_identifier_signature) {
-            return Err(AssociationError::SignatureNotAllowed(
-                MemberKind::Ethereum.to_string(),
-                SignatureKind::LegacyDelegated.to_string(),
-            ));
         }
 
         let recovery_signer = &self.recovery_identifier_signature.signer;
@@ -433,12 +407,15 @@ impl IdentityUpdate {
 }
 
 impl IdentityAction for IdentityUpdate {
-    // implements: IDENT-002, IDENT-003
+    // implements: IDENT-001, IDENT-002, IDENT-003
     fn update_state(
         &self,
         existing_state: Option<AssociationState>,
         _client_timestamp_ns: u64,
     ) -> Result<AssociationState, AssociationError> {
+        if self.actions.is_empty() {
+            return Err(AssociationError::EmptyUpdate);
+        }
         let mut state = existing_state;
         for action in &self.actions {
             state = Some(action.update_state(state, self.client_timestamp_ns)?);
@@ -465,11 +442,6 @@ impl IdentityAction for IdentityUpdate {
             .flat_map(|action| action.replay_keys())
             .collect()
     }
-}
-
-#[allow(clippy::borrowed_box)]
-fn is_legacy_signature(signature: &VerifiedSignature) -> bool {
-    signature.kind == SignatureKind::LegacyDelegated
 }
 
 // implements: IDENT-041
@@ -499,7 +471,7 @@ fn allowed_signature_for_kind(
     let is_ok = match role {
         MemberKind::Ethereum => matches!(
             signature_kind,
-            SignatureKind::Erc191 | SignatureKind::Erc1271 | SignatureKind::LegacyDelegated
+            SignatureKind::Erc191 | SignatureKind::Erc1271
         ),
         MemberKind::Installation => matches!(signature_kind, SignatureKind::InstallationKey),
         MemberKind::Passkey => matches!(signature_kind, SignatureKind::P256),

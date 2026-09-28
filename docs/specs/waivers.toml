@@ -74,34 +74,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The node and wasm bindings expose no fork-recovery policy or response switch; only the mobile binding does."
 
 [[waiver]]
-id = "IDENT-001"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An identity update with an empty action list passes every validator and is stored, so repeated empty updates consume an inbox's finite log slots and can prevent a later revocation."
-
-[[waiver]]
-id = "IDENT-013"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "new_recovery_identifier and member_to_revoke are decoded without form validation, so a mixed-case or malformed Ethereum identifier is accepted and stored."
-
-[[waiver]]
-id = "IDENT-032"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The nonce-zero derivation is checked against the existing signer rather than the legacy signature's own signer, and is skipped when the existing signer is an installation."
-
-[[waiver]]
-id = "IDENT-040"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An add whose new member is already a current member is accepted and overwrites its adder, timestamp, and chain id."
-
-[[waiver]]
 id = "IDENT-045"
 kind = "gap"
 owner = "protocol"
@@ -114,13 +86,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
-
-[[waiver]]
-id = "IDENT-060"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An account_id whose namespace is not eip155 is not rejected before routing; the verifier lookup fails with a retryable no-route error."
 
 [[waiver]]
 id = "IDENT-062"
