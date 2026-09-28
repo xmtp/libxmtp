@@ -28,6 +28,8 @@ pub struct MessageReader {
     #[cfg(test)]
     pub(crate) handoff_gate: Arc<Mutex<Option<Arc<HandoffGate>>>>,
     #[cfg(test)]
+    pub(crate) worker_reply_gate: Mutex<Option<Arc<HandoffGate>>>,
+    #[cfg(test)]
     corrupt_next_message: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     idle_read: Arc<Notify>,
@@ -93,6 +95,8 @@ impl MessageReader {
             #[cfg(test)]
             handoff_gate: Arc::new(Mutex::new(None)),
             #[cfg(test)]
+            worker_reply_gate: Mutex::new(None),
+            #[cfg(test)]
             corrupt_next_message: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             idle_read: Arc::new(Notify::new()),
@@ -157,7 +161,7 @@ impl MessageReader {
         let mut corrupt_next_message = self
             .corrupt_next_message
             .swap(false, std::sync::atomic::Ordering::AcqRel);
-        on_sdk_worker(
+        let ready = on_sdk_worker(
             self.context.clone(),
             Box::pin(async move {
                 let mut reader = reader.lock().await;
@@ -303,8 +307,15 @@ impl MessageReader {
                 }
             }),
         )
-        .await
-        .and_then(|ready| {
+        .await;
+        #[cfg(test)]
+        let gate = self.worker_reply_gate.lock().take();
+        #[cfg(test)]
+        if let Some(gate) = gate {
+            gate.arrived.notify_one();
+            gate.release.notified().await;
+        }
+        ready.and_then(|ready| {
             if !ready {
                 return Ok(None);
             }

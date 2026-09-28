@@ -1,5 +1,6 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+mod reader_admission;
 mod reader_restored;
 
 use std::sync::{
