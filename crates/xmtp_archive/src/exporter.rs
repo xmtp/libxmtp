@@ -3,42 +3,62 @@ use crate::archive_options::ArchiveOptions;
 use crate::{NONCE_SIZE, util::GenericArrayExt};
 use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
 use async_compression::futures::write::ZstdEncoder;
-use futures::{Stream, pin_mut, ready, task::Context};
-use futures_util::{AsyncRead, AsyncWriteExt};
+use futures::{Stream, ready, task::Context};
+use futures_util::{AsyncRead, AsyncWrite};
 use pin_project::pin_project;
 use prost::Message;
 #[allow(deprecated)]
 use sha2::digest::{generic_array::GenericArray, typenum};
-use std::{future::Future, io, pin::Pin, sync::Arc, task::Poll};
+use std::{io, pin::Pin, sync::Arc, task::Poll};
 use xmtp_db::prelude::*;
 use xmtp_proto::xmtp::device_sync::{BackupElement, BackupMetadataSave, backup_element::Element};
 
 #[cfg(not(target_arch = "wasm32"))]
 mod file_export;
 
+const OUTPUT_BATCH_SIZE: usize = 8_000;
+
 #[pin_project]
 pub struct ArchiveExporter {
-    stage: Stage,
     metadata: BackupMetadataSave,
+    #[pin]
+    reader: ArchiveReader<ZstdEncoder<Vec<u8>>>,
+}
+
+#[pin_project]
+struct ArchiveReader<E> {
+    stage: Stage,
     #[pin]
     stream: BatchExportStream,
     position: usize,
-    zstd_encoder: ZstdEncoder<Vec<u8>>,
-    encoder_finished: bool,
-
+    encoder: E,
+    frame: Vec<u8>,
+    frame_position: usize,
     cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
     nonce: GenericArray<u8, typenum::U12>,
-
-    // Used to write the nonce, contains the same data as nonce.
     nonce_buffer: Vec<u8>,
 }
 
 #[derive(Default)]
-pub(super) enum Stage {
+enum Stage {
     #[default]
     Nonce,
     Metadata,
     Elements,
+    Flushing,
+    Closing,
+    Finished,
+}
+
+// Keep the output buffer accessible without coupling progress to zstd.
+trait BufferedEncoder: AsyncWrite + Unpin {
+    fn output(&mut self) -> &mut Vec<u8>;
+}
+
+impl BufferedEncoder for ZstdEncoder<Vec<u8>> {
+    fn output(&mut self) -> &mut Vec<u8> {
+        self.get_mut()
+    }
 }
 
 impl ArchiveExporter {
@@ -66,19 +86,22 @@ impl ArchiveExporter {
         let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
         nonce_buffer.extend_from_slice(&nonce);
 
+        let stream = BatchExportStream::new(&options, Arc::new(db));
         Self {
-            position: 0,
-            stage: Stage::default(),
-            stream: BatchExportStream::new(&options, Arc::new(db)),
             metadata: BackupMetadataSave::from_options(options),
-            zstd_encoder: ZstdEncoder::new(Vec::new()),
-            encoder_finished: false,
-
-            #[allow(deprecated)]
-            cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
-            #[allow(deprecated)]
-            nonce: GenericArray::clone_from_slice(&nonce),
-            nonce_buffer,
+            reader: ArchiveReader {
+                position: 0,
+                stage: Stage::default(),
+                stream,
+                encoder: ZstdEncoder::new(Vec::new()),
+                frame: Vec::new(),
+                frame_position: 0,
+                #[allow(deprecated)]
+                cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
+                #[allow(deprecated)]
+                nonce: GenericArray::clone_from_slice(&nonce),
+                nonce_buffer,
+            },
         }
     }
 
@@ -87,107 +110,113 @@ impl ArchiveExporter {
     }
 }
 
-// The reason this is future_util's AsyncRead and not tokio's AsyncRead
-// is because we need this to work on WASM, and tokio's AsyncRead makes
-// some assumptions about having access to std::fs, which WASM does not have.
-//
-// To get around this, we implement AsyncRead using future_util, and use a
-// compat layer from tokio_util to be able to interact with it in tokio.
+// futures_util supports the same reader on native and WASM targets.
 impl AsyncRead for ArchiveExporter {
-    /// This function encrypts first, and compresses second.
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
+        let this = self.project();
+        this.reader.poll_read(cx, buf, this.metadata)
+    }
+}
+
+impl<E: BufferedEncoder> ArchiveReader<E> {
+    // implements: ARCH-001, ARCH-017
+    fn poll_read(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+        metadata: &BackupMetadataSave,
+    ) -> Poll<io::Result<usize>> {
+        if buf.is_empty() {
+            return Poll::Ready(Ok(0));
+        }
         let mut this = self.project();
         loop {
-            // Putting this up here because we don't want to encrypt or compress the nonce.
             if matches!(this.stage, Stage::Nonce) {
                 let amount = this.nonce_buffer.len().min(buf.len());
-                let nonce_bytes: Vec<_> = this.nonce_buffer.drain(..amount).collect();
-                buf[..amount].copy_from_slice(&nonce_bytes);
-
+                buf[..amount].copy_from_slice(&this.nonce_buffer[..amount]);
+                this.nonce_buffer.drain(..amount);
                 if this.nonce_buffer.is_empty() {
                     *this.stage = Stage::Metadata;
                 }
                 return Poll::Ready(Ok(amount));
             }
 
-            {
-                // Read from the buffer while there is data
-                let buffer_inner = this.zstd_encoder.get_ref();
-                if *this.position < buffer_inner.len() {
-                    let available = &buffer_inner[*this.position..];
-                    let amount = available.len().min(buf.len());
-                    buf[..amount].copy_from_slice(&available[..amount]);
-                    *this.position += amount;
-
-                    return Poll::Ready(Ok(amount));
-                }
+            let output = this.encoder.output();
+            if *this.position < output.len() {
+                let amount = (output.len() - *this.position).min(buf.len());
+                buf[..amount].copy_from_slice(&output[*this.position..*this.position + amount]);
+                *this.position += amount;
+                return Poll::Ready(Ok(amount));
             }
-
-            // The buffer is consumed. Reset.
             *this.position = 0;
-            this.zstd_encoder.get_mut().clear();
+            output.clear();
 
-            // Time to fill the buffer with more data 8kb at a time.
-            while this.zstd_encoder.get_ref().len() < 8_000 {
-                let element = match this.stage {
-                    Stage::Nonce => {
-                        // Should never get here due to the above logic. Error if it does.
-                        unreachable!("Nonce should not be the stage here.");
-                    }
-                    Stage::Metadata => {
-                        *this.stage = Stage::Elements;
-                        BackupElement {
-                            element: Some(Element::Metadata(this.metadata.clone())),
+            loop {
+                // Do not poll another element or advance the nonce until this frame is accepted.
+                if !this.frame.is_empty() {
+                    while *this.frame_position < this.frame.len() {
+                        let amount = ready!(
+                            Pin::new(&mut *this.encoder)
+                                .poll_write(cx, &this.frame[*this.frame_position..])
+                        )?;
+                        if amount == 0 {
+                            return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
                         }
-                        .encode_to_vec()
+                        *this.frame_position += amount;
                     }
+                    this.frame.clear();
+                    *this.frame_position = 0;
+                    this.nonce.increment();
+                    if matches!(this.stage, Stage::Metadata) {
+                        *this.stage = Stage::Elements;
+                    }
+                }
+
+                if matches!(this.stage, Stage::Elements)
+                    && this.encoder.output().len() >= OUTPUT_BATCH_SIZE
+                {
+                    *this.stage = Stage::Flushing;
+                }
+
+                let element = match this.stage {
+                    Stage::Nonce => unreachable!("header is written before frames"),
+                    Stage::Metadata => BackupElement {
+                        element: Some(Element::Metadata(metadata.clone())),
+                    },
                     Stage::Elements => match ready!(this.stream.as_mut().poll_next(cx)) {
-                        Some(element) => element
-                            .map_err(|err| io::Error::other(err.to_string()))?
-                            .encode_to_vec(),
+                        Some(element) => element.map_err(io::Error::other)?,
                         None => {
-                            if !*this.encoder_finished {
-                                *this.encoder_finished = true;
-                                let fut = this.zstd_encoder.close();
-                                pin_mut!(fut);
-                                let _ = fut.poll(cx)?;
-                            }
-                            break;
+                            *this.stage = Stage::Closing;
+                            continue;
                         }
                     },
+                    Stage::Flushing => {
+                        ready!(Pin::new(&mut *this.encoder).poll_flush(cx))?;
+                        *this.stage = Stage::Elements;
+                        break;
+                    }
+                    Stage::Closing => {
+                        ready!(Pin::new(&mut *this.encoder).poll_close(cx))?;
+                        *this.stage = Stage::Finished;
+                        break;
+                    }
+                    Stage::Finished => return Poll::Ready(Ok(0)),
                 };
-
-                let mut element = this
+                let encrypted = this
                     .cipher
-                    .encrypt(this.nonce, &*element)
-                    .expect("Encryption should always work");
-                let mut bytes = (element.len() as u32).to_le_bytes().to_vec();
-                bytes.append(&mut element);
-                this.nonce.increment();
-
-                let fut = this.zstd_encoder.write(&bytes);
-                pin_mut!(fut);
-                match fut.poll(cx) {
-                    Poll::Ready(Ok(_amt)) => {}
-                    Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
-                    Poll::Pending => return Poll::Pending,
-                }
-            }
-
-            // Flush the encoder
-            if !*this.encoder_finished {
-                let fut = this.zstd_encoder.flush();
-                pin_mut!(fut);
-                let _ = fut.poll(cx)?;
-            }
-
-            if this.zstd_encoder.get_ref().is_empty() {
-                return Poll::Ready(Ok(0));
+                    .encrypt(this.nonce, element.encode_to_vec().as_slice())
+                    .map_err(io::Error::other)?;
+                this.frame
+                    .extend_from_slice(&(encrypted.len() as u32).to_le_bytes());
+                this.frame.extend_from_slice(&encrypted);
             }
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
