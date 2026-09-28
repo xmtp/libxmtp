@@ -14,7 +14,10 @@ import {
   type Layouts,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/codec.js";
 import { MainCallbacks } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/callbacks.js";
-import { RemoteObject } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object.js";
+import {
+  RemoteObject,
+  endOwner,
+} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object.js";
 import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
 import {
   BRIDGE_ERROR_CODES,
@@ -86,6 +89,17 @@ class TestProxy extends RemoteObject {
   ping(): Promise<unknown> {
     return this.call("ping", []);
   }
+  async end(): Promise<void> {
+    await this.call("Client.end", []);
+    endOwner(this);
+  }
+}
+
+function stringKeys(value: object): string[] {
+  const keys: string[] = [];
+  for (let item: object | null = value; item; item = Object.getPrototypeOf(item))
+    keys.push(...Object.getOwnPropertyNames(item));
+  return keys;
 }
 
 describe("browser bridge transport", () => {
@@ -352,10 +366,87 @@ describe("browser bridge transport", () => {
     engine.registry.add({}, "Group", handle.owner);
     const proxy = new TestProxy(session, handle);
     expect(engine.registry.size).toBe(2);
-    proxy.endOwner();
+    await proxy.end();
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(engine.registry.size).toBe(0);
     expect(() => proxy.ping()).toThrow("clientClosed");
+  });
+
+  it("keeps the owner release hook off every proxy", async () => {
+    const { engine, session } = host(async () => undefined);
+    await session.ready();
+    const proxy = new TestProxy(session, engine.registry.add({}, "Client"));
+    expect("endOwner" in proxy).toBe(false);
+    expect(stringKeys(proxy)).not.toContain("endOwner");
+  });
+
+  it("ends a client before an owner release frees its pool lock", async () => {
+    const { held, provider } = heldPoolLocks();
+    const locks = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
+    const [main, worker] = pair();
+    const engine = new WorkerHost(
+      worker,
+      1,
+      "pool",
+      async () => {},
+      async () => undefined,
+      locks,
+    );
+    const session = new MainSession(main, 1, "pool");
+    await session.ready();
+    await locks.open("client-pool");
+    let lockHeldAtEnd: boolean | undefined;
+    const end = vi.fn(async () => {
+      lockHeldAtEnd = held.has("xmtp:client-pool");
+    });
+    const handle = engine.registry.add({ end }, "Client");
+    locks.attachOwner(handle.owner, "client-pool");
+    main.postMessage({
+      t: "release",
+      handles: [handle.h],
+      owners: [handle.owner],
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(end).toHaveBeenCalledTimes(1);
+    expect(lockHeldAtEnd).toBe(true);
+    expect(engine.registry.size).toBe(0);
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
+  });
+
+  it("releases the pool lock after Client.end without a second end", async () => {
+    const { provider } = heldPoolLocks();
+    const locks = new PoolLocks(provider);
+    const otherTab = new PoolLocks(provider);
+    const [main, worker] = pair();
+    const end = vi.fn(async () => {});
+    const engine = new WorkerHost(
+      worker,
+      1,
+      "pool",
+      async () => {},
+      async (key, _args, context) => {
+        if (key === "Client.end" && context.target)
+          await Reflect.apply(end, context.target, []);
+      },
+      locks,
+    );
+    const session = new MainSession(main, 1, "pool");
+    await session.ready();
+    await locks.open("client-pool");
+    const handle = engine.registry.add({ end }, "Client");
+    locks.attachOwner(handle.owner, "client-pool");
+    const client = new TestProxy(session, handle);
+    await expect(otherTab.open("client-pool")).rejects.toMatchObject({
+      code: "StorageBusy",
+    });
+    await client.end();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(end).toHaveBeenCalledTimes(1);
+    expect(engine.registry.size).toBe(0);
+    await otherTab.open("client-pool");
+    otherTab.close("client-pool");
   });
 
   it("releases the pool owner when the Client handle is collected", async () => {

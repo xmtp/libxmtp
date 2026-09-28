@@ -8,8 +8,14 @@ const collected = new FinalizationRegistry<{
   held.session.collected(held.handle);
 });
 
+let endOwnerOf: ((proxy: RemoteObject) => void) | undefined;
+
 export class RemoteObject {
   private released = false;
+
+  static {
+    endOwnerOf = (proxy) => proxy.#endOwner();
+  }
 
   constructor(
     protected readonly session: MainSession,
@@ -70,10 +76,20 @@ export class RemoteObject {
     this.session.collected(this.handle.h);
   }
 
-  endOwner(): void {
+  #endOwner(): void {
     this.released = true;
     collected.unregister(this);
     this.session.forget(this);
     this.session.closeOwner(this.handle.owner, [this.handle.h]);
   }
+}
+
+/**
+ * Closes the owner of `proxy` after `Client.end` resolved. The worker then
+ * drops the owner handles and releases its storage lock. Only the generated
+ * `Client.end` calls this. It is not a proxy member, so app code cannot reach
+ * it through an exported object.
+ */
+export function endOwner(proxy: RemoteObject): void {
+  endOwnerOf?.(proxy);
 }

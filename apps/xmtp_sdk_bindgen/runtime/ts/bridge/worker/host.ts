@@ -219,6 +219,8 @@ export class WorkerHost {
   readonly registry: WorkerRegistry;
   readonly callbacks: WorkerCallbacks;
   private readonly active = new Map<number, AbortController>();
+  // Owners whose client ended through a successful `Client.end` call.
+  private readonly endedOwners = new Set<number>();
   private initialized = false;
   private failed = false;
   private restorePanicLogger?: () => void;
@@ -270,18 +272,24 @@ export class WorkerHost {
     }
   }
 
+  // An owner in `message.owners` is closed with all of its handles. The main
+  // thread sends one after `Client.end` resolved. If that client did not end
+  // through a `Client.end` call, it is ended here before its storage lock is
+  // released, as for a collected client.
   private async releaseHandles(
     message: Extract<WireMessage, { t: "release" }>,
   ): Promise<void> {
     const emptyOwners = this.registry.release(message.handles);
-    const endedOwners = new Set(message.owners ?? []);
-    for (const owner of endedOwners) {
-      this.registry.closeOwner(owner);
-      this.locks?.closeOwner(owner);
-    }
-    for (const owner of emptyOwners) {
-      if (endedOwners.has(owner)) continue;
-      const client = this.registry.takeClient(owner);
+    const closedOwners = new Set(message.owners ?? []);
+    const clients = new Map<number, object | undefined>();
+    for (const owner of new Set([...closedOwners, ...emptyOwners]))
+      clients.set(owner, this.registry.takeClient(owner));
+    for (const owner of closedOwners) this.registry.closeOwner(owner);
+    for (const [owner, client] of clients) {
+      if (this.endedOwners.delete(owner)) {
+        this.locks?.closeOwner(owner);
+        continue;
+      }
       if (client) {
         try {
           const end: unknown = Reflect.get(client, "end");
@@ -332,6 +340,8 @@ export class WorkerHost {
         target: message.target ? this.registry.get(message.target) : undefined,
         targetHandle: message.target,
       });
+      if (message.key === "Client.end" && message.target)
+        this.endedOwners.add(message.target.owner);
       const reply: WireMessage = { t: "return", id: message.id, value };
       assertCloneable(reply);
       this.endpoint.postMessage(reply, transferBuffers(reply));

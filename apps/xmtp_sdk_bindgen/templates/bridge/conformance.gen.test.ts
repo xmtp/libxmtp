@@ -481,6 +481,46 @@ describe("generated bridge value conformance", () => {
     client.release();
   });
 
+  it("closes the Client owner only through the generated end", async () => {
+    const [main, worker] = endpoints();
+    let ends = 0;
+    const host = new WorkerHost(
+      worker,
+      1,
+      "owner",
+      async () => {},
+      async (key) => {
+        if (key === "Client.end") ends++;
+      },
+    );
+    const session = new MainSession(main, 1, "owner");
+    await session.ready();
+    const handle = host.registry.add({}, "Client", undefined, () => ({
+      clientKey: 1n,
+    }));
+    const client = new P.Client(session, handle);
+    const keys: string[] = [];
+    for (
+      let item: object | null = client;
+      item;
+      item = Object.getPrototypeOf(item)
+    )
+      keys.push(...Object.getOwnPropertyNames(item));
+    expect(keys).not.toContain("endOwner");
+    expect("endOwner" in client).toBe(false);
+    await client.end();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(ends).toBe(1);
+    expect(
+      main.sent.some(
+        (message) =>
+          message.t === "release" && message.owners?.includes(handle.owner),
+      ),
+    ).toBe(true);
+    expect(host.registry.size).toBe(0);
+    expect(() => session.checkHandle(handle)).toThrow("clientClosed");
+  });
+
   it("reenters through generated foreign registration and stub", async () => {
     const [main, worker] = endpoints();
     let signed = false;

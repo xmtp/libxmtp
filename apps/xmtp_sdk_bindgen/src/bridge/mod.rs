@@ -1003,7 +1003,7 @@ fn render(
     result.insert("wire.gen.ts", wire);
 
     let mut proxy = String::from(
-        "import * as B from \"./xmtp_sdk.js\";\nimport { initPureWasm } from \"../typescript-pure/index.js\";\nimport { Message as HostMessage, registerClient, resolveBrowserOptions, unregisterClient, type HostClientOptions } from \"./host-message.gen.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
+        "import * as B from \"./xmtp_sdk.js\";\nimport { initPureWasm } from \"../typescript-pure/index.js\";\nimport { Message as HostMessage, registerClient, resolveBrowserOptions, unregisterClient, type HostClientOptions } from \"./host-message.gen.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject, endOwner } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
     );
     let remote = remote_foreign(items);
     for item in items {
@@ -1110,7 +1110,7 @@ fn render(
                 } else if object.name == "Client" && op.name == "end" {
                     writeln!(
                         proxy,
-                        "  private closing?: Promise<void>;\n  async end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const key = this.clientKey(); const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ this.endOwner(); unregisterClient(this.session, key); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
+                        "  private closing?: Promise<void>;\n  async end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const key = this.clientKey(); const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ endOwner(this); unregisterClient(this.session, key); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
                     )?;
                 } else {
                     let comma = if params.is_empty() { "" } else { ", " };
