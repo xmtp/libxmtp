@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use xmtp_id::associations::verify_signed_with_public_context;
-use xmtp_mls::context::XmtpSharedContext;
+use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
 
 use crate::CatchUpSummary;
 use crate::{
@@ -33,12 +33,11 @@ impl Client {
         self.unsafe_apply_signature_request(request).await
     }
 
-    pub(crate) fn ensure_open(&self) -> Result<(), XmtpError> {
-        if self.inner.context.is_closed() {
-            Err(XmtpError::closed())
-        } else {
-            Ok(())
-        }
+    /// Enter the call gate for a direct client call. Hold the guard for the
+    /// whole call. Drop it before a host callback, such as a signer, because
+    /// the host can call end() from that callback.
+    pub(crate) fn ensure_open(&self) -> Result<ForegroundCall, XmtpError> {
+        crate::conversation::enter_call(&self.inner.context)
     }
 }
 
@@ -113,7 +112,7 @@ impl Client {
     }
 
     pub async fn register(&self) -> Result<(), XmtpError> {
-        self.ensure_open()?;
+        let call = self.ensure_open()?;
         if self.inner.identity().is_ready() {
             return self
                 .inner
@@ -121,13 +120,14 @@ impl Client {
                 .await
                 .map_err(XmtpError::from_client);
         }
+        drop(call);
         let signer = self.signer.clone().ok_or_else(XmtpError::signer)?;
         let kind = signer::kind(signer.clone()).await?;
         self.register_with_signer(signer, kind).await
     }
 
     pub async fn is_registered(&self) -> Result<bool, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .is_registration_visible()
             .map_err(XmtpError::from_client)
@@ -136,7 +136,7 @@ impl Client {
     pub async fn unsafe_create_inbox_signature_request(
         &self,
     ) -> Result<Option<Arc<SignatureRequest>>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         match self.inner.identity().signature_request() {
             Some(request) => Ok(Some(self.request(request))),
             None => {
@@ -154,7 +154,7 @@ impl Client {
         identity: PublicIdentity,
         allow_inbox_reassign: bool,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let identifier = identity.to_core()?;
         if !allow_inbox_reassign {
             let found = self
@@ -179,7 +179,7 @@ impl Client {
         &self,
         identity: PublicIdentity,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let request = self
             .inner
             .identity_updates()
@@ -193,7 +193,7 @@ impl Client {
         &self,
         ids: Vec<InstallationID>,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let request = self
             .inner
             .identity_updates()
@@ -206,7 +206,7 @@ impl Client {
     pub async fn unsafe_revoke_all_other_installations_signature_request(
         &self,
     ) -> Result<Option<Arc<SignatureRequest>>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let current = self.inner.installation_public_key().to_vec();
         let state = self
             .inner
@@ -234,7 +234,7 @@ impl Client {
         &self,
         identity: PublicIdentity,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let request = self
             .inner
             .identity_updates()
@@ -248,7 +248,7 @@ impl Client {
         &self,
         request: Arc<SignatureRequest>,
     ) -> Result<(), XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         if !request.belongs_to(&self.inner) {
             return Err(XmtpError::invalid(
                 "signature request belongs to another client",
@@ -328,7 +328,14 @@ impl Client {
     }
 
     pub async fn inbox_state(&self, refresh_from_network: bool) -> Result<InboxState, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
+        #[cfg(test)]
+        let gate = self.call_gate.lock().take();
+        #[cfg(test)]
+        if let Some(gate) = gate {
+            gate.arrived.notify_one();
+            gate.release.notified().await;
+        }
         let state = self
             .inner
             .inbox_state(refresh_from_network)
@@ -347,7 +354,7 @@ impl Client {
         ids: Vec<InboxID>,
         refresh_from_network: bool,
     ) -> Result<Vec<InboxState>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let refs = ids.iter().map(|id| id.0.as_str()).collect();
         let states = self
             .inner
@@ -370,7 +377,7 @@ impl Client {
         &self,
         identity: PublicIdentity,
     ) -> Result<Option<InboxID>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .find_inbox_id_from_identifier(&self.inner.context.db(), identity.to_core()?)
             .await
@@ -383,7 +390,7 @@ impl Client {
         &self,
         identities: Vec<PublicIdentity>,
     ) -> Result<Vec<CanMessageEntry>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let core = identities
             .iter()
             .map(PublicIdentity::to_core)
@@ -408,7 +415,7 @@ impl Client {
         ids: Vec<InboxID>,
         refresh_from_network: bool,
     ) -> Result<Vec<InboxCountEntry>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let refs = ids.iter().map(|id| id.0.as_str()).collect();
         let answer = self
             .inner
@@ -428,7 +435,7 @@ impl Client {
         &self,
         refresh_from_network: bool,
     ) -> Result<u64, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .fetch_own_inbox_updates_count(refresh_from_network)
             .await
@@ -440,7 +447,7 @@ impl Client {
         &self,
         ids: Vec<InstallationID>,
     ) -> Result<Vec<KeyPackageStatusEntry>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let found = self
             .inner
             .get_key_packages_for_installation_ids(installation_bytes(ids.clone())?)
@@ -478,7 +485,7 @@ impl Client {
     }
 
     pub async fn sign_with_installation_key(&self, text: String) -> Result<Vec<u8>, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .context
             .sign_with_public_context(text)
@@ -490,7 +497,7 @@ impl Client {
         text: String,
         signature: Vec<u8>,
     ) -> Result<bool, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         verify_signature(
             text,
             signature,
@@ -499,7 +506,7 @@ impl Client {
     }
 
     pub async fn sync_all_device_sync_groups(&self) -> Result<GroupSyncSummary, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .sync_all_device_sync_groups()
             .await
@@ -514,7 +521,7 @@ impl Client {
     pub async fn refresh_server_configuration(
         &self,
     ) -> Result<crate::ServerConfiguration, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let value = self
             .inner
             .refresh_server_configuration()
@@ -524,7 +531,7 @@ impl Client {
     }
 
     pub async fn set_credential(&self, credential: crate::Credential) -> Result<(), XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         let handle = self
             .auth_handle
             .as_ref()
@@ -540,7 +547,7 @@ impl Client {
         &self,
         timeout_ms: Option<u64>,
     ) -> Result<CatchUpSummary, XmtpError> {
-        self.ensure_open()?;
+        let _call = self.ensure_open()?;
         self.inner
             .catch_up_to_live(timeout_ms.map(std::time::Duration::from_millis))
             .await

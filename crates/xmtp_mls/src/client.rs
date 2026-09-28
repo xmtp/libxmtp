@@ -419,9 +419,19 @@ where
 {
     /// Reconnect to the client's database if it has previously been released
     pub fn reconnect_db(&self) -> Result<(), ClientError> {
+        // Hold the call gate until the workers start. `close` waits for this
+        // call before it stops the workers, so it also stops the ones started
+        // here.
+        let _call = self
+            .context
+            .foreground_calls()
+            .enter()
+            .ok_or(ClientError::AlreadyClosed)?;
         if self.context.is_closed() {
             return Err(ClientError::AlreadyClosed);
         }
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        test_hooks::pause_reconnect(&self.context.installation_id().to_vec());
         self.context.db().reconnect().map_err(StorageError::from)?;
         self.workers.spawn(self.context.clone());
         Ok(())
@@ -447,6 +457,10 @@ where
             .unregister_client_event_writer(self.context.public_event_writer());
         self.context.events().close_app_subscriptions();
         self.context.cancellation_token().cancel();
+        // A running host call can hold a pooled connection, and a running
+        // reconnect can start workers. Wait for both before the workers stop
+        // and the database disconnects.
+        self.context.foreground_calls().close_and_wait().await;
         let delivery_result = self.context.close_message_delivery();
         self.workers.shutdown().await;
         self.context.events().close_internal_subscriptions();
@@ -1569,3 +1583,35 @@ where
 
 #[cfg(test)]
 pub(crate) mod tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod test_hooks {
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
+
+    type PauseHook = (Vec<u8>, Arc<Barrier>, Arc<Barrier>);
+    /// Stops the next `reconnect_db` of one installation after its closed
+    /// check. The test runs this synchronous call on a blocking thread.
+    pub(crate) static PAUSE_RECONNECT: parking_lot::Mutex<Option<PauseHook>> =
+        parking_lot::Mutex::new(None);
+
+    pub(super) fn pause_reconnect(installation_id: &[u8]) {
+        let paused = {
+            let mut hook = PAUSE_RECONNECT.lock();
+            if hook
+                .as_ref()
+                .is_some_and(|(installation, _, _)| installation.as_slice() == installation_id)
+            {
+                hook.take()
+            } else {
+                None
+            }
+        };
+        if let Some((_, entered, release)) = paused {
+            tokio::runtime::Handle::current().block_on(async {
+                entered.wait().await;
+                release.wait().await;
+            });
+        }
+    }
+}

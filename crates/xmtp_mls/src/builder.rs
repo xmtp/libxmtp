@@ -477,6 +477,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             task_channels: workers.task_channels().clone(),
             cancellation_token: CancellationToken::new(),
             shutdown_complete: Arc::new(AtomicBool::new(false)),
+            foreground_calls: Default::default(),
             delivery_owner: Default::default(),
             identity_resolutions: Default::default(),
         });

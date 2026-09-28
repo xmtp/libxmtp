@@ -36,6 +36,71 @@ pub(crate) static FAIL_NEXT_DELIVERY_RELEASE: Mutex<Option<Vec<u8>>> = Mutex::ne
 #[cfg(any(test, feature = "test-utils"))]
 use crate::worker::device_sync::DeviceSyncClient;
 
+/// Counts the running host calls that can use the database.
+///
+/// `Client::close` cancels the client, then closes this gate and waits until
+/// no call runs. Only after that does it stop the workers and disconnect the
+/// database, so a call such as `reconnect_db` cannot start work that outlives
+/// close. A call that is inside the gate must not wait for `Client::close` of
+/// its own client, or for a worker, because close waits for that call.
+/// Only request calls enter the gate. A stream or a reader must stop on
+/// cancellation, or close does not finish.
+#[derive(Default)]
+pub struct ForegroundCalls {
+    state: Mutex<ForegroundCallState>,
+    idle: tokio::sync::Notify,
+}
+
+#[derive(Default)]
+struct ForegroundCallState {
+    closed: bool,
+    running: usize,
+}
+
+/// One running call. Drop it when the call no longer uses the database.
+#[must_use = "the call leaves the gate when this guard drops"]
+pub struct ForegroundCall {
+    calls: Arc<ForegroundCalls>,
+}
+
+impl ForegroundCalls {
+    /// Start a call, or return `None` after close has begun.
+    pub fn enter(self: &Arc<Self>) -> Option<ForegroundCall> {
+        let mut state = self.state.lock();
+        if state.closed {
+            return None;
+        }
+        state.running += 1;
+        Some(ForegroundCall {
+            calls: self.clone(),
+        })
+    }
+
+    /// Refuse new calls, then wait until the running calls finish.
+    pub async fn close_and_wait(&self) {
+        self.state.lock().closed = true;
+        loop {
+            let idle = self.idle.notified();
+            futures::pin_mut!(idle);
+            idle.as_mut().enable();
+            if self.state.lock().running == 0 {
+                return;
+            }
+            idle.await;
+        }
+    }
+}
+
+impl Drop for ForegroundCall {
+    fn drop(&mut self) {
+        let mut state = self.calls.state.lock();
+        state.running -= 1;
+        if state.running == 0 {
+            self.calls.idle.notify_waiters();
+        }
+    }
+}
+
 /// The local context a XMTP MLS needs to function:
 /// - Sqlite Database
 /// - Identity for the User
@@ -78,6 +143,7 @@ pub struct XmtpMlsLocalContext<ApiClient, Db, S> {
     // a `disconnect()` failure mid-`close` doesn't silently short-circuit
     // future retries.
     pub(crate) shutdown_complete: Arc<AtomicBool>,
+    pub(crate) foreground_calls: Arc<ForegroundCalls>,
 }
 
 impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S>
@@ -150,6 +216,7 @@ impl<ApiClient, Db, S> XmtpMlsLocalContext<ApiClient, Db, S> {
             task_channels: self.task_channels,
             cancellation_token: self.cancellation_token,
             shutdown_complete: self.shutdown_complete,
+            foreground_calls: self.foreground_calls,
         }
     }
 }
@@ -317,6 +384,9 @@ where
     fn shutdown_complete(&self) -> bool;
 
     fn mark_shutdown_complete(&self);
+
+    /// Calls that `Client::close` waits for before it disconnects the database.
+    fn foreground_calls(&self) -> &Arc<ForegroundCalls>;
 }
 
 impl<XApiClient, XDb, XMls> XmtpSharedContext for Arc<XmtpMlsLocalContext<XApiClient, XDb, XMls>>
@@ -435,6 +505,10 @@ where
     fn mark_shutdown_complete(&self) {
         self.shutdown_complete.store(true, Ordering::Release);
     }
+
+    fn foreground_calls(&self) -> &Arc<ForegroundCalls> {
+        &self.foreground_calls
+    }
 }
 
 impl<T> XmtpSharedContext for &T
@@ -549,5 +623,9 @@ where
 
     fn mark_shutdown_complete(&self) {
         <T as XmtpSharedContext>::mark_shutdown_complete(self)
+    }
+
+    fn foreground_calls(&self) -> &Arc<ForegroundCalls> {
+        <T as XmtpSharedContext>::foreground_calls(self)
     }
 }

@@ -302,6 +302,9 @@ pub struct Client {
     pub(crate) auth_handle: Option<xmtp_api_backend::AuthHandle>,
     pub(crate) listeners: Arc<crate::events::dispatch::ListenerRegistry>,
     pub(crate) event_readers: Arc<parking_lot::Mutex<EventReaderRegistry>>,
+    /// Holds `inbox_state` after it enters the call gate.
+    #[cfg(test)]
+    pub(crate) call_gate: parking_lot::Mutex<Option<Arc<crate::reader::HandoffGate>>>,
 }
 
 impl Client {
@@ -474,6 +477,8 @@ impl Client {
             auth_handle,
             listeners: Arc::new(crate::events::dispatch::ListenerRegistry::default()),
             event_readers: Arc::new(parking_lot::Mutex::new(EventReaderRegistry::default())),
+            #[cfg(test)]
+            call_gate: parking_lot::Mutex::new(None),
         })
     }
 
@@ -579,6 +584,7 @@ impl Client {
             }
             _ => return Err(XmtpError::invalid("signature does not match signer kind")),
         }
+        let _call = self.ensure_open()?;
         self.inner
             .register_identity(request)
             .await
@@ -715,7 +721,13 @@ impl Client {
         &self,
         filter: crate::EventFilter,
     ) -> Result<Arc<crate::EventReader>, XmtpError> {
-        let filter = filter.to_core(&self.inner)?;
+        // The filter reads stored conversations. Leave the gate before the
+        // subscription starts: that step does not use the database, and end()
+        // must not wait for it.
+        let filter = {
+            let _call = self.ensure_open()?;
+            filter.to_core(&self.inner)?
+        };
         let subscription = self
             .inner
             .context
@@ -743,7 +755,13 @@ impl Client {
         filter: crate::EventFilter,
         listener: Arc<dyn crate::EventListener>,
     ) -> Result<crate::ListenerID, XmtpError> {
-        let filter = filter.to_core(&self.inner)?;
+        // The filter reads stored conversations. Leave the gate before the
+        // subscription starts: that step does not use the database, and end()
+        // must not wait for it.
+        let filter = {
+            let _call = self.ensure_open()?;
+            filter.to_core(&self.inner)?
+        };
         let subscription = self
             .inner
             .context
