@@ -5431,3 +5431,49 @@ fn standard_content_types_decode_to_records() {
         matches!(MessageContent::decode(LeaveRequestCodec::encode(leave)?.encode_to_vec())?, MessageContent::LeaveRequest(value) if value.authenticated_note == Some(b"note".to_vec()))
     );
 }
+
+// verifies: PROC-025, PROC-046
+#[xmtp_common::test(unwrap_try = true)]
+async fn prepared_message_rechecks_consent_before_admission() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let stale = client.conversations().create_group(vec![], None).await?;
+    let live = client.conversations().create_group(vec![], None).await?;
+    stale.send_text("stale".into(), None).await?;
+    let live_id = live.send_text("live".into(), None).await?;
+    let reader = stale.message_reader().await?;
+    reader.update_all_scope_for_test();
+    let gate = Arc::new(reader::HandoffGate { arrived: Notify::new(), release: Notify::new() });
+    *reader.handoff_gate.lock() = Some(gate.clone());
+    let reading = reader.clone();
+    let task = xmtp_common::spawn(None, async move { reading.next().await });
+    xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
+    stale.inner.update_consent_state(xmtp_db::consent_record::ConsentState::Denied)?;
+    gate.release.notify_one();
+    use xmtp_common::StreamHandle;
+    let result = xmtp_common::time::timeout(Duration::from_secs(10), task.join()).await???;
+    assert_eq!(result.expect("eligible item").0.id, live_id);
+    reader.end().await?;
+    client.end().await?;
+}
+
+// verifies: PROC-025
+#[xmtp_common::test(unwrap_try = true)]
+async fn prepared_message_rechecks_deletion_before_admission() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let stale_id = group.send_text("stale".into(), None).await?;
+    let live_id = group.send_text("live".into(), None).await?;
+    let reader = group.message_reader().await?;
+    let gate = Arc::new(reader::HandoffGate { arrived: Notify::new(), release: Notify::new() });
+    *reader.handoff_gate.lock() = Some(gate.clone());
+    let reading = reader.clone();
+    let task = xmtp_common::spawn(None, async move { reading.next().await });
+    xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
+    client.conversations().delete_message_locally(stale_id).await?;
+    gate.release.notify_one();
+    use xmtp_common::StreamHandle;
+    let result = xmtp_common::time::timeout(Duration::from_secs(10), task.join()).await???;
+    assert_eq!(result.expect("retained item").0.id, live_id);
+    reader.end().await?;
+    client.end().await?;
+}

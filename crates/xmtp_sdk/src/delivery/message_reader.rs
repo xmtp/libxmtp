@@ -141,7 +141,7 @@ impl MessageReader {
         let mut corrupt_next_message = self
             .corrupt_next_message
             .swap(false, std::sync::atomic::Ordering::AcqRel);
-        on_sdk_worker(self.context.clone(), async move {
+        on_sdk_worker(self.context.clone(), Box::pin(async move {
             let mut reader = reader.lock().await;
             if request_cancel.is_cancelled() {
                 return Ok(false);
@@ -200,32 +200,9 @@ impl MessageReader {
                     item.message.id.clear();
                     corrupt_next_message = false;
                 }
-                #[cfg(test)]
-                let gate = handoff_gate.lock().take();
-                #[cfg(test)]
-                if let Some(gate) = gate {
-                    gate.arrived.notify_one();
-                    gate.release.notified().await;
-                }
                 if state.lock().ended {
                     item.acknowledgement.reject();
                     return Ok(false);
-                }
-                match item.acknowledgement.check_owner() {
-                    Ok(()) => {}
-                    Err(error) if selection_changed(&error) => {
-                        item.acknowledgement.reject();
-                        continue;
-                    }
-                    Err(_) if state.lock().ended => {
-                        item.acknowledgement.reject();
-                        return Ok(false);
-                    }
-                    Err(error) => {
-                        state.lock().ended = true;
-                        control.close();
-                        return Err(super::delivery_error(error));
-                    }
                 }
                 let enriched = match enrich_messages_with_stored(
                     context.db(),
@@ -259,6 +236,42 @@ impl MessageReader {
                         return Err(error);
                     }
                 };
+                #[cfg(test)]
+                let gate = handoff_gate.lock().take();
+                #[cfg(test)]
+                if let Some(gate) = gate {
+                    gate.arrived.notify_one();
+                    gate.release.notified().await;
+                }
+                if request_cancel.is_cancelled() {
+                    let mut state = state.lock();
+                    if state.ended {
+                        item.acknowledgement.reject();
+                    } else {
+                        state.pending = Some(PendingMessage {
+                            message,
+                            acknowledgement: item.acknowledgement,
+                        });
+                    }
+                    return Ok(false);
+                }
+                // Preparation does not admit the item. This check is the handoff.
+                match item.acknowledgement.check_owner() {
+                    Ok(()) => {}
+                    Err(error) if selection_changed(&error) => {
+                        item.acknowledgement.reject();
+                        continue;
+                    }
+                    Err(_) if state.lock().ended => {
+                        item.acknowledgement.reject();
+                        return Ok(false);
+                    }
+                    Err(error) => {
+                        state.lock().ended = true;
+                        control.close();
+                        return Err(super::delivery_error(error));
+                    }
+                }
                 let mut state = state.lock();
                 if state.ended {
                     item.acknowledgement.reject();
@@ -270,7 +283,7 @@ impl MessageReader {
                 });
                 return Ok(true);
             }
-        })
+        }))
         .await
         .and_then(|ready| {
             if !ready {
