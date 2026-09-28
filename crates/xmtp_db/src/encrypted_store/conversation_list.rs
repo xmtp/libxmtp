@@ -406,9 +406,18 @@ pub(crate) mod tests {
             assert_eq!(listed[3].id, empty.id);
             assert!(listed[3].message_id.is_none());
 
+            let after = conn.fetch_conversation_list_at(
+                &GroupQueryArgs {
+                    last_activity_after_ns: Some(325),
+                    ..args.clone()
+                },
+                now,
+            )?;
+            assert_eq!(after.len(), 1);
+            assert_eq!(after[0].id, persistent.id);
+
             let bounded = conn.fetch_conversation_list_at(
                 &GroupQueryArgs {
-                    last_activity_after_ns: Some(275),
                     limit: Some(2),
                     ..args
                 },
