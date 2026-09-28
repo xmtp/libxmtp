@@ -14,6 +14,36 @@ use super::{
 };
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
+#[wasm_bindgen::prelude::wasm_bindgen(inline_js = r#"
+export function acquireOpfsDestinationLock(name) {
+    let release;
+    const held = new Promise(resolve => { release = resolve; });
+    let readyResolve;
+    let readyReject;
+    const ready = new Promise((resolve, reject) => {
+        readyResolve = resolve;
+        readyReject = reject;
+    });
+    navigator.locks.request(name, { mode: "exclusive" }, () => {
+        readyResolve();
+        return held;
+    }).catch(readyReject);
+    return [ready, release];
+}
+"#)]
+extern "C" {
+    #[wasm_bindgen::prelude::wasm_bindgen(catch, js_name = acquireOpfsDestinationLock)]
+    fn acquire_opfs_destination_lock(name: &str) -> Result<JsValue, JsValue>;
+}
+
+struct DestinationLock(js_sys::Function);
+
+impl Drop for DestinationLock {
+    fn drop(&mut self) {
+        let _ = self.0.call0(&JsValue::NULL);
+    }
+}
+
 fn storage_error(_: impl Sized) -> AttachmentError {
     AttachmentError::new(Cause::LocalStorage)
 }
@@ -96,6 +126,12 @@ impl Write for StoreWriter {
 #[derive(Clone)]
 pub struct OpfsStore {
     root: FileSystemDirectoryHandle,
+    root_path: String,
+    #[cfg(test)]
+    rename_pause: Option<(
+        std::sync::Arc<tokio::sync::Notify>,
+        std::sync::Arc<tokio::sync::Notify>,
+    )>,
 }
 
 impl OpfsStore {
@@ -107,14 +143,24 @@ impl OpfsStore {
             .map_err(storage_error)?
             .dyn_into::<FileSystemDirectoryHandle>()
             .map_err(storage_error)?;
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            root_path: String::new(),
+            #[cfg(test)]
+            rename_pause: None,
+        })
     }
 
     pub async fn new(path: &str) -> Result<Self, AttachmentError> {
         validate_relative(path)?;
         let root = Self::new_root().await?.root;
         let root = Self::directories(root, path, true).await?;
-        Ok(Self { root })
+        Ok(Self {
+            root,
+            root_path: path.to_owned(),
+            #[cfg(test)]
+            rename_pause: None,
+        })
     }
 
     async fn directories(
@@ -177,8 +223,30 @@ impl OpfsStore {
         Ok(StoreWriter { handle, offset: 0 })
     }
 
+    async fn destination_lock(&self, path: &str) -> Result<DestinationLock, AttachmentError> {
+        validate_relative(path)?;
+        let full_path = if self.root_path.is_empty() {
+            path.to_owned()
+        } else {
+            format!("{}/{path}", self.root_path)
+        };
+        let parts = acquire_opfs_destination_lock(&format!("xmtp-opfs-file:{full_path}"))
+            .map_err(storage_error)?;
+        let parts: js_sys::Array = parts.dyn_into().map_err(storage_error)?;
+        let ready: js_sys::Promise = parts.get(0).dyn_into().map_err(storage_error)?;
+        let release: js_sys::Function = parts.get(1).dyn_into().map_err(storage_error)?;
+        let guard = DestinationLock(release);
+        JsFuture::from(ready).await.map_err(storage_error)?;
+        Ok(guard)
+    }
+
     /// Atomically replace one OPFS file with a completed temporary file.
     pub async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
+        let _guard = self.destination_lock(to).await?;
+        self.replace_unlocked(from, to).await
+    }
+
+    async fn replace_unlocked(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
         let source = self.file_handle(from, false).await?;
         let (target_parent, target_name) = self.parent(to, true).await?;
         let move_method = js_sys::Reflect::get(source.as_ref(), &JsValue::from_str("move"))
@@ -223,10 +291,16 @@ impl LocalStore for OpfsStore {
     }
 
     async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError> {
+        let _guard = self.destination_lock(to).await?;
         if self.exists(to).await? {
             return Err(StoreMoveError::DestinationExists);
         }
-        match self.replace(from, to).await {
+        #[cfg(test)]
+        if let Some((entered, resume)) = &self.rename_pause {
+            entered.notify_one();
+            resume.notified().await;
+        }
+        match self.replace_unlocked(from, to).await {
             Ok(()) => Ok(()),
             Err(_error) if self.exists(to).await.unwrap_or(false) => {
                 Err(StoreMoveError::DestinationExists)
@@ -527,6 +601,53 @@ mod tests {
         let file: web_sys::File = JsFuture::from(file).await?.dyn_into()?;
         let bytes = JsFuture::from(file.array_buffer()).await?;
         assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"original");
+    }
+
+    // verifies: ATCH-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn independent_stores_cannot_replace_a_racing_plaintext_file() {
+        use std::sync::Arc;
+        use xmtp_common::time::{Duration, timeout};
+
+        let path = test_path();
+        let mut first = OpfsStore::new(&path).await?;
+        let second = OpfsStore::new(&path).await?;
+        for (store, source, bytes) in [
+            (&first, ".tmp/first", b"first".as_slice()),
+            (&second, ".tmp/second", b"second".as_slice()),
+        ] {
+            let mut writer = store.create_temp(source).await?;
+            DownloadSink::write(&mut writer, bytes).await?;
+            store.sync(&mut writer).await?;
+            drop(writer);
+        }
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        first.rename_pause = Some((entered.clone(), resume.clone()));
+        let first_move =
+            xmtp_common::task::spawn(async move { first.rename(".tmp/first", "key/file").await });
+        timeout(Duration::from_secs(3), entered.notified()).await?;
+        let (sent, mut received) = tokio::sync::oneshot::channel();
+        drop(xmtp_common::task::spawn(async move {
+            let _ = sent.send(second.rename(".tmp/second", "key/file").await);
+        }));
+        xmtp_common::time::sleep(Duration::from_millis(100)).await;
+        let early = received.try_recv().ok();
+        resume.notify_one();
+        timeout(Duration::from_secs(3), first_move).await???;
+        let second_result = match early {
+            Some(result) => result,
+            None => timeout(Duration::from_secs(3), received).await??,
+        };
+        assert!(matches!(
+            second_result,
+            Err(StoreMoveError::DestinationExists)
+        ));
+        let store = OpfsStore::new(&path).await?;
+        let file = store.file_handle("key/file", false).await?.get_file();
+        let file: web_sys::File = JsFuture::from(file).await?.dyn_into()?;
+        let bytes = JsFuture::from(file.array_buffer()).await?;
+        assert_eq!(js_sys::Uint8Array::new(&bytes).to_vec(), b"first");
     }
 
     // verifies: ATCH-046
