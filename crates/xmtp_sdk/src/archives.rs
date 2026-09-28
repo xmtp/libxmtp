@@ -1,19 +1,13 @@
 use std::sync::Arc;
 
-use futures::{
-    AsyncReadExt,
-    io::{BufReader, Cursor},
-};
+use futures::io::{BufReader, Cursor};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_mls::worker::device_sync::archive::BACKUP_VERSION;
 use xmtp_mls::{
     context::XmtpSharedContext,
     worker::device_sync::{
         ArchiveOptions as CoreArchiveOptions, BackupElementSelection as CoreElement,
-        archive::{
-            ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,
-            insert_importer,
-        },
+        archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_importer},
     },
 };
 
@@ -110,23 +104,14 @@ impl Archives {
         let key = key(key_bytes)?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            let mut exporter = ArchiveExporter::new(
-                options
-                    .unwrap_or(ArchiveOptions {
-                        start: None,
-                        end: None,
-                        elements: None,
-                        exclude_disappearing_messages: false,
-                    })
-                    .into(),
-                client.context.db(),
-                &key,
-            )
-            .map_err(XmtpError::unknown)?;
+            let options = options.unwrap_or(ArchiveOptions {
+                start: None,
+                end: None,
+                elements: None,
+                exclude_disappearing_messages: false,
+            });
             let mut bytes = Vec::new();
-            exporter
-                .read_to_end(&mut bytes)
-                .await
+            exporter::export(options.into(), client.context.db(), &key, &mut bytes)
                 .map_err(XmtpError::unknown)?;
             Ok(bytes)
         })
@@ -263,14 +248,9 @@ impl Archives {
                     elements: None,
                     exclude_disappearing_messages: false,
                 });
-                let saved = ArchiveExporter::export_to_file(
-                    options.into(),
-                    client.context.db(),
-                    path,
-                    &key,
-                )
-                .await
-                .map_err(XmtpError::unknown)?;
+                let saved =
+                    exporter::export_to_file(options.into(), client.context.db(), path, &key)
+                        .map_err(XmtpError::unknown)?;
                 Ok(BackupMetadata::from_metadata_save(saved, BACKUP_VERSION).into())
             }),
         )

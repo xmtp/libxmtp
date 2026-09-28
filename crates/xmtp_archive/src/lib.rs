@@ -1,15 +1,16 @@
 //! The XMTP archive container: a versioned header, then AES-256-GCM frames of `BackupElement`s
 //! inside one zstd stream.
 //!
-//! `xmtp_mls` and `xmtp_sdk` use [`exporter::ArchiveExporter`] to write an archive from the
-//! database and [`ArchiveImporter`] to read one back. The exporter reads one consistent snapshot
-//! of every selected element when it is constructed (see `snapshot`) and fails with
-//! [`ArchiveError`] before writing any byte if selected data cannot be read. The importer rejects
+//! `xmtp_mls`, `xmtp_sdk`, and the bindings use [`exporter::export`] and
+//! [`exporter::export_to_file`] to write an archive from the database and [`ArchiveImporter`] to
+//! read one back. The exporter streams one consistent snapshot of every selected element (see
+//! `snapshot`) and fails with [`ArchiveError`] if selected data cannot be read. The importer rejects
 //! any container version above [`BACKUP_VERSION`] and ends with an error on any incomplete or
 //! malformed framing.
 use crate::archive_options::BackupElementSelection;
 pub use importer::ArchiveImporter;
 use thiserror::Error;
+use xmtp_common::ErrorCode;
 use xmtp_db::{ConnectionError, StorageError, diesel, sql_key_store::SqlKeyStoreError};
 use xmtp_mls_common::group_metadata::GroupMetadataError;
 use xmtp_proto::{types::GroupId, xmtp::device_sync::BackupMetadataSave};
@@ -27,22 +28,46 @@ pub mod importer;
 mod snapshot;
 mod util;
 
-#[derive(Debug, Error)]
+/// Archive export or import failure.
+#[derive(Debug, Error, ErrorCode)]
 pub enum ArchiveError {
+    /// Unsupported archive version.
+    ///
+    /// The archive was written by a newer client. Not retryable.
     #[error("Unsupported archive version {0}; this client reads version {BACKUP_VERSION}")]
     UnsupportedVersion(u16),
+    /// Missing metadata.
+    ///
+    /// The archive has no metadata frame. Not retryable.
     #[error("Missing metadata")]
     MissingMetadata,
+    /// Invalid archive frame.
+    ///
+    /// The archive framing is incomplete or malformed. Not retryable.
     #[error("Invalid archive frame: {0}")]
     InvalidFrame(&'static str),
+    /// AES-GCM error.
+    ///
+    /// Encryption or decryption failed; on import, usually a wrong key. Not retryable.
     #[error("AES-GCM encryption error")]
     AesGcm(#[from] aes_gcm::Error),
+    /// I/O error.
+    ///
+    /// Reading or writing the archive failed. May be retryable.
     #[error("IO error: {0}")]
     IO(#[from] std::io::Error),
+    /// Decode error.
+    ///
+    /// An archive element is not valid protobuf. Not retryable.
     #[error(transparent)]
     Decode(#[from] prost::DecodeError),
     #[error(transparent)]
+    #[error_code(inherit)]
     Storage(#[from] StorageError),
+    /// Unreadable group.
+    ///
+    /// A selected group's MLS state or immutable metadata cannot be read, so export
+    /// fails rather than omit it. Not retryable.
     #[error("group {group_id} cannot be exported: {source}")]
     UnreadableGroup {
         group_id: GroupId,

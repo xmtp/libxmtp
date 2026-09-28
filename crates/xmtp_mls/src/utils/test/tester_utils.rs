@@ -42,7 +42,6 @@ xmtp_common::if_native! {
 }
 use xmtp_api::{ApiError, XmtpApi};
 use xmtp_api_backend::{AuthCallback, AuthMiddleware, BackendClient, TrackedStatsClient};
-use xmtp_archive::{ArchiveImporter, exporter::ArchiveExporter};
 use xmtp_common::StreamHandle;
 use xmtp_configuration::DockerUrls;
 use xmtp_configuration::{KEY_PACKAGE_ROTATION_INTERVAL_NS, LOCALHOST};

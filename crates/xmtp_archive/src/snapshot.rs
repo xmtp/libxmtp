@@ -3,10 +3,12 @@
 //!
 //! [`read`] runs `BEGIN` (deferred, read-only) on one connection, runs the
 //! selection queries below, loads each group's MLS state through that same
-//! connection, and commits before it returns. The transaction therefore lasts
-//! only as long as the reads, never across an await or while the caller
-//! consumes the archive; under WAL, writers proceed concurrently. The snapshot
-//! is materialized in memory, so memory grows with the selected history.
+//! connection, and commits before it returns. Rows stream to the caller while
+//! the transaction is open: groups a page at a time, messages and consent
+//! through row cursors, so memory stays bounded by a page of groups however
+//! large the history is. The transaction lasts as long as the export and
+//! never spans an await. Under WAL, writers proceed concurrently; with a
+//! single shared connection, other queries wait for the export.
 
 use crate::{
     ArchiveError, UnreadableGroup,
@@ -16,7 +18,7 @@ use openmls::group::MlsGroup;
 use xmtp_db::{
     ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
-    diesel::{Connection, SqliteConnection, prelude::*},
+    diesel::{Connection, SqliteConnection, connection::DefaultLoadingMode, prelude::*},
     group::{ConversationType, StoredGroup},
     group_message::{GroupMessageKind, StoredGroupMessage},
     schema::{consent_records, group_messages, groups},
@@ -26,7 +28,6 @@ use xmtp_mls_common::{
     group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata_lossy},
 };
 use xmtp_proto::xmtp::device_sync::{
-    BackupElement,
     backup_element::Element,
     group_backup::{
         ConversationTypeSave, GroupMembershipStateSave, GroupSave, ImmutableMetadataSave,
@@ -34,17 +35,23 @@ use xmtp_proto::xmtp::device_sync::{
     },
 };
 
-/// Every element `opts` selects, as stored when the transaction began: all
-/// eligible groups, then their messages, then consent. Fails, rather than
-/// omitting it, on any eligible group whose MLS state or immutable metadata
-/// cannot be read.
+/// Groups loaded per page. Each group's MLS state is loaded through the
+/// connection, so groups are paged by key rather than read through a cursor.
+const GROUP_PAGE: i64 = 100;
+
+/// Passes `emit` every element `opts` selects, as stored when the transaction
+/// began: all eligible groups, then their messages, then consent. Fails, rather
+/// than omitting it, on any eligible group whose MLS state or immutable
+/// metadata cannot be read. `emit` runs inside the transaction and must not use
+/// the database.
 pub(crate) fn read(
     db: &impl ConnectionExt,
     opts: &ArchiveOptions,
     exported_at_ns: i64,
-) -> Result<Vec<BackupElement>, ArchiveError> {
+    mut emit: impl FnMut(Element) -> Result<(), ArchiveError>,
+) -> Result<(), ArchiveError> {
     db.raw_query(|conn| {
-        Ok(conn.transaction(|conn| read_in_transaction(conn, opts, exported_at_ns)))
+        Ok(conn.transaction(|conn| read_in_transaction(conn, opts, exported_at_ns, &mut emit)))
     })?
 }
 
@@ -52,17 +59,27 @@ fn read_in_transaction(
     conn: &mut SqliteConnection,
     opts: &ArchiveOptions,
     exported_at_ns: i64,
-) -> Result<Vec<BackupElement>, ArchiveError> {
+    emit: &mut impl FnMut(Element) -> Result<(), ArchiveError>,
+) -> Result<(), ArchiveError> {
     let selects = |s| opts.elements.contains(&s);
-    let mut elements = Vec::new();
     if selects(BackupElementSelection::Messages) {
-        let groups = groups::table
-            .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
-            .order(groups::id)
-            .load::<StoredGroup>(conn)?;
-        let store = conn.key_store();
-        for group in groups {
-            elements.push(Element::Group(group_save(&store, group)?));
+        let mut after = None;
+        loop {
+            let mut page = groups::table
+                .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
+                .order(groups::id)
+                .limit(GROUP_PAGE)
+                .into_boxed();
+            if let Some(id) = after {
+                page = page.filter(groups::id.gt(id));
+            }
+            let page = page.load::<StoredGroup>(conn)?;
+            let Some(last) = page.last() else { break };
+            after = Some(last.id);
+            let store = conn.key_store();
+            for group in page {
+                emit(Element::Group(group_save(&store, group)?))?;
+            }
         }
         let mut messages = group_messages::table
             .inner_join(groups::table)
@@ -86,23 +103,19 @@ fn read_in_transaction(
                     .or(group_messages::expire_at_ns.gt(exported_at_ns)),
             )
         };
-        let messages = messages.load(conn)?;
-        elements.extend(
-            messages
-                .into_iter()
-                .map(|m| Element::GroupMessage(m.into())),
-        );
+        for message in messages.load_iter::<StoredGroupMessage, DefaultLoadingMode>(conn)? {
+            emit(Element::GroupMessage(message?.into()))?;
+        }
     }
     if selects(BackupElementSelection::Consent) {
         let consent = consent_records::table
             .order((consent_records::entity_type, consent_records::entity))
-            .load::<StoredConsentRecord>(conn)?;
-        elements.extend(consent.into_iter().map(|c| Element::Consent(c.into())));
+            .load_iter::<StoredConsentRecord, DefaultLoadingMode>(conn)?;
+        for record in consent {
+            emit(Element::Consent(record?.into()))?;
+        }
     }
-    Ok(elements
-        .into_iter()
-        .map(|e| BackupElement { element: Some(e) })
-        .collect())
+    Ok(())
 }
 
 /// The group element for `group`, with metadata read from its MLS state.
@@ -154,22 +167,17 @@ mod tests {
     use crate::{
         ArchiveError, ArchiveImporter,
         archive_options::{ArchiveOptions, BackupElementSelection},
-        exporter::ArchiveExporter,
+        exporter,
     };
     use futures::{
-        AsyncReadExt, StreamExt,
+        StreamExt,
         io::{BufReader, Cursor},
     };
     use xmtp_db::{
         Store, TestDb, XmtpTestDb,
-        consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         group::{ConversationType, GroupMembershipState, StoredGroup},
-        prelude::*,
     };
-    use xmtp_proto::{
-        types::GroupId,
-        xmtp::device_sync::{backup_element::Element, consent_backup::ConsentStateSave},
-    };
+    use xmtp_proto::{types::GroupId, xmtp::device_sync::backup_element::Element};
 
     const KEY: [u8; 32] = [7; 32];
 
@@ -184,10 +192,6 @@ mod tests {
             .unwrap()
     }
 
-    fn consent(entity: &str, state: ConsentState) -> StoredConsentRecord {
-        StoredConsentRecord::new(ConsentType::InboxId, state, entity.into())
-    }
-
     fn options(elements: &[BackupElementSelection]) -> ArchiveOptions {
         ArchiveOptions {
             elements: elements.to_vec(),
@@ -197,11 +201,9 @@ mod tests {
         }
     }
 
-    /// Every element after the metadata frame.
-    async fn elements(mut exporter: ArchiveExporter) -> Vec<Element> {
-        let mut bytes = Vec::new();
-        exporter.read_to_end(&mut bytes).await.unwrap();
-        let reader = Box::pin(BufReader::new(Cursor::new(bytes)));
+    /// Every element of `archive` after the metadata frame.
+    async fn elements(archive: Vec<u8>) -> Vec<Element> {
+        let reader = Box::pin(BufReader::new(Cursor::new(archive)));
         ArchiveImporter::load(reader, &KEY)
             .await
             .unwrap()
@@ -210,12 +212,12 @@ mod tests {
             .await
     }
 
-    /// An export reads every eligible conversation at one export time: an
-    /// eligible group it cannot read fails the export even when it was
-    /// created outside the window, has no messages, and sorts after more than
-    /// a page of excluded internal conversations. An explicit empty selection
-    /// reads nothing, and writes after the export starts are not in it.
-    /// Restore coverage for readable conversations lives in xmtp_mls.
+    /// An export reads every eligible conversation: an eligible group it
+    /// cannot read fails the export, and leaves no archive file, even when the
+    /// group was created outside the window, has no messages, and sorts after
+    /// more than a page of excluded internal conversations. An explicit empty
+    /// selection exports nothing. Restore and concurrent-write coverage for
+    /// readable conversations lives in xmtp_mls.
     // verifies: ARCH-007, ARCH-017
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_snapshot_is_complete() {
@@ -229,9 +231,9 @@ mod tests {
         }
         let unreadable = group([0xff; 16], ConversationType::Group);
         unreadable.store(&db)?;
-        consent("alix", ConsentState::Allowed).store(&db)?;
+        let messages = options(&[BackupElementSelection::Messages]);
 
-        let failure = ArchiveExporter::new(options(&[BackupElementSelection::Messages]), &db, &KEY);
+        let failure = exporter::export(messages.clone(), &db, &KEY, Vec::new());
         assert!(
             matches!(
                 failure,
@@ -239,24 +241,19 @@ mod tests {
             ),
             "export skipped an unreadable eligible group"
         );
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = xmtp_common::tmp_path();
+            assert!(exporter::export_to_file(messages, &db, &path, &KEY).is_err());
+            assert!(
+                !std::path::Path::new(&path).exists(),
+                "failed export left a file"
+            );
+        }
 
-        let empty = ArchiveExporter::new(options(&[]), &db, &KEY)?;
-        assert!(empty.metadata().elements.is_empty());
-        assert_eq!(elements(empty).await, vec![]);
-
-        let exporter =
-            ArchiveExporter::new(options(&[BackupElementSelection::Consent]), &db, &KEY)?;
-        db.insert_or_replace_consent_records(&[
-            consent("alix", ConsentState::Denied),
-            consent("bo", ConsentState::Allowed),
-        ])?;
-        let exported = elements(exporter).await;
-        assert!(
-            matches!(
-                exported.as_slice(),
-                [Element::Consent(c)] if c.entity == "alix" && c.state == ConsentStateSave::Allowed as i32
-            ),
-            "export did not keep its snapshot: {exported:?}"
-        );
+        let mut archive = Vec::new();
+        let metadata = exporter::export(options(&[]), &db, &KEY, &mut archive)?;
+        assert!(metadata.elements.is_empty());
+        assert_eq!(elements(archive).await, vec![]);
     }
 }

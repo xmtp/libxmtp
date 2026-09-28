@@ -1,14 +1,19 @@
+//! Archive writing. [`export`] writes the version and the starting nonce in the
+//! clear, then one zstd stream of length-prefixed AES-GCM frames: the metadata,
+//! then every element of one database snapshot. Frames are written as rows are
+//! read, so memory does not grow with the history.
+
 use super::BACKUP_VERSION;
 use crate::archive_options::ArchiveOptions;
 use crate::{ArchiveError, NONCE_SIZE, snapshot, util::GenericArrayExt};
-use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
+use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
 use async_compression::futures::write::ZstdEncoder;
-use futures::{pin_mut, task::Context};
-use futures_util::{AsyncRead, AsyncWriteExt};
+use futures::{FutureExt, io::AllowStdIo};
+use futures_util::AsyncWriteExt;
 use prost::Message;
 #[allow(deprecated)]
-use sha2::digest::{generic_array::GenericArray, typenum};
-use std::{future::Future, io, pin::Pin, task::Poll, vec};
+use sha2::digest::generic_array::GenericArray;
+use std::io;
 use xmtp_common::time::now_ns;
 use xmtp_db::ConnectionExt;
 use xmtp_proto::xmtp::device_sync::{
@@ -16,189 +21,81 @@ use xmtp_proto::xmtp::device_sync::{
     backup_element::Element,
 };
 
-#[cfg(not(target_arch = "wasm32"))]
-mod file_export;
+/// Writes an archive of everything `options` selects, read in one snapshot
+/// measured at one export time, to `sink`, and returns its metadata. Fails,
+/// rather than omitting it, when a selected record cannot be read; on failure
+/// `sink` holds an incomplete archive that the caller must discard. `sink` is
+/// written while the snapshot's read transaction is open, so it must not use
+/// the database.
+pub fn export(
+    options: ArchiveOptions,
+    db: impl ConnectionExt,
+    key: &[u8],
+    mut sink: impl io::Write,
+) -> Result<BackupMetadataSave, ArchiveError> {
+    let exported_at_ns = now_ns();
+    let metadata = BackupMetadataSave {
+        elements: options
+            .elements
+            .iter()
+            .map(|&e| BackupElementSelectionProto::from(e) as i32)
+            .collect(),
+        exported_at_ns,
+        start_ns: options.start_ns,
+        end_ns: options.end_ns,
+    };
+    let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
+    sink.write_all(&BACKUP_VERSION.to_le_bytes())?;
+    sink.write_all(&nonce)?;
 
-pub struct ArchiveExporter {
-    stage: Stage,
-    metadata: BackupMetadataSave,
-    elements: vec::IntoIter<BackupElement>,
-    position: usize,
-    zstd_encoder: ZstdEncoder<Vec<u8>>,
-    encoder_finished: bool,
-
-    cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
-    nonce: GenericArray<u8, typenum::U12>,
-
-    // Used to write the nonce, contains the same data as nonce.
-    nonce_buffer: Vec<u8>,
-}
-
-#[derive(Default)]
-pub(super) enum Stage {
-    #[default]
-    Nonce,
-    Metadata,
-    Elements,
-}
-
-impl ArchiveExporter {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub async fn export_to_file(
-        options: ArchiveOptions,
-        db: impl ConnectionExt,
-        path: impl AsRef<std::path::Path>,
-        key: &[u8],
-    ) -> Result<BackupMetadataSave, ArchiveError> {
-        let mut exporter = Self::new(options, db, key)?;
-        exporter.write_to_file(path).await?;
-
-        Ok(exporter.metadata)
-    }
-
-    /// Reads the snapshot of everything `options` selects, measured at one
-    /// export time, before producing any archive byte. Fails, rather than
-    /// omitting it, when a selected record cannot be read.
-    pub fn new(
-        options: ArchiveOptions,
-        db: impl ConnectionExt,
-        key: &[u8],
-    ) -> Result<Self, ArchiveError> {
-        let exported_at_ns = now_ns();
-        let elements = snapshot::read(&db, &options, exported_at_ns)?;
-        let mut nonce_buffer = BACKUP_VERSION.to_le_bytes().to_vec();
-        let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
-        nonce_buffer.extend_from_slice(&nonce);
-
-        Ok(Self {
-            position: 0,
-            stage: Stage::default(),
-            elements: elements.into_iter(),
-            metadata: BackupMetadataSave {
-                elements: options
-                    .elements
-                    .into_iter()
-                    .map(|e| BackupElementSelectionProto::from(e) as i32)
-                    .collect(),
-                exported_at_ns,
-                start_ns: options.start_ns,
-                end_ns: options.end_ns,
-            },
-            zstd_encoder: ZstdEncoder::new(Vec::new()),
-            encoder_finished: false,
-
-            #[allow(deprecated)]
-            cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
-            #[allow(deprecated)]
-            nonce: GenericArray::clone_from_slice(&nonce),
-            nonce_buffer,
-        })
-    }
-
-    pub fn metadata(&self) -> &BackupMetadataSave {
-        &self.metadata
-    }
-}
-
-// The reason this is future_util's AsyncRead and not tokio's AsyncRead
-// is because we need this to work on WASM, and tokio's AsyncRead makes
-// some assumptions about having access to std::fs, which WASM does not have.
-//
-// To get around this, we implement AsyncRead using future_util, and use a
-// compat layer from tokio_util to be able to interact with it in tokio.
-impl AsyncRead for ArchiveExporter {
-    /// This function encrypts first, and compresses second.
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        let this = self.get_mut();
-        loop {
-            // Putting this up here because we don't want to encrypt or compress the nonce.
-            if matches!(this.stage, Stage::Nonce) {
-                let amount = this.nonce_buffer.len().min(buf.len());
-                let nonce_bytes: Vec<_> = this.nonce_buffer.drain(..amount).collect();
-                buf[..amount].copy_from_slice(&nonce_bytes);
-
-                if this.nonce_buffer.is_empty() {
-                    this.stage = Stage::Metadata;
-                }
-                return Poll::Ready(Ok(amount));
-            }
-
-            {
-                // Read from the buffer while there is data
-                let buffer_inner = this.zstd_encoder.get_ref();
-                if this.position < buffer_inner.len() {
-                    let available = &buffer_inner[this.position..];
-                    let amount = available.len().min(buf.len());
-                    buf[..amount].copy_from_slice(&available[..amount]);
-                    this.position += amount;
-
-                    return Poll::Ready(Ok(amount));
-                }
-            }
-
-            // The buffer is consumed. Reset.
-            this.position = 0;
-            this.zstd_encoder.get_mut().clear();
-
-            // Time to fill the buffer with more data 8kb at a time.
-            while this.zstd_encoder.get_ref().len() < 8_000 {
-                let element = match this.stage {
-                    Stage::Nonce => {
-                        // Should never get here due to the above logic. Error if it does.
-                        unreachable!("Nonce should not be the stage here.");
-                    }
-                    Stage::Metadata => {
-                        this.stage = Stage::Elements;
-                        BackupElement {
-                            element: Some(Element::Metadata(this.metadata.clone())),
-                        }
-                        .encode_to_vec()
-                    }
-                    Stage::Elements => match this.elements.next() {
-                        Some(element) => element.encode_to_vec(),
-                        None => {
-                            if !this.encoder_finished {
-                                this.encoder_finished = true;
-                                let fut = this.zstd_encoder.close();
-                                pin_mut!(fut);
-                                let _ = fut.poll(cx)?;
-                            }
-                            break;
-                        }
-                    },
-                };
-
-                let mut element = this
-                    .cipher
-                    .encrypt(&this.nonce, &*element)
-                    .expect("Encryption should always work");
-                let mut bytes = (element.len() as u32).to_le_bytes().to_vec();
-                bytes.append(&mut element);
-                this.nonce.increment();
-
-                let fut = this.zstd_encoder.write(&bytes);
-                pin_mut!(fut);
-                match fut.poll(cx) {
-                    Poll::Ready(Ok(_amt)) => {}
-                    Poll::Ready(Err(err)) => return Poll::Ready(Err(err)),
-                    Poll::Pending => return Poll::Pending,
-                }
-            }
-
-            // Flush the encoder
-            if !this.encoder_finished {
-                let fut = this.zstd_encoder.flush();
-                pin_mut!(fut);
-                let _ = fut.poll(cx)?;
-            }
-
-            if this.zstd_encoder.get_ref().is_empty() {
-                return Poll::Ready(Ok(0));
-            }
+    #[allow(deprecated)]
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
+    #[allow(deprecated)]
+    let mut nonce = GenericArray::clone_from_slice(&nonce);
+    let mut zstd = ZstdEncoder::new(AllowStdIo::new(sink));
+    let mut write = |element: Element| -> Result<(), ArchiveError> {
+        let plaintext = BackupElement {
+            element: Some(element),
         }
+        .encode_to_vec();
+        let ciphertext = cipher.encrypt(&nonce, &*plaintext)?;
+        nonce.increment();
+        ready(zstd.write_all(&(ciphertext.len() as u32).to_le_bytes()))?;
+        Ok(ready(zstd.write_all(&ciphertext))?)
+    };
+    write(Element::Metadata(metadata.clone()))?;
+    snapshot::read(&db, &options, exported_at_ns, write)?;
+    ready(zstd.close())?;
+    Ok(metadata)
+}
+
+/// Exports to a new file at `path`, as [`export`], and removes the file if the
+/// export fails.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn export_to_file(
+    options: ArchiveOptions,
+    db: impl ConnectionExt,
+    path: impl AsRef<std::path::Path>,
+    key: &[u8],
+) -> Result<BackupMetadataSave, ArchiveError> {
+    let path = path.as_ref();
+    let mut file = io::BufWriter::new(std::fs::File::create(path)?);
+    let exported = export(options, db, key, &mut file).and_then(|metadata| {
+        io::Write::flush(&mut file)?;
+        Ok(metadata)
+    });
+    if exported.is_err() {
+        drop(file);
+        let _ = std::fs::remove_file(path);
     }
+    exported
+}
+
+/// Resolves an encoder operation over a synchronous sink, which never pends.
+fn ready(op: impl Future<Output = io::Result<()>>) -> io::Result<()> {
+    op.now_or_never().unwrap_or_else(|| {
+        Err(io::Error::other(
+            "synchronous archive sink returned pending",
+        ))
+    })
 }
