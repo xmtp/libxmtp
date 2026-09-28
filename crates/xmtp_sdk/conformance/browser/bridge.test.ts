@@ -1,24 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import {
-  Message,
-  registerClient,
-} from "../../../../target/sdk-generated/typescript-wasm/host-message.gen.js";
-import type { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
-import {
-  Compression,
-  CredentialError_Tags,
-  EncodedContent,
-  ErrorCategory,
-  MessageContent,
-  MessageID,
-  ListenerError_Tags,
-  LogSinkError_Tags,
-  PreAuthenticateError_Tags,
-  SignerError_Tags,
-  XmtpError_Tags,
-  type MessageData,
-  type SendOptions,
-} from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
 
 import {
   ValueCodec,
@@ -51,6 +31,25 @@ import {
   poolName,
   type LockProvider,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
+import {
+  Message,
+  registerClient,
+} from "../../../../target/sdk-generated/typescript-wasm/host-message.gen.js";
+import type { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
+import {
+  Compression,
+  CredentialError_Tags,
+  EncodedContent,
+  ErrorCategory,
+  MessageContent,
+  ListenerError_Tags,
+  LogSinkError_Tags,
+  PreAuthenticateError_Tags,
+  SignerError_Tags,
+  XmtpError_Tags,
+  type MessageData,
+  type SendOptions,
+} from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
 
 class Endpoint implements WireEndpoint {
   peer?: Endpoint;
@@ -124,7 +123,11 @@ async function withoutUnhandledRejections(
 
 function stringKeys(value: object): string[] {
   const keys: string[] = [];
-  for (let item: object | null = value; item; item = Object.getPrototypeOf(item))
+  for (
+    let item: object | null = value;
+    item;
+    item = Object.getPrototypeOf(item)
+  )
     keys.push(...Object.getOwnPropertyNames(item));
   return keys;
 }
@@ -159,8 +162,31 @@ describe("browser bridge transport", () => {
     }
   });
 
+  it("keeps InvalidArgument from validated ID lift failures", () => {
+    const cause =
+      'invalid argument: ErrorDetails { code: "InvalidArgument", category: Input, retryable: false, message: "invalid lowercase hex ID" }';
+    const malformed = new Error(
+      `Failed to convert arg 'id':\nLifting custom type \`xmtp_sdk::ids::MessageId\` from FFI type \`alloc::string::String\` failed\n\nCaused by:\n    ${cause}`,
+    );
+    expect(encodeError(malformed)).toMatchObject({
+      variant: "InvalidArgument",
+      code: "InvalidArgument",
+      category: ErrorCategory.Input,
+      retryable: false,
+      details: [{ code: "InvalidArgument", category: ErrorCategory.Input }],
+    });
+    expect(
+      encodeError(new Error(`Lifting custom type \`OtherId\` failed: ${cause}`))
+        .code,
+    ).toBe("Unknown");
+  });
+
   it("uses the numeric Lifecycle category for transport errors", () => {
-    for (const code of ["contractMismatch", "workerTerminated", "cancelled"] as const)
+    for (const code of [
+      "contractMismatch",
+      "workerTerminated",
+      "cancelled",
+    ] as const)
       expect(bridgeError(code).category).toBe(6);
   });
   it("uses the Rust ClientClosed fields for bridge lifecycle errors", () => {
@@ -266,14 +292,14 @@ describe("browser bridge transport", () => {
           options: unknown,
         ) => {
           sent.push(options);
-          return MessageID.fromRust("01".repeat(32));
+          return "01".repeat(32);
         },
       }),
     } as unknown as Client;
     registerClient(session, client, []);
     const message = new Message(
       {
-        id: MessageID.fromRust("00".repeat(32)),
+        id: "00".repeat(32),
         clientKey: 7n,
         content: MessageContent.Text.new("parent"),
       } as MessageData,
@@ -281,8 +307,8 @@ describe("browser bridge transport", () => {
     );
     const content = EncodedContent.create({
       type: {
-        authorityID: "xmtp.org",
-        typeID: "text",
+        authorityId: "xmtp.org",
+        typeId: "text",
         versionMajor: 1,
         versionMinor: 0,
       },
@@ -309,7 +335,11 @@ describe("browser bridge transport", () => {
   });
 
   it("encodes a Bytes view as an ArrayBuffer with only the view bytes", () => {
-    const encoder = new ValueCodec({ records: {}, enums: {} }, "main", "encode");
+    const encoder = new ValueCodec(
+      { records: {}, enums: {} },
+      "main",
+      "encode",
+    );
     const view = new Uint8Array([9, 1, 2, 3, 9]).subarray(1, 4);
     const encoded = encoder.convert({ kind: "value", type: "Bytes" }, view);
     expect(encoded).toBeInstanceOf(ArrayBuffer);
@@ -1066,7 +1096,10 @@ describe("browser bridge transport", () => {
       "opfs-directory",
     );
     expect(
-      poolName({ storage: { location: { tag: "InMemory" } } }, "opfs-directory"),
+      poolName(
+        { storage: { location: { tag: "InMemory" } } },
+        "opfs-directory",
+      ),
     ).toBeUndefined();
   });
 

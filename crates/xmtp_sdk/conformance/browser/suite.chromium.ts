@@ -10,15 +10,13 @@ import {
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import {
-  Backend,
-} from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import {
   Client,
   ConversationStream,
   EventStream,
   Message,
   MessageStream,
 } from "../../../../target/sdk-generated/typescript-wasm/index";
+import { Backend } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
@@ -196,8 +194,12 @@ export async function runBrowserBridgeConformance(
     const clientOptions = options(databasePath, backendURL);
     client = await Client.create(session, mainSigner, clientOptions);
     expect(mainSigner.didReenter(), "signer did not reenter the SDK");
-    const inboxID = client.inboxID();
-    equal(await client.isRegistered(), true, "created client was not registered");
+    const inboxId = client.inboxId();
+    equal(
+      await client.isRegistered(),
+      true,
+      "created client was not registered",
+    );
     equal(await client.storage().path(), databasePath, "OPFS path changed");
     expect(client.libxmtpVersion().length > 0, "missing SDK version");
     await client.end();
@@ -210,15 +212,22 @@ export async function runBrowserBridgeConformance(
         error.inner[0].retryable === false,
       "ended client accepted a call",
     );
-    reopened = await Client.build(session, identity, clientOptions, inboxID);
-    equal(reopened.inboxID().toString(), inboxID.toString(), "inbox changed");
+    reopened = await Client.build(session, identity, clientOptions, inboxId);
+    equal(reopened.inboxId().toString(), inboxId.toString(), "inbox changed");
+    await checkError(
+      () => reopened!.conversations().getMessageById("bad"),
+      (error) =>
+        B.XmtpError.InvalidArgument.instanceOf(error) &&
+        error.inner[0].code === "InvalidArgument",
+      "browser worker accepted a malformed message ID",
+    );
     const firstGroup = await reopened
       .conversations()
       .createGroup([], undefined);
-    const sentID = await firstGroup.sendText("bridge browser", undefined);
+    const sentId = await firstGroup.sendText("bridge browser", undefined);
     expect(
       (await firstGroup.messages(undefined)).some(
-        (message) => message.id.toString() === sentID.toString(),
+        (message) => message.id.toString() === sentId.toString(),
       ),
       "sent message was not read from SQLite",
     );
@@ -284,9 +293,9 @@ export async function runBrowserBridgeConformance(
     );
     results.push("scenario 4: create and list a group");
 
-    const parentID = await group.sendText("parent", undefined);
-    const reactionID = await reopened.conversations().reactToMessage(
-      parentID,
+    const parentId = await group.sendText("parent", undefined);
+    const reactionId = await reopened.conversations().reactToMessage(
+      parentId,
       {
         content: "ok",
         action: B.ReactionAction.Added,
@@ -294,47 +303,61 @@ export async function runBrowserBridgeConformance(
       },
       undefined,
     );
-    const replyID = await reopened
+    const replyId = await reopened
       .conversations()
-      .replyToMessage(parentID, Pure.encodeText("reply"), undefined);
-    const markdownID = await group.sendMarkdown("**markdown**", undefined);
-    const receiptID = await group.sendReadReceipt(undefined);
+      .replyToMessage(parentId, Pure.encodeText("reply"), undefined);
+    const markdownId = await group.sendMarkdown("**markdown**", undefined);
+    const receiptId = await group.sendReadReceipt(undefined);
     const parent = (await group.messages(undefined)).find(
-      (message) => message.id.toString() === parentID.toString(),
+      (message) => message.id.toString() === parentId.toString(),
     );
-    const reply = await reopened.conversations().getMessageByID(replyID);
+    const reply = await reopened.conversations().getMessageById(replyId);
     expect(parent, "parent message was not read");
     expect(reply, "reply message was not read");
-    expect(parent instanceof Message, "list message was not lifted to the host");
-    expect(reply instanceof Message, "optional message was not lifted to the host");
+    expect(
+      parent instanceof Message,
+      "list message was not lifted to the host",
+    );
+    expect(
+      reply instanceof Message,
+      "optional message was not lifted to the host",
+    );
     equal(
       (await reopened.decodeContent(parent.encoded)).tag,
       Pure.StandardContent_Tags.Text,
       "pure WASM did not decode the message",
     );
-    equal(parent.content.tag, B.MessageContent_Tags.Text, "host content changed");
+    equal(
+      parent.content.tag,
+      B.MessageContent_Tags.Text,
+      "host content changed",
+    );
     if (parent.content.tag === B.MessageContent_Tags.Text)
       equal(parent.content.inner[0], "parent", "host text was not decoded");
-    const hostReactionID = await parent.react({
+    const hostReactionId = await parent.react({
       content: "host",
       action: B.ReactionAction.Added,
       schema: B.ReactionSchema.Unicode,
     });
-    expect(hostReactionID.toString().length > 0, "host action did not send");
-    expect(markdownID.toString().length > 0, "markdown was not sent");
-    expect(receiptID.toString().length > 0, "read receipt was not sent");
+    expect(hostReactionId.toString().length > 0, "host action did not send");
+    expect(markdownId.toString().length > 0, "markdown was not sent");
+    expect(receiptId.toString().length > 0, "read receipt was not sent");
     equal(
       parent.reactions[0]?.id.toString(),
-      reactionID.toString(),
+      reactionId.toString(),
       "reaction missing",
     );
     equal(parent.replyCount, 1n, "reply count changed");
     equal(
       reply.inReplyTo?.id.toString(),
-      parentID.toString(),
+      parentId.toString(),
       "reply parent changed",
     );
-    equal(reply.replyContent?.tag, B.MessageBody_Tags.Text, "reply body changed");
+    equal(
+      reply.replyContent?.tag,
+      B.MessageBody_Tags.Text,
+      "reply body changed",
+    );
     if (reply.replyContent?.tag === B.MessageBody_Tags.Text)
       equal(reply.replyContent.inner[0], "reply", "reply body was not decoded");
     equal(
@@ -348,12 +371,15 @@ export async function runBrowserBridgeConformance(
         "parent",
         "parent body was not decoded",
       );
-    expect((await parent.reply("host reply")).toString().length > 0, "host reply did not send");
+    expect(
+      (await parent.reply("host reply")).toString().length > 0,
+      "host reply did not send",
+    );
     results.push("scenario 5: text, markdown, receipt, reaction, and reply");
 
-    const customType = B.ContentTypeID.create({
-      authorityID: "example.org",
-      typeID: "bridge-conformance",
+    const customType = B.ContentTypeId.create({
+      authorityId: "example.org",
+      typeId: "bridge-conformance",
       versionMajor: 1,
       versionMinor: 0,
     });
@@ -370,9 +396,9 @@ export async function runBrowserBridgeConformance(
         return new TextDecoder().decode(value.content);
       },
     };
-    const failingType = B.ContentTypeID.create({
-      authorityID: "example.org",
-      typeID: "bridge-failing",
+    const failingType = B.ContentTypeId.create({
+      authorityId: "example.org",
+      typeId: "bridge-failing",
       versionMajor: 1,
       versionMinor: 0,
     });
@@ -388,15 +414,15 @@ export async function runBrowserBridgeConformance(
         throw new Error("bad custom payload");
       },
     };
-    const collisionRegisteredType = B.ContentTypeID.create({
-      authorityID: "example.org",
-      typeID: "a/b",
+    const collisionRegisteredType = B.ContentTypeId.create({
+      authorityId: "example.org",
+      typeId: "a/b",
       versionMajor: 1,
       versionMinor: 0,
     });
-    const collisionOtherType = B.ContentTypeID.create({
-      authorityID: "example.org/a",
-      typeID: "b",
+    const collisionOtherType = B.ContentTypeId.create({
+      authorityId: "example.org/a",
+      typeId: "b",
       versionMajor: 1,
       versionMinor: 0,
     });
@@ -420,9 +446,15 @@ export async function runBrowserBridgeConformance(
       },
       codecs: [customCodec, failingCodec, collisionCodec],
     };
-    const customOwner = await Client.create(session, signer(session), customOptions);
-    const customGroup = await customOwner.conversations().createGroup([], undefined);
-    const customID = await customGroup.send(
+    const customOwner = await Client.create(
+      session,
+      signer(session),
+      customOptions,
+    );
+    const customGroup = await customOwner
+      .conversations()
+      .createGroup([], undefined);
+    const customId = await customGroup.send(
       B.EncodedContent.create({
         type: customType,
         parameters: new Map([["source", "browser"]]),
@@ -431,30 +463,58 @@ export async function runBrowserBridgeConformance(
       }),
       undefined,
     );
-    const custom = await customOwner.conversations().getMessageByID(customID);
+    const custom = await customOwner.conversations().getMessageById(customId);
     expect(custom, "custom message was not read");
-    expect(custom instanceof Message, "custom message was not lifted to the host");
+    expect(
+      custom instanceof Message,
+      "custom message was not lifted to the host",
+    );
     equal(custom.encoded.fallback, "custom", "custom fallback was lost");
     equal(custom.encoded.parameters.get("source"), "browser", "map was lost");
-    equal(new TextDecoder().decode(custom.encoded.content), "custom browser value", "custom bytes changed");
-    equal(custom.content.tag, B.MessageContent_Tags.Custom, "custom tag changed");
+    equal(
+      new TextDecoder().decode(custom.encoded.content),
+      "custom browser value",
+      "custom bytes changed",
+    );
+    equal(
+      custom.content.tag,
+      B.MessageContent_Tags.Custom,
+      "custom tag changed",
+    );
     if (custom.data.content.tag !== B.MessageContent_Tags.Custom)
       throw new Error("stored custom content changed tag");
     if (custom.content.tag === B.MessageContent_Tags.Custom) {
-      equal(custom.content.inner.value, "custom browser value", "host custom content failed");
-      expect(custom.content.inner.rawBytes.byteLength > 0, "custom raw bytes were empty");
+      equal(
+        custom.content.inner.value,
+        "custom browser value",
+        "host custom content failed",
+      );
+      expect(
+        custom.content.inner.rawBytes.byteLength > 0,
+        "custom raw bytes were empty",
+      );
       equal(
         new Uint8Array(custom.content.inner.rawBytes).toString(),
         new Uint8Array(custom.data.content.inner.rawBytes).toString(),
         "custom raw bytes changed",
       );
     }
-    const customReplyID = await custom.reply(customCodec, "custom reply");
-    const customReply = await customOwner.conversations().getMessageByID(customReplyID);
+    const customReplyId = await custom.reply(customCodec, "custom reply");
+    const customReply = await customOwner
+      .conversations()
+      .getMessageById(customReplyId);
     expect(customReply instanceof Message, "custom reply was not lifted");
-    equal(customReply.replyContent?.tag, B.MessageBody_Tags.Custom, "custom reply tag changed");
+    equal(
+      customReply.replyContent?.tag,
+      B.MessageBody_Tags.Custom,
+      "custom reply tag changed",
+    );
     if (customReply.replyContent?.tag === B.MessageBody_Tags.Custom)
-      equal(customReply.replyContent.inner.value, "custom reply", "custom reply decode failed");
+      equal(
+        customReply.replyContent.inner.value,
+        "custom reply",
+        "custom reply decode failed",
+      );
     const alternateCodec = {
       ...customCodec,
       decode(): string {
@@ -465,79 +525,144 @@ export async function runBrowserBridgeConformance(
       ...customOptions,
       codecs: [alternateCodec],
     });
-    const alternateGroup = await alternateOwner.conversations().createGroup([], undefined);
-    const alternateID = await alternateGroup.send(customCodec.encode("same type"), undefined);
-    const alternate = await alternateOwner.conversations().getMessageByID(alternateID);
-    expect(alternate instanceof Message, "second client's message was not lifted");
+    const alternateGroup = await alternateOwner
+      .conversations()
+      .createGroup([], undefined);
+    const alternateId = await alternateGroup.send(
+      customCodec.encode("same type"),
+      undefined,
+    );
+    const alternate = await alternateOwner
+      .conversations()
+      .getMessageById(alternateId);
+    expect(
+      alternate instanceof Message,
+      "second client's message was not lifted",
+    );
     if (alternate.content.tag === B.MessageContent_Tags.Custom)
-      equal(alternate.content.inner.value, "other client", "codec leaked across clients");
+      equal(
+        alternate.content.inner.value,
+        "other client",
+        "codec leaked across clients",
+      );
     else throw new Error("second client's custom content changed tag");
-    const originalAgain = await customOwner.conversations().getMessageByID(customID);
-    expect(originalAgain instanceof Message, "first client's message was not lifted");
+    const originalAgain = await customOwner
+      .conversations()
+      .getMessageById(customId);
+    expect(
+      originalAgain instanceof Message,
+      "first client's message was not lifted",
+    );
     if (originalAgain.content.tag === B.MessageContent_Tags.Custom)
-      equal(originalAgain.content.inner.value, "custom browser value", "first codec was replaced");
+      equal(
+        originalAgain.content.inner.value,
+        "custom browser value",
+        "first codec was replaced",
+      );
     else throw new Error("first client's custom content changed tag");
     await alternateOwner.end();
-    const unknownType = B.ContentTypeID.create({
-      authorityID: "example.org",
-      typeID: "bridge-unknown",
+    const unknownType = B.ContentTypeId.create({
+      authorityId: "example.org",
+      typeId: "bridge-unknown",
       versionMajor: 1,
       versionMinor: 0,
     });
-    const unknownID = await customGroup.send(
+    const unknownId = await customGroup.send(
       B.EncodedContent.create({
         type: unknownType,
         content: new Uint8Array([1, 2, 3]).buffer,
       }),
       undefined,
     );
-    const unknown = await customOwner.conversations().getMessageByID(unknownID);
+    const unknown = await customOwner.conversations().getMessageById(unknownId);
     expect(unknown, "unknown content was not read");
     expect(unknown instanceof Message, "unknown content was not lifted");
-    equal(unknown.content.tag, B.MessageContent_Tags.Unknown, "unknown content tag changed");
+    equal(
+      unknown.content.tag,
+      B.MessageContent_Tags.Unknown,
+      "unknown content tag changed",
+    );
     if (unknown.data.content.tag !== B.MessageContent_Tags.Custom)
       throw new Error("stored unknown content changed tag");
     if (unknown.content.tag === B.MessageContent_Tags.Unknown) {
-      expect(unknown.content.inner.rawBytes.byteLength > 0, "unknown raw bytes were empty");
+      expect(
+        unknown.content.inner.rawBytes.byteLength > 0,
+        "unknown raw bytes were empty",
+      );
       equal(
         new Uint8Array(unknown.content.inner.rawBytes).toString(),
         new Uint8Array(unknown.data.content.inner.rawBytes).toString(),
         "unknown raw bytes changed",
       );
     }
-    const unknownReplyID = await unknown.reply(
-      B.EncodedContent.create({ type: unknownType, content: new Uint8Array([4]).buffer }),
+    const unknownReplyId = await unknown.reply(
+      B.EncodedContent.create({
+        type: unknownType,
+        content: new Uint8Array([4]).buffer,
+      }),
       undefined,
     );
-    const unknownReply = await customOwner.conversations().getMessageByID(unknownReplyID);
+    const unknownReply = await customOwner
+      .conversations()
+      .getMessageById(unknownReplyId);
     expect(unknownReply instanceof Message, "unknown reply was not lifted");
-    equal(unknownReply.replyContent?.tag, B.MessageBody_Tags.Unknown, "unknown reply body changed tag");
-    const failingID = await customGroup.send(failingCodec.encode("bad"), undefined);
-    const failed = await customOwner.conversations().getMessageByID(failingID);
+    equal(
+      unknownReply.replyContent?.tag,
+      B.MessageBody_Tags.Unknown,
+      "unknown reply body changed tag",
+    );
+    const failingId = await customGroup.send(
+      failingCodec.encode("bad"),
+      undefined,
+    );
+    const failed = await customOwner.conversations().getMessageById(failingId);
     expect(failed, "failed custom content was not read");
     expect(failed instanceof Message, "failed custom content was not lifted");
     if (failed.content.tag === B.MessageContent_Tags.Custom)
-      expect(failed.content.inner.error?.includes("bad custom payload"), "codec error was lost");
+      expect(
+        failed.content.inner.error?.includes("bad custom payload"),
+        "codec error was lost",
+      );
     else throw new Error("failed custom content changed tag");
-    const collisionID = await customGroup.send(
+    const collisionId = await customGroup.send(
       B.EncodedContent.create({
         type: collisionOtherType,
         content: new Uint8Array([9]).buffer,
       }),
       undefined,
     );
-    const collision = await customOwner.conversations().getMessageByID(collisionID);
+    const collision = await customOwner
+      .conversations()
+      .getMessageById(collisionId);
     expect(collision, "colliding content was not read");
     expect(collision instanceof Message, "colliding content was not lifted");
-    equal(collision.content.tag, B.MessageContent_Tags.Unknown, "colliding content changed tag");
+    equal(
+      collision.content.tag,
+      B.MessageContent_Tags.Unknown,
+      "colliding content changed tag",
+    );
     if (collision.content.tag === B.MessageContent_Tags.Unknown)
-      expect(collision.content.inner.rawBytes.byteLength > 0, "colliding raw bytes were empty");
+      expect(
+        collision.content.inner.rawBytes.byteLength > 0,
+        "colliding raw bytes were empty",
+      );
     await customOwner.end();
     const closedMessage = new Message(custom.data, session);
-    equal(closedMessage.content.tag, B.MessageContent_Tags.Custom, "closed client's content changed tag");
+    equal(
+      closedMessage.content.tag,
+      B.MessageContent_Tags.Custom,
+      "closed client's content changed tag",
+    );
     if (closedMessage.content.tag === B.MessageContent_Tags.Custom) {
-      equal(closedMessage.content.inner.error, "clientClosed", "closed client error was lost");
-      expect(closedMessage.content.inner.rawBytes.byteLength > 0, "closed client raw bytes were empty");
+      equal(
+        closedMessage.content.inner.error,
+        "clientClosed",
+        "closed client error was lost",
+      );
+      expect(
+        closedMessage.content.inner.rawBytes.byteLength > 0,
+        "closed client raw bytes were empty",
+      );
     }
     results.push("scenario 6: custom codec registry, unknown codec, and error");
 
@@ -546,12 +671,15 @@ export async function runBrowserBridgeConformance(
       .createGroup([], undefined);
     const reader = await readerGroup.messageReader();
     const next = reader.next();
-    const readerID = await readerGroup.sendText("raw reader smoke", undefined);
+    const readerId = await readerGroup.sendText("raw reader smoke", undefined);
     const nextMessage = await next;
-    expect(nextMessage instanceof Message, "reader message was not lifted to the host");
+    expect(
+      nextMessage instanceof Message,
+      "reader message was not lifted to the host",
+    );
     equal(
       nextMessage?.id.toString(),
-      readerID.toString(),
+      readerId.toString(),
       "raw reader missed the message",
     );
     await reader.end();
@@ -568,7 +696,7 @@ export async function runBrowserBridgeConformance(
     );
     equal(
       (await messageStream.next()).value?.id.toString(),
-      readerID.toString(),
+      readerId.toString(),
       "reader did not replay its unacknowledged message",
     );
     // The first state is the one read at subscription, which the
@@ -589,34 +717,39 @@ export async function runBrowserBridgeConformance(
     );
     equal(
       (await replay.next()).value?.id.toString(),
-      readerID.toString(),
+      readerId.toString(),
       "closing the stream acknowledged the last message",
     );
     const pendingMessage = replay.next();
-    const nextID = await readerGroup.sendText("next request", undefined);
+    const nextId = await readerGroup.sendText("next request", undefined);
     equal(
       (await pendingMessage).value?.id.toString(),
-      nextID.toString(),
+      nextId.toString(),
       "next request did not receive the new message",
     );
     const idleRead = replay.next();
     await replay.return();
     equal((await idleRead).done, true, "idle read did not cancel");
-    const conversationStream = ConversationStream.openBrowser(
-      reopened,
-      { consentStates: [B.ConsentState.Unknown, B.ConsentState.Allowed] },
-    );
+    const conversationStream = ConversationStream.openBrowser(reopened, {
+      consentStates: [B.ConsentState.Unknown, B.ConsentState.Allowed],
+    });
     await conversationStream.ready();
     const denied = await reopened.conversations().createGroup([], undefined);
     await reopened.preferences().setConsentStates([
       {
-        entity: B.ConsentEntity.Conversation.new({ conversationID: denied.id() }),
+        entity: B.ConsentEntity.Conversation.new({
+          conversationId: denied.id(),
+        }),
         state: B.ConsentState.Denied,
       },
     ]);
     const allowed = await reopened.conversations().createGroup([], undefined);
     const selected = (await conversationStream.next()).value;
-    equal(selected?.tag, B.Conversation_Tags.Group, "conversation reader tag changed");
+    equal(
+      selected?.tag,
+      B.Conversation_Tags.Group,
+      "conversation reader tag changed",
+    );
     if (selected?.tag === B.Conversation_Tags.Group)
       equal(
         selected.inner.group.id().toString(),
@@ -624,19 +757,25 @@ export async function runBrowserBridgeConformance(
         "conversation reader did not apply consentStates",
       );
     await conversationStream.end();
-    results.push("scenario 7: message and conversation readers, consentStates, connection state, onClose, and idle cancellation");
+    results.push(
+      "scenario 7: message and conversation readers, consentStates, connection state, onClose, and idle cancellation",
+    );
 
     const eventFilter: B.EventFilter = {
       kinds: [B.EventKind.ConversationJoined],
-      conversationIDs: undefined,
+      conversationIds: undefined,
       contentTypes: undefined,
       referencesOwnMessages: false,
     };
     const eventReader = await reopened.events(eventFilter);
     let listenerCalls = 0;
-    const listenerID = await reopened.startListener(eventFilter, {
+    const listenerId = await reopened.startListener(eventFilter, {
       async onEvent(event) {
-        equal(event.tag, B.ClientEvent_Tags.ConversationJoined, "listener event changed");
+        equal(
+          event.tag,
+          B.ClientEvent_Tags.ConversationJoined,
+          "listener event changed",
+        );
         listenerCalls += 1;
       },
     });
@@ -649,7 +788,7 @@ export async function runBrowserBridgeConformance(
     for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
       await new Promise<void>((resolve) => setTimeout(resolve, 10));
     equal(listenerCalls, 1, "listener missed the join");
-    await reopened.stopListener(listenerID);
+    await reopened.stopListener(listenerId);
     await eventReader.end();
     const eventStream = new EventStream(await reopened.events(eventFilter));
     await reopened.conversations().createGroup([], undefined);
@@ -689,11 +828,11 @@ export async function runBrowserBridgeConformance(
     });
     const owedGroup = await peer
       .conversations()
-      .createGroup([reopened.inboxID()], undefined);
+      .createGroup([reopened.inboxId()], undefined);
     const owed = ["owed 0", "owed 1", "owed 2"];
     for (const text of owed) await owedGroup.sendText(text, undefined);
     equal(
-      await reopened.conversations().getByID(owedGroup.id()),
+      await reopened.conversations().getById(owedGroup.id()),
       undefined,
       "the group was known before catch-up",
     );
@@ -708,7 +847,7 @@ export async function runBrowserBridgeConformance(
       `catch-up counted ${catchUp.messages} messages`,
     );
     equal(catchUp.failed, 0n, "catch-up reported a failed group");
-    const joined = await reopened.conversations().getByID(owedGroup.id());
+    const joined = await reopened.conversations().getById(owedGroup.id());
     if (joined?.tag !== B.Conversation_Tags.Group)
       throw new Error("catch-up did not store the new group");
     const received = (await joined.inner.group.messages(undefined)).flatMap(
@@ -742,20 +881,35 @@ export async function runBrowserBridgeConformance(
         location: B.StorageLocation.Default.new(),
       },
     };
-    const defaultClient = await Client.create(session, defaultSigner, defaultOptions);
-    const defaultInboxID = defaultClient.inboxID();
+    const defaultClient = await Client.create(
+      session,
+      defaultSigner,
+      defaultOptions,
+    );
+    const defaultInboxId = defaultClient.inboxId();
     const defaultPath = await defaultClient.storage().path();
-    expect(defaultPath?.startsWith("xmtp-sdk/"), "default browser database is outside xmtp-sdk/");
+    expect(
+      defaultPath?.startsWith("xmtp-sdk/"),
+      "default browser database is outside xmtp-sdk/",
+    );
     await defaultClient.end();
     const reopenedDefault = await Client.build(
       session,
       defaultIdentity,
       defaultOptions,
-      defaultInboxID,
+      defaultInboxId,
     );
-    equal(await reopenedDefault.storage().path(), defaultPath, "default browser database path changed on reopen");
+    equal(
+      await reopenedDefault.storage().path(),
+      defaultPath,
+      "default browser database path changed on reopen",
+    );
     await reopenedDefault.end();
-    const keyOptions = options(`key-${crypto.randomUUID()}.db`, backendURL, false);
+    const keyOptions = options(
+      `key-${crypto.randomUUID()}.db`,
+      backendURL,
+      false,
+    );
     await checkError(
       async () => {
         const opened = await Client.create(session, signer(session), {
@@ -798,19 +952,15 @@ export async function runBrowserBridgeConformance(
     await unsigned.end();
     results.push("scenario 11: signature request through worker");
 
-    const second = await Client.create(
-      session,
-      mainSigner,
-      {
-        ...clientOptions,
-        storage: {
-          ...clientOptions.storage,
-          location: B.StorageLocation.Path.new(
-            `second-${crypto.randomUUID()}.db`,
-          ),
-        },
+    const second = await Client.create(session, mainSigner, {
+      ...clientOptions,
+      storage: {
+        ...clientOptions.storage,
+        location: B.StorageLocation.Path.new(
+          `second-${crypto.randomUUID()}.db`,
+        ),
       },
-    );
+    });
     // A second worker stands in for a second tab. While this worker holds
     // the origin lock, the other worker must not open the OPFS pool. SAH
     // contention in WASM is also StorageBusy, but only the lock refusal
@@ -862,7 +1012,6 @@ export async function runBrowserBridgeConformance(
     results.push(
       "smoke: two clients share a worker's lock; a second worker is StorageBusy",
     );
-
   } catch (error) {
     console.error(
       "browser stage",

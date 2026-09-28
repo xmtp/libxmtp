@@ -15,8 +15,8 @@ use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::subscriptions::local_delivery::LocalDeliveryError;
 
 use crate::{
-    BackendOptions, BackendSource, Client, ClientOptions, ConversationID, Credential,
-    CredentialError, CredentialSource, InboxID, MessageContent, MessageID, PublicIdentity,
+    BackendOptions, BackendSource, Client, ClientOptions, ConversationId, Credential,
+    CredentialError, CredentialSource, InboxId, MessageContent, MessageId, PublicIdentity,
     PublicIdentityKind, Signature, Signer, SignerError, SignerKind, SigningRequest,
     StorageLocation, StorageOptions, XmtpError, client::native_storage_path,
     credentials::AuthBridge, reader, signer,
@@ -191,7 +191,7 @@ async fn event_reader_and_listener_create_no_network_interest() {
         "held subscriptions"
     );
 
-    client.stop_listener(listener_id).await;
+    client.stop_listener(listener_id).await?;
     reader.end().await?;
     assert_eq!((api_counts(), lease_count()), baseline, "subscription end");
     client.end().await?;
@@ -696,7 +696,7 @@ async fn listener_calls_are_sequential() {
         Some(1)
     );
     assert_eq!(probe.maximum.load(Ordering::SeqCst), 1);
-    client.stop_listener(id).await;
+    client.stop_listener(id).await?;
     release.notify_one();
     other.end().await?;
     client.end().await?;
@@ -720,7 +720,7 @@ async fn listener_failure_contained() {
         tokio::time::timeout(Duration::from_secs(2), started.recv()).await?,
         Some(1)
     );
-    client.stop_listener(id).await;
+    client.stop_listener(id).await?;
     client.end().await?;
 }
 
@@ -744,7 +744,7 @@ async fn listener_reentrant_call_completes() {
         }
     })
     .await?;
-    client.stop_listener(id).await;
+    client.stop_listener(id).await?;
     client.end().await?;
 }
 
@@ -765,7 +765,9 @@ async fn no_call_after_stop_returns() {
     let (attempted, ready) = std::sync::mpsc::channel();
     let stopping = std::thread::spawn(move || {
         let _ = attempted.send(());
-        runtime.block_on(stopping_client.stop_listener(id));
+        runtime
+            .block_on(stopping_client.stop_listener(id))
+            .expect("stop listener");
     });
     ready.recv_timeout(Duration::from_secs(2))?;
     let stopping_client = client.clone();
@@ -773,7 +775,9 @@ async fn no_call_after_stop_returns() {
     let (attempted, ready) = std::sync::mpsc::channel();
     let stopping_again = std::thread::spawn(move || {
         let _ = attempted.send(());
-        runtime.block_on(stopping_client.stop_listener(id));
+        runtime
+            .block_on(stopping_client.stop_listener(id))
+            .expect("stop listener");
     });
     ready.recv_timeout(Duration::from_secs(2))?;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -862,7 +866,7 @@ async fn blocked_listener_counts_running_event_in_queue_bound() {
         ));
     })
     .await?;
-    client.stop_listener(id).await;
+    client.stop_listener(id).await?;
     client.end().await?;
 }
 
@@ -937,7 +941,11 @@ async fn end_racing_listener_stop_blocks_a_late_callback() {
     client.listeners.set_stop_hook_for_test(stop_hook.clone());
     let stopping_client = client.clone();
     let runtime = tokio::runtime::Handle::current();
-    let stopping = std::thread::spawn(move || runtime.block_on(stopping_client.stop_listener(id)));
+    let stopping = std::thread::spawn(move || {
+        runtime
+            .block_on(stopping_client.stop_listener(id))
+            .expect("stop listener");
+    });
     tokio::time::timeout(Duration::from_secs(5), stop_hook.arrived.notified()).await?;
 
     let end = tokio::time::timeout(Duration::from_secs(5), client.end()).await;
@@ -1539,7 +1547,7 @@ fn out_of_range_installation_time_does_not_fail_inbox_state() {
     let state = crate::InboxState::from_core(state, None)?;
     assert_eq!(state.installations.len(), 1);
     assert_eq!(
-        state.installations[0].created_at_ns,
+        state.installations[0].created_at,
         Some(crate::Timestamp(i64::MAX))
     );
 }
@@ -1591,7 +1599,7 @@ async fn backend_only_identity_and_message_queries() {
     let availability =
         crate::static_helpers::can_message_with_backend(source.clone(), vec![identity.clone()])
             .await?;
-    assert!(availability[0].can_message);
+    assert!(availability[&identity.identifier]);
     let states =
         crate::static_helpers::inbox_states_with_backend(source.clone(), vec![inbox.clone()])
             .await?;
@@ -1620,10 +1628,10 @@ async fn backend_only_identity_and_message_queries() {
     )
     .await?;
     assert_eq!(metadata.len(), 1);
-    assert_eq!(metadata[0].conversation_id, group.id());
-    assert!(metadata[0].created_at.0 > 0);
-    let first_metadata = metadata[0].created_at.0;
-    let first_sequence_id = metadata[0].sequence_id;
+    let group_id = group.id().0;
+    assert!(metadata[&group_id].created_at.0 > 0);
+    let first_metadata = metadata[&group_id].created_at.0;
+    let first_sequence_id = metadata[&group_id].sequence_id;
     group.send_text("newer metadata".into(), None).await?;
     let updated_metadata = tokio::time::timeout(Duration::from_secs(10), async {
         loop {
@@ -1633,7 +1641,7 @@ async fn backend_only_identity_and_message_queries() {
             )
             .await?;
             if metadata
-                .first()
+                .get(&group_id)
                 .is_some_and(|entry| entry.sequence_id > first_sequence_id)
             {
                 return Ok::<_, XmtpError>(metadata);
@@ -1643,8 +1651,8 @@ async fn backend_only_identity_and_message_queries() {
     })
     .await
     .expect("new message metadata was not visible")?;
-    assert!(updated_metadata[0].created_at.0 >= first_metadata);
-    assert!(updated_metadata[0].sequence_id > first_sequence_id);
+    assert!(updated_metadata[&group_id].created_at.0 >= first_metadata);
+    assert!(updated_metadata[&group_id].sequence_id > first_sequence_id);
     let connected_client = Client::build(
         client.identity(),
         ClientOptions {
@@ -1723,18 +1731,16 @@ async fn facade_authorization_and_installation_signatures() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn facade_key_package_statuses_keep_missing_entries() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let missing = crate::InstallationID::try_from("00".repeat(32))?;
+    let missing = crate::InstallationId::try_from("00".repeat(32))?;
     let own = client.installation_id();
     let entries = client
         .key_package_statuses(vec![own.clone(), missing.clone()])
         .await?;
     assert_eq!(entries.len(), 2);
-    assert_eq!(entries[0].installation_id, own);
-    assert!(entries[0].status.lifetime.is_some());
-    assert!(entries[0].status.validation_error.is_none());
-    assert_eq!(entries[1].installation_id, missing);
-    assert!(entries[1].status.lifetime.is_none());
-    assert!(entries[1].status.validation_error.is_some());
+    assert!(entries[&own.0].lifetime.is_some());
+    assert!(entries[&own.0].validation_error.is_none());
+    assert!(entries[&missing.0].lifetime.is_none());
+    assert!(entries[&missing.0].validation_error.is_some());
     client.end().await?;
 }
 
@@ -1746,7 +1752,7 @@ async fn facade_api_statistics_track_and_clear_requests() {
     client.conversations().create_group(vec![], None).await?;
     let can_message = client.can_message(vec![client.identity()]).await?;
     assert_eq!(can_message.len(), 1);
-    assert!(can_message[0].can_message);
+    assert!(can_message[&client.identity().identifier]);
     let api = diagnostics.api_statistics().await?;
     let identity = diagnostics.identity_statistics().await?;
     assert!(api.publish > 0);
@@ -1783,8 +1789,7 @@ async fn facade_message_counts_and_last_read_times() {
     a.conversations().sync_all(None).await?;
     let times = a_dm.last_read_times().await?;
     assert_eq!(times.len(), 1);
-    assert_eq!(times[0].inbox_id, b.inbox_id());
-    assert!(times[0].read_at.0 > 0);
+    assert!(times[&b.inbox_id().0].0 > 0);
     a.end().await?;
     b.end().await?;
 }
@@ -1817,13 +1822,10 @@ async fn facade_hmac_keys_include_duplicate_dms() {
     a.conversations().sync_all(None).await?;
     let keys = a.conversations().hmac_keys().await?;
     for id in [first.id(), second.id()] {
-        let entry = keys
-            .iter()
-            .find(|entry| entry.conversation_id == id)
-            .expect("duplicate DM must have HMAC keys");
-        assert_eq!(entry.keys.len(), 3);
-        assert!(entry.keys.iter().all(|key| key.key.len() == 42));
-        assert!(entry.keys.iter().all(|key| key.epoch >= 1));
+        let entry = keys.get(&id.0).expect("duplicate DM must have HMAC keys");
+        assert_eq!(entry.len(), 3);
+        assert!(entry.iter().all(|key| key.key.len() == 42));
+        assert!(entry.iter().all(|key| key.epoch >= 1));
     }
     a.end().await?;
     b.end().await?;
@@ -2471,7 +2473,7 @@ async fn raw_message_bytes_are_delivered_and_replayed_until_acknowledged() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let raw = b"\xff\x00 not an EncodedContent protobuf";
-    let id = MessageID::from_bytes(
+    let id = MessageId::from_bytes(
         &group
             .inner
             .send_message(raw, SendMessageOpts::default())
@@ -2627,7 +2629,6 @@ where
     }
 }
 
-// verifies: PROC-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn initial_connection_can_reconnect_before_connected() {
     use crate::ConnectionState;
@@ -2646,7 +2647,6 @@ async fn initial_connection_can_reconnect_before_connected() {
     );
 }
 
-// verifies: PROC-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_connection_state_waits_release_reader_workers() {
     use crate::ConnectionState;
@@ -2697,7 +2697,6 @@ async fn cancelled_connection_state_waits_release_reader_workers() {
     client.end().await?;
 }
 
-// verifies: PROC-023
 #[xmtp_common::test(unwrap_try = true)]
 async fn connection_state_across_toxiproxy_drop() {
     use crate::ConnectionState;
@@ -3567,14 +3566,23 @@ async fn signer_and_credential_calls_start_off_executor() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn message_ids_round_trip_hex() {
     let raw = xmtp_proto::types::GroupId::from([0xab; 16]);
-    let conversation = ConversationID::from(raw);
+    let conversation = ConversationId::from(raw);
     assert_eq!(conversation.0, "ab".repeat(16));
     assert_eq!(xmtp_proto::types::GroupId::try_from(conversation)?, raw);
-    let message = MessageID::from_bytes(&[0xcd; 32])?;
-    assert_eq!(MessageID::try_from(message.0.clone())?, message);
-    assert!(MessageID::try_from("CD".repeat(32)).is_err());
-    assert!(ConversationID::try_from("ab".repeat(15)).is_err());
-    assert!(InboxID::try_from(String::new()).is_err());
+    let message = MessageId::from_bytes(&[0xcd; 32])?;
+    assert_eq!(MessageId::try_from(message.0.clone())?, message);
+    assert!(matches!(
+        MessageId::try_from("CD".repeat(32)),
+        Err(XmtpError::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        ConversationId::try_from("ab".repeat(15)),
+        Err(XmtpError::InvalidArgument(_))
+    ));
+    assert!(matches!(
+        InboxId::try_from(String::new()),
+        Err(XmtpError::InvalidArgument(_))
+    ));
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -3629,12 +3637,12 @@ async fn conversation_list_state_and_last_activity() {
             ..Default::default()
         })?
         .into_iter()
-        .map(|item| ConversationID::from(item.group.group_id))
+        .map(|item| ConversationId::from(item.group.group_id))
         .collect::<Vec<_>>();
     assert_eq!(ids, core_ids);
-    let older_activity = older.last_activity_at_ns(None).await?.0;
+    let older_activity = older.last_activity_at(None).await?.0;
     assert_eq!(older_activity, stored_sent_at_ns);
-    let newer_activity = newer.last_activity_at_ns(None).await?.0;
+    let newer_activity = newer.last_activity_at(None).await?.0;
     let first_activity = if ids.first() == Some(&older.id()) {
         older_activity
     } else {
@@ -3649,13 +3657,13 @@ async fn conversation_list_state_and_last_activity() {
     };
     assert!(first_activity >= second_activity);
     assert_eq!(
-        older.last_activity_at_ns(Some(vec![])).await?,
+        older.last_activity_at(Some(vec![])).await?,
         older.created_at()
     );
     let text_type = crate::encode_text("filter".into())?.r#type;
     assert_eq!(
-        older.last_activity_at_ns(Some(vec![text_type])).await?,
-        older.last_activity_at_ns(None).await?
+        older.last_activity_at(Some(vec![text_type])).await?,
+        older.last_activity_at(None).await?
     );
 
     let ((snapshot, core_kv_reads), core_queries, core_writes) =
@@ -3745,7 +3753,7 @@ async fn encoded_sends_use_catalogue_push_defaults_and_explicit_override() {
         ReactionCodec::encode(reaction().into_proto(parent.clone(), client.inbox_id()))
             .map(Into::into)
     };
-    let stored_push = |id: &MessageID| {
+    let stored_push = |id: &MessageId| {
         client
             .inner
             .message(hex::decode(&id.0).expect("message ID"))
@@ -3798,7 +3806,7 @@ async fn encoded_sends_use_catalogue_push_defaults_and_explicit_override() {
 async fn assert_undecodable_standard_read_paths(
     client: &Client,
     group: &Arc<crate::Group>,
-    id: MessageID,
+    id: MessageId,
     expected_raw: &[u8],
 ) -> Result<(), XmtpError> {
     let stored = client

@@ -1,16 +1,15 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
 
 use crate::CatchUpSummary;
 use crate::{
-    CanMessageEntry, Client, GroupSyncSummary, InboxCountEntry, InboxID, InboxState,
-    InstallationID, KeyPackageLifetime, KeyPackageStatus, KeyPackageStatusEntry, PublicIdentity,
-    SignatureRequest, Signer, XmtpError, signer,
+    Client, GroupSyncSummary, InboxId, InboxState, InstallationId, KeyPackageLifetime,
+    KeyPackageStatus, PublicIdentity, SignatureRequest, Signer, XmtpError, signer,
 };
 
-fn installation_bytes(ids: Vec<InstallationID>) -> Result<Vec<Vec<u8>>, XmtpError> {
+fn installation_bytes(ids: Vec<InstallationId>) -> Result<Vec<Vec<u8>>, XmtpError> {
     ids.into_iter()
         .map(|id| hex::decode(id.0).map_err(XmtpError::unknown))
         .collect()
@@ -191,7 +190,7 @@ impl Client {
 
     pub async fn unsafe_revoke_installations_signature_request(
         &self,
-        ids: Vec<InstallationID>,
+        ids: Vec<InstallationId>,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
         let _call = self.ensure_open()?;
         let request = self
@@ -295,7 +294,7 @@ impl Client {
     pub async fn revoke_installations(
         &self,
         signer: Arc<dyn Signer>,
-        ids: Vec<InstallationID>,
+        ids: Vec<InstallationId>,
     ) -> Result<(), XmtpError> {
         let request = self
             .unsafe_revoke_installations_signature_request(ids)
@@ -351,7 +350,7 @@ impl Client {
 
     pub async fn inbox_states(
         &self,
-        ids: Vec<InboxID>,
+        ids: Vec<InboxId>,
         refresh_from_network: bool,
     ) -> Result<Vec<InboxState>, XmtpError> {
         let _call = self.ensure_open()?;
@@ -376,20 +375,20 @@ impl Client {
     pub async fn inbox_id_for(
         &self,
         identity: PublicIdentity,
-    ) -> Result<Option<InboxID>, XmtpError> {
+    ) -> Result<Option<InboxId>, XmtpError> {
         let _call = self.ensure_open()?;
         self.inner
             .find_inbox_id_from_identifier(&self.inner.context.db(), identity.to_core()?)
             .await
             .map_err(XmtpError::from_client)?
-            .map(InboxID::try_from)
+            .map(InboxId::try_from)
             .transpose()
     }
 
     pub async fn can_message(
         &self,
         identities: Vec<PublicIdentity>,
-    ) -> Result<Vec<CanMessageEntry>, XmtpError> {
+    ) -> Result<HashMap<String, bool>, XmtpError> {
         let _call = self.ensure_open()?;
         let core = identities
             .iter()
@@ -403,18 +402,20 @@ impl Client {
         Ok(identities
             .into_iter()
             .zip(core)
-            .map(|(identity, key)| CanMessageEntry {
-                identity,
-                can_message: answer.get(&key).copied().unwrap_or(false),
+            .map(|(identity, key)| {
+                (
+                    identity.identifier,
+                    answer.get(&key).copied().unwrap_or(false),
+                )
             })
             .collect())
     }
 
     pub async fn latest_inbox_updates_count(
         &self,
-        ids: Vec<InboxID>,
+        ids: Vec<InboxId>,
         refresh_from_network: bool,
-    ) -> Result<Vec<InboxCountEntry>, XmtpError> {
+    ) -> Result<HashMap<String, u64>, XmtpError> {
         let _call = self.ensure_open()?;
         let refs = ids.iter().map(|id| id.0.as_str()).collect();
         let answer = self
@@ -424,9 +425,9 @@ impl Client {
             .map_err(XmtpError::from_client)?;
         Ok(ids
             .into_iter()
-            .map(|inbox_id| InboxCountEntry {
-                count: u64::from(answer.get(&inbox_id.0).copied().unwrap_or(0)),
-                inbox_id,
+            .map(|inbox_id| {
+                let count = u64::from(answer.get(&inbox_id.0).copied().unwrap_or(0));
+                (inbox_id.0, count)
             })
             .collect())
     }
@@ -445,8 +446,8 @@ impl Client {
 
     pub async fn key_package_statuses(
         &self,
-        ids: Vec<InstallationID>,
-    ) -> Result<Vec<KeyPackageStatusEntry>, XmtpError> {
+        ids: Vec<InstallationId>,
+    ) -> Result<HashMap<String, KeyPackageStatus>, XmtpError> {
         let _call = self.ensure_open()?;
         let found = self
             .inner
@@ -476,10 +477,7 @@ impl Client {
                         validation_error: Some("key package not found".into()),
                     },
                 };
-                KeyPackageStatusEntry {
-                    installation_id,
-                    status,
-                }
+                (installation_id.0, status)
             })
             .collect())
     }

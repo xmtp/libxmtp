@@ -1,4 +1,4 @@
-use crate::{ContentTypeId, ConversationID, XmtpError, client::CoreClient};
+use crate::{ContentTypeId, ConversationId, XmtpError, client::CoreClient};
 use xmtp_mls::subscriptions::internal::InternalEvent;
 use xmtp_mls::{client::ClientError, mls_store::MlsStoreError};
 
@@ -7,7 +7,7 @@ use super::EventKind;
 #[derive(Clone, Debug, Default, uniffi::Record)]
 pub struct EventFilter {
     pub kinds: Vec<EventKind>,
-    pub conversation_ids: Option<Vec<ConversationID>>,
+    pub conversation_ids: Option<Vec<ConversationId>>,
     pub content_types: Option<Vec<ContentTypeId>>,
     pub references_own_messages: bool,
 }

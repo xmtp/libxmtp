@@ -366,7 +366,7 @@ where
     }
 
     /// Order filtered progress with scope changes. Excluded scopes never advance D.
-    // implements: PROC-032
+    // implements: PROC-047
     fn skip_candidate(&mut self, candidate: &DeliveryMessage, revision: u64) -> Result<bool> {
         let selection = self.control.selection.lock();
         if selection.revision != revision {

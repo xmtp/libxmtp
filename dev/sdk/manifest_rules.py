@@ -247,7 +247,7 @@ for sdk in ("Swift", "Kotlin"):
             "lastActivityAtNs" if sdk == "Swift" else "lastActivityNs",
             "generated",
             cref,
-            finals="lastActivityAtNs(contentTypes?)",
+            finals="lastActivityAt(contentTypes?)",
             note="Plan Decisions: optional filter is a method outside state().",
         )
         add(
@@ -521,10 +521,10 @@ for sdk in ("Node", "Browser"):
         sdk,
         "Preferences",
         "inboxState fetchInboxState getInboxStates fetchInboxStates",
-        "alias",
+        "generated",
         "11.4 Node, Conversation, Group, Dm",
         finals="Client.inboxState Client.inboxState Client.inboxStates Client.inboxStates",
-        note="Deprecated Preferences alias to the Client method.",
+        note="The old preference name maps to the Client method.",
     )
 
 for sdk in ("Swift", "Kotlin", "Node", "Browser"):
@@ -653,9 +653,9 @@ for sdk in ("Node", "Browser"):
         sdk,
         "Conversation",
         "metadata",
-        "alias",
+        "generated",
         "11.4 Browser",
-        note="Deprecated alias; creatorInboxID and kind are immutable fields.",
+        note="The immutable creatorInboxId and kind fields replace this method.",
     ) if sdk == "Browser" else None
     add(sdk, "Conversations", "syncAll", "generated", "11.4 Node, Conversations")
     add(
@@ -836,7 +836,7 @@ for sdk in ("Node", "Browser"):
         if sdk == "Node"
         else "11.4 Browser; 11.4 Node, Client and options"
     )
-    add(sdk, "", "Identifier", "alias", ref, finals="PublicIdentity")
+    add(sdk, "", "Identifier", "generated", ref, finals="PublicIdentity")
     add(
         sdk,
         "",
@@ -996,101 +996,6 @@ REMOVED_TYPES = {
     },
 }
 
-# Only Section 11.4 Rename and Rename + Async rows keep the old spelling for
-# one major release (11.5). Shape and Moved rows name their new member directly.
-PURE_RENAMES = {
-    "Swift": set(
-        """
-        ClientOptions.Api Client.connectToApiBackend Client.getOrCreateInboxId
-        Client.inboxStatesForInboxIds Client.keyPackageStatusesForInstallationIds
-        Client.getNewestMessageMetadata Client.libXMTPVersion Client.publicIdentity
-        Client.environment Client.dbPath Client.verifySignature
-        Client.verifySignatureWithInstallationId Client.debugInformation
-        Client.ffiApplySignatureRequest Client.ffiRevokeInstallations
-        Client.ffiRevokeAllOtherInstallations Client.ffiRevokeIdentity
-        Client.ffiAddIdentity Client.ffiSignatureRequest Client.ffiRegisterIdentity
-        Client.addAccount Conversations.findConversation Conversations.findGroup
-        Conversations.findConversationByTopic Conversations.findDmByInboxId
-        Conversations.findDmByIdentity Conversations.findMessage
-        Conversations.syncAllConversations Conversation.streamMessages
-        Group.streamMessages Dm.streamMessages Conversation.getHmacKeys
-        Group.getHmacKeys Dm.getHmacKeys Conversation.getLastReadTimes
-        Group.getLastReadTimes Dm.getLastReadTimes Group.leaveGroup
-        Conversation.getDebugInformation Group.getDebugInformation
-        Dm.getDebugInformation ConversationsOrderBy
-        Conversation.XMTPConversationType PrivatePreferences
-    """.split()
-    ),
-    "Kotlin": set(
-        """
-        ClientOptions.Api Client.Companion.connectToApiBackend
-        Client.Companion.getOrCreateInboxId Client.Companion.inboxStatesForInboxIds
-        Client.Companion.keyPackageStatusesForInstallationIds
-        Client.Companion.getNewestMessageMetadata Client.environment Client.dbPath
-        Client.libXMTPVersion Client.publicIdentity Client.verifySignature
-        Client.verifySignatureWithInstallationId Client.debugInformation
-        Client.ffiApplySignatureRequest Client.ffiRevokeInstallations
-        Client.ffiRevokeAllOtherInstallations Client.ffiRevokeIdentity
-        Client.ffiAddIdentity Client.ffiSignatureRequest Client.ffiRegisterIdentity
-        Client.Companion.ffiApplySignatureRequest
-        Client.Companion.ffiRevokeInstallations
-        Client.Companion.ffiRevokeAllOtherInstallations
-        Client.Companion.ffiRevokeIdentity Client.Companion.ffiAddIdentity
-        Client.Companion.ffiSignatureRequest Client.Companion.ffiRegisterIdentity
-        Client.addAccount Client.inboxId Client.installationId
-        Conversations.findConversation Conversations.findGroup
-        Conversations.findConversationByTopic Conversations.findDmByInboxId
-        Conversations.findDmByIdentity Conversations.findMessage
-        Conversations.syncAllConversations Conversation.streamMessages
-        Group.streamMessages Dm.streamMessages Group.leaveGroup
-        Conversation.getDebugInformation Group.getDebugInformation
-        Dm.getDebugInformation Conversation.Type
-        Conversations.ListConversationsOrderBy PrivatePreferences
-    """.split()
-    ),
-    "Node": set(
-        """
-        Client.fetchLatestInboxUpdatesCount Client.fetchOwnInboxUpdatesCount
-        Client.fetchKeyPackageStatuses Client.fetchInboxIdByIdentifier
-        Client.fetchInboxStates Client.debugInformation
-        Conversations.getConversationById Conversations.fetchDmByIdentifier
-        Conversations.createGroupWithIdentifiers Conversations.createDmWithIdentifier
-        DebugInformation StreamOptions.onEnd encryptAttachment
-        decryptAttachment createBackend generateInboxId getInboxIdForIdentifier
-    """.split()
-    ),
-    "Browser": set(
-        """
-        Client.fetchLatestInboxUpdatesCount Client.fetchOwnInboxUpdatesCount
-        Client.fetchKeyPackageStatuses Client.fetchInboxIdByIdentifier
-        Client.fetchInboxStates Client.debugInformation
-        Conversations.getConversationById Conversations.fetchDmByIdentifier
-        Conversations.createGroupWithIdentifiers Conversations.createDmWithIdentifier
-        DebugInformation StreamOptions.onEnd encryptAttachment decryptAttachment
-    """.split()
-    ),
-}
-
-
-def is_pure_rename(sdk: str, name: str, final: str) -> bool:
-    if name in PURE_RENAMES[sdk]:
-        return True
-    if sdk in {"Swift", "Kotlin"} and name.startswith(
-        (
-            "ConversationsOrderBy.",
-            "Conversations.ListConversationsOrderBy.",
-            "Conversation.XMTPConversationType.",
-            "Conversation.Type.",
-        )
-    ):
-        return True
-    if sdk in {"Node", "Browser"} and name.startswith("DebugInformation."):
-        return True
-    # The adopted spelling decision changes existing ID and unsafe_ names.
-    if final == spelling(name) and final != name and not name.endswith("peerInboxId"):
-        return True
-    return False
-
 
 def spelling(name: str) -> str:
     name = re.sub(
@@ -1100,9 +1005,12 @@ def spelling(name: str) -> str:
         ),
         name,
     )
-    name = re.sub(r"Ids\b", "IDs", name)
-    name = re.sub(r"Id\b", "ID", name)
     return name
+
+
+def stock_final(name: str) -> str:
+    name = re.sub(r"IDs(?=[A-Z]|\b)", "Ids", name)
+    return re.sub(r"ID(?=[A-Z]|\b)", "Id", name)
 
 
 def enum_value(name: str) -> str:
@@ -1903,10 +1811,10 @@ def _classify(entry: object) -> Decision:
         return decision("approved removal", "—", "11.4 Browser")
     if sdk == "Browser" and name == "Conversation.metadata":
         return decision(
-            "alias",
+            "generated",
             "Conversation.metadata",
             "11.4 Browser",
-            "Deprecated alias; canonical immutable fields are Conversation.creatorInboxID and Conversation.kind.",
+            "The immutable Conversation.creatorInboxId and Conversation.kind fields replace this method.",
         )
     if sdk == "Node" and name == "Conversation.metadata":
         return decision(
@@ -1973,7 +1881,7 @@ def _classify(entry: object) -> Decision:
             "approved removal",
             "—",
             "11.4 Node, Client and options; 11.1, ID types",
-            "InboxID.fromString replaces the hex helper.",
+            "Plain string IDs replace the hex helper.",
         )
     if sdk in {"Node", "Browser"} and name in {
         "DEFAULT_RETRY_DELAY",
@@ -2366,10 +2274,10 @@ def _classify(entry: object) -> Decision:
     if name.startswith("DecodedMessage.") or name == "DecodedMessage":
         if name == "DecodedMessage":
             return decision(
-                "alias",
+                "generated",
                 "Message",
                 f"11.4 {sdk}, Messages, codecs, preferences, values; 11.5",
-                "Deprecated alias for the Message host class.",
+                "The Message host class replaces this type.",
             )
         if name.endswith(
             (".create", ".Companion.create", ".init", ".Companion", ".constructor")
@@ -2792,6 +2700,13 @@ def _classify(entry: object) -> Decision:
 
 def classify(entry: object) -> Decision:
     result = _classify(entry)
+    result = Decision(
+        result.status,
+        stock_final(result.final),
+        result.ref,
+        result.note,
+        result.open,
+    )
     if entry.sdk == "Kotlin" and result.final.startswith("Client.Companion."):
         result = Decision(
             result.status,
@@ -2807,17 +2722,5 @@ def classify(entry: object) -> Decision:
             result.ref.replace("11.4 Browser,", "11.4 Browser; 11.4 Node,", 1),
             result.note,
             result.open,
-        )
-    if (
-        not result.open
-        and result.status in {"generated", "static runtime"}
-        and is_pure_rename(entry.sdk, entry.name, result.final)
-    ):
-        result = Decision(
-            "alias",
-            result.final,
-            result.ref,
-            "Deprecated name for one major release (11.5).",
-            False,
         )
     return result

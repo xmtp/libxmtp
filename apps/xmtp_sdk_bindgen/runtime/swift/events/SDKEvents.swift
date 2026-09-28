@@ -19,7 +19,7 @@ final class ListenerStartGate: @unchecked Sendable {
 
 final class ListenerGates: @unchecked Sendable {
     private let lock = NSLock()
-    private var active: [ListenerID: ListenerStartGate] = [:]
+    private var active: [ListenerId: ListenerStartGate] = [:]
     private var pending: [ListenerStartGate] = []
 
     func addPending(_ gate: ListenerStartGate) {
@@ -28,7 +28,7 @@ final class ListenerGates: @unchecked Sendable {
         lock.unlock()
     }
 
-    func registered(_ id: ListenerID, gate: ListenerStartGate) {
+    func registered(_ id: ListenerId, gate: ListenerStartGate) {
         lock.lock()
         pending.removeAll { $0 === gate }
         active[id] = gate
@@ -41,7 +41,7 @@ final class ListenerGates: @unchecked Sendable {
         lock.unlock()
     }
 
-    func stop(_ id: ListenerID) {
+    func stop(_ id: ListenerId) {
         lock.lock()
         active.removeValue(forKey: id)?.stop()
         lock.unlock()
@@ -84,7 +84,7 @@ public extension SDKClient {
     func startListener(
         _ filter: EventFilter,
         onEvent: @escaping @Sendable (ClientEvent) async throws -> Void
-    ) async throws -> ListenerID {
+    ) async throws -> ListenerId {
         let gate = ListenerStartGate()
         listenerGates.addPending(gate)
         defer { listenerGates.discard(gate) }
@@ -93,9 +93,9 @@ public extension SDKClient {
         return id
     }
 
-    func stopListener(_ id: ListenerID) async {
+    func stopListener(_ id: ListenerId) async throws {
         listenerGates.stop(id)
-        await raw.stopListener(id: id)
+        try await raw.stopListener(id: id)
     }
 }
 

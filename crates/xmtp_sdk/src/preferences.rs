@@ -33,10 +33,10 @@ impl From<xmtp_db::consent_record::ConsentState> for ConsentState {
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ConsentEntity {
     Conversation {
-        conversation_id: crate::ConversationID,
+        conversation_id: crate::ConversationId,
     },
     Inbox {
-        inbox_id: crate::InboxID,
+        inbox_id: crate::InboxId,
     },
 }
 

@@ -5,15 +5,15 @@ import {
   type Actions,
   type Attachment,
   type Conversation,
-  type ConversationID,
+  type ConversationId,
   type Conversations,
   type EncodedContent,
   type Group,
-  type InboxID,
+  type InboxId,
   type Intent,
   type Message,
   type MessageContent,
-  type MessageID,
+  type MessageId,
   type MultiRemoteAttachment,
   type Reaction,
   type RemoteAttachment,
@@ -24,16 +24,16 @@ import {
 } from "../../../../../target/sdk-generated/typescript-napi/index.ts";
 
 export function consume(
-  id: ConversationID,
+  id: ConversationId,
   conversation: Conversation,
   content: MessageContent,
-): [ConversationID, EncodedContent | undefined] {
+): [ConversationId, EncodedContent | undefined] {
   if (conversation.tag === Conversation_Tags.Group) {
-    const groupID: ConversationID = conversation.inner.group.id();
-    id = groupID;
+    const groupId: ConversationId = conversation.inner.group.id();
+    id = groupId;
   } else {
-    const dmID: ConversationID = conversation.inner.dm.id();
-    id = dmID;
+    const dmId: ConversationId = conversation.inner.dm.id();
+    id = dmId;
   }
   if (content.tag === MessageContent_Tags.Custom) {
     return [id, content.inner.encoded];
@@ -44,7 +44,7 @@ export function consume(
 export async function consumeOmittedSendOptions(
   group: Group,
   conversations: Conversations,
-  id: MessageID,
+  id: MessageId,
   reaction: Reaction,
   encoded: EncodedContent,
 ): Promise<void> {
@@ -56,7 +56,7 @@ export async function consumeOmittedSendOptions(
 
 export async function consumeOmittedTypedSendOptions(
   group: Group,
-  id: MessageID,
+  id: MessageId,
   reaction: Reaction,
   encoded: EncodedContent,
   attachment: Attachment,
@@ -81,21 +81,21 @@ export async function consumeOmittedTypedSendOptions(
   await group.sendIntent(intent);
 }
 
-export function consumeStandardIDs(
+export function consumeStandardIds(
   content: StandardContent,
-): MessageID | undefined {
+): MessageId | undefined {
   if (content.tag === StandardContent_Tags.Reaction) {
-    const reference: MessageID = content.inner.reference;
-    const inbox: InboxID | undefined = content.inner.referenceInboxID;
+    const reference: MessageId = content.inner.reference;
+    const inbox: InboxId | undefined = content.inner.referenceInboxId;
     void inbox;
     return reference;
   }
   if (content.tag === StandardContent_Tags.Reply) {
-    const reference: MessageID = content.inner.reference;
+    const reference: MessageId = content.inner.reference;
     return reference;
   }
   if (content.tag === StandardContent_Tags.DeleteMessage) {
-    const id: MessageID = content.inner.messageID;
+    const id: MessageId = content.inner.messageId;
     return id;
   }
   return undefined;

@@ -3,32 +3,32 @@ use xmtp_proto::types::GroupId;
 
 /// An XMTP inbox ID.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct InboxID(pub String);
+pub struct InboxId(pub String);
 
-impl TryFrom<String> for InboxID {
+impl TryFrom<String> for InboxId {
     type Error = XmtpError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
         if value.is_empty() {
-            return Err(XmtpError::invalid("inbox ID is empty"));
+            return Err(XmtpError::invalid_argument("inbox ID is empty"));
         }
         Ok(Self(value))
     }
 }
 
-impl From<InboxID> for String {
-    fn from(value: InboxID) -> Self {
+impl From<InboxId> for String {
+    fn from(value: InboxId) -> Self {
         value.0
     }
 }
 
-uniffi::custom_type!(InboxID, String);
+uniffi::custom_type!(InboxId, String);
 
 /// An installation ID, encoded as lowercase hex.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct InstallationID(pub String);
+pub struct InstallationId(pub String);
 
-impl TryFrom<String> for InstallationID {
+impl TryFrom<String> for InstallationId {
     type Error = XmtpError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -37,19 +37,19 @@ impl TryFrom<String> for InstallationID {
     }
 }
 
-impl From<InstallationID> for String {
-    fn from(value: InstallationID) -> Self {
+impl From<InstallationId> for String {
+    fn from(value: InstallationId) -> Self {
         value.0
     }
 }
 
-uniffi::custom_type!(InstallationID, String);
+uniffi::custom_type!(InstallationId, String);
 
 /// A conversation ID, encoded as lowercase hex.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct ConversationID(pub String);
+pub struct ConversationId(pub String);
 
-impl TryFrom<String> for ConversationID {
+impl TryFrom<String> for ConversationId {
     type Error = XmtpError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -58,24 +58,24 @@ impl TryFrom<String> for ConversationID {
     }
 }
 
-impl From<ConversationID> for String {
-    fn from(value: ConversationID) -> Self {
+impl From<ConversationId> for String {
+    fn from(value: ConversationId) -> Self {
         value.0
     }
 }
 
-uniffi::custom_type!(ConversationID, String);
+uniffi::custom_type!(ConversationId, String);
 
-impl From<GroupId> for ConversationID {
+impl From<GroupId> for ConversationId {
     fn from(value: GroupId) -> Self {
         Self(hex::encode(value.as_slice()))
     }
 }
 
-impl TryFrom<ConversationID> for GroupId {
+impl TryFrom<ConversationId> for GroupId {
     type Error = XmtpError;
 
-    fn try_from(value: ConversationID) -> Result<Self, Self::Error> {
+    fn try_from(value: ConversationId) -> Result<Self, Self::Error> {
         let bytes = hex::decode(value.0).map_err(XmtpError::unknown)?;
         GroupId::try_from(bytes.as_slice()).map_err(XmtpError::unknown)
     }
@@ -83,9 +83,9 @@ impl TryFrom<ConversationID> for GroupId {
 
 /// A message ID, encoded as lowercase hex.
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct MessageID(pub String);
+pub struct MessageId(pub String);
 
-impl TryFrom<String> for MessageID {
+impl TryFrom<String> for MessageId {
     type Error = XmtpError;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
@@ -94,16 +94,16 @@ impl TryFrom<String> for MessageID {
     }
 }
 
-impl From<MessageID> for String {
-    fn from(value: MessageID) -> Self {
+impl From<MessageId> for String {
+    fn from(value: MessageId) -> Self {
         value.0
     }
 }
 
-uniffi::custom_type!(MessageID, String);
+uniffi::custom_type!(MessageId, String);
 
 #[cfg_attr(feature = "pure-only", allow(dead_code))]
-impl MessageID {
+impl MessageId {
     pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, XmtpError> {
         Self::try_from(hex::encode(bytes))
     }
@@ -114,7 +114,7 @@ fn validate_hex_id(value: &str, byte_len: usize) -> Result<(), XmtpError> {
         || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
         || value != value.to_ascii_lowercase()
     {
-        return Err(XmtpError::invalid("invalid lowercase hex ID"));
+        return Err(XmtpError::invalid_argument("invalid lowercase hex ID"));
     }
     Ok(())
 }

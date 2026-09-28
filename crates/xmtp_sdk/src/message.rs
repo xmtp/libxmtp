@@ -7,7 +7,7 @@ use xmtp_db::group_message::{
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::{
-    ConversationID, EncodedContent as SdkEncodedContent, InboxID, MessageID, Timestamp, XmtpError,
+    ConversationId, EncodedContent as SdkEncodedContent, InboxId, MessageId, Timestamp, XmtpError,
 };
 
 #[derive(Clone, Debug, uniffi::Enum)]
@@ -37,8 +37,8 @@ pub enum MessageContent {
     Markdown(String),
     ReadReceipt,
     Reaction {
-        reference: MessageID,
-        reference_inbox_id: Option<InboxID>,
+        reference: MessageId,
+        reference_inbox_id: Option<InboxId>,
         reaction: crate::Reaction,
     },
     Attachment(crate::Attachment),
@@ -52,7 +52,7 @@ pub enum MessageContent {
     LeaveRequest(crate::LeaveRequest),
     DeletedMessage(crate::DeletedMessage),
     Reply {
-        reference_id: MessageID,
+        reference_id: MessageId,
         body: MessageBody,
     },
     Custom {
@@ -133,9 +133,9 @@ impl MessageContent {
             CoreBody::Markdown(value) => Ok(Self::Markdown(value.content)),
             CoreBody::ReadReceipt(_) => Ok(Self::ReadReceipt),
             CoreBody::Reaction(value) => {
-                let reference = MessageID::try_from(value.reference.clone())?;
+                let reference = MessageId::try_from(value.reference.clone())?;
                 let reference_inbox_id = (!value.reference_inbox_id.is_empty())
-                    .then(|| InboxID::try_from(value.reference_inbox_id.clone()))
+                    .then(|| InboxId::try_from(value.reference_inbox_id.clone()))
                     .transpose()?;
                 Ok(Self::Reaction {
                     reference,
@@ -144,7 +144,7 @@ impl MessageContent {
                 })
             }
             CoreBody::Reply(value) => Ok(Self::Reply {
-                reference_id: MessageID::try_from(value.reference_id)?,
+                reference_id: MessageId::try_from(value.reference_id)?,
                 body: MessageBody::from_core(
                     *value.content,
                     nested_reply_content(content.into())?,
@@ -238,7 +238,7 @@ impl TryFrom<xmtp_mls::messages::decoded_message::DeletedBy> for crate::DeletedB
         Ok(match value {
             xmtp_mls::messages::decoded_message::DeletedBy::Sender => Self::Sender,
             xmtp_mls::messages::decoded_message::DeletedBy::Admin(inbox_id) => Self::Admin {
-                inbox_id: InboxID::try_from(inbox_id)?,
+                inbox_id: InboxId::try_from(inbox_id)?,
             },
         })
     }
@@ -247,11 +247,11 @@ impl TryFrom<xmtp_mls::messages::decoded_message::DeletedBy> for crate::DeletedB
 /// A message value contains records and enums only.
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MessageData {
-    pub id: MessageID,
+    pub id: MessageId,
     pub client_key: u64,
-    pub conversation_id: ConversationID,
+    pub conversation_id: ConversationId,
     pub topic: String,
-    pub sender_inbox_id: InboxID,
+    pub sender_inbox_id: InboxId,
     pub sent_at: Timestamp,
     pub inserted_at: Timestamp,
     pub expires_at: Option<Timestamp>,
@@ -268,8 +268,8 @@ pub struct MessageData {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ReactionMessage {
-    pub id: MessageID,
-    pub sender_inbox_id: InboxID,
+    pub id: MessageId,
+    pub sender_inbox_id: InboxId,
     pub sent_at: Timestamp,
     pub delivery_status: DeliveryStatus,
     pub reaction: crate::Reaction,
@@ -277,8 +277,8 @@ pub struct ReactionMessage {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ReplyParent {
-    pub id: MessageID,
-    pub sender_inbox_id: InboxID,
+    pub id: MessageId,
+    pub sender_inbox_id: InboxId,
     pub sent_at: Timestamp,
     pub kind: MessageKind,
     pub delivery_status: DeliveryStatus,
@@ -377,11 +377,11 @@ impl Message {
             StoredDeliveryStatus::Failed => DeliveryStatus::Failed,
         };
         Ok(Self(MessageData {
-            id: MessageID::from_bytes(&value.id)?,
+            id: MessageId::from_bytes(&value.id)?,
             client_key,
             conversation_id: value.group_id.into(),
             topic: xmtp_proto::types::Topic::new_group_message(value.group_id).to_string(),
-            sender_inbox_id: InboxID::try_from(value.sender_inbox_id)?,
+            sender_inbox_id: InboxId::try_from(value.sender_inbox_id)?,
             sent_at: Timestamp(value.sent_at_ns),
             inserted_at: Timestamp(value.inserted_at_ns),
             expires_at: value.expire_at_ns.map(Timestamp),
@@ -425,8 +425,8 @@ impl Message {
                 let reaction_id = hex::encode(&reaction.metadata.id);
                 let converted: Result<ReactionMessage, XmtpError> = (|| {
                     Ok(ReactionMessage {
-                        id: MessageID::from_bytes(&reaction.metadata.id)?,
-                        sender_inbox_id: InboxID::try_from(reaction.metadata.sender_inbox_id)?,
+                        id: MessageId::from_bytes(&reaction.metadata.id)?,
+                        sender_inbox_id: InboxId::try_from(reaction.metadata.sender_inbox_id)?,
                         sent_at: Timestamp(reaction.metadata.sent_at_ns),
                         delivery_status: reaction.metadata.delivery_status.into(),
                         reaction: crate::Reaction::from_proto(value),

@@ -1,7 +1,7 @@
 import XmtpSdk
 
 func consumeOmittedSendOptions(
-    _ group: Group, _ conversations: Conversations, _ id: MessageID,
+    _ group: Group, _ conversations: Conversations, _ id: MessageId,
     _ reaction: Reaction, _ encoded: EncodedContent
 ) async throws {
     _ = try await group.send(encoded: encoded)
@@ -11,15 +11,15 @@ func consumeOmittedSendOptions(
 }
 
 func consumeOmittedTypedSendOptions(
-    _ group: Group, _ id: MessageID, _ reaction: Reaction, _ encoded: EncodedContent,
+    _ group: Group, _ id: MessageId, _ reaction: Reaction, _ encoded: EncodedContent,
     _ attachment: Attachment, _ remote: RemoteAttachment, _ multiRemote: MultiRemoteAttachment,
     _ transaction: TransactionReference, _ walletCalls: WalletSendCalls,
     _ actions: Actions, _ intent: Intent
 ) async throws {
     _ = try await group.sendText(text: "text")
     _ = try await group.sendMarkdown(markdown: "markdown")
-    _ = try await group.sendReaction(reference: id, referenceInboxID: nil, reaction: reaction)
-    _ = try await group.sendReply(reference: id, referenceInboxID: nil, content: encoded)
+    _ = try await group.sendReaction(reference: id, referenceInboxId: nil, reaction: reaction)
+    _ = try await group.sendReply(reference: id, referenceInboxId: nil, content: encoded)
     _ = try await group.sendReadReceipt()
     _ = try await group.sendAttachment(attachment: attachment)
     _ = try await group.sendRemoteAttachment(attachment: remote)
@@ -30,8 +30,8 @@ func consumeOmittedTypedSendOptions(
     _ = try await group.sendIntent(intent: intent)
 }
 
-func consumePositive(_ id: ConversationID, _ conversation: Conversation, _ content: MessageContent) -> ConversationID {
-    let narrowed: ConversationID
+func consumePositive(_ id: ConversationId, _ conversation: Conversation, _ content: MessageContent) -> ConversationId {
+    let narrowed: ConversationId
     switch conversation {
     case let .group(group): narrowed = group.id()
     case let .dm(dm): narrowed = dm.id()
@@ -42,16 +42,16 @@ func consumePositive(_ id: ConversationID, _ conversation: Conversation, _ conte
     return narrowed == id ? id : narrowed
 }
 
-func consumeStandardIDs(_ content: StandardContent) -> MessageID? {
+func consumeStandardIds(_ content: StandardContent) -> MessageId? {
     switch content {
-    case let .reaction(reference, inboxID, _):
-        let _: InboxID? = inboxID
+    case let .reaction(reference, inboxId, _):
+        let _: InboxId? = inboxId
         return reference
-    case let .reply(reference, inboxID, _):
-        let _: InboxID? = inboxID
+    case let .reply(reference, inboxId, _):
+        let _: InboxId? = inboxId
         return reference
-    case let .deleteMessage(messageID):
-        let id: MessageID = messageID
+    case let .deleteMessage(messageId):
+        let id: MessageId = messageId
         return id
     default:
         return nil

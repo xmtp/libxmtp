@@ -10,7 +10,7 @@ use tokio::sync::watch;
 use xmtp_events::Subscription;
 use xmtp_mls::subscriptions::internal::InternalEvent;
 
-use super::{ClientEvent, EventListener, ListenerError, ListenerID};
+use super::{ClientEvent, EventListener, ListenerError, ListenerId};
 use crate::{XmtpError, foreign};
 
 type StartGate = Mutex<bool>;
@@ -91,7 +91,7 @@ impl ListenerRegistry {
         &self,
         subscription: Subscription<InternalEvent>,
         listener: Arc<dyn EventListener>,
-    ) -> Result<ListenerID, XmtpError> {
+    ) -> Result<ListenerId, XmtpError> {
         let id = self
             .next_id
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |id| id.checked_add(1))
@@ -131,10 +131,10 @@ impl ListenerRegistry {
             #[cfg(test)]
             self.start_hook.lock().clone(),
         );
-        Ok(ListenerID(id))
+        Ok(ListenerId(id))
     }
 
-    pub(crate) fn stop(&self, id: ListenerID) {
+    pub(crate) fn stop(&self, id: ListenerId) {
         let control = {
             let mut state = self.state.lock();
             let control = state.listeners.remove(&id.0);
