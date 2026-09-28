@@ -160,4 +160,3 @@ internal suspend fun releasedMessage(
     val message = group.messages(null).first { it.id == id }
     return message to WeakReference(host)
 }
-

@@ -443,4 +443,3 @@ impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdate
         }
     }
 }
-

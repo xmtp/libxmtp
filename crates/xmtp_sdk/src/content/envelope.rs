@@ -141,4 +141,3 @@ impl Reaction {
         }
     }
 }
-

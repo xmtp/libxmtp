@@ -1,4 +1,3 @@
-
 #[xmtp_macro::sdk_export]
 impl Group {
     pub async fn peer_inbox_ids(&self) -> Result<Vec<InboxId>, XmtpError> {

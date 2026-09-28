@@ -258,4 +258,3 @@ struct FailingCodec: SDKContentCodec {
         throw ConformanceFailure("codec decode failed")
     }
 }
-

@@ -204,4 +204,3 @@ impl Default for ClientOptions {
         }
     }
 }
-
