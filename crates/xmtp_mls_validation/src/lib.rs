@@ -304,9 +304,12 @@ pub fn erc6492_signatures(
 /// Reject a new update whose ERC-6492 signature names a block after its
 /// chain's head, or one more than [`MAX_BLOCK_AGE_SECS`] before it.
 ///
-/// Each signature is judged on its own chain. The head is read first, so a
-/// block after it is rejected without a second call. Chain failures stay
-/// retryable; they are never a verdict on the signature.
+/// Each signature is judged on its own chain, after the account id's form
+/// check so a malformed one is rejected before any chain call. The head is
+/// read first, so a block after it is rejected without a second call. Chain
+/// failures stay retryable; they are never a verdict on the signature.
+/// Callers run this before signature verification: a verifier asked about a
+/// block the chain has not produced fails retryably instead of rejecting.
 // implements: IDENT-062
 pub async fn check_freshness(
     update: &IdentityUpdate,
@@ -314,6 +317,7 @@ pub async fn check_freshness(
 ) -> Result<(), ValidationError> {
     for signature in erc6492_signatures(update) {
         let account = AccountId::try_from(signature.account_id.as_str())?;
+        account.get_chain_id_u64().map_err(SignatureError::from)?;
         let number = signature.block_number;
         let head = chain
             .head(account.get_chain_id())
@@ -337,7 +341,7 @@ pub async fn check_freshness(
 ///
 /// Key packages receive their existing package checks. Identity updates are
 /// folded against the caller's snapshot and return a projection diff; only the
-/// new update, never the stored history, must pass [`check_freshness`]. Other
+/// new update, never the stored history, must first pass [`check_freshness`]. Other
 /// kinds need no cryptographic admission beyond the parsing phase.
 pub async fn validate_envelope(
     parsed: &ParsedEnvelope,
@@ -356,10 +360,10 @@ pub async fn validate_envelope(
             Ok(None)
         }
         Payload::IdentityUpdate(update) => {
-            let validation =
-                validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?;
             check_freshness(update, chain).await?;
-            Ok(Some(validation))
+            Ok(Some(
+                validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,
+            ))
         }
         _ => Ok(None),
     }
