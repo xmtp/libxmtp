@@ -241,13 +241,22 @@ mod descriptor_tests {
 
     // verifies: ATCH-020
     #[xmtp_common::test(unwrap_try = true)]
-    fn create_upload_is_unary_in_backend_descriptor() {
+    fn create_upload_method_matches_wire_contract() {
         let descriptors = prost_types::FileDescriptorSet::decode(crate::FILE_DESCRIPTOR_SET)?;
-        let service = descriptors
+        let file = descriptors
             .file
             .iter()
-            .filter(|file| file.package.as_deref() == Some("xmtp.backend.v1"))
-            .flat_map(|file| &file.service)
+            .find(|file| {
+                file.package.as_deref() == Some("xmtp.backend.v1")
+                    && file
+                        .service
+                        .iter()
+                        .any(|service| service.name.as_deref() == Some("AttachmentService"))
+            })
+            .expect("backend AttachmentService file descriptor");
+        let service = file
+            .service
+            .iter()
             .find(|service| service.name.as_deref() == Some("AttachmentService"))
             .expect("AttachmentService descriptor");
         let method = service
@@ -256,6 +265,23 @@ mod descriptor_tests {
             .find(|method| method.name.as_deref() == Some("CreateUpload"))
             .expect("CreateUpload descriptor");
 
+        assert_eq!(
+            format!(
+                "{}.{}.{}",
+                file.package.as_deref().expect("package name"),
+                service.name.as_deref().expect("service name"),
+                method.name.as_deref().expect("method name")
+            ),
+            "xmtp.backend.v1.AttachmentService.CreateUpload"
+        );
+        assert_eq!(
+            method.input_type.as_deref(),
+            Some(".xmtp.backend.v1.CreateUploadRequest")
+        );
+        assert_eq!(
+            method.output_type.as_deref(),
+            Some(".xmtp.backend.v1.CreateUploadResponse")
+        );
         assert!(!method.client_streaming.unwrap_or(false));
         assert!(!method.server_streaming.unwrap_or(false));
     }
