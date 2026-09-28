@@ -485,6 +485,34 @@ fn it_orders_messages_by_sent() {
     })
 }
 
+/// Publication stores the expiry the caller computed, and republishing an already
+/// published message keeps its first expiry so later setting changes cannot move it.
+// verifies: META-050
+#[xmtp_common::test(unwrap_try = true)]
+fn message_expiry_from_sent_time_is_persisted_once() {
+    with_connection(|conn| {
+        let group = generate_group(None);
+        group.store(conn)?;
+        let mut message = generate_message(None, Some(&group.id), Some(1_000), None, None, None);
+        message.delivery_status = DeliveryStatus::Unpublished;
+        message.store(conn)?;
+
+        conn.set_delivery_status_to_published(&message.id, 900, Cursor(5), Some(1_900))?;
+        assert_eq!(
+            conn.get_group_message(&message.id)??.expire_at_ns,
+            Some(1_900)
+        );
+
+        for later in [Some(5_000), None] {
+            conn.set_delivery_status_to_published(&message.id, 900, Cursor(5), later)?;
+            assert_eq!(
+                conn.get_group_message(&message.id)??.expire_at_ns,
+                Some(1_900)
+            );
+        }
+    })
+}
+
 #[xmtp_common::test]
 fn it_gets_messages_by_content_type() {
     with_connection(|conn| {
