@@ -68,6 +68,7 @@ class Endpoint implements WireEndpoint {
     this.exitHandler();
     this.peer?.exitHandler();
   }
+  terminate?: () => void;
 }
 
 function pair(): [Endpoint, Endpoint] {
@@ -539,21 +540,11 @@ describe("browser bridge transport", () => {
     otherTab.close("client-pool");
   });
 
-  it("releases a pool after collected Client.end rejects", async () => {
+  it("keeps a pool locked until the worker terminates after collected Client.end rejects", async () => {
     const held = new Set<string>();
-    const provider: LockProvider = {
-      async request(name, _options, callback) {
-        if (held.has(name)) return callback(null);
-        held.add(name);
-        try {
-          await callback({});
-        } finally {
-          held.delete(name);
-        }
-      },
-    };
-    const locks = new PoolLocks(provider);
-    const otherTab = new PoolLocks(provider);
+    const first = workerLockManager(held);
+    const locks = new PoolLocks(first.provider);
+    const otherTab = new PoolLocks(workerLockManager(held).provider);
     const [main, worker] = pair();
     const engine = new WorkerHost(
       worker,
@@ -578,9 +569,80 @@ describe("browser bridge transport", () => {
     client.release();
     await new Promise<void>((resolve) => setTimeout(resolve, 0));
     expect(worker.sent.some((message) => message.t === "fatal")).toBe(true);
+    await expect(otherTab.open("client-pool")).rejects.toMatchObject({
+      code: "StorageBusy",
+    });
+    first.terminate();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
     await otherTab.open("client-pool");
     otherTab.close("client-pool");
   });
+
+  it("holds acquired pool locks until a fatal worker terminates", async () => {
+    const held = new Set<string>();
+    const first = workerLockManager(held);
+    const locks = new PoolLocks(first.provider);
+    const otherWorker = new PoolLocks(workerLockManager(held).provider);
+    const [main, worker] = pair();
+    let terminateCalls = 0;
+    main.terminate = () => {
+      terminateCalls++;
+    };
+    const engine = new WorkerHost(
+      worker,
+      1,
+      "fatal",
+      async () => {},
+      async () => undefined,
+      locks,
+    );
+    const session = new MainSession(main, 1, "fatal");
+    await session.ready();
+    await locks.open("client-pool");
+    const handle = engine.registry.add({ end: async () => {} }, "Client");
+    locks.attachOwner(handle.owner, "client-pool");
+    const pending = locks.open("pending-pool");
+    engine.fatal(new Error("panic"));
+    await expect(pending).rejects.toMatchObject({ code: "WorkerTerminated" });
+    locks.closeOwner(handle.owner);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(terminateCalls).toBe(1);
+    await expect(otherWorker.open("client-pool")).rejects.toMatchObject({
+      code: "StorageBusy",
+    });
+    first.terminate();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    await otherWorker.open("client-pool");
+    otherWorker.close("client-pool");
+  });
+
+  // Models the lock manager of one browser worker. An acquired lock stays
+  // held until its callback returns or the worker terminates. A request for
+  // "xmtp:pending-pool" never gets its lock.
+  function workerLockManager(held: Set<string>): {
+    provider: LockProvider;
+    terminate: () => void;
+  } {
+    let terminate = () => {};
+    const terminated = new Promise<void>((resolve) => {
+      terminate = resolve;
+    });
+    return {
+      terminate: () => terminate(),
+      provider: {
+        async request(name, _options, callback) {
+          if (name === "xmtp:pending-pool") return new Promise<void>(() => {});
+          if (held.has(name)) return callback(null);
+          held.add(name);
+          try {
+            await Promise.race([callback({}), terminated]);
+          } finally {
+            held.delete(name);
+          }
+        },
+      },
+    };
+  }
 
   function heldPoolLocks(): { held: Set<string>; provider: LockProvider } {
     const held = new Set<string>();

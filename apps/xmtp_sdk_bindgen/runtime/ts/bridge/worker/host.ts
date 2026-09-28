@@ -86,6 +86,7 @@ export class PoolLocks {
   }
 
   close(pool: string): void {
+    if (this.closed) return;
     const remaining = (this.users.get(pool) ?? 0) - 1;
     if (remaining > 0) {
       this.users.set(pool, remaining);
@@ -106,11 +107,21 @@ export class PoolLocks {
     if (pool) this.close(pool);
   }
 
-  closeAll(): void {
+  /**
+   * Stops lock work in a worker that failed. Pending lock requests are
+   * rejected, and a later open or close does nothing. Acquired locks stay
+   * held, because WASM and SQLite state can still be open in this worker. The
+   * browser releases them when the worker terminates.
+   */
+  abandon(): void {
     this.closed = true;
     for (const reject of this.openingRejects.values())
       reject(bridgeError("workerTerminated"));
     this.openingRejects.clear();
+  }
+
+  closeAll(): void {
+    this.abandon();
     for (const release of this.releases.values()) release();
     this.releases.clear();
     this.users.clear();
@@ -397,7 +408,9 @@ export class WorkerHost {
     for (const controller of this.active.values()) controller.abort();
     this.active.clear();
     this.callbacks.terminate();
-    this.locks?.closeAll();
+    // The worker closes itself below, and the main thread terminates it when
+    // it gets the fatal message. Termination releases the acquired locks.
+    this.locks?.abandon();
     try {
       this.endpoint.postMessage({ t: "fatal", error: encodeError(error) });
     } catch {
