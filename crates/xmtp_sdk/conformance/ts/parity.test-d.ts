@@ -1,6 +1,6 @@
-// Compare public method parameters and returns. The signature lint also
-// compares every generated type name and record field. SDK-037 is the only
-// removal list.
+// Compare public method parameters and returns, and record fields (plan P62).
+// check-parity-signatures.py compares every public declaration. SDK-037 is
+// the only removal list.
 import type * as Node from "../../../../target/sdk-generated/typescript-napi/xmtp_sdk";
 import type * as Browser from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 import type * as NodeHost from "../../../../target/sdk-generated/typescript-napi/index";
@@ -13,7 +13,6 @@ type Equal<Left, Right> =
     ? true
     : false;
 type Assert<Value extends true> = Value;
-type Previous = [never, 0, 1, 2, 3, 4, 5, 6];
 type Opaque<Value> = Value extends NodeHost.Message | BrowserHost.Message | Browser.Message
   ? "Message"
   : Value extends NodeHost.Client | BrowserHost.Client
@@ -67,41 +66,45 @@ type Opaque<Value> = Value extends NodeHost.Message | BrowserHost.Message | Brow
                       : Value extends Node.SignatureRequestLike | Browser.SignatureRequestLike
                         ? "SignatureRequestLike"
                         : never;
-type Canonical<Value, Depth extends number = 2> = [Opaque<Value>] extends [never]
-  ? Depth extends 0
-    ? Value extends object
-      ? keyof Value
-      : Value extends number
-        ? number
-        : Value extends string
-          ? string
-          : Value
-    : Value extends Promise<infer Inner>
-      ? Promise<Canonical<Inner, Previous[Depth]>>
-      : Value extends readonly unknown[]
-        ? { [Index in keyof Value]: Canonical<Value[Index], Previous[Depth]> }
-        : Value extends Map<infer Key, infer Inner>
-          ? Map<Canonical<Key, Previous[Depth]>, Canonical<Inner, Previous[Depth]>>
+// Canonical keeps every literal, enum value, union member, optional marker,
+// and nested field. It maps each member of a union on its own, so `undefined`
+// and other members stay beside an opaque type. Opaque SDK types become their
+// name, which also ends the recursion; check-parity-signatures.py compares each
+// of them where it is declared.
+type Canonical<Value> = 0 extends 1 & Value
+  ? "any"
+  : Value extends unknown
+    ? [Opaque<Value>] extends [never]
+      ? Structure<Value>
+      : Opaque<Value>
+    : never;
+type Structure<Value> = Value extends Promise<infer Inner>
+  ? Promise<Canonical<Inner>>
+  : Value extends readonly unknown[]
+    ? { [Index in keyof Value]: Canonical<Value[Index]> }
+    : Value extends Map<infer Key, infer Inner>
+      ? Map<Canonical<Key>, Canonical<Inner>>
+      : Value extends Set<infer Inner>
+        ? Set<Canonical<Inner>>
+        : Value extends (...args: infer Inputs) => infer Output
+          ? { inputs: Canonical<Inputs>; output: Canonical<Output> }
           : Value extends object
             ? {
-                [Key in keyof Value as Key extends symbol ? never : Key]: Canonical<
-                  Value[Key],
-                  Previous[Depth]
-                >;
+                [Key in keyof Value as Key extends symbol
+                  ? never
+                  : Key]: Canonical<Value[Key]>;
               }
             : Value extends number
-              ? number
+              ? ["number", `${Value}`]
               : Value extends string
-                ? string
-                : Value
-  : Opaque<Value>;
-type MethodShape<Value> = Value extends (...args: infer Inputs) => infer Output
-  ? { inputs: Canonical<Inputs>; output: Canonical<Output> }
-  : Value;
+                ? ["string", `${Value}`]
+                : Value extends bigint
+                  ? ["bigint", `${Value}`]
+                  : Value;
 type MismatchKeys<Native, Web, Removed extends PropertyKey = never> = {
   [Key in Exclude<keyof Native, Removed> & keyof Web]: Equal<
-    MethodShape<Native[Key]>,
-    MethodShape<Web[Key]>
+    Canonical<Native[Key]>,
+    Canonical<Web[Key]>
   > extends true
     ? never
     : Key;
@@ -112,54 +115,19 @@ type SameMethods<Native, Web, Removed extends PropertyKey = never> =
       ? true
       : false
     : false;
+// Expand the record itself: Opaque would reduce a whole record to its name.
 type SameFields<Native, Web> =
   Equal<keyof Native, keyof Web> extends true
-    ? Equal<Canonical<Native>, Canonical<Web>>
+    ? Equal<Structure<Native>, Structure<Web>>
     : false;
 
-// Browser joins worker WASM and main-thread pure WASM exports.
+// check-parity-signatures.py compares every export of both entrypoints, value
+// and type-only, and holds the SDK-037 list. This type test compares method
+// and record shapes structurally.
 type PublicNodeExports =
   keyof typeof import("../../../../target/sdk-generated/typescript-napi/index");
-type NativeExports = Extract<
-  PublicNodeExports,
-  keyof typeof import("../../../../target/sdk-generated/typescript-napi/xmtp_sdk")
->;
 export type QueuedLogSinkIsInternal = Assert<
   Equal<"setLogSinkQueued" extends PublicNodeExports ? true : false, false>
->;
-type BrowserExports =
-  | keyof typeof import("../../../../target/sdk-generated/typescript-wasm/xmtp_sdk")
-  | keyof typeof import("../../../../target/sdk-generated/typescript-pure/xmtp_sdk");
-type NativeOnlyExports =
-  | "LogProcessType"
-  | "LogRotation"
-  | "NotificationChannel"
-  | "NotificationChannel_Tags"
-  | "NotificationConfig"
-  | "NotificationFailure"
-  | "NotificationState"
-  | "NotificationState_Tags"
-  | "decryptFile"
-  | "encryptFile"
-  | "enterDebugWriter"
-  | "exitDebugWriter";
-// Pure WASM also exports these host classes from its raw module. Node exports
-// them from index.ts instead.
-type PureHostExports =
-  | "ConversationID"
-  | "InboxID"
-  | "InstallationID"
-  | "Message"
-  | "MessageID"
-  | "Timestamp";
-// The browser worker runtime reads this export after a failed create. Apps
-// do not call it, and native builds have no storage lock.
-type WorkerOnlyExports = "storeLeftOpen";
-export type ExportParity = Assert<
-  Equal<
-    Exclude<NativeExports, NativeOnlyExports>,
-    Exclude<BrowserExports, PureHostExports | WorkerOnlyExports>
-  >
 >;
 
 export type BackendParity = Assert<
