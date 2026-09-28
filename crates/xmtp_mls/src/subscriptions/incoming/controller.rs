@@ -11,6 +11,7 @@ use std::{
 };
 use xmtp_common::{RetryableError, time::Instant};
 use xmtp_db::{
+    consent_record::ConsentState,
     group::GroupQueryArgs,
     incoming_envelope::{NetworkEntityKind, StreamTopic},
     prelude::*,
@@ -384,6 +385,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .find_groups(GroupQueryArgs {
                     include_sync_groups: true,
                     include_duplicate_dms: true,
+                    // Receive every stored group regardless of app consent.
+                    consent_states: Some(vec![
+                        ConsentState::Allowed,
+                        ConsentState::Unknown,
+                        ConsentState::Denied,
+                    ]),
                     ..Default::default()
                 })
                 .map_err(|error| IncomingError::Storage(error.into()))?
@@ -409,8 +416,18 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             HashSet::new()
         };
         for scope in self.scopes.values_mut() {
-            if let ScopeKind::Groups(groups) = &scope.scope {
-                for group_id in groups {
+            let selected_scope = if let ScopeKind::Groups(groups) = &scope.scope {
+                Some(
+                    self.context
+                        .db()
+                        .resolve_group_scope(groups)
+                        .map_err(IncomingError::Storage)?,
+                )
+            } else {
+                None
+            };
+            if let Some(selected_scope) = &selected_scope {
+                for group_id in &selected_scope.group_ids {
                     let topic = Topic::new_group_message(group_id);
                     if !scope.topics.contains(&topic) {
                         // An empty pending queue cannot report an already inactive group.
@@ -427,7 +444,20 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             scope.topics = match &scope.scope {
                 ScopeKind::Topics(topics) => topics.iter().cloned().collect(),
-                ScopeKind::Groups(groups) => groups.iter().map(Topic::new_group_message).collect(),
+                ScopeKind::Groups(_) => {
+                    let mut topics = selected_scope
+                        .iter()
+                        .flat_map(|scope| scope.group_ids.iter())
+                        .map(Topic::new_group_message)
+                        .collect::<HashSet<_>>();
+                    if selected_scope
+                        .as_ref()
+                        .is_some_and(|scope| scope.includes_dm)
+                    {
+                        topics.insert(Topic::new_welcome_message(self.context.installation_id()));
+                    }
+                    topics
+                }
                 ScopeKind::Barrier { .. } => scope.targets.keys().cloned().collect(),
                 ScopeKind::AllGroups => discoveries
                     .iter()

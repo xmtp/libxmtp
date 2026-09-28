@@ -104,6 +104,53 @@ fn add_barrier_scope<C: XmtpSharedContext + 'static>(
     });
 }
 
+// verifies: DMS-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn one_dm_interest_reconciles_a_later_joined_duplicate() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let first = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await?;
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let lease = coordinator.acquire_stream(IncomingScope::Groups(vec![first.group_id]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    let first_topic = Topic::new_group_message(first.group_id);
+    assert!(controller.interested().contains(&first_topic));
+    let welcome_topic = Topic::new_welcome_message(alix.context.installation_id());
+    assert!(controller.scopes[&lease.id].topics.contains(&welcome_topic));
+
+    let second = bo
+        .find_or_create_dm(alix.inbox_id().to_string(), None)
+        .await?;
+    assert_ne!(first.group_id, second.group_id);
+    alix.sync_welcomes().await?;
+    controller.reconcile()?;
+    let second_topic = Topic::new_group_message(second.group_id);
+    assert!(controller.scopes[&lease.id].topics.contains(&second_topic));
+    assert!(controller.interested().contains(&second_topic));
+}
+
+// verifies: PROC-032
+#[xmtp_common::test(unwrap_try = true)]
+async fn all_group_network_interest_keeps_a_denied_conversation() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.update_consent_state(xmtp_db::consent_record::ConsentState::Denied)?;
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let lease = coordinator.acquire_stream(IncomingScope::AllGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    let topic = Topic::new_group_message(group.group_id);
+    assert!(controller.scopes[&lease.id].topics.contains(&topic));
+    assert!(controller.interested().contains(&topic));
+}
+
 fn meta(topic: &Topic, sequence_id: u64) -> wire::EnvelopeMeta {
     wire::EnvelopeMeta {
         cursor: Some(wire::Cursor { sequence_id }),

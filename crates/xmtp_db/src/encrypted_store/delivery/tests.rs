@@ -96,6 +96,94 @@ async fn scope_progress_and_replay_remain_independent() {
     );
 }
 
+// verifies: DMS-009, PROC-026, PROC-034
+#[xmtp_common::test(unwrap_try = true)]
+async fn scoped_delivery_reads_the_stitched_dm_union_before_limits() {
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let mut first = generate_group(None);
+    first.conversation_type = ConversationType::Dm;
+    first.dm_id = Some("dm:one:two".into());
+    let mut second = generate_group(None);
+    second.conversation_type = ConversationType::Dm;
+    second.dm_id = first.dm_id.clone();
+    let mut other_dm = generate_group(None);
+    other_dm.conversation_type = ConversationType::Dm;
+    other_dm.dm_id = Some("dm:three:four".into());
+    let regular = generate_group(None);
+    for group in [&first, &second, &other_dm, &regular] {
+        group.store(&db)?;
+    }
+
+    let start = db.current_delivery_cursor()?;
+    let first_message = generate_message(None, Some(&first.id), None, None, None, None);
+    let second_message = generate_message(None, Some(&second.id), None, None, None, None);
+    first_message.store(&db)?;
+    second_message.store(&db)?;
+    generate_message(None, Some(&other_dm.id), None, None, None, None).store(&db)?;
+    generate_message(None, Some(&regular.id), None, None, None, None).store(&db)?;
+
+    let owner = db.acquire_delivery_owner(0, 100)?;
+    for id in [first.id, second.id] {
+        let scope = DeliveryScope::Groups(vec![id]);
+        let expected = [&first_message.id, &second_message.id];
+        let defaults = db.default_delivery_messages(owner, &scope, 1, 8)?;
+        assert_eq!(
+            defaults
+                .iter()
+                .map(|row| &row.message.id)
+                .collect::<Vec<_>>(),
+            expected
+        );
+        let replay = db.replay_delivery_messages(start, &scope, 1, 8)?;
+        assert_eq!(
+            replay.iter().map(|row| &row.message.id).collect::<Vec<_>>(),
+            expected
+        );
+        let latest = db.delivery_history_snapshot(&scope, 1, 1)?;
+        assert_eq!(latest.messages.len(), 1);
+        assert_eq!(latest.messages[0].message.id, second_message.id);
+    }
+    assert!(
+        db.default_delivery_messages(owner, &DeliveryScope::Groups(vec![]), 1, 8)?
+            .is_empty()
+    );
+
+    let scope = DeliveryScope::Groups(vec![first.id]);
+    let duplicate_row = db.default_delivery_messages(owner, &scope, 1, 8)?[1].clone();
+    db.acknowledge_delivery(owner, second.id, duplicate_row.cursor, 1)?;
+    let remaining = db.default_delivery_messages(owner, &scope, 1, 8)?;
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].message.id, first_message.id);
+}
+
+// verifies: DMS-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn scoped_delivery_includes_a_duplicate_added_after_the_first_read() {
+    let store = TestDb::create_persistent_store(None).await;
+    let db = store.db();
+    let mut first = generate_group(None);
+    first.conversation_type = ConversationType::Dm;
+    first.dm_id = Some("dm:one:two".into());
+    first.store(&db)?;
+    let owner = db.acquire_delivery_owner(0, 100)?;
+    let scope = DeliveryScope::Groups(vec![first.id]);
+    assert!(
+        db.default_delivery_messages(owner, &scope, 1, 8)?
+            .is_empty()
+    );
+
+    let mut later = generate_group(None);
+    later.conversation_type = ConversationType::Dm;
+    later.dm_id = first.dm_id.clone();
+    later.store(&db)?;
+    let message = generate_message(None, Some(&later.id), None, None, None, None);
+    message.store(&db)?;
+    let rows = db.default_delivery_messages(owner, &scope, 1, 8)?;
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].message.id, message.id);
+}
+
 // verifies: PROC-031
 #[xmtp_common::test(unwrap_try = true)]
 async fn expired_owner_cannot_acknowledge_or_scan_after_takeover() {
