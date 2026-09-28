@@ -449,35 +449,52 @@ async fn freshness_rejects_a_block_stamped_after_the_head() {
     ));
 }
 
-/// Fails the test on any chain read.
-struct UnreachableChain;
+/// Counts reads and, like a chain the deployment does not route, answers
+/// each with a retryable missing route.
+#[derive(Default)]
+struct RoutelessChain(std::sync::atomic::AtomicUsize);
 
 #[xmtp_common::async_trait]
-impl ChainBlocks for UnreachableChain {
-    async fn head(&self, _: &str) -> Result<BlockStamp, VerifierError> {
-        panic!("the chain must not be read")
+impl ChainBlocks for RoutelessChain {
+    async fn head(&self, chain_id: &str) -> Result<BlockStamp, VerifierError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Err(VerifierError::NoVerifier(chain_id.into()))
     }
 
-    async fn timestamp(&self, _: &str, _: u64) -> Result<u64, VerifierError> {
-        panic!("the chain must not be read")
+    async fn timestamp(&self, chain_id: &str, _: u64) -> Result<u64, VerifierError> {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Err(VerifierError::NoVerifier(chain_id.into()))
     }
 }
 
-/// A malformed account id anywhere in an update rejects it before any chain
-/// access, even behind a well-formed signature, so an invalid update cannot
-/// buy RPC work.
+/// A malformed account id anywhere in an update, in its chain id or its
+/// address, rejects it permanently before any chain access, even behind a
+/// well-formed signature and on a chain with no route, so an invalid update
+/// cannot buy RPC work or wait as retryable for ever. A well-formed one on
+/// that chain reaches it and stays retryable.
 #[xmtp_common::test]
-// verifies: IDENT-060
+// verifies: IDENT-060, IDENT-061
 async fn freshness_rejects_any_malformed_account_before_chain_access() {
-    let update = with_second_signature(|scw| {
-        scw.account_id = scw.account_id.replacen("eip155:1:", "eip155:01:", 1);
-        assert!(scw.account_id.starts_with("eip155:01:"));
-    });
+    let chain = RoutelessChain::default();
+    for malformed in [
+        "eip155:01:0x1111111111111111111111111111111111111111",
+        "eip155:1:bad",
+        "eip155:1:1111111111111111111111111111111111111111",
+        "eip155:1:0x111111111111111111111111111111111111111g",
+        "eip155:1:0x11111111111111111111111111111111111111111",
+    ] {
+        let update = with_second_signature(|scw| scw.account_id = malformed.into());
+        let error = check_freshness(&update, &chain).await.expect_err(malformed);
+        assert!(!error.is_retryable(), "{malformed}: {error}");
+        assert_eq!(error.reason(), Reason::InvalidSignature, "{malformed}");
+    }
+    assert_eq!(chain.0.load(std::sync::atomic::Ordering::Relaxed), 0);
 
-    let error = check_freshness(&update, &UnreachableChain)
+    let error = check_freshness(&scw_create_inbox_update_at(1), &chain)
         .await
-        .expect_err("a non-canonical chain id is rejected");
-    assert!(!error.is_retryable());
+        .expect_err("a chain without a route cannot judge freshness");
+    assert!(error.is_retryable());
+    assert_eq!(chain.0.into_inner(), 1);
 }
 
 /// Append a copy of the fixture inbox's ERC-6492 signature, edited by `edit`.

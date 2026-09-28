@@ -179,6 +179,12 @@ pub enum AccountIdError {
     /// Chain ID is not prefixed with `eip155:`. Not retryable.
     #[error("Chain ID is not prefixed with eip155:")]
     MissingEip155Prefix,
+    /// Invalid account address.
+    ///
+    /// Account address is not `0x` followed by 40 hexadecimal characters.
+    /// Not retryable.
+    #[error("Account address is not 0x followed by 40 hexadecimal characters")]
+    InvalidAddress,
 }
 
 // CAIP-10[https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md]
@@ -224,6 +230,20 @@ impl AccountId {
             .ok()
             .filter(|chain_id| chain_id.to_string() == reference)
             .ok_or(AccountIdError::InvalidChainId)
+    }
+
+    /// The chain id of an `eip155` account id in the only verifiable form:
+    /// the chain id as [`Self::get_chain_id_u64`] requires, and an address of
+    /// `0x` followed by 40 hexadecimal characters. Checked before any chain
+    /// access, so a malformed account id is never routed.
+    // implements: IDENT-060
+    pub fn eip155_chain_id(&self) -> Result<u64, AccountIdError> {
+        let chain_id = self.get_chain_id_u64()?;
+        self.account_address
+            .strip_prefix("0x")
+            .is_some_and(|hex| hex.len() == 40 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then_some(chain_id)
+            .ok_or(AccountIdError::InvalidAddress)
     }
 }
 

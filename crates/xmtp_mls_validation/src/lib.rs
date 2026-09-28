@@ -307,8 +307,8 @@ pub fn erc6492_signatures(
 /// Reject a new update whose ERC-6492 signature names a block after its
 /// chain's head, or one more than [`MAX_BLOCK_AGE_SECS`] before it.
 ///
-/// Every account id's form is checked before the first chain call, so a
-/// malformed one is rejected without chain access. Each chain's head is then
+/// Every account id's form, chain id and address, is checked before
+/// the first chain call, so a malformed one is rejected without chain access. Each chain's head is then
 /// read once, so a block after it is rejected without further calls, and each
 /// distinct block's timestamp once; reads within a round run concurrently.
 /// Chain failures stay retryable; they are never a verdict on the signature.
@@ -324,7 +324,7 @@ pub async fn check_freshness(
     let blocks = erc6492_signatures(update)
         .map(|signature| {
             let account = AccountId::try_from(signature.account_id.as_str())?;
-            account.get_chain_id_u64().map_err(SignatureError::from)?;
+            account.eip155_chain_id().map_err(SignatureError::from)?;
             Ok((account.get_chain_id().to_owned(), signature.block_number))
         })
         .collect::<Result<BTreeSet<_>, ValidationError>>()?;

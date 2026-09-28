@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **11 crates** with **405 total error codes**.
+**38 error types** across **11 crates** with **406 total error codes**.
 
 ## mobile
 
@@ -257,6 +257,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 |:-----------|:------------|
 | `AccountIdError::InvalidChainId` | Invalid chain ID. Chain ID is not a u64 in canonical decimal form. Not retryable. |
 | `AccountIdError::MissingEip155Prefix` | Missing EIP-155 prefix. Chain ID is not prefixed with `eip155:`. Not retryable. |
+| `AccountIdError::InvalidAddress` | Invalid account address. Account address is not `0x` followed by 40 hexadecimal characters. Not retryable. |
 
 ### AssociationError <sub>enum</sub>
 
