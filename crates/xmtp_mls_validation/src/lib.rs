@@ -304,8 +304,9 @@ pub fn erc6492_signatures(
 /// Reject a new update whose ERC-6492 signature names a block after its
 /// chain's head, or one more than [`MAX_BLOCK_AGE_SECS`] before it.
 ///
-/// Each signature is judged on its own chain, after the account id's form
-/// check so a malformed one is rejected before any chain call. The head is
+/// Every account id's form is checked before the first chain call, so a
+/// malformed one is rejected without chain access. Each signature is then
+/// judged on its own chain. The head is
 /// read first, so a block after it is rejected without a second call. Chain
 /// failures stay retryable; they are never a verdict on the signature. A
 /// block stamped after the head, as reads straddling a reorg can report, is
@@ -317,10 +318,14 @@ pub async fn check_freshness(
     update: &IdentityUpdate,
     chain: &dyn ChainBlocks,
 ) -> Result<(), ValidationError> {
-    for signature in erc6492_signatures(update) {
-        let account = AccountId::try_from(signature.account_id.as_str())?;
-        account.get_chain_id_u64().map_err(SignatureError::from)?;
-        let number = signature.block_number;
+    let signatures = erc6492_signatures(update)
+        .map(|signature| {
+            let account = AccountId::try_from(signature.account_id.as_str())?;
+            account.get_chain_id_u64().map_err(SignatureError::from)?;
+            Ok((signature.block_number, account))
+        })
+        .collect::<Result<Vec<_>, ValidationError>>()?;
+    for (number, account) in signatures {
         let head = chain
             .head(account.get_chain_id())
             .await
