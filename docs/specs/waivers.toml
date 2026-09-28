@@ -88,13 +88,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The chain check runs only when the signer is found among the current members, and AddAssociation checks only existing_member_signature."
 
 [[waiver]]
-id = "IDENT-062"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "No admission freshness check on an ERC-6492 signature's block_number exists, so a removed contract signer can sign now and validate against a block before its removal."
-
-[[waiver]]
 id = "CONS-010"
 kind = "gap"
 owner = "protocol"

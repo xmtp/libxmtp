@@ -14,7 +14,7 @@ use xmtp_id::associations::{
     },
 };
 use xmtp_mls_validation::test_utils::{
-    identity_envelope, identity_history_with_passkey, scw_create_inbox_update,
+    TestChain, identity_envelope, identity_history_with_passkey, scw_create_inbox_update,
 };
 use xmtp_proto::xmtp::identity::associations::{
     IdentifierKind, IdentityUpdate, identity_action::Kind, signature,
@@ -340,6 +340,7 @@ async fn scw_signature_limit_accepts_exact_count_and_rejects_one_past() {
     let server = TestServer::with_verifier(
         |config| config.limits.max_scw_signatures = 1,
         VerdictVerifier,
+        TestChain::at(1),
     )
     .await?;
     let signature = api::verify_smart_contract_wallet_signatures_request::Signature {
@@ -381,6 +382,7 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
     let server = TestServer::with_verifier(
         |config| config.limits.max_scw_signatures = 1,
         CountingVerifier(calls.clone()),
+        TestChain::at(1),
     )
     .await?;
     let update = scw_create_inbox_update();
@@ -435,7 +437,7 @@ async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
     ) else {
         return;
     };
-    let server = TestServer::with_verifier(|_| {}, VerdictVerifier).await?;
+    let server = TestServer::with_verifier(|_| {}, VerdictVerifier, TestChain::at(1)).await?;
     let signatures = [(1, None), (0, Some(12)), (1, Some(13))]
         .map(|(byte, block_number)| {
             api::verify_smart_contract_wallet_signatures_request::Signature {
@@ -590,7 +592,9 @@ fn encoded_identity_envelope(update: &[u8]) -> Vec<u8> {
 #[xmtp_common::test(unwrap_try = true)]
 async fn identity_invalid_mutations_are_rejected_on_admission() {
     let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let server = TestServer::with_verifier(|_| {}, CountingVerifier(calls.clone())).await?;
+    let server =
+        TestServer::with_verifier(|_| {}, CountingVerifier(calls.clone()), TestChain::at(1))
+            .await?;
     let wallet = xmtp_cryptography::utils::generate_local_wallet();
     let installation = xmtp_cryptography::basic_credential::XmtpInstallationCredential::new();
     let mut request = SignatureRequestBuilder::new(wallet.get_inbox_id(0))

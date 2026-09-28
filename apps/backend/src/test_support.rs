@@ -16,7 +16,9 @@ pub(crate) mod native;
 pub(crate) mod replica;
 use tokio::{net::TcpListener, sync::oneshot, task::JoinHandle};
 use tonic::transport::{Channel, Endpoint};
-use xmtp_id::scw_verifier::{CachedSmartContractSignatureVerifier, SmartContractSignatureVerifier};
+use xmtp_id::scw_verifier::{
+    CachedSmartContractSignatureVerifier, ChainBlocks, SmartContractSignatureVerifier,
+};
 
 pub type TestResult<T = ()> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
@@ -92,16 +94,25 @@ impl TestServer {
         .await
     }
 
+    /// Replace the configured chains with a controlled verifier and chain.
     pub async fn with_verifier(
         change: impl FnOnce(&mut Config),
         verifier: impl SmartContractSignatureVerifier + 'static,
+        chain: impl ChainBlocks + 'static,
     ) -> TestResult<Self> {
-        Self::start(change, Some(Box::new(verifier))).await
+        Self::start(
+            change,
+            Some((Box::new(verifier), std::sync::Arc::new(chain))),
+        )
+        .await
     }
 
     async fn start(
         change: impl FnOnce(&mut Config),
-        verifier: Option<Box<dyn SmartContractSignatureVerifier>>,
+        chains: Option<(
+            Box<dyn SmartContractSignatureVerifier>,
+            std::sync::Arc<dyn ChainBlocks>,
+        )>,
     ) -> TestResult<Self> {
         let database = TestDatabase::new()?;
         let mut config: Config = toml::from_str(&format!(
@@ -110,7 +121,8 @@ impl TestServer {
         ))?;
         change(&mut config);
         let mut backend = server::initialize(config).await?;
-        if let Some(verifier) = verifier {
+        if let Some((verifier, chain)) = chains {
+            backend.chains = chain;
             backend.verifier = std::sync::Arc::new(CachedSmartContractSignatureVerifier::new(
                 verifier,
                 std::num::NonZeroUsize::new(backend.config.validation.max_scw_cache_entries)

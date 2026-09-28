@@ -141,7 +141,13 @@ async fn commit_log_admission_preserves_unverified_bytes_and_signature() {
     );
     assert!(!parsed.is_commit_or_proposal);
     assert_eq!(parsed.envelope, expected);
-    validate_envelope(&parsed, &[], MockSmartContractSignatureVerifier::new(false)).await?;
+    validate_envelope(
+        &parsed,
+        &[],
+        MockSmartContractSignatureVerifier::new(false),
+        &TestChain::at(1),
+    )
+    .await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -193,9 +199,14 @@ async fn key_package_admission_accepts_the_existing_credential_shape() {
             expected_topic(TopicKind::KeyPackagesV1, &fixture.installation_id)
         );
         assert!(
-            validate_envelope(&parsed, &[], MockSmartContractSignatureVerifier::new(false))
-                .await?
-                .is_none()
+            validate_envelope(
+                &parsed,
+                &[],
+                MockSmartContractSignatureVerifier::new(false),
+                &TestChain::at(1),
+            )
+            .await?
+            .is_none()
         );
         assert_eq!(
             verify_key_package(&fixture.tls_bytes)?.credential.inbox_id,
@@ -257,10 +268,15 @@ async fn key_package_parse_precedes_existing_cryptographic_validation() {
             parsed.topic.cloned_vec(),
             expected_topic(TopicKind::KeyPackagesV1, &fixture.installation_id)
         );
-        let error = validate_envelope(&parsed, &[], MockSmartContractSignatureVerifier::new(false))
-            .await
-            .err()
-            .expect("semantic key-package validation must still run");
+        let error = validate_envelope(
+            &parsed,
+            &[],
+            MockSmartContractSignatureVerifier::new(false),
+            &TestChain::at(1),
+        )
+        .await
+        .err()
+        .expect("semantic key-package validation must still run");
         assert!(matches!(&error, ValidationError::KeyPackage(_)));
         assert_eq!(error.reason(), Reason::InvalidKeyPackage);
     }
@@ -292,6 +308,7 @@ async fn identity_admission_folds_real_history_and_a_passkey_update() {
         &parsed,
         &fixture.history,
         MockSmartContractSignatureVerifier::new(false),
+        &TestChain::at(1),
     )
     .await?
     .expect("identity admission returns state and diff");

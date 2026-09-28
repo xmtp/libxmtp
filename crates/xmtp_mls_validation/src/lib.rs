@@ -6,11 +6,12 @@ use tls_codec::Deserialize;
 use xmtp_common::RetryableError;
 use xmtp_id::{
     associations::{
-        self, AssociationError, AssociationState, AssociationStateDiff, DeserializationError,
-        SignatureError, try_map_vec, unverified::UnverifiedIdentityUpdate, verify_updates,
+        self, AccountId, AssociationError, AssociationState, AssociationStateDiff,
+        DeserializationError, SignatureError, try_map_vec, unverified::UnverifiedIdentityUpdate,
+        verify_updates,
     },
     key_package::{KeyPackageVerificationError, VerifiedKeyPackageV2},
-    scw_verifier::SmartContractSignatureVerifier,
+    scw_verifier::{ChainBlocks, SmartContractSignatureVerifier},
 };
 use xmtp_mls_common::commit_log::decode_commit_log;
 use xmtp_proto::{
@@ -21,7 +22,9 @@ use xmtp_proto::{
             ClientEnvelope, client_envelope::Payload, publish_error::Reason,
             welcome_message::Version,
         },
-        identity::associations::IdentityUpdate,
+        identity::associations::{
+            IdentityUpdate, SmartContractWalletSignature, identity_action, signature,
+        },
     },
 };
 
@@ -75,6 +78,10 @@ pub enum ValidationError {
     #[error(transparent)]
     #[error_code(inherit)]
     Signature(#[from] SignatureError),
+    /// An ERC-6492 signature names a block after the chain head or more than
+    /// [`MAX_BLOCK_AGE_SECS`] before it. Not retryable.
+    #[error("signature block {0} is not fresh")]
+    StaleBlock(u64),
 }
 
 impl RetryableError for ValidationError {
@@ -97,9 +104,9 @@ impl ValidationError {
     pub fn reason(&self) -> Reason {
         match self {
             Self::KeyPackage(_) => Reason::InvalidKeyPackage,
-            Self::Signature(_) | Self::Association(AssociationError::Signature(_)) => {
-                Reason::InvalidSignature
-            }
+            Self::Signature(_)
+            | Self::Association(AssociationError::Signature(_))
+            | Self::StaleBlock(_) => Reason::InvalidSignature,
             Self::IdentityEncoding(_) | Self::Association(_) => Reason::InvalidIdentityUpdate,
             _ => Reason::MalformedPayload,
         }
@@ -261,15 +268,82 @@ pub async fn validate_identity_updates(
     Ok(AssociationValidation { state, diff })
 }
 
+/// The oldest a new update's ERC-6492 block may be, relative to the chain head.
+pub const MAX_BLOCK_AGE_SECS: u64 = 1800;
+
+/// Every ERC-6492 signature an identity update carries, in action order.
+pub fn erc6492_signatures(
+    update: &IdentityUpdate,
+) -> impl Iterator<Item = &SmartContractWalletSignature> {
+    update
+        .actions
+        .iter()
+        .flat_map(|action| match &action.kind {
+            Some(identity_action::Kind::CreateInbox(value)) => {
+                [value.initial_identifier_signature.as_ref(), None]
+            }
+            Some(identity_action::Kind::Add(value)) => [
+                value.existing_member_signature.as_ref(),
+                value.new_member_signature.as_ref(),
+            ],
+            Some(identity_action::Kind::Revoke(value)) => {
+                [value.recovery_identifier_signature.as_ref(), None]
+            }
+            Some(identity_action::Kind::ChangeRecoveryAddress(value)) => {
+                [value.existing_recovery_identifier_signature.as_ref(), None]
+            }
+            None => [None, None],
+        })
+        .flatten()
+        .filter_map(|value| match &value.signature {
+            Some(signature::Signature::Erc6492(signature)) => Some(signature),
+            _ => None,
+        })
+}
+
+/// Reject a new update whose ERC-6492 signature names a block after its
+/// chain's head, or one more than [`MAX_BLOCK_AGE_SECS`] before it.
+///
+/// Each signature is judged on its own chain. The head is read first, so a
+/// block after it is rejected without a second call. Chain failures stay
+/// retryable; they are never a verdict on the signature.
+// implements: IDENT-062
+pub async fn check_freshness(
+    update: &IdentityUpdate,
+    chain: &dyn ChainBlocks,
+) -> Result<(), ValidationError> {
+    for signature in erc6492_signatures(update) {
+        let account = AccountId::try_from(signature.account_id.as_str())?;
+        let number = signature.block_number;
+        let head = chain
+            .head(account.get_chain_id())
+            .await
+            .map_err(SignatureError::from)?;
+        if number > head.number {
+            return Err(ValidationError::StaleBlock(number));
+        }
+        let timestamp = chain
+            .timestamp(account.get_chain_id(), number)
+            .await
+            .map_err(SignatureError::from)?;
+        if head.timestamp.saturating_sub(timestamp) > MAX_BLOCK_AGE_SECS {
+            return Err(ValidationError::StaleBlock(number));
+        }
+    }
+    Ok(())
+}
+
 /// Validate one parsed envelope after duplicate lookup.
 ///
 /// Key packages receive their existing package checks. Identity updates are
-/// folded against the caller's snapshot and return a projection diff. Other
+/// folded against the caller's snapshot and return a projection diff; only the
+/// new update, never the stored history, must pass [`check_freshness`]. Other
 /// kinds need no cryptographic admission beyond the parsing phase.
 pub async fn validate_envelope(
     parsed: &ParsedEnvelope,
     history: &[IdentityUpdate],
     verifier: impl SmartContractSignatureVerifier,
+    chain: &dyn ChainBlocks,
 ) -> Result<Option<AssociationValidation>, ValidationError> {
     match parsed
         .envelope
@@ -281,9 +355,12 @@ pub async fn validate_envelope(
             verify_key_package(&package.key_package_tls_serialized)?;
             Ok(None)
         }
-        Payload::IdentityUpdate(update) => Ok(Some(
-            validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?,
-        )),
+        Payload::IdentityUpdate(update) => {
+            let validation =
+                validate_identity_updates(history.to_vec(), vec![update.clone()], verifier).await?;
+            check_freshness(update, chain).await?;
+            Ok(Some(validation))
+        }
         _ => Ok(None),
     }
 }

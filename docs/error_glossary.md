@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **11 crates** with **404 total error codes**.
+**38 error types** across **11 crates** with **405 total error codes**.
 
 ## mobile
 
@@ -351,6 +351,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `VerifierError::Serde` | Serialization error. JSON serialization/deserialization failed. Not retryable. |
 | `VerifierError::MalformedEipUrl` | Malformed chain ID. Chain ID string lacks expected eip155: prefix. Not retryable. |
 | `VerifierError::NoVerifier` | No verifier. Verifier not configured for the given chain ID. Retryable. |
+| `VerifierError::MissingBlock` | Missing block. The chain did not return a block at or below its reported head. Retryable. |
 | `VerifierError::InvalidHash` | Invalid hash. Hash has invalid length or format. Not retryable. |
 | `VerifierError::Other` | Other error. Unclassified verifier error. May be retryable. |
 
