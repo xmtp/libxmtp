@@ -223,7 +223,7 @@ pub(crate) async fn client() -> (crate::Client<Context>, Arc<Peer>) {
     tester!(base, disable_workers);
     let peer = Arc::new(Peer::default());
     let api = ScriptedApi {
-        inner: base.context.api().api_client.clone(),
+        inner: base.context.api().api_client.raw_for_test().clone(),
         peer: peer.clone(),
     };
     let client = crate::builder::ClientBuilder::from_client(base.client.clone())

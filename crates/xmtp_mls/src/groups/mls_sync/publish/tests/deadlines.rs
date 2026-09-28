@@ -131,7 +131,7 @@ async fn client_with_stalled_api(
     call: StalledCall,
 ) -> crate::Client<StalledContext> {
     let api = StalledApi {
-        inner: tester.context.api().api_client.clone(),
+        inner: tester.context.api().api_client.raw_for_test().clone(),
         call,
         entered: Arc::new(AtomicBool::new(false)),
         cancelled: Arc::new(AtomicBool::new(false)),
@@ -164,7 +164,7 @@ async fn intent_sync_deadline_bounds_a_stalled_target_query() {
     let result = timeout(OUTER_BOUND, group.sync_until_last_intent_resolved()).await?;
     assert!(matches!(result, Err(GroupError::SyncFailedToWait(_))));
     assert!(started.elapsed() < OUTER_BOUND);
-    let api = &client.context.api().api_client;
+    let api = client.context.api().api_client.raw_for_test();
     assert!(api.entered.load(Ordering::SeqCst));
     assert!(api.cancelled.load(Ordering::SeqCst));
     let current: StoredGroupIntent = group.context.db().fetch(&intent.id)?.unwrap();
@@ -202,7 +202,7 @@ async fn intent_sync_deadline_bounds_a_stalled_welcome_publish() {
         Err(GroupError::PublishedButUnconfirmed { intent_id, .. }) if intent_id == intent.id
     ));
     assert!(started.elapsed() < OUTER_BOUND);
-    let api = &client.context.api().api_client;
+    let api = client.context.api().api_client.raw_for_test();
     assert!(api.entered.load(Ordering::SeqCst));
     assert!(api.cancelled.load(Ordering::SeqCst));
     let current: StoredGroupIntent = group.context.db().fetch(&intent.id)?.unwrap();

@@ -29,3 +29,16 @@ publish details; do not inspect error message text.
 
 Keep auth errors typed. `dyn_err` maps `ApiClientError::Auth` to `ApiError::Auth`
 before it erases transport errors, so bindings keep the public auth code.
+
+## Client request admission
+
+`ApiClientWrapper::api_client` is a guarded adapter. A built MLS client binds
+one shared preflight hook before workers start. Keep every RPC and stream open
+behind that hook. Do not expose its raw transport outside test helpers.
+`ConfigurationFetch` is the restricted, credential-free fetch capability used
+by the hook, so a deferred configuration fetch cannot call itself.
+
+`ApiError::Preflight` retains the typed cause. A preflight failure ends the
+current logical request even when its cause is retryable. A new operation can
+retry. Preserve the marker in `dyn_err`; ordinary transport retries and auth
+codes keep their existing behavior.

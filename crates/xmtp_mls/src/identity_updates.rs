@@ -1868,8 +1868,8 @@ mod conflict_tests {
         tester!(alix, disable_workers);
         tester!(alix2, from: alix, disable_workers);
         use xmtp_proto::api::HasStats;
-        let first_stats = alix.context.api().api_client.as_ref().mls_stats();
-        let second_stats = alix2.context.api().api_client.as_ref().mls_stats();
+        let first_stats = alix.context.api().api_client.mls_stats();
+        let second_stats = alix2.context.api().api_client.mls_stats();
         const MAX_RACE_ROUNDS: usize = 16;
         const UPDATES_PER_RACE: usize = 2;
         for _ in 0..MAX_RACE_ROUNDS {

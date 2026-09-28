@@ -718,7 +718,7 @@ async fn fuzz_transport_delivery(seed: u64, rounds: usize) {
     let mut transports: Vec<BidiTransport<BackendBinding>> = Vec::new();
     let mut welcome_topics = Vec::new();
     for consumer in &consumers {
-        let api = consumer.context.api().api_client.clone();
+        let api = consumer.context.api().api_client.raw_for_test().clone();
         transports.push(BidiTransport::new(
             move |initial| {
                 let api = api.clone();

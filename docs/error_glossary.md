@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **11 crates** with **410 total error codes**.
+**38 error types** across **11 crates** with **411 total error codes**.
 
 ## mobile
 
@@ -68,6 +68,7 @@ when surfaced to JavaScript.
 
 | Error Code | Description |
 |:-----------|:------------|
+| `ApiError::Preflight` | Configuration admission failed before dispatch. May be retryable on a new operation. |
 | `ApiError::Api` | API client error. API operation error (network, deserialization, or other). May be retryable. |
 | `ApiError::IdentityUpdateConflict` | The backend rejected a stale identity update. Not retryable here. |
 | `ApiError::EnvelopeTooLarge` | One envelope exceeds the configured byte limit. Not retryable. |
@@ -570,7 +571,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 |:-----------|:------------|
 | `LocalDeliveryError::EnrichedMessageUnavailable` | The retained item has no decoded message. Not retryable. |
 | `LocalDeliveryError::NetworkRecoveryExhausted` | This stream exhausted its network retry budget. Not retryable; a new stream may retry. |
-| `LocalDeliveryError::NetworkFailure` | A terminal transport error stopped this stream. Not retryable. |
+| `LocalDeliveryError::NetworkFailure` | A terminal network error stopped this stream. A transient configuration admission failure may be retried by opening a new reader. |
 | `LocalDeliveryError::AcknowledgementRejected` | The callback failed or its token was dropped before acknowledgement. Not retryable. |
 | `LocalDeliveryError::AcknowledgementFailed` | A previous acknowledgement write failed. Reopen to retry delivery. Not retryable. |
 | `LocalDeliveryError::SelectionChanged` | Scope, filters, or retained content changed before dispatch. Reselect without acknowledgement. |

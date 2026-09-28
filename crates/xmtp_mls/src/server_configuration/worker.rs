@@ -18,7 +18,7 @@ use crate::worker::{
     BoxedWorker, NeedsDbReconnect, Worker, WorkerFactory, WorkerKind, WorkerResult,
 };
 
-use super::{BlockedConnection, check_minimum_version, fetch_and_store};
+use super::refresh;
 
 #[derive(Clone)]
 pub struct Factory<Context> {
@@ -172,21 +172,6 @@ where
 
     // implements: CONF-036
     async fn attempt(&mut self) -> Result<(), ClientError> {
-        let handle = self.context.server_configuration();
-        let db = self.context.db();
-        let fetched = fetch_and_store(self.context.api(), &db, handle).await?;
-
-        // The copy is stored either way, and the client stops.
-        if let Err(ClientError::ClientVersionTooOld { client, minimum }) =
-            check_minimum_version(&fetched, self.context.version_info().pkg_semver().semver())
-        {
-            tracing::error!(
-                %client,
-                %minimum,
-                "the backend now requires a newer libxmtp than this client"
-            );
-            handle.block_connection(BlockedConnection::ClientVersionTooOld { client, minimum });
-        }
-        Ok(())
+        refresh(&self.context).await.map(|_| ())
     }
 }

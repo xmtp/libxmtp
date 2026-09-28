@@ -4,6 +4,7 @@ pub mod configuration;
 pub mod identity;
 pub mod mls;
 mod notification;
+pub mod preflight;
 pub mod scw_verifier;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod test_utils;
@@ -36,6 +37,12 @@ pub mod strategies {
 // implements: AUTH-026
 pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
     fn find(error: &(dyn std::any::Any + 'static)) -> Option<xmtp_proto::api::AuthError> {
+        if let Some(ApiError::Auth(auth)) = error.downcast_ref() {
+            return Some(*auth);
+        }
+        if let Some(boxed) = error.downcast_ref::<Box<ApiError>>() {
+            return find(&**boxed);
+        }
         if let Some(xmtp_proto::api::ApiClientError::Auth(auth)) = error.downcast_ref() {
             return Some(*auth);
         }
@@ -53,6 +60,9 @@ pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
         }
         None
     }
+    if let Some(error) = preflight::failure(&e) {
+        return ApiError::Preflight(error.clone());
+    }
     if let Some(auth) = find(&e) {
         return ApiError::Auth(auth);
     }
@@ -61,6 +71,9 @@ pub fn dyn_err(e: impl RetryableError + 'static) -> ApiError {
 
 #[derive(Debug, thiserror::Error, ErrorCode)]
 pub enum ApiError {
+    /// Configuration admission failed before dispatch. May be retryable on a new operation.
+    #[error("request preflight failed: {0}")]
+    Preflight(#[source] preflight::PreflightError),
     #[error(transparent)]
     #[error_code(inherit)]
     Auth(#[from] xmtp_proto::api::AuthError),
@@ -104,16 +117,16 @@ impl RetryableError for ApiError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Auth(e) => retryable!(e),
+            Self::Preflight(e) => retryable!(e),
             Self::Api(e) => retryable!(e),
             _ => false,
         }
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct ApiClientWrapper<ApiClient> {
-    // todo: this should be private to impl
-    pub api_client: ApiClient,
+    pub api_client: preflight::GuardedApi<ApiClient>,
     pub(crate) retry_strategy: Arc<Retry<ExponentialBackoff>>,
     pub(crate) inbox_id: Option<String>,
     /// What the deployment published about the shapes it accepts.
@@ -123,25 +136,24 @@ pub struct ApiClientWrapper<ApiClient> {
     pub(crate) configuration: Arc<xmtp_configuration::ServerConfiguration>,
 }
 
+impl<A> Clone for ApiClientWrapper<A> {
+    fn clone(&self) -> Self {
+        Self {
+            api_client: self.api_client.clone(),
+            retry_strategy: self.retry_strategy.clone(),
+            inbox_id: self.inbox_id.clone(),
+            configuration: self.configuration.clone(),
+        }
+    }
+}
+
 impl<ApiClient> ApiClientWrapper<ApiClient> {
     pub fn new(api_client: ApiClient, retry_strategy: Retry<ExponentialBackoff>) -> Self {
         Self {
-            api_client,
+            api_client: preflight::GuardedApi::new(api_client),
             retry_strategy: retry_strategy.into(),
             inbox_id: None,
             configuration: Arc::default(),
-        }
-    }
-
-    pub fn map<F, NewApiClient>(self, f: F) -> ApiClientWrapper<NewApiClient>
-    where
-        F: FnOnce(ApiClient) -> NewApiClient,
-    {
-        ApiClientWrapper {
-            api_client: f(self.api_client),
-            retry_strategy: self.retry_strategy,
-            inbox_id: self.inbox_id,
-            configuration: self.configuration,
         }
     }
 

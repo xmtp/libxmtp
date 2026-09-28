@@ -27,6 +27,7 @@ use xmtp_db::{DbConnection, XmtpMlsStorageProvider, prelude::*};
 use xmtp_db::{XmtpDb, sql_key_store::SqlKeyStore};
 use xmtp_id::scw_verifier::SmartContractSignatureVerifier;
 use xmtp_macro::log_event;
+use xmtp_proto::api_client::XmtpBackendClient;
 use xmtp_proto::xmtp::mls::database::{
     ProcessPendingSelfRemove, Task as TaskProto, task::Task as TaskKind,
 };
@@ -325,19 +326,19 @@ where
     pub fn from_client(
         client: Client<ContextParts<ApiClient, S, Db>>,
     ) -> ClientBuilder<ApiClient, S, Db> {
-        let cloned_api: ApiClient = client.context.api_client.clone().api_client;
+        let cloned_api: ApiClient = client.context.api_client.api_client.raw_for_test().clone();
         ClientBuilder {
             api_client: Some(cloned_api),
             identity: Some(client.context.identity.clone()),
             store: Some(client.context.store.clone()),
             identity_strategy: IdentityStrategy::CachedOnly,
             scw_verifier: Some(Box::new(client.context.scw_verifier.clone())),
-            custom_scw_verifier: false,
+            custom_scw_verifier: client.context.server_configuration.custom_verifier(),
             device_sync_worker_mode: client.context.device_sync.mode,
             fork_recovery_opts: Some(client.context.fork_recovery_opts.clone()),
             change_callbacks: client.context.change_callbacks.clone(),
             stream_policy: client.context.incoming_runtime.policy().clone(),
-            incoming_factory: client.context.incoming_runtime.factory.clone(),
+            incoming_factory: client.context.incoming_runtime.original_factory.clone(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
             disable_commit_log_worker: false,
@@ -439,7 +440,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 parameter: "api_client",
             })?;
 
-        let scw_verifier = scw_verifier
+        let mut scw_verifier = scw_verifier
             .take()
             .ok_or(ClientBuilderError::MissingParameter {
                 parameter: "scw_verifier",
@@ -470,6 +471,12 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         };
 
         let server_configuration = server_configuration.with_chain_restriction(custom_scw_verifier);
+        if server_configuration.requires_preflight() {
+            api_client.api_client.require_preflight();
+        }
+        if !custom_scw_verifier {
+            scw_verifier = Box::new(api_client.clone());
+        }
 
         // A deployment that requires a newer client refuses this build,
         // whether the snapshot came from the backend or from a provider.
@@ -569,6 +576,9 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .api_client
             .register_client_event_writer(&public_event_writer);
         let mut workers = WorkerRunner::new();
+        let incoming_runtime =
+            crate::subscriptions::incoming::IncomingRuntime::new(stream_policy, incoming_factory)
+                .with_preflight(api_client.api_client.clone());
         let context = Arc::new(XmtpMlsLocalContext {
             identity,
             mls_storage,
@@ -588,10 +598,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             },
             fork_recovery_opts: fork_recovery_opts.unwrap_or_default(),
             change_callbacks,
-            incoming_runtime: Arc::new(crate::subscriptions::incoming::IncomingRuntime::new(
-                stream_policy,
-                incoming_factory,
-            )),
+            incoming_runtime: Arc::new(incoming_runtime),
             worker_config,
 
             worker_metrics: workers.metrics().clone(),
@@ -605,6 +612,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         // Old stored DMs can predate strict Welcome checks. Reject unsafe
         // state before any worker or application read can use stitched scope.
+        crate::server_configuration::bind_preflight(&context);
         validate_stored_dm_groups(&context)?;
 
         // register workers

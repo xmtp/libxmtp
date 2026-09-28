@@ -37,11 +37,17 @@ mismatch or a raised minimum version.
 
 - Read it with `client.server_configuration()`. Read a deployment's without a
   client or database with `server_configuration::fetch_server_configuration`.
-- `handle.check()?` is the blocked connection gate. It is already on the client-level,
-  group-sync, and publish paths, and on the two client entry points that reach
-  the network outside them (`can_message`, `rotate_and_upload_key_package`);
-  do not add a second one. A new `pub` client method that calls the API without
-  passing through `ensure_identity_ready` needs its own gate.
+- `handle.check()?` checks the permanent blocked connection for local entry
+  points. `server_configuration/preflight.rs` also guards every client-owned
+  API dispatch and incoming factory. After an offline build at a moved URL,
+  it fetches, validates, and stores configuration before the first request.
+  Refresh and deferred admission share one per-client lock. Do not hold a DB
+  query across that fetch or put the client hook in the shared wire registry.
+  Ready calls use their existing lifetime admission; a refresh must not cancel
+  an already admitted ready call when close starts.
+- A preflight failure must reach the current reader or request immediately.
+  Preserve its typed cause and retryability for a new operation. Do not cache
+  it as a rejected target request: the target was never sent.
 - A test that needs a specific snapshot passes `tester!(alix, config_provider: …)`
   with a `xmtp_configuration::StaticConfigProvider`. That short-circuits the
   fetch, the store, the refresh, and the identifier binding, so no backend has

@@ -52,6 +52,8 @@ pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
 pub struct IncomingRuntime {
     policy: super::policy::StreamPolicy,
     pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
+    #[cfg(test)]
+    pub(crate) original_factory: Option<Arc<dyn SubscriptionFactory>>,
     pub(crate) coordinator: Mutex<Option<Arc<IncomingCoordinator>>>,
     /// A new controller on this client cannot resend a rejected wire request.
     pub(crate) rejected_requests: RejectedRequests,
@@ -66,11 +68,23 @@ impl IncomingRuntime {
     ) -> Self {
         Self {
             policy,
+            #[cfg(test)]
+            original_factory: factory.clone(),
             factory,
             coordinator: Mutex::new(None),
             rejected_requests: Arc::new(Mutex::new(Vec::new())),
             retired_delivery_owner: Mutex::new(None),
         }
+    }
+
+    pub(crate) fn with_preflight<A: xmtp_proto::api_client::XmtpBackendClient + 'static>(
+        mut self,
+        api: xmtp_api::preflight::GuardedApi<A>,
+    ) -> Self {
+        self.factory = self
+            .factory
+            .map(|inner| Arc::new(GuardedFactory { inner, api }) as Arc<dyn SubscriptionFactory>);
+        self
     }
 
     pub(crate) fn policy(&self) -> &super::policy::StreamPolicy {
@@ -83,6 +97,26 @@ impl IncomingRuntime {
             .lock()
             .as_ref()
             .map_or(0, |coordinator| coordinator.state.statuses.lock().len())
+    }
+}
+
+struct GuardedFactory<A> {
+    inner: Arc<dyn SubscriptionFactory>,
+    api: xmtp_api::preflight::GuardedApi<A>,
+}
+impl<A: xmtp_proto::api_client::XmtpBackendClient + 'static> SubscriptionFactory
+    for GuardedFactory<A>
+{
+    fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture {
+        let inner = self.inner.clone();
+        let api = self.api.clone();
+        Box::pin(async move {
+            api.check_preflight().await.map_err(NetworkError::new)?;
+            inner.open(cursors, limits).await
+        })
+    }
+    fn is_suspended(&self) -> bool {
+        self.inner.is_suspended()
     }
 }
 

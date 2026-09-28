@@ -93,7 +93,6 @@ async fn transcript_types_are_never_sent() {
                 .context
                 .api()
                 .api_client
-                .as_ref()
                 .mls_stats()
                 .publish
                 .get_count();
@@ -121,7 +120,6 @@ async fn transcript_types_are_never_sent() {
                 alix.context
                     .api()
                     .api_client
-                    .as_ref()
                     .mls_stats()
                     .publish
                     .get_count(),
@@ -154,7 +152,6 @@ async fn transcript_types_are_never_sent() {
                 .context
                 .api()
                 .api_client
-                .as_ref()
                 .mls_stats()
                 .publish
                 .get_count();
@@ -166,7 +163,6 @@ async fn transcript_types_are_never_sent() {
                 alix.context
                     .api()
                     .api_client
-                    .as_ref()
                     .mls_stats()
                     .publish
                     .get_count(),
@@ -202,7 +198,6 @@ async fn transcript_types_are_never_sent() {
                 .context
                 .api()
                 .api_client
-                .as_ref()
                 .mls_stats()
                 .publish
                 .get_count();
@@ -214,7 +209,6 @@ async fn transcript_types_are_never_sent() {
                 alix.context
                     .api()
                     .api_client
-                    .as_ref()
                     .mls_stats()
                     .publish
                     .get_count(),
@@ -328,7 +322,6 @@ async fn reserved_transcript_send_leaves_pending_proposal_untouched() {
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -343,7 +336,6 @@ async fn reserved_transcript_send_leaves_pending_proposal_untouched() {
         alix.context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -390,7 +382,6 @@ async fn reserved_local_rejection_survives_restart_for_exact_target() {
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -407,7 +398,6 @@ async fn reserved_local_rejection_survives_restart_for_exact_target() {
             .context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -445,7 +435,6 @@ async fn reserved_queued_rejection_rolls_back_when_message_update_fails() {
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -473,7 +462,6 @@ async fn reserved_queued_rejection_rolls_back_when_message_update_fails() {
         alix.context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -530,7 +518,6 @@ async fn reserved_saved_attempt_does_not_retry_and_late_echo_resolves() {
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -540,7 +527,6 @@ async fn reserved_saved_attempt_does_not_retry_and_late_echo_resolves() {
             .context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -610,7 +596,6 @@ async fn reserved_saved_attempt_with_receipt_does_not_retry() {
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -620,7 +605,6 @@ async fn reserved_saved_attempt_with_receipt_does_not_retry() {
             .context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -681,7 +665,6 @@ async fn reserved_unsent_saved_attempt_has_unknown_outcome_after_restart() {
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -691,7 +674,6 @@ async fn reserved_unsent_saved_attempt_has_unknown_outcome_after_restart() {
             .context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -714,7 +696,6 @@ async fn reserved_unsent_saved_attempt_has_unknown_outcome_after_restart() {
             .context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -750,7 +731,6 @@ async fn reserved_unsent_saved_attempt_has_unknown_outcome_after_restart() {
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -760,7 +740,6 @@ async fn reserved_unsent_saved_attempt_has_unknown_outcome_after_restart() {
             .context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -794,7 +773,6 @@ async fn bulk_publish_reports_older_reserved_unknown_after_later_message_complet
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -808,7 +786,6 @@ async fn bulk_publish_reports_older_reserved_unknown_after_later_message_complet
         alix.context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),
@@ -926,7 +903,6 @@ async fn bulk_publish_reports_selected_terminal_ordered_rejection_after_later_pr
         .context
         .api()
         .api_client
-        .as_ref()
         .mls_stats()
         .publish
         .get_count();
@@ -951,7 +927,6 @@ async fn bulk_publish_reports_selected_terminal_ordered_rejection_after_later_pr
         alix.context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count(),

@@ -6,7 +6,10 @@
 //! once inside `build`, the refresh worker, and the explicit refresh the SDKs
 //! expose.
 
-use std::sync::Arc;
+use std::sync::{
+    Arc, OnceLock,
+    atomic::{AtomicBool, Ordering},
+};
 
 use parking_lot::RwLock;
 use prost::Message;
@@ -81,6 +84,9 @@ impl From<&BlockedConnection> for ClientError {
 /// refresh sets it.
 #[derive(Clone)]
 pub struct ServerConfigurationHandle {
+    admission: Arc<tokio::sync::Mutex<()>>,
+    pending: Arc<AtomicBool>,
+    fetch: Arc<OnceLock<Arc<dyn xmtp_api::preflight::ConfigurationFetch>>>,
     provider: Arc<dyn ConfigProvider>,
     blocked_connection: Arc<RwLock<Option<BlockedConnection>>>,
     event_writer: Arc<RwLock<Option<Arc<dyn EventWriter<()>>>>>,
@@ -105,6 +111,15 @@ impl Default for ServerConfigurationHandle {
 }
 
 impl ServerConfigurationHandle {
+    #[cfg(test)]
+    pub(crate) fn custom_verifier(&self) -> bool {
+        self.restricted_chains.is_none()
+    }
+
+    pub(crate) fn requires_preflight(&self) -> bool {
+        self.pending.load(Ordering::Acquire)
+    }
+
     /// Hold one snapshot, with no zero left in its limits.
     ///
     /// Wire conversion replaces a zero on the wire with the compiled default, but a
@@ -131,6 +146,9 @@ impl ServerConfigurationHandle {
             blocked_connection: Arc::default(),
             event_writer: Arc::default(),
             restricted_chains: None,
+            admission: Arc::default(),
+            pending: Arc::default(),
+            fetch: Arc::default(),
         }
     }
 
@@ -260,6 +278,15 @@ where
     let response = api.get_configuration().await.map_err(|error| {
         ClientError::ConfigurationUnavailable(Box::new(ConfigurationFetchError::Api(error)))
     })?;
+    commit_configuration(response, api.backend_url(), db, handle)
+}
+
+fn commit_configuration(
+    response: backend_v1::GetConfigurationResponse,
+    backend_url: Option<&str>,
+    db: &impl DbQuery,
+    handle: &ServerConfigurationHandle,
+) -> Result<ServerConfiguration, ClientError> {
     let configuration = validated(&response)?;
 
     // The identifier, not the URL, is the binding. A row with an
@@ -287,7 +314,7 @@ where
 
     db.store_server_configuration(
         &configuration.identifier,
-        normalized_url(api.backend_url().unwrap_or_default()),
+        normalized_url(backend_url.unwrap_or_default()),
         &response.encode_to_vec(),
         xmtp_common::time::now_ns(),
     )
@@ -358,6 +385,11 @@ where
         });
     }
 
+    let pending = allow_offline
+        && stored.as_ref().is_some_and(|stored| {
+            api.backend_url()
+                .is_some_and(|url| normalized_url(url) != normalized_url(&stored.backend_url))
+        });
     let configuration = match (allow_offline, stored) {
         // Offline with no copy is compiled defaults and an empty
         // identifier. The first successful refresh writes the row.
@@ -390,9 +422,10 @@ where
         }
     };
 
-    Ok(ServerConfigurationHandle::new(Arc::new(
-        StoredConfigProvider::new(configuration),
-    )))
+    let mut handle =
+        ServerConfigurationHandle::new(Arc::new(StoredConfigProvider::new(configuration)));
+    handle.pending = Arc::new(AtomicBool::new(pending));
+    Ok(handle)
 }
 
 /// Compare on major, minor, and patch only, so a
@@ -418,3 +451,6 @@ pub mod worker;
 
 #[cfg(test)]
 mod tests;
+
+mod preflight;
+pub(crate) use preflight::{bind_preflight, refresh};
