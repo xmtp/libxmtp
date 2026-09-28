@@ -1,12 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  Message,
+  registerClient,
+} from "../../../../target/sdk-generated/typescript-wasm/host-message.gen.js";
+import type { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
+import {
+  Compression,
   CredentialError_Tags,
+  EncodedContent,
   ErrorCategory,
+  MessageContent,
+  MessageID,
   ListenerError_Tags,
   LogSinkError_Tags,
   PreAuthenticateError_Tags,
   SignerError_Tags,
   XmtpError_Tags,
+  type MessageData,
+  type SendOptions,
 } from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
 
 import {
@@ -222,6 +233,60 @@ describe("browser bridge transport", () => {
     const shape = { kind: "object", name: "Group" } as const;
     const encoded = encoder.convert(shape, object);
     expect(decoder.convert(shape, structuredClone(encoded))).toBe(object);
+  });
+
+  it("replies with send options that leave optimistic at its Rust default", async () => {
+    const session = new MainSession(new Endpoint(), 1, "same");
+    const sent: unknown[] = [];
+    const client = {
+      clientKey: () => 7n,
+      conversations: () => ({
+        replyToMessage: async (
+          _id: unknown,
+          _content: unknown,
+          options: unknown,
+        ) => {
+          sent.push(options);
+          return MessageID.fromRust("01".repeat(32));
+        },
+      }),
+    } as unknown as Client;
+    registerClient(session, client, []);
+    const message = new Message(
+      {
+        id: MessageID.fromRust("00".repeat(32)),
+        clientKey: 7n,
+        content: MessageContent.Text.new("parent"),
+      } as MessageData,
+      session,
+    );
+    const content = EncodedContent.create({
+      type: {
+        authorityID: "xmtp.org",
+        typeID: "text",
+        versionMajor: 1,
+        versionMinor: 0,
+      },
+      content: new Uint8Array([104, 105]).buffer,
+    });
+    // A JavaScript caller can leave out any field that has a Rust default.
+    const options = { compression: Compression.Gzip } as SendOptions;
+    await message.reply(content, options);
+    expect(sent).toEqual([
+      { optimistic: false, compression: Compression.Gzip },
+    ]);
+    for (const invalid of [
+      null,
+      [],
+      { optimistic: "yes" },
+      { compression: 9 },
+      { idempotencyKey: 1 },
+    ])
+      await expect(
+        message.reply(content, invalid as SendOptions),
+      ).rejects.toThrow("invalid send options");
+    expect(sent).toHaveLength(1);
+    expect(client.clientKey()).toBe(7n);
   });
 
   it("encodes a Bytes view as an ArrayBuffer with only the view bytes", () => {

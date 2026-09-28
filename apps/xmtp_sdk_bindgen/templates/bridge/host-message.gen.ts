@@ -252,14 +252,17 @@ export class Message extends B.Message {
     if (typeof content !== "string" && "encode" in content)
       return this.client()
         .conversations()
-        .replyToMessage(this.id, content.encode(valueOrOptions), options);
-    if (!isSendOptions(valueOrOptions))
-      throw new TypeError("invalid send options");
+        .replyToMessage(
+          this.id,
+          content.encode(valueOrOptions),
+          sendOptions(options),
+        );
+    const checked = sendOptions(valueOrOptions);
     const encoded =
       typeof content === "string" ? Pure.encodeText(content) : content;
     return this.client()
       .conversations()
-      .replyToMessage(this.id, encoded, valueOrOptions);
+      .replyToMessage(this.id, encoded, checked);
   }
   async parent(): Promise<Message | undefined> {
     const id = this.inReplyTo?.id;
@@ -274,12 +277,32 @@ export class Message extends B.Message {
   }
 }
 
-function isSendOptions(value: unknown): value is B.SendOptions | undefined {
-  return (
-    value === undefined ||
-    (value !== null &&
-      typeof value === "object" &&
-      "optimistic" in value &&
-      typeof value.optimistic === "boolean")
-  );
+// Rust gives every SendOptions field a default, so a caller can leave out any
+// field. Check only the fields that are present, then fill in the defaults.
+function sendOptions(value: unknown): B.SendOptions | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    throw new TypeError("invalid send options");
+  const shouldPush: unknown = Reflect.get(value, "shouldPush");
+  const optimistic: unknown = Reflect.get(value, "optimistic");
+  const idempotencyKey: unknown = Reflect.get(value, "idempotencyKey");
+  const compression: unknown = Reflect.get(value, "compression");
+  if (
+    (shouldPush !== undefined && typeof shouldPush !== "boolean") ||
+    (optimistic !== undefined && typeof optimistic !== "boolean") ||
+    (idempotencyKey !== undefined && typeof idempotencyKey !== "string") ||
+    (compression !== undefined && !isCompression(compression))
+  )
+    throw new TypeError("invalid send options");
+  const defaults = B.SendOptions.create({});
+  return B.SendOptions.create({
+    shouldPush,
+    optimistic: optimistic ?? defaults.optimistic,
+    idempotencyKey,
+    compression,
+  });
+}
+
+function isCompression(value: unknown): value is B.Compression {
+  return typeof value === "number" && value in B.Compression;
 }
