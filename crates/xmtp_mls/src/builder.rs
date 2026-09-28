@@ -33,6 +33,69 @@ use xmtp_proto::xmtp::mls::database::{
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 
+fn validate_stored_dm_groups<C: XmtpSharedContext>(context: &C) -> Result<(), ClientBuilderError> {
+    use crate::{
+        groups::{DmValidationError, GroupError, MetadataPermissionsError},
+        state_tx::state_write,
+    };
+    use xmtp_db::{
+        TransactionOutcome,
+        consent_record::ConsentState,
+        group::{ConversationType, GroupMembershipState, GroupQueryArgs},
+    };
+
+    let groups = context
+        .db()
+        .find_groups(GroupQueryArgs {
+            conversation_type: Some(ConversationType::Dm),
+            consent_states: Some(vec![
+                ConsentState::Allowed,
+                ConsentState::Unknown,
+                ConsentState::Denied,
+            ]),
+            include_duplicate_dms: true,
+            ..Default::default()
+        })
+        .map_err(GroupError::from)?;
+    for stored in groups {
+        // An archive placeholder has no joined MLS state until its Welcome is processed.
+        if stored.membership_state == GroupMembershipState::Restored {
+            continue;
+        }
+        state_write(context.mls_storage(), |tx| {
+            tx.with_group(stored.id, |mls_group, storage| -> Result<(), GroupError> {
+                let dm_members = crate::groups::validate_dm_group(
+                    context.clone(),
+                    mls_group,
+                    &stored.added_by_inbox_id,
+                )?;
+                if stored.dm_id.as_deref() != Some(dm_members.to_string().as_str()) {
+                    return Err(MetadataPermissionsError::from(
+                        DmValidationError::StoredDmIdMismatch,
+                    )
+                    .into());
+                }
+                if storage.db().has_sender_outside_pair(
+                    &stored.id,
+                    [
+                        &dm_members.member_one_inbox_id,
+                        &dm_members.member_two_inbox_id,
+                    ],
+                )? {
+                    return Err(MetadataPermissionsError::from(
+                        DmValidationError::StoredMessageSenderOutsidePair,
+                    )
+                    .into());
+                }
+                Ok(())
+            })
+            .map(TransactionOutcome::Continue)
+        })
+        .map(TransactionOutcome::into_continued)?;
+    }
+    Ok(())
+}
+
 #[derive(Error, Debug, ErrorCode)]
 pub enum ClientBuilderError {
     #[error(transparent)]
@@ -481,6 +544,10 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             delivery_owner: Default::default(),
             identity_resolutions: Default::default(),
         });
+
+        // Old stored DMs can predate strict Welcome checks. Reject unsafe
+        // state before any worker or application read can use stitched scope.
+        validate_stored_dm_groups(&context)?;
 
         // register workers
         if !disable_workers {

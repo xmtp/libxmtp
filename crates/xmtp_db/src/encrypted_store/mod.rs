@@ -313,10 +313,14 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             ).get_result::<MigrationTable>(conn).optional()?;
             if let Some(table) = migration_table {
                 debug_assert_eq!(table.name, "__diesel_schema_migrations");
-                let baseline = MIGRATIONS.final_migration();
+                let baseline = "20260908000000";
+                let latest = MIGRATIONS.final_migration();
                 let applied = conn.applied_migrations()
                     .map_err(diesel::result::Error::QueryBuilderError)?;
-                if applied.iter().any(|version| version.to_string() != baseline) {
+                if applied.iter().any(|version| {
+                    let version = version.to_string();
+                    version != baseline && version != latest
+                }) {
                     return Ok(Err(StorageError::PreTransitionDatabase));
                 }
                 if !applied.is_empty() {
@@ -524,7 +528,7 @@ impl EmbeddedMigrationsExt for EmbeddedMigrations {
             .migrations()
             .expect("Migrations are directly embedded, so this cannot error");
         migrations
-            .first()
+            .last()
             .expect("There is at least one migration")
             .name()
             .to_string()
@@ -543,7 +547,8 @@ impl MigrationHarnessExt for SqliteConnection {
         let migration: String = self
             .applied_migrations()
             .map_err(diesel::result::Error::QueryBuilderError)?
-            .pop()
+            .into_iter()
+            .next()
             .expect("This function should be run after migrations are applied")
             .to_string();
 
@@ -556,6 +561,69 @@ pub(crate) mod tests {
     use super::*;
     use crate::{Fetch, Store, XmtpTestDb, identity::StoredIdentity};
     use xmtp_common::{rand_vec, tmp_path};
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn sender_summary_upgrades_baseline_database() {
+        use crate::migrations::QueryMigrations;
+        use diesel::connection::SimpleConnection;
+
+        assert_eq!(MIGRATIONS.final_migration(), "20260928000000");
+        let db_path = tmp_path();
+        {
+            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
+            let conn = store.db();
+            assert_eq!(conn.applied_migrations()?.len(), 2);
+            conn.raw_query(|db| {
+                db.revert_last_migration(MIGRATIONS)
+                    .map(|_| ())
+                    .map_err(diesel::result::Error::QueryBuilderError)
+            })?;
+            assert_eq!(conn.applied_migrations()?, ["20260908000000"]);
+            conn.raw_query(|db| {
+                db.batch_execute(
+                    "INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id) VALUES (x'01', 0, 1, 0, 'own');
+                     INSERT INTO group_messages (id, group_id, decrypted_message_bytes, sent_at_ns, sender_installation_id, sender_inbox_id, authority_id, sequence_id)
+                     VALUES (x'02', x'01', x'00', 0, x'03', 'outside', 'xmtp.org', 1);",
+                )
+            })?;
+        }
+        {
+            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
+            let conn = store.db();
+            assert_eq!(conn.applied_migrations()?.len(), 2);
+            #[derive(diesel::QueryableByName)]
+            struct Count {
+                #[diesel(sql_type = diesel::sql_types::BigInt)]
+                count: i64,
+            }
+            let count = conn.raw_query(|db| {
+                diesel::sql_query(
+                    "SELECT COUNT(*) AS count FROM group_message_senders WHERE group_id = x'01' AND sender_inbox_id = 'outside'",
+                )
+                .get_result::<Count>(db)
+            })?;
+            assert_eq!(count.count, 1);
+
+            // The same physical group ID keeps its sender evidence after deletion.
+            conn.raw_query(|db| {
+                db.batch_execute(
+                    "DELETE FROM group_messages WHERE group_id = x'01';
+                     DELETE FROM groups WHERE id = x'01';
+                     INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id)
+                     VALUES (x'01', 0, 1, 0, 'own');",
+                )
+            })?;
+            let count = conn.raw_query(|db| {
+                diesel::sql_query(
+                    "SELECT COUNT(*) AS count FROM group_message_senders WHERE group_id = x'01' AND sender_inbox_id = 'outside'",
+                )
+                .get_result::<Count>(db)
+            })?;
+            assert_eq!(count.count, 1);
+        }
+        EncryptedMessageStore::<()>::remove_db_files(db_path);
+    }
 
     #[xmtp_common::test]
     async fn ephemeral_store() {

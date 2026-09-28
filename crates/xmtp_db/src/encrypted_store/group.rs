@@ -987,6 +987,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                         .set(&group)
                         .execute(c)
                 })?;
+                return Ok(self.raw_query(|c| dsl::groups.find(&group.id).first(c))?);
             }
 
             if existing_group.sequence_id == group.sequence_id {
@@ -1736,6 +1737,26 @@ pub(crate) mod tests {
             let stored: StoredGroup = conn.fetch(&group.id).unwrap().unwrap();
             assert_eq!(stored.sequence_id, Some(5));
             assert_eq!(conn.group_cursors().unwrap(), vec![Cursor(5)]);
+        });
+    }
+
+    // verifies: JOIN-080
+    #[xmtp_common::test]
+    fn restored_replacement_returns_activated_group() {
+        with_connection(|conn| {
+            let restored = generate_group(Some(GroupMembershipState::Restored));
+            restored.store(conn).unwrap();
+            let activated = StoredGroup {
+                membership_state: GroupMembershipState::Allowed,
+                sequence_id: Some(5),
+                ..restored.clone()
+            };
+            let returned = conn.insert_or_replace_group(activated.clone()).unwrap();
+            assert_eq!(returned.membership_state, GroupMembershipState::Allowed);
+            assert_eq!(returned.sequence_id, Some(5));
+            let stored: StoredGroup = conn.fetch(&restored.id).unwrap().unwrap();
+            assert_eq!(stored.membership_state, GroupMembershipState::Allowed);
+            assert_eq!(stored.sequence_id, Some(5));
         });
     }
 

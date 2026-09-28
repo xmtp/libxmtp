@@ -36,6 +36,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    group_message_senders (group_id, sender_inbox_id) {
+        group_id -> Binary,
+        sender_inbox_id -> Text,
+    }
+}
+
+diesel::table! {
     group_messages (id) {
         id -> Binary,
         group_id -> Binary,
@@ -305,6 +312,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     association_state,
     consent_records,
     group_intents,
+    group_message_senders,
     group_messages,
     group_welcome_discovery,
     groups,

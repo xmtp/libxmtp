@@ -380,13 +380,14 @@ where
         let existing_group = db.find_group(&group_id)?;
         let mut anchor_mode = JoinAnchorMode::Advance;
 
-        if let Some(existing) = &existing_group {
+        if let Some(existing) = &existing_group
+            && existing.membership_state != GroupMembershipState::Restored
+        {
             let mut current = OpenMlsGroup::load(&storage, &group_id.to_openmls())?
                 .ok_or(xmtp_db::NotFound::MlsGroup(group_id))?;
             let processed = db.latest_cursor_for_id(group_id, &[EntityKind::ApplicationMessage])?;
             let incoming_epoch = staged_welcome.public_group().group_context().epoch();
-            let active =
-                current.is_active() && existing.membership_state != GroupMembershipState::Restored;
+            let active = current.is_active();
             // A remove-and-re-add commit can retire this installation at the join anchor.
             // Removal can advance its public epoch without installing that epoch's secrets.
             // Welcome publication order does not establish MLS epoch order.
@@ -493,7 +494,19 @@ where
         let to_store = match conversation_type {
             ConversationType::Group => group.membership_state(membership_state).build()?,
             ConversationType::Dm => {
-                validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
+                let dm_members = validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
+                if db.has_sender_outside_pair(
+                    &group_id,
+                    [
+                        &dm_members.member_one_inbox_id,
+                        &dm_members.member_two_inbox_id,
+                    ],
+                )? {
+                    return Err(MetadataPermissionsError::from(
+                        crate::groups::DmValidationError::StoredMessageSenderOutsidePair,
+                    )
+                    .into());
+                }
                 group
                     .membership_state(membership_state)
                     .last_message_ns(welcome.timestamp())
@@ -522,8 +535,7 @@ where
             db.update_group_membership(existing.id, GroupMembershipState::Allowed)?;
         }
 
-        // Insert or replace the group in the database.
-        // For existing groups, this only updates the sequence_id (not membership_state).
+        // Insert the group, replace a Restored placeholder, or advance an existing cursor.
         let stored_group = db.insert_or_replace_group(to_store)?;
 
         let consent_entity = hex::encode(stored_group.id);

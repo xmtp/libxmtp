@@ -553,7 +553,7 @@ mod tests {
                 schema.insert(table.name, columns);
             }
             diesel::sql_query("SELECT * FROM conversation_list").execute(conn)?;
-            assert_eq!(conn.applied_migrations().unwrap().len(), 1);
+            assert_eq!(conn.applied_migrations().unwrap().len(), 2);
             Ok(schema)
         })?;
 

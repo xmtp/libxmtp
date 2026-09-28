@@ -121,7 +121,7 @@ The winner can change when another group's activity timestamp becomes greater, i
 
 A DM has no super admin, so its registry and `COMMIT_LOG_SIGNER` cannot be changed through the fixed policies. A signer rotation is not possible through those policies.
 
-The current same-inbox Welcome path skips the empty-role-list and fixed-policy checks. Neither join path constrains the admitted membership or ratchet-tree inboxes to the declared pair. Both differ from DMS-003.
+An older stored DM can fail the current DMS-003 checks or have a stored message from an inbox outside its declared pair. The client then fails to open that database. The sender check keeps a small record for each sender observed in this database. This record survives message and physical group deletion. It can use space after the group is removed, and deleting the group does not clear a failure if the group ID is reused. A restored archive placeholder has no joined MLS state to check; its local backup stub does not prove membership. The Welcome checks its stored senders before activation. Local data cannot prove every past MLS epoch after its Welcome and commit payloads have been deleted.
 
 Current consent inheritance selects the oldest record and assigns the copy the current time. DMS-010 instead preserves the newest decision and its time.
 
