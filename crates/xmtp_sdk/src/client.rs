@@ -69,13 +69,14 @@ impl Drop for OpenStoreGuard {
     }
 }
 
-/// @xmtp-worker Reports whether a failed create left the store of its client
-/// open. The browser worker reads this after a failed create, before it
-/// releases the storage lock. Apps do not call it.
+/// @xmtp-worker Reports whether storage requires worker termination. A failed
+/// or cancelled create can leave a store open. A failed VFS transition can
+/// leave partial access handles. Keep the storage lock until the worker ends.
+/// Apps do not call this function.
 #[cfg(all(target_arch = "wasm32", not(feature = "pure-only")))]
 #[uniffi::export]
-pub fn store_left_open() -> bool {
-    STORE_LEFT_OPEN.load(Ordering::Relaxed)
+pub fn storage_requires_worker_restart() -> bool {
+    STORE_LEFT_OPEN.load(Ordering::Relaxed) || xmtp_db::opfs_requires_worker_restart()
 }
 
 #[derive(Default)]

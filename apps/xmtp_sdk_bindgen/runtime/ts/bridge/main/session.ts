@@ -60,6 +60,10 @@ export class MainSession {
     return this.epoch;
   }
 
+  get isTerminated(): boolean {
+    return this.dead;
+  }
+
   setErrorDecoder(decode: (error: ErrorWire) => Error): void {
     this.errorDecoder = decode;
   }
@@ -266,9 +270,11 @@ export class MainSession {
     this.parents.clear();
     this.releases.clear();
     this.callbacks.close();
+    this.endpoint.terminate?.();
   }
 
   private receive(message: WireMessage): void {
+    if (this.dead) return;
     switch (message.t) {
       case "ready":
         this.epoch = message.epoch;
@@ -281,10 +287,15 @@ export class MainSession {
         this.pending.get(message.id)?.resolve(message.value);
         this.pending.delete(message.id);
         break;
-      case "error":
-        this.pending.get(message.id)?.reject(this.errorDecoder(message.error));
+      case "error": {
+        const pending = this.pending.get(message.id);
         this.pending.delete(message.id);
+        // Fence and terminate before exposing the call error. An immediate
+        // retry must use a fresh worker even if the fatal message is delayed.
+        if (message.fatal) this.terminate();
+        pending?.reject(this.errorDecoder(message.error));
         break;
+      }
       case "callback":
         void this.callbacks.receive(message);
         break;
@@ -293,7 +304,6 @@ export class MainSession {
         break;
       case "fatal":
         this.terminate(bridgeError("workerTerminated", message.error));
-        this.endpoint.terminate?.();
         break;
       default:
         console.error("unknown bridge message", message);

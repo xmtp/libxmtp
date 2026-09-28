@@ -69,6 +69,53 @@ const opfsAttempt = (page: typeof first, path: string) =>
       };
     }
   }, path);
+
+async function failedPoolAttempt(page: typeof first, path: string) {
+  await page.evaluate(async () =>
+    (await import("./storage.bridge.chromium.ts")).holdFailureTermination(),
+  );
+  const attempt = opfsAttempt(page, path);
+  try {
+    await page.evaluate(async () =>
+      (
+        await import("./storage.bridge.chromium.ts")
+      ).waitForFailureTermination(),
+    );
+    const lockName = await first.evaluate(async () => {
+      const locks = await navigator.locks.query();
+      return locks.held?.find((lock) => lock.name?.startsWith("xmtp:"))?.name;
+    });
+    assert.ok(
+      lockName,
+      "failed worker released its Web Lock before termination",
+    );
+    assert.equal(
+      await first.evaluate(
+        async (name) =>
+          navigator.locks.request(
+            name,
+            { ifAvailable: true },
+            (lock) => !!lock,
+          ),
+        lockName,
+      ),
+      false,
+      "another owner acquired the failed worker's pool",
+    );
+  } finally {
+    await page.evaluate(async () =>
+      (
+        await import("./storage.bridge.chromium.ts")
+      ).releaseFailureTermination(),
+    );
+  }
+  return attempt;
+}
+
+const generation = (page: typeof first) =>
+  page.evaluate(async () =>
+    (await import("./storage.bridge.chromium.ts")).workerGenerations(),
+  );
 try {
   await Promise.all([first.goto(url), second.goto(url)]);
   const pathA = `${base}-a.db`;
@@ -95,7 +142,9 @@ try {
     await bridge.rejectBuildWithoutStoredIdentity(path);
     const after = await bridge.poolFilenames();
     if (JSON.stringify(after) !== JSON.stringify(before))
-      throw new Error("build created an OPFS database without a stored identity");
+      throw new Error(
+        "build created an OPFS database without a stored identity",
+      );
   }, `${base}-missing.db`);
   console.log("Chromium missing-identity build left the OPFS pool unchanged");
   const attempt = () =>
@@ -204,7 +253,7 @@ try {
   );
   const unpausePath = `${base}-unpause.db`;
   assert.deepEqual(
-    await opfsAttempt(second, unpausePath),
+    await failedPoolAttempt(second, unpausePath),
     busyFields,
     "unpause must report a busy OPFS pool",
   );
@@ -215,12 +264,14 @@ try {
   await first.evaluate(async () =>
     (await import("./storage.opfs.hog.chromium.ts")).release(),
   );
+  const failedResumeGeneration = await generation(second);
   assert.deepEqual(await opfsAttempt(second, unpausePath), {
     code: "opened",
     category: -1,
     retryable: false,
     typed: false,
   });
+  assert.equal(await generation(second), failedResumeGeneration + 1);
   await second.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).endOne(),
   );
@@ -231,21 +282,23 @@ try {
   );
   const installPath = `${base}-install.db`;
   assert.deepEqual(
-    await opfsAttempt(third, installPath),
+    await failedPoolAttempt(third, installPath),
     busyFields,
     "a fresh WASM worker must report a busy OPFS pool",
   );
   await first.evaluate(async () =>
     (await import("./storage.opfs.hog.chromium.ts")).release(),
   );
+  const failedInstallGeneration = await generation(third);
   assert.deepEqual(await opfsAttempt(third, installPath), {
     code: "opened",
     category: -1,
     retryable: false,
     typed: false,
   });
+  assert.equal(await generation(third), failedInstallGeneration + 1);
   console.log(
-    "Chromium real WASM retried OPFS install and unpause after SAH contention",
+    "Chromium replaced workers after failed OPFS install and resume",
   );
 
   // A failed registration must end the client it built before the Web Lock
@@ -358,7 +411,9 @@ try {
     "opened",
     "the ended worker of a cancelled create kept the OPFS pool",
   );
-  console.log("Chromium cancelled create kept the Web Lock until its worker ended");
+  console.log(
+    "Chromium cancelled create kept the Web Lock until its worker ended",
+  );
 } finally {
   await first
     .evaluate(async () =>

@@ -176,7 +176,7 @@ export type WireMessage =
   | { t: "refused"; error: ErrorWire }
   | { t: "call"; id: number; key: string; target?: HandleWire; args: unknown[] }
   | { t: "return"; id: number; value: unknown }
-  | { t: "error"; id: number; error: ErrorWire }
+  | { t: "error"; id: number; error: ErrorWire; fatal?: boolean }
   | { t: "cancel"; id: number }
   | { t: "release"; handles: number[]; owners?: number[] }
   | { t: "callback"; id: number; cb: number; method: string; args: unknown[] }

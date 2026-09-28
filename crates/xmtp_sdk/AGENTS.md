@@ -32,6 +32,10 @@ Run commands from the repository root in the Nix shell. Run
   Tests and changelogs remain outside the shipped-code guard.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
+- `just sdk conformance-storage` runs the real-worker OPFS proof against the
+  staged SDK. Run `just sdk generate` first after SDK or runtime changes.
+- `just sdk conformance-bridge-unit <vitest arguments>` runs focused bridge
+  unit tests against the staged SDK.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

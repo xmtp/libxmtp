@@ -52,6 +52,13 @@ conformance target: (_browser-pure-fixture target) (_browser-panic-fixture targe
 conformance-bridge:
     bash "{{ root }}/crates/xmtp_sdk/dev/run-bridge-conformance"
 
+# Run the focused real-worker OPFS proof against the staged SDK.
+conformance-storage: wasm-init
+    {{ _env }} && cd "{{ root }}" && NODE_OPTIONS= sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/storage.chromium.mts
+
+conformance-bridge-unit *args: wasm-init
+    cd "{{ root }}" && NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/browser/vitest.config.mts --browser.enabled=false {{ args }}
+
 manifest-check:
     cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
 

@@ -3,7 +3,8 @@ import {
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
+import type { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
+import { WorkerSessions } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/worker-sessions";
 import type {
   WireEndpoint,
   WireMessage,
@@ -11,34 +12,94 @@ import type {
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 
 let worker: Worker | undefined;
-let session: MainSession | undefined;
 const clients: Client[] = [];
+let generations = 0;
+let holdFatal = false;
+let closing: Promise<void> | undefined;
+let markClosing: (() => void) | undefined;
+const heldFailures: (() => void)[] = [];
 
-async function connection(): Promise<MainSession> {
-  if (session) return session;
-  worker = new Worker(new URL("./storage.bridge.worker.ts", import.meta.url), {
-    type: "module",
-  });
-  const current = worker;
-  const endpoint: WireEndpoint = {
-    postMessage(message, transfer) {
-      current.postMessage(message, transfer);
-    },
-    onMessage(handler) {
-      current.addEventListener("message", (event: MessageEvent<WireMessage>) =>
-        handler(event.data),
-      );
-    },
-    onExit(handler) {
-      current.addEventListener("error", handler);
-    },
-    terminate() {
-      current.terminate();
-    },
-  };
-  session = new MainSession(endpoint, PROTOCOL_VERSION, CONTRACT_HASH);
-  await session.ready();
-  return session;
+const sessions = new WorkerSessions(
+  () => {
+    generations++;
+    worker = new Worker(
+      new URL("./storage.bridge.worker.ts", import.meta.url),
+      {
+        type: "module",
+      },
+    );
+    const current = worker;
+    const endpoint: WireEndpoint = {
+      postMessage(message, transfer) {
+        current.postMessage(message, transfer);
+      },
+      onMessage(handler) {
+        current.addEventListener(
+          "message",
+          (event: MessageEvent<WireMessage>) => {
+        if ("__fatalClosing" in event.data) {
+          if (worker === current) markClosing?.();
+              return;
+            }
+            const message = event.data;
+            if (
+              holdFatal &&
+              (message.t === "fatal" ||
+                (message.t === "error" && message.fatal))
+            )
+              heldFailures.push(() => handler(message));
+            else handler(message);
+          },
+        );
+      },
+      onExit(handler) {
+        current.addEventListener("error", handler);
+      },
+      terminate() {
+        current.terminate();
+        if (worker === current) worker = undefined;
+      },
+    };
+    return endpoint;
+  },
+  PROTOCOL_VERSION,
+  CONTRACT_HASH,
+);
+
+function connection(): Promise<MainSession> {
+  return sessions.get();
+}
+
+export function workerGenerations(): number {
+  return generations;
+}
+
+export function holdFailureTermination(): void {
+  holdFatal = true;
+  closing = new Promise<void>((resolve) => (markClosing = resolve));
+}
+
+export async function waitForFailureTermination(): Promise<void> {
+  if (!closing) throw new Error("failure barrier is not armed");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      closing,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("worker did not request termination")),
+          5000,
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export function releaseFailureTermination(): void {
+  holdFatal = false;
+  for (const release of heldFailures.splice(0)) release();
 }
 
 export async function open(path: string): Promise<string> {
@@ -141,7 +202,7 @@ export async function failRegistration(path: string): Promise<unknown> {
  */
 export async function abortCreateWhileSigning(path: string): Promise<string> {
   const current = await connection();
-  const ended = () => Reflect.get(current, "dead") === true;
+  const ended = () => current.isTerminated;
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   const identifier = `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
   const abort = new AbortController();
@@ -193,8 +254,6 @@ export async function abortCreateWhileSigning(path: string): Promise<string> {
   await create;
   for (let index = 0; index < 100; index++) {
     if (ended()) {
-      worker = undefined;
-      session = undefined;
       return "ended";
     }
     const held = await navigator.locks.query();
@@ -342,7 +401,5 @@ export function isStorageBusy(error: unknown): boolean {
 
 export async function stop(): Promise<void> {
   while (clients.length > 0) await endOne();
-  worker?.terminate();
-  worker = undefined;
-  session = undefined;
+  sessions.terminate();
 }

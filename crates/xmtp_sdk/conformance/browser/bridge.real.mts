@@ -65,7 +65,7 @@ function start(): {
   };
 }
 
-const first = start();
+let first = start();
 try {
   await first.session.ready();
   const backend = await Backend.connect(first.session, {
@@ -143,6 +143,10 @@ try {
     "real WASM must decode numeric PublicIdentityKind",
   );
   assert.equal(kinds, 0, "unsupported OPFS fails before signer kind");
+  assert.equal(first.session.isTerminated, true);
+  await first.worker.terminate();
+  first = start();
+  await first.session.ready();
 
   await assert.rejects(
     Client.create(
@@ -189,6 +193,10 @@ try {
       return true;
     },
   );
+  assert.equal(first.session.isTerminated, true);
+  await first.worker.terminate();
+  first = start();
+  await first.session.ready();
 
   const account = privateKeyToAccount(`0x${randomBytes(32).toString("hex")}`);
   let liveIdentities = 0;

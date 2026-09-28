@@ -168,7 +168,8 @@ export function poolName(
  * browser releases a held Web Lock when the worker ends. A failed create can
  * also leave the store of the client that Rust built open, and so can a
  * create or build that is cancelled after its store opened. Then
- * `storeLeftOpen` returns true, and the call fails in the same way.
+ * `requiresWorkerRestart` also reports failed VFS transitions. It is checked
+ * after every failed call before any pool lease is released.
  */
 export async function callWithPool(
   locks: PoolLocks | undefined,
@@ -176,7 +177,7 @@ export async function callWithPool(
   createsClient: boolean,
   call: () => unknown,
   encode: (result: unknown) => unknown,
-  storeLeftOpen: () => boolean,
+  requiresWorkerRestart: () => boolean,
 ): Promise<unknown> {
   if (pool) {
     if (!locks) throw new TypeError("storage lock provider missing");
@@ -186,10 +187,10 @@ export async function callWithPool(
   try {
     result = await call();
   } catch (error) {
-    if (pool && createsClient && storeLeftOpen())
+    if (requiresWorkerRestart())
       throw new UnendedClientError(
         error,
-        new Error("failed client left its store open"),
+        new Error("storage requires worker termination"),
       );
     if (pool) locks?.close(pool);
     throw error;
@@ -434,6 +435,7 @@ export class WorkerHost {
         t: "error",
         id: message.id,
         error: encodeError(unended ? error.callError : error),
+        fatal: unended,
       });
       if (unended) this.fatal(error.endError);
     } finally {

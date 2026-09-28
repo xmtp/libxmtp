@@ -836,7 +836,7 @@ fn render(
 ) -> Result<BTreeMap<&'static str, String>> {
     let mut result = BTreeMap::new();
     let mut contract = format!(
-        "export const PROTOCOL_VERSION = 1;\nexport const CONTRACT_HASH = \"{hash}\";\nexport const METHOD_KEYS = [\n"
+        "export const PROTOCOL_VERSION = 2;\nexport const CONTRACT_HASH = \"{hash}\";\nexport const METHOD_KEYS = [\n"
     );
     for op in operations {
         writeln!(contract, "  \"{}\",", op.key)?;
@@ -1282,7 +1282,7 @@ fn render(
         "const STORAGE_POOL = {:?};",
         xmtp_configuration::WASM_VFS_DIRECTORY
     )?;
-    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, key === \"Dm.peerInboxId\" && result === null ? undefined : result)), B.storeLeftOpen);\n}\n");
+    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, key === \"Dm.peerInboxId\" && result === null ? undefined : result)), B.storageRequiresWorkerRestart);\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
 
     for name in [
@@ -1463,7 +1463,7 @@ mod tests {
     fn worker_function_stays_out_of_bridge() {
         let item = Metadata::Func(FnMetadata {
             module_path: "test".into(),
-            name: "store_left_open".into(),
+            name: "storage_requires_worker_restart".into(),
             orig_name: None,
             is_async: false,
             inputs: vec![],

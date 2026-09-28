@@ -65,9 +65,9 @@ SDK_037_BROWSER_ONLY_MEMBERS: dict[str, set[str]] = {}
 # Exports that are not app API, each with the one browser entrypoint that
 # exports it and the reason it differs.
 INTERNAL_BROWSER_ONLY = {
-    # The worker runtime reads it after a failed create. Native builds have
+    # The worker runtime reads it after a failed storage call. Native builds have
     # no storage lock.
-    "storeLeftOpen": (WORKER, "worker runtime only"),
+    "storageRequiresWorkerRestart": (WORKER, "worker runtime only"),
     # The main-thread pure module loads its own WASM file.
     "initPureWasm": (PURE, "loads the main-thread pure module"),
 }

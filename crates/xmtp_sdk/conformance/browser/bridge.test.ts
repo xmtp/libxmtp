@@ -4,12 +4,14 @@ import { registerCallbacksTests } from "./bridge-callbacks";
 import { registerCreateTests } from "./bridge-create";
 import { registerOwnershipTests } from "./bridge-ownership";
 import { registerTransportTests } from "./bridge-transport";
+import { registerWorkerSessionTests } from "./bridge-worker-sessions";
 
 describe("browser bridge transport", () => {
   registerTransportTests();
   registerOwnershipTests();
   registerCreateTests();
   registerCallbacksTests();
+  registerWorkerSessionTests();
 });
 
 // verifies: PROC-046
