@@ -38,6 +38,177 @@ fn stored_sender_message(
     }
 }
 
+// verifies: DMS-015, DMS-018
+#[cfg(not(target_arch = "wasm32"))]
+#[rstest::rstest]
+#[case::after_enumeration(false)]
+#[case::after_first_row(true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn stored_dm_startup_excludes_competing_writers(
+    #[case] after_first_row: bool,
+    #[values(false, true)] offline: bool,
+) {
+    use diesel::{Connection, connection::SimpleConnection};
+    use std::{cell::RefCell, rc::Rc};
+    use xmtp_db::group::GroupMembershipState;
+    use xmtp_db::{
+        ConnectionExt, EncryptedMessageStore, StorageError, StorageOption, TransactionOutcome,
+        TransactionalKeyStore, XmtpMlsStorageProvider,
+    };
+    use xmtp_proto::types::GroupId;
+
+    tester!(alix, persistent_db, disable_workers);
+    let peer = hex::encode([0x42; 32]);
+    let outside = hex::encode([0x43; 32]);
+    let dm = TestMlsGroup::create_dm_and_insert(
+        &alix.context,
+        GroupMembershipState::Allowed,
+        peer.clone(),
+        xmtp_mls_common::group::GroupMetadataOptions::default(),
+        None,
+    )
+    .unwrap();
+    let mut placeholder = alix
+        .db()
+        .find_group(&dm.group_id)
+        .unwrap()
+        .expect("stored DM");
+    placeholder.id = GroupId::ONE;
+    placeholder.membership_state = GroupMembershipState::Restored;
+    placeholder.store(&alix.db()).unwrap();
+    let StorageOption::Persistent(path) = alix.context.store().opts() else {
+        panic!("the competing writer needs a persistent database");
+    };
+    let other_store = EncryptedMessageStore::new(
+        xmtp_db::database::NativeDb::builder()
+            .persistent(path.clone())
+            .key([0u8; 32])
+            .single_connection()
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
+    let other_db = Rc::new(other_store.db());
+    other_db
+        .raw_query(|conn| {
+            // This probe expects a lock error; disable only its connection's panic hook.
+            conn.set_instrumentation(|_: diesel::connection::InstrumentationEvent<'_>| {});
+            conn.batch_execute("PRAGMA busy_timeout = 0")
+        })
+        .unwrap();
+
+    // This connection is opened before the scan and kept through both probes.
+    let writer = xmtp_db::sql_key_store::SqlKeyStore::new(other_store.conn());
+    let checkpoints = Rc::new(RefCell::new(Vec::new()));
+    let observed = checkpoints.clone();
+    let attempt = Rc::new(RefCell::new(None));
+    let recorded = attempt.clone();
+    let poison_sender = outside.clone();
+    placeholder.id = GroupId::from([0x72; 16]);
+    let inserted = placeholder.clone();
+    let hook = crate::builder::dm_scan_test_hook::install(move |validated| {
+        observed.borrow_mut().push(validated);
+        if recorded.borrow().is_some() || validated.is_some() != after_first_row {
+            return;
+        }
+        let target = validated.unwrap_or(inserted.id);
+        let result = writer.transaction(|conn| {
+            let storage = conn.key_store();
+            let db = storage.db();
+            if validated.is_none() {
+                inserted.store(&db)?;
+            }
+            stored_sender_message(target, poison_sender.clone(), 0x73).store(&db)?;
+            Ok::<_, StorageError>(TransactionOutcome::Continue(()))
+        });
+        match result {
+            Ok(TransactionOutcome::Continue(())) => {
+                *recorded.borrow_mut() = Some((target, true));
+            }
+            Ok(TransactionOutcome::Rollback) => panic!("the competing writer must not roll back"),
+            Err(error) => {
+                assert!(
+                    matches!(error, StorageError::DieselResult(
+                        diesel::result::Error::DatabaseError(_, ref info)
+                    ) if info.message() == "database is locked"),
+                    "the competing writer must fail with SQLite busy: {error:?}"
+                );
+                *recorded.borrow_mut() = Some((target, false));
+            }
+        }
+    });
+    let builder = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .with_disable_workers(true)
+        .with_allow_offline(Some(offline));
+    let reopened = if offline {
+        builder.build_offline()
+    } else {
+        builder.build().await
+    };
+    drop(hook);
+    assert!(
+        reopened.is_ok(),
+        "valid state must open: {:?}",
+        reopened.err()
+    );
+    {
+        let checkpoints = checkpoints.borrow();
+        assert_eq!(
+            checkpoints.len(),
+            3,
+            "enumeration and both rows must be checked"
+        );
+        assert_eq!(checkpoints[0], None);
+    }
+    let (target, acquired) = attempt.borrow().expect("the writer probe must run");
+    let poison_stored = alix
+        .db()
+        .has_sender_outside_pair(&target, [alix.inbox_id(), &peer])
+        .unwrap();
+    assert!(
+        !acquired && !poison_stored,
+        "startup missed a competing write: acquired={acquired}, poison_stored={poison_stored}"
+    );
+    assert!(alix.db().find_group(&placeholder.id).unwrap().is_none());
+
+    // A successful write proves that the connection works and the scan released its lock.
+    stored_sender_message(dm.group_id, alix.inbox_id().to_string(), 0x74)
+        .store(other_db.as_ref())
+        .unwrap();
+    assert!(
+        alix.db()
+            .get_group_message(vec![0x74; 32])
+            .unwrap()
+            .is_some()
+    );
+
+    // A contradiction committed before the next scan must produce the exact error.
+    placeholder.store(other_db.as_ref()).unwrap();
+    stored_sender_message(placeholder.id, outside, 0x75)
+        .store(other_db.as_ref())
+        .unwrap();
+    let builder = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .with_disable_workers(true)
+        .with_allow_offline(Some(offline));
+    let rejected = if offline {
+        builder.build_offline()
+    } else {
+        builder.build().await
+    };
+    assert!(matches!(
+        rejected,
+        Err(crate::builder::ClientBuilderError::GroupError(error))
+            if matches!(
+                *error,
+                crate::groups::GroupError::MetadataPermissionsError(
+                    crate::groups::MetadataPermissionsError::DmValidation(
+                        crate::groups::DmValidationError::StoredMessageSenderOutsidePair
+                    )
+                )
+            )
+    ));
+}
+
 // verifies: DMS-018
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_dm_with_outside_membership_fails_client_open() {
