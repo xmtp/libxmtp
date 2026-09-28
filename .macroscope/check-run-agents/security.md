@@ -25,9 +25,12 @@ check that a message is acknowledged only after the app accepts it and that
 stale tokens cannot acknowledge a new delivery.
 
 Read the owning spec's Known limitations and `docs/specs/waivers.toml`. A risk
-that a Known limitation or a waiver records is an advisory note, not a
-blocker, unless this PR widens it. Do not repeat a finding that a reply on the
-PR answered with a Known limitation or a waiver, unless the code changed.
+that a Known limitation accepts is an advisory note, not a blocker, unless
+this PR widens it. A `gap` waiver records behavior that is still wrong, not an
+accepted risk: when this PR changes the code of that behavior, apply the
+normal blocker rules. Do not repeat a finding that a reply on the PR answered
+with a Known limitation or a waiver that covers the same risk, unless the code
+changed.
 
 Report a security finding only when the diff gives a concrete path to harm or
 breaks a named assumption. Give the changed file and line, the attacker or
