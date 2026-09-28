@@ -272,6 +272,13 @@ fn generate(
         fs::copy(runtime.join("pure-index.ts"), pure_runtime.join("index.ts"))?;
     } else {
         copy_tree(runtime.as_std_path(), out.join("runtime").as_std_path())?;
+        if matches!(language, Language::Kotlin) {
+            let android = runtime
+                .parent()
+                .context("Kotlin runtime has no parent directory")?
+                .join("android");
+            copy_tree(android.as_std_path(), out.join("android").as_std_path())?;
+        }
         if matches!(language, Language::TypescriptWasm) {
             fs::copy(
                 runtime.join("worker-index.ts"),

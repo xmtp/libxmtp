@@ -256,13 +256,20 @@ fun main() =
         println("Kotlin P37 foreign trait wrappers passed")
 
         val signer = TestSigner()
-        val directory = Files.createTempDirectory("xmtp-sdk-conformance-")
+        val androidFiles = Files.createTempDirectory("xmtp-sdk-android-files-").toFile()
+        val androidContext =
+            object : android.content.Context() {
+                override val filesDir = androidFiles
+            }
+        val androidStorage = StorageOptions(androidContext, label = "phone")
+        check(androidStorage.location == StorageLocation.Directory(androidFiles.resolve("xmtp_db").absolutePath))
+        check(androidStorage.label == "phone")
         val backendOptions = BackendOptions(url = checkNotNull(System.getenv("XMTP_BACKEND_URL")))
         check(ClientOptions(storage = StorageOptions(location = StorageLocation.InMemory)).backend == null)
         val options =
             ClientOptions(
                 backend = BackendSource.Options(backendOptions),
-                storage = StorageOptions(location = StorageLocation.Directory(directory.toString())),
+                storage = androidStorage,
                 deviceSync = false,
             )
         val host = SDKClient.create(signer, options)
@@ -277,6 +284,7 @@ fun main() =
         val inboxId = client.inboxId()
         val storagePath = checkNotNull(host.storage().path())
         check(Files.isRegularFile(Path.of(storagePath))) { "storage path does not name the database file" }
+        check(storagePath == androidFiles.resolve("xmtp_db/xmtp-phone-$inboxId.db3").absolutePath)
         val group = client.conversations().createGroup(emptyList(), null)
         var typedSends = 0
         for (sample in codecSamples) {

@@ -19,7 +19,7 @@ Out of scope: audit logging, backend telemetry, and message bodies. AUTH-027 own
 | Sink generation | One installed app sink. Clearing or replacing it ends that generation. |
 | Dispatch | The point where the client selects one retained record for its next delivery attempt and captures that generation's pending drop count. The selected record still awaits handoff. |
 | Handoff | The point at which the host-side generation check admits a callback for a record. |
-| Pending drop count | The number of overflow records since the last successful report in that sink generation. |
+| Pending drop count | The number of overflow records not yet cleared by a successful report in that sink generation. |
 
 ## 1. Log delivery
 

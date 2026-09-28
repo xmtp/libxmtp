@@ -650,7 +650,7 @@ reason = "Current SDKs use other default directories; the façade SDKs replace t
 id = "STORE-003"
 kind = "untested"
 owner = "protocol"
-reason = "Android Client.initFFiClient uses the xmtp_db directory under appContext.filesDir for the default database; no test asserts that directory."
+reason = "The Android helper and current Android Client use the xmtp_db directory under Context.filesDir. JVM conformance checks the helper and database file with a stand-in Context, but no Android instrumented test asserts the path from a real Context."
 
 [[waiver]]
 id = "STORE-004"
@@ -839,11 +839,18 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
 
 [[waiver]]
+id = "PROC-025"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "MessageReader::next marks the delivery token dispatched before message enrichment. A message deleted or expired during preparation can reach the final SDK handoff without a fresh eligibility check. Follow-up Task 3 keeps the token waiting through preparation and proves retention and expiry at final admission."
+
+[[waiver]]
 id = "PROC-046"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4272"
-reason = "The public SDK readers do not yet expose the fixed scope and filter options on every target; follow-up Task 3 closes the gap."
+reason = "The public SDK readers do not yet expose the fixed scope and filter options on every target. MessageReader::next also marks a candidate dispatched before enrichment, so a later consent change is not checked at final SDK admission. Follow-up Task 3 supplies the public options and current-state filter proof at that admission point."
 
 [[waiver]]
 id = "PROC-047"
