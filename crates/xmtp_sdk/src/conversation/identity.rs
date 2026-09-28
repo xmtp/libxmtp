@@ -1,4 +1,3 @@
-
 #[derive(uniffi::Object)]
 pub struct Group {
     pub(crate) inner: MlsGroup<xmtp_mls::MlsContext>,

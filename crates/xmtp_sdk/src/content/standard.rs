@@ -353,4 +353,3 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
 pub fn encode_text(text: String) -> Result<EncodedContent, crate::XmtpError> {
     encode_standard(StandardContent::Text(text))
 }
-
