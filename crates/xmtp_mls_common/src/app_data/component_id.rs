@@ -85,6 +85,10 @@ impl ComponentId {
     pub const APP_DATA: Self = Self(0x8009);
     pub const MIN_SUPPORTED_PROTOCOL_VERSION: Self = Self(0x800A);
     pub const COMMIT_LOG_SIGNER: Self = Self(0x800B);
+    /// Per-inbox display names: `TlsMap<InboxId, UTF-8 bytes>`.
+    pub const USER_DISPLAY_NAME: Self = Self(0x800C);
+    /// Opaque group image bytes, such as a remote attachment descriptor.
+    pub const GROUP_IMAGE: Self = Self(0x800D);
 
     // === Well-Known Immutable XMTP Component IDs (counting down from 0xBFFF) ===
 
@@ -113,6 +117,8 @@ impl ComponentId {
             Self::SUPER_ADMIN_LIST => "SUPER_ADMIN_LIST".into(),
             Self::ADMIN_LIST => "ADMIN_LIST".into(),
             Self::GROUP_MEMBERSHIP => "GROUP_MEMBERSHIP".into(),
+            Self::USER_DISPLAY_NAME => "USER_DISPLAY_NAME".into(),
+            Self::GROUP_IMAGE => "GROUP_IMAGE".into(),
             Self::CONVERSATION_TYPE => "CONVERSATION_TYPE".into(),
             Self::CREATOR_INBOX_ID => "CREATOR_INBOX_ID".into(),
             Self::DM_MEMBERS => "DM_MEMBERS".into(),
@@ -253,6 +259,11 @@ mod tests {
     fn event_names_cover_known_and_application_components() {
         assert_eq!(ComponentId::GROUP_NAME.event_name(), "group_name");
         assert_eq!(ComponentId::ADMIN_LIST.event_name(), "ADMIN_LIST");
+        assert_eq!(
+            ComponentId::USER_DISPLAY_NAME.event_name(),
+            "USER_DISPLAY_NAME"
+        );
+        assert_eq!(ComponentId::GROUP_IMAGE.event_name(), "GROUP_IMAGE");
         assert_eq!(ComponentId::new(0xc123).event_name(), "component:c123");
     }
 
@@ -276,6 +287,10 @@ mod tests {
         assert!(!ComponentId::MIN_SUPPORTED_PROTOCOL_VERSION.is_immutable());
         assert!(ComponentId::COMMIT_LOG_SIGNER.is_xmtp_range());
         assert!(!ComponentId::COMMIT_LOG_SIGNER.is_immutable());
+        assert!(ComponentId::USER_DISPLAY_NAME.is_xmtp_range());
+        assert!(!ComponentId::USER_DISPLAY_NAME.is_immutable());
+        assert!(ComponentId::GROUP_IMAGE.is_xmtp_range());
+        assert!(!ComponentId::GROUP_IMAGE.is_immutable());
 
         // Immutable XMTP
         assert!(ComponentId::CONVERSATION_TYPE.is_immutable());

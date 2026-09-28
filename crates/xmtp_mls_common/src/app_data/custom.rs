@@ -306,10 +306,12 @@ mod tests {
             match op {
                 AppDataUpdateOperation::Update(p) => Ok(vec![ExpandedComponentChange {
                     op: ComponentOp::Update,
+                    key: None,
                     value: Some(p.as_slice().to_vec()),
                 }]),
                 AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
                     op: ComponentOp::Delete,
+                    key: None,
                     value: None,
                 }]),
             }

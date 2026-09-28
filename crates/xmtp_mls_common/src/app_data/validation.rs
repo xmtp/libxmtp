@@ -1,3 +1,7 @@
+use std::collections::HashSet;
+
+use tls_codec::Deserialize;
+use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 use xmtp_proto::xmtp::mls::message_contents::MetadataPolicy as MetadataPolicyProto;
 use xmtp_proto::xmtp::mls::message_contents::metadata_policy::{
     Kind as MetadataPolicyKind, MetadataBasePolicy,
@@ -5,6 +9,8 @@ use xmtp_proto::xmtp::mls::message_contents::metadata_policy::{
 
 use super::component_id::ComponentId;
 use super::component_registry::{ComponentOp, ComponentRegistry, ComponentRegistryError};
+use super::component_source::component_type;
+use crate::inbox_id::InboxId;
 
 /// The minimal subset of actor authority needed to evaluate base policies.
 ///
@@ -22,15 +28,15 @@ pub struct ActorAuthority {
 /// A change being proposed against a component, used as the input to
 /// [`validate_component_write`].
 ///
-/// Carries everything needed to evaluate permissions for a single proposed
-/// write: the component identity, the operation, the actor performing it,
-/// and the raw old/new value bytes when available. Future change-aware base
-/// policies will inspect the value bytes; today's evaluator only looks at
-/// the actor.
+/// Carries everything a base policy may read: the
+/// component, the element operation and key, the authenticated proposer
+/// and its roles, and the membership after the commit. It never carries
+/// the value being written into policy evaluation; `new_value` feeds only
+/// component invariants.
 ///
-/// `actor` is held by value (`ActorAuthority` is two booleans, smaller than
-/// a pointer), so the lifetime `'a` only constrains the borrowed
-/// `old_value` / `new_value` slices.
+/// `old_value` is the whole component before this proposal (`None` when
+/// absent). Immutability reads it: an absent immutable scalar accepts
+/// one first `Update`.
 ///
 /// Construct via the generated builder so that `old_value` and `new_value`
 /// (which share the same type) can't be accidentally swapped:
@@ -57,6 +63,18 @@ pub struct ComponentChange<'a> {
     pub actor: ActorAuthority,
     pub old_value: Option<&'a [u8]>,
     pub new_value: Option<&'a [u8]>,
+    /// The authenticated proposer. `None` fails every self test closed.
+    pub proposer: Option<InboxId>,
+    /// Whether the proposer is one of the conversation's `DM_MEMBERS`.
+    #[builder(default)]
+    pub is_dm_participant: bool,
+    /// TLS encoding of the element key for a map or registry mutation;
+    /// `None` for a scalar, a set, or a whole-component Remove.
+    pub key: Option<&'a [u8]>,
+    /// Inbox ids in `GROUP_MEMBERSHIP` after the commit, or the committed
+    /// membership for a standalone proposal. `None` fails every
+    /// non-member test closed.
+    pub membership: Option<&'a HashSet<InboxId>>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -83,14 +101,15 @@ pub enum ComponentPermissionError {
 /// [`ComponentChange`].
 ///
 /// Three-layer check:
-/// 1. **Immutability**: Components in immutable ranges reject update and delete
-///    unconditionally — only insert is allowed (and only if the component
-///    doesn't exist yet, which the caller must verify).
-/// 2. **Hardcoded**: The hardcoded components (component registry, super admin
-///    list) have permissions enforced in code: super admin only.
+/// 1. **Immutability**: a component in an immutable range rejects every
+///    delete, and every write once it has a value. An absent
+///    immutable component accepts its first write under its policy.
+/// 2. **Hardcoded**: the component registry and the super admin list are
+///    super admin only, except that a DM participant may change
+///    application-range registry entries.
 /// 3. **Registry lookup**: All other components must have an entry in the
 ///    component registry. No entry = denied (deny by default).
-// implements: META-004, PERM-005, PERM-011, PERM-012, PERM-014
+// implements: META-004, PERM-011, PERM-012, PERM-014, PERM-026
 pub fn validate_component_write(
     change: &ComponentChange<'_>,
     registry: &ComponentRegistry,
@@ -99,7 +118,7 @@ pub fn validate_component_write(
     let op = change.op;
 
     // Layer 1: Immutability check
-    if component_id.is_immutable() && matches!(op, ComponentOp::Update | ComponentOp::Delete) {
+    if component_id.is_immutable() && (op == ComponentOp::Delete || change.old_value.is_some()) {
         return Err(ComponentPermissionError::ImmutableViolation(
             component_id,
             op,
@@ -111,7 +130,7 @@ pub fn validate_component_write(
     // adding a new hardcoded component is a single-line change to that
     // function and this branch picks it up automatically.
     if component_id.is_hardcoded() {
-        return if change.actor.is_super_admin {
+        return if change.actor.is_super_admin || is_dm_application_registry_change(change) {
             Ok(())
         } else {
             Err(ComponentPermissionError::SuperAdminRequired(component_id))
@@ -141,11 +160,57 @@ pub fn validate_component_write(
         op,
     ))?;
 
-    match evaluate_policy_proto(&policy_proto, change) {
+    // A well-known id has a fixed type; the registry types the rest.
+    let component_type = component_type(component_id).map_or(meta.component_type, |ty| ty as i32);
+    let inbox_keyed = [
+        ComponentType::TlsMapInboxIdBytes as i32,
+        ComponentType::TlsMapInboxIdString as i32,
+    ]
+    .contains(&component_type);
+    let subject = PolicySubject {
+        actor: ActorAuthority {
+            // A DM participant satisfies ALLOW_IF_SUPER_ADMIN on
+            // application components only.
+            is_super_admin: change.actor.is_super_admin
+                || (change.is_dm_participant && component_id.is_app_range()),
+            ..change.actor
+        },
+        op,
+        proposer: change.proposer,
+        inbox_key: change
+            .key
+            .filter(|_| inbox_keyed)
+            .and_then(|key| InboxId::tls_deserialize_exact(key).ok()),
+        membership: change.membership,
+    };
+    match evaluate_policy_proto(&policy_proto, &subject) {
         PolicyOutcome::Allow => Ok(()),
         PolicyOutcome::Deny => Err(ComponentPermissionError::PermissionDenied(component_id, op)),
         PolicyOutcome::Invalid => Err(ComponentPermissionError::InvalidPolicy(component_id, op)),
     }
+}
+
+/// A DM participant may insert, update, or delete a registry
+/// entry whose id is in the application range. Never `SUPER_ADMIN_LIST`,
+/// never a well-known entry, never the whole registry.
+fn is_dm_application_registry_change(change: &ComponentChange<'_>) -> bool {
+    change.is_dm_participant
+        && change.component_id == ComponentId::COMPONENT_REGISTRY
+        && change
+            .key
+            .and_then(|key| ComponentId::tls_deserialize_exact(key).ok())
+            .is_some_and(ComponentId::is_app_range)
+}
+
+/// Everything a base policy may read about one element change.
+struct PolicySubject<'a> {
+    /// The proposer's roles, with DM authority already applied.
+    actor: ActorAuthority,
+    op: ComponentOp,
+    proposer: Option<InboxId>,
+    /// The element key when the component is an inbox-keyed map.
+    inbox_key: Option<InboxId>,
+    membership: Option<&'a HashSet<InboxId>>,
 }
 
 /// Result of evaluating a [`MetadataPolicyProto`] against a [`ComponentChange`].
@@ -166,14 +231,8 @@ impl PolicyOutcome {
     }
 }
 
-/// Walk a [`MetadataPolicyProto`] and evaluate it against the actor in a
-/// [`ComponentChange`].
-///
-/// Currently only inspects `change.actor` (matching the existing
-/// `MetadataBasePolicy` semantics). When change-aware base policies are added,
-/// this function will inspect `change.old_value` / `change.new_value` for the
-/// new variants — the field name → component ID mapping that the legacy
-/// `MetadataFieldChange` carried lives in `change.component_id`.
+/// Walk a [`MetadataPolicyProto`] and evaluate it against a
+/// [`PolicySubject`].
 ///
 /// **Combinator semantics:**
 /// - `AndCondition` short-circuits on the first non-`Allow` outcome and
@@ -190,16 +249,16 @@ impl PolicyOutcome {
 // implements: PERM-007, PERM-008
 fn evaluate_policy_proto(
     proto: &MetadataPolicyProto,
-    change: &ComponentChange<'_>,
+    subject: &PolicySubject<'_>,
 ) -> PolicyOutcome {
     match &proto.kind {
-        Some(MetadataPolicyKind::Base(base)) => evaluate_base_policy(*base, change.actor),
+        Some(MetadataPolicyKind::Base(base)) => evaluate_base_policy(*base, subject),
         Some(MetadataPolicyKind::AndCondition(and)) => {
             if and.policies.is_empty() {
                 return PolicyOutcome::Invalid;
             }
             for inner in &and.policies {
-                match evaluate_policy_proto(inner, change) {
+                match evaluate_policy_proto(inner, subject) {
                     PolicyOutcome::Allow => continue,
                     other => return other,
                 }
@@ -211,7 +270,7 @@ fn evaluate_policy_proto(
                 return PolicyOutcome::Invalid;
             }
             for inner in &any.policies {
-                match evaluate_policy_proto(inner, change) {
+                match evaluate_policy_proto(inner, subject) {
                     PolicyOutcome::Allow => return PolicyOutcome::Allow,
                     PolicyOutcome::Deny => {}
                     PolicyOutcome::Invalid => return PolicyOutcome::Invalid,
@@ -223,8 +282,9 @@ fn evaluate_policy_proto(
     }
 }
 
-// implements: PERM-006, PERM-008
-fn evaluate_base_policy(base: i32, actor: ActorAuthority) -> PolicyOutcome {
+// implements: PERM-027, PERM-008
+fn evaluate_base_policy(base: i32, subject: &PolicySubject<'_>) -> PolicyOutcome {
+    let actor = subject.actor;
     let base = match MetadataBasePolicy::try_from(base) {
         Ok(b) => b,
         Err(_) => return PolicyOutcome::Invalid,
@@ -236,6 +296,20 @@ fn evaluate_base_policy(base: i32, actor: ActorAuthority) -> PolicyOutcome {
             PolicyOutcome::from_bool(actor.is_admin || actor.is_super_admin)
         }
         MetadataBasePolicy::AllowIfSuperAdmin => PolicyOutcome::from_bool(actor.is_super_admin),
+        MetadataBasePolicy::AllowIfSelfOrNonMember => {
+            // Denies a non-inbox-map type and a whole-component Remove,
+            // neither of which has an inbox key.
+            let Some(key) = subject.inbox_key else {
+                return PolicyOutcome::Deny;
+            };
+            let is_self = subject.proposer == Some(key);
+            PolicyOutcome::from_bool(match subject.op {
+                ComponentOp::Insert | ComponentOp::Update => is_self,
+                ComponentOp::Delete => {
+                    is_self || subject.membership.is_some_and(|m| !m.contains(&key))
+                }
+            })
+        }
         MetadataBasePolicy::Unspecified => PolicyOutcome::Invalid,
     }
 }
@@ -245,6 +319,7 @@ mod tests {
     use super::*;
     use crate::app_data::component_permissions::component_permissions;
     use crate::app_data::component_registry::new_component_metadata;
+    use tls_codec::Serialize;
     use xmtp_proto::xmtp::mls::message_contents::{
         ComponentType, MetadataPolicy as MetadataPolicyProto,
         metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
@@ -279,10 +354,9 @@ mod tests {
         }
     }
 
-    /// Test helper. Constructs a [`ComponentChange`] with no value bytes.
-    /// All current base policies only inspect the actor, so the value bytes
-    /// don't affect any test outcome — they're intentionally untested at
-    /// this layer until change-aware policies are added.
+    /// Test helper. Constructs a [`ComponentChange`] with no values, key,
+    /// proposer, or membership. Role policies read none of these; the
+    /// self-owned policy and immutability tests set them explicitly.
     fn change<'a>(id: ComponentId, op: ComponentOp, actor: ActorAuthority) -> ComponentChange<'a> {
         ComponentChange::builder()
             .component_id(id)
@@ -309,6 +383,16 @@ mod tests {
         update: MetadataPolicyProto,
         delete: MetadataPolicyProto,
     ) -> ComponentRegistry {
+        typed_registry(id, ComponentType::Bytes, insert, update, delete)
+    }
+
+    fn typed_registry(
+        id: ComponentId,
+        ty: ComponentType,
+        insert: MetadataPolicyProto,
+        update: MetadataPolicyProto,
+        delete: MetadataPolicyProto,
+    ) -> ComponentRegistry {
         let mut reg = ComponentRegistry::new();
         reg.set(
             id,
@@ -318,7 +402,7 @@ mod tests {
                     .update(update)
                     .delete(delete)
                     .call(),
-                ComponentType::Bytes,
+                ty,
             ),
         )
         .unwrap();
@@ -337,16 +421,39 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    /// An immutable component that already has a value rejects every
+    /// further write, whatever its policies allow.
     #[xmtp_common::test]
     // verifies: META-004
     fn test_immutable_update_rejected() {
         let id = ComponentId::CONVERSATION_TYPE;
         let reg = setup_registry_with(id, allow(), allow(), allow());
-        let actor = super_admin();
-        let result = validate_component_write(&change(id, ComponentOp::Update, actor), &reg);
+        for op in [ComponentOp::Insert, ComponentOp::Update] {
+            let written = ComponentChange::builder()
+                .component_id(id)
+                .op(op)
+                .actor(super_admin())
+                .old_value(b"dm")
+                .build();
+            assert!(matches!(
+                validate_component_write(&written, &reg),
+                Err(ComponentPermissionError::ImmutableViolation(_, got)) if got == op
+            ));
+        }
+    }
+
+    /// An absent immutable scalar accepts one initial Update, which its
+    /// registry policy then judges like any other write.
+    #[xmtp_common::test]
+    // verifies: META-004
+    fn test_immutable_first_scalar_write_uses_policy() {
+        let id = ComponentId::new(0xFD00);
+        let first = |actor| change(id, ComponentOp::Update, actor);
+        let reg = setup_registry_with(id, deny(), super_admin_only(), deny());
+        assert!(validate_component_write(&first(super_admin()), &reg).is_ok());
         assert!(matches!(
-            result,
-            Err(ComponentPermissionError::ImmutableViolation(
+            validate_component_write(&first(admin()), &reg),
+            Err(ComponentPermissionError::PermissionDenied(
                 _,
                 ComponentOp::Update
             ))
@@ -383,7 +490,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    // verifies: PERM-005
+    // verifies: PERM-026
     fn test_registry_admin_rejected() {
         let reg = ComponentRegistry::new();
         let actor = admin();
@@ -398,7 +505,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    // verifies: PERM-005
+    // verifies: PERM-026
     fn test_registry_member_rejected() {
         let reg = ComponentRegistry::new();
         let actor = member();
@@ -424,7 +531,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    // verifies: PERM-005
+    // verifies: PERM-026
     fn test_super_admin_list_admin_rejected() {
         let reg = ComponentRegistry::new();
         let actor = admin();
@@ -523,7 +630,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    // verifies: PERM-006
+    // verifies: PERM-027
     fn test_insert_allow_policy() {
         let reg = setup_registry_with(ComponentId::GROUP_NAME, allow(), deny(), deny());
         let actor = member();
@@ -535,7 +642,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    // verifies: PERM-006
+    // verifies: PERM-027
     fn test_update_admin_only_policy_admin_passes() {
         let reg = setup_registry_with(ComponentId::GROUP_NAME, allow(), admin_only(), deny());
         let actor = admin();
@@ -547,7 +654,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    // verifies: PERM-006
+    // verifies: PERM-027
     fn test_update_admin_only_policy_member_fails() {
         let reg = setup_registry_with(ComponentId::GROUP_NAME, allow(), admin_only(), deny());
         let actor = member();
@@ -565,7 +672,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    // verifies: PERM-006
+    // verifies: PERM-027
     fn test_delete_deny_policy() {
         let reg = setup_registry_with(ComponentId::GROUP_NAME, allow(), allow(), deny());
         let actor = super_admin();
@@ -583,7 +690,7 @@ mod tests {
     }
 
     #[xmtp_common::test]
-    // verifies: PERM-006
+    // verifies: PERM-027
     fn test_delete_super_admin_only_policy() {
         let reg = setup_registry_with(
             ComponentId::GROUP_NAME,
@@ -660,5 +767,262 @@ mod tests {
         let actor = member();
         let result = validate_component_write(&change(app_id, ComponentOp::Insert, actor), &reg);
         assert!(result.is_ok());
+    }
+
+    // === Self-owned policy ===
+
+    const PROFILE: ComponentId = ComponentId::new(0xC100);
+
+    fn inbox(byte: u8) -> InboxId {
+        InboxId::from_bytes([byte; 32])
+    }
+
+    fn self_owned() -> MetadataPolicyProto {
+        make_policy(MetadataBasePolicy::AllowIfSelfOrNonMember)
+    }
+
+    fn self_owned_registry(id: ComponentId, ty: ComponentType) -> ComponentRegistry {
+        typed_registry(id, ty, self_owned(), self_owned(), self_owned())
+    }
+
+    /// Validate `op` on `key` in `id` by `proposer`, a plain member, with
+    /// `membership` after the commit.
+    fn write_key(
+        reg: &ComponentRegistry,
+        id: ComponentId,
+        op: ComponentOp,
+        proposer: InboxId,
+        key: Option<InboxId>,
+        membership: &HashSet<InboxId>,
+    ) -> Result<(), ComponentPermissionError> {
+        let key = key.map(|key| key.tls_serialize_detached().unwrap());
+        let change = ComponentChange::builder()
+            .component_id(id)
+            .op(op)
+            .actor(member())
+            .proposer(proposer)
+            .maybe_key(key.as_deref())
+            .membership(membership)
+            .build();
+        validate_component_write(&change, reg)
+    }
+
+    /// A member may write its own entry of an inbox-keyed map, and no
+    /// member may write another's, so a display name cannot be forged.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-027
+    fn self_owned_writes_only_own_key() {
+        let (alice, bob) = (inbox(1), inbox(2));
+        let members = HashSet::from([alice, bob]);
+        for ty in [
+            ComponentType::TlsMapInboxIdBytes,
+            ComponentType::TlsMapInboxIdString,
+        ] {
+            let reg = self_owned_registry(PROFILE, ty);
+            for op in [
+                ComponentOp::Insert,
+                ComponentOp::Update,
+                ComponentOp::Delete,
+            ] {
+                write_key(&reg, PROFILE, op, alice, Some(alice), &members)?;
+                assert!(matches!(
+                    write_key(&reg, PROFILE, op, alice, Some(bob), &members),
+                    Err(ComponentPermissionError::PermissionDenied(_, got)) if got == op
+                ));
+            }
+        }
+    }
+
+    /// Any member may delete the entry of an inbox that is not a member
+    /// after the commit, so a departed member's data can be cleaned up,
+    /// but may not insert or update it.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-027
+    fn self_owned_deletes_non_member_key() {
+        let (alice, gone) = (inbox(1), inbox(3));
+        let members = HashSet::from([alice]);
+        let reg = self_owned_registry(PROFILE, ComponentType::TlsMapInboxIdString);
+        write_key(
+            &reg,
+            PROFILE,
+            ComponentOp::Delete,
+            alice,
+            Some(gone),
+            &members,
+        )?;
+        for op in [ComponentOp::Insert, ComponentOp::Update] {
+            assert!(write_key(&reg, PROFILE, op, alice, Some(gone), &members).is_err());
+        }
+    }
+
+    /// The policy fails closed without an inbox key: a whole-component
+    /// Remove, a component that is not an inbox-keyed map, a key that is
+    /// not an inbox id, or a missing proposer or membership.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-027
+    fn self_owned_fails_closed_without_context() {
+        let (alice, gone) = (inbox(1), inbox(3));
+        let members = HashSet::from([alice]);
+        let map = self_owned_registry(PROFILE, ComponentType::TlsMapInboxIdString);
+        assert!(write_key(&map, PROFILE, ComponentOp::Delete, alice, None, &members).is_err());
+
+        for ty in [
+            ComponentType::TlsMapBytesBytes,
+            ComponentType::TlsSetInboxId,
+        ] {
+            let reg = self_owned_registry(PROFILE, ty);
+            assert!(
+                write_key(
+                    &reg,
+                    PROFILE,
+                    ComponentOp::Insert,
+                    alice,
+                    Some(alice),
+                    &members
+                )
+                .is_err()
+            );
+        }
+
+        // A well-known id keeps its fixed type, not its registry entry's.
+        let forged =
+            self_owned_registry(ComponentId::GROUP_NAME, ComponentType::TlsMapInboxIdBytes);
+        assert!(
+            write_key(
+                &forged,
+                ComponentId::GROUP_NAME,
+                ComponentOp::Update,
+                alice,
+                Some(alice),
+                &members
+            )
+            .is_err()
+        );
+
+        let short_key = ComponentChange::builder()
+            .component_id(PROFILE)
+            .op(ComponentOp::Insert)
+            .actor(member())
+            .proposer(alice)
+            .key(&[0u8; 4])
+            .membership(&members)
+            .build();
+        assert!(validate_component_write(&short_key, &map).is_err());
+
+        // Without a proposer no key is its own; without a membership no
+        // key is a non-member's.
+        let own_key = alice.tls_serialize_detached()?;
+        let no_proposer = ComponentChange::builder()
+            .component_id(PROFILE)
+            .op(ComponentOp::Delete)
+            .actor(super_admin())
+            .key(&own_key)
+            .membership(&members)
+            .build();
+        assert!(validate_component_write(&no_proposer, &map).is_err());
+        let gone_key = gone.tls_serialize_detached()?;
+        let no_membership = ComponentChange {
+            proposer: Some(alice),
+            key: Some(&gone_key),
+            membership: None,
+            ..no_proposer
+        };
+        assert!(validate_component_write(&no_membership, &map).is_err());
+    }
+
+    // === DM authority ===
+
+    fn dm_change<'a>(
+        id: ComponentId,
+        op: ComponentOp,
+        key: Option<&'a [u8]>,
+    ) -> ComponentChange<'a> {
+        ComponentChange::builder()
+            .component_id(id)
+            .op(op)
+            .actor(member())
+            .is_dm_participant(true)
+            .maybe_key(key)
+            .build()
+    }
+
+    /// A DM participant may change a registry entry whose key is an
+    /// application id, but not a well-known entry, not the super-admin
+    /// list, and not the whole registry.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-026
+    fn dm_participant_changes_only_application_registry_entries() {
+        let reg = ComponentRegistry::new();
+        let registry = ComponentId::COMPONENT_REGISTRY;
+        for id in [0xC000, 0xFEFF] {
+            let key = ComponentId::new(id).tls_serialize_detached()?;
+            for op in [
+                ComponentOp::Insert,
+                ComponentOp::Update,
+                ComponentOp::Delete,
+            ] {
+                validate_component_write(&dm_change(registry, op, Some(&key)), &reg)?;
+            }
+        }
+        for id in [
+            ComponentId::GROUP_NAME,
+            ComponentId::new(0xBFFF),
+            ComponentId::new(0xFF00),
+        ] {
+            let key = id.tls_serialize_detached()?;
+            assert!(matches!(
+                validate_component_write(
+                    &dm_change(registry, ComponentOp::Insert, Some(&key)),
+                    &reg
+                ),
+                Err(ComponentPermissionError::SuperAdminRequired(_))
+            ));
+        }
+        assert!(
+            validate_component_write(&dm_change(registry, ComponentOp::Delete, None), &reg)
+                .is_err()
+        );
+        let app_key = ComponentId::new(0xC000).tls_serialize_detached()?;
+        assert!(
+            validate_component_write(
+                &dm_change(
+                    ComponentId::SUPER_ADMIN_LIST,
+                    ComponentOp::Insert,
+                    Some(&app_key)
+                ),
+                &reg
+            )
+            .is_err()
+        );
+        let outsider = ComponentChange {
+            is_dm_participant: false,
+            ..dm_change(registry, ComponentOp::Insert, Some(&app_key))
+        };
+        assert!(validate_component_write(&outsider, &reg).is_err());
+    }
+
+    /// A DM participant satisfies `ALLOW_IF_SUPER_ADMIN` on an application
+    /// component and on nothing else.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-028
+    fn dm_participant_is_super_admin_for_application_components_only() {
+        for id in [ComponentId::new(0xC000), ComponentId::new(0xFEFF)] {
+            let reg = setup_registry_with(id, super_admin_only(), super_admin_only(), deny());
+            validate_component_write(&dm_change(id, ComponentOp::Update, None), &reg)?;
+            assert!(
+                validate_component_write(&dm_change(id, ComponentOp::Delete, None), &reg).is_err()
+            );
+        }
+        for id in [
+            ComponentId::GROUP_NAME,
+            ComponentId::GROUP_MEMBERSHIP,
+            ComponentId::new(0xBE00),
+        ] {
+            let reg = setup_registry_with(id, super_admin_only(), super_admin_only(), deny());
+            assert!(matches!(
+                validate_component_write(&dm_change(id, ComponentOp::Insert, None), &reg),
+                Err(ComponentPermissionError::PermissionDenied(_, _))
+            ));
+        }
     }
 }

@@ -56,6 +56,8 @@ fn populated() -> backend_v1::GetConfigurationResponse {
         }),
         smart_contract_wallet_chains: vec!["eip155:1".to_owned(), "eip155:8453".to_owned()],
         attachments: None,
+        // `ServerConfiguration` does not read the application catalogue yet.
+        application_components: Vec::new(),
     }
 }
 

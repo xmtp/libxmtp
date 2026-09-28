@@ -8,9 +8,12 @@
 //! sender dispatch gives us the full decision-tree without requiring a
 //! real `OpenMlsGroup` / `StagedCommit`.
 
+use std::collections::HashSet;
+
 use openmls::messages::proposals::AppDataUpdateOperation;
 use openmls::prelude::{LeafNodeIndex, Sender, SenderExtensionIndex};
-use tls_codec::Serialize as _;
+use prost::Message as _;
+use tls_codec::{Serialize as _, VLBytes};
 
 use xmtp_mls_common::app_data::component_id::ComponentId;
 use xmtp_mls_common::app_data::component_permissions::component_permissions;
@@ -20,7 +23,9 @@ use xmtp_mls_common::app_data::components::metadata_attributes::{
     MAX_GROUP_NAME_LENGTH,
 };
 use xmtp_mls_common::app_data::validation::ActorAuthority;
+use xmtp_mls_common::group_metadata::DmMembers;
 use xmtp_mls_common::inbox_id::InboxId;
+use xmtp_mls_common::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
 use xmtp_mls_common::tls_set::{TlsKeyHash, TlsSet, TlsSetDelta};
 use xmtp_proto::xmtp::mls::message_contents::{
     ComponentType, MetadataPolicy as MetadataPolicyProto,
@@ -28,7 +33,8 @@ use xmtp_proto::xmtp::mls::message_contents::{
 };
 
 use super::{
-    CommitRuleError, app_data_update_proposer_leaf, validate_one_app_data_update_with_old_value,
+    AppDataUpdateInCommit, CommitRuleError, app_data_update_proposer_leaf,
+    validate_app_data_update_sequence, validate_one_app_data_update_with_old_value,
 };
 
 // --- actor / policy / registry helpers -----------------------------------
@@ -123,6 +129,7 @@ fn bytes_update_allowed_when_registry_allows() {
         &reg,
         Some(b"old-name"),
         None,
+        None,
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
@@ -148,6 +155,7 @@ fn bytes_update_accepts_none_old_value_for_first_write() {
         &reg,
         None,
         None,
+        None,
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
@@ -170,6 +178,7 @@ fn bytes_remove_allowed_when_registry_allows_delete() {
         &reg,
         Some(b"y"),
         None,
+        None,
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
@@ -190,6 +199,7 @@ fn bytes_update_rejected_when_registry_empty() {
         "inbox_alice",
         &reg,
         Some(b"y"),
+        None,
         None,
     )
     .unwrap_err();
@@ -217,6 +227,7 @@ fn bytes_update_rejected_when_policy_denies() {
         "inbox_alice",
         &reg,
         Some(b"y"),
+        None,
         None,
     )
     .unwrap_err();
@@ -249,6 +260,7 @@ fn admin_list_insert_rejected_for_member() {
         &reg,
         None,
         None,
+        None,
     )
     .unwrap_err();
     assert!(
@@ -273,6 +285,7 @@ fn super_admin_list_insert_rejected_for_admin() {
         admin(),
         "inbox_admin",
         &reg,
+        None,
         None,
         None,
     )
@@ -311,6 +324,7 @@ fn malformed_delta_maps_to_insufficient_permissions() {
         &reg,
         None,
         None,
+        None,
     )
     .unwrap_err();
     assert!(
@@ -334,6 +348,7 @@ fn unknown_collection_component_maps_to_insufficient_permissions() {
         super_admin(),
         "inbox_super",
         &reg,
+        None,
         None,
         None,
     )
@@ -360,6 +375,7 @@ fn remove_by_hash_miss_does_not_short_circuit_policy() {
         super_admin(),
         "inbox_super",
         &reg,
+        None,
         None,
         None,
     );
@@ -392,6 +408,7 @@ fn multi_mutation_delta_all_allowed_returns_ok() {
         &reg,
         Some(&prior),
         None,
+        None,
     );
     assert!(result.is_ok(), "expected Ok, got {result:?}");
 }
@@ -420,6 +437,7 @@ fn receiver_rejects_last_super_admin_removal() {
         "inbox_super",
         &ComponentRegistry::new(),
         Some(&prior),
+        None,
         None,
     )
     .unwrap_err();
@@ -453,6 +471,7 @@ fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
         &registry,
         Some(&initial),
         None,
+        None,
     )?;
     let after_first = SuperAdminListComponent::apply_update_payload(
         match &remove_first {
@@ -474,6 +493,7 @@ fn receiver_rejects_second_of_two_sequential_super_admin_removals() {
         "inbox_super",
         &registry,
         Some(&after_first),
+        None,
         None,
     )
     .unwrap_err();
@@ -520,6 +540,7 @@ fn receiver_rejects_overlong_metadata_app_data_update() {
             member(),
             "inbox_member",
             &registry,
+            None,
             None,
             None,
         );
@@ -604,6 +625,7 @@ fn unknown_component_in_xmtp_range_rejected_without_registry_entry() {
         &reg,
         None,
         None,
+        None,
     )
     .unwrap_err();
     assert!(
@@ -636,6 +658,7 @@ fn unknown_component_in_xmtp_range_allowed_when_registry_permits() {
         &reg,
         None,
         None,
+        None,
     );
     assert!(
         result.is_ok(),
@@ -662,6 +685,7 @@ fn unknown_component_in_app_range_allowed_when_registry_permits() {
         member(),
         "inbox_alice",
         &reg,
+        None,
         None,
         None,
     );
@@ -691,6 +715,7 @@ fn unknown_component_in_reserved_range_rejected_with_empty_registry() {
         &reg,
         None,
         None,
+        None,
     )
     .unwrap_err();
     assert!(
@@ -711,6 +736,7 @@ fn unknown_component_remove_with_no_prior_rejected_without_registry_entry() {
         super_admin(),
         "inbox_alice",
         &reg,
+        None,
         None,
         None,
     )
@@ -743,6 +769,7 @@ fn unknown_component_remove_allowed_when_registry_permits_delete() {
         &reg,
         None,
         None,
+        None,
     );
     assert!(
         result.is_ok(),
@@ -759,7 +786,6 @@ fn unknown_component_remove_allowed_when_registry_permits_delete() {
 /// "bad prior."
 #[test]
 fn unknown_component_update_with_malformed_prior_rejected() {
-    use tls_codec::VLBytes;
     let id = ComponentId::new(0x8FFF);
     let reg = registry_with(id, allow(), allow(), allow(), ComponentType::TlsSetBytes);
     let delta = TlsSetDelta::<VLBytes>::new()
@@ -780,10 +806,330 @@ fn unknown_component_update_with_malformed_prior_rejected() {
         &reg,
         Some(corrupt_prior),
         None,
+        None,
     )
     .unwrap_err();
     assert!(
         matches!(err, CommitRuleError::InsufficientPermissions),
         "malformed prior on unknown id must reject, got {err:?}"
     );
+}
+
+// ------------------------------------------------------------------------
+// Self-owned inbox maps and DM authority
+// ------------------------------------------------------------------------
+
+const PROFILE: ComponentId = ComponentId::new(0xC100);
+
+fn self_owned() -> MetadataPolicyProto {
+    base_policy(MetadataBasePolicy::AllowIfSelfOrNonMember)
+}
+
+fn profile_registry() -> ComponentRegistry {
+    registry_with(
+        PROFILE,
+        self_owned(),
+        self_owned(),
+        self_owned(),
+        ComponentType::TlsMapInboxIdString,
+    )
+}
+
+fn profile_delta(mutation: TlsMapMutation<InboxId, VLBytes>) -> AppDataUpdateOperation {
+    let payload = TlsMapDelta {
+        mutations: vec![mutation],
+    }
+    .tls_serialize_detached()
+    .unwrap();
+    AppDataUpdateOperation::Update(payload.into())
+}
+
+fn profile_snapshot(entries: &[(InboxId, &str)]) -> Vec<u8> {
+    let mut map = TlsMap::<InboxId, VLBytes>::new();
+    for (inbox, name) in entries {
+        map.insert(*inbox, VLBytes::new(name.as_bytes().to_vec()))
+            .unwrap();
+    }
+    map.tls_serialize_detached().unwrap()
+}
+
+/// A member writes its own profile entry through the full expand and
+/// policy path, and may not write another member's, so a proposer
+/// cannot forge a display name.
+// verifies: PERM-027
+#[xmtp_common::test(unwrap_try = true)]
+fn self_owned_profile_accepts_owner_and_rejects_other_member() {
+    let (alice, bob) = (fake_inbox(1), fake_inbox(2));
+    let members = HashSet::from([alice, bob]);
+    let reg = profile_registry();
+    let prior = profile_snapshot(&[(bob, "Bob")]);
+    let own = profile_delta(TlsMapMutation::Insert {
+        key: alice,
+        value: VLBytes::new(b"Alice".to_vec()),
+    });
+    validate_one_app_data_update_with_old_value(
+        PROFILE,
+        &own,
+        member(),
+        &alice.to_hex(),
+        &reg,
+        Some(&prior),
+        None,
+        Some(&members),
+    )?;
+    let forged = profile_delta(TlsMapMutation::Update {
+        key: bob,
+        value: VLBytes::new(b"Mallory".to_vec()),
+    });
+    // Even a super admin cannot write another member's self-owned key.
+    let err = validate_one_app_data_update_with_old_value(
+        PROFILE,
+        &forged,
+        super_admin(),
+        &alice.to_hex(),
+        &reg,
+        Some(&prior),
+        None,
+        Some(&members),
+    )
+    .unwrap_err();
+    assert!(matches!(err, CommitRuleError::InsufficientPermissions));
+}
+
+/// A string-map value that is not UTF-8 rejects the proposal, even on
+/// the proposer's own key.
+// verifies: META-010
+#[xmtp_common::test(unwrap_try = true)]
+fn string_map_rejects_invalid_utf8() {
+    let alice = fake_inbox(1);
+    let invalid = profile_delta(TlsMapMutation::Insert {
+        key: alice,
+        value: VLBytes::new(vec![0xC3, 0x28]),
+    });
+    let err = validate_one_app_data_update_with_old_value(
+        PROFILE,
+        &invalid,
+        member(),
+        &alice.to_hex(),
+        &profile_registry(),
+        None,
+        None,
+        Some(&HashSet::from([alice])),
+    )
+    .unwrap_err();
+    assert!(matches!(err, CommitRuleError::InsufficientPermissions));
+}
+
+/// Any member may delete a stale entry whose inbox is not in the
+/// membership it is judged against, but not the entry of a current
+/// member. The in-commit path passes the membership after the commit, so
+/// a removal and its cleanup delete can share one commit; a
+/// standalone proposal is judged against the committed membership, in
+/// which the removed inbox is still present.
+// verifies: PERM-027
+#[xmtp_common::test(unwrap_try = true)]
+fn self_owned_delete_uses_the_membership_it_is_given() {
+    let (alice, bob) = (fake_inbox(1), fake_inbox(2));
+    let reg = profile_registry();
+    let prior = profile_snapshot(&[(alice, "Alice"), (bob, "Bob")]);
+    let cleanup = profile_delta(TlsMapMutation::Delete { key: bob });
+    let judge = |membership: &HashSet<InboxId>| {
+        validate_one_app_data_update_with_old_value(
+            PROFILE,
+            &cleanup,
+            member(),
+            &alice.to_hex(),
+            &reg,
+            Some(&prior),
+            None,
+            Some(membership),
+        )
+    };
+    judge(&HashSet::from([alice]))?;
+    assert!(matches!(
+        judge(&HashSet::from([alice, bob])),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
+/// A whole-component Remove has no inbox key, so the self-owned policy
+/// denies it even for a super admin.
+// verifies: PERM-027
+#[xmtp_common::test(unwrap_try = true)]
+fn self_owned_denies_whole_component_remove() {
+    let alice = fake_inbox(1);
+    let err = validate_one_app_data_update_with_old_value(
+        PROFILE,
+        &AppDataUpdateOperation::Remove,
+        super_admin(),
+        &alice.to_hex(),
+        &profile_registry(),
+        Some(&profile_snapshot(&[(alice, "Alice")])),
+        None,
+        Some(&HashSet::new()),
+    )
+    .unwrap_err();
+    assert!(matches!(err, CommitRuleError::InsufficientPermissions));
+}
+
+fn dm_of(one: InboxId, two: InboxId) -> DmMembers<String> {
+    DmMembers {
+        member_one_inbox_id: one.to_hex(),
+        member_two_inbox_id: two.to_hex(),
+    }
+}
+
+fn registry_insert(id: ComponentId) -> AppDataUpdateOperation {
+    let entry = new_component_metadata(
+        component_permissions()
+            .insert(allow())
+            .update(allow())
+            .delete(allow())
+            .call(),
+        ComponentType::Bytes,
+    )
+    .encode_to_vec();
+    let payload = TlsMapDelta::<ComponentId, VLBytes>::new()
+        .insert(id, VLBytes::new(entry))
+        .tls_serialize_detached()
+        .unwrap();
+    AppDataUpdateOperation::Update(payload.into())
+}
+
+/// Either DM participant may register an application component, but not
+/// a well-known one, and a non-participant may register neither.
+// verifies: PERM-026
+#[xmtp_common::test(unwrap_try = true)]
+fn dm_participant_registers_application_components_only() {
+    let (alice, bob, carol) = (fake_inbox(1), fake_inbox(2), fake_inbox(3));
+    let dm = dm_of(alice, bob);
+    let registry = ComponentRegistry::new();
+    let register = |proposer: InboxId, id: ComponentId| {
+        validate_one_app_data_update_with_old_value(
+            ComponentId::COMPONENT_REGISTRY,
+            &registry_insert(id),
+            member(),
+            &proposer.to_hex(),
+            &registry,
+            None,
+            Some(&dm),
+            None,
+        )
+    };
+    register(alice, PROFILE)?;
+    register(bob, ComponentId::new(0xFD00))?;
+    assert!(register(alice, ComponentId::GROUP_IMAGE).is_err());
+    assert!(register(carol, PROFILE).is_err());
+}
+
+/// Immutability still holds for a DM participant: an immutable-range
+/// registry entry, once present, cannot be updated.
+// verifies: META-015
+#[xmtp_common::test(unwrap_try = true)]
+fn dm_participant_cannot_update_immutable_registry_entry() {
+    let (alice, bob) = (fake_inbox(1), fake_inbox(2));
+    let id = ComponentId::new(0xFD00);
+    let registry = registry_with(id, allow(), allow(), allow(), ComponentType::Bytes);
+    let entry = VLBytes::new(registry.get(&id)?.unwrap().encode_to_vec());
+    let payload = TlsMapDelta::<ComponentId, VLBytes>::new()
+        .update(id, entry)
+        .tls_serialize_detached()?;
+    let err = validate_one_app_data_update_with_old_value(
+        ComponentId::COMPONENT_REGISTRY,
+        &AppDataUpdateOperation::Update(payload.into()),
+        super_admin(),
+        &alice.to_hex(),
+        &registry,
+        Some(&registry.to_bytes()?),
+        Some(&dm_of(alice, bob)),
+        None,
+    )
+    .unwrap_err();
+    assert!(matches!(err, CommitRuleError::InsufficientPermissions));
+}
+
+/// A DM participant satisfies `ALLOW_IF_SUPER_ADMIN` on an application
+/// component, and nobody else does.
+// verifies: PERM-028
+#[xmtp_common::test(unwrap_try = true)]
+fn dm_participant_satisfies_super_admin_policy_on_application_component() {
+    let (alice, bob, carol) = (fake_inbox(1), fake_inbox(2), fake_inbox(3));
+    let super_admin_policy = base_policy(MetadataBasePolicy::AllowIfSuperAdmin);
+    let registry = registry_with(
+        PROFILE,
+        super_admin_policy.clone(),
+        super_admin_policy.clone(),
+        super_admin_policy,
+        ComponentType::Bytes,
+    );
+    let write = |proposer: InboxId| {
+        validate_one_app_data_update_with_old_value(
+            PROFILE,
+            &AppDataUpdateOperation::Update(b"v".to_vec().into()),
+            member(),
+            &proposer.to_hex(),
+            &registry,
+            None,
+            Some(&dm_of(alice, bob)),
+            None,
+        )
+    };
+    write(bob)?;
+    assert!(write(carol).is_err());
+}
+
+/// An immutable application scalar accepts one authorized first write,
+/// and rejects a write once it has a value.
+// verifies: META-004
+#[xmtp_common::test(unwrap_try = true)]
+fn immutable_application_scalar_is_written_once() {
+    let id = ComponentId::new(0xFD00);
+    let registry = registry_with(id, deny(), allow(), deny(), ComponentType::Bytes);
+    let write = |old_value: Option<&[u8]>| {
+        validate_one_app_data_update_with_old_value(
+            id,
+            &AppDataUpdateOperation::Update(b"v".to_vec().into()),
+            member(),
+            "inbox_alice",
+            &registry,
+            old_value,
+            None,
+            None,
+        )
+    };
+    write(None)?;
+    assert!(write(Some(b"v")).is_err());
+}
+
+/// Inside one commit, a second proposal sees the state the first one
+/// left, so an absent immutable component cannot be written twice by
+/// splitting the writes across proposals.
+// verifies: META-004
+#[xmtp_common::test(unwrap_try = true)]
+fn immutable_first_write_cannot_be_split_across_proposals() {
+    let id = ComponentId::new(0xFD00);
+    let registry = registry_with(id, deny(), allow(), deny(), ComponentType::Bytes);
+    let (first, second) = (
+        AppDataUpdateOperation::Update(b"a".to_vec().into()),
+        AppDataUpdateOperation::Update(b"b".to_vec().into()),
+    );
+    let sequence = |operations: &[&AppDataUpdateOperation]| {
+        validate_app_data_update_sequence(
+            operations.iter().map(|&operation| AppDataUpdateInCommit {
+                component_id: id,
+                operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }),
+            |_| None,
+            &registry,
+            None,
+            None,
+        )
+    };
+    assert_eq!(sequence(&[&first])?[&id], Some(b"a".to_vec()));
+    assert!(matches!(
+        sequence(&[&first, &second]),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
 }

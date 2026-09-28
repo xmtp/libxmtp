@@ -6,14 +6,14 @@ status: draft
 
 Every change to a group's shared state after creation is a proposal a member signs, and a policy decides whether that member may make it. The policies live in the group itself: the component registry is one component of the group's app-data dictionary, so the rules travel inside the group context, every member reads the same rules, and a change to the rules is a change to the group that the same engine judges. A client that evaluates a policy differently from the others accepts a commit they reject, or rejects one they accept, and the group forks.
 
-The engine has three inputs: the proposer's roles, read from the admin and super-admin lists as they stood before the commit; the operation, which is an insert, an update, or a delete of one element of one component; and the policy the registry stores for that component and operation. Two components are not governed by the registry, because the registry depends on them: the registry itself and the super-admin list are always super-admin-only. Membership changes carried as MLS Add and Remove proposals are judged by the membership component's policies, so one policy governs a member's presence however the change is carried.
+The engine has three inputs: the proposer's roles, read from the admin and super-admin lists as they stood before the commit; the operation, which is an insert, an update, or a delete of one element of one component; and the policy the registry stores for that component and operation. Two components are not governed by the registry, because the registry depends on them: the registry itself and the super-admin list are super-admin-only, except that either DM participant may change application registry entries under PERM-026. Membership changes carried as MLS Add and Remove proposals are judged by the membership component's policies, so one policy governs a member's presence however the change is carried.
 
 ```mermaid
 flowchart TD
   P[Proposal from a member's leaf] --> R[Proposer's roles from the<br/>pre-commit admin lists]
   P --> E[Expand into element changes:<br/>insert, update, delete]
   E --> C{Component id}
-  C -->|registry or super-admin list| H[Super admin only]
+  C -->|registry or super-admin list| H[Super admin only,<br/>or a DM participant under PERM-026]
   C -->|existing immutable component| X[Reject under META-004]
   C -->|any other| L{Registry entry}
   L -->|none| X
@@ -69,7 +69,7 @@ Two rules protect the top tier from the tiers below it. A super admin cannot be 
 | PERM-002 | The creator is the first super admin | When a client creates a group whose conversation type is not DM, it MUST write the super-admin list containing only the creator's inbox id and the admin list empty. | |
 | PERM-003 | Super admins stay members | If a commit removes from the membership component an inbox that is in the super-admin list, then the client MUST reject the commit, whatever the membership component's `delete_policy` says. | An admin who could remove the super admins takes the group from them. |
 | PERM-004 | The super-admin list never empties | If a proposal would change a super-admin list that is not empty into one that is empty, then the client MUST reject it. | A group with no super admin has nobody who can change its rules, and no rule can restore one. |
-| PERM-005 | Registry and super-admin list are super-admin-only | When a proposal writes the registry or the super-admin list and the proposer is not a super admin, the client MUST reject it, whatever the registry says. | These two components are the ones the registry's own authority rests on. |
+| PERM-026 | Protect registry and roles | When a proposal writes `COMPONENT_REGISTRY` or `SUPER_ADMIN_LIST`, the client MUST reject it unless the proposer is a super admin under PERM-001; in a DM, it MUST also allow either `DM_MEMBERS` participant to insert, update, or delete registry entries only when every changed ID is in `0xC000`–`0xFEFF`. It MUST NOT extend that DM exception to `SUPER_ADMIN_LIST` or well-known registry entries. | A DM has no listed super admin, but a registry exception must not grant control of its roles or membership. |
 
 ## 2. The policy language
 
@@ -85,6 +85,7 @@ message MetadataPolicy {
     METADATA_BASE_POLICY_DENY = 2;
     METADATA_BASE_POLICY_ALLOW_IF_ADMIN = 3;
     METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN = 4;
+    METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER = 5;
   }
 
   // Combine multiple policies. All must evaluate to true
@@ -107,7 +108,7 @@ message MetadataPolicy {
 
 META section 2 defines `ComponentPermissions` and its three policy fields. The `MetadataPolicy` block above is the policy language used by those fields.
 
-A base policy reads only the proposer's roles. It does not read the value being written or the element being changed.
+A base policy reads the authenticated proposer, its roles, the element operation and key, and the membership after the commit. It never reads the value being written.
 
 | Base policy | Allowed when |
 | --- | --- |
@@ -115,12 +116,15 @@ A base policy reads only the proposer's roles. It does not read the value being 
 | `METADATA_BASE_POLICY_DENY` | Never |
 | `METADATA_BASE_POLICY_ALLOW_IF_ADMIN` | The proposer is an admin or a super admin |
 | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | The proposer is a super admin |
+| `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | For a `TLS_MAP_INBOX_ID_BYTES` or `TLS_MAP_INBOX_ID_STRING` element, Insert or Update: proposer inbox equals the element's key; Delete: proposer inbox equals the key or the key is absent from the membership after the commit. For a standalone proposal, the absence test uses the committed membership. Deny for whole-component Remove and all other component types. |
+
+`METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` is an ordinary registry policy. A super admin can replace it on an application mutable-range entry, and META-015 still prevents changes to immutable-range entries. A delete that needs the membership after the commit is inline in the member-removal commit and is validated there under GMOD-019; a standalone proposal is judged against the committed membership.
 
 A policy can be malformed: no `kind`, a `base` value the table does not list, or a condition with no children. A malformed policy denies. Evaluation of a condition stops at the first child that decides it, and a malformed child that is reached decides it as denied, so two clients that evaluate the same tree in the same order reach the same answer.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PERM-006 | Base policy semantics | The client MUST evaluate a `base` policy as the table above states, against the proposer's roles under PERM-001. | |
+| PERM-027 | Evaluate base policy context | When the client evaluates a `MetadataPolicy.base`, it MUST use the base-policy table in section 2 with the authenticated proposer, the element operation and key, and the membership after the commit; for a standalone proposal it MUST use the committed membership. | A self-owned policy cannot be judged from role flags or map values alone. |
 | PERM-007 | Condition semantics | The client MUST evaluate the children of an `and_condition` in order and stop at the first child that is denied or malformed, with that child's result, and MUST evaluate the children of an `any_condition` in order and stop at the first child that is allowed or malformed, with that child's result. An `and_condition` whose children are all allowed MUST be allowed, and an `any_condition` whose children are all denied MUST be denied. | Two clients that stop at different children reach different answers for the same tree. |
 | PERM-008 | A malformed policy denies | When the policy that governs a write has no `kind`, has a `base` value not in the table above, or is a condition with no children, the client MUST deny the write. | A policy that fails open turns a corrupt registry entry into an open door. |
 
@@ -141,6 +145,8 @@ Every other component is governed by its registry entry, and a component with no
 
 MLS Add and Remove proposals use the membership component's policies. For an inbox added or removed by a commit, every corresponding proposal retains its own proposer, including when several proposals name installations of that inbox. A change limited to installations of an inbox that remains a member is checked under GMOD and the membership entry's update policy. An inline proposal has the committer as proposer under [RFC 9420 §12.4.2](https://www.rfc-editor.org/rfc/rfc9420.html#section-12.4.2).
 
+A DM has no listed super admin. PERM-026 lets either `DM_MEMBERS` participant change application registry entries, and PERM-028 lets it satisfy `ALLOW_IF_SUPER_ADMIN` on application components. Neither grants a role, changes DM membership, or reaches a well-known component.
+
 DMS-004 owns the participant-add exception. That exception takes precedence over denial by the membership insert policy in both the Add path and the dictionary-insert path. It uses the proposer under PERM-009 in both paths and at final membership validation. It does not bypass structural checks or authorize another mutation in the same proposal.
 
 | ID | Title | Requirement | Why |
@@ -150,13 +156,14 @@ DMS-004 owns the participant-add exception. That exception takes precedence over
 | PERM-011 | Operation selects the policy | For each element change, the client MUST select `insert_policy`, `update_policy`, or `delete_policy` under the element-change table above and MUST reject the proposal if any selected policy denies, except for the membership insertion authorized by DMS-004. | |
 | PERM-012 | Deny by default | When a write targets a component other than `COMPONENT_REGISTRY` or `SUPER_ADMIN_LIST` and the committed registry has no entry that decodes as a `ComponentMetadata` with all three policies present, the client MUST reject the write. | |
 | PERM-014 | Unknown components are judged, not refused | When a proposal names a component the client has no built-in definition for, the client MUST evaluate it under the committed registry entry's `component_type` and policies, and MUST NOT reject it because the component is unknown. | A client that refuses what it does not know forks the group at the first component a newer release adds. |
+| PERM-028 | DM application policy role | When a proposer whose inbox is in a DM's `DM_MEMBERS` writes an application component, the client MUST evaluate `ALLOW_IF_SUPER_ADMIN` as allowed for that proposer, without granting that role for well-known components or membership changes. | A DM's empty super-admin list would otherwise make application policies that use this option impossible to satisfy. |
 | PERM-015 | Membership proposals use membership policies | When a commit adds or removes an inbox from `GROUP_MEMBERSHIP`, the client MUST evaluate the corresponding `insert_policy` or `delete_policy` against each proposer of an Add or Remove for that inbox under PERM-009 and reject a denial, subject to DMS-004 for adds and PERM-003 for removals. The client MUST apply the same policy checks to each standalone Add or Remove proposal. | |
 
 ## 4. The registry
 
-A registry entry is validated when it is written, so that a corrupt entry never enters the committed registry and every later commit can be judged. The four action policies are validated as complete trees whenever a commit writes the registry, because a commit that leaves one of them malformed would make every later membership or admin change undecidable for every member. The admin list is constrained: its policies are base policies of deny, admin, or super admin, because unrestricted admin assignment would let a member grant itself every admin permission. PERM-005 separately protects the super-admin list.
+A registry entry is validated when it is written, so that a corrupt entry never enters the committed registry and every later commit can be judged. The four action policies are validated as complete trees whenever a commit writes the registry, because a commit that leaves one of them malformed would make every later membership or admin change undecidable for every member. The admin list is constrained: its policies are base policies of deny, admin, or super admin, because unrestricted admin assignment would let a member grant itself every admin permission. PERM-026 separately protects the super-admin list.
 
-The registry is written by super admins only (PERM-005), and no stored value changes that; the permission to update permissions is the super-admin role itself. An app changes a policy through its SDK, which names the action or the metadata field and a policy option; the client writes the registry field the table below names. META section 2 assigns the metadata component ids.
+The registry is written by super admins only, and in a DM by either participant for application entries (PERM-026); no stored value changes that. The permission to update permissions is the super-admin role itself. An app changes a policy through its SDK, which names the action or the metadata field and a policy option; the client writes the registry field the table below names. META section 2 assigns the metadata component ids.
 
 | App operation | Component | Registry field | Accepted options |
 | --- | --- | --- | --- |
@@ -175,7 +182,7 @@ The registry is written by super admins only (PERM-005), and no stored value cha
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| PERM-017 | Action policies stay well-formed | If the registry a commit produces has no entry for the membership component or the admin list, or an action policy in it is malformed under PERM-008 at any node, or an admin list policy is not a `base` of `METADATA_BASE_POLICY_DENY`, `METADATA_BASE_POLICY_ALLOW_IF_ADMIN`, or `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN`, then the client MUST reject the commit. | Every later membership or admin change would be undecidable, and a group whose commits cannot be judged is stuck for every member. |
+| PERM-017 | Action policies stay well-formed | If the registry a commit produces has no entry for the membership component or the admin list, or an action policy in it is malformed under PERM-008 or is `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` at any node, or an admin list policy is not a `base` of `METADATA_BASE_POLICY_DENY`, `METADATA_BASE_POLICY_ALLOW_IF_ADMIN`, or `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN`, then the client MUST reject the commit. | Every later membership or admin change would be undecidable, and a group whose commits cannot be judged is stuck for every member. |
 | PERM-018 | Changing a policy | An SDK MUST let an app set each policy in the app-operation table to an option accepted for that operation, encoded under the policy-option table in the named registry fields. It MUST reject Allow for Add admin or Remove admin. | |
 
 ## 5. Preconfigured policy sets
@@ -196,7 +203,7 @@ An app creates a non-DM group with All members, Admins only, or custom policies.
 | Each immutable component: insert | Allow if super admin | Allow if super admin |
 | Each immutable component: update and delete | Deny | Deny |
 
-The registry and super-admin list have no registry policies; PERM-005 applies. META section 2 owns which component values exist at creation.
+The registry and super-admin list have no registry policies; PERM-026 applies. PERM-029 sets the policies of `USER_DISPLAY_NAME` and `GROUP_IMAGE`. META section 2 owns which component values exist at creation.
 
 Preset recognition reports a policy view, not equality of the registry. The recognition table lists every comparison. Policies compare as ordered trees, including their base values and condition kinds. Metadata policies with a missing field or any malformed node are represented as Deny in this view. Invalid action policies fail under PERM-017.
 
@@ -205,13 +212,14 @@ Preset recognition reports a policy view, not equality of the registry. The reco
 | Membership insert and delete | Equal to the preset's creation policies |
 | Admin-list insert and delete | Equal to the preset's creation policies |
 | Group name, description, image URL, app data, both disappearing-message fields, and minimum protocol version: update | Equal to the preset's creation policies |
-| Authority to change permissions | Super admin under PERM-005 |
+| Authority to change permissions | Super admin under PERM-026 |
 
 Membership and admin-list update policies, metadata insert and delete policies, commit-log signer policies, immutable-component policies, and application-component policies are absent from this view. A change to one of them can leave the reported preset unchanged. There is no DM preset result.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | PERM-019 | A preset writes the table | When the client creates a non-DM group with a preset, it MUST write the registry with every policy in that preset's creation-table column. | A preset chosen on one SDK must give every member the same rules. |
+| PERM-029 | Core field creation policies | When a client creates a group or DM, it MUST set `USER_DISPLAY_NAME` insert, update, and delete policies to `ALLOW_IF_SELF_OR_NON_MEMBER`; for a group it MUST set `GROUP_IMAGE` insert, update, and delete policies equal to the respective `GROUP_IMAGE_URL` policies selected at creation. | New members must evaluate writes to the new well-known fields under the same rules. |
 | PERM-024 | Recognise the exposed policy view | When an SDK reports a preset, it MUST report All members or Admins only exactly when the recognition view above equals that preset, and MUST report no preset when neither matches. | An app needs a stable meaning for the reported name even when the registry holds other policies. |
 
 ## 6. Authority to process leave requests

@@ -641,13 +641,20 @@ pub fn validate_one_app_data_update(
     openmls_group: &OpenMlsGroup,
     dm_members: Option<&DmMembers<String>>,
 ) -> Result<(), CommitRuleError> {
-    use xmtp_mls_common::app_data::component_source::read_from_app_data_dict;
+    use xmtp_mls_common::app_data::{
+        component_id::ComponentId, component_source::read_from_app_data_dict,
+    };
 
     // Pull the pre-commit stored bytes for this component so the expansion
     // step can resolve `RemoveByHash` mutations back to the concrete
     // inbox id being removed. `None` is a legal first-write state — see
     // the fn docstring above for how the expansion handles it.
     let old_value = read_from_app_data_dict(component_id, openmls_group);
+    // A standalone proposal has no commit, so the self-owned policy reads
+    // the committed membership.
+    let membership = membership_inbox_ids(
+        read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, openmls_group).as_deref(),
+    );
 
     validate_one_app_data_update_with_old_value(
         component_id,
@@ -657,7 +664,21 @@ pub fn validate_one_app_data_update(
         registry,
         old_value.as_deref(),
         dm_members,
+        membership.as_ref(),
     )
+}
+
+/// The inbox ids of a `GROUP_MEMBERSHIP` snapshot. `None` when the
+/// snapshot is absent or malformed, which fails the self-owned policy's
+/// non-member test closed.
+fn membership_inbox_ids(
+    snapshot: Option<&[u8]>,
+) -> Option<std::collections::HashSet<xmtp_mls_common::inbox_id::InboxId>> {
+    use tls_codec::{Deserialize as _, VLBytes};
+    use xmtp_mls_common::{inbox_id::InboxId, tls_map::TlsMap};
+
+    let map = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(snapshot?).ok()?;
+    Some(map.keys().copied().collect())
 }
 
 /// Receive-side enforcement of `MIN_SUPPORTED_PROTOCOL_VERSION`
@@ -751,7 +772,12 @@ fn permits_dm_participant_insert(
 /// Pure core of [`validate_one_app_data_update`] with `old_value`
 /// passed explicitly so unit tests can exercise the
 /// expand → per-change policy loop without a real MLS group.
-// implements: PERM-011, PERM-014
+///
+/// `membership` is the set of inbox ids the self-owned non-member test reads:
+/// the post-commit membership inside a commit, the committed one for a
+/// standalone proposal.
+// implements: PERM-011, PERM-014, PERM-026, PERM-027, PERM-028
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_one_app_data_update_with_old_value(
     component_id: xmtp_mls_common::app_data::component_id::ComponentId,
     operation: &openmls::messages::proposals::AppDataUpdateOperation,
@@ -760,6 +786,7 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
     old_value: Option<&[u8]>,
     dm_members: Option<&DmMembers<String>>,
+    membership: Option<&std::collections::HashSet<xmtp_mls_common::inbox_id::InboxId>>,
 ) -> Result<(), CommitRuleError> {
     use xmtp_mls_common::app_data::{
         registry_table::lookup_component,
@@ -838,6 +865,12 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
     let dm_participant_insert = component_id
         == xmtp_mls_common::app_data::component_id::ComponentId::GROUP_MEMBERSHIP
         && permits_dm_participant_insert(operation, proposer_inbox_id, dm_members);
+    let proposer = xmtp_mls_common::inbox_id::InboxId::from_hex(proposer_inbox_id).ok();
+    let is_dm_participant = dm_members.is_some_and(|dm| {
+        [&dm.member_one_inbox_id, &dm.member_two_inbox_id]
+            .iter()
+            .any(|member| member.as_str() == proposer_inbox_id)
+    });
     for change in &changes {
         if dm_participant_insert
             && change.op == xmtp_mls_common::app_data::component_registry::ComponentOp::Insert
@@ -848,7 +881,12 @@ pub(crate) fn validate_one_app_data_update_with_old_value(
             .component_id(component_id)
             .op(change.op)
             .actor(actor)
+            .maybe_old_value(old_value)
             .maybe_new_value(change.value.as_deref())
+            .maybe_proposer(proposer)
+            .is_dm_participant(is_dm_participant)
+            .maybe_key(change.key.as_deref())
+            .maybe_membership(membership)
             .build();
 
         // Layer 1: registry-based policy. Applies to both known and
@@ -941,6 +979,66 @@ pub(crate) fn app_data_update_proposer_leaf(
     }
 }
 
+/// One `AppDataUpdate` proposal in a commit, with its sender's authority.
+pub(crate) struct AppDataUpdateInCommit<'a> {
+    pub component_id: xmtp_mls_common::app_data::component_id::ComponentId,
+    pub operation: &'a openmls::messages::proposals::AppDataUpdateOperation,
+    pub actor: xmtp_mls_common::app_data::validation::ActorAuthority,
+    pub proposer_inbox_id: &'a str,
+}
+
+/// Validate a commit's `AppDataUpdate` proposals in order and return each
+/// touched component's state after the last of them (`None` once removed).
+///
+/// Each proposal is judged against its component's state after the
+/// preceding proposals, starting from `committed`, so neither a transition
+/// invariant nor an immutable first write can be split across proposals.
+pub(crate) fn validate_app_data_update_sequence<'a>(
+    updates: impl IntoIterator<Item = AppDataUpdateInCommit<'a>>,
+    committed: impl Fn(xmtp_mls_common::app_data::component_id::ComponentId) -> Option<Vec<u8>>,
+    registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
+    dm_members: Option<&DmMembers<String>>,
+    membership: Option<&HashSet<xmtp_mls_common::inbox_id::InboxId>>,
+) -> Result<
+    HashMap<xmtp_mls_common::app_data::component_id::ComponentId, Option<Vec<u8>>>,
+    CommitRuleError,
+> {
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use xmtp_mls_common::app_data::component_source::apply_app_data_update_payload;
+
+    let mut post_states = HashMap::new();
+    for update in updates {
+        let old_value = post_states
+            .entry(update.component_id)
+            .or_insert_with(|| committed(update.component_id))
+            .clone();
+        validate_one_app_data_update_with_old_value(
+            update.component_id,
+            update.operation,
+            update.actor,
+            update.proposer_inbox_id,
+            registry,
+            old_value.as_deref(),
+            dm_members,
+            membership,
+        )?;
+        let post_value = match update.operation {
+            AppDataUpdateOperation::Update(payload) => Some(
+                apply_app_data_update_payload(
+                    update.component_id,
+                    payload.as_slice(),
+                    old_value.as_deref(),
+                    registry,
+                )
+                .map_err(|_| CommitRuleError::InsufficientPermissions)?,
+            ),
+            AppDataUpdateOperation::Remove => None,
+        };
+        post_states.insert(update.component_id, post_value);
+    }
+    Ok(post_states)
+}
+
 /// Validate every `AppDataUpdate` proposal carried by `staged_commit`
 /// against the group's component registry.
 ///
@@ -970,10 +1068,10 @@ pub fn validate_app_data_update_proposals_in_commit(
     mutable_metadata: &GroupMutableMetadata,
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
 ) -> Result<(), CommitRuleError> {
-    use std::collections::HashMap;
-    use xmtp_mls_common::app_data::component_source::read_from_app_data_dict;
     use xmtp_mls_common::app_data::{
-        component_id::ComponentId, registry_table::lookup_component, validation::ActorAuthority,
+        component_id::ComponentId,
+        component_source::{read_from_app_data_dict, read_post_commit_component_bytes},
+        validation::ActorAuthority,
     };
 
     // Peek first: the common case is zero AppDataUpdate proposals, in
@@ -996,59 +1094,48 @@ pub fn validate_app_data_update_proposals_in_commit(
     // A single commit's bootstrap can carry multiple AppDataUpdate proposals
     // from the same leaf; cache extracted `CommitParticipant`s so we don't
     // re-walk the admin lists and re-parse the credential for every one.
+    let proposals = proposals
+        .map(|queued| {
+            let leaf = *app_data_update_proposer_leaf(queued.sender())?;
+            Ok((queued, leaf))
+        })
+        .collect::<Result<Vec<_>, CommitRuleError>>()?;
     let mut participants: HashMap<LeafNodeIndex, CommitParticipant> = HashMap::new();
-    // Keep post-operation snapshots for known components as proposals are
-    // processed. A commit can contain more than one delta for a collection;
-    // each later invariant must observe the preceding proposal's result.
-    let mut component_post_states: HashMap<ComponentId, Option<Vec<u8>>> = HashMap::new();
-
-    for queued in proposals {
-        let app_data = queued.app_data_update_proposal();
-        let component_id = ComponentId::from(app_data.component_id());
-        let proposer_leaf = app_data_update_proposer_leaf(queued.sender())?;
-        let proposer = match participants.get(proposer_leaf) {
-            Some(cached) => cached,
-            None => {
-                let fresh = extract_commit_participant(
-                    proposer_leaf,
-                    openmls_group,
-                    immutable_metadata,
-                    mutable_metadata,
-                )?;
-                participants.entry(*proposer_leaf).or_insert(fresh)
-            }
-        };
-
-        let old_value = component_post_states
-            .entry(component_id)
-            .or_insert_with(|| read_from_app_data_dict(component_id, openmls_group))
-            .clone();
-        validate_one_app_data_update_with_old_value(
-            component_id,
-            app_data.operation(),
-            ActorAuthority::from(proposer),
-            &proposer.inbox_id,
-            registry,
-            old_value.as_deref(),
-            immutable_metadata.dm_members.as_ref(),
-        )?;
-
-        // Unknown components do not have a per-id invariant. Known component
-        // codecs compute the exact post-state for the next proposal in this
-        // commit, so transition invariants cannot be bypassed by splitting a
-        // destructive delta into sequential proposals.
-        if let Some(component) = lookup_component(component_id) {
-            let post_value = match app_data.operation() {
-                openmls::messages::proposals::AppDataUpdateOperation::Update(payload) => Some(
-                    component
-                        .apply_update_payload(payload.as_slice(), old_value.as_deref())
-                        .map_err(|_| CommitRuleError::InsufficientPermissions)?,
-                ),
-                openmls::messages::proposals::AppDataUpdateOperation::Remove => None,
-            };
-            component_post_states.insert(component_id, post_value);
+    for (_, leaf) in &proposals {
+        if let std::collections::hash_map::Entry::Vacant(entry) = participants.entry(*leaf) {
+            entry.insert(extract_commit_participant(
+                leaf,
+                openmls_group,
+                immutable_metadata,
+                mutable_metadata,
+            )?);
         }
     }
+    // The self-owned policy tests a deleted key against the membership
+    // after the commit.
+    let membership = read_post_commit_component_bytes(
+        ComponentId::GROUP_MEMBERSHIP,
+        openmls_group,
+        staged_commit,
+        registry,
+    )
+    .map_err(|_| CommitRuleError::InsufficientPermissions)?;
+    let component_post_states = validate_app_data_update_sequence(
+        proposals.iter().map(|(queued, leaf)| {
+            let proposal = queued.app_data_update_proposal();
+            let proposer = &participants[leaf];
+            AppDataUpdateInCommit {
+                component_id: ComponentId::from(proposal.component_id()),
+                operation: proposal.operation(),
+                actor: ActorAuthority::from(proposer),
+                proposer_inbox_id: &proposer.inbox_id,
+            }
+        }),
+        |component_id| read_from_app_data_dict(component_id, openmls_group),
+        registry,
+        immutable_metadata.dm_members.as_ref(),
+        membership_inbox_ids(membership.as_deref()).as_ref(),
+    )?;
 
     // Validate the final registry after all deltas. Required action entries
     // must remain present, and every child in each action tree must be valid.
@@ -1409,6 +1496,7 @@ mod permission_on_receive_tests {
             &registry,
             None,
             None,
+            None,
         )
         .expect_err("non-admin write to super-admin-only component must be rejected");
         assert!(
@@ -1427,6 +1515,7 @@ mod permission_on_receive_tests {
             admin_actor(),
             "test-inbox",
             &registry,
+            None,
             None,
             None,
         )
@@ -1451,6 +1540,7 @@ mod permission_on_receive_tests {
             non_admin_actor(),
             "test-inbox",
             &registry,
+            None,
             None,
             None,
         )

@@ -79,7 +79,7 @@ use crate::app_data::{
 /// new ids there.
 ///
 /// **Requirements when adding a new well-known component:**
-/// - The component MUST be reachable through one of the six
+/// - The component MUST be reachable through one of the seven
 ///   [`ComponentType`] variants. The wire codec for each is fixed; an
 ///   old client decodes it the same way a typed client would.
 /// - The component MUST NOT carry receive-side invariants beyond

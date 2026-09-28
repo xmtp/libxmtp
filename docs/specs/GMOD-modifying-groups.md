@@ -181,6 +181,8 @@ A commit that adds installations owes them a Welcome. The Welcome names the comm
 
 A commit may reference proposals other members published. Every member keeps a received proposal only after validating it, so a proposal that one member rejects is one every member rejects, and a commit that references it fails everywhere the same way. PERM-009 judges each proposal by its proposer, so the committer needs no authority of its own over the changes it commits.
 
+A standalone proposal is judged against the committed membership, because the commit that will reference it is not yet known. A delete that is authorized only because its key leaves the membership in the same commit, such as a removed member's profile entry under PERM-027, is therefore an inline proposal of the member-removal commit and is validated there under section 5.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | GMOD-016 | Apply only what the topic returns | A client MUST NOT apply a commit it built before it has read that commit back from the group's message topic at the sequence id the backend assigned, and MUST NOT exempt it from any check of section 5 because it built it. | A sender that applies first and loses the race, or built a commit the others reject, is forked from the group. |

@@ -251,6 +251,7 @@ pub fn component_type(id: ComponentId) -> Option<ComponentType> {
 
         // GroupMembership — TlsMap<InboxId, bytes>
         ComponentId::GROUP_MEMBERSHIP => Some(ComponentType::TlsMapInboxIdBytes),
+        ComponentId::USER_DISPLAY_NAME => Some(ComponentType::TlsMapInboxIdString),
 
         // GroupMutableMetadata-backed string components.
         ComponentId::GROUP_NAME
@@ -262,7 +263,8 @@ pub fn component_type(id: ComponentId) -> Option<ComponentType> {
         // GroupMutableMetadata-backed bytes components.
         ComponentId::MESSAGE_DISAPPEAR_FROM_NS
         | ComponentId::MESSAGE_DISAPPEAR_IN_NS
-        | ComponentId::COMMIT_LOG_SIGNER => Some(ComponentType::Bytes),
+        | ComponentId::COMMIT_LOG_SIGNER
+        | ComponentId::GROUP_IMAGE => Some(ComponentType::Bytes),
 
         // Immutable metadata (not flowable through AppDataUpdate writes,
         // but we still advertise the type for completeness).
@@ -513,7 +515,7 @@ pub fn expand_app_data_update_to_changes(
     //    *newer* release ships that this client has never heard of;
     //    the registry's `component_type` tag is the type oracle.
     //
-    // Either way, the closed type universe (6 variants) means every
+    // Either way, the closed type universe (7 variants) means every
     // shape — including `TlsSet` / `TlsMap` deltas — surfaces a proper
     // per-element change list to the validator. Old and new clients
     // converge on the same dict state for the same wire bytes.
@@ -1085,6 +1087,22 @@ mod tests {
         );
     }
 
+    /// The two newest well-known ids carry the fixed types every client
+    /// must agree on: a UTF-8 inbox map for display names, opaque bytes for
+    /// the group image.
+    // verifies: META-010
+    #[xmtp_common::test]
+    fn test_component_type_profile_and_image() {
+        assert_eq!(
+            component_type(ComponentId::USER_DISPLAY_NAME),
+            Some(ComponentType::TlsMapInboxIdString)
+        );
+        assert_eq!(
+            component_type(ComponentId::GROUP_IMAGE),
+            Some(ComponentType::Bytes)
+        );
+    }
+
     #[xmtp_common::test]
     fn test_component_type_app_range_is_none() {
         assert_eq!(component_type(ComponentId::new(0xC000)), None);
@@ -1541,7 +1559,7 @@ mod tests {
     // sender shipped a newer release. Old clients look up the
     // `ComponentType` registered for the id in the on-dict
     // [`ComponentRegistry`] and route the payload through the
-    // type-level decoder. The six `ComponentType` variants cover the
+    // type-level decoder. The seven `ComponentType` variants cover the
     // wire-format universe, so any future well-known or
     // application-range component lands convergently — including
     // `TlsSet` / `TlsMap` deltas, which previously needed a per-id

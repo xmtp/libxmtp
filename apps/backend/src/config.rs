@@ -325,6 +325,8 @@ impl Config {
                     retention_seconds: attachments.retention_seconds.unwrap_or_default(),
                 }
             }),
+            // No application component is configurable yet.
+            application_components: Vec::new(),
         }
     }
 
