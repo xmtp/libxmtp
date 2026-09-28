@@ -3,8 +3,6 @@ syntax = "proto3";
 
 package xmtp.identity.associations;
 
-import "message_contents/public_key.proto";
-
 option go_package = "github.com/xmtp/proto/v3/go/identity/associations";
 option java_package = "org.xmtp.proto.identity.associations";
 
@@ -41,17 +39,6 @@ message RecoverablePasskeySignature {
   bytes client_data_json = 4;
 }
 
-// An existing address on xmtpv2 may have already signed a legacy identity key
-// of type SignedPublicKey via the 'Create Identity' signature.
-// For migration to xmtpv3, the legacy key is permitted to sign on behalf of the
-// address to create a matching xmtpv3 installation key.
-// This signature type can ONLY be used for CreateXid and AddAssociation
-// payloads, and can only be used once in xmtpv3.
-message LegacyDelegatedSignature {
-  xmtp.message_contents.SignedPublicKey delegated_key = 1;
-  RecoverableEcdsaSignature signature = 2;
-}
-
 // A wrapper for all possible signature types
 message Signature {
   // Must have two properties:
@@ -59,11 +46,15 @@ message Signature {
   //    recoverable, or specified as a field.
   // 2. The signer certifies that the signing payload is correct. The payload
   //    must be inferred from the context in which the signature is provided.
+  // Field 4 was the retired legacy delegated signature. A validator rejects
+  // an update carrying it, so neither its number nor its name may be reused.
+  reserved 4;
+  reserved "delegated_erc_191";
+
   oneof signature {
     RecoverableEcdsaSignature erc_191 = 1;
     SmartContractWalletSignature erc_6492 = 2;
     RecoverableEd25519Signature installation_key = 3;
-    LegacyDelegatedSignature delegated_erc_191 = 4;
     RecoverablePasskeySignature passkey = 5;
   }
 }

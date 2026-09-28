@@ -354,32 +354,30 @@ async fn identity_signature_failure_precedes_state_application() {
     assert!(!error.is_retryable());
 }
 
+/// An uppercase recovery identifier is rejected when it is admitted and when a
+/// stored log carrying it is replayed, so no signer can be locked out of recovery.
+// verifies: IDENT-013
 #[xmtp_common::test(unwrap_try = true)]
-async fn identity_admission_preserves_raw_recovery_identifier_behavior() {
-    let fixture = identity_history_with_raw_recovery().await;
-    let state = validate_identity_updates(
-        fixture.history.clone(),
-        vec![],
-        MockSmartContractSignatureVerifier::new(false),
-    )
-    .await?;
-    assert_eq!(
-        state.state.recovery_identifier().to_string(),
-        fixture.raw_recovery_identifier
-    );
-
-    let error = validate_identity_updates(
-        fixture.history,
-        vec![fixture.rejected_update],
-        MockSmartContractSignatureVerifier::new(false),
-    )
-    .await
-    .err()
-    .expect("canonical signer must not match the retained raw recovery value");
-    assert!(matches!(
-        error,
-        ValidationError::Association(AssociationError::MissingExistingMember)
-    ));
+async fn identity_invalid_mutations_mixed_case_recovery_is_rejected() {
+    let (create, change) = mixed_case_recovery_change().await;
+    for (history, new) in [
+        (vec![create.clone()], vec![change.clone()]),
+        (vec![create, change], vec![]),
+    ] {
+        let error =
+            validate_identity_updates(history, new, MockSmartContractSignatureVerifier::new(false))
+                .await
+                .err()
+                .expect("a mixed-case recovery identifier must be rejected");
+        assert!(matches!(
+            error,
+            ValidationError::Conversion(ConversionError::InvalidValue {
+                item: "ethereum identifier",
+                ..
+            })
+        ));
+        assert!(!error.is_retryable());
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]

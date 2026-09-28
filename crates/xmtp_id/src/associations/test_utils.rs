@@ -14,8 +14,14 @@ use alloy::{
     primitives::{BlockNumber, Bytes},
     signers::{Signer, local::PrivateKeySigner},
 };
+use prost::Message;
+use xmtp_common::rand_vec;
 use xmtp_cryptography::CredentialSign;
 use xmtp_cryptography::basic_credential::XmtpInstallationCredential;
+use xmtp_proto::xmtp::identity::associations::{
+    CreateInbox as CreateInboxProto, IdentityUpdate as IdentityUpdateProto,
+    RecoverableEcdsaSignature,
+};
 
 #[derive(Debug, Clone)]
 pub struct MockSmartContractSignatureVerifier {
@@ -113,4 +119,74 @@ impl UnverifiedAction {
             UnverifiedSignature::new_recoverable_ecdsa(vec![1, 2, 3]),
         ))
     }
+}
+
+/// A genuine legacy `SignedPublicKey` for the wallet
+/// `0x220ca99fb7fafa18cb623d924794dde47b4bc2e9`, once accepted as the
+/// delegated key of a `delegated_erc_191` signature.
+const LEGACY_SIGNED_PUBLIC_KEY: &[u8] = &[
+    10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174, 252,
+    198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36, 91, 81, 93,
+    213, 67, 241, 69, 5, 31, 249, 186, 129, 119, 144, 4, 44, 54, 76, 185, 95, 61, 23, 231, 72, 7,
+    169, 18, 70, 113, 79, 173, 82, 13, 37, 146, 201, 43, 174, 180, 33, 125, 43, 18, 70, 18, 68, 10,
+    64, 7, 136, 100, 172, 155, 247, 230, 255, 253, 247, 78, 50, 212, 226, 41, 78, 239, 183, 136,
+    247, 122, 88, 155, 245, 219, 183, 215, 202, 42, 89, 162, 128, 96, 96, 120, 131, 17, 70, 38,
+    231, 2, 27, 91, 29, 66, 110, 128, 140, 1, 42, 217, 185, 2, 181, 208, 100, 143, 143, 219, 159,
+    174, 1, 233, 191, 16, 1,
+];
+pub const LEGACY_WALLET: &str = "0x220ca99fb7fafa18cb623d924794dde47b4bc2e9";
+
+/// Encodes `body` as length-delimited field `tag`, so a test can write a
+/// field the generated types no longer have.
+pub fn length_delimited(tag: u32, body: &[u8]) -> Vec<u8> {
+    let mut buf = Vec::new();
+    prost::encoding::bytes::encode(tag, &body.to_vec(), &mut buf);
+    buf
+}
+
+/// A `Signature` carrying the retired oneof field 4, shaped exactly as the
+/// legacy delegated signature was: the delegated key, then the signature.
+pub fn retired_signature() -> Vec<u8> {
+    let delegated = [
+        length_delimited(1, LEGACY_SIGNED_PUBLIC_KEY),
+        length_delimited(
+            2,
+            &RecoverableEcdsaSignature {
+                bytes: rand_vec::<65>(),
+            }
+            .encode_to_vec(),
+        ),
+    ]
+    .concat();
+    length_delimited(4, &delegated)
+}
+
+/// An encoded `IdentityUpdate` for `inbox_id` holding the encoded `actions`,
+/// which may carry fields the generated types no longer have.
+pub fn identity_update(inbox_id: &str, actions: Vec<Vec<u8>>) -> Vec<u8> {
+    let head = IdentityUpdateProto {
+        actions: vec![],
+        client_timestamp_ns: 1,
+        inbox_id: inbox_id.to_string(),
+    };
+    [head.encode_to_vec()]
+        .into_iter()
+        .chain(actions.iter().map(|action| length_delimited(1, action)))
+        .collect::<Vec<_>>()
+        .concat()
+}
+
+/// An encoded `IdentityUpdate` creating `inbox_id` for the Ethereum
+/// `identifier`, signed with the retired field 4.
+pub fn retired_signature_create_inbox(inbox_id: &str, identifier: &str) -> Vec<u8> {
+    let create = [
+        CreateInboxProto {
+            initial_identifier: identifier.to_string(),
+            ..Default::default()
+        }
+        .encode_to_vec(),
+        length_delimited(3, &retired_signature()),
+    ]
+    .concat();
+    identity_update(inbox_id, vec![length_delimited(1, &create)])
 }

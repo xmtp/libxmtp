@@ -290,7 +290,7 @@ async fn test_downgraded_client_pauses_on_dictionary_group_with_higher_floor() {
     let bo_ident = bo_wallet.get_identifier()?;
     let bo_nonce = 1;
     let bo_inbox_id = bo_ident.inbox_id(bo_nonce)?;
-    let bo_strategy = IdentityStrategy::new(bo_inbox_id.clone(), bo_ident.clone(), bo_nonce, None);
+    let bo_strategy = IdentityStrategy::new(bo_inbox_id.clone(), bo_ident.clone(), bo_nonce);
 
     let bo_store = xmtp_db::TestDb::create_persistent_store(Some(bo_db_path.clone())).await;
     let bo = Client::builder(bo_strategy.clone())
