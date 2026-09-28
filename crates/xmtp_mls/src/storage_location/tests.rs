@@ -872,7 +872,7 @@ mod native {
         let dir = tempfile::tempdir()?;
         let entered = Arc::new(tokio::sync::Notify::new());
         let resume = Arc::new(tokio::sync::Notify::new());
-        *NATIVE_DEPLOYMENT_WRITE_PAUSE.lock() = Some((entered.clone(), resume));
+        *NATIVE_DEPLOYMENT_WRITE_PAUSE.lock() = Some((entered.clone(), resume.clone()));
         let path = dir.path().to_path_buf();
         let (write, abort) =
             futures::future::abortable(async move { write_file(&path, b"cancelled record").await });
@@ -880,6 +880,13 @@ mod native {
         xmtp_common::time::timeout(std::time::Duration::from_secs(3), entered.notified()).await?;
         abort.abort();
         assert!(task.await?.is_err());
+        resume.notify_one();
+        xmtp_common::time::timeout(std::time::Duration::from_secs(3), async {
+            while !dir.path().join("deployments.json").exists() {
+                xmtp_common::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        })
+        .await?;
         let temps: Vec<_> = std::fs::read_dir(dir.path())?
             .filter_map(Result::ok)
             .filter(|entry| {

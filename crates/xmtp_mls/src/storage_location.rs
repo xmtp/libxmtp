@@ -268,41 +268,53 @@ impl Drop for NativeDeploymentTempGuard {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocationError> {
-    use tokio::io::AsyncWriteExt as _;
-
     xmtp_attachments::create_private_directory(data_dir).await?;
     let path = data_dir.join("deployments.json");
     let temp = data_dir.join(format!(
         ".deployments-{}.tmp",
         xmtp_common::rand_string::<16>()
     ));
-    let mut options = tokio::fs::OpenOptions::new();
-    options.write(true).create_new(true);
-    #[cfg(unix)]
-    options.mode(0o600);
-    let mut guard = NativeDeploymentTempGuard {
-        path: temp.clone(),
-        committed: true,
-    };
-    let mut file = options.open(&temp).await?;
-    guard.committed = false;
-    #[cfg(all(test, not(target_arch = "wasm32")))]
-    let pause = { NATIVE_DEPLOYMENT_WRITE_PAUSE.lock().take() };
-    #[cfg(all(test, not(target_arch = "wasm32")))]
-    if let Some((entered, resume)) = pause {
-        entered.notify_one();
-        resume.notified().await;
-    }
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt as _;
-        file.set_permissions(std::fs::Permissions::from_mode(0o600))
-            .await?;
-    }
-    file.write_all(bytes).await?;
-    drop(file);
-    tokio::fs::rename(&temp, &path).await?;
-    guard.committed = true;
+    let bytes = bytes.to_vec();
+    xmtp_common::task::spawn_blocking(move || -> std::io::Result<()> {
+        use std::io::Write as _;
+
+        let mut options = std::fs::OpenOptions::new();
+        options.write(true).create_new(true);
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::OpenOptionsExt as _;
+            options.mode(0o600);
+        }
+        let mut guard = NativeDeploymentTempGuard {
+            path: temp.clone(),
+            committed: true,
+        };
+        let mut file = options.open(&temp)?;
+        guard.committed = false;
+        #[cfg(test)]
+        let pause = { NATIVE_DEPLOYMENT_WRITE_PAUSE.lock().take() };
+        #[cfg(test)]
+        if let Some((entered, resume)) = pause {
+            entered.notify_one();
+            futures::executor::block_on(resume.notified());
+        }
+        let write = (|| -> std::io::Result<()> {
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+            }
+            file.write_all(&bytes)?;
+            file.sync_all()
+        })();
+        drop(file);
+        write?;
+        std::fs::rename(&temp, &path)?;
+        guard.committed = true;
+        Ok(())
+    })
+    .await
+    .map_err(std::io::Error::other)??;
     Ok(())
 }
 
