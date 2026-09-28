@@ -18,6 +18,7 @@ import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.ts";
+import { FOREIGN_METHODS } from "../../../../target/sdk-generated/typescript-wasm/wire.gen.ts";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.ts";
 const { privateKeyToAccount } = await import(
   pathToFileURL(
@@ -76,9 +77,11 @@ try {
   assert.equal(backend.handle.type, "Backend");
   assert.equal(backend.handle.epoch, first.session.currentEpoch);
 
-  const signer = first.session.callbacks.register("Signer", {
-    sign: () => first.session.call("__bridgeInner", []),
-  });
+  const signer = first.session.callbacks.register(
+    "Signer",
+    { sign: () => first.session.call("__bridgeInner", []) },
+    Object.keys(FOREIGN_METHODS.Signer),
+  );
   assert.equal(
     await first.session.call("__bridgeReentrantSigner", [signer]),
     "inner result",

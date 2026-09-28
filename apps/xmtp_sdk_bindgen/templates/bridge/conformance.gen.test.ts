@@ -525,4 +525,37 @@ describe("generated bridge value conformance", () => {
     expect(signed).toBe(true);
     expect(host.registry.size).toBe(0);
   });
+
+  it("dispatches only generated callback methods to a foreign object", async () => {
+    const [main, worker] = endpoints();
+    let cb = 0;
+    new WorkerHost(
+      worker,
+      1,
+      "declared",
+      async () => {},
+      async (key, _args, context) => context.callbacks.invoke(cb, key, []),
+    );
+    const session = new MainSession(main, 1, "declared");
+    await session.ready();
+    let exposed = 0;
+    class AppSigner {
+      async identity(): Promise<B.PublicIdentity> {
+        return { identifier: "0x01", kind: B.PublicIdentityKind.Ethereum };
+      }
+      getPrivateKey(): string {
+        exposed++;
+        return "secret";
+      }
+    }
+    cb = registerForeign("Signer", new AppSigner(), session).cb;
+    for (const method of ["getPrivateKey", "constructor", "toString"])
+      await expect(session.call(method, [])).rejects.toMatchObject({
+        code: "ContractMismatch",
+      });
+    expect(exposed).toBe(0);
+    await expect(session.call("identity", [])).resolves.toMatchObject({
+      identifier: "0x01",
+    });
+  });
 });

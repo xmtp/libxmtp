@@ -11,6 +11,7 @@ import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/wire.ts";
+import { FOREIGN_METHODS } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/wire.gen.ts";
 
 assert.ok("setLogSink" in METHOD_TABLE, "WASM bridge has no log sink");
 assert.ok("sdkConformanceEmit" in METHOD_TABLE);
@@ -51,12 +52,16 @@ try {
     },
   ]);
   let delivered = 0;
-  const sink = session.callbacks.register("LogSink", {
-    log: () => {
-      delivered++;
-      return new Promise<void>(() => {});
+  const sink = session.callbacks.register(
+    "LogSink",
+    {
+      log: () => {
+        delivered++;
+        return new Promise<void>(() => {});
+      },
     },
-  });
+    Object.keys(FOREIGN_METHODS.LogSink),
+  );
   await session.call("setLogSink", [sink]);
   await session.call("sdkConformanceEmit", [4105]);
   assert.equal(await session.call("sdkConformanceSinkDroppedCount", []), 9n);

@@ -43,8 +43,14 @@ export function registerForeign(
         session,
         undefined,
         session.callbacks,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        (name, value) => registerForeign(name, value, session),
       ).convert(method.output, result);
     };
   }
-  return session.callbacks.register(type, wrapper);
+  return session.callbacks.register(type, wrapper, Object.keys(methods));
 }

@@ -533,12 +533,33 @@ describe("browser bridge transport", () => {
       if (key === "inner") return "inner result";
       return context.callbacks.invoke(1, "sign", []);
     });
-    session.callbacks.register("Signer", {
-      sign: async () => session.call("inner", []),
-    });
+    session.callbacks.register(
+      "Signer",
+      { sign: async () => session.call("inner", []) },
+      ["sign"],
+    );
     await session.ready();
     await expect(session.call("outer", [])).resolves.toBe("inner result");
     expect(engine.registry.size).toBe(0);
+  });
+
+  it("rejects a worker call to an undeclared callback method", async () => {
+    const { session } = host(async (key, _args, context) =>
+      context.callbacks.invoke(1, key, []),
+    );
+    const getPrivateKey = vi.fn(() => "secret");
+    session.callbacks.register(
+      "Signer",
+      { sign: async () => "signed", getPrivateKey },
+      ["identity", "kind", "sign"],
+    );
+    await session.ready();
+    for (const method of ["getPrivateKey", "toString", "constructor"])
+      await expect(session.call(method, [])).rejects.toMatchObject({
+        code: "ContractMismatch",
+      });
+    expect(getPrivateKey).not.toHaveBeenCalled();
+    await expect(session.call("sign", [])).resolves.toBe("signed");
   });
 
   it("contract_mismatch_refused", async () => {

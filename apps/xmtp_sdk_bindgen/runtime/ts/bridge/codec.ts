@@ -321,8 +321,9 @@ export class ValueCodec {
       if (!this.mainCallbacks || value === null || typeof value !== "object") {
         throw new TypeError(`expected ${name} callback`);
       }
-      if (this.mainForeignFactory) return this.mainForeignFactory(name, value);
-      return this.mainCallbacks.register(name, value);
+      if (!this.mainForeignFactory)
+        throw new TypeError("main callback exports need a generated wrapper");
+      return this.mainForeignFactory(name, value);
     }
     if (this.side === "worker" && this.direction === "decode") {
       const fields = plain(value);
@@ -363,8 +364,9 @@ export class ValueCodec {
       if (!this.mainCallbacks || value === null || typeof value !== "object") {
         throw new TypeError(`expected ${name} callback`);
       }
-      if (this.mainForeignFactory) return this.mainForeignFactory(name, value);
-      return this.mainCallbacks.register(name, value);
+      if (!this.mainForeignFactory)
+        throw new TypeError("main callback exports need a generated wrapper");
+      return this.mainForeignFactory(name, value);
     }
     if (this.side === "worker" && this.direction === "decode") {
       const fields = plain(value);
