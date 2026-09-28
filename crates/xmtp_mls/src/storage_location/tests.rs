@@ -865,6 +865,33 @@ mod native {
         assert_eq!(entries.len(), 1);
     }
 
+    // verifies: ATCH-069
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn cancelled_native_deployment_write_removes_temp() {
+        use std::sync::Arc;
+        let dir = tempfile::tempdir()?;
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let resume = Arc::new(tokio::sync::Notify::new());
+        *NATIVE_DEPLOYMENT_WRITE_PAUSE.lock() = Some((entered.clone(), resume));
+        let path = dir.path().to_path_buf();
+        let (write, abort) =
+            futures::future::abortable(async move { write_file(&path, b"cancelled record").await });
+        let task = xmtp_common::task::spawn(write);
+        xmtp_common::time::timeout(std::time::Duration::from_secs(3), entered.notified()).await?;
+        abort.abort();
+        assert!(task.await?.is_err());
+        let temps: Vec<_> = std::fs::read_dir(dir.path())?
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".deployments-")
+            })
+            .collect();
+        assert!(temps.is_empty(), "cancelled write left a temporary file");
+    }
+
     // verifies: ATCH-040
     #[xmtp_common::test(unwrap_try = true)]
     async fn data_dir_layout() {

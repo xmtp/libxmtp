@@ -57,6 +57,14 @@ struct DeploymentFile {
 
 static RECORD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
 
+#[cfg(all(test, not(target_arch = "wasm32")))]
+static NATIVE_DEPLOYMENT_WRITE_PAUSE: parking_lot::Mutex<
+    Option<(
+        std::sync::Arc<tokio::sync::Notify>,
+        std::sync::Arc<tokio::sync::Notify>,
+    )>,
+> = parking_lot::Mutex::new(None);
+
 #[cfg(all(target_arch = "wasm32", feature = "test-utils"))]
 #[doc(hidden)]
 #[derive(Clone)]
@@ -239,6 +247,26 @@ async fn read_file(data_dir: &Path) -> Result<DeploymentFile, StorageLocationErr
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+struct NativeDeploymentTempGuard {
+    path: PathBuf,
+    committed: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for NativeDeploymentTempGuard {
+    fn drop(&mut self) {
+        if self.committed {
+            return;
+        }
+        if let Err(error) = std::fs::remove_file(&self.path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            tracing::warn!(?error, path = %self.path.display(), "cannot remove temporary deployment record");
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocationError> {
     use tokio::io::AsyncWriteExt as _;
 
@@ -248,29 +276,33 @@ async fn write_file(data_dir: &Path, bytes: &[u8]) -> Result<(), StorageLocation
         ".deployments-{}.tmp",
         xmtp_common::rand_string::<16>()
     ));
-    let write = async {
-        let mut options = tokio::fs::OpenOptions::new();
-        options.write(true).create_new(true);
-        #[cfg(unix)]
-        options.mode(0o600);
-        let mut file = options.open(&temp).await?;
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            file.set_permissions(std::fs::Permissions::from_mode(0o600))
-                .await?;
-        }
-        file.write_all(bytes).await
+    let mut options = tokio::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    options.mode(0o600);
+    let mut guard = NativeDeploymentTempGuard {
+        path: temp.clone(),
+        committed: true,
+    };
+    let mut file = options.open(&temp).await?;
+    guard.committed = false;
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    let pause = { NATIVE_DEPLOYMENT_WRITE_PAUSE.lock().take() };
+    #[cfg(all(test, not(target_arch = "wasm32")))]
+    if let Some((entered, resume)) = pause {
+        entered.notify_one();
+        resume.notified().await;
     }
-    .await;
-    if let Err(error) = write {
-        let _ = tokio::fs::remove_file(&temp).await;
-        return Err(error.into());
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        file.set_permissions(std::fs::Permissions::from_mode(0o600))
+            .await?;
     }
-    if let Err(error) = tokio::fs::rename(&temp, &path).await {
-        let _ = tokio::fs::remove_file(&temp).await;
-        return Err(error.into());
-    }
+    file.write_all(bytes).await?;
+    drop(file);
+    tokio::fs::rename(&temp, &path).await?;
+    guard.committed = true;
     Ok(())
 }
 
