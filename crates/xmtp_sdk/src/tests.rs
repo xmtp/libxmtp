@@ -3775,6 +3775,70 @@ async fn malformed_host_ids_fail_operations_with_invalid_argument() {
     client.end().await?;
 }
 
+// A closed client proves the IDs are checked before the open check and the
+// stored-conversation lookup.
+#[xmtp_common::test(unwrap_try = true)]
+async fn malformed_event_filter_ids_fail_before_client_access() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let valid: ConversationId = host_id(&"ab".repeat(16));
+    let filter = || EventFilter {
+        kinds: vec![EventKind::MessageReceived],
+        conversation_ids: Some(vec![valid.clone(), host_id(&uppercase_hex(16))]),
+        ..EventFilter::default()
+    };
+    client.end().await?;
+    assert_invalid_argument(client.events(filter()).await);
+    let (started, _) = tokio::sync::mpsc::unbounded_channel();
+    let listener = Arc::new(EventProbe {
+        started,
+        completed: Arc::new(AtomicBool::new(false)),
+        release: None,
+        calls: Default::default(),
+        active: Default::default(),
+        maximum: Default::default(),
+        fail_first: false,
+        reenter: None,
+        end_inside: false,
+    });
+    assert_invalid_argument(client.start_listener(filter(), listener).await);
+}
+
+struct IdentityCountingSigner {
+    inner: Arc<dyn Signer>,
+    identity_calls: std::sync::atomic::AtomicUsize,
+}
+
+#[xmtp_common::async_trait]
+impl Signer for IdentityCountingSigner {
+    async fn identity(&self) -> Result<PublicIdentity, SignerError> {
+        self.identity_calls.fetch_add(1, Ordering::SeqCst);
+        self.inner.identity().await
+    }
+
+    async fn kind(&self) -> Result<SignerKind, SignerError> {
+        self.inner.kind().await
+    }
+
+    async fn sign(&self, request: SigningRequest) -> Result<Signature, SignerError> {
+        self.inner.sign(request).await
+    }
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn malformed_fork_recovery_id_fails_before_signer_call() {
+    let signer = Arc::new(IdentityCountingSigner {
+        inner: crate::generate_local_signer().await,
+        identity_calls: Default::default(),
+    });
+    let mut settings = options();
+    settings.fork_recovery = Some(crate::client::ForkRecoveryOptions {
+        groups: vec![host_id(&uppercase_hex(16))],
+        ..Default::default()
+    });
+    assert_invalid_argument(Client::create(signer.clone(), settings).await);
+    assert_eq!(signer.identity_calls.load(Ordering::SeqCst), 0);
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn callback_errors_convert() {
     fn assert_from<T: From<uniffi::UnexpectedUniFFICallbackError>>() {}

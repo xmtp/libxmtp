@@ -297,6 +297,17 @@ impl Default for ClientOptions {
     }
 }
 
+impl ClientOptions {
+    /// Returns the core fork recovery options, or `InvalidArgument` if a
+    /// conversation ID is malformed.
+    fn fork_recovery_opts(&self) -> Result<Option<ForkRecoveryOpts>, XmtpError> {
+        self.fork_recovery
+            .clone()
+            .map(ForkRecoveryOpts::try_from)
+            .transpose()
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: Arc<CoreClient>,
@@ -379,11 +390,7 @@ impl Client {
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
         let inbox_id = inbox_id.map(InboxId::into_checked).transpose()?;
-        let fork_recovery = options
-            .fork_recovery
-            .clone()
-            .map(ForkRecoveryOpts::try_from)
-            .transpose()?;
+        let fork_recovery = options.fork_recovery_opts()?;
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
         }
@@ -650,6 +657,8 @@ impl Client {
         signer: Arc<dyn Signer>,
         options: ClientOptions,
     ) -> Result<Self, XmtpError> {
+        // Check ID arguments before the signer callback runs.
+        options.fork_recovery_opts()?;
         let identity = signer::identity(signer.clone()).await?;
         let mut guard = OpenStoreGuard::default();
         let created = Self::create_with_guard(signer, identity, options, &mut guard).await;
@@ -733,6 +742,7 @@ impl Client {
         &self,
         filter: crate::EventFilter,
     ) -> Result<Arc<crate::EventReader>, XmtpError> {
+        let filter = filter.checked()?;
         // The filter reads stored conversations. Leave the gate before the
         // subscription starts: that step does not use the database, and end()
         // must not wait for it.
@@ -767,6 +777,7 @@ impl Client {
         filter: crate::EventFilter,
         listener: Arc<dyn crate::EventListener>,
     ) -> Result<crate::ListenerId, XmtpError> {
+        let filter = filter.checked()?;
         // The filter reads stored conversations. Leave the gate before the
         // subscription starts: that step does not use the database, and end()
         // must not wait for it.
