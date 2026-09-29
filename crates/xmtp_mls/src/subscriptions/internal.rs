@@ -32,7 +32,8 @@ pub enum InternalEvent {
         origin: PreferenceOrigin,
     },
     MessagesDeleted(Vec<StoredGroupMessage>),
-    /// Rows removed by expiry cleanup. Their bodies are already cleared.
+    /// Deleted rows whose expiry had passed: expiry cleanup, or a delete of
+    /// an already expired message. Their bodies are cleared.
     MessagesExpired(Vec<StoredGroupMessage>),
 }
 
@@ -160,7 +161,25 @@ pub(crate) fn emit_deleted_messages(
         });
         writer.emit(Some(event), None);
     }
-    writer.emit(None, Some(InternalEvent::MessagesDeleted(messages)));
+    // A delete of an already expired message must not deliver its body.
+    // implements: META-051
+    let now = xmtp_common::time::now_ns();
+    let (expired, live): (Vec<_>, Vec<_>) = messages
+        .into_iter()
+        .partition(|message| message.expire_at_ns.is_some_and(|at| at <= now));
+    if !live.is_empty() {
+        writer.emit(None, Some(InternalEvent::MessagesDeleted(live)));
+    }
+    if !expired.is_empty() {
+        let expired = expired
+            .into_iter()
+            .map(|message| StoredGroupMessage {
+                decrypted_message_bytes: Vec::new(),
+                ..message
+            })
+            .collect();
+        writer.emit(None, Some(InternalEvent::MessagesExpired(expired)));
+    }
     Ok(())
 }
 
