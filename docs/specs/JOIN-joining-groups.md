@@ -33,6 +33,7 @@ Out of scope: steady-state commit validation and how a membership change is prop
 | Related | Relation |
 | --- | --- |
 | `EVENT` | EVENT-001 reports a joined conversation after the client stores it. EVENT-005 and EVENT-023 own the join origin and adder in the event payload. |
+| `DMS-015` | Owns the conversation type and DM pair a Welcome must match to activate a restored placeholder when either type is DM. JOIN-081 owns a type change without a DM. |
 
 ## Terms
 
@@ -274,6 +275,8 @@ PROC-005 owns the ordered processing position `P` used here as the stored cursor
 
 A group restored from an archive (ARCH-015) is a placeholder: it holds messages and metadata but no MLS state from a join, and the epoch of the placeholder group is generated locally. The rules above are about live state that must not be discarded. A placeholder has none, so a Welcome for it is validated and installed as a first join, and the messages the import wrote are kept under JOIN-044. JOIN-042 keeps guarding a group that was joined through MLS; the absence of archived secrets does not satisfy its removal-commit condition.
 
+A placeholder keeps the conversation type its archive declared under ARCH-020. JOIN-081 covers a Welcome that would change that type when neither type is DM; DMS-015 covers a DM on either side and the DM pair.
+
 ```mermaid
 flowchart TD
   W[Welcome for a group already held] --> P{Stored cursor<br/>versus message_cursor}
@@ -295,6 +298,7 @@ flowchart TD
 | JOIN-047 | Retry a local failure | If a Welcome fails for a reason that is not a property of the Welcome itself, then the client MUST leave it eligible for a later attempt and MUST NOT record a terminal rejection. | A rejection recorded for a transient failure loses the conversation permanently, and the client cannot ask the backend for the Welcome again. |
 | JOIN-048 | Reject invalid input finally | When a Welcome fails for a reason that a later attempt cannot change, the client MUST record a terminal rejection for it. | A Welcome queue that never drains stops every valid Welcome behind it. |
 | JOIN-080 | A Welcome activates a restored group | When a Welcome names a group the client holds only as a restored placeholder under ARCH-015, the client MUST validate it under sections 4, 6, 8, and 9 as a first join, MUST NOT compare its `GroupContext.epoch` with the placeholder's epoch or reject it under JOIN-041 or JOIN-042 on account of the placeholder, and MUST install its state with the stored cursor at `message_cursor`. It MUST preserve the imported messages under JOIN-044. | The placeholder's epoch is generated locally and says nothing about the group, so a comparison against it rejects the only Welcome that can activate the conversation. |
+| JOIN-081 | Activation keeps a non-DM type | When a Welcome names a group the client holds only as a restored placeholder under ARCH-015, and neither the conversation type the Welcome states nor the placeholder's stored conversation type is DM, the client MUST reject the Welcome unless the two types are equal. | A Welcome that reuses a restored group id would otherwise turn the archived history into a conversation of another kind, such as a sync group. |
 
 ## 8. Validating the asserted membership
 

@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **11 crates** with **408 total error codes**.
+**39 error types** across **12 crates** with **416 total error codes**.
 
 ## mobile
 
@@ -110,6 +110,25 @@ when surfaced to JavaScript.
 | `GrpcError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
 | `GrpcError::Unreachable` | Unreachable. Infallible error. Not retryable. |
 | `GrpcError::Transport` | Transport error. gRPC transport layer error (native only). Retryable. |
+
+## xmtp_archive
+
+### ArchiveError <sub>enum</sub>
+
+<small>`crates/xmtp_archive/src/lib.rs`</small>
+
+Archive export or import failure.
+
+| Error Code | Description |
+|:-----------|:------------|
+| `ArchiveError::UnsupportedVersion` | Unsupported archive version. The archive was written by a newer client. Not retryable. |
+| `ArchiveError::MissingMetadata` | Missing metadata. The archive has no metadata frame. Not retryable. |
+| `ArchiveError::InvalidFrame` | Invalid archive frame. The archive framing is incomplete or malformed. Not retryable. |
+| `ArchiveError::AesGcm` | AES-GCM error. Encryption or decryption failed; on import, usually a wrong key. Not retryable. |
+| `ArchiveError::IO` | I/O error. Reading or writing the archive failed. May be retryable. |
+| `ArchiveError::Decode` | Decode error. An archive element is not valid protobuf. Not retryable. |
+| `ArchiveError::InvalidKeyLength` | Invalid key length. The archive key is not [`ENC_KEY_SIZE`] bytes. Rejected before any archive byte is read or written. Not retryable. |
+| `ArchiveError::UnreadableGroup` | Unreadable group. A selected group's MLS state or metadata cannot be read, so export fails rather than omit it. Retryable only when reading its MLS state failed transiently. |
 
 ## xmtp_db
 

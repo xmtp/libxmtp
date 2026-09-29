@@ -17,7 +17,7 @@ flowchart LR
 
 ## Scope
 
-In scope: the identifier a client derives from the DM pair; what a creator writes into a DM; the fixed DM policy and the one addition it permits; what a joiner checks before it accepts a DM or activates a restored placeholder; how a client folds the groups that share an identifier into one conversation and which of them it acts in; how consent carries across those groups; deduplication of the membership-change messages they repeat; and what an SDK exposes about a DM.
+In scope: the identifier a client derives from the DM pair; what a creator writes into a DM; the fixed DM policy and the one addition it permits; what a joiner checks before it accepts a DM or activates a restored DM; how a client folds the groups that share an identifier into one conversation and which of them it acts in; how consent carries across those groups; deduplication of the membership-change messages they repeat; and what an SDK exposes about a DM.
 
 Out of scope: the join itself and its rejections (`JOIN`), component ids and encodings (`META`), the policy engine and role rules (`PERM`), commit validation (`GMOD`), consent states and defaults (`CONS`), stream ordering (`PROC`), and archives (`ARCH`).
 
@@ -26,7 +26,7 @@ Out of scope: the join itself and its rejections (`JOIN`), component ids and enc
 | `META-004`, `META-010`, `META-030` | Own immutability, component encodings, and DM pair structure. This spec owns DM initialization and admission. |
 | `JOIN-060` | Rejects a Welcome whose group fails the checks its kind demands. DMS-003 states the checks a DM demands. |
 | `JOIN-025` | Names the inbox that added the joiner, which DMS-003 compares against the DM pair. |
-| `JOIN-080` | Owns activation of a restored placeholder by a validated Welcome. DMS-015 states what that Welcome must match. |
+| `JOIN-080`, `JOIN-081` | Own activation of a restored placeholder by a validated Welcome, and the type rule when neither type is DM. DMS-015 owns the type and pair rule when either type is DM. |
 | `PERM-005`, `PERM-009`, `PERM-011` | Own hardcoded authority and evaluation against each proposer's operation. This spec owns fixed DM policy values and the participant-add exception. |
 | `CONS-010`, `CONS-024` | Own consent conflict ordering and precedence over join defaults. DMS-010 owns inheritance across a DM's groups. |
 | `PROC-025`, `PROC-026`, `PROC-034` | Own stream eligibility and delivery order. DMS-009 owns the stitched scope and query ordering; DMS-016 owns the legacy snapshot tail. |
@@ -87,7 +87,7 @@ The winner order is deterministic for the state a client holds. Installations wi
 
 The client does not create a further group while it holds one that is not a restored placeholder, so the set grows only from races, never from repetition.
 
-A restored placeholder keeps the conversation type and dm id from its archive, and that pair need not include the client's own inbox. A Welcome for the same group id activates the placeholder under JOIN-080, and the archived history becomes the history of the live group.
+A restored placeholder keeps its archived conversation type and dm id under ARCH-020, and that pair need not include the client's own inbox. A Welcome for the same group id activates the placeholder under JOIN-080.
 
 The legacy history-to-live snapshot is a separate handoff API. DMS-016 states its selection and order; DMS-009 states the ordinary history-query and stream rules.
 
@@ -98,7 +98,7 @@ The legacy history-to-live snapshot is a separate handoff API. DMS-016 states it
 | DMS-007 | One conversation per dm id | When the client lists conversations, or resolves a group id that belongs to a stitched DM, it MUST return the winner and MUST NOT return another group of the set unless the app asked for duplicates. | |
 | DMS-008 | A second group is joined | When a client receives a Welcome for a group whose dm id equals that of a group it holds, it MUST process the Welcome under JOIN and MUST NOT reject it for the equal dm id. | The peer created it and may be sending in it. |
 | DMS-009 | The thread is the union | When an app queries or streams a stitched DM through any of its group ids, the client MUST use the union of the groups' messages and apply the requested filters and limit to that union. For history queries, it MUST order by `sent_at_ns` ascending by default, or by the app's requested supported sort field and direction. For streams, it MUST apply the eligibility and delivery order of PROC-025, PROC-026, and PROC-034. | Applying a limit separately to each group gives the app the wrong page. |
-| DMS-015 | Activation matches the restored kind and pair | When a Welcome names a group the client holds as a restored placeholder, the client MUST reject the Welcome unless its `CONVERSATION_TYPE` equals the stored conversation type and, for a DM, the dm id derived from its `DM_MEMBERS` under DMS-001 equals the stored dm id. | A Welcome that reuses a restored group id would otherwise move the archived history into a conversation of another kind or pair. |
+| DMS-015 | Activation keeps the DM type and pair | When a Welcome names a group the client holds as a restored placeholder, and its `CONVERSATION_TYPE` or the stored conversation type is DM, the client MUST reject the Welcome unless both are DM and the dm id derived from its `DM_MEMBERS` under DMS-001 equals the stored dm id. | A Welcome that reuses a restored group id would otherwise move the archived history into a conversation of another kind or pair. |
 | DMS-016 | Snapshot selects recent delivery | When the client creates a legacy history-to-live snapshot for a stitched DM through any group id, it MUST select the eligible retained messages with the greatest local delivery numbers under one limit across the union and return them in ascending local delivery-number order. | A per-group limit or sent-time selection can omit the most recent visible messages at stream handoff. |
 
 ## 4. Consent and repeated records
@@ -130,7 +130,7 @@ A Restored DM can contain history for two inboxes other than the importing inbox
 
 A DM has no super admin, so its registry and `COMMIT_LOG_SIGNER` cannot be changed through the fixed policies. A signer rotation is not possible through those policies.
 
-History imported from an archive is trusted as written. Import does not check a message's sender against the DM pair, so an archive can add history under any sender to a DM, and the stitched thread shows that history. The client does not check a stored DM against DMS-003 again after its join. A DM that an older client accepted with an inbox outside its pair stays in the stitched thread.
+History imported from an archive is trusted as written, because the archive key is its only authentication. Import does not check a message's sender against the DM pair, so an archive can add history under any sender to a DM, and the stitched thread shows that history. The client does not check a stored DM against DMS-003 again after its join, because that check would load the MLS state of every stored DM at each client open. A DM that an older client accepted with an inbox outside its pair therefore stays in the stitched thread.
 
 Current consent inheritance selects the oldest record and assigns the copy the current time. DMS-010 instead preserves the newest decision and its time.
 
