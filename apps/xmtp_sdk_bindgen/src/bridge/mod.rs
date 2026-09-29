@@ -1173,10 +1173,37 @@ fn render(
                     proxy.push_str("  private closing?: Promise<void>;\n  async end(asyncOpts_?: { signal: AbortSignal }): Promise<void> { if (!this.closing) { const call = this.call(\"StorageAdmin.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => { endOwner(this); }, (error: unknown) => { this.unfence(); this.closing = undefined; throw error; }); } return this.closing; }\n");
                 } else {
                     let comma = if params.is_empty() { "" } else { ", " };
+                    let routes = crate::identity_unions::ROUTES;
+                    let inbox_route = routes
+                        .iter()
+                        .find(|route| route.owner == object.name && route.method == op.name);
+                    let identity_route = routes
+                        .iter()
+                        .any(|route| route.owner == object.name && route.identity == op.name);
+                    let name = if let Some(route) = inbox_route {
+                        // The public union routes here or to the identity form.
+                        let union = params
+                            .replacen(
+                                "Array<string>",
+                                "Array<string> | Array<B.PublicIdentity>",
+                                1,
+                            )
+                            .replacen("peer: string", "peer: string | B.PublicIdentity", 1);
+                        writeln!(
+                            proxy,
+                            "  async {}({union}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{\n    {}\n  }}",
+                            op.name,
+                            crate::identity_unions::union_body(route, "string", "B.PublicIdentity")
+                        )?;
+                        format!("private async {}ByInboxIds", op.name)
+                    } else if identity_route {
+                        format!("private async {}", op.name)
+                    } else {
+                        format!("async {}", op.name)
+                    };
                     writeln!(
                         proxy,
-                        "  async {}({params}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{",
-                        op.name
+                        "  {name}({params}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{",
                     )?;
                     if !op.inputs.is_empty() {
                         proxy.push_str("    const encoder = mainEncoder(this.session);\n");
@@ -1246,6 +1273,7 @@ fn render(
         }
         proxy.push_str("}\n");
     }
+    proxy.push_str(&crate::identity_unions::helper("B.XmtpError"));
     proxy.push_str("export function proxyFor(session: MainSession, handle: HandleWire): RemoteObject {\n  session.checkHandle(handle);\n  const existing = session.proxy(handle); if (existing) return existing;\n  switch (handle.type) {\n");
     for item in items {
         if let Metadata::Object(object) = item

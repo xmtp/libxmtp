@@ -19,6 +19,7 @@ import { logging } from "./node-logging.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
 import { streamFailures } from "./node-stream-failures.mts";
 import { streamLifecycle } from "./node-stream-lifecycle.mts";
+import { checkIdentityRoutes } from "./identity-routes.mts";
 import { checkReaderCursor, checkRestoredPeer } from "./reader-cursor.mts";
 
 const viemRoot = realpathSync(
@@ -96,6 +97,7 @@ assert.equal(
 
 await checkReaderCursor(signer, backendOptions);
 await checkRestoredPeer(backendOptions);
+await checkIdentityRoutes(backendOptions);
 const client = await sdk.Client.create(signer, options);
 await assert.rejects(client.conversations().getMessageById("bad"), isInvalidId);
 const inboxId = client.inboxId();

@@ -17,10 +17,17 @@ export async function consumeIdentity(
   dm: Dm,
 ): Promise<void> {
   const conversations = client.conversations();
-  await conversations.createGroupWithIdentities([identity], undefined);
-  await conversations.createDmWithIdentity(identity, undefined);
-  await group.addMembersByIdentity([identity]);
-  await group.removeMembersByIdentity([identity]);
+  // Each member argument is a union of inbox IDs and account identities.
+  const inbox = client.inboxId();
+  await conversations.createGroup([inbox], undefined);
+  await conversations.createGroup([identity], undefined);
+  await conversations.createGroup([], undefined);
+  await conversations.createDm(inbox, undefined);
+  await conversations.createDm(identity, undefined);
+  await group.addMembers([inbox]);
+  await group.addMembers([identity]);
+  await group.removeMembers([inbox]);
+  await group.removeMembers([identity]);
   const peer: string | null = await dm.peerInboxId();
   const groupCreator: string | null = group.creatorInboxId();
   const groupAdder: string | null = group.addedByInboxId();

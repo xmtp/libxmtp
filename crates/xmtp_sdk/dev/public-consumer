@@ -157,6 +157,7 @@ fi
 grep -q "TS2614: Module '\"xmtp-sdk\"' has no exported member 'bindingClient'" "$log"
 grep -q "TS2307: Cannot find module 'xmtp-sdk/xmtp_sdk'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
+grep -q "Property 'createGroupWithIdentities' does not exist on type 'ConversationsLike'" "$log"
 echo "Node public consumer cannot reach the binding Client"
 
 browser_build() {
@@ -176,4 +177,5 @@ fi
 grep -q "has no exported member 'wrapClient'" "$log"
 grep -q "TS2307: Cannot find module 'xmtp-sdk-browser/typescript-wasm/runtime/bridge/main/session'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
+grep -q "Property 'createGroupWithIdentities' does not exist on type 'ConversationsLike'" "$log"
 echo "Browser public consumer cannot reach the worker proxy or its session"

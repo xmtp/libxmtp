@@ -1,6 +1,7 @@
 mod bridge;
 mod callback_cursor;
 mod forwarding;
+mod identity_unions;
 mod kotlin_callbacks;
 mod kotlin_records;
 mod nullable_identity;
@@ -199,12 +200,9 @@ fn generate(
                 )?;
             }
             if !pure_only {
-                fs::write(
-                    &binding,
-                    reader_defaults::rewrite(&nullable_identity::rewrite(&fs::read_to_string(
-                        &binding,
-                    )?)?)?,
-                )?;
+                let source = nullable_identity::rewrite(&fs::read_to_string(&binding)?)?;
+                let source = identity_unions::rewrite(&source)?;
+                fs::write(&binding, reader_defaults::rewrite(&source)?)?;
             }
             if is_wasm && !pure_only {
                 let mut body = fs::read_to_string(&binding)?;
