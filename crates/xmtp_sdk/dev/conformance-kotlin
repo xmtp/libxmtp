@@ -18,8 +18,8 @@ if NIX_DEVSHELL=android dev/nix-shell 'sdks/android/gradlew -p crates/xmtp_sdk/c
   echo "Kotlin negative consumer compiled" >&2
   exit 1
 fi
-grep -q "ConversationID" "$log"
+grep -q "ConversationId" "$log"
 grep -q "EncodedContent" "$log"
 grep -q "Group" "$log"
-grep -q "MessageID" "$log"
+grep -q "MessageId" "$log"
 echo "Kotlin ID, content, and Group/Dm consumer checks passed"

@@ -5,7 +5,7 @@ import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
 interface SDKContentCodec {
-    val type: ContentTypeID
+    val type: ContentTypeId
 
     fun encode(value: Any): EncodedContent
 
@@ -15,11 +15,11 @@ interface SDKContentCodec {
 }
 
 data class SDKContentCodecKey(
-    val authorityID: String,
-    val typeID: String,
+    val authorityId: String,
+    val typeId: String,
     val versionMajor: UInt,
 ) {
-    constructor(type: ContentTypeID) : this(type.authorityID, type.typeID, type.versionMajor)
+    constructor(type: ContentTypeId) : this(type.authorityId, type.typeId, type.versionMajor)
 }
 
 sealed class SDKMessageContent {
@@ -54,11 +54,6 @@ sealed class SDKReplyContent {
     ) : SDKReplyContent()
 }
 
-private fun validHex(
-    value: String,
-    bytes: Int,
-): Boolean = value.length == bytes * 2 && value.all { it in '0'..'9' || it in 'a'..'f' }
-
 private fun EncodedContent.deepEquals(other: EncodedContent): Boolean =
     type == other.type && parameters == other.parameters && fallback == other.fallback &&
         content.contentEquals(other.content)
@@ -68,90 +63,6 @@ private fun EncodedContent.deepHashCode(): Int {
     result = 31 * result + parameters.hashCode()
     result = 31 * result + (fallback?.hashCode() ?: 0)
     return 31 * result + content.contentHashCode()
-}
-
-private fun invalidID(message: String) =
-    XmtpException.InvalidArgument(
-        ErrorDetails("InvalidArgument", ErrorCategory.INPUT, false, message),
-    )
-
-// ID types have no public constructor or copy(), so a caller can only make
-// one through fromString. Generated lifts use the internal unchecked factory.
-
-class InboxID private constructor(
-    val value: String,
-) {
-    override fun toString() = value
-
-    override fun equals(other: Any?) = other is InboxID && other.value == value
-
-    override fun hashCode() = value.hashCode()
-
-    companion object {
-        fun fromString(value: String): InboxID {
-            if (value.isEmpty()) throw invalidID("inbox ID is empty")
-            return InboxID(value)
-        }
-
-        internal fun unchecked(value: String) = InboxID(value)
-    }
-}
-
-class InstallationID private constructor(
-    val value: String,
-) {
-    override fun toString() = value
-
-    override fun equals(other: Any?) = other is InstallationID && other.value == value
-
-    override fun hashCode() = value.hashCode()
-
-    companion object {
-        fun fromString(value: String): InstallationID {
-            if (!validHex(value, 32)) throw invalidID("invalid lowercase hex ID")
-            return InstallationID(value)
-        }
-
-        internal fun unchecked(value: String) = InstallationID(value)
-    }
-}
-
-class ConversationID private constructor(
-    val value: String,
-) {
-    override fun toString() = value
-
-    override fun equals(other: Any?) = other is ConversationID && other.value == value
-
-    override fun hashCode() = value.hashCode()
-
-    companion object {
-        fun fromString(value: String): ConversationID {
-            if (!validHex(value, 16)) throw invalidID("invalid lowercase hex ID")
-            return ConversationID(value)
-        }
-
-        internal fun unchecked(value: String) = ConversationID(value)
-    }
-}
-
-class MessageID private constructor(
-    val value: String,
-) {
-    override fun toString() = value
-
-    override fun equals(other: Any?) = other is MessageID && other.value == value
-
-    override fun hashCode() = value.hashCode()
-
-    companion object {
-        fun fromString(value: String): MessageID {
-            if (!validHex(value, 32)) throw invalidID("invalid lowercase hex ID")
-            return MessageID(value)
-        }
-
-        internal fun unchecked(value: String) = MessageID(value)
-    }
 }
 
 data class Timestamp(
@@ -211,9 +122,9 @@ class Message(
     val replyContent: SDKReplyContent? =
         (data.content as? MessageContent.Reply)?.let { decodeReplyBody(it.body, data.clientKey) }
     val id get() = data.id
-    val conversationID get() = data.conversationID
+    val conversationId get() = data.conversationId
     val topic get() = data.topic
-    val senderInboxID get() = data.senderInboxID
+    val senderInboxId get() = data.senderInboxId
     val sentAt get() = data.sentAt
     val kind get() = data.kind
     val deliveryStatus get() = data.deliveryStatus
@@ -226,36 +137,36 @@ class Message(
     val insertedAt get() = data.insertedAt
     val expiresAt get() = data.expiresAt
 
-    suspend fun refresh(): Message? = client().raw.conversations().getMessageByID(id)
+    suspend fun refresh(): Message? = client().raw.conversations().getMessageById(id)
 
-    suspend fun delete(): MessageID = client().raw.conversations().deleteMessage(id)
+    suspend fun delete(): MessageId = client().raw.conversations().deleteMessage(id)
 
     suspend fun deleteLocally() = client().raw.conversations().deleteMessageLocally(id)
 
     suspend fun react(
         reaction: Reaction,
         options: SendOptions? = null,
-    ): MessageID = client().raw.conversations().reactToMessage(id, reaction, options)
+    ): MessageId = client().raw.conversations().reactToMessage(id, reaction, options)
 
     suspend fun reply(
         text: String,
         options: SendOptions? = null,
-    ): MessageID = client().raw.conversations().replyToMessage(id, encodeText(text), options)
+    ): MessageId = client().raw.conversations().replyToMessage(id, encodeText(text), options)
 
     suspend fun reply(
         content: EncodedContent,
         options: SendOptions? = null,
-    ): MessageID = client().raw.conversations().replyToMessage(id, content, options)
+    ): MessageId = client().raw.conversations().replyToMessage(id, content, options)
 
     suspend fun reply(
         codec: SDKContentCodec,
         value: Any,
         options: SendOptions? = null,
-    ): MessageID = reply(codec.encode(value), options)
+    ): MessageId = reply(codec.encode(value), options)
 
-    suspend fun parent(): Message? = inReplyTo?.id?.let { client().raw.conversations().getMessageByID(it) }
+    suspend fun parent(): Message? = inReplyTo?.id?.let { client().raw.conversations().getMessageById(it) }
 
-    suspend fun conversation(): Conversation? = client().raw.conversations().getByID(conversationID)
+    suspend fun conversation(): Conversation? = client().raw.conversations().getById(conversationId)
 
     fun client(): SDKClient =
         ClientRegistry.get(data.clientKey)
@@ -264,8 +175,8 @@ class Message(
     override fun equals(other: Any?): Boolean =
         other is Message &&
             id == other.id && data.clientKey == other.data.clientKey &&
-            data.conversationID == other.data.conversationID && data.topic == other.data.topic &&
-            data.senderInboxID == other.data.senderInboxID && data.sentAt == other.data.sentAt &&
+            data.conversationId == other.data.conversationId && data.topic == other.data.topic &&
+            data.senderInboxId == other.data.senderInboxId && data.sentAt == other.data.sentAt &&
             data.kind == other.data.kind && data.deliveryStatus == other.data.deliveryStatus &&
             data.contentType == other.data.contentType && data.fallback == other.data.fallback &&
             data.insertedAt == other.data.insertedAt && data.expiresAt == other.data.expiresAt &&
@@ -315,8 +226,8 @@ class Message(
     override fun hashCode(): Int {
         var result = id.hashCode()
         result = 31 * result + data.clientKey.hashCode()
-        result = 31 * result + data.conversationID.hashCode()
-        result = 31 * result + data.senderInboxID.hashCode()
+        result = 31 * result + data.conversationId.hashCode()
+        result = 31 * result + data.senderInboxId.hashCode()
         result = 31 * result + data.sentAt.hashCode()
         result = 31 * result + data.kind.hashCode()
         result = 31 * result + data.deliveryStatus.hashCode()
@@ -392,7 +303,7 @@ private fun ReplyParent?.deepEquals(other: ReplyParent?): Boolean =
         }
 
         else -> {
-            id == other.id && senderInboxID == other.senderInboxID && sentAt == other.sentAt &&
+            id == other.id && senderInboxId == other.senderInboxId && sentAt == other.sentAt &&
                 kind == other.kind && deliveryStatus == other.deliveryStatus &&
                 contentType == other.contentType && fallback == other.fallback &&
                 content.deepEquals(other.content) &&
@@ -403,7 +314,7 @@ private fun ReplyParent?.deepEquals(other: ReplyParent?): Boolean =
 private fun ReplyParent?.deepHashCode(): Int {
     if (this == null) return 0
     var result = id.hashCode()
-    result = 31 * result + senderInboxID.hashCode()
+    result = 31 * result + senderInboxId.hashCode()
     result = 31 * result + sentAt.hashCode()
     result = 31 * result + kind.hashCode()
     result = 31 * result + deliveryStatus.hashCode()

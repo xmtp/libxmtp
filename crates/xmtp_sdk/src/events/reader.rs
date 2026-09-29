@@ -51,21 +51,29 @@ impl EventReader {
         if *self.ended.lock() {
             return Ok(None);
         }
-        let Some(lease) = self.subscription.next_for_callback().await else {
-            return Ok(None);
-        };
-        #[cfg(test)]
-        let gate = self.handoff_gate.lock().take();
-        #[cfg(test)]
-        if let Some(gate) = gate {
-            gate.arrived.notify_one();
-            gate.release.notified().await;
+        loop {
+            let Some(lease) = self.subscription.next_for_callback().await else {
+                return Ok(None);
+            };
+            #[cfg(test)]
+            let gate = self.handoff_gate.lock().take();
+            #[cfg(test)]
+            if let Some(gate) = gate {
+                gate.arrived.notify_one();
+                gate.release.notified().await;
+            }
+            if *self.ended.lock() || self.subscription.is_closed() {
+                return Ok(None);
+            }
+            match lease.event.client.clone() {
+                // A kind the SDK does not deliver yet is skipped, not read as the end of the stream.
+                Some(event) => match ClientEvent::from_core(event) {
+                    Some(event) => return Ok(Some(event)),
+                    None => continue,
+                },
+                None => return Ok(None),
+            }
         }
-        let event = lease.event.client.clone().map(Into::into);
-        if *self.ended.lock() || self.subscription.is_closed() {
-            return Ok(None);
-        }
-        Ok(event)
     }
 
     pub async fn end(&self) -> Result<(), XmtpError> {

@@ -7,12 +7,12 @@ pub use filter::EventFilter;
 pub use listener::{EventListener, ListenerError};
 pub use reader::EventReader;
 
-use crate::{ConnectionState, ContentTypeId, ConversationID, InboxID, InstallationID, MessageID};
+use crate::{ConnectionState, ContentTypeId, ConversationId, InboxId, InstallationId, MessageId};
 use xmtp_events as core;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ListenerID(pub u64);
-uniffi::custom_newtype!(ListenerID, u64);
+pub struct ListenerId(pub u64);
+uniffi::custom_newtype!(ListenerId, u64);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum EventKind {
@@ -103,48 +103,48 @@ impl From<core::ConnectionState> for ConnectionState {
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ClientEvent {
     ConversationJoined {
-        conversation_id: ConversationID,
+        conversation_id: ConversationId,
         conversation_type: EventConversationType,
         origin: JoinOrigin,
-        adder_inbox_id: Option<InboxID>,
+        adder_inbox_id: Option<InboxId>,
     },
     ConversationRemoved {
-        conversation_id: ConversationID,
+        conversation_id: ConversationId,
         cause: RemovalCause,
     },
     ConversationMembershipChanged {
-        conversation_id: ConversationID,
-        added_inbox_ids: Vec<InboxID>,
-        removed_inbox_ids: Vec<InboxID>,
+        conversation_id: ConversationId,
+        added_inbox_ids: Vec<InboxId>,
+        removed_inbox_ids: Vec<InboxId>,
     },
     ConversationMetadataChanged {
-        conversation_id: ConversationID,
+        conversation_id: ConversationId,
         changed: Vec<String>,
     },
     ConversationPaused {
-        conversation_id: ConversationID,
+        conversation_id: ConversationId,
         floor: String,
     },
     MessageReceived {
-        conversation_id: ConversationID,
-        message_id: MessageID,
+        conversation_id: ConversationId,
+        message_id: MessageId,
         content_type: Option<ContentTypeId>,
-        sender_inbox_id: InboxID,
+        sender_inbox_id: InboxId,
     },
     MessageStatusChanged {
-        conversation_id: ConversationID,
-        message_id: MessageID,
+        conversation_id: ConversationId,
+        message_id: MessageId,
         previous: EventMessageStatus,
         current: EventMessageStatus,
     },
     MessageDeleted {
-        conversation_id: ConversationID,
-        message_id: MessageID,
+        conversation_id: ConversationId,
+        message_id: MessageId,
         cause: DeletionCause,
     },
     MessageExpired {
-        conversation_id: ConversationID,
-        message_id: MessageID,
+        conversation_id: ConversationId,
+        message_id: MessageId,
     },
     ConsentChanged {
         entity_kind: ConsentEntityKind,
@@ -153,14 +153,14 @@ pub enum ClientEvent {
     },
     HmacKeysUpdated,
     IdentityRegistered {
-        inbox_id: InboxID,
-        installation_id: InstallationID,
+        inbox_id: InboxId,
+        installation_id: InstallationId,
     },
     IdentityOwnInstallationAdded {
-        installation_id: InstallationID,
+        installation_id: InstallationId,
     },
     IdentityOwnInstallationRevoked {
-        installation_id: InstallationID,
+        installation_id: InstallationId,
         is_this_installation: bool,
     },
     ClientRejectedByServer {
@@ -171,7 +171,7 @@ pub enum ClientEvent {
         change: LockoutChange,
     },
     ConversationForkDetected {
-        conversation_id: ConversationID,
+        conversation_id: ConversationId,
     },
     NotificationsFailed {
         cause: String,
@@ -188,14 +188,14 @@ pub enum ClientEvent {
     },
 }
 
-fn conversation_id(bytes: Vec<u8>) -> ConversationID {
-    ConversationID(hex::encode(bytes))
+fn conversation_id(bytes: Vec<u8>) -> ConversationId {
+    ConversationId::unchecked(hex::encode(bytes))
 }
-fn message_id(bytes: Vec<u8>) -> MessageID {
-    MessageID(hex::encode(bytes))
+fn message_id(bytes: Vec<u8>) -> MessageId {
+    MessageId::unchecked(hex::encode(bytes))
 }
-fn installation_id(bytes: Vec<u8>) -> InstallationID {
-    InstallationID(hex::encode(bytes))
+fn installation_id(bytes: Vec<u8>) -> InstallationId {
+    InstallationId::unchecked(hex::encode(bytes))
 }
 fn content_type(value: xmtp_events::ContentTypeId) -> ContentTypeId {
     ContentTypeId {
@@ -206,14 +206,16 @@ fn content_type(value: xmtp_events::ContentTypeId) -> ContentTypeId {
     }
 }
 
-impl From<core::ClientEvent> for ClientEvent {
-    fn from(value: core::ClientEvent) -> Self {
-        match value {
+impl ClientEvent {
+    /// Converts a core event to its SDK form. Returns `None` for the `attachment.*` kinds, which the SDK does
+    /// not deliver yet: their binding and SDK exposure is pending (see the ATCH waivers in docs/specs/waivers.toml).
+    pub(crate) fn from_core(value: core::ClientEvent) -> Option<Self> {
+        Some(match value {
             core::ClientEvent::ConversationJoined(v) => Self::ConversationJoined {
                 conversation_id: conversation_id(v.group_id),
                 conversation_type: v.conversation_type.into(),
                 origin: v.origin.into(),
-                adder_inbox_id: v.adder_inbox_id.map(InboxID),
+                adder_inbox_id: v.adder_inbox_id.map(InboxId::unchecked),
             },
             core::ClientEvent::ConversationRemoved(v) => Self::ConversationRemoved {
                 conversation_id: conversation_id(v.group_id),
@@ -222,8 +224,16 @@ impl From<core::ClientEvent> for ClientEvent {
             core::ClientEvent::ConversationMembershipChanged(v) => {
                 Self::ConversationMembershipChanged {
                     conversation_id: conversation_id(v.group_id),
-                    added_inbox_ids: v.added_inbox_ids.into_iter().map(InboxID).collect(),
-                    removed_inbox_ids: v.removed_inbox_ids.into_iter().map(InboxID).collect(),
+                    added_inbox_ids: v
+                        .added_inbox_ids
+                        .into_iter()
+                        .map(InboxId::unchecked)
+                        .collect(),
+                    removed_inbox_ids: v
+                        .removed_inbox_ids
+                        .into_iter()
+                        .map(InboxId::unchecked)
+                        .collect(),
                 }
             }
             core::ClientEvent::ConversationMetadataChanged(v) => {
@@ -240,7 +250,7 @@ impl From<core::ClientEvent> for ClientEvent {
                 conversation_id: conversation_id(v.group_id),
                 message_id: message_id(v.message_id),
                 content_type: v.content_type.map(content_type),
-                sender_inbox_id: InboxID(v.sender_inbox_id),
+                sender_inbox_id: InboxId::unchecked(v.sender_inbox_id),
             },
             core::ClientEvent::MessageStatusChanged(v) => Self::MessageStatusChanged {
                 conversation_id: conversation_id(v.group_id),
@@ -264,7 +274,7 @@ impl From<core::ClientEvent> for ClientEvent {
             },
             core::ClientEvent::HmacKeysUpdated(_) => Self::HmacKeysUpdated,
             core::ClientEvent::IdentityRegistered(v) => Self::IdentityRegistered {
-                inbox_id: InboxID(v.inbox_id),
+                inbox_id: InboxId::unchecked(v.inbox_id),
                 installation_id: installation_id(v.installation_key),
             },
             core::ClientEvent::IdentityOwnInstallationAdded(v) => {
@@ -301,6 +311,13 @@ impl From<core::ClientEvent> for ClientEvent {
             core::ClientEvent::Lagged(v) => Self::Lagged {
                 discarded: v.discarded,
             },
-        }
+            core::ClientEvent::AttachmentUploadStarted(_)
+            | core::ClientEvent::AttachmentUploadCompleted(_)
+            | core::ClientEvent::AttachmentUploadFailed(_)
+            | core::ClientEvent::AttachmentDownloadStarted(_)
+            | core::ClientEvent::AttachmentDownloadCompleted(_)
+            | core::ClientEvent::AttachmentDownloadFailed(_)
+            | core::ClientEvent::AttachmentDeleted(_) => return None,
+        })
     }
 }

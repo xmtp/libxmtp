@@ -11,6 +11,7 @@ dependencies {
 kotlin { jvmToolchain(21) }
 sourceSets.main { kotlin.srcDir("../../../../target/sdk-conformance/kotlin/uniffi") }
 sourceSets.main { kotlin.srcDir("../../../../target/sdk-conformance/kotlin/runtime") }
+sourceSets.main { kotlin.srcDir("../../../../target/sdk-conformance/kotlin/android") }
 
 application { mainClass.set("ConformanceKt") }
 tasks.named<JavaExec>("run") {

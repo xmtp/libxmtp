@@ -1,5 +1,7 @@
 mod publish;
 pub use publish::Publish;
+mod create_upload;
+pub use create_upload::{CREATE_UPLOAD_PATH, CreateUpload};
 mod query;
 pub use query::Query;
 mod query_newest;
@@ -22,6 +24,8 @@ pub use update_subscriptions::UpdateSubscriptions;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use prost::Message;
+    use std::collections::HashSet;
     use xmtp_proto::api::Endpoint;
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -30,6 +34,10 @@ mod tests {
             (
                 Publish(Default::default()).grpc_endpoint(),
                 "/xmtp.backend.v1.PublishService/Publish",
+            ),
+            (
+                CreateUpload(Default::default()).grpc_endpoint(),
+                CREATE_UPLOAD_PATH,
             ),
             (
                 Query(Default::default()).grpc_endpoint(),
@@ -68,8 +76,29 @@ mod tests {
                 "/xmtp.backend.v1.NotificationService/UpdateSubscriptions",
             ),
         ];
+        let descriptors = prost_types::FileDescriptorSet::decode(xmtp_proto::FILE_DESCRIPTOR_SET)?;
+        let service_paths = descriptors
+            .file
+            .iter()
+            .flat_map(|file| {
+                let package = file.package.as_deref().unwrap_or_default();
+                file.service.iter().flat_map(move |service| {
+                    let service_name = service.name.as_deref().unwrap_or_default();
+                    service.method.iter().map(move |method| {
+                        format!(
+                            "/{package}.{service_name}/{}",
+                            method.name.as_deref().unwrap_or_default()
+                        )
+                    })
+                })
+            })
+            .collect::<HashSet<_>>();
         for (actual, expected) in paths {
             assert_eq!(actual, expected);
+            assert!(
+                service_paths.contains(expected),
+                "missing proto service path: {expected}"
+            );
         }
     }
 }

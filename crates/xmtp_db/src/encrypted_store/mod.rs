@@ -11,6 +11,7 @@
 //! `diesel print-schema` or use `cargo run update-schema` which will update the files for you.
 
 pub mod association_state;
+pub mod attachments;
 pub mod consent_record;
 pub mod conversation_list;
 pub mod database;
@@ -33,6 +34,7 @@ pub mod pending_remove;
 pub mod pragmas;
 pub mod processed_device_sync_messages;
 pub mod readd_status;
+pub mod received_proposal;
 pub mod refresh_state;
 pub mod remote_commit_log;
 pub mod schema;
@@ -313,10 +315,10 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             ).get_result::<MigrationTable>(conn).optional()?;
             if let Some(table) = migration_table {
                 debug_assert_eq!(table.name, "__diesel_schema_migrations");
-                let baseline = MIGRATIONS.final_migration();
+                let known = MIGRATIONS.versions();
                 let applied = conn.applied_migrations()
                     .map_err(diesel::result::Error::QueryBuilderError)?;
-                if applied.iter().any(|version| version.to_string() != baseline) {
+                if applied.iter().any(|version| !known.contains(&version.to_string())) {
                     return Ok(Err(StorageError::PreTransitionDatabase));
                 }
                 if !applied.is_empty() {
@@ -516,20 +518,28 @@ pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
 }
 
 trait EmbeddedMigrationsExt {
-    fn final_migration(&self) -> String;
+    /// Every embedded version, oldest (the self-hosted baseline) first.
+    fn versions(&self) -> Vec<String>;
+
+    #[cfg(test)]
+    fn baseline(&self) -> String {
+        self.versions().swap_remove(0)
+    }
+
+    fn final_migration(&self) -> String {
+        self.versions()
+            .pop()
+            .expect("There is at least one migration")
+    }
 }
 impl EmbeddedMigrationsExt for EmbeddedMigrations {
-    fn final_migration(&self) -> String {
+    fn versions(&self) -> Vec<String> {
         let migrations: Vec<Box<dyn Migration<Sqlite>>> = self
             .migrations()
             .expect("Migrations are directly embedded, so this cannot error");
         migrations
-            .first()
-            .expect("There is at least one migration")
-            .name()
-            .to_string()
-            .chars()
-            .filter(|c| c.is_numeric())
+            .iter()
+            .map(|m| m.name().version().to_string())
             .collect()
     }
 }
@@ -543,7 +553,8 @@ impl MigrationHarnessExt for SqliteConnection {
         let migration: String = self
             .applied_migrations()
             .map_err(diesel::result::Error::QueryBuilderError)?
-            .pop()
+            .into_iter()
+            .next()
             .expect("This function should be run after migrations are applied")
             .to_string();
 

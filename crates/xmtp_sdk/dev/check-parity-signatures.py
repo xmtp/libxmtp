@@ -104,8 +104,8 @@ PURE_SHARED = {
     "Actions",
     "Attachment",
     "Compression",
-    "ContentTypeID",
-    "ConversationID",
+    "ContentTypeId",
+    "ConversationId",
     "DeletedBy",
     "DeletedBy_Tags",
     "DeletedMessage",
@@ -113,11 +113,11 @@ PURE_SHARED = {
     "ErrorCategory",
     "ErrorDetails",
     "GroupUpdated",
-    "InboxID",
-    "InstallationID",
+    "InboxId",
+    "InstallationId",
     "Intent",
     "LeaveRequest",
-    "MessageID",
+    "MessageId",
     "MetadataFieldChange",
     "MultiRemoteAttachment",
     "Reaction",
@@ -161,21 +161,21 @@ conversations(): ConversationsLike;
 decodeCustom(encoded: EncodedContent): { value?: unknown; error?: string; } | undefined;
 end(): Promise<void>;
 events(filter: EventFilter): Promise<EventStream>;
-inboxID(): InboxID;
-installationID(): InstallationID;
+inboxId(): InboxId;
+installationId(): InstallationId;
 readonly raw: ClientLike;
 startListener(filter: EventFilter, callback: (event: ClientEvent) => void | Promise<void>): Promise<bigint>;
-static build(identity: PublicIdentity, options: SDKClientOptions, inboxID?: InboxID): Promise<Client>;
-static canMessage(identities: PublicIdentity[], backend: BackendSource): Promise<CanMessageEntry[]>;
+static build(identity: PublicIdentity, options: SDKClientOptions, inboxId?: InboxId): Promise<Client>;
+static canMessage(identities: PublicIdentity[], backend: BackendSource): Promise<Map<string, boolean>>;
 static create(signer: Signer, options: SDKClientOptions): Promise<Client>;
 static fetchServerConfiguration(backend: BackendSource): Promise<ServerConfiguration>;
-static inboxIDFor(identity: PublicIdentity, backend: BackendSource): Promise<InboxID>;
-static inboxStates(ids: InboxID[], backend: BackendSource): Promise<InboxState[]>;
-static isAddressAuthorized(inboxID: InboxID, address: string, backend: BackendSource): Promise<boolean>;
-static isInstallationAuthorized(inboxID: InboxID, installationID: InstallationID, backend: BackendSource): Promise<boolean>;
-static keyPackageStatuses(ids: InstallationID[], backend: BackendSource): Promise<KeyPackageStatusEntry[]>;
-static newestMessageMetadata(ids: ConversationID[], backend: BackendSource): Promise<MessageMetadataEntry[]>;
-static revokeInstallations(signer: Signer, inboxID: InboxID, ids: InstallationID[], backend: BackendSource): Promise<void>;
+static inboxIdFor(identity: PublicIdentity, backend: BackendSource): Promise<InboxId>;
+static inboxStates(ids: InboxId[], backend: BackendSource): Promise<InboxState[]>;
+static isAddressAuthorized(inboxId: InboxId, address: string, backend: BackendSource): Promise<boolean>;
+static isInstallationAuthorized(inboxId: InboxId, installationId: InstallationId, backend: BackendSource): Promise<boolean>;
+static keyPackageStatuses(ids: InstallationId[], backend: BackendSource): Promise<Map<string, KeyPackageStatus>>;
+static newestMessageMetadata(ids: ConversationId[], backend: BackendSource): Promise<Map<string, MessageMetadataEntry>>;
+static revokeInstallations(signer: Signer, inboxId: InboxId, ids: InstallationId[], backend: BackendSource): Promise<void>;
 static verifySignedWithPublicKey(text: string, signature: ArrayBuffer, publicKey: ArrayBuffer): Promise<boolean>;
 stopListener(id: bigint): Promise<void>;
 storage(): StorageLike;
@@ -184,7 +184,7 @@ CLIENT_WORKER = """\
 class Client implements ClientLike { ... }
 appVersion(): string | undefined;
 archives(): ArchivesLike;
-canMessage(identities: Array<PublicIdentity>, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<CanMessageEntry>>;
+canMessage(identities: Array<PublicIdentity>, asyncOpts_?: { signal: AbortSignal; }): Promise<Map<string, boolean>>;
 catchUpToLive(timeoutMs: bigint | undefined, asyncOpts_?: { signal: AbortSignal; }): Promise<CatchUpSummary>;
 changeRecoveryIdentifier(signer: Signer, identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
 checkLive(name: string, session?: MainSession): void;
@@ -196,16 +196,16 @@ diagnostics(): DiagnosticsLike;
 end(asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
 events(filter: EventFilter, asyncOpts_?: { signal: AbortSignal; }): Promise<EventReaderLike>;
 identity(): PublicIdentity;
-inboxID(): InboxID;
-inboxIDFor(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<InboxID | undefined>;
+inboxId(): string;
+inboxIdFor(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<string | undefined>;
 inboxState(refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<InboxState>;
-inboxStates(ids: Array<InboxID>, refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<InboxState>>;
-installationID(): InstallationID;
-installationIDBytes(): ArrayBuffer;
+inboxStates(ids: Array<string>, refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<InboxState>>;
+installationId(): string;
+installationIdBytes(): ArrayBuffer;
 isInMemory(): boolean;
 isRegistered(asyncOpts_?: { signal: AbortSignal; }): Promise<boolean>;
-keyPackageStatuses(ids: Array<InstallationID>, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<KeyPackageStatusEntry>>;
-latestInboxUpdatesCount(ids: Array<InboxID>, refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<InboxCountEntry>>;
+keyPackageStatuses(ids: Array<string>, asyncOpts_?: { signal: AbortSignal; }): Promise<Map<string, KeyPackageStatus>>;
+latestInboxUpdatesCount(ids: Array<string>, refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<Map<string, bigint>>;
 libxmtpVersion(): string;
 options(): ClientOptions;
 ownInboxUpdatesCount(refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<bigint>;
@@ -222,14 +222,14 @@ register(asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
 release(): void;
 removeAccount(recoverySigner: Signer, identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
 revokeAllOtherInstallations(signer: Signer, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-revokeInstallations(signer: Signer, ids: Array<InstallationID>, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+revokeInstallations(signer: Signer, ids: Array<string>, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
 serverConfiguration(): ServerConfiguration;
 setCredential(credential: Credential, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
 signWithInstallationKey(text: string, asyncOpts_?: { signal: AbortSignal; }): Promise<ArrayBuffer>;
-startListener(filter: EventFilter, listener: EventListener, asyncOpts_?: { signal: AbortSignal; }): Promise<ListenerID>;
-static build(session: MainSession, identity: PublicIdentity, options: HostClientOptions, inboxID: InboxID | undefined, asyncOpts_?: { signal: AbortSignal; }): Promise<Client>;
+startListener(filter: EventFilter, listener: EventListener, asyncOpts_?: { signal: AbortSignal; }): Promise<ListenerId>;
+static build(session: MainSession, identity: PublicIdentity, options: HostClientOptions, inboxId: string | undefined, asyncOpts_?: { signal: AbortSignal; }): Promise<Client>;
 static create(session: MainSession, signer: Signer, options: HostClientOptions, asyncOpts_?: { signal: AbortSignal; }): Promise<Client>;
-stopListener(id: ListenerID, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+stopListener(id: ListenerId, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
 storage(): StorageLike;
 storagePath(): string | undefined;
 syncAllDeviceSyncGroups(asyncOpts_?: { signal: AbortSignal; }): Promise<GroupSyncSummary>;
@@ -240,7 +240,7 @@ unsafeChangeRecoveryIdentifierSignatureRequest(identity: PublicIdentity, asyncOp
 unsafeCreateInboxSignatureRequest(asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike | undefined>;
 unsafeRemoveAccountSignatureRequest(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
 unsafeRevokeAllOtherInstallationsSignatureRequest(asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike | undefined>;
-unsafeRevokeInstallationsSignatureRequest(ids: Array<InstallationID>, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
+unsafeRevokeInstallationsSignatureRequest(ids: Array<string>, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
 verifySignedWithInstallationKey(text: string, signature: ArrayBuffer, asyncOpts_?: { signal: AbortSignal; }): Promise<boolean>;
 """
 # Declarations that differ as a whole. Each target must match its pinned text,
