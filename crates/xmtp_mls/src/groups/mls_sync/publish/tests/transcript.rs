@@ -285,3 +285,76 @@ async fn stored_reserved_message_with_saved_attempt_is_not_refused() {
     let current: StoredGroupIntent = group.context.db().fetch(&intent.id)?.unwrap();
     assert_ne!(current.state, IntentState::Error);
 }
+
+/// Publish application content as an older build did, without the send
+/// checks: encrypt it under the group and send the envelope directly.
+async fn publish_raw_application<Context: XmtpSharedContext>(
+    group: &MlsGroup<Context>,
+    content: &[u8],
+    key: &str,
+) -> Result<Vec<u8>, GroupError> {
+    use openmls::prelude::tls_codec::Serialize as _;
+    let envelope = PlaintextEnvelope {
+        content: Some(Content::V1(V1 {
+            content: content.to_vec(),
+            idempotency_key: key.into(),
+        })),
+    }
+    .encode_to_vec();
+    let envelopes = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls_group, storage| {
+            let provider = XmtpOpenMlsProviderRef::new(storage);
+            let message = mls_group.create_message(
+                &provider,
+                &group.context.identity().installation_keys,
+                &envelope,
+            )?;
+            let payload = message.tls_serialize_detached()?;
+            group
+                .prepare_group_envelopes_in(storage.db(), vec![(payload.as_slice(), false)])
+                .map(Continue)
+        })
+    })?
+    .into_continued();
+    let unit = xmtp_api::PublishUnit::new_within(envelopes, group.context.api().limits())?;
+    group.context.api().send_group_messages(vec![unit]).await?;
+    Ok(calculate_message_id(group.group_id, content, key))
+}
+
+/// An older peer can still send a reserved transcript type. The receiver
+/// keeps it as an ordinary application message: only a validated commit
+/// produces a membership-change record, and later messages still arrive.
+// verifies: GMOD-034
+#[xmtp_common::test(unwrap_try = true)]
+async fn received_reserved_type_stays_an_application_message() {
+    use xmtp_db::group_message::GroupMessageKind;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let content = transcript_content("group_updated", 1, "xmtp.org");
+    let forged = publish_raw_application(&group, &content, "forged").await?;
+    let later = group
+        .send_message(b"after the forged transcript", SendMessageOpts::default())
+        .await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&group.group_id)?;
+    bo_group.sync().await?;
+
+    let rows = bo_group.find_messages(&Default::default())?;
+    let forged_row = rows
+        .iter()
+        .find(|row| row.id == forged)
+        .expect("the forged message was received");
+    assert_eq!(forged_row.kind, GroupMessageKind::Application);
+    assert_eq!(
+        rows.iter()
+            .filter(|row| row.kind == GroupMessageKind::MembershipChange)
+            .count(),
+        1,
+        "only the validated join commit is a membership change"
+    );
+    assert!(rows.iter().any(|row| row.id == later));
+}
