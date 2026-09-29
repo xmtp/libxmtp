@@ -4144,6 +4144,52 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
     client.end().await?;
 }
 
+/// A reply parent that expires between the relation read and the parent
+/// reload must be omitted, not returned by an unrestricted lookup.
+// verifies: META-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn reply_parent_expiring_after_relation_read_is_omitted() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_mls::messages::decoded_message::MessageBody as CoreMessageBody;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent_id = group.send_text("parent".into(), None).await?;
+    let reply_id = client
+        .conversations()
+        .reply_to_message(parent_id.clone(), crate::encode_text("reply".into())?, None)
+        .await?;
+    let reply = client.inner.message(hex::decode(&reply_id.0)?)?;
+
+    // The relation read runs while the parent is live.
+    let decoded = xmtp_mls::messages::enrichment::enrich_messages(
+        client.inner.context.db(),
+        &reply.group_id,
+        vec![reply.clone()],
+    )?
+    .into_iter()
+    .next()
+    .expect("enriched reply");
+    assert!(matches!(
+        &decoded.content,
+        CoreMessageBody::Reply(body) if body.in_reply_to.is_some()
+    ));
+
+    // The parent expires before the reload. Cleanup has not deleted it yet.
+    let parent_bytes = hex::decode(&parent_id.0)?;
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&parent_bytes)))
+            .set(dsl::expire_at_ns.eq(Some(1_i64)))
+            .execute(conn)
+    })?;
+
+    let parent = crate::conversation::parent_stored(&group.inner, &decoded)?;
+    assert!(parent.is_none(), "the reload returned an expired parent");
+    let message = crate::Message::from_enriched(reply, decoded, parent, client.client_key())?;
+    assert!(message.0.in_reply_to.is_none());
+    client.end().await?;
+}
+
 // verifies: CTYPE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_standard_reply_parent_decode_stays_unknown() {
