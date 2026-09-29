@@ -119,20 +119,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
 
 [[waiver]]
-id = "SYNC-010"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A Welcome whose conversation type is sync is accepted with no check that the adder or the leaf nodes name the client's own inbox, and primary sync group selection by greatest creation time lets an accepted foreign group become the publish target."
-
-[[waiver]]
-id = "SYNC-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The periodic scan selects unprocessed messages in every sync-typed group with no sender inbox filter, and process_message compares only the sender installation id."
-
-[[waiver]]
 id = "SYNC-021"
 kind = "gap"
 owner = "protocol"
@@ -212,25 +198,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Dispatch does not wait for open subscription transactions, so an envelope settled after the start position was read and dispatched before the subscription committed is never attempted."
 
 [[waiver]]
-id = "GMOD-001"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Committed proposals lack the standalone path's complete unsupported-type allowlist, so the required refusal outcomes are not uniformly enforced."
-
-[[waiver]]
 id = "GMOD-018"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "CommitPendingProposals selects only the first installation of a previously absent inbox for Welcome delivery and skips additions to inboxes already present."
-
-[[waiver]]
-id = "GMOD-030"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The vendored OpenMLS validator returns early for a Remove when the commit carries no GroupContextExtensions proposal, so dictionary-only proposal lists escape the mixed-operation and repeated-Remove checks."
 
 [[waiver]]
 id = "PERM-009"

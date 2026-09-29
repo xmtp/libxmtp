@@ -307,7 +307,6 @@ where
         bench!(self, find_groups(GroupQueryArgs::default()))?;
         bench!(self, find_groups_by_id_paged(GroupQueryArgs::default(), 0))?;
         bench!(self, all_sync_groups())?;
-        bench!(self, primary_sync_group())?;
         bench!(self, find_group(&group.id))?;
         bench!(self, find_sync_group(&group.id))?;
         bench!(self, get_rotated_at_ns(&group.id))?;
