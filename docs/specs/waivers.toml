@@ -124,13 +124,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "An explicit empty consent filter is treated as an absent filter and returns allowed and unknown conversations."
 
 [[waiver]]
-id = "SYNC-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The periodic scan selects unprocessed messages in every sync-typed group with no sender inbox filter, and process_message compares only the sender installation id."
-
-[[waiver]]
 id = "SYNC-021"
 kind = "gap"
 owner = "protocol"

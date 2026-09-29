@@ -635,3 +635,80 @@ async fn stored_sync_group_naming_another_inbox_is_never_the_target(#[case] fore
     let target = alix.device_sync_client().get_sync_group().await.unwrap();
     assert_eq!(target.group_id, own_id);
 }
+
+// verifies: SYNC-011
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sync_message_from_another_inbox_is_not_applied() {
+    use diesel::prelude::*;
+    use preference_sync::PreferenceUpdate;
+    use xmtp_db::schema::groups::dsl;
+    use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
+
+    tester!(alix1);
+    tester!(alix2, from: alix1);
+    tester!(eve);
+    let eve_group = eve
+        .create_group_with_members(&[alix1.inbox_id()], None, None)
+        .await?;
+    alix1.sync_welcomes().await?;
+    alix2.sync_welcomes().await?;
+    // Stands in for a foreign sync group that an older build accepted.
+    alix1.context.db().raw_query(|conn| {
+        diesel::update(dsl::groups.find(&eve_group.group_id))
+            .set(dsl::conversation_type.eq(ConversationType::Sync))
+            .execute(conn)
+    })?;
+
+    // Eve's key has the later cycle time, so it wins if it is applied.
+    let update = |entity: &str, key: u8, cycled_at_ns: i64| {
+        let updates = vec![
+            PreferenceUpdate::Consent(StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Denied,
+                entity.to_string(),
+            )),
+            PreferenceUpdate::Hmac {
+                key: vec![key; 42],
+                cycled_at_ns,
+            },
+        ];
+        sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
+            updates: updates.into_iter().map(Into::into).collect(),
+        }))
+    };
+    let now = now_ns();
+    eve_group
+        .send_message(
+            &update("from-eve", 1, now + NS_IN_DAY),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    alix2
+        .group(&eve_group.group_id)?
+        .send_message(&update("from-alix2", 2, now), SendMessageOpts::default())
+        .await?;
+    alix1.group(&eve_group.group_id)?.sync().await?;
+
+    let db = alix1.context.db();
+    let pending = db.unprocessed_sync_group_messages()?;
+    assert!(
+        pending
+            .iter()
+            .any(|message| message.sender_inbox_id == eve.inbox_id())
+    );
+    let client = alix1.device_sync_client();
+    client
+        .process_sync_group_messages(&client.metrics, pending)
+        .await?;
+
+    let consent = |entity: &str| db.get_consent_record(entity.to_string(), ConsentType::InboxId);
+    assert!(consent("from-eve")?.is_none());
+    assert_eq!(consent("from-alix2")??.state, ConsentState::Denied);
+    assert_eq!(
+        StoredUserPreferences::load(&db)?.hmac_key,
+        Some(vec![2; 42])
+    );
+    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+}

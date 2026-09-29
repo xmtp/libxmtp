@@ -49,6 +49,25 @@ pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 #[cfg(test)]
 mod tests;
 
+/// Encode sync content as the `EncodedContent` bytes of a sync message.
+fn sync_message_bytes(content: ContentProto) -> Vec<u8> {
+    let content = DeviceSyncContentProto {
+        content: Some(content),
+    };
+    encoded_content_to_bytes(EncodedContent {
+        r#type: Some(ContentTypeId {
+            authority_id: "xmtp.org".to_string(),
+            type_id: "application/x-protobuf".to_string(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        parameters: HashMap::new(),
+        fallback: None,
+        compression: None,
+        content: content.encode_to_vec(),
+    })
+}
+
 /// A sync group belongs to the own inbox only when that inbox added this
 /// client and every leaf node's credential names it.
 // implements: SYNC-010
@@ -263,10 +282,6 @@ where
         &self,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
-        let content = DeviceSyncContentProto {
-            content: Some(content),
-        };
-
         let sync_group = self.get_sync_group().await?;
 
         let msg = format!(
@@ -276,24 +291,7 @@ where
         );
         tracing::info!("{}", msg.yellow());
 
-        let mut content_bytes = vec![];
-        content
-            .encode(&mut content_bytes)
-            .map_err(|err| ClientError::Generic(err.to_string()))?;
-
-        let encoded_content = EncodedContent {
-            r#type: Some(ContentTypeId {
-                authority_id: "xmtp.org".to_string(),
-                type_id: "application/x-protobuf".to_string(),
-                version_major: 1,
-                version_minor: 0,
-            }),
-            parameters: HashMap::new(),
-            fallback: None,
-            compression: None,
-            content: content_bytes,
-        };
-        let content_bytes = encoded_content_to_bytes(encoded_content);
+        let content_bytes = sync_message_bytes(content);
 
         let message_id = sync_group.prepare_message(
             &content_bytes,
@@ -316,7 +314,7 @@ where
 
     /// The newest sync group that only the own inbox is in.
     /// Older builds stored sync groups from other inboxes; this skips them.
-    // implements: SYNC-010
+    // implements: SYNC-002, SYNC-010
     pub(crate) fn primary_sync_group(&self) -> Result<Option<MlsGroup<Context>>, GroupError> {
         let own_inbox_id = self.context.inbox_id();
         for stored in self.context.db().all_sync_groups()? {
