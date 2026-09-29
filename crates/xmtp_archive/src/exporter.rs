@@ -121,6 +121,7 @@ pub(crate) fn write_file(
         file.into_inner()
             .map_err(io::IntoInnerError::into_error)?
             .sync_all()?;
+        live(cancel)?;
         std::fs::rename(&partial, path)?;
         Ok(metadata)
     })();
@@ -133,6 +134,15 @@ pub(crate) fn write_file(
     exported
 }
 
+/// Fails once `cancel` fires, so a cancelled export takes the cleanup path.
+#[cfg(not(target_arch = "wasm32"))]
+fn live(cancel: &tokio_util::sync::CancellationToken) -> io::Result<()> {
+    if cancel.is_cancelled() {
+        return Err(io::Error::other("archive export cancelled"));
+    }
+    Ok(())
+}
+
 /// A sink that fails every write once its token is cancelled.
 #[cfg(not(target_arch = "wasm32"))]
 struct Cancellable<'a, W>(W, &'a tokio_util::sync::CancellationToken);
@@ -140,9 +150,7 @@ struct Cancellable<'a, W>(W, &'a tokio_util::sync::CancellationToken);
 #[cfg(not(target_arch = "wasm32"))]
 impl<W: io::Write> io::Write for Cancellable<'_, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        if self.1.is_cancelled() {
-            return Err(io::Error::other("archive export cancelled"));
-        }
+        live(self.1)?;
         self.0.write(buf)
     }
 
