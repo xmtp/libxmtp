@@ -17,9 +17,7 @@ use xmtp_mls_common::{
 };
 use xmtp_proto::xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy};
 
-use super::{
-    test_dictionary_creation::definition, test_proposals::assert_insufficient_permissions,
-};
+use super::test_dictionary_creation::definition;
 use crate::{
     context::XmtpSharedContext,
     groups::{
@@ -278,8 +276,8 @@ async fn test_stale_snapshot_uses_the_group_type() {
 }
 
 /// A field write commits a value of the field's type, by any name. A value
-/// of the wrong type or an unlisted field fails before any commit, and a
-/// write the committed policy denies is rejected.
+/// of the wrong type, an unlisted field, or a write the committed policies
+/// deny fails before any commit.
 // verifies: META-070, META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_update_metadata_field() {
@@ -332,12 +330,30 @@ async fn test_update_metadata_field() {
     }
     assert_eq!(group.epoch().await?, epoch);
 
+    // A write the committed policies deny fails before anything is
+    // published: an admin-only field, and a whole-component delete of a
+    // self-owned user field.
     let topic = MetadataFieldRef::new(ComponentId::new(TOPIC));
-    let error = bo_group
-        .update_metadata_field(&topic, &ComponentMutation::Replace(string("x")))
-        .await
-        .unwrap_err();
-    assert_insufficient_permissions(error);
+    bo_group
+        .update_user_data(&[set(MetadataFieldRef::USER_DISPLAY_NAME, "Bo")])
+        .await?;
+    let epoch = bo_group.epoch().await?;
+    for (field, mutation) in [
+        (topic.clone(), ComponentMutation::Replace(string("x"))),
+        (
+            MetadataFieldRef::USER_DISPLAY_NAME,
+            ComponentMutation::Remove,
+        ),
+    ] {
+        let error = field_error(
+            bo_group
+                .update_metadata_field(&field, &mutation)
+                .await
+                .unwrap_err(),
+        );
+        assert!(matches!(error, FieldError::Denied(id) if id == field.component_id));
+    }
+    assert_eq!(bo_group.epoch().await?, epoch);
     group.sync().await?;
     assert_eq!(group.metadata_value(&topic)?, None);
 }
@@ -550,4 +566,42 @@ async fn test_reads_are_committed_and_writes_see_pending_proposals() {
             value: string("Alix"),
         }]))
     );
+}
+
+/// A queued field write is authorized again when its commit is built, so
+/// a write the committed policies deny by then fails its intent instead of
+/// publishing a commit every receiver rejects.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_denied_writes_fail_when_published() {
+    tester!(alix, configured: |c| c.application_components = catalogue());
+    tester!(bo);
+    alix.create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let writes = vec![FieldWrite {
+        component_id: ComponentId::new(TOPIC),
+        component_type: ComponentType::String,
+        operation: WriteOperation::Update(b"x".to_vec()),
+    }];
+    let own = inbox(&bo);
+    let error = state_write(bo_group.context.mls_storage(), |tx| {
+        tx.with_group(bo_group.group_id, |mls_group, storage| {
+            apply_app_data_update_intent(
+                storage,
+                mls_group,
+                AppDataUpdateIntentData::Fields(writes),
+                own,
+                &[],
+                &bo_group.context.identity().installation_keys,
+                false,
+            )
+            .map(|_| Continue(()))
+        })
+    })
+    .unwrap_err();
+    assert!(matches!(
+        field_error(error),
+        FieldError::Denied(id) if id.as_u16() == TOPIC
+    ));
 }

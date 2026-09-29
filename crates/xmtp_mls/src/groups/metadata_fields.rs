@@ -4,9 +4,10 @@
 //! dictionary. Each call reads one committed dictionary snapshot through
 //! [`FieldSnapshot`]; the committed registry decides which fields exist and
 //! their policies, the protocol fixes a well-known field's type, and the backend
-//! catalogue only labels application fields. Writes are queued as
-//! [`AppDataUpdateIntentData::Fields`] and re-resolved against the committed
-//! registry when the commit is built.
+//! catalogue only labels application fields. Writes are checked against the
+//! committed registry's types and policies before they are queued as
+//! [`AppDataUpdateIntentData::Fields`], and again when the commit is built,
+//! so a write every receiver would reject is never published.
 
 use std::collections::BTreeMap;
 
@@ -125,9 +126,9 @@ where
     }
 
     /// Encode writes with `plan` and commit them. The writes are resolved
-    /// once here, so a type error or a payload the group would reject is
-    /// reported to the caller rather than as a failed intent, and a write
-    /// that changes nothing commits nothing.
+    /// and authorized once here, so a type error, a denied policy, or a
+    /// payload the group would reject is reported to the caller rather than
+    /// as a failed intent, and a write that changes nothing commits nothing.
     async fn write_fields(
         &self,
         plan: impl FnOnce(&FieldSnapshot<'_>) -> Result<Vec<FieldWrite>, FieldError>,

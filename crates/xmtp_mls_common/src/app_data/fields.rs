@@ -55,7 +55,8 @@ use crate::{
 ///
 /// The name is only a label. Every lookup resolves a ref by
 /// `component_id`, so a ref built on a client with another backend
-/// snapshot still names the same field.
+/// snapshot still names the same field. `==` compares the label too;
+/// compare `component_id`s to ask whether two refs name one field.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct MetadataFieldRef {
     pub component_id: ComponentId,
@@ -362,6 +363,9 @@ pub enum FieldError {
         expected: ComponentType,
         actual: MetadataComponentType,
     },
+    /// The committed registry's policies deny this write.
+    #[error("the group's policy denies this write to metadata field {0}")]
+    Denied(ComponentId),
     #[error(transparent)]
     Component(#[from] ComponentSourceError),
 }
@@ -535,13 +539,20 @@ impl<'a> FieldSnapshot<'a> {
     /// field in ID order; `inbox_ids = None` selects the `DM_MEMBERS` pair
     /// when present (only a DM holds it) and the
     /// `GROUP_MEMBERSHIP` inboxes otherwise. Every selected inbox has an
-    /// entry, empty when it holds no selected value.
+    /// entry, empty when it holds no selected value. A field whose value
+    /// does not decode under its committed type contributes no values; a
+    /// field named twice is refused.
     // implements: META-072
     pub fn user_data(
         &self,
         fields: Option<&[MetadataFieldRef]>,
         inbox_ids: Option<&[InboxId]>,
     ) -> Result<BTreeMap<InboxId, Vec<UserFieldValue>>, FieldError> {
+        if let Some(id) =
+            fields.and_then(|refs| first_duplicate(refs.iter().map(|f| f.component_id)))
+        {
+            return Err(FieldError::DuplicateField(id));
+        }
         let fields = match fields {
             None => self.fields.iter().filter(|f| f.is_user_field()).collect(),
             Some(refs) => refs
@@ -561,8 +572,16 @@ impl<'a> FieldSnapshot<'a> {
             None => self.default_inboxes()?.map(|id| (id, Vec::new())).collect(),
         };
         for descriptor in fields {
-            let Some(MetadataValue::Map(entries)) = self.value(&descriptor.field)? else {
-                continue;
+            // A registry update may re-type a field over its stored value, so
+            // a value can fail to decode; it holds no typed values to return,
+            // and must not hide every other field's.
+            let entries = match self.value(&descriptor.field) {
+                Ok(Some(MetadataValue::Map(entries))) => entries,
+                Ok(_) => continue,
+                Err(error) => {
+                    tracing::warn!(field = %descriptor.field.component_id, %error, "skipping undecodable user field");
+                    continue;
+                }
             };
             for MapEntry { key, value } in entries {
                 if let FieldKey::InboxId(inbox) = key
@@ -1361,7 +1380,8 @@ mod tests {
 
     /// User data defaults to every user field and every current member,
     /// each with a list (empty when it holds nothing). Explicit inboxes may
-    /// name a former member; empty filters select nothing.
+    /// name a former member; empty filters select nothing. Explicit fields
+    /// must be user fields in the group, each named once.
     // verifies: META-072
     #[xmtp_common::test(unwrap_try = true)]
     fn user_data_selects_fields_and_inboxes() {
@@ -1419,6 +1439,58 @@ mod tests {
             fields.user_data(Some(&[MetadataFieldRef::new(BROKEN)]), None),
             Err(FieldError::UnknownField(BROKEN))
         ));
+        assert!(matches!(
+            fields.user_data(Some(&[scores.clone(), named(SCORES, "scores")]), None),
+            Err(FieldError::DuplicateField(SCORES))
+        ));
+    }
+
+    /// A user field whose stored value does not decode under its committed
+    /// type, as after a registry update re-types it, yields no user data
+    /// instead of failing the read of every other field. A single read of
+    /// it still reports the malformed value.
+    // verifies: META-072
+    #[xmtp_common::test(unwrap_try = true)]
+    fn user_data_skips_undecodable_fields() {
+        let dictionary = dictionary(
+            &[
+                (
+                    ComponentId::GROUP_MEMBERSHIP,
+                    entry(tag(ComponentType::TlsMapInboxIdBytes)),
+                ),
+                (
+                    ComponentId::USER_DISPLAY_NAME,
+                    entry(tag(ComponentType::TlsMapInboxIdString)),
+                ),
+                (STATUS, entry(tag(ComponentType::TlsMapInboxIdString))),
+            ],
+            &[
+                (
+                    ComponentId::GROUP_MEMBERSHIP,
+                    inbox_map(&[(inbox(0xA), &[1])]),
+                ),
+                (
+                    ComponentId::USER_DISPLAY_NAME,
+                    inbox_map(&[(inbox(0xA), b"Alix")]),
+                ),
+                (STATUS, inbox_map(&[(inbox(0xA), &[0xFF])])),
+            ],
+        );
+        let fields = snapshot(&dictionary);
+        let status = named(STATUS, "GROUP_NAME");
+        let names = UserFieldValue {
+            field: MetadataFieldRef::USER_DISPLAY_NAME,
+            value: string("Alix"),
+        };
+        assert_eq!(
+            fields.user_data(None, None)?,
+            BTreeMap::from([(inbox(0xA), vec![names])])
+        );
+        assert_eq!(
+            fields.user_data(Some(std::slice::from_ref(&status)), None)?,
+            BTreeMap::from([(inbox(0xA), vec![])])
+        );
+        assert!(fields.value(&status).is_err());
     }
 
     /// In a DM the default inboxes are the `DM_MEMBERS` pair, whatever the

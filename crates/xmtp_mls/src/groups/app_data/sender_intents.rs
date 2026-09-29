@@ -12,7 +12,10 @@ use openmls::{
 };
 use openmls_traits::signatures::Signer;
 use prost::Message;
-use tls_codec::VLBytes;
+use std::collections::{HashMap, HashSet};
+
+use openmls::extensions::AppDataDictionary;
+use tls_codec::{Deserialize, VLBytes};
 use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_mls_common::{
     app_data::{
@@ -22,20 +25,24 @@ use xmtp_mls_common::{
             inbox_id_set::{AdminListComponent, SuperAdminListComponent},
             tls_map_components::ComponentRegistryComponent,
         },
-        fields::{FieldSnapshot, FieldWrite},
+        fields::{FieldError, FieldSnapshot, FieldWrite},
         typed::Component,
     },
     group_mutable_metadata::GroupMutableMetadataError,
     inbox_id::InboxId,
-    tls_map::TlsMapDelta,
+    tls_map::{TlsMap, TlsMapDelta},
     tls_set::{TlsSetDelta, TlsSetMutation},
+};
+use xmtp_mls_validation::commit::{
+    AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
+    validate_app_data_update_sequence,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     MetadataPolicy as MetadataPolicyProto,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
-use super::{pending_dictionary, stage_app_data_proposals_and_commit};
+use super::{load_component_registry, pending_dictionary, stage_app_data_proposals_and_commit};
 use crate::groups::{
     AdminListActionType, GroupError,
     error::MetadataPermissionsError,
@@ -268,8 +275,10 @@ pub(crate) fn apply_app_data_update_intent(
 }
 
 /// The `AppDataUpdate` operations of `writes` by `own` in a commit built
-/// now. Field types come from the committed registry; current values from
-/// the committed dictionary with pending proposals applied.
+/// now. Field types and policies come from the committed registry; current
+/// values and membership from the committed dictionary with pending
+/// proposals applied. A write the policies deny is refused here, as every
+/// receiver would refuse it, so it is never published.
 pub(crate) fn resolve_field_writes(
     openmls_group: &OpenMlsGroup,
     own: InboxId,
@@ -280,7 +289,50 @@ pub(crate) fn resolve_field_writes(
         .app_data_dictionary()
         .map(|extension| extension.dictionary());
     let values = pending_dictionary(openmls_group)?;
-    Ok(FieldSnapshot::new(committed, &[])?.resolve_writes(Some(&values), own, writes)?)
+    let updates = FieldSnapshot::new(committed, &[])?.resolve_writes(Some(&values), own, writes)?;
+    authorize_updates(openmls_group, &values, &updates)?;
+    Ok(updates)
+}
+
+/// Check `updates` by this client, in order, against the committed
+/// registry's policies as a receiver would, starting from `values`.
+// implements: META-071, META-073
+fn authorize_updates(
+    openmls_group: &OpenMlsGroup,
+    values: &AppDataDictionary,
+    updates: &[(ComponentId, AppDataUpdateOperation)],
+) -> Result<(), GroupError> {
+    let registry = load_component_registry(openmls_group)?;
+    let (immutable, mutable) = read_committed_metadata(openmls_group)?;
+    let own = extract_commit_participant(
+        &openmls_group.own_leaf_index(),
+        openmls_group,
+        &immutable,
+        &mutable,
+    )?;
+    let value = |id: ComponentId| values.get(&id.as_u16()).map(<[u8]>::to_vec);
+    let members = value(ComponentId::GROUP_MEMBERSHIP)
+        .and_then(|bytes| TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes).ok())
+        .map(|map| map.keys().copied().collect::<HashSet<_>>());
+    let mut states = HashMap::new();
+    for (id, operation) in updates {
+        let update = AppDataUpdateInCommit {
+            component_id: *id,
+            operation,
+            actor: (&own).into(),
+            proposer_inbox_id: &own.inbox_id,
+        };
+        let post = validate_app_data_update_sequence(
+            [update],
+            |id| states.get(&id).cloned().unwrap_or_else(|| value(id)),
+            &registry,
+            immutable.dm_members.as_ref(),
+            members.as_ref(),
+        )
+        .map_err(|_| FieldError::Denied(*id))?;
+        states.extend(post);
+    }
+    Ok(())
 }
 
 /// Propose `updates` and stage one commit of them, publishing the
