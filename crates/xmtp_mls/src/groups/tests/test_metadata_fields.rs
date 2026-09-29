@@ -275,9 +275,10 @@ async fn test_stale_snapshot_uses_the_group_type() {
     assert_eq!(bo_group.epoch().await?, epoch);
 }
 
-/// A field write commits a value of the field's type, by any name. A value
-/// of the wrong type, an unlisted field, or a write the committed policies
-/// deny fails before any commit.
+/// A field write commits a value of the field's type, by any name. A write
+/// of the current value commits nothing. A value of the wrong type, an
+/// unlisted field, or a write the committed policies deny fails before any
+/// commit.
 // verifies: META-070, META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_update_metadata_field() {
@@ -303,6 +304,12 @@ async fn test_update_metadata_field() {
     assert_eq!(values[1].value, None);
 
     let epoch = group.epoch().await?;
+    group
+        .update_metadata_field(
+            &MetadataFieldRef::GROUP_NAME,
+            &ComponentMutation::Replace(string("Team")),
+        )
+        .await?;
     for (field, mutation, expected) in [
         (
             MetadataFieldRef::GROUP_NAME,

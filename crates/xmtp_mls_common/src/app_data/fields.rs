@@ -715,10 +715,11 @@ impl<'a> FieldSnapshot<'a> {
     ///
     /// Types and the field list come from this snapshot, which must be the
     /// committed one. Each write is refused if its field is gone
-    /// or changed type. A write that changes nothing (a clear of an absent
-    /// key, a removal of an absent component) is dropped. Every payload is
-    /// applied to its current value, so bounds, UTF-8, and key presence
-    /// fail here rather than in the commit.
+    /// or changed type. Every payload is applied to its current value, so
+    /// bounds, UTF-8, and key presence fail here rather than in the commit.
+    /// A write that changes nothing is dropped: a clear of an absent key, a
+    /// removal of an absent component, or an update whose result equals the
+    /// current bytes.
     // implements: META-071, META-073
     pub fn resolve_writes(
         &self,
@@ -783,8 +784,9 @@ impl<'a> FieldSnapshot<'a> {
             WriteOperation::ClearOwn if owned()? => delta.delete(own).tls_serialize_detached()?,
             WriteOperation::ClearOwn => return Ok(None),
         };
-        apply_app_data_update_payload(id, &payload, current, &self.registry)?;
-        Ok(Some(AppDataUpdateOperation::Update(payload.into())))
+        let next = apply_app_data_update_payload(id, &payload, current, &self.registry)?;
+        Ok((current != Some(next.as_slice()))
+            .then(|| AppDataUpdateOperation::Update(payload.into())))
     }
 
     fn bytes(&self, id: ComponentId) -> Option<&'a [u8]> {
@@ -1831,6 +1833,63 @@ mod tests {
             )]),
             Err(FieldError::Component(_))
         ));
+    }
+
+    /// A write whose result equals the current value is dropped, so an
+    /// unchanged field never costs a commit or an epoch. The comparison is
+    /// on the applied bytes: an empty delta creates an absent map.
+    // verifies: META-071
+    #[xmtp_common::test(unwrap_try = true)]
+    fn unchanged_writes_are_dropped() {
+        let dictionary = group();
+        let fields = snapshot(&dictionary);
+        let resolve = |writes: &[FieldWrite]| {
+            fields
+                .resolve_writes(Some(&dictionary), inbox(0xA), writes)
+                .unwrap()
+        };
+        let name = |value: &[u8]| {
+            own_write(
+                ComponentId::GROUP_NAME,
+                ComponentType::String,
+                WriteOperation::Update(value.to_vec()),
+            )
+        };
+        let empty_links = TlsMapDelta::<VLBytes, VLBytes>::new().tls_serialize_detached()?;
+        let empty_scores = TlsMapDelta::<InboxId, VLBytes>::new().tls_serialize_detached()?;
+        assert!(
+            resolve(&[
+                name(b"Team"),
+                own_write(
+                    ComponentId::USER_DISPLAY_NAME,
+                    ComponentType::TlsMapInboxIdString,
+                    WriteOperation::SetOwn(b"Alix".to_vec()),
+                ),
+                own_write(
+                    SCORES,
+                    ComponentType::TlsMapInboxIdBytes,
+                    WriteOperation::Update(empty_scores),
+                ),
+            ])
+            .is_empty()
+        );
+        assert_eq!(
+            resolve(&[
+                name(b"Teams"),
+                own_write(
+                    LINKS,
+                    ComponentType::TlsMapBytesBytes,
+                    WriteOperation::Update(empty_links.clone()),
+                ),
+            ]),
+            vec![
+                (
+                    ComponentId::GROUP_NAME,
+                    AppDataUpdateOperation::Update(b"Teams".to_vec().into())
+                ),
+                (LINKS, AppDataUpdateOperation::Update(empty_links.into())),
+            ]
+        );
     }
 
     /// An own-key write names an entry of an inbox-keyed map, so one queued
