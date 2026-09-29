@@ -359,7 +359,9 @@ mod tests {
     /// A file export whose caller has gone stops at its next write, rather
     /// than finishing an archive nobody awaits. A failed or cancelled export
     /// leaves the archive already at the destination intact and no temporary
-    /// file behind: exporting over a good backup must never destroy it.
+    /// file behind: exporting over a good backup must never destroy it. A
+    /// new archive is owner-only and a replacement keeps the permissions of
+    /// the archive it replaces, so an export never widens who can read it.
     /// `export_to_file` cancels this token when its future is dropped.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
@@ -373,6 +375,21 @@ mod tests {
         let cancel = tokio_util::sync::CancellationToken::new();
 
         exporter::write_file(consent.clone(), &db, &path, &KEY, &cancel)?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = |path: &std::path::Path| {
+                std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+            };
+            assert_eq!(mode(&path), 0o600, "a new archive is readable by others");
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))?;
+            exporter::write_file(consent.clone(), &db, &path, &KEY, &cancel)?;
+            assert_eq!(
+                mode(&path),
+                0o640,
+                "replacing an archive changed its permissions"
+            );
+        }
         let prior = std::fs::read(&path)?;
         cancel.cancel();
         let failure = exporter::write_file(consent, &db, &path, &KEY, &cancel);

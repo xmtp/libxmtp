@@ -100,7 +100,8 @@ impl ArchiveExporter {
 
 /// Exports to a sibling temporary file until `cancel` fires, then renames it
 /// over `path`. A failed or cancelled export removes the temporary file and
-/// leaves any archive already at `path` untouched.
+/// leaves any archive already at `path` untouched. The file takes the
+/// permissions of the archive it replaces; a new one is owner-only on unix.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn write_file(
     options: ArchiveOptions,
@@ -116,7 +117,15 @@ pub(crate) fn write_file(
     ));
     let partial = std::path::PathBuf::from(partial);
     let exported = (|| -> Result<_, ArchiveError> {
-        let mut file = io::BufWriter::new(std::fs::File::create(&partial)?);
+        let mut create = std::fs::OpenOptions::new();
+        create.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut create, 0o600);
+        let file = create.open(&partial)?;
+        if let Ok(existing) = std::fs::metadata(path) {
+            file.set_permissions(existing.permissions())?;
+        }
+        let mut file = io::BufWriter::new(file);
         let metadata = export(options, db, key, Cancellable(&mut file, cancel))?;
         file.into_inner()
             .map_err(io::IntoInnerError::into_error)?
