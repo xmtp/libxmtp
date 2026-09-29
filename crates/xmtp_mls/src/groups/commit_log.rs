@@ -663,8 +663,10 @@ where
                 tracing::error!(group_id = %group_id, "DM group has no dm_id");
                 return Ok(vec![]);
             };
-            let other_id = dm_id.other_inbox_id(self.context.inbox_id());
-            return Ok(vec![other_id]);
+            return Ok(dm_id
+                .other_inbox_id(self.context.inbox_id())
+                .into_iter()
+                .collect());
         }
         let super_admins = group.super_admin_list()?;
         Ok(super_admins)

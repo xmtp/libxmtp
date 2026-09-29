@@ -2,8 +2,8 @@
 //! inside one zstd stream.
 //!
 //! `xmtp_mls`, `xmtp_sdk`, and the bindings use [`exporter::export`], or the
-//! `exporter::ArchiveExporter` adapters (a file or buffer off the async
-//! workers on native, a byte stream on wasm), to write an archive from the database and [`ArchiveImporter`] to
+//! native `exporter::ArchiveExporter` adapters, which write a file or a buffer off
+//! the async workers, to write an archive from the database and [`ArchiveImporter`] to
 //! read one back. [`check_key`] validates a key up front. [`ArchiveError`]
 //! implements `RetryableError`. The exporter streams one consistent snapshot of every selected element (see
 //! `snapshot`) and fails with [`ArchiveError`] if selected data cannot be read. The importer rejects

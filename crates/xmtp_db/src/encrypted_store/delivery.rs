@@ -66,8 +66,28 @@ pub struct DeliverySnapshot {
     pub cursor: DeliveryCursor,
 }
 
+/// Current stored groups selected by a conversation stream.
+#[derive(Debug, Clone)]
+pub struct ResolvedGroupScope {
+    /// Requested IDs and all currently stored groups of those DMs.
+    pub group_ids: Vec<GroupId>,
+}
+
 /// Local message order, retained-history reads, and fenced per-group D positions.
 pub trait QueryDelivery: ConnectionExt + Sized {
+    /// Resolve a group scope to every stored group of each selected DM.
+    /// Call again when a reader scans or reconciles; another group can join later.
+    fn resolve_group_scope(
+        &self,
+        requested: &[GroupId],
+    ) -> Result<ResolvedGroupScope, StorageError> {
+        Ok(self.raw_query(|conn| {
+            conn.transaction::<_, diesel::result::Error, _>(|conn| {
+                resolve_group_scope(conn, requested)
+            })
+        })?)
+    }
+
     /// Read the database identity used to reject foreign or pre-restore cursors.
     fn stream_database_id(&self) -> Result<[u8; 16], StorageError> {
         self.raw_query(|conn| Ok(database_id(conn)))?
@@ -554,8 +574,9 @@ fn read_messages(
         )
         .select((messages::delivery_sequence.assume_not_null(), row_bytes))
         .into_boxed();
-    if let DeliveryScope::Groups(groups) = scope {
-        query = query.filter(messages::group_id.eq_any(groups));
+    if let DeliveryScope::Groups(requested) = scope {
+        let selected = resolve_group_scope(conn, requested)?;
+        query = query.filter(messages::group_id.eq_any(selected.group_ids));
     }
     if let Some(filter) = filter {
         if let Some(kind) = filter.conversation_type {
@@ -632,6 +653,44 @@ fn read_messages(
             },
         })
         .collect())
+}
+
+fn resolve_group_scope(
+    conn: &mut diesel::SqliteConnection,
+    requested: &[GroupId],
+) -> diesel::QueryResult<ResolvedGroupScope> {
+    if requested.is_empty() {
+        return Ok(ResolvedGroupScope {
+            group_ids: Vec::new(),
+        });
+    }
+    let dm_ids = groups::table
+        .filter(groups::id.eq_any(requested))
+        .filter(groups::conversation_type.eq(ConversationType::Dm))
+        .select(groups::dm_id)
+        .load::<Option<String>>(conn)?
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>();
+    let mut selected = requested.to_vec();
+    if !dm_ids.is_empty() {
+        // implements: DMS-009
+        // Restored history enters the stitched union as imported. Archive
+        // import trusts its source and does not check message senders.
+        // This read scope does not authorize sending or decrypting traffic.
+        selected.extend(
+            groups::table
+                .filter(groups::conversation_type.eq(ConversationType::Dm))
+                .filter(groups::dm_id.eq_any(dm_ids))
+                .select(groups::id)
+                .load::<GroupId>(conn)?,
+        );
+    }
+    selected.sort_unstable();
+    selected.dedup();
+    Ok(ResolvedGroupScope {
+        group_ids: selected,
+    })
 }
 
 #[cfg(test)]

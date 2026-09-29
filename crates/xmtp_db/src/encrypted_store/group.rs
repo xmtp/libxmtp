@@ -975,6 +975,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
                         .set(&group)
                         .execute(c)
                 })?;
+                return Ok(self.raw_query(|c| dsl::groups.find(&group.id).first(c))?);
             }
 
             if existing_group.sequence_id == group.sequence_id {
@@ -1077,6 +1078,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         use crate::schema::consent_records::dsl as consent_dsl;
 
         let query = dsl::groups
+            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .filter(
                 dsl::conversation_type
                     .eq(ConversationType::Dm)
@@ -1102,6 +1104,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         use crate::schema::consent_records::dsl as consent_dsl;
 
         let query = dsl::groups
+            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .filter(dsl::conversation_type.ne_all(ConversationType::virtual_types()))
             .inner_join(consent_dsl::consent_records.on(
                 sql::<diesel::sql_types::Text>("lower(hex(groups.id))").eq(consent_dsl::entity),
@@ -1116,6 +1119,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     #[xmtp_common::db_span]
     fn get_conversation_ids_for_fork_check(&self) -> Result<Vec<Vec<u8>>, crate::ConnectionError> {
         let query = dsl::groups
+            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .filter(
                 dsl::conversation_type
                     .ne_all(ConversationType::virtual_types())
@@ -1140,6 +1144,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| {
             groups_dsl::groups
                 .left_join(rcl_dsl::remote_commit_log.on(groups_dsl::id.eq(rcl_dsl::group_id)))
+                .filter(groups_dsl::membership_state.ne(GroupMembershipState::Restored))
                 .filter(
                     groups_dsl::conversation_type
                         .ne_all(ConversationType::virtual_types())
@@ -1161,6 +1166,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         self.raw_query(|conn| {
             readd_dsl::readd_status
                 .inner_join(groups_dsl::groups.on(readd_dsl::group_id.eq(groups_dsl::id)))
+                .filter(groups_dsl::membership_state.ne(GroupMembershipState::Restored))
                 .filter(readd_dsl::requested_at_sequence_id.is_not_null())
                 .filter(
                     readd_dsl::requested_at_sequence_id
@@ -1318,23 +1324,25 @@ where
 pub use xmtp_proto::types::ConversationType;
 
 pub trait DmIdExt {
-    fn other_inbox_id(&self, id: &str) -> String;
+    /// Return the peer only when this inbox is in a two-member DM ID.
+    fn other_inbox_id(&self, id: &str) -> Option<String>;
 }
 
 impl DmIdExt for String {
-    fn other_inbox_id(&self, id: &str) -> String {
-        // drop the "dm:"
-        let dm_id = &self[3..];
-
-        // If my id is the first half, return the second half, otherwise return first half
-        let target_inbox = if dm_id[..id.len()] == *id {
-            // + 1 because there is a colon (:)
-            &dm_id[(id.len() + 1)..]
+    fn other_inbox_id(&self, id: &str) -> Option<String> {
+        // Archive and MLS admission validate canonical inbox IDs. This lookup
+        // checks the structure and membership before it returns a peer.
+        let (first, second) = self.strip_prefix("dm:")?.split_once(':')?;
+        if first.is_empty() || second.is_empty() || second.contains(':') || first == second {
+            return None;
+        }
+        if id == first {
+            Some(second.to_string())
+        } else if id == second {
+            Some(first.to_string())
         } else {
-            &dm_id[..id.len()]
-        };
-
-        target_inbox.to_string()
+            None
+        }
     }
 }
 
@@ -1351,6 +1359,24 @@ pub(crate) mod tests {
         test_utils::{with_connection, with_connection_async},
     };
     use xmtp_common::{Generate, assert_ok, rand_vec, time::now_ns};
+
+    // verifies: DMS-017
+    #[xmtp_common::test(unwrap_try = true)]
+    fn dm_peer_requires_member_and_pair_structure() {
+        let pair = "dm:alix:bo".to_string();
+        assert_eq!(pair.other_inbox_id("alix").as_deref(), Some("bo"));
+        assert_eq!(pair.other_inbox_id("bo").as_deref(), Some("alix"));
+        assert_eq!(pair.other_inbox_id("charlie"), None);
+        for malformed in [
+            "dm:short",
+            "dm:alix:",
+            "dm::bo",
+            "dm:alix:bo:extra",
+            "dm:alix:alix",
+        ] {
+            assert_eq!(malformed.to_string().other_inbox_id("alix"), None);
+        }
+    }
 
     /// Generate a test group
     pub fn generate_group(state: Option<GroupMembershipState>) -> StoredGroup {
@@ -1481,7 +1507,8 @@ pub(crate) mod tests {
             let other_inbox_id = test_group_3
                 .dm_id
                 .unwrap()
-                .other_inbox_id("placeholder_inbox_id_1");
+                .other_inbox_id("placeholder_inbox_id_1")
+                .expect("DM peer");
 
             let all_results = conn
                 .find_groups(GroupQueryArgs {
@@ -1724,6 +1751,26 @@ pub(crate) mod tests {
             let stored: StoredGroup = conn.fetch(&group.id).unwrap().unwrap();
             assert_eq!(stored.sequence_id, Some(5));
             assert_eq!(conn.group_cursors().unwrap(), vec![Cursor(5)]);
+        });
+    }
+
+    // verifies: JOIN-080
+    #[xmtp_common::test(unwrap_try = true)]
+    fn restored_replacement_returns_activated_group() {
+        with_connection(|conn| {
+            let restored = generate_group(Some(GroupMembershipState::Restored));
+            restored.store(conn).unwrap();
+            let activated = StoredGroup {
+                membership_state: GroupMembershipState::Allowed,
+                sequence_id: Some(5),
+                ..restored.clone()
+            };
+            let returned = conn.insert_or_replace_group(activated.clone()).unwrap();
+            assert_eq!(returned.membership_state, GroupMembershipState::Allowed);
+            assert_eq!(returned.sequence_id, Some(5));
+            let stored: StoredGroup = conn.fetch(&restored.id).unwrap().unwrap();
+            assert_eq!(stored.membership_state, GroupMembershipState::Allowed);
+            assert_eq!(stored.sequence_id, Some(5));
         });
     }
 

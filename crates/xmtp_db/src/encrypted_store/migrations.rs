@@ -57,10 +57,14 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     }
 
     fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError> {
-        let target: String = version.chars().filter(|c| c.is_numeric()).collect();
-        let target: u64 = target.parse().map_err(|_| {
-            ConnectionError::InvalidQuery(format!("Invalid migration version: {version}"))
-        })?;
+        // Diesel orders versions as strings, not numbers, and embedded versions
+        // do not all have the same length. Compare in the same order.
+        let target: String = version.chars().filter(|c| c.is_ascii_digit()).collect();
+        if target.is_empty() {
+            return Err(ConnectionError::InvalidQuery(format!(
+                "Invalid migration version: {version}"
+            )));
+        }
 
         let mut reverted = Vec::new();
 
@@ -70,13 +74,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                 break;
             };
 
-            let version_number: String =
-                current_version.chars().filter(|c| c.is_numeric()).collect();
-            let current_num: u64 = version_number.parse().map_err(|_| {
-                ConnectionError::InvalidQuery(format!("Invalid applied version: {current_version}"))
-            })?;
-
-            if current_num < target {
+            if current_version.as_str() < target.as_str() {
                 break;
             }
 

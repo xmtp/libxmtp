@@ -14,7 +14,11 @@ impl Conversation {
       "Not a DM conversation or missing DM ID",
     ))?;
 
-    Ok(dm_id.other_inbox_id(inbox_id))
+    dm_id
+      .other_inbox_id(inbox_id)
+      .ok_or(napi::Error::from_reason(
+        "DM peer unavailable for this inbox",
+      ))
   }
 
   #[napi]

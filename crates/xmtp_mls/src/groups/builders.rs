@@ -1,6 +1,39 @@
 //! Extension and group-config builders, plus DM validation.
 
 use super::*;
+use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
+
+// implements: DMS-001, ARCH-020
+pub(crate) fn parse_canonical_dm_id(dm_id: Option<&str>) -> Result<DmMembers<String>, GroupError> {
+    let invalid = || {
+        GroupError::from(MetadataPermissionsError::from(
+            DmValidationError::StoredDmIdMismatch,
+        ))
+    };
+    let mut parts = dm_id.ok_or_else(invalid)?.split(':');
+    if parts.next() != Some("dm") {
+        return Err(invalid());
+    }
+    let first = parts.next().ok_or_else(invalid)?;
+    let second = parts.next().ok_or_else(invalid)?;
+    if parts.next().is_some() || first == second {
+        return Err(invalid());
+    }
+    for inbox_id in [first, second] {
+        let bytes = hex::decode(inbox_id).map_err(|_| invalid())?;
+        if bytes.len() != 32 || hex::encode(bytes) != inbox_id {
+            return Err(invalid());
+        }
+    }
+    let members = DmMembers {
+        member_one_inbox_id: first.to_string(),
+        member_two_inbox_id: second.to_string(),
+    };
+    if members.to_string() != dm_id.unwrap_or_default() {
+        return Err(invalid());
+    }
+    Ok(members)
+}
 
 #[cfg(test)]
 pub(crate) fn build_protected_metadata_extension(
@@ -268,6 +301,7 @@ pub fn filter_inbox_ids_needing_updates<'a>(
     Ok(needs_update)
 }
 
+// implements: DMS-003
 pub(in crate::groups) fn validate_dm_group(
     context: impl XmtpSharedContext,
     mls_group: &OpenMlsGroup,
@@ -289,26 +323,34 @@ pub(in crate::groups) fn validate_dm_group(
         }
     };
 
-    // 3) If the inbox that added this group is our inbox, make sure that
-    //    one of the `dm_members` is our inbox id
     let identity = context.identity();
-    if added_by_inbox == identity.inbox_id() {
-        if !(dm_members.member_one_inbox_id == identity.inbox_id()
-            || dm_members.member_two_inbox_id == identity.inbox_id())
-        {
-            return Err(DmValidationError::OurInboxMustBeMember.into());
-        }
-        return Ok(());
+    let pair = [
+        dm_members.member_one_inbox_id.as_str(),
+        dm_members.member_two_inbox_id.as_str(),
+    ];
+    if pair[0] == pair[1] || !pair.contains(&identity.inbox_id()) {
+        return Err(DmValidationError::OurInboxMustBeMember.into());
+    }
+    if !pair.contains(&added_by_inbox) {
+        return Err(DmValidationError::ExpectedInboxesDoNotMatch.into());
     }
 
-    // 4) Otherwise, make sure one of the `dm_members` is ours, and the other is `added_by_inbox`
-    let is_expected_pair = (dm_members.member_one_inbox_id == added_by_inbox
-        && dm_members.member_two_inbox_id == identity.inbox_id())
-        || (dm_members.member_one_inbox_id == identity.inbox_id()
-            && dm_members.member_two_inbox_id == added_by_inbox);
-
-    if !is_expected_pair {
-        return Err(DmValidationError::ExpectedInboxesDoNotMatch.into());
+    // A valid identity proof does not make an inbox outside this pair a DM member.
+    let membership = extract_group_membership(mls_group.extensions())
+        .map_err(|_| DmValidationError::InvalidMembership)?;
+    if membership
+        .members
+        .keys()
+        .any(|inbox| !pair.contains(&inbox.as_str()))
+    {
+        return Err(DmValidationError::MemberOutsidePair.into());
+    }
+    for member in mls_group.members() {
+        let inbox = inbox_id_from_credential(&member.credential)
+            .map_err(|_| DmValidationError::InvalidMemberCredential)?;
+        if !pair.contains(&inbox.as_str()) {
+            return Err(DmValidationError::MemberOutsidePair.into());
+        }
     }
 
     // Validate mutable metadata

@@ -11,6 +11,7 @@ use std::{
 };
 use xmtp_common::{RetryableError, time::Instant};
 use xmtp_db::{
+    consent_record::ConsentState,
     group::{GroupMembershipState, GroupQueryArgs},
     incoming_envelope::{NetworkEntityKind, StreamTopic},
     prelude::*,
@@ -386,6 +387,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .find_groups(GroupQueryArgs {
                     include_sync_groups: true,
                     include_duplicate_dms: true,
+                    // Receive every stored group regardless of app consent.
+                    consent_states: Some(vec![
+                        ConsentState::Allowed,
+                        ConsentState::Unknown,
+                        ConsentState::Denied,
+                    ]),
                     ..Default::default()
                 })
                 .map_err(|error| IncomingError::Storage(error.into()))?
@@ -414,8 +421,18 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             HashSet::new()
         };
         for scope in self.scopes.values_mut() {
-            if let ScopeKind::Groups(groups) = &scope.scope {
-                for group_id in groups {
+            let selected_scope = if let ScopeKind::Groups(groups) = &scope.scope {
+                Some(
+                    self.context
+                        .db()
+                        .resolve_group_scope(groups)
+                        .map_err(IncomingError::Storage)?,
+                )
+            } else {
+                None
+            };
+            if let Some(selected_scope) = &selected_scope {
+                for group_id in &selected_scope.group_ids {
                     let topic = Topic::new_group_message(group_id);
                     if !scope.topics.contains(&topic) {
                         // An empty pending queue cannot report an already inactive group.
@@ -432,7 +449,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             }
             let topics: HashSet<_> = match &scope.scope {
                 ScopeKind::Topics(topics) => topics.iter().cloned().collect(),
-                ScopeKind::Groups(groups) => groups.iter().map(Topic::new_group_message).collect(),
+                ScopeKind::Groups(_) => selected_scope
+                    .iter()
+                    .flat_map(|scope| scope.group_ids.iter())
+                    .map(Topic::new_group_message)
+                    .collect(),
                 ScopeKind::Barrier { .. } => scope.targets.keys().cloned().collect(),
                 ScopeKind::AllGroups => discoveries
                     .iter()
@@ -486,11 +507,14 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .prefixes()
             .map(|(_, group, _)| Topic::new_group_message(group))
             .collect();
-        if self.scopes.values().any(|scope| {
-            matches!(scope.scope, ScopeKind::Groups(_))
-                && scope.topics.iter().any(|topic| self.is_retired(topic))
+        if self.scopes.values().any(|scope| match &scope.scope {
+            ScopeKind::Groups(requested) => requested
+                .iter()
+                .any(|id| self.is_retired(&Topic::new_group_message(id))),
+            _ => false,
         }) {
-            // This is a processing dependency, not a new fixed target or delivery scope.
+            // Only explicitly requested inactive groups add Welcome recovery.
+            // The dependency does not add a fixed target or a delivery scope.
             self.extra_topics
                 .insert(Topic::new_welcome_message(self.context.installation_id()));
         }

@@ -903,7 +903,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
   /**
    * Export archive data to bytes for later restoration
    *
-   * @param key - Encryption key for the archive
+   * @param key - Encryption key for the archive; must be exactly 32 bytes
    * @param opts - Archive options specifying what to include (defaults to consent and messages)
    * @returns Promise that resolves with the archive data as bytes
    */
@@ -923,7 +923,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * Import an archive from bytes
    *
    * @param data - The archive data as bytes
-   * @param key - Encryption key for the archive
+   * @param key - Encryption key for the archive; must be exactly 32 bytes
    * @returns Promise that resolves when the archive is imported
    */
   async importArchive(data: Uint8Array, key: Uint8Array) {
@@ -937,7 +937,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * Load the metadata for an archive to see what it contains
    *
    * @param data - The archive data as bytes
-   * @param key - Encryption key for the archive
+   * @param key - Encryption key for the archive; must be exactly 32 bytes
    * @returns Promise that resolves with the archive metadata
    */
   async archiveMetadata(

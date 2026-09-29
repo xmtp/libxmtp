@@ -677,19 +677,38 @@ mod tests {
     async fn upgrades_a_baseline_database_to_the_latest_migration() {
         use crate::encrypted_store::EmbeddedMigrationsExt;
         use crate::{ConnectionExt, TestDb, XmtpDb, XmtpTestDb};
-        use diesel::sql_types::Text;
 
         let database = TestDb::create_database(None).await;
         database.init()?;
         database.init()?;
         let connection = database.conn();
+        let baseline = crate::MIGRATIONS.baseline();
         connection.raw_query(|conn| {
-            conn.batch_execute(
-                "DROP TABLE received_proposals; DROP TABLE pending_attachments; DROP TABLE local_attachments;",
-            )?;
-            diesel::sql_query("DELETE FROM __diesel_schema_migrations WHERE version <> ?")
-                .bind::<Text, _>(crate::MIGRATIONS.baseline())
-                .execute(conn)
+            while conn
+                .applied_migrations()
+                .map_err(diesel::result::Error::QueryBuilderError)?
+                .first()
+                .map(ToString::to_string)
+                != Some(baseline.clone())
+            {
+                conn.revert_last_migration(crate::MIGRATIONS)
+                    .map_err(diesel::result::Error::QueryBuilderError)?;
+            }
+            Ok::<_, diesel::result::Error>(())
+        })?;
+        connection.raw_query(|conn| {
+            for table in [
+                "received_proposals",
+                "pending_attachments",
+                "local_attachments",
+            ] {
+                assert!(
+                    diesel::sql_query(format!("SELECT * FROM {table}"))
+                        .execute(conn)
+                        .is_err()
+                );
+            }
+            Ok::<_, diesel::result::Error>(())
         })?;
 
         EncryptedMessageStore::new(database)?;

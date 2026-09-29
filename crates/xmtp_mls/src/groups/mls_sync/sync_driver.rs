@@ -8,9 +8,15 @@ where
 {
     #[xmtp_common::mls_span]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
+        let conn = self.context.db();
+        if conn
+            .find_group(&self.group_id)?
+            .is_some_and(|group| group.membership_state == GroupMembershipState::Restored)
+        {
+            return Err(GroupError::GroupInactive);
+        }
         // A client with a blocked connection makes no further calls.
         self.context.server_configuration().check()?;
-        let conn = self.context.db();
 
         let epoch = self.epoch().await?;
         tracing::debug!(
@@ -23,6 +29,9 @@ where
 
         // Also sync the "stitched DMs", if any...
         for other_dm in conn.other_dms(&self.group_id)? {
+            if other_dm.membership_state == GroupMembershipState::Restored {
+                continue;
+            }
             let other_dm = Self::new_from_arc(
                 self.context.clone(),
                 other_dm.id,
@@ -106,6 +115,16 @@ where
     ) -> Result<SyncSummary, SyncSummary> {
         let _mutex = self.mutex.lock().await;
         let mut summary = SyncSummary::default();
+
+        if self
+            .context
+            .db()
+            .find_group(&self.group_id)
+            .map_err(|error| SyncSummary::other(error.into()))?
+            .is_some_and(|group| group.membership_state == GroupMembershipState::Restored)
+        {
+            return Err(SyncSummary::other(GroupError::GroupInactive));
+        }
 
         if !self.is_active().map_err(SyncSummary::other)? {
             log_event!(

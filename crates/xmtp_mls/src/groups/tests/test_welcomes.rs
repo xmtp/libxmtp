@@ -152,6 +152,46 @@ async fn test_welcome_cursor() {
     assert!(alix2_refresh_state.0 > 0);
 }
 
+/// An archive can declare a non-DM type other than the type of a later
+/// Welcome for the same group id.
+// verifies: JOIN-081
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_placeholder_rejects_non_dm_type_change() {
+    use xmtp_db::group::{GroupMembershipState, QueryGroup};
+    use xmtp_db::incoming_envelope::{NetworkEntityKind, QueryIncomingEnvelope, StreamTopic};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None)?;
+    crate::utils::TestMlsGroup::insert(
+        &bo.context,
+        Some(group.group_id.as_ref()),
+        GroupMembershipState::Restored,
+        ConversationType::Sync,
+        PolicySet::default(),
+        GroupMetadataOptions::default(),
+        None,
+        false,
+    )?;
+    group.add_members(&[bo.inbox_id()]).await?;
+
+    assert!(bo.sync_welcomes().await?.is_empty());
+    let db = bo.db();
+    let topic = StreamTopic {
+        entity_id: bo.context.installation_id().to_vec(),
+        kind: NetworkEntityKind::Welcome,
+    };
+    let rejected = db
+        .read_last_rejection(&topic)?
+        .expect("the Welcome must be rejected");
+    assert_eq!(rejected.code, "invalid_welcome");
+    let stored = db
+        .find_group(&group.group_id)?
+        .expect("the placeholder must stay");
+    assert_eq!(stored.membership_state, GroupMembershipState::Restored);
+    assert_eq!(stored.conversation_type, ConversationType::Sync);
+}
+
 #[track_caller]
 fn assert_cursors(db: &impl DbQuery, db2: &impl DbQuery, group_id: &GroupId) {
     let msg = db

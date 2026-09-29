@@ -540,6 +540,7 @@ async fn test_max_past_epochs() {
     assert_eq!(alix_messages.len(), 3); // Fails here, 2 != 3
 }
 
+// verifies: DMS-003
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_validate_dm_group() {
     use crate::groups::build_group_config;
@@ -556,7 +557,9 @@ async fn test_validate_dm_group() {
 
     tester!(client);
     let added_by_inbox = hex::encode([0x42; 32]);
-    let make_group = |policies: PolicySet, changes: Vec<(ComponentId, Option<Vec<u8>>)>| {
+    let make_group = |policies: PolicySet,
+                      changes: Vec<(ComponentId, Option<Vec<u8>>)>,
+                      leaf_inbox: Option<&str>| {
         let mut dictionary = initial_dictionary(
             InitialGroupKind::Dm {
                 target_inbox_id: &added_by_inbox,
@@ -582,7 +585,9 @@ async fn test_validate_dm_group() {
             &identity.installation_keys,
             &config,
             CredentialWithKey {
-                credential: identity.credential(),
+                credential: leaf_inbox
+                    .map(|inbox| crate::identity::create_credential(inbox).unwrap())
+                    .unwrap_or_else(|| identity.credential()),
                 signature_key: identity.installation_keys.public_slice().into(),
             },
         )
@@ -590,7 +595,15 @@ async fn test_validate_dm_group() {
     };
     let validate =
         |group: &OpenMlsGroup| validate_dm_group(&client.context, group, &added_by_inbox);
-    assert!(validate(&make_group(PolicySet::new_dm(), vec![])).is_ok());
+    assert!(validate(&make_group(PolicySet::new_dm(), vec![], None)).is_ok());
+    assert!(
+        validate_dm_group(
+            &client.context,
+            &make_group(PolicySet::new_dm(), vec![], None),
+            client.inbox_id(),
+        )
+        .is_ok()
+    );
 
     // Metadata extraction already rejects a DM pair outside a DM, so drop
     // the pair to reach the type check itself.
@@ -603,6 +616,7 @@ async fn test_validate_dm_group() {
             ),
             (ComponentId::DM_MEMBERS, None),
         ],
+        None,
     );
     assert!(matches!(
         validate(&invalid_type),
@@ -611,7 +625,11 @@ async fn test_validate_dm_group() {
         ))
     ));
 
-    let missing_members = make_group(PolicySet::new_dm(), vec![(ComponentId::DM_MEMBERS, None)]);
+    let missing_members = make_group(
+        PolicySet::new_dm(),
+        vec![(ComponentId::DM_MEMBERS, None)],
+        None,
+    );
     assert!(matches!(
         validate(&missing_members),
         Err(MetadataPermissionsError::DmValidation(
@@ -627,6 +645,7 @@ async fn test_validate_dm_group() {
     let mismatched_members = make_group(
         PolicySet::new_dm(),
         vec![(ComponentId::DM_MEMBERS, Some(wrong_members))],
+        None,
     );
     assert!(matches!(
         validate(&mismatched_members),
@@ -638,7 +657,7 @@ async fn test_validate_dm_group() {
     for component in [ComponentId::ADMIN_LIST, ComponentId::SUPER_ADMIN_LIST] {
         let admins = TlsSet::from_keys([ComponentInboxId::from_hex(client.inbox_id())?])
             .tls_serialize_detached()?;
-        let group = make_group(PolicySet::new_dm(), vec![(component, Some(admins))]);
+        let group = make_group(PolicySet::new_dm(), vec![(component, Some(admins))], None);
         assert!(matches!(
             validate(&group),
             Err(MetadataPermissionsError::DmValidation(
@@ -650,7 +669,7 @@ async fn test_validate_dm_group() {
     let mut single_slot_invalid_permissions = PolicySet::new_dm();
     single_slot_invalid_permissions.add_member_policy = MembershipPolicies::allow();
     for policies in [PolicySet::default(), single_slot_invalid_permissions] {
-        let group = make_group(policies, vec![]);
+        let group = make_group(policies, vec![], None);
         assert!(matches!(
             validate(&group),
             Err(MetadataPermissionsError::DmValidation(
@@ -658,6 +677,91 @@ async fn test_validate_dm_group() {
             ))
         ));
     }
+
+    let own_inbox_admins = TlsSet::from_keys([ComponentInboxId::from_hex(client.inbox_id())?])
+        .tls_serialize_detached()?;
+    let own_inbox_invalid_role = make_group(
+        PolicySet::new_dm(),
+        vec![(ComponentId::ADMIN_LIST, Some(own_inbox_admins))],
+        None,
+    );
+    assert!(matches!(
+        validate_dm_group(&client.context, &own_inbox_invalid_role, client.inbox_id()),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::MustHaveEmptyAdminAndSuperAdmin
+        ))
+    ));
+
+    let mut own_inbox_invalid_policy = PolicySet::new_dm();
+    own_inbox_invalid_policy.add_member_policy = MembershipPolicies::allow();
+    let own_inbox_invalid_policy = make_group(own_inbox_invalid_policy, vec![], None);
+    assert!(matches!(
+        validate_dm_group(
+            &client.context,
+            &own_inbox_invalid_policy,
+            client.inbox_id()
+        ),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::InvalidPermissions
+        ))
+    ));
+
+    let third_inbox = hex::encode([0x43; 32]);
+    let initial = xmtp_mls_common::app_data::creation::initial_dictionary(
+        InitialGroupKind::Dm {
+            target_inbox_id: &added_by_inbox,
+        },
+        &PolicySet::new_dm().to_proto()?,
+        &GroupMetadataOptions::default(),
+        client.inbox_id(),
+        None,
+        &[],
+    )?;
+    let mut membership_entries =
+        xmtp_mls_common::app_data::migration::decode_group_membership_dict(
+            initial
+                .get(&ComponentId::GROUP_MEMBERSHIP.as_u16())
+                .unwrap(),
+        )?;
+    membership_entries.insert(
+        ComponentInboxId::from_hex(&third_inbox)?,
+        xmtp_proto::xmtp::mls::message_contents::GroupMembershipEntry {
+            version: Some(
+                xmtp_proto::xmtp::mls::message_contents::group_membership_entry::Version::V1(
+                    xmtp_proto::xmtp::mls::message_contents::group_membership_entry::V1 {
+                        sequence_id: 0,
+                        failed_installations: vec![],
+                    },
+                ),
+            ),
+        },
+    );
+    let foreign_membership = make_group(
+        PolicySet::new_dm(),
+        vec![(
+            ComponentId::GROUP_MEMBERSHIP,
+            Some(
+                xmtp_mls_common::app_data::migration::encode_group_membership_dict(
+                    &membership_entries,
+                )?,
+            ),
+        )],
+        None,
+    );
+    assert!(matches!(
+        validate(&foreign_membership),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::MemberOutsidePair
+        ))
+    ));
+
+    let foreign_leaf = make_group(PolicySet::new_dm(), vec![], Some(&third_inbox));
+    assert!(matches!(
+        validate(&foreign_leaf),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::MemberOutsidePair
+        ))
+    ));
 }
 
 #[xmtp_common::test]
@@ -857,4 +961,5 @@ fn queryable_fields_do_not_classify_custom_reply() {
 
 mod test_dictionary_creation;
 mod test_group_id;
+mod test_metadata_fields;
 mod test_profile_fields;

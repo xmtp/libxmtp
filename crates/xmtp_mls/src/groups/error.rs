@@ -240,6 +240,11 @@ pub enum GroupError {
     /// AppDataUpdate path. Not retryable.
     #[error("component source error: {0}")]
     ComponentSource(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
+    /// A metadata field read or write is invalid for the group's committed
+    /// fields: an unknown field, a wrong type, or a write the committed
+    /// state rejects. Not retryable.
+    #[error("metadata field error: {0}")]
+    MetadataField(#[from] xmtp_mls_common::app_data::fields::FieldError),
     /// AppData commit error.
     ///
     /// Failed to build or stage a commit that bundles an inline AppDataUpdate
@@ -531,9 +536,9 @@ impl RetryableError for GroupLeaveValidationError {
 
 #[derive(Error, Debug)]
 pub enum DmValidationError {
-    #[error("DM group must have DmMembers set")]
+    #[error("DM group must include our inbox in its member pair")]
     OurInboxMustBeMember,
-    #[error("DM group must have our inbox as one of the dm members")]
+    #[error("DM group must have DM_MEMBERS set")]
     MustHaveMembersSet,
     #[error("Invalid conversation type for DM group")]
     InvalidConversationType,
@@ -543,6 +548,14 @@ pub enum DmValidationError {
     MustHaveEmptyAdminAndSuperAdmin,
     #[error("Invalid permissions for DM group")]
     InvalidPermissions,
+    #[error("DM group membership is invalid")]
+    InvalidMembership,
+    #[error("DM group member credential is invalid")]
+    InvalidMemberCredential,
+    #[error("DM group includes an inbox outside its pair")]
+    MemberOutsidePair,
+    #[error("stored DM identifier does not match its validated pair")]
+    StoredDmIdMismatch,
 }
 
 impl RetryableError for DmValidationError {
@@ -553,7 +566,11 @@ impl RetryableError for DmValidationError {
             | Self::InvalidConversationType
             | Self::ExpectedInboxesDoNotMatch
             | Self::MustHaveEmptyAdminAndSuperAdmin
-            | Self::InvalidPermissions => false,
+            | Self::InvalidPermissions
+            | Self::InvalidMembership
+            | Self::InvalidMemberCredential
+            | Self::MemberOutsidePair
+            | Self::StoredDmIdMismatch => false,
         }
     }
 }
@@ -586,6 +603,7 @@ impl RetryableError for GroupError {
             Self::MinVersionDowngrade { .. } => false,
             Self::InvalidMinVersion { .. } => false,
             Self::ComponentSource(_) => false,
+            Self::MetadataField(_) => false,
             Self::AppDataCommit(e) => e.is_retryable(),
             // Bootstrap synthesis can fail on a transient identity-update
             // API blip — delegate to the inner error so we retry on
