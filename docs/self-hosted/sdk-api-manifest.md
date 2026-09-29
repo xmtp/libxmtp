@@ -3538,7 +3538,7 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/logger.rs` | `test_file_appender` | binding only: mobile logger, file appender, or OTLP slot |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_check_key_too_short` | façade: `crates/xmtp_sdk/src/archives.rs::archive_key_requires_exact_length` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_check_key_exact_length` | façade: `crates/xmtp_sdk/src/archives.rs::archive_key_requires_exact_length` |
-| `bindings/mobile/src/mls/device_sync/mod.rs` | `test_check_key_longer_gets_truncated` | binding only: legacy mobile truncation; the façade rejects extra bytes under ARCH-012 |
+| `bindings/mobile/src/mls/device_sync/mod.rs` | `test_check_key_too_long` | façade: `crates/xmtp_sdk/src/archives.rs::archive_key_requires_exact_length` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_check_key_empty` | façade: `crates/xmtp_sdk/src/archives.rs::archive_key_requires_exact_length` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_ffi_backup_element_selection_to_backup_element_selection` | façade: `crates/xmtp_sdk/src/archives.rs::archive_options_preserve_element_selection_and_time_bounds` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_backup_element_selection_to_ffi_backup_element_selection` | façade: `crates/xmtp_sdk/src/archives.rs::archive_metadata_keeps_fields_and_filters_unspecified` |

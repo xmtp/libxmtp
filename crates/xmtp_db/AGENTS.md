@@ -6,6 +6,8 @@ Storage. Diesel over encrypted SQLite (SQLCipher).
 
 ```bash
 just check crate xmtp_db
+dev/nix-shell 'dev/agent-run cargo bench -p xmtp_db --features bench --bench conversation_list'
+# Set XMTP_BENCH_CONVERSATIONS=50000 for a larger data set.
 just test crate xmtp_db
 just test workspace -p xmtp_db --ignore-default-filter test_it_stores_group   # one test
 just test workspace -p xmtp_db encrypted_store::group::   # one module

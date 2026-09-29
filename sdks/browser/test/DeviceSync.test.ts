@@ -97,6 +97,20 @@ describe("DeviceSync", () => {
     expect(updatedConsentState).toBe(ConsentState.Allowed);
   });
 
+  // An archive key must be exactly 32 bytes: a longer key is rejected rather
+  // than truncated, which would let every key sharing its first 32 bytes open
+  // the archive.
+  // verifies: ARCH-012
+  it("should reject an archive key that is not 32 bytes", async () => {
+    const { signer } = createSigner();
+    const alix = await createRegisteredClient(signer);
+    for (const length of [31, 33]) {
+      await expect(alix.createArchive(new Uint8Array(length))).rejects.toThrow(
+        `archive key must be 32 bytes, got ${length}`,
+      );
+    }
+  });
+
   it("should export and import a local archive", async () => {
     const { signer: boSigner } = createSigner();
     const { signer: alixSigner } = createSigner();

@@ -421,6 +421,10 @@ where
             &opts,
             creator_inbox_id,
             signer.as_ref().map(|key| key.as_slice()),
+            &context
+                .server_configuration()
+                .configuration()
+                .application_components,
         )
         .map_err(app_data::migration::BootstrapSynthesisError::from)?;
         let group_config = build_group_config(dictionary)?;
@@ -655,6 +659,10 @@ where
             &opts,
             context.inbox_id(),
             signer.as_ref().map(|key| key.as_slice()),
+            &context
+                .server_configuration()
+                .configuration()
+                .application_components,
         )
         .map_err(app_data::migration::BootstrapSynthesisError::from)?;
         let group_config = build_group_config(dictionary)?;

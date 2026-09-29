@@ -5,6 +5,13 @@
 //! values. A client fetches them once, stores them, and holds one immutable
 //! snapshot for the life of the client. Consumers never read the database for
 //! a configuration value; they read the provider.
+//!
+//! The snapshot also carries the operator's application component catalogue
+//! ([`ApplicationComponentDefinition`]). It is a sending catalogue: a client
+//! copies an entry into the registry of a conversation it creates, and the
+//! committed group registry, never this snapshot, governs what it receives.
+//! [`validate_application_components`] holds the structural rules that the
+//! backend applies at startup and a client applies before it stores an answer.
 
 use crate::{
     BACKEND_DEFAULT_GROUP_MESSAGE_SECONDS, BACKEND_DEFAULT_KEY_PACKAGE_SECONDS,
@@ -53,6 +60,13 @@ pub const MAX_SERVER_IDENTIFIER_BYTES: usize = 256;
 /// rather than reading a number the deployment never published.
 pub const MAX_PUBLISHED_VALUE: u64 = 9_007_199_254_740_991;
 
+/// Component IDs an operator may define, `0xC000`–`0xFEFF`. The group
+/// metadata ID ranges derive from this, so both sides agree on one range.
+pub const APPLICATION_COMPONENT_IDS: std::ops::RangeInclusive<u16> = 0xC000..=0xFEFF;
+
+/// Longest application component name, in UTF-8 bytes.
+pub const MAX_APPLICATION_COMPONENT_NAME_BYTES: usize = 100;
+
 /// Why a published configuration cannot be used.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ServerConfigurationError {
@@ -66,6 +80,65 @@ pub enum ServerConfigurationError {
     Chain { chain: String },
     #[error("{field} is {value}, above the {MAX_PUBLISHED_VALUE} an SDK integer holds exactly")]
     Magnitude { field: &'static str, value: u64 },
+    #[error("application_components[{index}]: {reason}")]
+    ApplicationComponent {
+        index: usize,
+        reason: ApplicationComponentError,
+    },
+}
+
+/// Why one application component definition cannot be used. Carries no
+/// value from the definition, so the backend can report it for a document
+/// whose contents came from the environment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ApplicationComponentError {
+    #[error("component_id must be in 0xC000-0xFEFF")]
+    ComponentId,
+    #[error("name must be 1 to {MAX_APPLICATION_COMPONENT_NAME_BYTES} UTF-8 bytes")]
+    Name,
+    #[error("component_type must be set")]
+    ComponentType,
+    #[error("insert, update, and delete policies must all be set and non-empty")]
+    Permissions,
+    #[error("in_groups or in_dms must be true")]
+    Conversations,
+    #[error("component_id repeats an earlier definition")]
+    DuplicateId,
+    #[error("name repeats an earlier definition")]
+    DuplicateName,
+}
+
+/// Check each definition alone, then the catalogue for repeated IDs and
+/// names. The error carries the position of the first failing definition.
+///
+/// A type tag or base policy this build does not know is accepted: a newer
+/// backend may publish one, and the entry's group registry, not this check,
+/// decides what a conversation accepts. A clash with a well-known component
+/// name is the backend's check alone, because a later release may add a
+/// well-known name that a deployment already uses.
+// implements: CONF-071, CONF-078
+pub fn validate_application_components(
+    definitions: &[ApplicationComponentDefinition],
+) -> Result<(), (usize, ApplicationComponentError)> {
+    let mut ids = std::collections::HashSet::new();
+    let mut names = std::collections::HashSet::new();
+    definitions
+        .iter()
+        .enumerate()
+        .try_for_each(|(index, definition)| {
+            definition
+                .validate()
+                .and_then(|()| {
+                    if !ids.insert(definition.component_id) {
+                        return Err(ApplicationComponentError::DuplicateId);
+                    }
+                    if !names.insert(definition.name.as_str()) {
+                        return Err(ApplicationComponentError::DuplicateName);
+                    }
+                    Ok(())
+                })
+                .map_err(|reason| (index, reason))
+        })
 }
 
 /// Check the shape of an operator identifier. The backend refuses to start
@@ -250,6 +323,88 @@ impl LimitsConfiguration {
     }
 }
 
+/// A group metadata permission policy, mirroring the wire `MetadataPolicy`.
+///
+/// Tags stay raw integers so a policy this build does not know survives the
+/// trip from the backend to a group registry unchanged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MetadataPolicy {
+    /// A `MetadataBasePolicy` tag. `0`, unspecified, also stands for a wire
+    /// policy with no kind set; validation refuses both.
+    Base(i32),
+    /// Every policy must allow.
+    And(Vec<MetadataPolicy>),
+    /// At least one policy must allow.
+    Any(Vec<MetadataPolicy>),
+}
+
+impl MetadataPolicy {
+    /// False when some branch is unspecified or an empty condition, which no
+    /// evaluator can apply. An unknown positive tag passes: a newer client may
+    /// know it.
+    fn is_specified(&self) -> bool {
+        match self {
+            Self::Base(base) => *base > 0,
+            Self::And(policies) | Self::Any(policies) => {
+                !policies.is_empty() && policies.iter().all(Self::is_specified)
+            }
+        }
+    }
+}
+
+/// The member policies of one component. `None` is a policy the definition
+/// left out, which a valid definition never does.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ComponentPermissions {
+    pub insert: Option<MetadataPolicy>,
+    pub update: Option<MetadataPolicy>,
+    pub delete: Option<MetadataPolicy>,
+}
+
+/// One operator-defined group metadata field. A client registers it in a new
+/// group when `in_groups` is set and in a new DM when `in_dms` is set.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ApplicationComponentDefinition {
+    /// In [`APPLICATION_COMPONENT_IDS`]. A published ID that does not fit in
+    /// a `u16` saturates to `u16::MAX`, which is outside that range.
+    pub component_id: u16,
+    /// A stable label and lookup key, 1 to
+    /// [`MAX_APPLICATION_COMPONENT_NAME_BYTES`] UTF-8 bytes.
+    pub name: String,
+    /// A `ComponentType` tag, never `0` (unspecified).
+    pub component_type: i32,
+    pub permissions: ComponentPermissions,
+    pub in_groups: bool,
+    pub in_dms: bool,
+}
+
+impl ApplicationComponentDefinition {
+    /// The rules one definition must meet on its own.
+    pub fn validate(&self) -> Result<(), ApplicationComponentError> {
+        let ComponentPermissions {
+            insert,
+            update,
+            delete,
+        } = &self.permissions;
+        if !APPLICATION_COMPONENT_IDS.contains(&self.component_id) {
+            Err(ApplicationComponentError::ComponentId)
+        } else if self.name.is_empty() || self.name.len() > MAX_APPLICATION_COMPONENT_NAME_BYTES {
+            Err(ApplicationComponentError::Name)
+        } else if self.component_type <= 0 {
+            Err(ApplicationComponentError::ComponentType)
+        } else if ![insert, update, delete]
+            .iter()
+            .all(|policy| policy.as_ref().is_some_and(MetadataPolicy::is_specified))
+        {
+            Err(ApplicationComponentError::Permissions)
+        } else if !self.in_groups && !self.in_dms {
+            Err(ApplicationComponentError::Conversations)
+        } else {
+            Ok(())
+        }
+    }
+}
+
 /// Advisory group shapes. The backend publishes them and does not enforce them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MlsConfiguration {
@@ -306,12 +461,16 @@ pub struct ServerConfiguration {
     /// CAIP-2 chain ids this deployment verifies smart contract wallet
     /// signatures on. Empty rejects every app-supplied signature.
     pub smart_contract_wallet_chains: Vec<String>,
+    /// Group metadata fields a client registers in the conversations it
+    /// creates, in published order.
+    pub application_components: Vec<ApplicationComponentDefinition>,
 }
 
 impl ServerConfiguration {
     /// The identifier must be well formed, any
-    /// minimum version must parse, every chain must be CAIP-2, and every
-    /// numeric value must survive the trip to an SDK integer intact.
+    /// minimum version must parse, every chain must be CAIP-2, every
+    /// numeric value must survive the trip to an SDK integer intact, and the
+    /// application catalogue must pass [`validate_application_components`].
     // implements: CONF-071
     pub fn validate(&self) -> Result<(), ServerConfigurationError> {
         validate_server_identifier(&self.identifier)?;
@@ -323,7 +482,10 @@ impl ServerConfiguration {
                 });
             }
         }
-        self.validate_magnitudes()
+        self.validate_magnitudes()?;
+        validate_application_components(&self.application_components).map_err(|(index, reason)| {
+            ServerConfigurationError::ApplicationComponent { index, reason }
+        })
     }
 
     /// §7: every `uint64` reaches JavaScript as a `number`, so a value above

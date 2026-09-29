@@ -9,9 +9,7 @@ use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::worker::device_sync::{
   ArchiveOptions as XmtpArchiveOptions, BackupElementSelection,
-  archive::{
-    ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
-  },
+  archive::{ArchiveImporter, BackupMetadata, check_key, exporter, insert_importer},
 };
 use xmtp_proto::xmtp::device_sync::BackupElementSelection as BackupElementSelectionProto;
 
@@ -130,19 +128,6 @@ impl From<BackupMetadata> for ArchiveMetadata {
   }
 }
 
-fn check_key(key: &Uint8Array) -> Result<Vec<u8>, JsError> {
-  let key_vec = key.to_vec();
-  if key_vec.len() < 32 {
-    return Err(JsError::new(&format!(
-      "The encryption key must be at least {} bytes long.",
-      ENC_KEY_SIZE
-    )));
-  }
-  let mut key = key_vec;
-  key.truncate(ENC_KEY_SIZE);
-  Ok(key)
-}
-
 #[wasm_bindgen]
 pub struct DeviceSync {
   inner_client: Arc<RustXmtpClient>,
@@ -163,19 +148,16 @@ impl DeviceSync {
     opts: ArchiveOptions,
     key: Uint8Array,
   ) -> Result<Uint8Array, JsError> {
-    use futures::AsyncReadExt;
-
-    let key = check_key(&key)?;
-    let db = self.inner_client.context.db();
-    let mut exporter = ArchiveExporter::new(opts.into(), db, &key);
-
-    let mut buffer = Vec::new();
-    exporter
-      .read_to_end(&mut buffer)
-      .await
-      .map_err(|e| JsError::new(&format!("Failed to export archive: {}", e)))?;
-
-    Ok(Uint8Array::from(buffer.as_slice()))
+    let key = key.to_vec();
+    let mut archive = Vec::new();
+    exporter::export(
+      opts.into(),
+      self.inner_client.context.db(),
+      &key,
+      &mut archive,
+    )
+    .map_err(ErrorWrapper::js)?;
+    Ok(Uint8Array::from(archive.as_slice()))
   }
 
   /// Import an archive from bytes.
@@ -183,17 +165,18 @@ impl DeviceSync {
   pub async fn import_archive(&self, data: Uint8Array, key: Uint8Array) -> Result<(), JsError> {
     use futures::io::{BufReader, Cursor};
 
-    let key = check_key(&key)?;
+    let key = key.to_vec();
+    check_key(&key).map_err(ErrorWrapper::js)?;
     let data = data.to_vec();
 
     let reader = Box::pin(BufReader::new(Cursor::new(data)));
     let mut importer = ArchiveImporter::load(reader, &key)
       .await
-      .map_err(|e| JsError::new(&format!("Failed to load archive: {}", e)))?;
+      .map_err(ErrorWrapper::js)?;
 
     insert_importer(&mut importer, &self.inner_client.context)
       .await
-      .map_err(|e| JsError::new(&format!("Failed to import archive: {}", e)))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(())
   }
@@ -207,13 +190,14 @@ impl DeviceSync {
   ) -> Result<ArchiveMetadata, JsError> {
     use futures::io::{BufReader, Cursor};
 
-    let key = check_key(&key)?;
+    let key = key.to_vec();
+    check_key(&key).map_err(ErrorWrapper::js)?;
     let data = data.to_vec();
 
     let reader = Box::pin(BufReader::new(Cursor::new(data)));
     let importer = ArchiveImporter::load(reader, &key)
       .await
-      .map_err(|e| JsError::new(&format!("Failed to load archive: {}", e)))?;
+      .map_err(ErrorWrapper::js)?;
 
     Ok(importer.metadata.into())
   }

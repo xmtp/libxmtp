@@ -59,6 +59,7 @@ async fn test_permission_updates_preserve_pending_fields() {
                         PermissionPolicyOption::Deny,
                         None,
                     ),
+                    &[],
                     &author.context.identity().installation_keys,
                     false,
                 )
@@ -824,23 +825,21 @@ async fn test_accumulate_app_data_updates_chains_intra_batch() {
     use crate::groups::app_data::accumulate_app_data_updates;
     use openmls::messages::proposals::AppDataUpdateOperation;
     use tls_codec::Deserialize;
-    use xmtp_mls_common::app_data::component_source;
+    use tls_codec::Serialize;
     use xmtp_mls_common::{
-        app_data::component_id::ComponentId, inbox_id::InboxId, tls_set::TlsSet,
+        app_data::component_id::ComponentId,
+        inbox_id::InboxId,
+        tls_set::{TlsSet, TlsSetDelta},
     };
 
     tester!(alix);
     let alix_group = alix.create_group(None, None)?;
 
-    let alice = hex::encode([0x01u8; 32]);
-    let bob = hex::encode([0x02u8; 32]);
+    let alice = InboxId::from_bytes([0x01; 32]);
+    let bob = InboxId::from_bytes([0x02; 32]);
 
-    let alice_insert = component_source::encode_app_data_update_payload(
-        &component_source::ComponentMutation::AdminListAdd { inbox_id: &alice },
-    )?;
-    let bob_insert = component_source::encode_app_data_update_payload(
-        &component_source::ComponentMutation::AdminListAdd { inbox_id: &bob },
-    )?;
+    let alice_insert = TlsSetDelta::new().insert(alice).tls_serialize_detached()?;
+    let bob_insert = TlsSetDelta::new().insert(bob).tls_serialize_detached()?;
     let op_alice = AppDataUpdateOperation::Update(alice_insert.into());
     let op_bob = AppDataUpdateOperation::Update(bob_insert.into());
     let openmls_id = ComponentId::ADMIN_LIST.as_u16();

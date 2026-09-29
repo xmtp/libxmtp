@@ -58,7 +58,10 @@ The backend validates its configuration before it serves. The checks below are t
 | CONF-066 | Disabled auth table is not validated | While the `[auth]` table has `enabled` set to `false`, the backend MUST start without validating the other keys of that table and MUST NOT fetch a key set. | |
 | CONF-008 | Request budgets fit the transport | When the configured `max_request_bytes` or `max_response_bytes` is greater than the transport ceiling API-282 states, the backend MUST refuse to start. | A larger budget publishes a request size the transport refuses to carry, so a client sized to it fails every large request. |
 | CONF-009 | Public configuration stays small | When the encoded `GetConfigurationResponse` the backend would publish is longer than 65536 bytes (64 KiB), the backend MUST refuse to start. | The message is served without a credential, so an unbounded one is an amplification source. Bounding the whole message bounds every list in it without a limit per list. |
+| CONF-078 | Valid application catalogue | When an operator configures an application component, the backend MUST refuse to start unless its `component_id` is in `0xC000`–`0xFEFF`, its `name` contains 1 to 100 UTF-8 bytes, its `component_type` is one of the seven types in META section 2, all three member policies are present, and at least one of `in_groups` and `in_dms` is true; it MUST refuse duplicate IDs or names and a name equal to a well-known component name in META section 2. | An unusable or ambiguous definition would be published to every client, and a duplicate name makes name lookup ambiguous. |
 | CONF-065 | Refusal names the key | When the backend refuses to start under a rule in this section, it MUST report the configuration key that failed, or that the public configuration is too large. | |
+
+Application component definitions are a sending catalogue: a client copies them into the registry of a conversation it creates or refreshes, and the committed group registry, not the catalogue, governs every received change. CONF-009 applies to the response including the catalogue. Operator documentation states that a published definition's ID, name, type, policies, and conversation selection should stay stable, because a change reaches only conversations that register the ID later; no receive-side rule depends on that advice.
 
 API-282 states the transport ceiling and the failure rule for a message above the ceiling or byte budget. API-281 owns the status codes.
 
@@ -129,6 +132,17 @@ message MlsConfiguration {
   optional bool commit_log_enabled = 3;
 }
 
+// One operator-defined application component. A client registers it in the
+// conversations the flags select; it carries no initial value.
+message ApplicationComponentDefinition {
+  uint32 component_id = 1;
+  string name = 2;
+  xmtp.mls.message_contents.ComponentType component_type = 3;
+  xmtp.mls.message_contents.ComponentPermissions permissions = 4;
+  bool in_groups = 5;
+  bool in_dms = 6;
+}
+
 message GetConfigurationResponse {
   // Stable operator-chosen name for this deployment. Never changes once
   // clients have connected.
@@ -145,6 +159,8 @@ message GetConfigurationResponse {
   // Attachment storage this deployment offers; absent when it offers none.
   // The message and its rules are owned by ATCH section 1.
   xmtp.backend.v1.AttachmentsConfiguration attachments = 9;
+  // Sorted by component_id ascending.
+  repeated ApplicationComponentDefinition application_components = 10;
 }
 ```
 
@@ -152,6 +168,7 @@ message GetConfigurationResponse {
 | --- | --- | --- | --- |
 | CONF-017 | Public configuration wire format | The backend MUST answer `GetConfiguration` with the `GetConfigurationResponse` defined above, with the field numbers and types shown, and MUST NOT reuse a field number of any message above for another meaning. | |
 | CONF-010 | Published without a credential | The backend MUST answer `GetConfiguration` for a request that carries no credential, whatever the configured `auth.enabled`. | A client cannot learn that credentials are required if learning it requires one. |
+| CONF-079 | Publish application catalogue | When the backend answers `GetConfiguration`, it MUST set `application_components` to every configured application component under the wire block in section 2.1, sorted by `component_id` ascending. | Clients need a stable public view of the operator's field definitions. |
 | CONF-011 | Nothing secret is published | The backend MUST NOT place in any field of `GetConfigurationResponse` a signing key's key material, a JWKS URL, a database URL, a chain RPC URL, or an API key value. | The message has no access control, so the only protection a value has is not being in it. |
 | CONF-012 | Stable for a process | While a backend process is running, it MUST answer every `GetConfiguration` with the same `GetConfigurationResponse`. | |
 | CONF-069 | Published values are the applied values | The backend MUST set every field of `LimitsConfiguration` and `RetentionConfiguration` to the value it enforces or applies for that key, every field of `MlsConfiguration` to the configured value, and `min_libxmtp_version` to the configured minimum or to the empty string when none is configured. It MUST NOT set a numeric field of those three messages to 0. | A client reads 0 as "not provided" (CONF-025), so a 0 for a value the backend enforces tells the client to use a different one. |
@@ -217,13 +234,15 @@ The identifier binds the database to a deployment. The URL does not, because an 
 
 A client validates an answer before it stores it (CONF-071). A `uint64` above 2^53 - 1 is rejected because the JavaScript number cannot hold it exactly.
 
+A client does not require the application catalogue sorted, and accepts a `component_type` or policy value it does not know and a name equal to a well-known component name, all of which the backend refuses (CONF-078, CONF-079). A newer deployment may publish any of them, and the committed group registry, not the catalogue, governs what a conversation accepts.
+
 An app may create a client that does no network work (CONF-034). A client told to reach the deployment that cannot fails under CONF-027 and does not fall back to working offline.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | CONF-026 | Fetch before other work | When a client that may reach the backend is created on a database with no stored copy, the client MUST send `GetConfiguration`, apply CONF-071 and CONF-030 to the answer, and store the answer with the backend URL, before it sends any other request. | Identity work is sized by the limits and bound by the identifier. Run first, it can register an installation on the wrong deployment. |
 | CONF-027 | Failed first fetch | If the fetch under CONF-026 or CONF-033 fails, or its answer cannot be stored, then the client MUST fail creation and MUST NOT use the compiled defaults in place of the answer. | Compiled defaults would bind the database to nothing and size every request to values this deployment never published. |
-| CONF-071 | Reject an unusable answer | If a `GetConfigurationResponse` carries an `identifier` that CONF-002 would refuse, a non-empty `min_libxmtp_version` that is not a version under [Semantic Versioning 2.0.0 §2](https://semver.org/spec/v2.0.0.html#spec-item-2), a `smart_contract_wallet_chains` entry that does not match the syntax of [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-2.md#syntax), or a `uint64` or `uint32` field of `retention`, `limits`, or `mls` greater than 9007199254740991, then the client MUST reject it and MUST NOT store it. | |
+| CONF-071 | Reject an unusable answer | If a `GetConfigurationResponse` carries an `identifier` that CONF-002 would refuse, a non-empty `min_libxmtp_version` that is not a version under [Semantic Versioning 2.0.0 §2](https://semver.org/spec/v2.0.0.html#spec-item-2), a `smart_contract_wallet_chains` entry that does not match the syntax of [CAIP-2](https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-2.md#syntax), a `uint64` or `uint32` field of `retention`, `limits`, or `mls` greater than 9007199254740991, or an `application_components` entry whose `component_id` is outside `0xC000`–`0xFEFF`, whose `name` is not 1 to 100 UTF-8 bytes, whose `component_type` is not positive, whose member policy is absent, unspecified, or an empty condition at any depth, whose `in_groups` and `in_dms` are both false, or whose `component_id` or `name` repeats an earlier entry's, then the client MUST reject it and MUST NOT store it. | |
 | CONF-029 | Fetch carries no credential | When the client sends `GetConfiguration`, it MUST NOT attach a credential and MUST NOT invoke the app's credential source. | |
 | CONF-030 | Identifier binds the database | When a `GetConfigurationResponse` carries an `identifier` that differs from the stored copy's non-empty `identifier`, the client MUST record the received identifier as a conflict in the stored copy, MUST block the connection with a backend mismatch naming both identifiers whether or not the record succeeded, and MUST NOT store the answer. | Stored positions, group state, and identity state are meaningful only against the deployment that issued them. |
 | CONF-072 | A recorded conflict fails creation | When a client is created on a database whose stored copy records a conflict, the client MUST fail creation with a backend mismatch naming the stored and the conflicting identifier, without sending any request. | |
