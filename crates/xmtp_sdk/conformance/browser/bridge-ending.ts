@@ -98,6 +98,37 @@ export function registerEndingTests(): void {
     expect(reads).toBe(1);
   });
 
+  // A read queued behind an aborted read still waits for the read before it.
+  it("keeps a later read behind the read before an aborted read", async () => {
+    const release = latch();
+    let reads = 0;
+    const { engine, session } = host(async (key) => {
+      if (key === "MessageReader.next") {
+        reads++;
+        if (reads === 1) await release.promise;
+        return { id: `read ${reads}` };
+      }
+      return undefined;
+    });
+    await session.ready();
+    const owner = engine.registry.add({}, "Client");
+    const reader = engine.registry.add({}, "MessageReader", owner.owner);
+    const first = session.call("MessageReader.next", [], reader);
+    const abort = new AbortController();
+    const second = session
+      .call("MessageReader.next", [], reader, abort.signal)
+      .catch((error: unknown) => error);
+    abort.abort();
+    expect(await second).toMatchObject({ code: "Cancelled" });
+    const third = session.call("MessageReader.next", [], reader);
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+    expect(reads).toBe(1);
+    release.resolve();
+    expect(await first).toEqual({ id: "read 1" });
+    expect(await third).toEqual({ id: "read 2" });
+    expect(reads).toBe(2);
+  });
+
   // Worker death fails a queued read with the worker's error.
   it("rejects a queued read with WorkerTerminated when the worker ends", async () => {
     const { engine, session } = host(async (key) => {
