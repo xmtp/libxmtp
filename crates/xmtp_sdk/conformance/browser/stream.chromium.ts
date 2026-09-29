@@ -8,10 +8,9 @@ import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
-import {
-  Client,
-  MessageStream,
-} from "../../../../target/sdk-generated/typescript-wasm/index";
+import { MessageStream } from "../../../../target/sdk-generated/typescript-wasm/index";
+// Transport tests use the worker proxy Client with their own session.
+import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,

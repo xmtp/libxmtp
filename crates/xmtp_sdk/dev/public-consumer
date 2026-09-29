@@ -2,7 +2,6 @@
 # Stage the generated SDK as separate public products, then compile separate
 # consumer projects against them. The consumers call the retained public
 # surface from the approved plan. Negative probes must fail on visibility.
-# The browser public root is not staged yet.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -10,7 +9,7 @@ cd "$root"
 generated=target/sdk-generated
 stage=target/sdk-public
 fixtures=crates/xmtp_sdk/conformance/public
-for language in swift kotlin typescript-napi; do
+for language in swift kotlin typescript-napi typescript-wasm; do
   if [ ! -d "$generated/$language/runtime" ]; then
     echo "missing $generated/$language; run 'just sdk generate' first" >&2
     exit 1
@@ -66,6 +65,27 @@ nix build --no-link .#ubjs-core .#ubjs-node
 ln -sfn "$(nix path-info .#ubjs-core)/lib/node_modules/@ubjs/core" "$node_package/node_modules/@ubjs/core"
 ln -sfn "$(nix path-info .#ubjs-node)/lib/node_modules/@ubjs/node" "$node_package/node_modules/@ubjs/node"
 cp -R "$fixtures/node/src" "$fixtures/node/negative" "$node_consumer/"
+
+# Browser: install the worker package and its pure module side by side, as the
+# package imports the pure module from a sibling directory. The exports map
+# names only the root. The compile gate does not load WASM, so it is not copied.
+browser_consumer="$stage/browser-consumer"
+browser_package="$browser_consumer/node_modules/xmtp-sdk-browser"
+for part in typescript-wasm typescript-pure; do
+  (cd "$generated/$part" && find . \( -name '*.ts' -o -name '*.js' \) -not -path './node_modules/*') |
+    while IFS= read -r file; do
+      mkdir -p "$browser_package/$part/$(dirname "$file")"
+      cp "$generated/$part/$file" "$browser_package/$part/$file"
+    done
+done
+cat > "$browser_package/package.json" <<'JSON'
+{"name":"xmtp-sdk-browser","private":true,"type":"module","exports":{".":"./typescript-wasm/index.ts","./pure":"./typescript-pure/index.ts"}}
+JSON
+nix build --no-link .#ubjs-wasm
+mkdir -p "$browser_package/node_modules/@ubjs"
+ln -sfn "$(nix path-info .#ubjs-core)/lib/node_modules/@ubjs/core" "$browser_package/node_modules/@ubjs/core"
+ln -sfn "$(nix path-info .#ubjs-wasm)/lib/node_modules/@ubjs/wasm" "$browser_package/node_modules/@ubjs/wasm"
+cp -R "$fixtures/browser/src" "$fixtures/browser/negative" "$browser_consumer/"
 
 log="$(mktemp)"
 swift_negative="$fixtures/swift/Sources/PublicConsumer/RawAccess.swift"
@@ -134,3 +154,22 @@ grep -q "TS2614: Module '\"xmtp-sdk\"' has no exported member 'bindingClient'" "
 grep -q "TS2307: Cannot find module 'xmtp-sdk/xmtp_sdk'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
 echo "Node public consumer cannot reach the binding Client"
+
+browser_build() {
+  node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext \
+    --moduleResolution bundler --allowImportingTsExtensions --lib es2022,dom,dom.iterable "$@"
+}
+if ! browser_build "$browser_consumer"/src/*.ts >"$log" 2>&1; then
+  cat "$log" >&2
+  echo "Browser public consumer failed to compile" >&2
+  exit 1
+fi
+echo "Browser public consumer compiled against the installed xmtp-sdk-browser package"
+if browser_build "$browser_consumer/negative/raw.ts" >"$log" 2>&1; then
+  echo "Browser raw-access probe compiled" >&2
+  exit 1
+fi
+grep -q "has no exported member 'wrapClient'" "$log"
+grep -q "TS2307: Cannot find module 'xmtp-sdk-browser/typescript-wasm/runtime/bridge/main/session'" "$log"
+grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
+echo "Browser public consumer cannot reach the worker proxy or its session"

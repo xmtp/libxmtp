@@ -1,5 +1,9 @@
 import * as Pure from "../typescript-pure/xmtp_sdk.js";
 import type { Client } from "./proxy.gen.js";
+import {
+  wrapClient,
+  type Client as PublicClient,
+} from "./public-client.gen.js";
 import type { MainSession } from "./runtime/bridge/main/session.js";
 import {
   codecKey,
@@ -220,10 +224,11 @@ export class Message extends B.Message {
     return this.data.inReplyTo;
   }
 
-  client(): Client {
+  client(): PublicClient {
     const value = owner(this.session, this.data.clientKey)?.client.deref();
     if (!value) throw closed();
-    return value;
+    // A Message returns the public Client that wraps its worker proxy.
+    return wrapClient(value);
   }
 
   async refresh(): Promise<Message | undefined> {

@@ -11,10 +11,11 @@ import {
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen";
 import {
-  Client,
   Message,
   MessageStream,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
+// Transport tests use the worker proxy Client with their own session.
+import { Client } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/proxy.gen";
 import { MainSession } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,

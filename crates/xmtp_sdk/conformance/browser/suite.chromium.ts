@@ -1,12 +1,13 @@
 import * as Pure from "../../../../target/sdk-generated/typescript-pure/index";
 import { CONTRACT_HASH } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import {
-  Client,
   ConversationStream,
   EventStream,
   Message,
   MessageStream,
 } from "../../../../target/sdk-generated/typescript-wasm/index";
+// Transport tests use the worker proxy Client with their own session.
+import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
 import { Backend } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 import {
@@ -734,7 +735,11 @@ export async function runBrowserBridgeConformance(
     ];
     const checkMixedCanMessage = (result: Map<string, boolean>) => {
       equal(result.size, 3, "canMessage lost an identity kind");
-      equal(result.get(`ethereum:${sameText}`), false, "Ethereum value changed");
+      equal(
+        result.get(`ethereum:${sameText}`),
+        false,
+        "Ethereum value changed",
+      );
       equal(result.get(`passkey:${sameText}`), false, "passkey value changed");
       equal(
         result.get(`ethereum:${identity.identifier}`),

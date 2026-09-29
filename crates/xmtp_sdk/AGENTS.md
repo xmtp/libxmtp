@@ -41,15 +41,15 @@ Run commands from the repository root in the Nix shell. Run
   Run `just sdk generate` first after SDK or runtime changes.
 - `just sdk conformance-bridge-unit <vitest arguments>` runs focused bridge
   unit tests against the staged SDK.
-- `just sdk public-consumer` stages the generated Swift, Kotlin, and Node SDKs
-  as separate public products under `target/sdk-public/`. It then compiles
-  separate consumers in `conformance/public/`: a SwiftPM package, an Android
-  library that uses a real `Context`, and a TypeScript project that installs
-  the Node package in `node_modules`. The consumers call the retained host
-  Client surface, the identity methods, received identity, and Message
-  actions. Negative probes check that the binding Client, its factories, and
-  private package paths stay private. Run `just sdk generate` first. The
-  browser public root is not staged yet.
+- `just sdk public-consumer` stages the generated Swift, Kotlin, Node, and
+  browser SDKs as separate public products under `target/sdk-public/`. It then
+  compiles separate consumers in `conformance/public/`: a SwiftPM package, an
+  Android library that uses a real `Context`, and TypeScript projects that
+  install the Node and browser packages in `node_modules`. The consumers call
+  the retained host Client surface, the identity methods, received identity,
+  and Message actions. Negative probes check that the binding Client, its
+  factories, the generated identity routes, the browser worker session, and
+  private package paths stay private. Run `just sdk generate` first.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

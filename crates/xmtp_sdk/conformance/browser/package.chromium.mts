@@ -155,6 +155,18 @@ try {
   console.log(
     "Chromium shared projection registered a client through projected signer callbacks",
   );
+  const beforeRoot = await counts();
+  await page.evaluate(async () =>
+    (await import("./public-root.chromium.ts")).exercise(),
+  );
+  await waitForTermination(beforeRoot.terminated + 1);
+  assert.deepEqual(await counts(), {
+    created: beforeRoot.created + 1,
+    terminated: beforeRoot.terminated + 1,
+  });
+  console.log(
+    "Chromium public root Client ran in the package worker without a session",
+  );
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );

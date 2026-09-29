@@ -1208,6 +1208,44 @@ fn render(
             proxy.push_str("}\n");
         }
     }
+    // Each exported function runs in the worker. The package Client wraps these
+    // with the package session; apps do not pass a session.
+    for op in operations.iter().filter(|op| op.owner.is_none()) {
+        let parameters = op
+            .inputs
+            .iter()
+            .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let args = op
+            .inputs
+            .iter()
+            .map(|(name, ty)| format!("encoder.convert({}, {name})", shape(ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let result = op
+            .output
+            .as_ref()
+            .map(ts_type)
+            .unwrap_or_else(|| "void".into());
+        let comma = if parameters.is_empty() { "" } else { ", " };
+        writeln!(
+            proxy,
+            "export async function {}(session: MainSession{comma}{parameters}): Promise<{result}> {{\n{}  installErrorDecoder(session);\n  const raw = await session.call(\"{}\", () => [{args}]);",
+            op.name,
+            if op.inputs.is_empty() {
+                ""
+            } else {
+                "  const encoder = mainEncoder(session);\n"
+            },
+            op.key
+        )?;
+        match &op.output {
+            Some(ty) => writeln!(proxy, "  return {};", decode_expr(ty, "raw", "session"))?,
+            None => proxy.push_str("  void raw;\n"),
+        }
+        proxy.push_str("}\n");
+    }
     proxy.push_str("export function proxyFor(session: MainSession, handle: HandleWire): RemoteObject {\n  session.checkHandle(handle);\n  const existing = session.proxy(handle); if (existing) return existing;\n  switch (handle.type) {\n");
     for item in items {
         if let Metadata::Object(object) = item
@@ -1322,6 +1360,7 @@ fn render(
         "codec.worker.gen.ts",
         "stubs.gen.ts",
         "reverse.gen.ts",
+        "public-client.gen.ts",
         "conformance.gen.test.ts",
     ] {
         let template = match name {
@@ -1333,6 +1372,7 @@ fn render(
             "codec.worker.gen.ts" => include_str!("../../templates/bridge/codec.worker.gen.ts"),
             "stubs.gen.ts" => include_str!("../../templates/bridge/stubs.gen.ts"),
             "reverse.gen.ts" => include_str!("../../templates/bridge/reverse.gen.ts"),
+            "public-client.gen.ts" => include_str!("../../templates/bridge/public-client.gen.ts"),
             "conformance.gen.test.ts" => {
                 include_str!("../../templates/bridge/conformance.gen.test.ts")
             }
