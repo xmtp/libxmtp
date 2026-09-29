@@ -72,7 +72,7 @@ while IFS= read -r path; do
     fi
   fi
   case "$path" in
-    */test/*|*/tests/*|*/Tests/*|*/androidTest/*|*.test.ts|*.test.js|*.test.mts|*.test.cts|*.test.mjs|*.test.cjs|*_test.rs|*_tests.rs|*/CHANGELOG.md)
+    */test/*|*/tests/*|*/Tests/*|*/androidTest/*|*.test.ts|*.test.js|*_test.rs|*/CHANGELOG.md)
       continue ;;
   esac
   case "$path" in
