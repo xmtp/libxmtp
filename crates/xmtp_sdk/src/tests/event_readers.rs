@@ -31,6 +31,54 @@ async fn events_registered_before_return() {
     client.end().await?;
 }
 
+#[xmtp_common::test(unwrap_try = true)]
+async fn reader_skips_undelivered_attachment_events() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let filter = xmtp_events::EventFilter::new([
+        xmtp_events::EventKind::AttachmentUploadStarted,
+        xmtp_events::EventKind::HmacKeysUpdated,
+    ]);
+    let subscription = client.inner.context.events().subscribe_app(filter).unwrap();
+    let reader = crate::EventReader::new(subscription);
+
+    emit_attachment(&client);
+    emit_hmac(&client);
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), reader.next()).await??,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    reader.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn listener_skips_undelivered_attachment_events() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let filter = xmtp_events::EventFilter::new([
+        xmtp_events::EventKind::AttachmentUploadStarted,
+        xmtp_events::EventKind::HmacKeysUpdated,
+    ]);
+    let subscription = client.inner.context.events().subscribe_app(filter).unwrap();
+    let (sender, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let id = client
+        .listeners
+        .start(subscription, Arc::new(EventCapture(sender)))?;
+
+    emit_attachment(&client);
+    emit_hmac(&client);
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), received.recv()).await?,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), received.recv())
+            .await
+            .is_err()
+    );
+    client.stop_listener(id).await;
+    client.end().await?;
+}
+
 // verifies: EVENT-013
 #[xmtp_common::test(unwrap_try = true)]
 async fn event_reader_and_listener_create_no_network_interest() {

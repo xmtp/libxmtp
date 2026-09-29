@@ -5,6 +5,7 @@ use crate::message_deletion::QueryMessageDeletion;
 use crate::pending_remove::QueryPendingRemove;
 use crate::prelude::*;
 use crate::readd_status::QueryReaddStatus;
+use crate::received_proposal::QueryReceivedProposal;
 use xmtp_common::{MaybeSend, MaybeSync};
 
 /// Get an MLS Key store in the context of a transaction
@@ -67,6 +68,8 @@ pub trait DbQuery:
     MaybeSend
     + MaybeSync
     + ReadOnly
+    + QueryLocalAttachment
+    + QueryPendingAttachment
     + QueryConsentRecord
     + QueryConversationList
     + QueryConversationState
@@ -90,6 +93,7 @@ pub trait DbQuery:
     + QueryServerConfiguration
     + QueryAssociationStateCache
     + QueryReaddStatus
+    + QueryReceivedProposal
     + QueryTasks
     + QueryNotifications
     + QueryPendingRemove
@@ -103,6 +107,8 @@ impl<T> DbQuery for T where
     T: MaybeSend
         + MaybeSync
         + ReadOnly
+        + QueryLocalAttachment
+        + QueryPendingAttachment
         + QueryConsentRecord
         + QueryConversationList
         + QueryConversationState
@@ -126,6 +132,7 @@ impl<T> DbQuery for T where
         + QueryServerConfiguration
         + QueryAssociationStateCache
         + QueryReaddStatus
+        + QueryReceivedProposal
         + QueryTasks
         + QueryNotifications
         + QueryPendingRemove

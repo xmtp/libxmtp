@@ -43,6 +43,29 @@ fn emit_hmac(client: &Client) {
     );
 }
 
+fn emit_attachment(client: &Client) {
+    client.inner.context.events().emit(
+        Some(xmtp_events::ClientEvent::AttachmentUploadStarted(
+            xmtp_events::AttachmentRef {
+                attachment_key: "key".into(),
+                url: "https://example.com/attachment".into(),
+                content_digest: "digest".into(),
+            },
+        )),
+        None,
+    );
+}
+
+struct EventCapture(tokio::sync::mpsc::UnboundedSender<ClientEvent>);
+
+#[xmtp_common::async_trait]
+impl EventListener for EventCapture {
+    async fn on_event(&self, event: ClientEvent) -> Result<(), ListenerError> {
+        let _ = self.0.send(event);
+        Ok(())
+    }
+}
+
 struct EventProbe {
     started: tokio::sync::mpsc::UnboundedSender<usize>,
     completed: Arc<AtomicBool>,

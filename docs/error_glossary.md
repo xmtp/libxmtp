@@ -382,6 +382,8 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 
 | Error Code | Description |
 |:-----------|:------------|
+| `StorageLocation` | The deployment storage path could not be resolved or opened. May be retryable if local storage becomes available. |
+| `Attachment` | Attachment storage could not be prepared or cleaned. May be retryable if local storage becomes available. |
 | `ClientBuilderError::MissingParameter` | Missing parameter. Required builder parameter not provided. Not retryable. |
 | `ClientBuilderError::ClientError` | Client error. Client operation failed during build. May be retryable. |
 | `ClientBuilderError::StorageError` | Storage error. Storage initialization failed. Not retryable. |

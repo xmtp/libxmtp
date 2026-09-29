@@ -79,6 +79,7 @@ schemars.workspace = true
 semver.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error.workspace = true
 sha2.workspace = true
 sqlx.workspace = true
 subtle.workspace = true
@@ -99,6 +100,7 @@ tower-http = { workspace = true, features = ["cors"] }
 tracing.workspace = true
 url.workspace = true
 uuid = { workspace = true, features = ["v4"] }
+xmtp_attachments_server.workspace = true
 xmtp_common.workspace = true
 xmtp_configuration.workspace = true
 xmtp_cryptography.workspace = true
@@ -124,6 +126,7 @@ tokio-rustls = { version = "0.26", default-features = false, features = [
   "ring",
 ] }
 tonic-prost = "0.14"
+xmtp_attachments_server = { workspace = true, features = ["test-utils"] }
 xmtp_common = { workspace = true, features = ["test-utils"] }
 xmtp_id = { workspace = true, features = ["test-utils"] }
 xmtp_logging = { workspace = true, features = ["test-utils"] }

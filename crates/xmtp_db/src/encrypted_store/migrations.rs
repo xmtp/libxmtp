@@ -57,10 +57,14 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
     }
 
     fn rollback_to_version(&self, version: &str) -> Result<Vec<String>, ConnectionError> {
-        let target: String = version.chars().filter(|c| c.is_numeric()).collect();
-        let target: u64 = target.parse().map_err(|_| {
-            ConnectionError::InvalidQuery(format!("Invalid migration version: {version}"))
-        })?;
+        // Diesel orders versions as strings, not numbers, and embedded versions
+        // do not all have the same length. Compare in the same order.
+        let target: String = version.chars().filter(|c| c.is_ascii_digit()).collect();
+        if target.is_empty() {
+            return Err(ConnectionError::InvalidQuery(format!(
+                "Invalid migration version: {version}"
+            )));
+        }
 
         let mut reverted = Vec::new();
 
@@ -70,13 +74,7 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                 break;
             };
 
-            let version_number: String =
-                current_version.chars().filter(|c| c.is_numeric()).collect();
-            let current_num: u64 = version_number.parse().map_err(|_| {
-                ConnectionError::InvalidQuery(format!("Invalid applied version: {current_version}"))
-            })?;
-
-            if current_num < target {
+            if current_version.as_str() < target.as_str() {
                 break;
             }
 
@@ -145,5 +143,44 @@ impl<C: ConnectionExt> QueryMigrations for DbConnection<C> {
                 .map_err(diesel::result::Error::QueryBuilderError)
         })?;
         Ok(ran)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::XmtpTestDb;
+
+    const BASELINE: &str = "20260908000000";
+    const RECEIVED_PROPOSALS: &str = "202609280000000000";
+    const SENDER_SUMMARY: &str = "20260928000001";
+
+    /// Roll back to `target` on a new database and return what remains applied.
+    async fn remaining_after_rollback(target: &str) -> Result<Vec<String>, ConnectionError> {
+        let store = crate::TestDb::create_ephemeral_store().await;
+        let conn = store.db();
+        conn.rollback_to_version(target)?;
+        conn.applied_migrations()
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rollback_stops_at_a_shorter_version_in_diesel_order() {
+        let remaining = remaining_after_rollback(SENDER_SUMMARY).await?;
+        assert_eq!(
+            remaining.first().map(String::as_str),
+            Some(RECEIVED_PROPOSALS)
+        );
+        assert!(remaining.iter().any(|version| version == BASELINE));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rollback_reaches_a_longer_version_in_diesel_order() {
+        let remaining = remaining_after_rollback(RECEIVED_PROPOSALS).await?;
+        assert!(
+            remaining
+                .iter()
+                .all(|version| version != RECEIVED_PROPOSALS && version != SENDER_SUMMARY)
+        );
+        assert!(remaining.iter().any(|version| version == BASELINE));
     }
 }
