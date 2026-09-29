@@ -78,3 +78,14 @@ export async function streamsAndErrors(client: Client, group: Group) {
   );
   return attachment.content;
 }
+
+// One code narrows to its subclass and keeps the other codes in the else
+// branch; its `details.code` is the code literal.
+export function errorBranches(error: XmtpError | TypeError): string {
+  if (error instanceof XmtpError.ClientClosed) {
+    const code: "ClientClosed" = error.details.code;
+    return code;
+  }
+  if (error instanceof XmtpError) return error.details.message;
+  return error.message;
+}

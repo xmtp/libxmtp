@@ -1,11 +1,13 @@
 //! One copy of the Node SDK per process (Decision 20).
 //!
 //! The native library is loaded once per process, and each package copy
-//! registers its callback tables in it when it initializes. A second copy, for
-//! example one loaded through CommonJS next to an ESM copy, would replace the
-//! first copy's tables and crash later. The generated index records a
-//! process-global marker before it initializes the binding; a different copy
-//! then fails at load with a public error, before it registers anything.
+//! registers its callback tables in it when it initializes. A second copy,
+//! for example one loaded through CommonJS next to an ESM copy, or one loaded
+//! by a worker thread, would replace the first copy's tables. The generated
+//! index claims the process in the native library before it initializes the
+//! binding; a later copy fails at load with a public error, before it
+//! registers anything. A JavaScript marker would not work: each worker thread
+//! has its own `globalThis`.
 
 use anyhow::{Result, bail};
 
@@ -13,12 +15,10 @@ const INITIALIZE: &str =
     "let initialized = false;\nif (!initialized) {\n  xmtp_sdk.default.initialize();";
 
 const GUARD: &str = r#"import { XmtpError as PublicXmtpError } from './public-values.gen';
-// One copy of this package per process: its binding namespace is the marker.
-const loadedKey = Symbol.for("xmtp.sdk.node.loaded");
-const loadedCopy: unknown = Reflect.get(globalThis, loadedKey);
-if (loadedCopy !== undefined && loadedCopy !== xmtp_sdk)
-  throw new PublicXmtpError.Unknown({ code: "Unknown", category: "unknown", retryable: false, message: "the XMTP SDK was loaded twice in one process; load it once" });
-Reflect.set(globalThis, loadedKey, xmtp_sdk);
+// The native callback tables are process-wide. Only the first package copy in
+// the process, on any thread, may register them; the native claim is atomic.
+if (!xmtp_sdk.sdkClaimJsHost())
+  throw new PublicXmtpError.Unknown({ code: "Unknown", category: "unknown", retryable: false, message: "the XMTP SDK was loaded twice in one process; load it once, from one thread" });
 
 "#;
 
@@ -40,14 +40,9 @@ mod tests {
             "import * as xmtp_sdk from './xmtp_sdk';\n{INITIALIZE}\n  initialized = true;\n}}\n"
         );
         let guarded = guard(&index)?;
-        let marker = guarded
-            .find("Reflect.set(globalThis, loadedKey, xmtp_sdk);")
-            .unwrap();
+        let claim = guarded.find("xmtp_sdk.sdkClaimJsHost()").unwrap();
         let initialize = guarded.find("xmtp_sdk.default.initialize();").unwrap();
-        assert!(
-            marker < initialize,
-            "the marker must precede initialization"
-        );
+        assert!(claim < initialize, "the claim must precede initialization");
         assert!(guarded.contains("loaded twice in one process"));
         assert!(guard("no initialization").is_err());
     }

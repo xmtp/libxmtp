@@ -211,11 +211,19 @@ for (const state of states)
     }),
   );
   await stream.ready();
+  // Wait with a deadline, so a regression fails instead of hanging.
+  const until = async (ready: () => boolean, what: string) => {
+    const deadline = Date.now() + 5_000;
+    while (!ready()) {
+      if (Date.now() > deadline) throw new Error(`timed out: ${what}`);
+      await new Promise((r) => setTimeout(r, 1));
+    }
+  };
   for (const next of [BoundState.Reconnecting, BoundState.Connected]) {
-    while (changes.length === 0) await new Promise((r) => setTimeout(r, 1));
+    await until(() => changes.length > 0, "connection state request");
     changes.shift()!(next);
   }
-  while (seen.length < 3) await new Promise((r) => setTimeout(r, 1));
+  await until(() => seen.length >= 3, "three public connection states");
   assert.deepEqual(seen, [
     [undefined, "connected"],
     ["connected", "reconnecting"],

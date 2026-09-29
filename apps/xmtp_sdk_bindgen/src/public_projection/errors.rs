@@ -27,11 +27,13 @@ pub(super) fn error_class(code: &mut String, value: &EnumMetadata) -> Result<()>
         code,
         "/** A failure from the XMTP SDK. Its subclass names the code in `details.code`. */\nexport class {name} extends Error {{\n  readonly details: ErrorDetails;\n  constructor(details: ErrorDetails) {{\n    super(details.message);\n    this.name = `{name}.${{details.code}}`;\n    this.details = details;\n  }}"
     )?;
-    // Each subclass is typed as the base class, so declarations stay small.
+    // Each code has its own named subclass, so `instanceof` narrows to that
+    // code and keeps the other codes. The subclasses are module-private and
+    // declared after the base class, which keeps the declarations small.
     for variant in &value.variants {
         writeln!(
             code,
-            "  declare static readonly {v}: typeof {name};",
+            "  declare static readonly {v}: typeof {name}{v};",
             v = variant.name
         )?;
     }
@@ -39,7 +41,7 @@ pub(super) fn error_class(code: &mut String, value: &EnumMetadata) -> Result<()>
     for variant in &value.variants {
         writeln!(
             code,
-            "Object.defineProperty({name}, \"{v}\", {{ value: class {name}{v} extends {name} {{}} }});",
+            "class {name}{v} extends {name} {{\n  declare readonly details: ErrorDetails & {{ readonly code: \"{v}\" }};\n}}\nObject.defineProperty({name}, \"{v}\", {{ value: {name}{v} }});",
             v = variant.name
         )?;
     }

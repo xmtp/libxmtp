@@ -421,7 +421,7 @@ fn public_node_exports(binding: &str, index: &str) -> String {
                 .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
                 .next()
                 .unwrap_or("");
-            if name != "setLogSinkQueued" && !overrides.contains(name) {
+            if name != "setLogSinkQueued" && name != "sdkClaimJsHost" && !overrides.contains(name) {
                 if matches!(kind, Some("interface" | "type")) {
                     types.insert(name.to_owned());
                 } else {
