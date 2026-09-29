@@ -83,7 +83,8 @@ impl ArchiveExporter {
 /// Exports to a sibling temporary file until `cancel` fires, then renames it
 /// over `path`. A failed or cancelled export removes the temporary file and
 /// leaves any archive already at `path` untouched. The file takes the
-/// permissions of the archive it replaces; a new one is owner-only on unix.
+/// permissions of the regular file it replaces; otherwise, including over a
+/// symlink, it is owner-only on unix.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn write_file(
     options: ArchiveOptions,
@@ -106,7 +107,9 @@ pub(crate) fn write_file(
     // this export owns.
     let file = create.open(&partial)?;
     let exported = (|| -> Result<_, ArchiveError> {
-        if let Ok(existing) = std::fs::metadata(path) {
+        if let Ok(existing) = std::fs::symlink_metadata(path)
+            && existing.file_type().is_file()
+        {
             file.set_permissions(existing.permissions())?;
         }
         let mut file = io::BufWriter::new(file);

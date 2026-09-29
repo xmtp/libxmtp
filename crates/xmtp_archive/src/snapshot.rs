@@ -499,4 +499,35 @@ mod tests {
         );
         std::fs::remove_dir_all(&dir)?;
     }
+
+    /// An export over a symlink replaces the link with an owner-only archive
+    /// rather than taking the permissions of the link's target, so whoever
+    /// can plant a link cannot widen who reads the archive.
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_over_a_symlink_is_owner_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let store = TestDb::create_ephemeral_store().await;
+        let dir = std::env::temp_dir().join(xmtp_common::rand_hexstring());
+        std::fs::create_dir(&dir)?;
+        let (target, path) = (dir.join("target"), dir.join("archive"));
+        std::fs::write(&target, b"target")?;
+        std::fs::set_permissions(&target, std::fs::Permissions::from_mode(0o644))?;
+        std::os::unix::fs::symlink(&target, &path)?;
+
+        let consent = options(&[BackupElementSelection::Consent]);
+        exporter::ArchiveExporter::export_to_file(consent, store.db(), &path, &KEY).await?;
+        let archive = std::fs::symlink_metadata(&path)?;
+        assert!(
+            archive.file_type().is_file(),
+            "the export wrote through the link"
+        );
+        assert_eq!(
+            archive.permissions().mode() & 0o777,
+            0o600,
+            "the archive took the link target's permissions"
+        );
+        assert_eq!(std::fs::read(&target)?, b"target");
+        std::fs::remove_dir_all(&dir)?;
+    }
 }
