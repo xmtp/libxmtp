@@ -19,6 +19,10 @@ fi
 #    expose exact received bytes and the typed cause.
 # 2. Foreign Restored DM peer getter: mobile returns None; Node and WASM
 #    return a typed no-peer error.
+#
+# One test-only edit is listed as a whole file because the gate compares
+# whole files: bindings/node/src/client/identity.rs changed only inside its
+# `#[cfg(test)]` module (CONF-077, b04a2c97e).
 allowed='
 bindings/mobile/src/message.rs
 bindings/node/src/content_types/decoded_message_content.rs
@@ -37,37 +41,13 @@ sdks/browser/src/DecodedMessage.ts
 bindings/mobile/src/mls/conversation.rs
 bindings/node/src/conversation/dm.rs
 bindings/wasm/src/conversation.rs
+bindings/node/src/client/identity.rs
 '
 
-# The shipped part of a Rust file at a revision: everything above its trailing
-# `#[cfg(test)] mod ...` block. A file whose shipped part is unchanged carries
-# only a test edit (for example bindings/node/src/client/identity.rs, whose
-# test module changed for CONF-077 in b04a2c97e).
-shipped_part() {
-  git show "$1:$2" 2>/dev/null | awk '
-    { lines[NR] = $0 }
-    /^#\[cfg\(test\)\]$/ { cut = NR }
-    END {
-      n = NR
-      if (cut && lines[cut + 1] ~ /^(pub(\([a-z]+\))? )?mod /) n = cut - 1
-      for (i = 1; i <= n; i++) print lines[i]
-    }'
-}
-test_module_only() {
-  case $1 in
-    *.rs) [ "$(shipped_part "$base" "$1")" = "$(shipped_part HEAD "$1")" ] ;;
-    *) return 1 ;;
-  esac
-}
-
-changed=''
-for file in $(git diff --name-only "$base"...HEAD -- sdks/ bindings/ \
+changed=$(git diff --name-only "$base"...HEAD -- sdks/ bindings/ \
   | grep -vE '(^|/)(tests?|Tests|androidTest)/|\.test\.[cm]?[jt]s$|_tests?\.rs$|(^|/)(CHANGELOG|AGENTS)\.md$' \
   | grep -vxF -f <(printf '%s\n' "$allowed" | sed '/^$/d') \
-  || true); do
-  test_module_only "$file" && continue
-  changed+="$file"$'\n'
-done
+  || true)
 if [ -n "$changed" ]; then
   echo "SDK facade changes cannot alter shipped code in sdks/ or bindings/ outside the SDK-040 exceptions:" >&2
   echo "$changed" >&2

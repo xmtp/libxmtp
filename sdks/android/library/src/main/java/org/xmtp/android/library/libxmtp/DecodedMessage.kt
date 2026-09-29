@@ -3,7 +3,6 @@ package org.xmtp.android.library.libxmtp
 import org.xmtp.android.library.InboxId
 import org.xmtp.android.library.Topic
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
-import org.xmtp.android.library.codecs.ContentTypeIdBuilder
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.decoded
 import org.xmtp.android.library.toHex
@@ -31,20 +30,12 @@ class DecodedMessage private constructor(
     val undecodable: FfiUndecodableContent? = null,
 ) {
     /**
-     * The parsed envelope. When the received bytes are not an EncodedContent,
-     * a synthesized envelope: the received content type when one exists (else
-     * the default ContentTypeId), the received fallback when present, and
-     * empty content. It never throws; the evidence stays on `undecodable`.
+     * The parsed envelope. For an undecodable row whose bytes do not parse as
+     * an EncodedContent, this is an empty envelope with no type. It never
+     * throws. The evidence is on `undecodable`; do not forward this value.
      */
     val encodedContent: Content.EncodedContent
-        get() =
-            parsedContent
-                ?: Content.EncodedContent
-                    .newBuilder()
-                    .also { envelope ->
-                        undecodable?.contentType?.let { envelope.type = ContentTypeIdBuilder.fromFfi(it) }
-                        undecodable?.fallback?.let { envelope.fallback = it }
-                    }.build()
+        get() = parsedContent ?: Content.EncodedContent.getDefaultInstance()
 
     enum class MessageDeliveryStatus {
         ALL,
