@@ -1,8 +1,8 @@
 // swift-tools-version: 6.1
 import PackageDescription
 
-// A separate package that uses only the staged XmtpSdk product. The recipe
-// stages that product under target/sdk-public/XmtpSdk.
+/// A separate package that uses only the staged XmtpSdk product. The recipe
+/// stages that product under target/sdk-public/XmtpSdk.
 let package = Package(
     name: "PublicConsumer",
     platforms: [.macOS(.v15)],

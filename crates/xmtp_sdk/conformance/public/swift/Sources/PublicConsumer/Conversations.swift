@@ -1,7 +1,7 @@
 import XmtpSdk
 
-// Each union parameter has same-name overloads. Empty lists need an explicit
-// element type because both overloads accept an empty literal.
+/// Each union parameter has same-name overloads. Empty lists need an explicit
+/// element type because both overloads accept an empty literal.
 public func consumeIdentityRoutes(_ client: SDKClient, _ identity: PublicIdentity) async throws {
     let conversations = client.conversations()
     let byInbox: Group = try await conversations.createGroup(members: [client.inboxId()])

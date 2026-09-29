@@ -127,11 +127,17 @@ mod identity_tests {
     fn received_identity_states_keep_unknown_values_absent() {
         let unknown_creator = identity("", OTHER);
         assert_eq!(unknown_creator.creator_inbox_id, None);
-        assert_eq!(unknown_creator.added_by_inbox_id.map(|id| id.0), Some(OTHER.into()));
+        assert_eq!(
+            unknown_creator.added_by_inbox_id.map(|id| id.0),
+            Some(OTHER.into())
+        );
         assert!(!unknown_creator.is_creator);
 
         let unknown_adder = identity(OWN, "");
-        assert_eq!(unknown_adder.creator_inbox_id.map(|id| id.0), Some(OWN.into()));
+        assert_eq!(
+            unknown_adder.creator_inbox_id.map(|id| id.0),
+            Some(OWN.into())
+        );
         assert_eq!(unknown_adder.added_by_inbox_id, None);
         assert!(unknown_adder.is_creator);
 

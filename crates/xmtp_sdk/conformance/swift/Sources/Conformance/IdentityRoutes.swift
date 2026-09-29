@@ -1,7 +1,7 @@
 import XmtpSdk
 
 private func expectMembers(_ group: Group, _ expected: Set<InboxId>) async throws {
-    let members = Set(try await group.members().map(\.inboxId))
+    let members = try Set(await group.members().map(\.inboxId))
     guard members == expected else { throw ConformanceFailure("members \(members) != \(expected)") }
 }
 

@@ -1,8 +1,8 @@
 import Foundation
 import XmtpSdk
 
-// This list comes from the retained Client surface in the approved plan, not
-// from the generator. Removing a public forwarder must fail this compile.
+/// This list comes from the retained Client surface in the approved plan, not
+/// from the generator. Removing a public forwarder must fail this compile.
 public func consumeClient(
     _ signer: Signer, _ options: ClientOptions, _ identity: PublicIdentity,
     _ credential: Credential, _ request: SignatureRequest, _ filter: EventFilter,
