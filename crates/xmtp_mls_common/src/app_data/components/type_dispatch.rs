@@ -17,7 +17,7 @@
 //! `TlsSet<InboxId>` component is identical to decoding bytes for
 //! `AdminListComponent` — only the policy applied at validation time
 //! differs, and that's keyed off the registry entry. So the closed
-//! universe of six [`ComponentType`] variants is the same as the closed
+//! universe of seven [`ComponentType`] variants is the same as the closed
 //! universe of dispatch arms here.
 
 use openmls::messages::proposals::AppDataUpdateOperation;
@@ -37,6 +37,7 @@ use crate::{
         typed::{ComponentTypedError, ExpandedComponentChange},
     },
     inbox_id::InboxId,
+    tls_map::TlsMap,
     tls_set::{TlsKeyHash, TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 
@@ -65,6 +66,12 @@ pub fn apply_update_payload_for_type(
         ComponentType::TlsSetInboxId => apply_inbox_id_set_delta(payload, prior),
         ComponentType::TlsSetBytes => apply_bytes_set_delta(payload, prior),
         ComponentType::TlsMapInboxIdBytes => apply_tls_map_delta::<InboxId>(payload, prior),
+        ComponentType::TlsMapInboxIdString => {
+            let snapshot = apply_tls_map_delta::<InboxId>(payload, prior)?;
+            let map = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(&snapshot)?;
+            validate_string_values(component_id, map.values().map(VLBytes::as_slice))?;
+            Ok(snapshot)
+        }
         ComponentType::TlsMapBytesBytes => apply_tls_map_delta::<VLBytes>(payload, prior),
         ComponentType::Unspecified => Err(ComponentTypedError::UnspecifiedType(component_id)),
     };
@@ -91,10 +98,28 @@ pub fn expand_to_changes_for_type(
         ComponentType::TlsSetInboxId => expand_inbox_id_set_changes(op, prior),
         ComponentType::TlsSetBytes => expand_bytes_set_changes(op, prior),
         ComponentType::TlsMapInboxIdBytes => expand_tls_map_changes::<InboxId>(op, prior),
+        ComponentType::TlsMapInboxIdString => {
+            let changes = expand_tls_map_changes::<InboxId>(op, prior)?;
+            validate_string_values(
+                component_id,
+                changes.iter().filter_map(|change| change.value.as_deref()),
+            )?;
+            Ok(changes)
+        }
         ComponentType::TlsMapBytesBytes => expand_tls_map_changes::<VLBytes>(op, prior),
         ComponentType::Unspecified => Err(ComponentTypedError::UnspecifiedType(component_id)),
     };
     result.map_err(|e| attach_component_id(component_id, ty, e, ApplyOrExpand::Expand))
+}
+
+/// Reject the first value that is not UTF-8.
+fn validate_string_values<'a>(
+    component_id: ComponentId,
+    values: impl IntoIterator<Item = &'a [u8]>,
+) -> Result<(), ComponentTypedError> {
+    values
+        .into_iter()
+        .try_for_each(|value| decode_utf8(component_id, value).map(drop))
 }
 
 #[derive(Clone, Copy)]
@@ -138,7 +163,7 @@ fn attach_component_id(
 //
 // Mirrors `apply_inbox_id_set_delta` / `expand_inbox_id_set_changes` but
 // keyed on `VLBytes`. No well-known `TlsSetBytes` component ships today;
-// this exists so a future XMTP-defined or runtime-registered bytes-set
+// this exists so a future XMTP-defined or registry-typed application bytes-set
 // component lands on old clients via the same delta-aware path the
 // inbox-id-set components use.
 
@@ -162,6 +187,7 @@ fn expand_bytes_set_changes(
     match op {
         AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
             op: ComponentOp::Delete,
+            key: None,
             value: None,
         }]),
         AppDataUpdateOperation::Update(payload) => {
@@ -200,10 +226,12 @@ fn expand_bytes_set_changes(
                 match mutation {
                     TlsSetMutation::Insert(key) => out.push(ExpandedComponentChange {
                         op: ComponentOp::Insert,
+                        key: None,
                         value: Some(key.as_slice().to_vec()),
                     }),
                     TlsSetMutation::Remove(key) => out.push(ExpandedComponentChange {
                         op: ComponentOp::Delete,
+                        key: None,
                         value: Some(key.as_slice().to_vec()),
                     }),
                     TlsSetMutation::RemoveByHash(target) => {
@@ -213,6 +241,7 @@ fn expand_bytes_set_changes(
                             .map(|key| key.as_slice().to_vec());
                         out.push(ExpandedComponentChange {
                             op: ComponentOp::Delete,
+                            key: None,
                             value: resolved,
                         });
                     }
@@ -227,7 +256,7 @@ fn expand_bytes_set_changes(
 mod tests {
     use super::*;
     use crate::app_data::component_registry::ComponentOp;
-    use crate::tls_map::{TlsMap, TlsMapDelta, TlsMapMutation};
+    use crate::tls_map::{TlsMapDelta, TlsMapMutation};
 
     const UNKNOWN_ID: ComponentId = ComponentId::new(0x80FF);
 
@@ -308,6 +337,101 @@ mod tests {
         let map = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(&new_bytes).unwrap();
         assert_eq!(map.len(), 1);
         assert_eq!(map.get(&id1).map(|v| v.as_slice()), Some(&b"v1"[..]));
+    }
+
+    fn string_map_payload(mutations: Vec<TlsMapMutation<InboxId, VLBytes>>) -> Vec<u8> {
+        TlsMapDelta { mutations }.tls_serialize_detached().unwrap()
+    }
+
+    /// A `TLS_MAP_INBOX_ID_STRING` delta whose inserted or updated value
+    /// is not UTF-8 is rejected at expand and apply, so no client admits a
+    /// display name another client cannot render as a string.
+    // verifies: META-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn string_map_delta_values_must_be_utf8() {
+        let alice = InboxId::from_bytes([3u8; 32]);
+        let ty = ComponentType::TlsMapInboxIdString;
+        let valid = string_map_payload(vec![TlsMapMutation::Insert {
+            key: alice,
+            value: vl("Alice ✓".as_bytes()),
+        }]);
+        let snapshot = apply_update_payload_for_type(UNKNOWN_ID, ty, &valid, None)?;
+        let map = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(&snapshot)?;
+        assert_eq!(map.get(&alice), Some(&vl("Alice ✓".as_bytes())));
+
+        let invalid = string_map_payload(vec![TlsMapMutation::Update {
+            key: alice,
+            value: vl(&[0xC3, 0x28]),
+        }]);
+        assert!(matches!(
+            apply_update_payload_for_type(UNKNOWN_ID, ty, &invalid, Some(&snapshot)),
+            Err(ComponentTypedError::MalformedValue { .. })
+        ));
+        let op = AppDataUpdateOperation::Update(invalid.into());
+        assert!(matches!(
+            expand_to_changes_for_type(UNKNOWN_ID, ty, &op, Some(&snapshot)),
+            Err(ComponentTypedError::MalformedValue { .. })
+        ));
+    }
+
+    /// A delta that leaves a non-UTF-8 value in the resulting snapshot is
+    /// rejected even when the delta itself only deletes, because the type
+    /// binds every value of the snapshot, not only the ones a delta names.
+    // verifies: META-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn string_map_snapshot_values_must_be_utf8() {
+        let alice = InboxId::from_bytes([3u8; 32]);
+        let bob = InboxId::from_bytes([4u8; 32]);
+        let mut prior = TlsMap::<InboxId, VLBytes>::new();
+        prior.insert(alice, vl(&[0xFF]))?;
+        prior.insert(bob, vl(b"Bob"))?;
+        let delete = string_map_payload(vec![TlsMapMutation::Delete { key: bob }]);
+        assert!(matches!(
+            apply_update_payload_for_type(
+                UNKNOWN_ID,
+                ComponentType::TlsMapInboxIdString,
+                &delete,
+                Some(&prior.tls_serialize_detached()?),
+            ),
+            Err(ComponentTypedError::MalformedValue { .. })
+        ));
+    }
+
+    /// Map expansion carries each mutation's TLS-encoded key, which the
+    /// self-owned policy reads, and no value for a Delete.
+    // verifies: PERM-027
+    #[xmtp_common::test(unwrap_try = true)]
+    fn string_map_expand_carries_keys() {
+        let alice = InboxId::from_bytes([3u8; 32]);
+        let bob = InboxId::from_bytes([4u8; 32]);
+        let payload = string_map_payload(vec![
+            TlsMapMutation::Insert {
+                key: alice,
+                value: vl(b"Alice"),
+            },
+            TlsMapMutation::Delete { key: bob },
+        ]);
+        let changes = expand_to_changes_for_type(
+            UNKNOWN_ID,
+            ComponentType::TlsMapInboxIdString,
+            &AppDataUpdateOperation::Update(payload.into()),
+            None,
+        )?;
+        assert_eq!(
+            changes,
+            vec![
+                ExpandedComponentChange {
+                    op: ComponentOp::Insert,
+                    key: Some(alice.tls_serialize_detached()?),
+                    value: Some(b"Alice".to_vec()),
+                },
+                ExpandedComponentChange {
+                    op: ComponentOp::Delete,
+                    key: Some(bob.tls_serialize_detached()?),
+                    value: None,
+                },
+            ]
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -57,10 +57,12 @@ pub(crate) fn expand_passthrough(
     match op {
         AppDataUpdateOperation::Update(payload) => Ok(vec![ExpandedComponentChange {
             op: ComponentOp::Update,
+            key: None,
             value: Some(payload.as_slice().to_vec()),
         }]),
         AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
             op: ComponentOp::Delete,
+            key: None,
             value: None,
         }]),
     }
@@ -235,11 +237,13 @@ macro_rules! be_i64_component {
                         let _ = decode_be_i64(Self::ID, payload.as_slice())?;
                         Ok(vec![ExpandedComponentChange {
                             op: ComponentOp::Update,
+                            key: None,
                             value: Some(payload.as_slice().to_vec()),
                         }])
                     }
                     AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
                         op: ComponentOp::Delete,
+                        key: None,
                         value: None,
                     }]),
                 }
@@ -324,11 +328,13 @@ impl Component for CommitLogSignerComponent {
                 require_exact_len(Self::ID, payload.as_slice(), ED25519_KEY_LENGTH)?;
                 Ok(vec![ExpandedComponentChange {
                     op: ComponentOp::Update,
+                    key: None,
                     value: Some(payload.as_slice().to_vec()),
                 }])
             }
             AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
                 op: ComponentOp::Delete,
+                key: None,
                 value: None,
             }]),
         }

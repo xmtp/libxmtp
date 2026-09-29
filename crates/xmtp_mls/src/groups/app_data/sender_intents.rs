@@ -12,6 +12,7 @@ use openmls::{group::MlsGroup as OpenMlsGroup, prelude::tls_codec::Serialize};
 use openmls_traits::signatures::Signer;
 use prost::Message;
 use tls_codec::VLBytes;
+use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
@@ -63,6 +64,7 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateAdminListIntentData,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
@@ -101,6 +103,7 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
                 group,
                 provider,
                 &signer,
+                catalogue,
                 component_id,
                 payload,
             )?)
@@ -128,6 +131,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdatePermissionIntentData,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
@@ -240,7 +244,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
             Ok(stage_app_data_proposals_and_commit(
-                group, provider, &signer, updates,
+                group, provider, &signer, catalogue, updates,
             )?)
         },
     )?;
@@ -294,6 +298,7 @@ pub(crate) fn apply_app_data_update_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: AppDataUpdateIntentData,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
@@ -308,6 +313,7 @@ pub(crate) fn apply_app_data_update_intent(
                 group,
                 provider,
                 &signer,
+                catalogue,
                 component_id,
                 payload,
             )?)

@@ -59,6 +59,7 @@ async fn test_permission_updates_preserve_pending_fields() {
                         PermissionPolicyOption::Deny,
                         None,
                     ),
+                    &[],
                     &author.context.identity().installation_keys,
                     false,
                 )

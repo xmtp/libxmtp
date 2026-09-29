@@ -135,6 +135,14 @@ compared. The backend does not yet reject requests by version.
 but does not enforce. `limits.max_request_bytes` and `limits.max_response_bytes`
 are capped at the fixed 25 MiB transport ceiling.
 
+`[[application_components]]` lists group metadata fields that clients register
+in the conversations they create. Startup refuses an ID outside
+`0xC000`–`0xFEFF`, a name that is empty, longer than 100 bytes, repeated, or
+equal to a well-known component name, a repeated ID, and an entry in neither
+groups nor DMs. Keep a published definition stable: a conversation copies it
+when it registers the ID, so a change reaches only conversations that register
+it later. Prefix per-inbox field names with `USER_`; this is advice, not a check.
+
 `ConfigurationService.GetConfiguration` publishes these settings without a
 credential. The response is built once at startup and never changes while the
 process runs. It carries no URL, key material, leeway, refresh timing, or
