@@ -45,10 +45,6 @@ assert.throws(
   () => new sdk.MarkdownCodec().decode(sdk.encodeText("wrong codec")),
   sdk.XmtpError.InvalidArgument,
 );
-assert.throws(
-  () => sdk.MessageID.fromString("bad"),
-  sdk.XmtpError.InvalidArgument,
-);
 await sdk.uniffiInitAsync();
 assert.throws(
   () => new sdk.ReadReceiptCodec().encode("wrong value" as never),
@@ -108,6 +104,22 @@ for (const sample of codecSamples) {
 }
 console.log("Node P69: all 15 standard codecs match Rust bytes");
 
+const malformedDelete = sdk.StandardContent.DeleteMessage.new({
+  messageId: "bad",
+});
+function isInvalidId(error: unknown): boolean {
+  if (!sdk.XmtpError.InvalidArgument.instanceOf(error)) return false;
+  assert.equal(error.inner[0].code, "InvalidArgument");
+  assert.equal(error.inner[0].category, sdk.ErrorCategory.Input);
+  assert.equal(error.inner[0].retryable, false);
+  return true;
+}
+assert.throws(() => sdk.encodeStandard(malformedDelete), isInvalidId);
+assert.throws(
+  () => new sdk.DeleteMessageCodec().encode(malformedDelete),
+  isInvalidId,
+);
+
 const account = privateKeyToAccount(generatePrivateKey());
 const identity = {
   identifier: account.address.toLowerCase(),
@@ -153,8 +165,13 @@ assert.equal(
 );
 
 const client = await sdk.Client.create(signer, options);
-const inboxID = client.inboxID();
-assert.equal(typeof inboxID.toString(), "string");
+// Uppercase hex decodes, so only ID validation rejects it.
+await assert.rejects(
+  client.conversations().getMessageById("AB".repeat(32)),
+  isInvalidId,
+);
+const inboxId = client.inboxId();
+assert.equal(typeof inboxId.toString(), "string");
 const storagePath = await client.storage().path();
 assert.ok(storagePath);
 assert.ok((await stat(storagePath)).isFile());
@@ -162,7 +179,7 @@ const group = await client.conversations().createGroup([], undefined);
 let typedSends = 0;
 for (const sample of codecSamples) {
   const value = sample.value;
-  let id: sdk.MessageID;
+  let id: sdk.MessageId;
   switch (value.tag) {
     case sdk.StandardContent_Tags.Text:
       id = await group.sendText(value.inner[0], undefined);
@@ -173,7 +190,7 @@ for (const sample of codecSamples) {
     case sdk.StandardContent_Tags.Reaction:
       id = await group.sendReaction(
         value.inner.reference,
-        value.inner.referenceInboxID,
+        value.inner.referenceInboxId,
         value.inner.reaction,
         undefined,
       );
@@ -181,7 +198,7 @@ for (const sample of codecSamples) {
     case sdk.StandardContent_Tags.Reply:
       id = await group.sendReply(
         value.inner.reference,
-        value.inner.referenceInboxID,
+        value.inner.referenceInboxId,
         value.inner.content,
         undefined,
       );
@@ -213,17 +230,17 @@ for (const sample of codecSamples) {
     default:
       continue;
   }
-  const wire = await client.conversations().getMessageByID(id);
+  const wire = await client.conversations().getMessageById(id);
   assert.ok(wire);
   assertEncodedEqual(wire.encoded, sample.expected);
   typedSends++;
 }
 assert.equal(typedSends, 12);
 console.log("Node P69: typed send bytes match all 12 public codecs");
-const sentID = await group.sendText("conformance message", undefined);
+const sentId = await group.sendText("conformance message", undefined);
 const history = await group.messages(undefined);
 const sent = history.find(
-  (message) => message.id.toString() === sentID.toString(),
+  (message) => message.id.toString() === sentId.toString(),
 );
 assert.ok(sent instanceof sdk.Message);
 assert.equal(sent.client(), client);
@@ -233,8 +250,8 @@ assert.throws(
   (error) => error instanceof sdk.XmtpError.ClientClosed,
 );
 
-const reopened = await sdk.Client.build(identity, options, inboxID);
-assert.equal(reopened.inboxID().toString(), inboxID.toString());
+const reopened = await sdk.Client.build(identity, options, inboxId);
+assert.equal(reopened.inboxId().toString(), inboxId.toString());
 const defaultRoot = await mkdtemp(join(tmpdir(), "xmtp-sdk-default-"));
 const oldCwd = process.cwd();
 process.chdir(defaultRoot);
@@ -249,7 +266,7 @@ try {
           location: new sdk.StorageLocation.Default(),
         },
       },
-      inboxID,
+      inboxId,
     ),
     (error) => error instanceof sdk.XmtpError.IdentityNotFound,
   );
@@ -265,7 +282,7 @@ try {
   const defaultPath = join(
     defaultRoot,
     "xmtp",
-    `xmtp-${defaultClient.inboxID().toString()}.db3`,
+    `xmtp-${defaultClient.inboxId().toString()}.db3`,
   );
   assert.equal(await defaultClient.storage().path(), realpathSync(defaultPath));
   assert.ok((await stat(defaultPath)).isFile());
@@ -275,7 +292,7 @@ try {
 }
 let releasedMessage: sdk.Message;
 const weak = await (async () => {
-  const shortLived = await sdk.Client.build(identity, options, inboxID);
+  const shortLived = await sdk.Client.build(identity, options, inboxId);
   const shortGroup = await shortLived
     .conversations()
     .createGroup([], undefined);
@@ -304,32 +321,32 @@ console.log("Node scenario 2: create, reopen, end passed");
 
 const reopenedGroup = await reopened.conversations().createGroup([], undefined);
 const reader = await reopenedGroup.messageReader();
-const messageID = await reopenedGroup.sendText("durable stream", undefined);
+const messageId = await reopenedGroup.sendText("durable stream", undefined);
 const first = await reader.next();
-assert.equal(first?.id.toString(), messageID.toString());
+assert.equal(first?.id.toString(), messageId.toString());
 await reader.end();
 const replay = await reopenedGroup.messageReader();
 const repeated = await replay.next();
-assert.equal(repeated?.id.toString(), messageID.toString());
+assert.equal(repeated?.id.toString(), messageId.toString());
 await replay.end();
 const stream = new sdk.MessageStream(
   (signal) => reopenedGroup.messageReader({ signal }),
   reopened,
 );
-assert.equal((await stream.next()).value?.id.toString(), messageID.toString());
+assert.equal((await stream.next()).value?.id.toString(), messageId.toString());
 const pending = stream.next();
 setTimeout(() => void stream.return(), 50);
 assert.equal((await pending).done, true);
 await stream.return();
 const protocolGroup = await reopened.conversations().createGroup([], undefined);
-const firstID = await protocolGroup.sendText("ack on request", undefined);
+const firstId = await protocolGroup.sendText("ack on request", undefined);
 const firstStream = new sdk.MessageStream(
   (signal) => protocolGroup.messageReader({ signal }),
   reopened,
 );
 assert.equal(
   (await firstStream.next()).value?.id.toString(),
-  firstID.toString(),
+  firstId.toString(),
 );
 await firstStream.return();
 const secondStream = new sdk.MessageStream(
@@ -348,24 +365,24 @@ const replayedItem = await Promise.race([
 ]).finally(() => clearTimeout(replayTimer));
 assert.equal(
   replayedItem.value?.id.toString(),
-  firstID.toString(),
+  firstId.toString(),
   "item was prefetched and acknowledged",
 );
-const secondID = await protocolGroup.sendText("second request", undefined);
+const secondId = await protocolGroup.sendText("second request", undefined);
 assert.equal(
   (await secondStream.next()).value?.id.toString(),
-  secondID.toString(),
+  secondId.toString(),
 );
 await secondStream.return();
 const afterAck = await protocolGroup.messageReader();
 assert.equal(
   (await afterAck.next())?.id.toString(),
-  secondID.toString(),
+  secondId.toString(),
   "first item was not acknowledged on next request",
 );
 await afterAck.end();
 const breakGroup = await reopened.conversations().createGroup([], undefined);
-const breakID = await breakGroup.sendText("close after break");
+const breakId = await breakGroup.sendText("close after break");
 const breakReasons: sdk.StreamCloseReason[] = [];
 const retainedStream = new sdk.MessageStream(
   (signal) => breakGroup.messageReader({ signal }),
@@ -373,7 +390,7 @@ const retainedStream = new sdk.MessageStream(
   { onClose: (reason) => breakReasons.push(reason) },
 );
 for await (const value of retainedStream) {
-  assert.equal(value.id.toString(), breakID.toString());
+  assert.equal(value.id.toString(), breakId.toString());
   break;
 }
 assert.deepEqual(
@@ -384,7 +401,7 @@ assert.deepEqual(
 const breakReplay = await breakGroup.messageReader();
 assert.equal(
   (await breakReplay.next())?.id.toString(),
-  breakID.toString(),
+  breakId.toString(),
   "break acknowledged the last message",
 );
 await breakReplay.end();
@@ -445,9 +462,11 @@ const pendingScopeStream = new sdk.MessageStream(
   async () => {
     pendingScopeOwned = true;
     pendingOpenStarted();
-    return new Promise<Awaited<ReturnType<typeof pendingScopeOpen>>>((resolve) => {
-      releasePendingOpen = resolve;
-    });
+    return new Promise<Awaited<ReturnType<typeof pendingScopeOpen>>>(
+      (resolve) => {
+        releasePendingOpen = resolve;
+      },
+    );
   },
   reopened,
   {
@@ -809,7 +828,7 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(closedStatePolls, 0, "closed state kept the monitor running");
 await closedStateProbe.end();
 const callbackGroup = await reopened.conversations().createGroup([], undefined);
-const callbackID = await callbackGroup.sendText("callback acknowledgment");
+const callbackId = await callbackGroup.sendText("callback acknowledgment");
 let releaseCallback!: () => void;
 const callbackGate = new Promise<void>((resolve) => {
   releaseCallback = resolve;
@@ -823,7 +842,7 @@ const callbackStream = new sdk.MessageStream(
   reopened,
 );
 const consumption = callbackStream.onValue(async (value) => {
-  assert.equal(value.id.toString(), callbackID.toString());
+  assert.equal(value.id.toString(), callbackId.toString());
   callbackEntered();
   await callbackGate;
 });
@@ -832,7 +851,7 @@ await callbackStream.end();
 const callbackReplay = await callbackGroup.messageReader();
 assert.equal(
   (await callbackReplay.next())?.id.toString(),
-  callbackID.toString(),
+  callbackId.toString(),
 );
 await callbackReplay.end();
 releaseCallback();
@@ -856,7 +875,7 @@ const deniedConversation = await reopened
 await reopened.raw.preferences().setConsentStates([
   {
     entity: new sdk.ConsentEntity.Conversation({
-      conversationID: deniedConversation.id(),
+      conversationId: deniedConversation.id(),
     }),
     state: sdk.ConsentState.Denied,
   },
@@ -977,7 +996,7 @@ const replacementStream = new sdk.MessageStream(async () => {
 }, reopened);
 assert.equal(
   (await replacementStream.next()).value?.id.toString(),
-  messageID.toString(),
+  messageId.toString(),
 );
 await replacementStream.return();
 const endFailure = new Error("injected reader end failure");
@@ -1012,7 +1031,7 @@ const credentialOptions = {
 const credentialClient = await sdk.Client.build(
   identity,
   credentialOptions,
-  inboxID,
+  inboxId,
 );
 const savedBackend = credentialClient.raw.options().backend;
 assert.ok(savedBackend instanceof sdk.BackendSource.Options);
@@ -1047,7 +1066,7 @@ const sourceClient = await sdk.Client.build(
       },
     }),
   },
-  inboxID,
+  inboxId,
 );
 assert.ok(sourceCalls > 0, "credential source was not called");
 await sourceClient.end();
@@ -1061,12 +1080,12 @@ assert.equal(snapshot.identifier, fetched.identifier);
 const staticBackend = await sdk.Backend.connect(backendOptions);
 assert.equal(
   (
-    await sdk.Client.inboxIDFor(
+    await sdk.Client.inboxIdFor(
       identity,
       new sdk.BackendSource.Connected({ backend: staticBackend }),
     )
   ).toString(),
-  inboxID.toString(),
+  inboxId.toString(),
 );
 assert.equal(
   (
@@ -1074,7 +1093,7 @@ assert.equal(
       [identity],
       new sdk.BackendSource.Connected({ backend: staticBackend }),
     )
-  )[0]?.canMessage,
+  ).get(`ethereum:${identity.identifier}`),
   true,
 );
 assert.equal(
@@ -1083,8 +1102,33 @@ assert.equal(
       [identity],
       new sdk.BackendSource.Options({ options: backendOptions }),
     )
-  )[0]?.canMessage,
+  ).get(`ethereum:${identity.identifier}`),
   true,
+);
+const sameText = "1111111111111111111111111111111111111111";
+const mixedIdentities = [
+  { identifier: sameText, kind: sdk.PublicIdentityKind.Ethereum },
+  { identifier: sameText, kind: sdk.PublicIdentityKind.Passkey },
+  identity,
+];
+const checkMixedCanMessage = (result: Map<string, boolean>) => {
+  assert.equal(result.size, 3);
+  assert.equal(result.get(`ethereum:${sameText}`), false);
+  assert.equal(result.get(`passkey:${sameText}`), false);
+  assert.equal(result.get(`ethereum:${identity.identifier}`), true);
+};
+checkMixedCanMessage(await reopened.raw.canMessage(mixedIdentities));
+checkMixedCanMessage(
+  await sdk.Client.canMessage(
+    mixedIdentities,
+    new sdk.BackendSource.Connected({ backend: staticBackend }),
+  ),
+);
+checkMixedCanMessage(
+  await sdk.Client.canMessage(
+    mixedIdentities,
+    new sdk.BackendSource.Options({ options: backendOptions }),
+  ),
 );
 await assert.rejects(
   sdk.Client.build(
@@ -1097,7 +1141,7 @@ await assert.rejects(
         location: new sdk.StorageLocation.InMemory(),
       },
     },
-    inboxID,
+    inboxId,
   ),
   (error) => error instanceof sdk.XmtpError.IdentityNotFound,
 );
@@ -1325,7 +1369,7 @@ const familyGroup = await reopened.conversations().createGroup([], {
   appData: undefined,
 });
 assert.equal((await familyGroup.state()).name, "family group");
-assert.equal(familyGroup.creatorInboxID().toString(), inboxID.toString());
+assert.equal(familyGroup.creatorInboxId().toString(), inboxId.toString());
 assert.ok(
   (await reopened.conversations().listGroups(undefined)).some(
     (value) => value.id().toString() === familyGroup.id().toString(),
@@ -1333,9 +1377,9 @@ assert.ok(
 );
 console.log("Node scenario 4: group options, state, and list passed");
 
-const parentID = await familyGroup.sendText("parent", undefined);
-const reactionID = await reopened.conversations().reactToMessage(
-  parentID,
+const parentId = await familyGroup.sendText("parent", undefined);
+const reactionId = await reopened.conversations().reactToMessage(
+  parentId,
   {
     content: "👍",
     action: sdk.ReactionAction.Added,
@@ -1343,42 +1387,42 @@ const reactionID = await reopened.conversations().reactToMessage(
   },
   undefined,
 );
-const replyID = await reopened
+const replyId = await reopened
   .conversations()
-  .replyToMessage(parentID, sdk.encodeText("reply"), undefined);
+  .replyToMessage(parentId, sdk.encodeText("reply"), undefined);
 assert.equal(
   (await reopened.raw.decodeContent(sdk.encodeText("decoded"))).tag,
   sdk.MessageContent_Tags.Text,
 );
 const familyMessages = await familyGroup.messages(undefined);
 const parent = familyMessages.find(
-  (value) => value.id.toString() === parentID.toString(),
+  (value) => value.id.toString() === parentId.toString(),
 );
 const reply = familyMessages.find(
-  (value) => value.id.toString() === replyID.toString(),
+  (value) => value.id.toString() === replyId.toString(),
 );
-assert.equal(parent?.reactions[0]?.id.toString(), reactionID.toString());
+assert.equal(parent?.reactions[0]?.id.toString(), reactionId.toString());
 assert.equal(parent?.replyCount, 1n);
-assert.equal(reply?.inReplyTo?.id.toString(), parentID.toString());
+assert.equal(reply?.inReplyTo?.id.toString(), parentId.toString());
 const reactionMessage = await reopened
   .conversations()
-  .getMessageByID(reactionID);
+  .getMessageById(reactionId);
 if (reactionMessage?.content.tag !== sdk.MessageContent_Tags.Reaction)
   throw new Error("reaction message did not lift as a reaction");
 assert.equal(
   reactionMessage.content.inner.reference.toString(),
-  parentID.toString(),
+  parentId.toString(),
 );
 assert.equal(
-  reactionMessage.content.inner.referenceInboxID?.toString(),
-  inboxID.toString(),
+  reactionMessage.content.inner.referenceInboxId?.toString(),
+  inboxId.toString(),
 );
 assert.equal(reactionMessage.content.inner.reaction.content, "👍");
 console.log("Node scenario 5: message records, reaction, and reply passed");
 
-const customType = sdk.ContentTypeID.create({
-  authorityID: "example.org",
-  typeID: "sample",
+const customType = sdk.ContentTypeId.create({
+  authorityId: "example.org",
+  typeId: "sample",
   versionMajor: 1,
   versionMinor: 0,
 });
@@ -1397,12 +1441,12 @@ const customCodec = {
 const ownerWithCodec = await sdk.Client.build(
   identity,
   { ...options, codecs: [customCodec] },
-  inboxID,
+  inboxId,
 );
-const ownerWithoutCodec = await sdk.Client.build(identity, options, inboxID);
-const slashType = sdk.ContentTypeID.create({
-  authorityID: "example.org",
-  typeID: "a/b",
+const ownerWithoutCodec = await sdk.Client.build(identity, options, inboxId);
+const slashType = sdk.ContentTypeId.create({
+  authorityId: "example.org",
+  typeId: "a/b",
   versionMajor: 1,
   versionMinor: 0,
 });
@@ -1422,12 +1466,12 @@ const slashCodec = {
 const slashHost = await sdk.Client.build(
   identity,
   { ...options, codecs: [slashCodec] },
-  inboxID,
+  inboxId,
 );
 const colliding = sdk.EncodedContent.create({
-  type: sdk.ContentTypeID.create({
-    authorityID: "example.org/a",
-    typeID: "b",
+  type: sdk.ContentTypeId.create({
+    authorityId: "example.org/a",
+    typeId: "b",
     versionMajor: 1,
     versionMinor: 0,
   }),
@@ -1448,23 +1492,23 @@ const collidingMessage = new sdk.Message({
 } as sdk.MessageData);
 assert.equal(collidingMessage.content.tag, sdk.MessageContent_Tags.Unknown);
 await slashHost.end();
-const customID = await familyGroup.send(
+const customId = await familyGroup.send(
   customCodec.encode("codec value"),
   undefined,
 );
-const decoded = await ownerWithCodec.conversations().getMessageByID(customID);
+const decoded = await ownerWithCodec.conversations().getMessageById(customId);
 const undecoded = await ownerWithoutCodec
   .conversations()
-  .getMessageByID(customID);
-const customReplyID = await ownerWithCodec
+  .getMessageById(customId);
+const customReplyId = await ownerWithCodec
   .conversations()
-  .replyToMessage(customID, customCodec.encode("reply codec value"), undefined);
+  .replyToMessage(customId, customCodec.encode("reply codec value"), undefined);
 const customReply = await ownerWithCodec
   .conversations()
-  .getMessageByID(customReplyID);
+  .getMessageById(customReplyId);
 const undecodedReply = await ownerWithoutCodec
   .conversations()
-  .getMessageByID(customReplyID);
+  .getMessageById(customReplyId);
 assert.equal(undecoded?.content.tag, sdk.MessageContent_Tags.Unknown);
 const serializedCustom = new Uint8Array([10, 3, 1, 2, 3]).buffer;
 const syntheticUnknown = new sdk.Message({
@@ -1514,11 +1558,11 @@ const failingCodec = {
 const ownerWithFailingCodec = await sdk.Client.build(
   identity,
   { ...options, codecs: [failingCodec] },
-  inboxID,
+  inboxId,
 );
 const failedDecode = await ownerWithFailingCodec
   .conversations()
-  .getMessageByID(customID);
+  .getMessageById(customId);
 if (failedDecode?.content.tag !== sdk.MessageContent_Tags.Custom)
   throw new Error("failed custom decode did not keep its content");
 assert.match(String(failedDecode.content.inner.error), /codec decode failed/);
@@ -1532,7 +1576,7 @@ const throwingCodec = {
 const ownerWithThrowingCodec = await sdk.Client.build(
   identity,
   { ...options, codecs: [throwingCodec] },
-  inboxID,
+  inboxId,
 );
 const throwingGroup = await ownerWithThrowingCodec
   .conversations()
@@ -1542,21 +1586,21 @@ const codecStream = new sdk.MessageStream(
   (signal) => throwingGroup.messageReader({ signal }),
   ownerWithThrowingCodec,
 );
-const brokenID = await throwingGroup.send(
+const brokenId = await throwingGroup.send(
   customCodec.encode("bad decode"),
   undefined,
 );
 const broken = (await codecStream.next()).value;
-assert.equal(broken?.id.toString(), brokenID.toString());
+assert.equal(broken?.id.toString(), brokenId.toString());
 assert.equal(broken?.content.tag, sdk.MessageContent_Tags.Custom);
 assert.match(
   (broken?.content as { inner?: { error?: string } }).inner?.error ?? "",
   /codec exploded/,
 );
-const continuedID = await throwingGroup.sendText("after codec error");
+const continuedId = await throwingGroup.sendText("after codec error");
 assert.equal(
   (await codecStream.next()).value?.id.toString(),
-  continuedID.toString(),
+  continuedId.toString(),
 );
 await codecStream.end();
 await ownerWithThrowingCodec.end();
@@ -1600,13 +1644,13 @@ console.log("Node scenario 9: archive bytes and file passed");
 // verifies: EVENT-053
 const eventFilter = {
   kinds: [sdk.EventKind.ConversationJoined],
-  conversationIDs: undefined,
+  conversationIds: undefined,
   contentTypes: undefined,
   referencesOwnMessages: false,
 };
 const eventReader = await reopened.raw.events(eventFilter);
 let listenerCalls = 0;
-const listenerID = await reopened.startListener(eventFilter, async () => {
+const listenerId = await reopened.startListener(eventFilter, async () => {
   listenerCalls += 1;
 });
 await reopened.raw.conversations().createGroup([]);
@@ -1615,7 +1659,7 @@ assert.ok(sampleEvent);
 for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
   await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(listenerCalls, 1);
-await reopened.stopListener(listenerID);
+await reopened.stopListener(listenerId);
 await eventReader.end();
 console.log("Node scenario 8: event reader and listener passed");
 
@@ -1657,12 +1701,12 @@ setEventStartHookForTest(async () => {
   await startHeld;
 });
 let lateCalls = 0;
-const delayedID = await reopened.startListener(eventFilter, () => {
+const delayedId = await reopened.startListener(eventFilter, () => {
   lateCalls += 1;
 });
 await reopened.raw.conversations().createGroup([]);
 await startEntered;
-await reopened.stopListener(delayedID);
+await reopened.stopListener(delayedId);
 releaseStart();
 setEventStartHookForTest();
 await new Promise((resolve) => setTimeout(resolve, 100));
@@ -1674,9 +1718,9 @@ let resolveStopped!: () => void;
 const stoppedInside = new Promise<void>((resolve) => {
   resolveStopped = resolve;
 });
-let reentrantID!: bigint;
-reentrantID = await reopened.startListener(eventFilter, async () => {
-  await reopened.stopListener(reentrantID);
+let reentrantId!: bigint;
+reentrantId = await reopened.startListener(eventFilter, async () => {
+  await reopened.stopListener(reentrantId);
   resolveStopped();
 });
 await reopened.raw.conversations().createGroup([]);

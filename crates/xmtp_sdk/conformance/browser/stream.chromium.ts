@@ -124,17 +124,17 @@ export async function checkMessageStream(backendURL: string): Promise<void> {
     step = "create group";
     const group = await alice
       .conversations()
-      .createGroup([bob.inboxID()], undefined);
+      .createGroup([bob.inboxId()], undefined);
     step = "open reader";
     const reader = await group.messageReader();
     live(await reader.connectionState(), "reader");
     step = "peer sync";
     await bob.conversations().sync();
-    const peer = await bob.conversations().getByID(group.id());
+    const peer = await bob.conversations().getById(group.id());
     if (peer?.tag !== B.Conversation_Tags.Group)
       throw new Error("peer has no group");
     step = "reader delivery";
-    const firstID = await peer.inner.group.sendText(
+    const firstId = await peer.inner.group.sendText(
       "browser reader",
       undefined,
     );
@@ -142,7 +142,7 @@ export async function checkMessageStream(backendURL: string): Promise<void> {
     let read = await withTimeout(reader.next(), "reader delivery");
     if (read?.content.tag === B.MessageContent_Tags.GroupUpdated)
       read = await withTimeout(reader.next(), "reader delivery");
-    if (read?.id.toString() !== firstID.toString())
+    if (read?.id.toString() !== firstId.toString())
       throw new Error(
         `reader yielded ${String(read?.content.tag)}, not the message`,
       );
@@ -163,17 +163,17 @@ export async function checkMessageStream(backendURL: string): Promise<void> {
       },
     );
     const replayed = await withTimeout(stream.next(), "stream redelivery");
-    if (replayed.done || replayed.value.id.toString() !== firstID.toString())
+    if (replayed.done || replayed.value.id.toString() !== firstId.toString())
       throw new Error("stream did not redeliver the message");
     step = "stream delivery";
-    const secondID = await peer.inner.group.sendText(
+    const secondId = await peer.inner.group.sendText(
       "browser stream",
       undefined,
     );
     const streamed = await withTimeout(stream.next(), "stream delivery");
-    if (streamed.done || streamed.value.id.toString() !== secondID.toString())
+    if (streamed.done || streamed.value.id.toString() !== secondId.toString())
       throw new Error("stream missed the message");
-    if (streamed.value.senderInboxID.toString() !== bob.inboxID().toString())
+    if (streamed.value.senderInboxId.toString() !== bob.inboxId().toString())
       throw new Error("stream message has the wrong sender");
     if (states.length === 0)
       throw new Error("stream reported no connection state");

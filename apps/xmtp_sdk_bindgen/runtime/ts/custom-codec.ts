@@ -1,15 +1,15 @@
-import type { ContentTypeID, EncodedContent } from "../xmtp_sdk";
+import type { ContentTypeId, EncodedContent } from "../xmtp_sdk";
 
 export type AnyCodec = {
-  readonly type: ContentTypeID;
+  readonly type: ContentTypeId;
   encode(value: never): EncodedContent;
   decode(encoded: EncodedContent): unknown;
 };
 
 export type DecodedCustom = { value?: unknown; error?: string };
 
-export function codecKey(type: ContentTypeID): string {
-  return JSON.stringify([type.authorityID, type.typeID, type.versionMajor]);
+export function codecKey(type: ContentTypeId): string {
+  return JSON.stringify([type.authorityId, type.typeId, type.versionMajor]);
 }
 
 export function decodeCustom(

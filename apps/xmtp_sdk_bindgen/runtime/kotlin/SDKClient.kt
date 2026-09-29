@@ -36,7 +36,15 @@ class SDKClient private constructor(
         ): ClientOptions {
             val location =
                 if (options.storage.location is StorageLocation.Default) {
-                    val directory = requireNotNull(defaultDirectory) { "Default storage needs a host directory" }
+                    val directory =
+                        defaultDirectory ?: throw XmtpException.StorageLocationRequired(
+                            ErrorDetails(
+                                "StorageLocationRequired",
+                                ErrorCategory.STORAGE,
+                                false,
+                                "Default storage needs an Android context directory",
+                            ),
+                        )
                     StorageLocation.Directory(directory)
                 } else {
                     options.storage.location
@@ -60,12 +68,12 @@ class SDKClient private constructor(
         suspend fun build(
             identity: PublicIdentity,
             options: ClientOptions,
-            inboxID: InboxID? = null,
+            inboxId: InboxId? = null,
             defaultDirectory: String? = null,
             codecs: List<SDKContentCodec> = emptyList(),
         ): SDKClient =
             SDKClient(
-                Client.build(identity, resolved(options, defaultDirectory), inboxID),
+                Client.build(identity, resolved(options, defaultDirectory), inboxId),
                 codecs,
             ).also { ClientRegistry.register(it) }
 
@@ -75,46 +83,46 @@ class SDKClient private constructor(
         suspend fun canMessage(
             identities: List<PublicIdentity>,
             backend: BackendSource,
-        ): List<CanMessageEntry> = canMessageWithBackend(SDKForeign.backend(backend), identities)
+        ): Map<String, Boolean> = canMessageWithBackend(SDKForeign.backend(backend), identities)
 
-        suspend fun inboxIDFor(
+        suspend fun inboxIdFor(
             identity: PublicIdentity,
             backend: BackendSource,
-        ): InboxID = inboxIDForWithBackend(SDKForeign.backend(backend), identity)
+        ): InboxId = inboxIdForWithBackend(SDKForeign.backend(backend), identity)
 
         suspend fun inboxStates(
-            ids: List<InboxID>,
+            ids: List<InboxId>,
             backend: BackendSource,
         ): List<InboxState> = inboxStatesWithBackend(SDKForeign.backend(backend), ids)
 
         suspend fun keyPackageStatuses(
-            ids: List<InstallationID>,
+            ids: List<InstallationId>,
             backend: BackendSource,
-        ): List<KeyPackageStatusEntry> = keyPackageStatusesWithBackend(SDKForeign.backend(backend), ids)
+        ): Map<String, KeyPackageStatus> = keyPackageStatusesWithBackend(SDKForeign.backend(backend), ids)
 
         suspend fun newestMessageMetadata(
-            ids: List<ConversationID>,
+            ids: List<ConversationId>,
             backend: BackendSource,
-        ): List<MessageMetadataEntry> = newestMessageMetadataWithBackend(SDKForeign.backend(backend), ids)
+        ): Map<String, MessageMetadataEntry> = newestMessageMetadataWithBackend(SDKForeign.backend(backend), ids)
 
         suspend fun revokeInstallations(
             signer: Signer,
-            inboxID: InboxID,
-            ids: List<InstallationID>,
+            inboxId: InboxId,
+            ids: List<InstallationId>,
             backend: BackendSource,
-        ) = revokeInstallationsWithBackend(SDKForeign.backend(backend), SDKForeign.signer(signer), inboxID, ids)
+        ) = revokeInstallationsWithBackend(SDKForeign.backend(backend), SDKForeign.signer(signer), inboxId, ids)
 
         suspend fun isAddressAuthorized(
             address: String,
-            inboxID: InboxID,
+            inboxId: InboxId,
             backend: BackendSource,
-        ): Boolean = isAddressAuthorizedWithBackend(SDKForeign.backend(backend), inboxID, address)
+        ): Boolean = isAddressAuthorizedWithBackend(SDKForeign.backend(backend), inboxId, address)
 
         suspend fun isInstallationAuthorized(
-            installationID: InstallationID,
-            inboxID: InboxID,
+            installationId: InstallationId,
+            inboxId: InboxId,
             backend: BackendSource,
-        ): Boolean = isInstallationAuthorizedWithBackend(SDKForeign.backend(backend), inboxID, installationID)
+        ): Boolean = isInstallationAuthorizedWithBackend(SDKForeign.backend(backend), inboxId, installationId)
 
         suspend fun verifySignedWithPublicKey(
             text: String,

@@ -13,7 +13,7 @@ use xmtp_mls::{
 };
 
 use crate::{
-    Archives, BackendSource, Conversations, Diagnostics, InboxID, InstallationID, Preferences,
+    Archives, BackendSource, Conversations, Diagnostics, InboxId, InstallationId, Preferences,
     PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError, signer,
 };
 use xmtp_common::{MaybeSend, MaybeSync};
@@ -144,26 +144,32 @@ pub enum ForkRecoveryPolicy {
 pub struct ForkRecoveryOptions {
     pub policy: ForkRecoveryPolicy,
     #[uniffi(default)]
-    pub groups: Vec<crate::ConversationID>,
+    pub groups: Vec<crate::ConversationId>,
     #[uniffi(default = false)]
     pub disable_responses: bool,
     #[uniffi(default = None)]
     pub worker_interval_ns: Option<u64>,
 }
 
-impl From<ForkRecoveryOptions> for ForkRecoveryOpts {
-    fn from(value: ForkRecoveryOptions) -> Self {
+impl TryFrom<ForkRecoveryOptions> for ForkRecoveryOpts {
+    type Error = XmtpError;
+
+    fn try_from(value: ForkRecoveryOptions) -> Result<Self, Self::Error> {
         use xmtp_mls::builder::ForkRecoveryPolicy as CorePolicy;
-        Self {
+        Ok(Self {
             enable_recovery_requests: match value.policy {
                 ForkRecoveryPolicy::None => CorePolicy::None,
                 ForkRecoveryPolicy::AllowlistedGroups => CorePolicy::AllowlistedGroups,
                 ForkRecoveryPolicy::All => CorePolicy::All,
             },
-            groups_to_request_recovery: value.groups.into_iter().map(|id| id.0).collect(),
+            groups_to_request_recovery: value
+                .groups
+                .into_iter()
+                .map(crate::ConversationId::into_checked)
+                .collect::<Result<_, _>>()?,
             disable_recovery_responses: value.disable_responses,
             worker_interval_ns: value.worker_interval_ns,
-        }
+        })
     }
 }
 
@@ -291,6 +297,17 @@ impl Default for ClientOptions {
     }
 }
 
+impl ClientOptions {
+    /// Returns the core fork recovery options, or `InvalidArgument` if a
+    /// conversation ID is malformed.
+    fn fork_recovery_opts(&self) -> Result<Option<ForkRecoveryOpts>, XmtpError> {
+        self.fork_recovery
+            .clone()
+            .map(ForkRecoveryOpts::try_from)
+            .transpose()
+    }
+}
+
 #[derive(uniffi::Object)]
 pub struct Client {
     pub(crate) inner: Arc<CoreClient>,
@@ -348,7 +365,7 @@ impl Client {
     async fn build_inner(
         identity: PublicIdentity,
         options: ClientOptions,
-        inbox_id: Option<InboxID>,
+        inbox_id: Option<InboxId>,
         require_stored_identity: bool,
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
@@ -368,10 +385,12 @@ impl Client {
     async fn build_client(
         identity: PublicIdentity,
         mut options: ClientOptions,
-        inbox_id: Option<InboxID>,
+        inbox_id: Option<InboxId>,
         require_stored_identity: bool,
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
+        let inbox_id = inbox_id.map(InboxId::into_checked).transpose()?;
+        let fork_recovery = options.fork_recovery_opts()?;
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
         }
@@ -394,7 +413,7 @@ impl Client {
         let checked_store = match (require_stored_identity, inbox_id.as_ref()) {
             (true, Some(inbox_id)) => {
                 guard.arm(&options.storage);
-                Some(open_existing_store(&options.storage, &inbox_id.0).await?)
+                Some(open_existing_store(&options.storage, inbox_id).await?)
             }
             _ => None,
         };
@@ -406,7 +425,7 @@ impl Client {
             .await?;
         let auth_handle = backend.auth_handle.clone();
         let inbox_id = match inbox_id {
-            Some(value) => value.0,
+            Some(value) => value,
             None => {
                 let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
                 let found = api
@@ -449,8 +468,8 @@ impl Client {
         .map_err(XmtpError::unknown)?
         .store(store)
         .device_sync_worker_mode(mode);
-        if let Some(recovery) = options.fork_recovery.clone() {
-            builder = builder.fork_recovery_opts(recovery.into());
+        if let Some(recovery) = fork_recovery {
+            builder = builder.fork_recovery_opts(recovery);
         }
         if let Some(workers) = options.workers.clone() {
             builder = builder.worker_config(workers.into());
@@ -637,6 +656,8 @@ impl Client {
         signer: Arc<dyn Signer>,
         options: ClientOptions,
     ) -> Result<Self, XmtpError> {
+        // Check ID arguments before the signer callback runs.
+        options.fork_recovery_opts()?;
         let identity = signer::identity(signer.clone()).await?;
         let mut guard = OpenStoreGuard::default();
         let created = Self::create_with_guard(signer, identity, options, &mut guard).await;
@@ -650,7 +671,7 @@ impl Client {
     pub async fn build(
         identity: PublicIdentity,
         options: ClientOptions,
-        inbox_id: Option<InboxID>,
+        inbox_id: Option<InboxId>,
     ) -> Result<Self, XmtpError> {
         let mut guard = OpenStoreGuard::default();
         let built = Self::build_inner(identity, options, inbox_id, true, &mut guard).await;
@@ -658,12 +679,12 @@ impl Client {
         built
     }
 
-    pub fn inbox_id(&self) -> InboxID {
-        InboxID(self.inner.inbox_id().to_owned())
+    pub fn inbox_id(&self) -> InboxId {
+        InboxId::unchecked(self.inner.inbox_id().to_owned())
     }
 
-    pub fn installation_id(&self) -> InstallationID {
-        InstallationID(self.inner.installation_public_key().to_string())
+    pub fn installation_id(&self) -> InstallationId {
+        InstallationId::unchecked(self.inner.installation_public_key().to_string())
     }
 
     /// Host runtimes use this key to find the owner of a lifted message.
@@ -720,6 +741,7 @@ impl Client {
         &self,
         filter: crate::EventFilter,
     ) -> Result<Arc<crate::EventReader>, XmtpError> {
+        let filter = filter.checked()?;
         // The filter reads stored conversations. Leave the gate before the
         // subscription starts: that step does not use the database, and end()
         // must not wait for it.
@@ -753,7 +775,8 @@ impl Client {
         &self,
         filter: crate::EventFilter,
         listener: Arc<dyn crate::EventListener>,
-    ) -> Result<crate::ListenerID, XmtpError> {
+    ) -> Result<crate::ListenerId, XmtpError> {
+        let filter = filter.checked()?;
         // The filter reads stored conversations. Leave the gate before the
         // subscription starts: that step does not use the database, and end()
         // must not wait for it.
@@ -772,7 +795,7 @@ impl Client {
 
     // implements: EVENT-053
     // implements: EVENT-054
-    pub async fn stop_listener(&self, id: crate::ListenerID) {
+    pub async fn stop_listener(&self, id: crate::ListenerId) {
         self.listeners.stop(id);
     }
 }

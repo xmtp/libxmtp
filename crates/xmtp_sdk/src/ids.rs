@@ -1,112 +1,124 @@
+//! Validated string IDs.
+//!
+//! UniFFI lifts a host string into these types without validation. A failed
+//! lift loses its typed error on single-threaded WASM, so validation happens
+//! in Rust instead: the text is private, and code reads it only through the
+//! checked accessors, which return `InvalidArgument` for a malformed value.
+//! The SDK operation that receives the ID returns that error.
+
 use crate::XmtpError;
 use xmtp_proto::types::GroupId;
 
-/// An XMTP inbox ID.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct InboxID(pub String);
+macro_rules! validated_id {
+    ($(#[$doc:meta])* $name:ident, $validate:expr) => {
+        $(#[$doc])*
+        #[derive(Clone, Debug, Eq, PartialEq, Hash)]
+        pub struct $name(String);
 
-impl TryFrom<String> for InboxID {
-    type Error = XmtpError;
+        #[cfg_attr(feature = "pure-only", allow(dead_code))]
+        impl $name {
+            /// Wraps text that the SDK produced. It is not validated.
+            pub(crate) fn unchecked(value: String) -> Self {
+                Self(value)
+            }
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        if value.is_empty() {
-            return Err(XmtpError::invalid("inbox ID is empty"));
+            /// Returns the ID text, or `InvalidArgument` if it is malformed.
+            pub fn checked(&self) -> Result<&str, XmtpError> {
+                ($validate)(self.0.as_str())?;
+                Ok(&self.0)
+            }
+
+            /// Returns the owned ID text, or `InvalidArgument` if it is malformed.
+            pub fn into_checked(self) -> Result<String, XmtpError> {
+                self.checked()?;
+                Ok(self.0)
+            }
         }
-        Ok(Self(value))
+
+        impl TryFrom<String> for $name {
+            type Error = XmtpError;
+
+            fn try_from(value: String) -> Result<Self, Self::Error> {
+                ($validate)(value.as_str())?;
+                Ok(Self(value))
+            }
+        }
+
+        uniffi::custom_type!($name, String, {
+            lower: |id| id.0,
+            try_lift: |value| Ok($name(value)),
+        });
+    };
+}
+
+validated_id!(
+    /// An XMTP inbox ID.
+    InboxId,
+    validate_inbox_id
+);
+validated_id!(
+    /// An installation ID, encoded as lowercase hex.
+    InstallationId,
+    |value| validate_hex_id(value, 32)
+);
+validated_id!(
+    /// A conversation ID, encoded as lowercase hex.
+    ConversationId,
+    |value| validate_hex_id(value, 16)
+);
+validated_id!(
+    /// A message ID, encoded as lowercase hex.
+    MessageId,
+    |value| validate_hex_id(value, 32)
+);
+
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
+impl InstallationId {
+    /// Returns the decoded bytes, or `InvalidArgument` if the ID is malformed.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, XmtpError> {
+        decode_hex_id(self.checked()?)
     }
 }
 
-impl From<InboxID> for String {
-    fn from(value: InboxID) -> Self {
-        value.0
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
+impl ConversationId {
+    /// Returns the decoded bytes, or `InvalidArgument` if the ID is malformed.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, XmtpError> {
+        decode_hex_id(self.checked()?)
     }
 }
 
-uniffi::custom_type!(InboxID, String);
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
+impl MessageId {
+    /// Returns the decoded bytes, or `InvalidArgument` if the ID is malformed.
+    pub fn to_bytes(&self) -> Result<Vec<u8>, XmtpError> {
+        decode_hex_id(self.checked()?)
+    }
 
-/// An installation ID, encoded as lowercase hex.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct InstallationID(pub String);
-
-impl TryFrom<String> for InstallationID {
-    type Error = XmtpError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        validate_hex_id(&value, 32)?;
-        Ok(Self(value))
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, XmtpError> {
+        Self::try_from(hex::encode(bytes))
     }
 }
 
-impl From<InstallationID> for String {
-    fn from(value: InstallationID) -> Self {
-        value.0
-    }
-}
-
-uniffi::custom_type!(InstallationID, String);
-
-/// A conversation ID, encoded as lowercase hex.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct ConversationID(pub String);
-
-impl TryFrom<String> for ConversationID {
-    type Error = XmtpError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        validate_hex_id(&value, 16)?;
-        Ok(Self(value))
-    }
-}
-
-impl From<ConversationID> for String {
-    fn from(value: ConversationID) -> Self {
-        value.0
-    }
-}
-
-uniffi::custom_type!(ConversationID, String);
-
-impl From<GroupId> for ConversationID {
+impl From<GroupId> for ConversationId {
     fn from(value: GroupId) -> Self {
         Self(hex::encode(value.as_slice()))
     }
 }
 
-impl TryFrom<ConversationID> for GroupId {
+impl TryFrom<ConversationId> for GroupId {
     type Error = XmtpError;
 
-    fn try_from(value: ConversationID) -> Result<Self, Self::Error> {
-        let bytes = hex::decode(value.0).map_err(XmtpError::unknown)?;
-        GroupId::try_from(bytes.as_slice()).map_err(XmtpError::unknown)
+    fn try_from(value: ConversationId) -> Result<Self, Self::Error> {
+        GroupId::try_from(value.to_bytes()?.as_slice()).map_err(XmtpError::unknown)
     }
 }
 
-/// A message ID, encoded as lowercase hex.
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct MessageID(pub String);
-
-impl TryFrom<String> for MessageID {
-    type Error = XmtpError;
-
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        validate_hex_id(&value, 32)?;
-        Ok(Self(value))
+fn validate_inbox_id(value: &str) -> Result<(), XmtpError> {
+    if value.is_empty() {
+        return Err(XmtpError::invalid_argument("inbox ID is empty"));
     }
-}
-
-impl From<MessageID> for String {
-    fn from(value: MessageID) -> Self {
-        value.0
-    }
-}
-
-uniffi::custom_type!(MessageID, String);
-
-#[cfg_attr(feature = "pure-only", allow(dead_code))]
-impl MessageID {
-    pub(crate) fn from_bytes(bytes: &[u8]) -> Result<Self, XmtpError> {
-        Self::try_from(hex::encode(bytes))
-    }
+    Ok(())
 }
 
 fn validate_hex_id(value: &str, byte_len: usize) -> Result<(), XmtpError> {
@@ -114,9 +126,13 @@ fn validate_hex_id(value: &str, byte_len: usize) -> Result<(), XmtpError> {
         || !value.bytes().all(|byte| byte.is_ascii_hexdigit())
         || value != value.to_ascii_lowercase()
     {
-        return Err(XmtpError::invalid("invalid lowercase hex ID"));
+        return Err(XmtpError::invalid_argument("invalid lowercase hex ID"));
     }
     Ok(())
+}
+
+fn decode_hex_id(value: &str) -> Result<Vec<u8>, XmtpError> {
+    hex::decode(value).map_err(|_| XmtpError::invalid_argument("invalid lowercase hex ID"))
 }
 
 /// A timestamp in nanoseconds since the Unix epoch.

@@ -31,9 +31,6 @@ pub(crate) fn generate(lib: &Utf8Path, out: &Utf8Path) -> Result<()> {
     if let Some(roots) = roots {
         paths.add_layer(roots);
     }
-    let crate_root = paths
-        .get_crate_root("xmtp_sdk")
-        .context("missing xmtp_sdk crate root")?;
     let loader = BindgenLoader::new(paths, global);
     let metadata = loader.load_metadata_specialized(lib, |_path, bytes| {
         if wasm_metadata::looks_like_wasm(bytes) {
@@ -51,11 +48,10 @@ pub(crate) fn generate(lib: &Utf8Path, out: &Utf8Path) -> Result<()> {
         .flat_map(|group| group.items.iter().cloned())
         .collect::<Vec<_>>();
     validate_bridge(&items)?;
-    let names = super::id_names::typescript_rename_map(&metadata, &crate_root.join("uniffi.toml"))?;
-    let operations = operations(&items, &names);
+    let operations = operations(&items);
     let hash = contract_hash(&metadata);
     fs::create_dir_all(out)?;
-    let generated = render(&items, &operations, &hash, &names)?;
+    let generated = render(&items, &operations, &hash)?;
     for (name, body) in &generated {
         fs::write(out.join(name), body)?;
     }
@@ -359,12 +355,12 @@ fn validate_type(ty: &Type) -> Result<()> {
             if !matches!(
                 name.as_str(),
                 "Message"
-                    | "InboxID"
-                    | "InstallationID"
-                    | "ConversationID"
-                    | "MessageID"
+                    | "InboxId"
+                    | "InstallationId"
+                    | "ConversationId"
+                    | "MessageId"
                     | "Timestamp"
-                    | "ListenerID"
+                    | "ListenerId"
             ) {
                 bail!("{name}: unsupported custom type");
             }
@@ -373,12 +369,11 @@ fn validate_type(ty: &Type) -> Result<()> {
     }
 }
 
-fn ts_name(source: &str, names: &BTreeMap<String, String>) -> String {
-    let camel = source.to_lower_camel_case();
-    names.get(&camel).cloned().unwrap_or(camel)
+fn ts_name(source: &str) -> String {
+    source.to_lower_camel_case()
 }
 
-fn operations(items: &[Metadata], names: &BTreeMap<String, String>) -> Vec<Operation> {
+fn operations(items: &[Metadata]) -> Vec<Operation> {
     let remote = remote_foreign(items);
     let mut output = Vec::new();
     for item in items {
@@ -386,12 +381,12 @@ fn operations(items: &[Metadata], names: &BTreeMap<String, String>) -> Vec<Opera
             Metadata::TraitMethod(value) if remote.contains(&value.trait_name) => {
                 output.push(Operation {
                     owner: Some(value.trait_name.clone()),
-                    name: ts_name(&value.name, names),
-                    key: format!("{}.{}", value.trait_name, ts_name(&value.name, names)),
+                    name: ts_name(&value.name),
+                    key: format!("{}.{}", value.trait_name, ts_name(&value.name)),
                     inputs: value
                         .inputs
                         .iter()
-                        .map(|p| (ts_name(&p.name, names), p.ty.clone()))
+                        .map(|p| (ts_name(&p.name), p.ty.clone()))
                         .collect(),
                     output: value.return_type.clone(),
                     constructor: false,
@@ -400,12 +395,12 @@ fn operations(items: &[Metadata], names: &BTreeMap<String, String>) -> Vec<Opera
             }
             Metadata::Method(value) => output.push(Operation {
                 owner: Some(value.self_name.clone()),
-                name: ts_name(&value.name, names),
-                key: format!("{}.{}", value.self_name, ts_name(&value.name, names)),
+                name: ts_name(&value.name),
+                key: format!("{}.{}", value.self_name, ts_name(&value.name)),
                 inputs: value
                     .inputs
                     .iter()
-                    .map(|p| (ts_name(&p.name, names), p.ty.clone()))
+                    .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
                 output: value.return_type.clone(),
                 constructor: false,
@@ -413,12 +408,12 @@ fn operations(items: &[Metadata], names: &BTreeMap<String, String>) -> Vec<Opera
             }),
             Metadata::Constructor(value) => output.push(Operation {
                 owner: Some(value.self_name.clone()),
-                name: ts_name(&value.name, names),
-                key: format!("{}.{}", value.self_name, ts_name(&value.name, names)),
+                name: ts_name(&value.name),
+                key: format!("{}.{}", value.self_name, ts_name(&value.name)),
                 inputs: value
                     .inputs
                     .iter()
-                    .map(|p| (ts_name(&p.name, names), p.ty.clone()))
+                    .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
                 output: Some(Type::Object {
                     module_path: value.module_path.clone(),
@@ -430,12 +425,12 @@ fn operations(items: &[Metadata], names: &BTreeMap<String, String>) -> Vec<Opera
             }),
             Metadata::Func(value) if !outside_bridge(item) => output.push(Operation {
                 owner: None,
-                name: ts_name(&value.name, names),
-                key: ts_name(&value.name, names),
+                name: ts_name(&value.name),
+                key: ts_name(&value.name),
                 inputs: value
                     .inputs
                     .iter()
-                    .map(|p| (ts_name(&p.name, names), p.ty.clone()))
+                    .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
                 output: value.return_type.clone(),
                 constructor: false,
@@ -506,6 +501,14 @@ fn ts_type(ty: &Type) -> String {
                 format!("B.{name}")
             }
         }
+        Type::Custom { name, .. }
+            if matches!(
+                name.as_str(),
+                "InboxId" | "InstallationId" | "ConversationId" | "MessageId"
+            ) =>
+        {
+            "string".into()
+        }
         Type::Record { name, .. } | Type::Enum { name, .. } | Type::Custom { name, .. } => {
             format!("B.{name}")
         }
@@ -552,7 +555,10 @@ fn shape(ty: &Type) -> String {
         Type::Enum { name, .. } => format!("{{ kind: \"enum\", name: \"{name}\" }}"),
         Type::Box { inner_type } => shape(inner_type),
         Type::Custom { name, builtin, .. } => {
-            if name == "ListenerID" {
+            if matches!(
+                name.as_str(),
+                "ListenerId" | "InboxId" | "InstallationId" | "ConversationId" | "MessageId"
+            ) {
                 return shape(builtin);
             }
             format!(
@@ -604,7 +610,9 @@ fn decode_expr(ty: &Type, raw: &str, session: &str) -> String {
             match name.as_str() {
                 "Message" => format!("new HostMessage({inner}, {session})"),
                 "Timestamp" => format!("new B.Timestamp({inner})"),
-                "ListenerID" => inner,
+                "ListenerId" | "InboxId" | "InstallationId" | "ConversationId" | "MessageId" => {
+                    inner
+                }
                 _ => format!("B.{name}.fromRust({inner})"),
             }
         }
@@ -633,7 +641,7 @@ fn decode_expr(ty: &Type, raw: &str, session: &str) -> String {
     }
 }
 
-fn render_decoders(items: &[Metadata], names: &BTreeMap<String, String>) -> Result<String> {
+fn render_decoders(items: &[Metadata]) -> Result<String> {
     let remote = remote_foreign(items);
     let mut code = String::from(
         "function bridgeRecord(raw: unknown): Record<string, unknown> { if (raw === null || typeof raw !== \"object\" || Array.isArray(raw)) throw new TypeError(\"expected record\"); return Object.fromEntries(Object.entries(raw)); }\n\
@@ -673,7 +681,7 @@ function bridgeHandle(raw: unknown, type: string): HandleWire { const value = br
                     record.name, record.name
                 )?;
                 for field in &record.fields {
-                    let name = ts_name(&field.name, names);
+                    let name = ts_name(&field.name);
                     writeln!(
                         code,
                         "  {name}: {},",
@@ -714,7 +722,7 @@ function bridgeHandle(raw: unknown, type: string): HandleWire { const value = br
                                     .fields
                                     .iter()
                                     .map(|field| {
-                                        let name = ts_name(&field.name, names);
+                                        let name = ts_name(&field.name);
                                         format!(
                                             "{name}: {}",
                                             decode_expr(
@@ -765,7 +773,7 @@ function bridgeHandle(raw: unknown, type: string): HandleWire { const value = br
                                 .fields
                                 .iter()
                                 .map(|field| {
-                                    let name = ts_name(&field.name, names);
+                                    let name = ts_name(&field.name);
                                     format!(
                                         "{name}: {}",
                                         decode_expr(
@@ -804,7 +812,6 @@ fn render(
     items: &[Metadata],
     operations: &[Operation],
     hash: &str,
-    names: &BTreeMap<String, String>,
 ) -> Result<BTreeMap<&'static str, String>> {
     let mut result = BTreeMap::new();
     let mut contract = format!(
@@ -827,7 +834,7 @@ fn render(
                     writeln!(
                         wire,
                         "  {}: {};",
-                        ts_name(&field.name, names),
+                        ts_name(&field.name),
                         wire_type(&field.ty)
                     )?;
                 }
@@ -864,7 +871,7 @@ fn render(
                                     write!(
                                         wire,
                                         "{}: {}; ",
-                                        ts_name(&field.name, names),
+                                        ts_name(&field.name),
                                         wire_type(&field.ty)
                                     )?;
                                 }
@@ -904,12 +911,7 @@ fn render(
         if let Metadata::Record(record) = item {
             writeln!(wire, "  {}: {{ fields: {{", record.name)?;
             for field in &record.fields {
-                writeln!(
-                    wire,
-                    "    {}: {},",
-                    ts_name(&field.name, names),
-                    shape(&field.ty)
-                )?;
+                writeln!(wire, "    {}: {},", ts_name(&field.name), shape(&field.ty))?;
             }
             wire.push_str("  } },\n");
         }
@@ -941,7 +943,7 @@ fn render(
                         writeln!(
                             wire,
                             "      {}: {},",
-                            ts_name(&field.name, names),
+                            ts_name(&field.name),
                             shape(&field.ty)
                         )?;
                     }
@@ -997,7 +999,7 @@ fn render(
             writeln!(
                 wire,
                 "    {}: {{ inputs: [{inputs}], output: {output} }},",
-                ts_name(&method.name, names)
+                ts_name(&method.name)
             )?;
         }
         wire.push_str("  },\n");
@@ -1164,7 +1166,7 @@ fn render(
     proxy.push_str(
         "    default: throw new TypeError(`unknown object type ${handle.type}`);\n  }\n}\n",
     );
-    proxy.push_str(&render_decoders(items, names)?);
+    proxy.push_str(&render_decoders(items)?);
     if items.iter().any(|item| matches!(item, Metadata::Enum(value) if value.shape.is_error() && value.name == "XmtpError")) {
         proxy.push_str("function installErrorDecoder(session: MainSession): void { session.setErrorDecoder((wire: ErrorWire): Error => { try { return decodeEnumXmtpError(session, wire); } catch { return decodeError(wire); } }); }\n");
     } else {
@@ -1261,15 +1263,6 @@ fn render(
         };
         result.insert(name, template.to_owned());
     }
-    // The stock TypeScript backend applies type rename entries from uniffi.toml.
-    // Apply the same entries to every generated bridge file, including shape keys.
-    for body in result.values_mut() {
-        for (source, target) in names {
-            if source.chars().next().is_some_and(char::is_uppercase) {
-                *body = body.replace(source, target);
-            }
-        }
-    }
     Ok(result)
 }
 
@@ -1337,7 +1330,7 @@ mod tests {
             non_exhaustive: false,
             docstring: None,
         });
-        let files = render(&[item], &[], "test", &BTreeMap::new())?;
+        let files = render(&[item], &[], "test")?;
         assert!(files["proxy.gen.ts"].contains("B.LogSinkError.Failed.new({ reason:"));
         assert!(files["wire.gen.ts"].contains("Failed: {"));
     }
@@ -1398,14 +1391,14 @@ mod tests {
             docstring: Some("@xmtp-pure".into()),
         });
         validate_bridge(std::slice::from_ref(&item))?;
-        assert!(operations(&[item], &BTreeMap::new()).is_empty());
+        assert!(operations(&[item]).is_empty());
     }
 
     // The worker storage lock must name the OPFS directory that the Rust
     // store opens. Only the generator writes it, from the Rust constant.
     #[xmtp_common::test(unwrap_try = true)]
     fn pool_lock_name_comes_from_opfs_directory() {
-        let files = render(&[], &[], "test", &BTreeMap::new())?;
+        let files = render(&[], &[], "test")?;
         let dispatch = &files["dispatch.gen.ts"];
         assert!(
             dispatch.contains(&format!(
@@ -1439,7 +1432,7 @@ mod tests {
             docstring: Some("@xmtp-worker Reports a store.".into()),
         });
         validate_bridge(std::slice::from_ref(&item))?;
-        assert!(operations(&[item], &BTreeMap::new()).is_empty());
+        assert!(operations(&[item]).is_empty());
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -1461,13 +1454,13 @@ mod tests {
     fn listener_id_uses_uint64_on_the_bridge() {
         let ty = Type::Custom {
             module_path: "test".into(),
-            name: "ListenerID".into(),
+            name: "ListenerId".into(),
             builtin: Box::new(Type::UInt64),
         };
         assert!(validate_type(&ty).is_ok());
         assert_eq!(shape(&ty), "{ kind: \"value\", type: \"UInt64\" }");
         assert_eq!(decode_expr(&ty, "raw", "session"), "bridgeBigInt(raw)");
-        assert_eq!(ts_type(&ty), "B.ListenerID");
+        assert_eq!(ts_type(&ty), "B.ListenerId");
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -1532,7 +1525,7 @@ mod tests {
             docstring: None,
         });
         assert!(validate_bridge(std::slice::from_ref(&item)).is_ok());
-        assert!(operations(&[item], &BTreeMap::new())[0].immutable);
+        assert!(operations(&[item])[0].immutable);
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -1681,7 +1674,7 @@ mod tests {
             non_exhaustive: false,
             docstring: None,
         });
-        let files = render(&[item], &[], "test", &BTreeMap::new())?;
+        let files = render(&[item], &[], "test")?;
         assert!(files["wire.gen.ts"].contains("export type WireKind = number"));
         assert!(files["wire.gen.ts"].contains("flat: true"));
     }
@@ -1710,9 +1703,8 @@ mod tests {
             docstring: None,
         });
         let items = [object, method];
-        let names = BTreeMap::new();
-        let operations = operations(&items, &names);
-        let files = render(&items, &operations, "test", &names)?;
+        let operations = operations(&items);
+        let files = render(&items, &operations, "test")?;
         assert!(files["proxy.gen.ts"].contains("async end(asyncOpts_?:"));
     }
 
@@ -1765,9 +1757,8 @@ mod tests {
     fn returned_foreign_object_decodes_to_worker_proxy() {
         let items = foreign_trait("Signer", "identity", true);
         validate_bridge(&items)?;
-        let names = BTreeMap::new();
-        let operations = operations(&items, &names);
-        let files = render(&items, &operations, "test", &names)?;
+        let operations = operations(&items);
+        let files = render(&items, &operations, "test")?;
         let proxy = &files["proxy.gen.ts"];
         assert!(proxy.contains("export class Signer extends RemoteObject implements B.Signer {"));
         assert!(proxy.contains("case \"Signer\": return new Signer(session, handle);"));
@@ -1810,9 +1801,8 @@ mod tests {
             docstring: None,
         });
         let items = [object, method];
-        let names = BTreeMap::new();
-        let operations = operations(&items, &names);
-        let files = render(&items, &operations, "test", &names)?;
+        let operations = operations(&items);
+        let files = render(&items, &operations, "test")?;
         assert!(files["proxy.gen.ts"].contains("unreadTotal"));
         assert!(files["dispatch.gen.ts"].contains("Group.unreadTotal"));
     }
