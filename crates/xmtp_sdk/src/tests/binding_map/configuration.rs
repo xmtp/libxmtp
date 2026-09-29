@@ -27,7 +27,7 @@ fn facade_content_records_preserve_codec_fields() {
     let encoded_reaction = ReactionCodec::encode(
         reaction
             .clone()
-            .into_proto(reference.clone(), InboxId::try_from("inbox".to_owned())?),
+            .into_proto(reference.checked()?.to_owned(), "inbox".to_owned()),
     )?;
     let decoded_reaction = MessageContent::decode(encoded_reaction.encode_to_vec())?;
     assert!(
@@ -37,7 +37,7 @@ fn facade_content_records_preserve_codec_fields() {
             && matches!(value.schema, crate::ReactionSchema::Unicode))
     );
     let proto_reaction = proto::ReactionV2::decode(encoded_reaction.content.as_slice())?;
-    assert_eq!(proto_reaction.reference, reference.0);
+    assert_eq!(proto_reaction.reference, reference.checked()?);
     assert_eq!(proto_reaction.reference_inbox_id, "inbox");
 
     let attachment = CoreAttachment {
@@ -119,7 +119,7 @@ fn facade_content_records_preserve_codec_fields() {
     assert!(matches!(
         MessageContent::decode(ReplyCodec::encode(reply)?.encode_to_vec())?,
         MessageContent::Reply { reference_id, body: crate::MessageBody::Text(value) }
-            if reference_id.0 == "b".repeat(64) && value == "answer"
+            if reference_id.checked().ok() == Some(&*"b".repeat(64)) && value == "answer"
     ));
 }
 

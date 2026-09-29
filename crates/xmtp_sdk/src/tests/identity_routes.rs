@@ -7,12 +7,12 @@ async fn member_ids(group: &crate::Group) -> Result<Vec<InboxId>, XmtpError> {
         .into_iter()
         .map(|member| member.inbox_id)
         .collect::<Vec<_>>();
-    ids.sort_by(|a, b| a.0.cmp(&b.0));
+    ids.sort_by_key(|id| id.clone().into_checked().unwrap_or_default());
     Ok(ids)
 }
 
 fn sorted(mut ids: Vec<InboxId>) -> Vec<InboxId> {
-    ids.sort_by(|a, b| a.0.cmp(&b.0));
+    ids.sort_by_key(|id| id.clone().into_checked().unwrap_or_default());
     ids
 }
 

@@ -189,13 +189,13 @@ pub enum ClientEvent {
 }
 
 fn conversation_id(bytes: Vec<u8>) -> ConversationId {
-    ConversationId(hex::encode(bytes))
+    ConversationId::unchecked(hex::encode(bytes))
 }
 fn message_id(bytes: Vec<u8>) -> MessageId {
-    MessageId(hex::encode(bytes))
+    MessageId::unchecked(hex::encode(bytes))
 }
 fn installation_id(bytes: Vec<u8>) -> InstallationId {
-    InstallationId(hex::encode(bytes))
+    InstallationId::unchecked(hex::encode(bytes))
 }
 fn content_type(value: xmtp_events::ContentTypeId) -> ContentTypeId {
     ContentTypeId {
@@ -213,7 +213,7 @@ impl From<core::ClientEvent> for ClientEvent {
                 conversation_id: conversation_id(v.group_id),
                 conversation_type: v.conversation_type.into(),
                 origin: v.origin.into(),
-                adder_inbox_id: v.adder_inbox_id.map(InboxId),
+                adder_inbox_id: v.adder_inbox_id.map(InboxId::unchecked),
             },
             core::ClientEvent::ConversationRemoved(v) => Self::ConversationRemoved {
                 conversation_id: conversation_id(v.group_id),
@@ -222,8 +222,16 @@ impl From<core::ClientEvent> for ClientEvent {
             core::ClientEvent::ConversationMembershipChanged(v) => {
                 Self::ConversationMembershipChanged {
                     conversation_id: conversation_id(v.group_id),
-                    added_inbox_ids: v.added_inbox_ids.into_iter().map(InboxId).collect(),
-                    removed_inbox_ids: v.removed_inbox_ids.into_iter().map(InboxId).collect(),
+                    added_inbox_ids: v
+                        .added_inbox_ids
+                        .into_iter()
+                        .map(InboxId::unchecked)
+                        .collect(),
+                    removed_inbox_ids: v
+                        .removed_inbox_ids
+                        .into_iter()
+                        .map(InboxId::unchecked)
+                        .collect(),
                 }
             }
             core::ClientEvent::ConversationMetadataChanged(v) => {
@@ -240,7 +248,7 @@ impl From<core::ClientEvent> for ClientEvent {
                 conversation_id: conversation_id(v.group_id),
                 message_id: message_id(v.message_id),
                 content_type: v.content_type.map(content_type),
-                sender_inbox_id: InboxId(v.sender_inbox_id),
+                sender_inbox_id: InboxId::unchecked(v.sender_inbox_id),
             },
             core::ClientEvent::MessageStatusChanged(v) => Self::MessageStatusChanged {
                 conversation_id: conversation_id(v.group_id),
@@ -264,7 +272,7 @@ impl From<core::ClientEvent> for ClientEvent {
             },
             core::ClientEvent::HmacKeysUpdated(_) => Self::HmacKeysUpdated,
             core::ClientEvent::IdentityRegistered(v) => Self::IdentityRegistered {
-                inbox_id: InboxId(v.inbox_id),
+                inbox_id: InboxId::unchecked(v.inbox_id),
                 installation_id: installation_id(v.installation_key),
             },
             core::ClientEvent::IdentityOwnInstallationAdded(v) => {

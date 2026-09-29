@@ -9,10 +9,8 @@ use crate::{
     KeyPackageStatus, PublicIdentity, SignatureRequest, Signer, XmtpError, signer,
 };
 
-fn installation_bytes(ids: Vec<InstallationId>) -> Result<Vec<Vec<u8>>, XmtpError> {
-    ids.into_iter()
-        .map(|id| hex::decode(id.0).map_err(XmtpError::unknown))
-        .collect()
+fn installation_bytes(ids: &[InstallationId]) -> Result<Vec<Vec<u8>>, XmtpError> {
+    ids.iter().map(InstallationId::to_bytes).collect()
 }
 
 impl Client {
@@ -192,11 +190,12 @@ impl Client {
         &self,
         ids: Vec<InstallationId>,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
+        let bytes = installation_bytes(&ids)?;
         let _call = self.ensure_open()?;
         let request = self
             .inner
             .identity_updates()
-            .revoke_installations(installation_bytes(ids)?)
+            .revoke_installations(bytes)
             .await
             .map_err(XmtpError::from_client)?;
         Ok(self.request(request))
@@ -353,8 +352,11 @@ impl Client {
         ids: Vec<InboxId>,
         refresh_from_network: bool,
     ) -> Result<Vec<InboxState>, XmtpError> {
+        let refs = ids
+            .iter()
+            .map(InboxId::checked)
+            .collect::<Result<Vec<_>, _>>()?;
         let _call = self.ensure_open()?;
-        let refs = ids.iter().map(|id| id.0.as_str()).collect();
         let states = self
             .inner
             .inbox_addresses(refresh_from_network, refs)
@@ -414,18 +416,21 @@ impl Client {
         ids: Vec<InboxId>,
         refresh_from_network: bool,
     ) -> Result<HashMap<String, u64>, XmtpError> {
+        let refs = ids
+            .iter()
+            .map(InboxId::checked)
+            .collect::<Result<Vec<_>, _>>()?;
         let _call = self.ensure_open()?;
-        let refs = ids.iter().map(|id| id.0.as_str()).collect();
         let answer = self
             .inner
-            .fetch_inbox_updates_count(refresh_from_network, refs)
+            .fetch_inbox_updates_count(refresh_from_network, refs.clone())
             .await
             .map_err(XmtpError::from_client)?;
-        Ok(ids
+        Ok(refs
             .into_iter()
             .map(|inbox_id| {
-                let count = u64::from(answer.get(&inbox_id.0).copied().unwrap_or(0));
-                (inbox_id.0, count)
+                let count = u64::from(answer.get(inbox_id).copied().unwrap_or(0));
+                (inbox_id.to_owned(), count)
             })
             .collect())
     }
@@ -446,19 +451,17 @@ impl Client {
         &self,
         ids: Vec<InstallationId>,
     ) -> Result<HashMap<String, KeyPackageStatus>, XmtpError> {
+        let bytes = installation_bytes(&ids)?;
         let _call = self.ensure_open()?;
         let found = self
             .inner
-            .get_key_packages_for_installation_ids(installation_bytes(ids.clone())?)
+            .get_key_packages_for_installation_ids(bytes.clone())
             .await
             .map_err(XmtpError::from_client)?;
-        Ok(ids
+        Ok(bytes
             .into_iter()
-            .map(|installation_id| {
-                let status = match hex::decode(&installation_id.0)
-                    .ok()
-                    .and_then(|id| found.get(&id))
-                {
+            .map(|bytes| {
+                let status = match found.get(&bytes) {
                     Some(Ok(package)) => KeyPackageStatus {
                         lifetime: package.life_time().map(|value| KeyPackageLifetime {
                             not_before: value.not_before,
@@ -475,7 +478,7 @@ impl Client {
                         validation_error: Some("key package not found".into()),
                     },
                 };
-                (installation_id.0, status)
+                (hex::encode(bytes), status)
             })
             .collect())
     }

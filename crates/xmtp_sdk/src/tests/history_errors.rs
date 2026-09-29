@@ -7,7 +7,7 @@ async fn get_message_by_id_errors_on_unconvertible_row() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let id = group.send_text("valid".into(), None).await?;
-    let id_bytes = hex::decode(&id.0)?;
+    let id_bytes = id.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&id_bytes)))
             .set(dsl::sender_inbox_id.eq(""))
@@ -32,7 +32,7 @@ async fn history_skips_bad_row_and_warns_without_content() {
     let bad = group
         .send_text("sensitive-history-content".into(), None)
         .await?;
-    let bad_bytes = hex::decode(&bad.0)?;
+    let bad_bytes = bad.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&bad_bytes)))
             .set(dsl::sender_inbox_id.eq(""))
@@ -58,7 +58,7 @@ async fn history_skips_bad_row_and_warns_without_content() {
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
     let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
-    assert_eq!(warning["message_id"], bad.0);
+    assert_eq!(warning["message_id"], bad.checked()?);
     assert!(
         warning["error"]
             .as_str()
@@ -89,7 +89,7 @@ async fn history_skips_bad_reaction_and_warns_without_content() {
             None,
         )
         .await?;
-    let reaction_bytes = hex::decode(&reaction.0)?;
+    let reaction_bytes = reaction.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&reaction_bytes)))
             .set(dsl::sender_inbox_id.eq(""))
@@ -122,7 +122,7 @@ async fn history_skips_bad_reaction_and_warns_without_content() {
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
     let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
-    assert_eq!(warning["reaction_id"], reaction.0);
+    assert_eq!(warning["reaction_id"], reaction.checked()?);
     assert!(
         warning["error"]
             .as_str()
@@ -146,7 +146,7 @@ async fn reply_omits_bad_parent_and_warns_without_content() {
         .conversations()
         .reply_to_message(parent.clone(), crate::encode_text("reply".into())?, None)
         .await?;
-    let parent_bytes = hex::decode(&parent.0)?;
+    let parent_bytes = parent.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&parent_bytes)))
             .set(dsl::sender_inbox_id.eq(""))
@@ -166,7 +166,7 @@ async fn reply_omits_bad_parent_and_warns_without_content() {
         .expect("reply in history");
     assert!(history_reply.0.in_reply_to.is_none());
 
-    let reply_bytes = hex::decode(&reply.0)?;
+    let reply_bytes = reply.to_bytes()?;
     let enriched = group
         .inner
         .find_messages_v2_with_stored(&MsgQueryArgs::default())?
@@ -186,7 +186,7 @@ async fn reply_omits_bad_parent_and_warns_without_content() {
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
     let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
-    assert_eq!(warning["parent_id"], parent.0);
+    assert_eq!(warning["parent_id"], parent.checked()?);
     assert!(
         warning["error"]
             .as_str()

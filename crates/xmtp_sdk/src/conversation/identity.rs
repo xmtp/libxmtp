@@ -29,7 +29,7 @@ struct ConversationIdentity {
 
 // An empty received identity string means the value is unknown.
 fn known_inbox_id(value: String) -> Option<InboxId> {
-    (!value.is_empty()).then_some(InboxId(value))
+    (!value.is_empty()).then(|| InboxId::unchecked(value))
 }
 
 impl ConversationIdentity {
@@ -44,7 +44,7 @@ impl ConversationIdentity {
             // An unknown creator is never the local inbox.
             is_creator: creator_inbox_id
                 .as_ref()
-                .is_some_and(|creator| creator.0 == own_inbox_id),
+                .is_some_and(|creator| creator.checked().is_ok_and(|text| text == own_inbox_id)),
             creator_inbox_id,
         }
     }
@@ -128,14 +128,14 @@ mod identity_tests {
         let unknown_creator = identity("", OTHER);
         assert_eq!(unknown_creator.creator_inbox_id, None);
         assert_eq!(
-            unknown_creator.added_by_inbox_id.map(|id| id.0),
+            unknown_creator.added_by_inbox_id.map(|id| id.into_checked().unwrap()),
             Some(OTHER.into())
         );
         assert!(!unknown_creator.is_creator);
 
         let unknown_adder = identity(OWN, "");
         assert_eq!(
-            unknown_adder.creator_inbox_id.map(|id| id.0),
+            unknown_adder.creator_inbox_id.map(|id| id.into_checked().unwrap()),
             Some(OWN.into())
         );
         assert_eq!(unknown_adder.added_by_inbox_id, None);

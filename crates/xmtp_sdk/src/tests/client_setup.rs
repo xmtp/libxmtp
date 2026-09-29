@@ -32,7 +32,7 @@ async fn added_account_opens_the_existing_inbox() {
     let identifier = signer::identity(second_signer.clone()).await?.to_core()?;
     let backend = options().backend.unwrap_or_default().resolve().await?;
     let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
-    let expected = owner.inbox_id().0;
+    let expected = owner.inbox_id().into_checked()?;
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let found = api

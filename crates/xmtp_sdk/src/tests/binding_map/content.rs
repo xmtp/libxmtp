@@ -107,10 +107,10 @@ fn facade_extended_content_records_keep_nested_fields() {
     else {
         panic!("group update")
     };
-    assert_eq!(update.initiated_by_inbox_id.0, "inbox");
-    assert_eq!(update.added_inboxes[0].0, "added");
-    assert_eq!(update.removed_inboxes[0].0, "removed");
-    assert_eq!(update.left_inboxes[0].0, "left");
+    assert_eq!(update.initiated_by_inbox_id.checked()?, "inbox");
+    assert_eq!(update.added_inboxes[0].checked()?, "added");
+    assert_eq!(update.removed_inboxes[0].checked()?, "removed");
+    assert_eq!(update.left_inboxes[0].checked()?, "left");
     assert_eq!(update.metadata_field_changes[0].field_name, "name");
     assert_eq!(
         update.metadata_field_changes[0].old_value.as_deref(),
@@ -120,10 +120,16 @@ fn facade_extended_content_records_keep_nested_fields() {
         update.metadata_field_changes[0].new_value.as_deref(),
         Some("new")
     );
-    assert_eq!(update.added_admin_inboxes[0].0, "added-admin");
-    assert_eq!(update.removed_admin_inboxes[0].0, "removed-admin");
-    assert_eq!(update.added_super_admin_inboxes[0].0, "added-super");
-    assert_eq!(update.removed_super_admin_inboxes[0].0, "removed-super");
+    assert_eq!(update.added_admin_inboxes[0].checked()?, "added-admin");
+    assert_eq!(update.removed_admin_inboxes[0].checked()?, "removed-admin");
+    assert_eq!(
+        update.added_super_admin_inboxes[0].checked()?,
+        "added-super"
+    );
+    assert_eq!(
+        update.removed_super_admin_inboxes[0].checked()?,
+        "removed-super"
+    );
     for note in [None, Some(b"leaving".to_vec())] {
         let encoded = LeaveRequestCodec::encode(LeaveRequest {
             authenticated_note: note.clone(),

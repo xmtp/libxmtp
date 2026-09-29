@@ -54,7 +54,7 @@ async fn backend_only_identity_and_message_queries() {
     )
     .await?;
     assert_eq!(metadata.len(), 1);
-    let group_id = group.id().0;
+    let group_id = group.id().into_checked()?;
     assert!(metadata[&group_id].created_at.0 > 0);
     let first_metadata = metadata[&group_id].created_at.0;
     let first_sequence_id = metadata[&group_id].sequence_id;
@@ -205,8 +205,8 @@ async fn latest_inbox_update_counts_preserve_registered_and_unknown_keys() {
         .latest_inbox_updates_count(vec![own.clone(), unknown.clone()], false)
         .await?;
     assert_eq!(counts.len(), 2);
-    assert!(counts[&own.0] > 0);
-    assert_eq!(counts[&unknown.0], 0);
+    assert!(counts[own.checked()?] > 0);
+    assert_eq!(counts[unknown.checked()?], 0);
     client.end().await?;
 }
 
@@ -219,10 +219,10 @@ async fn facade_key_package_statuses_keep_missing_entries() {
         .key_package_statuses(vec![own.clone(), missing.clone()])
         .await?;
     assert_eq!(entries.len(), 2);
-    assert!(entries[&own.0].lifetime.is_some());
-    assert!(entries[&own.0].validation_error.is_none());
-    assert!(entries[&missing.0].lifetime.is_none());
-    assert!(entries[&missing.0].validation_error.is_some());
+    assert!(entries[own.checked()?].lifetime.is_some());
+    assert!(entries[own.checked()?].validation_error.is_none());
+    assert!(entries[missing.checked()?].lifetime.is_none());
+    assert!(entries[missing.checked()?].validation_error.is_some());
 
     let backend_entries = crate::static_helpers::key_package_statuses_with_backend(
         options().backend.expect("backend options"),
@@ -230,11 +230,11 @@ async fn facade_key_package_statuses_keep_missing_entries() {
     )
     .await?;
     assert_eq!(backend_entries.len(), 2);
-    let registered = &backend_entries[&own.0];
+    let registered = &backend_entries[own.checked()?];
     let lifetime = registered.lifetime.as_ref().expect("registered package");
     assert!(lifetime.not_after > lifetime.not_before);
     assert!(registered.validation_error.is_none());
-    let absent = &backend_entries[&missing.0];
+    let absent = &backend_entries[missing.checked()?];
     assert!(absent.lifetime.is_none());
     assert_eq!(
         absent.validation_error.as_deref(),
@@ -288,7 +288,7 @@ async fn facade_message_counts_and_last_read_times() {
     a.conversations().sync_all(None).await?;
     let times = a_dm.last_read_times().await?;
     assert_eq!(times.len(), 1);
-    assert!(times[&b.inbox_id().0].0 > 0);
+    assert!(times[&b.inbox_id().into_checked()?].0 > 0);
     a.end().await?;
     b.end().await?;
 }
@@ -321,7 +321,9 @@ async fn facade_hmac_keys_include_duplicate_dms() {
     a.conversations().sync_all(None).await?;
     let keys = a.conversations().hmac_keys().await?;
     for id in [first.id(), second.id()] {
-        let entry = keys.get(&id.0).expect("duplicate DM must have HMAC keys");
+        let entry = keys
+            .get(id.checked()?)
+            .expect("duplicate DM must have HMAC keys");
         assert_eq!(entry.len(), 3);
         assert!(entry.iter().all(|key| key.key.len() == 42));
         assert!(entry.iter().all(|key| key.epoch >= 1));

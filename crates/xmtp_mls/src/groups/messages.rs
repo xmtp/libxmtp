@@ -26,8 +26,7 @@ where
         // OpenMLS blocks message creation when there are pending proposals
         self.commit_pending_proposals_if_any().await?;
 
-        let message_id =
-            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
+        let message_id = self.prepare_message(message, opts)?;
 
         self.sync_until_last_intent_resolved().await?;
 
@@ -103,8 +102,7 @@ where
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
     ) -> Result<Vec<u8>, GroupError> {
-        let message_id =
-            self.prepare_message(message, opts, |key| Self::into_envelope(message, key))?;
+        let message_id = self.prepare_message(message, opts)?;
         Ok(message_id)
     }
 
@@ -204,26 +202,23 @@ where
         }
         self.ensure_not_paused().await?;
 
-        let queued = state_write(self.context.mls_storage(), |tx| {
-            self.ensure_active_for_send(tx)?;
-            let storage = tx.storage();
-            let db = storage.db();
-            let message = db
-                .get_group_message(message_id)?
-                .filter(|message| message.group_id == self.group_id)
-                .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
-            if message.delivery_status == DeliveryStatus::Published {
-                return Ok(Continue(false));
-            }
-            let envelope =
-                Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
-            let intent_data: Vec<u8> = SendMessageIntentData::new(envelope.encode_to_vec()).into();
-            QueueIntent::send_message()
-                .data(intent_data)
-                .should_push(message.should_push)
-                .queue_in(&db, self)?;
-            Ok::<_, GroupError>(Continue(true))
-        })?
+        let queued = crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                self.ensure_active_for_send(tx)?;
+                let storage = tx.storage();
+                let db = storage.db();
+                let message = db
+                    .get_group_message(message_id)?
+                    .filter(|message| message.group_id == self.group_id)
+                    .ok_or_else(|| {
+                        GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
+                    })?;
+                self.queue_stored_message(&db, events, &message)
+                    .map(Continue)
+            },
+        )?
         .into_continued();
         if !queued {
             return Ok(());
@@ -366,47 +361,66 @@ where
     /// # Arguments
     /// * message: UTF-8 or encoded message bytes
     /// * opts: Options for sending the message
-    /// * envelope: closure that returns context-specific [`PlaintextEnvelope`]. Closure accepts
-    ///   timestamp attached to intent & stored message.
     // implements: SEND-021
     #[tracing::instrument(skip_all, level = "trace")]
-    pub(crate) fn prepare_message<F>(
+    pub(crate) fn prepare_message(
         &self,
         message: &[u8],
         opts: send_message_opts::SendMessageOpts,
-        envelope: F,
-    ) -> Result<Vec<u8>, GroupError>
-    where
-        F: FnOnce(&str) -> PlaintextEnvelope,
-    {
-        state_write(self.context.mls_storage(), |tx| {
-            self.ensure_active_for_send(tx)?;
-            let storage = tx.storage();
-            let db = storage.db();
-            let stored_message = self.store_message_for_later_publish(
-                &db,
-                message,
-                opts.should_push,
-                opts.idempotency_key,
-            )?;
-            if stored_message.delivery_status == DeliveryStatus::Published {
-                return Ok(Continue(stored_message.id));
-            }
-            // Create envelope using the stored idempotency key so the id stays consistent
-            let plain_envelope = envelope(&stored_message.idempotency_key);
-            let mut encoded_envelope = vec![];
-            plain_envelope.encode(&mut encoded_envelope)?;
-
-            // Queue the intent (use should_push from stored message)
-            let intent_data: Vec<u8> = SendMessageIntentData::new(encoded_envelope).into();
-            QueueIntent::send_message()
-                .data(intent_data)
-                .should_push(stored_message.should_push)
-                .queue_in(&db, self)?;
-
-            Ok::<_, GroupError>(Continue(stored_message.id))
-        })
+    ) -> Result<Vec<u8>, GroupError> {
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, events| {
+                self.ensure_active_for_send(tx)?;
+                let storage = tx.storage();
+                let db = storage.db();
+                let message = self.store_message_for_later_publish(
+                    &db,
+                    message,
+                    opts.should_push,
+                    opts.idempotency_key,
+                )?;
+                self.queue_stored_message(&db, events, &message)?;
+                Ok::<_, GroupError>(Continue(message.id))
+            },
+        )
         .map(TransactionOutcome::into_continued)
+    }
+
+    /// Queue the one publish intent of a stored message under the caller's writer.
+    ///
+    /// A published message is never queued again, and an unresolved intent for
+    /// the same envelope is reused. A retry of a failed message returns it to
+    /// `Unpublished` in the same transaction as its new intent. Returns whether
+    /// the message has work to publish.
+    // implements: SEND-003
+    fn queue_stored_message(
+        &self,
+        db: &impl DbQuery,
+        events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+        message: &StoredGroupMessage,
+    ) -> Result<bool, GroupError> {
+        if message.delivery_status == DeliveryStatus::Published {
+            return Ok(false);
+        }
+        let envelope =
+            Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
+        QueueIntent::send_message()
+            .data(Vec::<u8>::from(SendMessageIntentData::new(
+                envelope.encode_to_vec(),
+            )))
+            .should_push(message.should_push)
+            .queue_in(db, self)?;
+        if db.set_failed_delivery_status_to_unpublished(&message.id)? > 0 {
+            self.emit_message_status_changed(
+                message.id.clone(),
+                xmtp_events::MessageStatus::Failed,
+                xmtp_events::MessageStatus::Unpublished,
+                events,
+            );
+        }
+        Ok(true)
     }
 
     /// Check membership while holding the same writer as the new message or intent.

@@ -182,12 +182,13 @@ impl Conversations {
     }
 
     pub async fn get_dm_by_inbox_id(&self, peer: InboxId) -> Result<Option<Arc<Dm>>, XmtpError> {
+        let peer = peer.into_checked()?;
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
             let members = xmtp_mls::mls_common::group_metadata::DmMembers {
                 member_one_inbox_id: client.inbox_id(),
-                member_two_inbox_id: peer.0.as_str(),
+                member_two_inbox_id: peer.as_str(),
             };
             let Some(stored) = client
                 .context
@@ -242,7 +243,10 @@ impl Conversations {
         members: Vec<InboxId>,
         options: Option<CreateGroupOptions>,
     ) -> Result<Arc<Group>, XmtpError> {
-        let members: Vec<String> = members.into_iter().map(|member| member.0).collect();
+        let members = members
+            .into_iter()
+            .map(InboxId::into_checked)
+            .collect::<Result<Vec<_>, _>>()?;
         let (permissions, metadata) = options.unwrap_or_default().into_core()?;
         let client = self.client.clone();
         let client_key = self.client_key;
@@ -265,6 +269,7 @@ impl Conversations {
         peer: InboxId,
         options: Option<CreateDmOptions>,
     ) -> Result<Arc<Dm>, XmtpError> {
+        let peer = peer.into_checked()?;
         let client = self.client.clone();
         let metadata = options.unwrap_or_default().into();
         let client_key = self.client_key;
@@ -272,7 +277,7 @@ impl Conversations {
             self.client.context.clone(),
             Box::pin(async move {
                 let group = client
-                    .find_or_create_dm(peer.0, Some(metadata))
+                    .find_or_create_dm(peer, Some(metadata))
                     .await
                     .map_err(XmtpError::unknown)?;
                 Ok(Arc::new(Dm::from_core(group, client_key).await?))
@@ -335,10 +340,10 @@ impl Conversations {
     }
 
     pub async fn get_by_id(&self, id: ConversationId) -> Result<Option<Conversation>, XmtpError> {
+        let id: GroupId = id.try_into()?;
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
-            let id: GroupId = id.try_into()?;
             if client
                 .context
                 .db()
@@ -403,10 +408,10 @@ impl Conversations {
     }
 
     pub async fn get_message_by_id(&self, id: MessageId) -> Result<Option<Message>, XmtpError> {
+        let bytes = id.to_bytes()?;
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
-            let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
             use xmtp_db::delivery::QueryDelivery;
             let Some(row) = client
                 .context
@@ -439,11 +444,10 @@ impl Conversations {
     }
 
     pub async fn delete_message_locally(&self, id: MessageId) -> Result<(), XmtpError> {
+        let bytes = id.to_bytes()?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            client
-                .delete_message(hex::decode(id.0).map_err(XmtpError::unknown)?)
-                .map_err(XmtpError::unknown)?;
+            client.delete_message(bytes).map_err(XmtpError::unknown)?;
             Ok(())
         })
         .await
@@ -471,8 +475,10 @@ impl Conversations {
         let (stored, group) = self.message_group(&id).await?;
         on_sdk_worker(self.client.context.clone(), async move {
             Box::pin(async move {
+                let reference_inbox_id =
+                    InboxId::try_from(stored.sender_inbox_id)?.into_checked()?;
                 let content = ReactionCodec::encode(
-                    reaction.into_proto(id, InboxId::try_from(stored.sender_inbox_id)?),
+                    reaction.into_proto(id.into_checked()?, reference_inbox_id),
                 )
                 .map_err(XmtpError::unknown)?;
                 send_encoded(group, content.into(), options.unwrap_or_default()).await
@@ -494,7 +500,7 @@ impl Conversations {
         on_sdk_worker(self.client.context.clone(), async move {
             Box::pin(async move {
                 let reply = Reply {
-                    reference: id.0,
+                    reference: id.into_checked()?,
                     reference_inbox_id: Some(stored.sender_inbox_id),
                     content: content.into(),
                 };
@@ -574,7 +580,7 @@ impl Conversations {
         XmtpError,
     > {
         let client = self.client.clone();
-        let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
+        let bytes = id.to_bytes()?;
         on_sdk_worker(self.client.context.clone(), async move {
             client
                 .message_with_group(&bytes)
@@ -591,8 +597,7 @@ impl Conversations {
 impl Conversations {
     /// Open a group already stored in this client's database for the benchmark.
     pub async fn get_group(&self, id: ConversationId) -> Result<Arc<Group>, XmtpError> {
-        let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
-        let group_id = xmtp_proto::types::GroupId::try_from(bytes).map_err(XmtpError::unknown)?;
+        let group_id = xmtp_proto::types::GroupId::try_from(id)?;
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {

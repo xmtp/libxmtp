@@ -7,7 +7,12 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    pub(super) fn get_message_expire_at_ns(mls_group: &OpenMlsGroup) -> Option<i64> {
+    /// The deadline for an application message the backend stamped with `sent_at_ns`,
+    /// from the group's current disappearing settings.
+    pub(super) fn get_message_expire_at_ns(
+        mls_group: &OpenMlsGroup,
+        sent_at_ns: i64,
+    ) -> Option<i64> {
         // A parse failure here must not look identical to "disappearing
         // messages disabled" — warn before treating it as None.
         let mutable_metadata =
@@ -21,21 +26,15 @@ where
                 )
             })
             .ok()?;
-        let group_disappearing_settings =
-            Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
-                .inspect_err(|err| {
-                    tracing::warn!(
-                        group_id = hex::encode(mls_group.group_id().as_slice()),
-                        "failed to parse disappearing-message settings: {err:?}"
-                    )
-                })
-                .ok()?;
-
-        if group_disappearing_settings.is_enabled() {
-            Some(now_ns() + group_disappearing_settings.in_ns)
-        } else {
-            None
-        }
+        Self::conversation_message_disappearing_settings_from_extensions(&mutable_metadata)
+            .inspect_err(|err| {
+                tracing::warn!(
+                    group_id = hex::encode(mls_group.group_id().as_slice()),
+                    "failed to parse disappearing-message settings: {err:?}"
+                )
+            })
+            .ok()?
+            .expire_at_ns(sent_at_ns)
     }
 
     /// Store backend metadata without clearing fields absent from this envelope.

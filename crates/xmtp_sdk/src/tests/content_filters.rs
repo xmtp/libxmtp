@@ -123,7 +123,7 @@ async fn group_updated_message_filter_finds_stored_row() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let content = GroupUpdatedCodec::encode(GroupUpdated {
-        initiated_by_inbox_id: client.inbox_id().0,
+        initiated_by_inbox_id: client.inbox_id().into_checked()?,
         ..Default::default()
     })?;
     let kind = content.r#type.clone().expect("typed content");

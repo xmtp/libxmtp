@@ -213,7 +213,7 @@ async fn event_filter_selects_before_queueing() {
             type_id: "reply".into(),
             version_major: 1,
         }),
-        sender_inbox_id: client.inbox_id().0,
+        sender_inbox_id: client.inbox_id().into_checked()?,
     });
     bus.emit(Some(message.clone()), None);
     bus.emit_with_context(
@@ -244,7 +244,7 @@ async fn event_filter_matches_stitched_dm_identifier() {
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
     let dm = client
         .inner
-        .find_or_create_dm(other.inbox_id().0, None)
+        .find_or_create_dm(other.inbox_id().into_checked()?, None)
         .await?;
     let dm_identifier = dm.dm_id.clone().expect("DM ID");
     let reader = client
@@ -295,11 +295,11 @@ async fn consent_event_for_stitched_dm_reaches_group_filter() {
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
     let dm_a = client
         .inner
-        .find_or_create_dm(other.inbox_id().0, None)
+        .find_or_create_dm(other.inbox_id().into_checked()?, None)
         .await?;
     let dm_b = other
         .inner
-        .find_or_create_dm(client.inbox_id().0, None)
+        .find_or_create_dm(client.inbox_id().into_checked()?, None)
         .await?;
     assert_ne!(dm_a.group_id, dm_b.group_id);
     client.inner.sync_welcomes().await?;
@@ -359,7 +359,7 @@ async fn event_filter_reports_storage_error_when_resolving_dm() {
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
     let dm = client
         .inner
-        .find_or_create_dm(other.inbox_id().0, None)
+        .find_or_create_dm(other.inbox_id().into_checked()?, None)
         .await?;
     client.inner.context.db().disconnect()?;
     let result = client

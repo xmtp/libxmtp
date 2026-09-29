@@ -240,7 +240,7 @@ async fn create_client_inner(
 
   let root_identifier = account_identifier.clone();
   let internal_account_identifier = account_identifier.try_into()?;
-  let identity_strategy = IdentityStrategy::new(inbox_id, internal_account_identifier, nonce, None);
+  let identity_strategy = IdentityStrategy::new(inbox_id, internal_account_identifier, nonce);
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_client_with_streams(api_client)

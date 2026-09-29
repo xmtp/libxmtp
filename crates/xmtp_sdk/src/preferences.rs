@@ -70,24 +70,19 @@ impl Preferences {
 
     pub async fn set_consent_states(&self, records: Vec<ConsentRecord>) -> Result<(), XmtpError> {
         let client = self.client.clone();
-        on_sdk_worker(self.client.context.clone(), async move {
-            let records = records
-                .into_iter()
-                .map(|record| {
-                    let (entity_type, entity) = match record.entity {
-                        ConsentEntity::Conversation { conversation_id } => {
-                            (ConsentType::ConversationId, conversation_id.0)
-                        }
-                        ConsentEntity::Inbox { inbox_id } => (ConsentType::InboxId, inbox_id.0),
-                    };
-                    StoredConsentRecord {
-                        entity_type,
-                        entity,
-                        state: record.state.into(),
-                        consented_at_ns: xmtp_common::time::now_ns(),
-                    }
+        let records = records
+            .into_iter()
+            .map(|record| {
+                let (entity_type, entity) = consent_key(record.entity)?;
+                Ok(StoredConsentRecord {
+                    entity_type,
+                    entity,
+                    state: record.state.into(),
+                    consented_at_ns: xmtp_common::time::now_ns(),
                 })
-                .collect::<Vec<_>>();
+            })
+            .collect::<Result<Vec<_>, XmtpError>>()?;
+        on_sdk_worker(self.client.context.clone(), async move {
             client
                 .set_consent_states(&records)
                 .await
@@ -98,13 +93,8 @@ impl Preferences {
 
     pub async fn consent_state(&self, entity: ConsentEntity) -> Result<ConsentState, XmtpError> {
         let client = self.client.clone();
+        let (kind, value) = consent_key(entity)?;
         on_sdk_worker(self.client.context.clone(), async move {
-            let (kind, value) = match entity {
-                ConsentEntity::Conversation { conversation_id } => {
-                    (ConsentType::ConversationId, conversation_id.0)
-                }
-                ConsentEntity::Inbox { inbox_id } => (ConsentType::InboxId, inbox_id.0),
-            };
             client
                 .get_consent_state(kind, value)
                 .await
@@ -113,4 +103,13 @@ impl Preferences {
         })
         .await
     }
+}
+
+fn consent_key(entity: ConsentEntity) -> Result<(ConsentType, String), XmtpError> {
+    Ok(match entity {
+        ConsentEntity::Conversation { conversation_id } => {
+            (ConsentType::ConversationId, conversation_id.into_checked()?)
+        }
+        ConsentEntity::Inbox { inbox_id } => (ConsentType::InboxId, inbox_id.into_checked()?),
+    })
 }

@@ -29,6 +29,12 @@ invariants rather than restate code. Flag dead code left by a change and any
 compatibility shim for removed xmtpd or xmtp-node-go wire formats. Focus on
 issues that a formatter or lint check will not already explain.
 
+Read the owning spec's Known limitations and `docs/specs/waivers.toml`. A risk
+that a Known limitation or a waiver records is an advisory note, not an
+actionable finding, unless this PR widens it. Do not repeat a finding that a
+reply on the PR answered with a Known limitation or a waiver that covers the
+same risk, unless the code changed.
+
 Report actionable findings with file and line, the current cost or risk, and
 a specific change. Mark material maintenance or test gaps as major; keep
 minor style preferences out of the report. If there are no actionable

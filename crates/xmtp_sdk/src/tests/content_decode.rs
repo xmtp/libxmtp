@@ -15,13 +15,16 @@ async fn encoded_sends_use_catalogue_push_defaults_and_explicit_override() {
         schema: ReactionSchema::Unicode,
     };
     let encoded_reaction = || {
-        ReactionCodec::encode(reaction().into_proto(parent.clone(), client.inbox_id()))
-            .map(Into::into)
+        ReactionCodec::encode(reaction().into_proto(
+            parent.checked()?.to_owned(),
+            client.inbox_id().into_checked()?,
+        ))
+        .map(Into::into)
     };
     let stored_push = |id: &MessageId| {
         client
             .inner
-            .message(hex::decode(&id.0).expect("message ID"))
+            .message(id.to_bytes().expect("message ID"))
             .expect("stored message")
             .should_push
     };
@@ -78,7 +81,7 @@ async fn invalid_text_bytes_stay_unknown_on_all_read_paths() {
     let id = group.send(encoded, None).await?;
     let raw = client
         .inner
-        .message(hex::decode(&id.0)?)?
+        .message(id.to_bytes()?)?
         .decrypted_message_bytes;
     assert_undecodable_standard_read_paths(&client, &group, id, &raw).await?;
     client.end().await?;
@@ -106,7 +109,7 @@ async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
     for actions in [top_level_only, actions, action_only] {
         let encoded = ActionsCodec::encode(actions)?;
         let id = group.send(encoded.into(), None).await?;
-        let stored = client.inner.message(hex::decode(&id.0)?)?;
+        let stored = client.inner.message(id.to_bytes()?)?;
         let raw = stored.decrypted_message_bytes.clone();
         let direct = crate::Message::from_stored(stored, client.client_key())?;
         let by_id = client
@@ -323,7 +326,7 @@ async fn failed_standard_reply_parent_decode_stays_unknown() {
         .conversations()
         .reply_to_message(parent_id.clone(), crate::encode_text("reply".into())?, None)
         .await?;
-    let parent_bytes = hex::decode(&parent_id.0)?;
+    let parent_bytes = parent_id.to_bytes()?;
     let stored = client.inner.message(parent_bytes.clone())?;
     let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
     encoded.content = vec![0xff, 0xfe];

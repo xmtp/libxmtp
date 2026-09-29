@@ -1,25 +1,24 @@
 #![allow(dead_code)]
 use super::{
-    AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind,
-    ValidatedLegacySignedPublicKey, ident, to_lower_s,
+    AccountId, InstallationKeyContext, MemberIdentifier, SignatureError, SignatureKind, ident,
 };
 use crate::scw_verifier::SmartContractSignatureVerifier;
 use alloy::primitives::Signature as EtherSignature;
-use alloy::signers::k256::ecdsa::VerifyingKey as EcdsaVerifyingKey;
-use alloy::signers::utils::public_key_to_address;
 use base64::Engine;
 use base64::prelude::BASE64_URL_SAFE_NO_PAD;
 use p256::ecdsa::{Signature, VerifyingKey, signature::Verifier};
 use xmtp_cryptography::CredentialVerify;
 use xmtp_cryptography::hash::sha256_bytes;
 use xmtp_cryptography::signature::h160addr_to_string;
-use xmtp_proto::xmtp::message_contents::SignedPublicKey as LegacySignedPublicKeyProto;
 
 #[derive(Debug, Clone)]
 pub struct VerifiedSignature {
     pub signer: MemberIdentifier,
     pub kind: SignatureKind,
-    pub raw_bytes: Vec<u8>,
+    /// The association-log replay key. Recoverable ECDSA and passkey signatures are canonicalised
+    /// so every accepted encoding yields one key; installation-key and ERC-1271 signatures use the
+    /// submitted bytes.
+    pub replay_key: Vec<u8>,
     pub chain_id: Option<u64>,
 }
 
@@ -33,34 +32,34 @@ impl VerifiedSignature {
     pub fn new(
         signer: MemberIdentifier,
         kind: SignatureKind,
-        raw_bytes: Vec<u8>,
+        replay_key: Vec<u8>,
         chain_id: Option<u64>,
     ) -> Self {
         Self {
             signer,
             kind,
-            raw_bytes,
+            replay_key,
             chain_id,
         }
     }
 
-    /**
-     * Verifies an ECDSA signature against the provided signature text.
-     * Returns a VerifiedSignature if the signature is valid, otherwise returns an error.
-     */
+    /// Recovers the signer of a 65-byte `r`, `s`, recovery secp256k1 signature over the
+    /// signature text. The recovery byte must be 0, 1, 27, or 28. The replay key is `r`, `s` in
+    /// the lower half of the curve order, and the recovery parity as 0 or 1.
     pub fn from_recoverable_ecdsa<Text: AsRef<str>>(
         signature_text: Text,
         signature_bytes: &[u8],
     ) -> Result<Self, SignatureError> {
-        let normalized_signature_bytes = to_lower_s(signature_bytes)?;
-        let signature = EtherSignature::try_from(normalized_signature_bytes.as_slice())?;
+        let Ok(bytes @ [.., 0 | 1 | 27 | 28]) = <[u8; 65]>::try_from(signature_bytes) else {
+            return Err(SignatureError::Invalid);
+        };
+        let signature = EtherSignature::from_raw_array(&bytes)?.normalized_s();
         let address = signature.recover_address_from_msg(signature_text.as_ref())?;
-        let address = h160addr_to_string(address);
 
         Ok(Self::new(
-            MemberIdentifier::eth(address)?,
+            MemberIdentifier::eth(h160addr_to_string(address))?,
             SignatureKind::Erc191,
-            normalized_signature_bytes.to_vec(),
+            signature.as_rsy().to_vec(),
             None,
         ))
     }
@@ -109,6 +108,8 @@ impl VerifiedSignature {
         ))
     }
 
+    /// Verifies a WebAuthn P-256 assertion over the signature text. The replay key is the 64-byte
+    /// `r`, `s` with `s` in the lower half of the curve order.
     pub fn from_passkey<Text: AsRef<str>>(
         signature_text: Text,
         public_key: &[u8],
@@ -150,35 +151,7 @@ impl VerifiedSignature {
                 relying_party: Some(client_data.origin),
             }),
             SignatureKind::P256,
-            signature.to_vec(),
-            None,
-        ))
-    }
-
-    /// Verifies a legacy delegated signature and recovers the wallet address responsible
-    /// associated with the signer.
-    pub fn from_legacy_delegated<Text: AsRef<str>>(
-        signature_text: Text,
-        signature_bytes: &[u8],
-        signed_public_key_proto: LegacySignedPublicKeyProto,
-    ) -> Result<Self, SignatureError> {
-        let verified_legacy_signature =
-            Self::from_recoverable_ecdsa(signature_text, signature_bytes)?;
-        let signed_public_key: ValidatedLegacySignedPublicKey =
-            signed_public_key_proto.try_into()?;
-        let public_key = EcdsaVerifyingKey::from_sec1_bytes(&signed_public_key.public_key_bytes)?;
-        let address = h160addr_to_string(public_key_to_address(&public_key));
-
-        if MemberIdentifier::eth(address)? != verified_legacy_signature.signer {
-            return Err(SignatureError::Invalid);
-        }
-
-        Ok(Self::new(
-            MemberIdentifier::eth(signed_public_key.account_address)?,
-            SignatureKind::LegacyDelegated,
-            // Must use the wallet signature bytes, since those are the ones we care about making unique.
-            // This protects against using the legacy key more than once in the Identity Update Log
-            signed_public_key.wallet_signature.raw_bytes,
+            signature.normalize_s().unwrap_or(signature).to_vec(),
             None,
         ))
     }
@@ -191,6 +164,8 @@ impl VerifiedSignature {
         account_id: AccountId,
         block_number: &mut Option<u64>,
     ) -> Result<Self, SignatureError> {
+        // implements: IDENT-060
+        let chain_id = account_id.eip155_chain_id()?;
         let response = signature_verifier
             .is_valid_signature(
                 account_id.clone(),
@@ -208,7 +183,7 @@ impl VerifiedSignature {
                 MemberIdentifier::eth(account_id.get_account_address())?,
                 SignatureKind::Erc1271,
                 signature_bytes.to_vec(),
-                Some(account_id.get_chain_id_u64()?),
+                Some(chain_id),
             ))
         } else {
             tracing::error!(
@@ -223,14 +198,21 @@ impl VerifiedSignature {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::associations::{
-        InstallationKeyContext, MemberIdentifier, SignatureKind,
-        test_utils::{MockSmartContractSignatureVerifier, WalletTestExt},
-        verified_signature::VerifiedSignature,
+    use crate::{
+        InboxOwner,
+        associations::{
+            InstallationKeyContext, MemberIdentifier, SignatureKind,
+            test_utils::{
+                MockSmartContractSignatureVerifier, WalletTestExt, ecdsa_negated_s_alias,
+                ecdsa_recovery_byte_alias, p256_negated_s_alias,
+            },
+            unverified::UnverifiedSignature,
+            verified_signature::VerifiedSignature,
+        },
+        utils::passkey::PasskeyUser,
     };
     use alloy::signers::Signer;
     use alloy::signers::local::PrivateKeySigner;
-    use prost::Message;
     use xmtp_common::rand_hexstring;
     use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 
@@ -241,17 +223,79 @@ mod tests {
         let wallet = PrivateKeySigner::random();
         let signature_text = "test signature body";
 
-        let sig_bytes: Vec<u8> = wallet
+        let signature = wallet
             .sign_message(signature_text.as_bytes())
             .await
-            .unwrap()
-            .into();
-        let verified_sig = VerifiedSignature::from_recoverable_ecdsa(signature_text, &sig_bytes)
-            .expect("should succeed");
+            .unwrap();
+        let verified_sig =
+            VerifiedSignature::from_recoverable_ecdsa(signature_text, &signature.as_bytes())
+                .expect("should succeed");
 
         assert_eq!(verified_sig.signer, wallet.member_identifier());
         assert_eq!(verified_sig.kind, SignatureKind::Erc191);
-        assert_eq!(verified_sig.raw_bytes, sig_bytes);
+        assert_eq!(verified_sig.replay_key, signature.as_rsy());
+    }
+
+    /// Every accepted encoding of one wallet signature (recovery byte 0/1 or 27/28, `s` in either
+    /// half) recovers the same signer and yields one replay key: `r`, low `s`, parity as 0 or 1.
+    /// Any other recovery byte or length is rejected, so no further alias exists.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: IDENT-030, IDENT-050
+    async fn identity_replay_aliases_share_a_wallet_key() {
+        let wallet = PrivateKeySigner::random();
+        let text = "replay alias";
+        let signature = wallet.sign_message(text.as_bytes()).await?;
+        let bytes = signature.as_bytes().to_vec();
+        let negated = ecdsa_negated_s_alias(&bytes);
+
+        for form in [
+            ecdsa_recovery_byte_alias(&bytes),
+            ecdsa_recovery_byte_alias(&negated),
+            negated,
+            bytes.clone(),
+        ] {
+            let verified = VerifiedSignature::from_recoverable_ecdsa(text, &form)?;
+            assert_eq!(verified.signer, wallet.member_identifier());
+            assert_eq!(verified.replay_key, signature.as_rsy());
+        }
+
+        for v in [2, 26, 29, 35, 37, 255] {
+            let form = [&bytes[..64], &[v]].concat();
+            assert!(VerifiedSignature::from_recoverable_ecdsa(text, &form).is_err());
+        }
+        assert!(VerifiedSignature::from_recoverable_ecdsa(text, &bytes[..64]).is_err());
+        assert!(
+            VerifiedSignature::from_recoverable_ecdsa(text, &[bytes.as_slice(), &[0]].concat())
+                .is_err()
+        );
+    }
+
+    /// Both `s` forms of one passkey signature verify and yield one 64-byte replay key with `s` in
+    /// the lower half.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: IDENT-030, IDENT-050
+    async fn identity_replay_aliases_share_a_passkey_key() {
+        let passkey = PasskeyUser::new().await;
+        let text = "replay alias";
+        let UnverifiedSignature::Passkey(signature) = passkey.sign(text)? else {
+            unreachable!("a passkey signs with a passkey signature")
+        };
+        let verify = |der: &[u8]| {
+            VerifiedSignature::from_passkey(
+                text,
+                &signature.public_key,
+                der,
+                &signature.authenticator_data,
+                &signature.client_data_json,
+            )
+        };
+
+        let original = verify(&signature.signature)?;
+        let negated = verify(&p256_negated_s_alias(&signature.signature))?;
+        assert_eq!(original.signer, negated.signer);
+        assert_eq!(original.replay_key, negated.replay_key);
+        let low_s = Signature::from_slice(&original.replay_key)?;
+        assert!(low_s.normalize_s().is_none());
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -289,7 +333,7 @@ mod tests {
         let expected = MemberIdentifier::installation(verifying_key.as_bytes().to_vec());
         assert_eq!(expected, verified_sig.signer);
         assert_eq!(SignatureKind::InstallationKey, verified_sig.kind);
-        assert_eq!(verified_sig.raw_bytes, sig.as_slice());
+        assert_eq!(verified_sig.replay_key, sig.as_slice());
 
         // Make sure it fails with the wrong signature text
         VerifiedSignature::from_installation_key(
@@ -306,51 +350,6 @@ mod tests {
             XmtpInstallationCredential::new().verifying_key(),
         )
         .expect_err("should fail with incorrect verifying key");
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn validate_good_key_round_trip() {
-        let proto_bytes = vec![
-            10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
-            252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
-            91, 81, 93, 213, 67, 241, 69, 5, 31, 249, 186, 129, 119, 144, 4, 44, 54, 76, 185, 95,
-            61, 23, 231, 72, 7, 169, 18, 70, 113, 79, 173, 82, 13, 37, 146, 201, 43, 174, 180, 33,
-            125, 43, 18, 70, 18, 68, 10, 64, 7, 136, 100, 172, 155, 247, 230, 255, 253, 247, 78,
-            50, 212, 226, 41, 78, 239, 183, 136, 247, 122, 88, 155, 245, 219, 183, 215, 202, 42,
-            89, 162, 128, 96, 96, 120, 131, 17, 70, 38, 231, 2, 27, 91, 29, 66, 110, 128, 140, 1,
-            42, 217, 185, 2, 181, 208, 100, 143, 143, 219, 159, 174, 1, 233, 191, 16, 1,
-        ];
-        let account_address = "0x220ca99fb7fafa18cb623d924794dde47b4bc2e9";
-
-        let proto = LegacySignedPublicKeyProto::decode(proto_bytes.as_slice()).unwrap();
-        let validated_key = ValidatedLegacySignedPublicKey::try_from(proto)
-            .expect("Key should validate successfully");
-        let proto: LegacySignedPublicKeyProto = validated_key.into();
-        let validated_key = ValidatedLegacySignedPublicKey::try_from(proto)
-            .expect("Key should still validate successfully");
-        assert_eq!(validated_key.account_address(), account_address);
-    }
-
-    #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
-    #[cfg_attr(not(target_arch = "wasm32"), test)]
-    fn validate_malformed_key() {
-        let proto_bytes = vec![
-            10, 79, 8, 192, 195, 165, 174, 203, 153, 231, 213, 23, 26, 67, 10, 65, 4, 216, 84, 174,
-            252, 198, 225, 219, 168, 239, 166, 62, 233, 206, 108, 53, 155, 87, 132, 8, 43, 91, 36,
-            91, 81, 93, 213, 67, 241, 69, 5, 31, 249, 186, 129, 119, 144, 4, 44, 54, 76, 185, 95,
-            61, 23, 231, 72, 7, 169, 18, 70, 113, 79, 173, 82, 13, 37, 146, 201, 43, 174, 180, 33,
-            125, 43, 18, 70, 18, 68, 10, 64, 7, 136, 100, 172, 155, 247, 230, 255, 253, 247, 78,
-            50, 212, 226, 41, 78, 239, 183, 136, 247, 122, 88, 155, 245, 219, 183, 215, 202, 42,
-            89, 162, 128, 96, 96, 120, 131, 17, 70, 38, 231, 2, 27, 91, 29, 66, 110, 128, 140, 1,
-            42, 217, 185, 2, 181, 208, 100, 143, 143, 219, 159, 174, 1, 233, 191, 16, 1,
-        ];
-        let mut proto = LegacySignedPublicKeyProto::decode(proto_bytes.as_slice()).unwrap();
-        proto.key_bytes[0] += 1; // Corrupt the serialized key data
-        assert!(matches!(
-            ValidatedLegacySignedPublicKey::try_from(proto),
-            Err(super::SignatureError::Invalid)
-        ));
     }
 
     #[cfg_attr(target_arch = "wasm32", wasm_bindgen_test::wasm_bindgen_test)]
@@ -378,7 +377,7 @@ mod tests {
             MemberIdentifier::eth(account_address).unwrap()
         );
         assert_eq!(verified_sig.kind, SignatureKind::Erc1271);
-        assert_eq!(verified_sig.raw_bytes, signature_bytes);
+        assert_eq!(verified_sig.replay_key, signature_bytes);
         assert_eq!(verified_sig.chain_id, Some(chain_id));
     }
 }

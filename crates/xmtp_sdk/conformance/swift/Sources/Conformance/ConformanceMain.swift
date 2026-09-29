@@ -69,7 +69,8 @@ struct Conformance {
         let host = try await SDKClient.create(signer: signer, options: options)
         let client = host
         do {
-            _ = try await client.conversations().getMessageById(id: "bad")
+            // Uppercase hex decodes, so only ID validation rejects it.
+            _ = try await client.conversations().getMessageById(id: String(repeating: "AB", count: 32))
             throw ConformanceFailure("malformed ID was accepted")
         } catch let XmtpError.InvalidArgument(details) {
             precondition(details.code == "InvalidArgument")

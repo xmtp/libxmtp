@@ -90,10 +90,10 @@ async fn message_action_push_defaults_follow_content_type() {
             .conversations()
             .react_to_message(reference.clone(), reaction.clone(), options)
             .await?;
-        assert!(!client.inner.message(hex::decode(&id.0)?)?.should_push);
+        assert!(!client.inner.message(id.to_bytes()?)?.should_push);
     }
     let raw_text = group.send(crate::encode_text("raw".into())?, None).await?;
-    assert!(client.inner.message(hex::decode(&raw_text.0)?)?.should_push);
+    assert!(client.inner.message(raw_text.to_bytes()?)?.should_push);
     let overridden = client
         .conversations()
         .react_to_message(
@@ -105,12 +105,7 @@ async fn message_action_push_defaults_follow_content_type() {
             }),
         )
         .await?;
-    assert!(
-        client
-            .inner
-            .message(hex::decode(&overridden.0)?)?
-            .should_push
-    );
+    assert!(client.inner.message(overridden.to_bytes()?)?.should_push);
     client.end().await?;
 }
 
@@ -137,7 +132,7 @@ async fn reaction_with_compression_only_does_not_push() {
             }),
         )
         .await?;
-    let stored = client.inner.message(hex::decode(&reaction.0)?)?;
+    let stored = client.inner.message(reaction.to_bytes()?)?;
     assert!(!stored.should_push);
     client.end().await?;
 }

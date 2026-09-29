@@ -74,3 +74,8 @@ If you must loop, back off: 60s, then 120s, then 300s.
 - "Re-run failed jobs" tests the same old merge commit again. When the fix
   landed on the base branch after that commit, rebase the PR branch and push.
   Do not re-run.
+- Under gh stack, each PR's checks run on a merge commit that contains the
+  trunk and every PR below it. `github.base_ref` is the trunk, and
+  `GITHUB_BASE_REF` is empty inside a reusable workflow. A script that must
+  compare a PR with its own base uses the merge commit's first parent
+  (`HEAD^1`). Test it on `refs/pull/<n>/merge` before you push.

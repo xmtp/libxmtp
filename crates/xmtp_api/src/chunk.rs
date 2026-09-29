@@ -188,6 +188,14 @@ pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
     }
 }
 
+/// A size refusal that proves nothing was stored, so smaller requests may
+/// follow. `OUT_OF_RANGE` proves nothing: the request can commit before its
+/// response outgrows the transport, so its caller settles it with a read.
+// implements: API-284
+fn publish_size_error(error: &(dyn std::error::Error + 'static)) -> bool {
+    size_error(error) && grpc_status(error).is_none_or(|status| status.code() != Code::OutOfRange)
+}
+
 /// Size failures bypass backoff while the caller can reduce the request.
 #[derive(Debug, thiserror::Error)]
 enum CallError<E> {
@@ -277,7 +285,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                     }
                     metas.extend(response.envelope_metas);
                 }
-                Err(error) if size_error(&error) && units.len() > 1 => {
+                Err(error) if publish_size_error(&error) && units.len() > 1 => {
                     let (left, right) = units.split_at(units.len() / 2);
                     pending.push_front(right);
                     pending.push_front(left);
@@ -450,8 +458,84 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
         topics: Vec<(Topic, Cursor)>,
         limit: u32,
     ) -> Result<Vec<wire::ServerEnvelope>> {
-        let mut pending = VecDeque::from([(topics, limit)]);
         let mut output = Vec::new();
+        self.scan_chunk(topics, limit, |page| {
+            output.extend(page);
+            false
+        })
+        .await?;
+        Ok(output)
+    }
+
+    /// Settle a publish whose outcome is unknown without resending it: a
+    /// `Query` of every topic in `units`, from the start, returns the stored
+    /// metadata of each envelope in envelope order, matched by its canonical
+    /// hash. `None` marks an envelope the backend did not store. Pages that
+    /// match nothing are dropped, and the read stops once every envelope matched.
+    /// A record without valid metadata fails the read: it could be any envelope,
+    /// so the read cannot prove one absent.
+    #[xmtp_common::rpc_span]
+    pub async fn settle_units(
+        &self,
+        units: &[PublishUnit],
+    ) -> Result<Vec<Option<wire::EnvelopeMeta>>> {
+        let envelopes: Vec<_> = units.iter().flat_map(|unit| &unit.envelopes).collect();
+        let mut pending: HashMap<_, Vec<_>> = HashMap::new();
+        for (index, envelope) in envelopes.iter().enumerate() {
+            pending
+                .entry(envelope.canonical.hash.to_vec())
+                .or_default()
+                .push(index);
+        }
+        let mut settled = vec![None; envelopes.len()];
+        let topics: HashSet<_> = envelopes.iter().map(|envelope| &envelope.topic).collect();
+        let topics: Vec<_> = topics
+            .into_iter()
+            .map(|topic| (topic.clone(), Cursor(0)))
+            .collect();
+        let limit = self.limits().max_query_limit as u32;
+        for chunk in topics.chunks(self.limits().max_query_topics) {
+            let mut invalid = false;
+            self.scan_chunk(chunk.to_vec(), limit, |page| {
+                invalid = page.into_iter().any(|stored| {
+                    let Some(meta) = stored.meta else { return true };
+                    let Ok(hash) = xmtp_api_backend::envelope::message_hash(&meta) else {
+                        return true;
+                    };
+                    let Some(indices) = pending.remove(&hash) else {
+                        return false;
+                    };
+                    // Identical envelopes share one hash and one stored copy.
+                    let topic = &envelopes[indices[0]].topic;
+                    let valid = xmtp_api_backend::envelope::metadata(&meta, topic.kind())
+                        .is_ok_and(|(stored_topic, _, _)| stored_topic == *topic);
+                    for index in indices {
+                        settled[index] = Some(meta.clone());
+                    }
+                    !valid
+                });
+                invalid || pending.is_empty()
+            })
+            .await?;
+            if invalid {
+                return Err(ApiError::InvalidResponse("settled metadata"));
+            }
+            if pending.is_empty() {
+                break;
+            }
+        }
+        Ok(settled)
+    }
+
+    /// Read pages of `topics` in cursor order until `visit` returns true or
+    /// every topic is exhausted.
+    async fn scan_chunk(
+        &self,
+        topics: Vec<(Topic, Cursor)>,
+        limit: u32,
+        mut visit: impl FnMut(Vec<wire::ServerEnvelope>) -> bool,
+    ) -> Result<()> {
+        let mut pending = VecDeque::from([(topics, limit)]);
         while let Some((mut topics, mut limit)) = pending.pop_front() {
             loop {
                 let request = wire::QueryRequest {
@@ -511,7 +595,9 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                             **cursor = Cursor(sequence);
                             advanced = true;
                         }
-                        output.extend(response.envelopes);
+                        if visit(response.envelopes) {
+                            return Ok(());
+                        }
                         if !has_more {
                             break;
                         }
@@ -532,7 +618,7 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
                 }
             }
         }
-        Ok(output)
+        Ok(())
     }
 
     pub(crate) async fn newest(

@@ -99,7 +99,11 @@ await checkReaderCursor(signer, backendOptions);
 await checkRestoredPeer(backendOptions);
 await checkIdentityRoutes(backendOptions);
 const client = await sdk.Client.create(signer, options);
-await assert.rejects(client.conversations().getMessageById("bad"), isInvalidId);
+// Uppercase hex decodes, so only ID validation rejects it.
+await assert.rejects(
+  client.conversations().getMessageById("AB".repeat(32)),
+  isInvalidId,
+);
 const inboxId = client.inboxId();
 assert.equal(typeof inboxId.toString(), "string");
 const storagePath = await client.storage().path();

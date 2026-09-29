@@ -1,13 +1,13 @@
 #[xmtp_macro::sdk_export]
 impl Group {
     pub async fn peer_inbox_ids(&self) -> Result<Vec<InboxId>, XmtpError> {
-        let own = self.inner.context.inbox_id().to_string();
+        let own = InboxId::unchecked(self.inner.context.inbox_id().to_string());
         Ok(self
             .members()
             .await?
             .into_iter()
             .map(|member| member.inbox_id)
-            .filter(|id| id.0 != own)
+            .filter(|id| *id != own)
             .collect())
     }
 
@@ -124,7 +124,10 @@ impl Group {
         members: Vec<InboxId>,
     ) -> Result<crate::MembershipResult, XmtpError> {
         let group = self.inner.clone();
-        let ids = members.into_iter().map(|id| id.0).collect::<Vec<_>>();
+        let ids = members
+            .into_iter()
+            .map(InboxId::into_checked)
+            .collect::<Result<Vec<_>, _>>()?;
         on_sdk_worker(
             self.inner.context.clone(),
             Box::pin(async move {
@@ -140,7 +143,10 @@ impl Group {
 
     pub async fn remove_members(&self, members: Vec<InboxId>) -> Result<(), XmtpError> {
         let group = self.inner.clone();
-        let ids = members.into_iter().map(|id| id.0).collect::<Vec<_>>();
+        let ids = members
+            .into_iter()
+            .map(InboxId::into_checked)
+            .collect::<Result<Vec<_>, _>>()?;
         on_sdk_worker(
             self.inner.context.clone(),
             Box::pin(async move {
@@ -222,17 +228,19 @@ impl Group {
     }
 
     pub async fn is_admin(&self, inbox_id: InboxId) -> Result<bool, XmtpError> {
+        let inbox_id = inbox_id.into_checked()?;
         let group = self.inner.clone();
         on_sdk_worker(self.inner.context.clone(), async move {
-            group.is_admin(inbox_id.0).map_err(XmtpError::unknown)
+            group.is_admin(inbox_id).map_err(XmtpError::unknown)
         })
         .await
     }
 
     pub async fn is_super_admin(&self, inbox_id: InboxId) -> Result<bool, XmtpError> {
+        let inbox_id = inbox_id.into_checked()?;
         let group = self.inner.clone();
         on_sdk_worker(self.inner.context.clone(), async move {
-            group.is_super_admin(inbox_id.0).map_err(XmtpError::unknown)
+            group.is_super_admin(inbox_id).map_err(XmtpError::unknown)
         })
         .await
     }
@@ -293,12 +301,13 @@ impl Group {
         action: xmtp_mls::groups::UpdateAdminListType,
         inbox_id: InboxId,
     ) -> Result<(), XmtpError> {
+        let inbox_id = inbox_id.into_checked()?;
         let group = self.inner.clone();
         on_sdk_worker(
             self.inner.context.clone(),
             Box::pin(async move {
                 group
-                    .update_admin_list(action, inbox_id.0)
+                    .update_admin_list(action, inbox_id)
                     .await
                     .map_err(XmtpError::unknown)
             }),

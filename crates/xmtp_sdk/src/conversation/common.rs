@@ -144,7 +144,9 @@ macro_rules! common_conversation {
                         .get_last_read_times()
                         .map_err(XmtpError::unknown)?
                         .into_iter()
-                        .map(|(inbox_id, ns)| Ok((InboxId::try_from(inbox_id)?.0, Timestamp(ns))))
+                        .map(|(inbox_id, ns)| {
+                            Ok((InboxId::try_from(inbox_id)?.into_checked()?, Timestamp(ns)))
+                        })
                         .collect()
                 })
                 .await
@@ -204,7 +206,7 @@ macro_rules! common_conversation {
 
             pub async fn publish_message(&self, id: MessageId) -> Result<(), XmtpError> {
                 let group = self.inner.clone();
-                let bytes = hex::decode(id.0).map_err(XmtpError::unknown)?;
+                let bytes = id.to_bytes()?;
                 on_sdk_worker(
                     self.inner.context.clone(),
                     Box::pin(async move {
@@ -461,8 +463,8 @@ macro_rules! common_conversation {
 
             pub async fn delete_message(&self, id: MessageId) -> Result<MessageId, XmtpError> {
                 let group = self.inner.clone();
+                let bytes = id.to_bytes()?;
                 on_sdk_worker(self.inner.context.clone(), async move {
-                    let bytes = hex::decode(&id.0).map_err(XmtpError::unknown)?;
                     let stored = group
                         .context
                         .db()

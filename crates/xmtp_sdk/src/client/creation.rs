@@ -65,6 +65,8 @@ impl Client {
         require_stored_identity: bool,
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
+        let inbox_id = inbox_id.map(InboxId::into_checked).transpose()?;
+        let fork_recovery = options.fork_recovery_opts()?;
         if matches!(&options.storage.location, StorageLocation::Default) {
             return Err(XmtpError::storage_location_required());
         }
@@ -87,7 +89,7 @@ impl Client {
         let checked_store = match (require_stored_identity, inbox_id.as_ref()) {
             (true, Some(inbox_id)) => {
                 guard.arm(&options.storage);
-                Some(open_existing_store(&options.storage, &inbox_id.0).await?)
+                Some(open_existing_store(&options.storage, inbox_id).await?)
             }
             _ => None,
         };
@@ -99,7 +101,7 @@ impl Client {
             .await?;
         let auth_handle = backend.auth_handle.clone();
         let inbox_id = match inbox_id {
-            Some(value) => value.0,
+            Some(value) => value,
             None => {
                 let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
                 let found = api
@@ -135,7 +137,6 @@ impl Client {
             inbox_id,
             identifier,
             options.registration.nonce.unwrap_or(0),
-            None,
         ))
         .api_client_with_streams(backend.api.clone())
         .with_allow_offline(Some(options.allow_offline))
@@ -143,8 +144,8 @@ impl Client {
         .map_err(XmtpError::unknown)?
         .store(store)
         .device_sync_worker_mode(mode);
-        if let Some(recovery) = options.fork_recovery.clone() {
-            builder = builder.fork_recovery_opts(recovery.into());
+        if let Some(recovery) = fork_recovery {
+            builder = builder.fork_recovery_opts(recovery);
         }
         if let Some(workers) = options.workers.clone() {
             builder = builder.worker_config(workers.into());

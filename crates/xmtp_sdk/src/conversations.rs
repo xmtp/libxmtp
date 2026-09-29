@@ -156,7 +156,12 @@ impl TryFrom<ListMessagesOptions> for xmtp_db::group_message::MsgQueryArgs {
                 .transpose()?,
             exclude_sender_inbox_ids: value
                 .exclude_sender_inbox_ids
-                .map(|ids| ids.into_iter().map(|id| id.0).collect()),
+                .map(|ids| {
+                    ids.into_iter()
+                        .map(crate::InboxId::into_checked)
+                        .collect::<Result<_, _>>()
+                })
+                .transpose()?,
             ..Default::default()
         })
     }

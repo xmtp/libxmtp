@@ -17,7 +17,6 @@ pub enum SignatureKind {
     Erc191,
     Erc1271,
     InstallationKey,
-    LegacyDelegated,
     P256,
 }
 
@@ -27,7 +26,6 @@ impl From<CoreSignatureKind> for SignatureKind {
             CoreSignatureKind::Erc191 => Self::Erc191,
             CoreSignatureKind::Erc1271 => Self::Erc1271,
             CoreSignatureKind::InstallationKey => Self::InstallationKey,
-            CoreSignatureKind::LegacyDelegated => Self::LegacyDelegated,
             CoreSignatureKind::P256 => Self::P256,
         }
     }

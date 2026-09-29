@@ -29,7 +29,7 @@ async fn prepared_message_rechecks_expiry_before_admission() {
     let task = tokio::spawn(async move { reading.next().await });
     xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
     client.inner.context.db().raw_query(|conn| {
-        xmtp_db::diesel::update(dsl::group_messages.find(hex::decode(stale.0).unwrap()))
+        xmtp_db::diesel::update(dsl::group_messages.find(stale.to_bytes().unwrap()))
             .set(dsl::expire_at_ns.eq(1_i64))
             .execute(conn)
     })?;

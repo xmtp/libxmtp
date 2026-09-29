@@ -13,8 +13,22 @@ mod tests;
 mod welcomes;
 use dependencies::{PublishDependencies, PublishRequirements};
 pub(crate) use prepared::{
-    OutgoingPreparationError, PreparedAttempt, PreparedBase, PreparedProposal,
+    OutgoingPreparationError, PreparedAttempt, PreparedBase, PreparedProposal, Unsettled,
 };
+
+/// Only `INVALID_ARGUMENT` proves that an atomic publish stored nothing.
+/// Every other failure, including `OUT_OF_RANGE`, can follow a commit.
+fn definite_refusal(error: &xmtp_api::ApiError) -> bool {
+    xmtp_proto::api::grpc_status(error)
+        .is_some_and(|status| status.code() == tonic::Code::InvalidArgument)
+}
+
+/// `OUT_OF_RANGE` can follow a committed publish, and the same request cannot
+/// be sent again, so only a recovery read can settle the bytes it carried.
+fn out_of_range(error: &xmtp_api::ApiError) -> bool {
+    xmtp_proto::api::grpc_status(error)
+        .is_some_and(|status| status.code() == tonic::Code::OutOfRange)
+}
 
 /// The next durable attempt, or immutable inputs that need external resolution.
 enum NextPublish {
@@ -24,8 +38,9 @@ enum NextPublish {
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
     /// Persist each attempt with its crypto state before publication. An ambiguous
-    /// result retries the saved bytes. A state-changing attempt blocks later work
-    /// until ordered processing resolves it.
+    /// result retries the saved bytes, except `OUT_OF_RANGE`, which a recovery
+    /// read settles instead. A state-changing attempt blocks later work until
+    /// ordered processing resolves it.
     #[xmtp_common::mls_span]
     pub(in crate::groups) async fn publish_intents(&self) -> Result<(), GroupError> {
         // Nothing this client prepared is published once
@@ -140,18 +155,67 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             sent.insert(intent.id);
             if attempt.receipts.is_none() {
                 // The writer and every mutable MLS object were dropped above.
-                // An error keeps this exact attempt eligible for retry.
-                let receipts = self
-                    .context
-                    .api()
-                    .send_group_messages(vec![attempt.publish_unit(self.context.api().limits())?])
-                    .await?;
-                self.record_publish_receipts(&intent, &attempt, receipts)?;
+                // An ambiguous error keeps this exact attempt eligible for retry.
+                let unit = attempt.publish_unit(self.context.api().limits())?;
+                let stored = if attempt.unsettled == Some(Unsettled::Attempt) {
+                    self.settle_attempt(&intent, &attempt, unit).await?
+                } else {
+                    match self
+                        .context
+                        .api()
+                        .send_group_messages(vec![unit.clone()])
+                        .await
+                    {
+                        Ok(receipts) => {
+                            self.record_publish_receipts(&intent, &attempt, receipts)?;
+                            true
+                        }
+                        Err(error) if definite_refusal(&error) => {
+                            if self.reject_refused_attempt(&intent, &attempt)? {
+                                rejected_request.get_or_insert(error.into());
+                            }
+                            continue;
+                        }
+                        Err(error) if out_of_range(&error) => {
+                            self.mark_unsettled(intent.id, &attempt, Unsettled::Attempt)?;
+                            self.settle_attempt(&intent, &attempt, unit).await?
+                        }
+                        Err(error) => return Err(error.into()),
+                    }
+                };
+                if !stored {
+                    if self.reject_refused_attempt(&intent, &attempt)? {
+                        rejected_request.get_or_insert(OutgoingPreparationError::Unstored.into());
+                    }
+                    continue;
+                }
             }
             if intent.kind != IntentKind::SendMessage {
                 return rejected_request.map_or(Ok(()), Err);
             }
         }
+    }
+
+    /// Settle an attempt whose publish returned `OUT_OF_RANGE` with a `Query`
+    /// of its topic instead of the request, which cannot be sent again. Stored
+    /// envelopes get the receipts the publish assigned. Returns false when the
+    /// backend stored none of them, which proves that no echo can arrive.
+    // implements: SEND-007
+    async fn settle_attempt(
+        &self,
+        intent: &StoredGroupIntent,
+        attempt: &PreparedAttempt,
+        unit: xmtp_api::PublishUnit,
+    ) -> Result<bool, GroupError> {
+        let settled = self.context.api().settle_units(&[unit]).await?;
+        if settled.iter().all(Option::is_none) {
+            return Ok(false);
+        }
+        let receipts = settled.into_iter().collect::<Option<Vec<_>>>().ok_or(
+            xmtp_api::ApiError::InvalidResponse("partially stored atomic publish"),
+        )?;
+        self.record_publish_receipts(intent, attempt, receipts)?;
+        Ok(true)
     }
 
     /// Fail a locally invalid request only if its intent and MLS base still match.
@@ -181,30 +245,75 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     {
                         return Ok(Continue(false));
                     }
-                    let message_id = calculate_message_id_for_intent(&current)?;
-                    let previous_status = message_id
-                        .as_ref()
-                        .map(|id| db.get_group_message(id))
-                        .transpose()?
-                        .flatten()
-                        .map(|message| message.delivery_status);
-                    let changed_id = message_id.clone();
-                    db.set_group_intent_error_and_fail_msg(&current, message_id)?;
-                    if previous_status == Some(DeliveryStatus::Unpublished)
-                        && let Some(id) = changed_id
-                    {
-                        self.emit_message_status_changed(
-                            id,
-                            xmtp_events::MessageStatus::Unpublished,
-                            xmtp_events::MessageStatus::Failed,
-                            event_writer,
-                        );
-                    }
+                    self.fail_intent(&db, &current, event_writer)?;
                     Ok::<_, GroupError>(Continue(true))
                 })
             },
         )
         .map(TransactionOutcome::into_continued)
+    }
+
+    /// Fail an attempt the backend refused, only while it is still the current
+    /// attempt with no receipt. A late refusal of replaced bytes changes nothing.
+    // implements: SEND-009
+    fn reject_refused_attempt(
+        &self,
+        intent: &StoredGroupIntent,
+        attempt: &PreparedAttempt,
+    ) -> Result<bool, GroupError> {
+        crate::state_tx::state_write_with_events(
+            self.context.mls_storage(),
+            self.context.events(),
+            |tx, event_writer| {
+                let storage = tx.storage();
+                let db = storage.db();
+                let Some(current) = Fetch::<StoredGroupIntent>::fetch(&db, &intent.id)? else {
+                    return Ok(Continue(false));
+                };
+                let Some(saved) = db.prepared_envelopes(current.id)? else {
+                    return Ok(Continue(false));
+                };
+                let saved = PreparedAttempt::decode(&saved)?;
+                if current.state != IntentState::Published
+                    || !saved.same_attempt(attempt)
+                    || saved.receipts.is_some()
+                {
+                    return Ok(Continue(false));
+                }
+                self.fail_intent(&db, &current, event_writer)?;
+                Ok::<_, GroupError>(Continue(true))
+            },
+        )
+        .map(TransactionOutcome::into_continued)
+    }
+
+    /// Mark the intent `Error` and its application message `Failed` under the
+    /// caller's writer, so that no later intent waits for an echo.
+    fn fail_intent(
+        &self,
+        db: &impl DbQuery,
+        intent: &StoredGroupIntent,
+        event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
+    ) -> Result<(), GroupError> {
+        let message_id = calculate_message_id_for_intent(intent)?;
+        let previous_status = message_id
+            .as_ref()
+            .map(|id| db.get_group_message(id))
+            .transpose()?
+            .flatten()
+            .map(|message| message.delivery_status);
+        db.set_group_intent_error_and_fail_msg(intent, message_id.clone())?;
+        if previous_status == Some(DeliveryStatus::Unpublished)
+            && let Some(id) = message_id
+        {
+            self.emit_message_status_changed(
+                id,
+                xmtp_events::MessageStatus::Unpublished,
+                xmtp_events::MessageStatus::Failed,
+                event_writer,
+            );
+        }
+        Ok(())
     }
 
     /// Reload and check the base under one writer, then atomically save crypto
@@ -329,7 +438,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             .collect(),
                     )?;
                     let attempt = PreparedAttempt {
-                        version: 2,
+                        version: prepared::PREPARED_ATTEMPT_VERSION,
                         base: requirements.base.clone(),
                         payload_hash: sha256(payload).to_vec(),
                         envelopes: envelopes
@@ -340,6 +449,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         receipts: None,
                         welcomes: None,
                         rejection: None,
+                        unsettled: None,
                     };
                     // Validate size and shape before any ratchet writes can commit.
                     attempt.publish_unit(self.context.api().limits())?;

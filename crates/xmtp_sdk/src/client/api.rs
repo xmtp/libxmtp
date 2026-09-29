@@ -5,6 +5,8 @@ impl Client {
         signer: Arc<dyn Signer>,
         options: ClientOptions,
     ) -> Result<Self, XmtpError> {
+        // Check ID arguments before the signer callback runs.
+        options.fork_recovery_opts()?;
         let identity = signer::identity(signer.clone()).await?;
         let mut guard = OpenStoreGuard::default();
         let created = Self::create_with_guard(signer, identity, options, &mut guard).await;
@@ -27,11 +29,11 @@ impl Client {
     }
 
     pub fn inbox_id(&self) -> InboxId {
-        InboxId(self.inner.inbox_id().to_owned())
+        InboxId::unchecked(self.inner.inbox_id().to_owned())
     }
 
     pub fn installation_id(&self) -> InstallationId {
-        InstallationId(self.inner.installation_public_key().to_string())
+        InstallationId::unchecked(self.inner.installation_public_key().to_string())
     }
 
     /// Host runtimes use this key to find the owner of a lifted message.
@@ -88,6 +90,7 @@ impl Client {
         &self,
         filter: crate::EventFilter,
     ) -> Result<Arc<crate::EventReader>, XmtpError> {
+        let filter = filter.checked()?;
         // The filter reads stored conversations. Leave the gate before the
         // subscription starts: that step does not use the database, and end()
         // must not wait for it.
@@ -122,6 +125,7 @@ impl Client {
         filter: crate::EventFilter,
         listener: Arc<dyn crate::EventListener>,
     ) -> Result<crate::ListenerId, XmtpError> {
+        let filter = filter.checked()?;
         // The filter reads stored conversations. Leave the gate before the
         // subscription starts: that step does not use the database, and end()
         // must not wait for it.

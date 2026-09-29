@@ -17,7 +17,6 @@ let
     fileset = lib.fileset.unions (
       [
         (root + /Cargo.toml)
-        (root + /vendor/uniffi_core)
         (root + /proto)
         (lib.fileset.maybeMissing (root + /apps/backend/.sqlx))
         (lib.fileset.maybeMissing (root + /apps/backend/migrations))

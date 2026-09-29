@@ -29,12 +29,12 @@ async fn build_with_inaccessible_database_path_returns_storage_error() {
     settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
     let signer = crate::generate_local_signer().await;
     let identity = signer::identity(signer).await?;
-    let inbox_id = InboxId(
+    let inbox_id = InboxId::try_from(
         identity
             .to_core()?
             .inbox_id(0)
             .map_err(XmtpError::unknown)?,
-    );
+    )?;
     let result = Client::build(identity, settings, Some(inbox_id)).await;
     std::fs::remove_file(parent)?;
 

@@ -132,10 +132,15 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
             reference,
             reference_inbox_id,
             reaction,
-        } => xmtp_content_types::reaction::ReactionCodec::encode(reaction.into_proto(
-            reference,
-            crate::InboxId(reference_inbox_id.map(|id| id.0).unwrap_or_default()),
-        )),
+        } => xmtp_content_types::reaction::ReactionCodec::encode(
+            reaction.into_proto(
+                reference.into_checked()?,
+                reference_inbox_id
+                    .map(crate::InboxId::into_checked)
+                    .transpose()?
+                    .unwrap_or_default(),
+            ),
+        ),
         StandardContent::Attachment(value) => {
             xmtp_content_types::attachment::AttachmentCodec::encode(
                 xmtp_content_types::attachment::Attachment {
@@ -188,16 +193,18 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
             reference_inbox_id,
             content,
         } => xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
-            reference: reference.0,
-            reference_inbox_id: reference_inbox_id.map(|id| id.0),
+            reference: reference.into_checked()?,
+            reference_inbox_id: reference_inbox_id
+                .map(crate::InboxId::into_checked)
+                .transpose()?,
             content: content.into(),
         }),
         StandardContent::GroupUpdated(value) => {
-            xmtp_content_types::group_updated::GroupUpdatedCodec::encode(value.into())
+            xmtp_content_types::group_updated::GroupUpdatedCodec::encode(value.try_into()?)
         }
         StandardContent::DeleteMessage { message_id } => {
             xmtp_content_types::delete_message::DeleteMessageCodec::encode(proto::DeleteMessage {
-                message_id: message_id.0,
+                message_id: message_id.into_checked()?,
             })
         }
         StandardContent::LeaveRequest(value) => {
