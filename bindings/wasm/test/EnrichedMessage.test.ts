@@ -422,6 +422,53 @@ describe("EnrichedMessage", () => {
       });
     });
 
+    describe("Undecodable content", () => {
+      // verifies: CTYPE-008, CTYPE-009
+      it("keeps a failed decode with its bytes and cause on list and parent paths", async () => {
+        const { client2, conversation, conversation2 } =
+          await setupConversation();
+
+        const broken = {
+          ...encodeText("valid"),
+          content: new Uint8Array([0xff, 0xfe]),
+        };
+        const brokenId = await conversation.send(broken, { shouldPush: false });
+        const afterId = await conversation.sendText("after");
+        await conversation2.sync();
+        const replyId = await conversation2.sendReply({
+          reference: brokenId,
+          referenceInboxId: client2.inboxId,
+          content: encodeText("replying to bytes"),
+        });
+        await conversation.sync();
+
+        for (const group of [conversation, conversation2]) {
+          const messages = await group.findEnrichedMessages();
+          const brokenMessage = messages.find((m) => m.id === brokenId);
+          expect(brokenMessage).toBeDefined();
+          expect(brokenMessage!.content.type).toBe("undecodable");
+          expect(brokenMessage!.contentType.typeId).toBe("text");
+          if (brokenMessage!.content.type !== "undecodable") throw new Error();
+          const undecodable = brokenMessage!.content.content;
+          expect(undecodable.failureKind).toBe("codecDecodeFailed");
+          expect(undecodable.contentType?.typeId).toBe("text");
+          expect(Array.from(undecodable.rawBytes).join(",")).toContain(
+            "255,254",
+          );
+
+          const after = messages.find((m) => m.id === afterId);
+          expect(after?.content.type).toBe("text");
+          expect(after?.content.content).toBe("after");
+
+          const replyMessage = messages.find((m) => m.id === replyId);
+          expect(replyMessage?.content.type).toBe("reply");
+          const replyContent = replyMessage?.content.content as EnrichedReply;
+          expect(replyContent.inReplyTo?.id).toBe(brokenId);
+          expect(replyContent.inReplyTo?.content.type).toBe("undecodable");
+        }
+      });
+    });
+
     describe("Attachment", () => {
       it("should send and receive attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();

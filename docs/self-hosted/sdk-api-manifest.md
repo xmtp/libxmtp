@@ -8,7 +8,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 
 | SDK | Public declarations |
 | --- | ---: |
-| Swift | 7124 |
+| Swift | 7126 |
 | Kotlin | 962 |
 | Node | 519 |
 | Browser | 530 |
@@ -680,6 +680,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `SortDirection.ascending` | case | `ListMessagesOptions.direction.ascending` | generated | 11.2, ListMessagesOptions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `SortDirection.descending` | case | `ListMessagesOptions.direction.descending` | generated | 11.2, ListMessagesOptions | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `Actions` | typealias | `Actions` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
+| `ContentDecodeFailureKind` | typealias | `MessageContent.Unknown` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Retained undecodable content under the design SDK-040 exception: exact received bytes, received identifier and fallback, and the typed cause. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
 | `DecodedMessageV2` | struct | — | approved removal | 11.4 Swift, Messages, codecs, preferences, values; 19, decision 5 | The V2 type leaves the API; its value fields move to Message. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
 | `DecodedMessageV2.body` | var | `Message.content` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
 | `DecodedMessageV2.content` | func | `Message.content` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
@@ -700,6 +701,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessageV2.sentAtNs` | var | `Message.sentAt.ns` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
 | `DecodedMessageV2.topic` | var | `Message.topic` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
 | `Intent` | typealias | `Intent` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
+| `UndecodableContent` | typealias | `MessageContent.Unknown` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Retained undecodable content under the design SDK-040 exception: exact received bytes, received identifier and fallback, and the typed cause. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift`. |
 | `DisappearingMessageSettings` | struct | `DisappearingMessageSettings` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DisappearingMessageSettings.swift`. |
 | `DisappearingMessageSettings.disappearStartingAtNs` | let | `DisappearingMessageSettings.disappearStartingAt.ns` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DisappearingMessageSettings.swift`. |
 | `DisappearingMessageSettings.init` | init | `DisappearingMessageSettings.init` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DisappearingMessageSettings.swift`. |
@@ -3589,6 +3591,7 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_leave_request_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_extended_content_records_keep_nested_fields` |
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_text_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_extended_content_records_keep_nested_fields` |
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_delete_message_encode_decode` | binding only: mobile standalone delete payload codec accepts arbitrary strings; the façade exposes a typed delete action and DeletedMessage result |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_undecodable_content_is_kept_with_its_bytes` | core: `crates/xmtp_mls/src/groups/message_list.rs::malformed_rows_are_kept_on_history_lookup_and_parent_paths` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_find_or_create_dm` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dms_sync_but_do_not_list` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_stream_correct_type` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |

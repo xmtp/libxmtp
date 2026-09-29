@@ -310,6 +310,12 @@ class DecodedMessageV2 private constructor(
                     encodedContent.decoded<Any>()
                 }
 
+                // Content the client could not decode: exact bytes, received
+                // identifier and fallback, and the typed cause.
+                is FfiDecodedMessageContent.Undecodable -> {
+                    content.v1
+                }
+
                 else -> {
                     null
                 }
@@ -363,6 +369,10 @@ class DecodedMessageV2 private constructor(
                 is FfiDecodedMessageBody.Custom -> {
                     val encodedContent = encodedContentFromFfi(body.v1)
                     encodedContent.decoded<Any>()
+                }
+
+                is FfiDecodedMessageBody.Undecodable -> {
+                    body.v1
                 }
 
                 else -> {

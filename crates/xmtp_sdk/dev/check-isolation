@@ -3,18 +3,45 @@ set -euo pipefail
 
 # GitHub runs a stacked PR's checks against the stack trunk, so this diff
 # includes the PRs below it. Only shipped code in sdks/ and bindings/ is
-# guarded: tests and changelogs there may change (spec evidence, and
-# owner-approved behaviour changes made in core).
+# guarded: tests, changelogs, and agent notes there may change (spec evidence,
+# and owner-approved behaviour changes made in core).
 base=$(git merge-base HEAD origin/self-hosted)
 if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
   exit 0
 fi
 
+# Design SDK-040 names two narrow pre-cutover exceptions. Each is an exact
+# file list; every other shipped change still fails. The regenerated Swift
+# bindings are matched against the Rust source by the bindings-check job.
+#
+# 1. Retained undecodable content (CTYPE-008): the legacy binding records and
+#    variants, their regenerated outputs, and the wrapper projections that
+#    expose exact received bytes and the typed cause.
+# 2. Foreign Restored DM peer getter: mobile returns None; Node and WASM
+#    return a typed no-peer error.
+allowed='
+bindings/mobile/src/message.rs
+bindings/node/src/content_types/decoded_message_content.rs
+bindings/node/src/messages/decoded_message.rs
+bindings/wasm/src/content_types/decoded_message_content.rs
+bindings/wasm/src/enriched_message.rs
+sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift
+sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
+sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt
+sdks/node/src/DecodedMessage.ts
+sdks/browser/src/DecodedMessage.ts
+bindings/mobile/src/mls/conversation.rs
+bindings/node/src/client/identity.rs
+bindings/node/src/conversation/dm.rs
+bindings/wasm/src/conversation.rs
+'
+
 changed=$(git diff --name-only "$base"...HEAD -- sdks/ bindings/ \
-  | grep -vE '(^|/)(tests?|Tests|androidTest)/|\.test\.[cm]?[jt]s$|_tests?\.rs$|(^|/)CHANGELOG\.md$' \
+  | grep -vE '(^|/)(tests?|Tests|androidTest)/|\.test\.[cm]?[jt]s$|_tests?\.rs$|(^|/)(CHANGELOG|AGENTS)\.md$' \
+  | grep -vxF -f <(printf '%s\n' "$allowed" | sed '/^$/d') \
   || true)
 if [ -n "$changed" ]; then
-  echo "SDK facade changes cannot alter shipped code in sdks/ or bindings/:" >&2
+  echo "SDK facade changes cannot alter shipped code in sdks/ or bindings/ outside the SDK-040 exceptions:" >&2
   echo "$changed" >&2
   exit 1
 fi

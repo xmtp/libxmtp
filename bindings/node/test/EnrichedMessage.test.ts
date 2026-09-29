@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ActionStyle,
+  ContentDecodeFailureKind,
   DecodedMessageContentType,
   encodeAttachment,
   encodeText,
@@ -389,6 +390,63 @@ describe.concurrent("EnrichedMessage", () => {
         );
         // Reply with non-text content fallback (generic)
         expect(replyMessage!.fallback).toBe(`Replied to an earlier message`);
+      });
+    });
+
+    describe("Undecodable content", () => {
+      // verifies: CTYPE-008, CTYPE-009
+      it("keeps a failed decode with its bytes and cause on list and parent paths", async () => {
+        const { client2, conversation, conversation2 } =
+          await setupConversation();
+
+        const broken = {
+          ...encodeText("valid"),
+          content: new Uint8Array([0xff, 0xfe]),
+        };
+        const brokenId = await conversation.send(broken, { shouldPush: false });
+        const afterId = await conversation.sendText("after");
+        await conversation2.sync();
+        const replyId = await conversation2.sendReply({
+          reference: brokenId,
+          referenceInboxId: client2.inboxId(),
+          content: encodeText("replying to bytes"),
+        });
+        await conversation.sync();
+
+        for (const group of [conversation, conversation2]) {
+          const messages = await group.listEnrichedMessages();
+          const brokenMessage = messages.find((m) => m.id === brokenId);
+          expect(brokenMessage).toBeDefined();
+          expect(brokenMessage!.content.type).toBe(
+            DecodedMessageContentType.Undecodable,
+          );
+          expect(brokenMessage!.contentType.typeId).toBe("text");
+          const undecodable = brokenMessage!.content.undecodable;
+          expect(undecodable?.failureKind).toBe(
+            ContentDecodeFailureKind.CodecDecodeFailed,
+          );
+          expect(undecodable?.contentType?.typeId).toBe("text");
+          expect(Array.from(undecodable!.rawBytes).join(",")).toContain(
+            "255,254",
+          );
+
+          expect(messages.find((m) => m.id === afterId)?.content.text).toBe(
+            "after",
+          );
+
+          const replyMessage = messages.find((m) => m.id === replyId);
+          expect(replyMessage?.content.type).toBe(
+            DecodedMessageContentType.Reply,
+          );
+          const parent = replyMessage!.content.reply!.inReplyTo;
+          expect(parent?.id).toBe(brokenId);
+          expect(parent?.content.type).toBe(
+            DecodedMessageContentType.Undecodable,
+          );
+          expect(parent?.content.undecodable?.failureKind).toBe(
+            ContentDecodeFailureKind.CodecDecodeFailed,
+          );
+        }
       });
     });
 
