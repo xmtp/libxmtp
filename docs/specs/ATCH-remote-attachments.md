@@ -135,13 +135,15 @@ message HttpHeader {
 }
 ```
 
-The admission table adds the conditions of `CreateUpload` to the status table of API section 7. The backend checks the rows in order, after admission under AUTH-001; the first row that matches decides the code.
+The admission table adds the conditions of `CreateUpload` to the status table of API section 7. The backend checks the rows in order, after admission under AUTH-001; the first row that matches decides the code. `UNAVAILABLE` reports a credential failure that a later request can outlive, such as a credential source that does not answer or a credential that has expired and is not yet renewed. `FAILED_PRECONDITION` and `INTERNAL` report a failure that stays until the operator corrects the configuration or the backend.
 
 | Condition | Code |
 | --- | --- |
 | No storage target is configured | `UNIMPLEMENTED` |
 | `content_digest` is not 32 bytes, or `content_length` is 0 or greater than the enforced `max_upload_bytes` | `INVALID_ARGUMENT` |
-| The backend cannot obtain a credential to sign with, or cannot sign the request | `UNAVAILABLE` |
+| The credential source that ATCH-073 names reports that its own configuration is invalid | `FAILED_PRECONDITION` |
+| The backend cannot obtain a credential from that source, or obtains one whose remaining lifetime is shorter than the least lifetime ATCH-028 allows | `UNAVAILABLE` |
+| The backend cannot build or sign the request for a reason other than its credential | `INTERNAL` |
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -328,7 +330,8 @@ The cause tells an app when a later attempt can succeed:
 | `local_storage` | Yes, when the device has space and the directory is writable |
 | `connection_blocked` | After the client is updated or bound to its deployment again (CONF-075) |
 | `credential` | After the app renews the credential of the kind ATCH-061 reports, or supplies one that carries the required scopes (ATCH-078) |
-| `backend_unavailable`, `network` | Yes, after a backoff |
+| `backend_unavailable` | Yes, after a backoff; after `FAILED_PRECONDITION` or `INTERNAL`, only when the operator has corrected the backend |
+| `network` | Yes, after a backoff |
 | `http_status` | After a backoff when the status is 408, 429, or 5xx; otherwise no |
 | `target_rejected` | Yes, for a new upload request, which gets a new signed URL; a target that rejects every signed request fails again |
 | `blocked_address` | After the app sets `allow_private_network`; otherwise no |
