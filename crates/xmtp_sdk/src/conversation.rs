@@ -192,6 +192,11 @@ pub(crate) async fn list_local(
         .iter()
         .map(|item| item.group.group_id)
         .collect::<Vec<_>>();
+    // A Restored conversation reports its archived metadata, never its placeholder.
+    // Read it before the contexts. Activation is one-way, so a recorded group
+    // that is absent here was already activated when its context is read.
+    let mut histories = xmtp_mls::groups::restored_metadata(&client.context.db(), &ids)
+        .map_err(XmtpError::unknown)?;
     let contexts = client
         .context
         .mls_storage()
@@ -199,25 +204,30 @@ pub(crate) async fn list_local(
         .map_err(XmtpError::unknown)?;
     let mut result = Vec::with_capacity(items.len());
     for item in items {
-        let context = contexts
-            .get(&item.group.group_id)
-            .ok_or_else(|| XmtpError::unknown("conversation group context is missing"))?;
-        let seed = read_group_metadata_from_extensions(context.extensions())
-            .map_err(XmtpError::unknown)?
-            .ok_or_else(|| XmtpError::unknown("conversation metadata is missing"))?;
-        let metadata = GroupMetadata::try_from(GroupMetadataV1 {
-            conversation_type: seed.conversation_type,
-            creator_inbox_id: seed.creator_inbox_id,
-            creator_account_address: String::new(),
-            dm_members: seed.dm_members,
-            oneshot_message: seed.oneshot,
-        })
-        .map_err(XmtpError::unknown)?;
+        let metadata = match histories.remove(&item.group.group_id) {
+            Some(metadata) => metadata,
+            None => {
+                let context = contexts
+                    .get(&item.group.group_id)
+                    .ok_or_else(|| XmtpError::unknown("conversation group context is missing"))?;
+                let seed = read_group_metadata_from_extensions(context.extensions())
+                    .map_err(XmtpError::unknown)?
+                    .ok_or_else(|| XmtpError::unknown("conversation metadata is missing"))?;
+                GroupMetadata::try_from(GroupMetadataV1 {
+                    conversation_type: seed.conversation_type,
+                    creator_inbox_id: seed.creator_inbox_id,
+                    creator_account_address: String::new(),
+                    dm_members: seed.dm_members,
+                    oneshot_message: seed.oneshot,
+                })
+                .map_err(XmtpError::unknown)?
+            }
+        };
         let identity = ConversationIdentity::from_metadata(
             item.added_by_inbox_id,
             &metadata,
             client.inbox_id(),
-        )?;
+        );
         if let Some(conversation) =
             Conversation::from_preloaded(item.group, client_key, identity, metadata)?
         {
@@ -640,10 +650,16 @@ pub struct Dm {
     pub(crate) history_query_count: Arc<parking_lot::Mutex<u64>>,
 }
 
+// A handle keeps the identity state it observed when it was created.
 struct ConversationIdentity {
-    added_by_inbox_id: InboxID,
-    creator_inbox_id: InboxID,
+    added_by_inbox_id: Option<InboxID>,
+    creator_inbox_id: Option<InboxID>,
     is_creator: bool,
+}
+
+// An empty received identity string means the value is unknown.
+fn known_inbox_id(value: String) -> Option<InboxID> {
+    (!value.is_empty()).then_some(InboxID(value))
 }
 
 impl ConversationIdentity {
@@ -651,22 +667,25 @@ impl ConversationIdentity {
         added_by_inbox_id: String,
         metadata: &xmtp_mls::mls_common::group_metadata::GroupMetadata,
         own_inbox_id: &str,
-    ) -> Result<Self, XmtpError> {
-        Ok(Self {
-            added_by_inbox_id: InboxID::try_from(added_by_inbox_id)?,
-            creator_inbox_id: InboxID::try_from(metadata.creator_inbox_id.clone())?,
-            is_creator: metadata.creator_inbox_id == own_inbox_id,
-        })
+    ) -> Self {
+        let creator_inbox_id = known_inbox_id(metadata.creator_inbox_id.clone());
+        Self {
+            added_by_inbox_id: known_inbox_id(added_by_inbox_id),
+            // An unknown creator is never the local inbox.
+            is_creator: creator_inbox_id
+                .as_ref()
+                .is_some_and(|creator| creator.0 == own_inbox_id),
+            creator_inbox_id,
+        }
     }
 
     async fn from_core(
         group: &MlsGroup<xmtp_mls::MlsContext>,
     ) -> Result<(Self, xmtp_mls::mls_common::group_metadata::GroupMetadata), XmtpError> {
-        let added_by_inbox_id =
-            InboxID::try_from(group.added_by_inbox_id().map_err(XmtpError::unknown)?)?;
+        let added_by_inbox_id = group.added_by_inbox_id().map_err(XmtpError::unknown)?;
         let metadata = group.metadata().await.map_err(XmtpError::unknown)?;
         Ok((
-            Self::from_metadata(added_by_inbox_id.0, &metadata, group.context.inbox_id())?,
+            Self::from_metadata(added_by_inbox_id, &metadata, group.context.inbox_id()),
             metadata,
         ))
     }
@@ -955,12 +974,20 @@ macro_rules! common_conversation {
                 }
             }
 
+            /// An unknown received adder is the empty ID; it is never another inbox.
             pub fn added_by_inbox_id(&self) -> InboxID {
-                self.identity.added_by_inbox_id.clone()
+                self.identity
+                    .added_by_inbox_id
+                    .clone()
+                    .unwrap_or_else(|| InboxID(String::new()))
             }
 
+            /// An unknown received creator is the empty ID; it is never another inbox.
             pub fn creator_inbox_id(&self) -> InboxID {
-                self.identity.creator_inbox_id.clone()
+                self.identity
+                    .creator_inbox_id
+                    .clone()
+                    .unwrap_or_else(|| InboxID(String::new()))
             }
 
             pub fn is_creator(&self) -> bool {
