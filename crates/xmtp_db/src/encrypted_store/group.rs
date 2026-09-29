@@ -327,8 +327,6 @@ pub trait QueryGroup {
 
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError>;
-
     /// Return a single group that matches the given ID
     fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
@@ -469,10 +467,6 @@ where
 
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         (**self).find_sync_group(id)
-    }
-
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        (**self).primary_sync_group()
     }
 
     /// Return a single group that matches the given ID
@@ -825,10 +819,13 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         Ok(())
     }
 
+    /// Newest local join time first; on an equal time, the greatest id first.
+    // implements: SYNC-002
     #[xmtp_common::db_span]
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
+            .then_order_by(dsl::id.desc())
             .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
         self.raw_query(|conn| query.load(conn))
@@ -839,15 +836,6 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .filter(dsl::id.eq(id));
-
-        self.raw_query(|conn| query.first(conn).optional())
-    }
-
-    #[xmtp_common::db_span]
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        let query = dsl::groups
-            .order(dsl::created_at_ns.desc())
-            .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
         self.raw_query(|conn| query.first(conn).optional())
     }
@@ -1563,8 +1551,8 @@ pub(crate) mod tests {
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
 
             // Sync groups SHOULD NOT be returned
-            let synced_groups = conn.primary_sync_group().unwrap();
-            assert!(synced_groups.is_none());
+            let synced_groups = conn.all_sync_groups().unwrap();
+            assert!(synced_groups.is_empty());
 
             // test that dm groups are included
             let dm_results = conn.find_groups(GroupQueryArgs::default()).unwrap();
@@ -1906,6 +1894,32 @@ pub(crate) mod tests {
             let commit_log_keys = conn.get_conversation_ids_for_remote_log_publish().unwrap();
             assert_eq!(commit_log_keys.len(), 1);
             assert_eq!(commit_log_keys[0].id, allowed_group.id);
+        })
+    }
+
+    // verifies: SYNC-002
+    #[xmtp_common::test]
+    fn sync_groups_with_equal_time_order_by_greatest_id() {
+        with_connection(|conn| {
+            let sync_group = |id: u8, created_at_ns| {
+                let mut group = generate_group_with_created_at(None, created_at_ns);
+                group.id = GroupId::from([id; 16]);
+                group.conversation_type = ConversationType::Sync;
+                group.store(conn).unwrap();
+                group.id
+            };
+            // One pair is stored in id order and one in reverse, so an
+            // order that ignores the id fails for one of them.
+            let older = [sync_group(1, 1_000), sync_group(2, 1_000)];
+            let newer = [sync_group(4, 2_000), sync_group(3, 2_000)];
+
+            let ids: Vec<_> = conn
+                .all_sync_groups()
+                .unwrap()
+                .into_iter()
+                .map(|group| group.id)
+                .collect();
+            assert_eq!(ids, [newer[0], newer[1], older[1], older[0]]);
         })
     }
 

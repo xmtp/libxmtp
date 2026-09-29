@@ -11,7 +11,7 @@ use openmls::{
     credentials::{BasicCredential, Credential as OpenMlsCredential, errors::BasicCredentialError},
     extensions::{Extension, Extensions},
     group::{GroupContext, MlsGroup as OpenMlsGroup, StagedCommit},
-    messages::proposals::{Proposal, ProposalType},
+    messages::proposals::{AppDataUpdateOperation, Proposal, ProposalType},
     prelude::{LeafNodeIndex, Sender},
     treesync::LeafNode,
 };
@@ -20,7 +20,7 @@ use serde::Serialize;
 use thiserror::Error;
 use xmtp_common::RetryableError;
 use xmtp_mls_common::{
-    app_data::component_source::ComponentSourceError,
+    app_data::{component_id::ComponentId, component_source::ComponentSourceError},
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
@@ -92,6 +92,10 @@ pub enum CommitRuleError {
     GroupMutablePermissions(#[from] GroupMutablePermissionsError),
     #[error("PSKs are not supported")]
     NoPSKSupport,
+    /// The commit's `AppDataUpdate` proposals conflict for this component
+    /// under draft-ietf-mls-extensions-08 §4.7.
+    #[error("Invalid AppDataUpdate proposal list for component {0}")]
+    InvalidAppDataUpdateList(ComponentId),
     #[error("Unsupported proposal type: {0:?}")]
     UnsupportedProposalType(ProposalType),
     #[error("Exceeded max characters for this field. Must be under: {length}")]
@@ -149,6 +153,7 @@ impl CommitRuleError {
             | Self::MlsCredential(_)
             | Self::ProtoDecode(_)
             | Self::NoPSKSupport
+            | Self::InvalidAppDataUpdateList(_)
             | Self::TooManyCharacters { .. }
             | Self::ProposerNotFound
             | Self::ProposalsNotEnabled
@@ -315,13 +320,56 @@ impl MetadataFieldChange {
     }
 }
 
-/// Reject any commit that carries a `PreSharedKey` proposal.
+/// Validate the complete proposal list of a commit before any proposal is
+/// interpreted.
 ///
-pub fn reject_psk_proposals(staged_commit: &StagedCommit) -> Result<(), CommitRuleError> {
-    if staged_commit.psk_proposals().any(|_| true) {
-        return Err(CommitRuleError::NoPSKSupport);
+/// Only `Add`, `Update`, `Remove`, and `AppDataUpdate` are allowed. Any other
+/// kind except `PreSharedKey` holds the commit
+/// ([`CommitRuleError::UnsupportedProposalType`]); a hold outranks every
+/// terminal rejection in the same list. `PreSharedKey` is a terminal
+/// rejection.
+///
+/// The `AppDataUpdate` proposals must form a valid list under
+/// draft-ietf-mls-extensions-08 §4.7 whether or not a
+/// `GroupContextExtensions` proposal is present: per component, no Update
+/// together with a Remove, at most one Remove, and a Remove only for a
+/// component that `has_state` in the pre-commit dictionary.
+pub fn validate_committed_proposals<'a>(
+    proposals: impl IntoIterator<Item = &'a Proposal>,
+    has_state: impl Fn(ComponentId) -> bool,
+) -> Result<(), CommitRuleError> {
+    let mut rejection = None;
+    let mut updated = HashSet::new();
+    let mut removed = HashSet::new();
+    for proposal in proposals {
+        match proposal {
+            Proposal::Add(_) | Proposal::Update(_) | Proposal::Remove(_) => {}
+            Proposal::AppDataUpdate(update) => {
+                let id = ComponentId::from(update.component_id());
+                let valid = match update.operation() {
+                    AppDataUpdateOperation::Update(_) => {
+                        updated.insert(id);
+                        !removed.contains(&id)
+                    }
+                    AppDataUpdateOperation::Remove => {
+                        removed.insert(id) && !updated.contains(&id) && has_state(id)
+                    }
+                };
+                if !valid {
+                    rejection.get_or_insert(CommitRuleError::InvalidAppDataUpdateList(id));
+                }
+            }
+            Proposal::PreSharedKey(_) => {
+                rejection.get_or_insert(CommitRuleError::NoPSKSupport);
+            }
+            unsupported => {
+                return Err(CommitRuleError::UnsupportedProposalType(
+                    unsupported.proposal_type(),
+                ));
+            }
+        }
     }
-    Ok(())
+    rejection.map_or(Ok(()), Err)
 }
 
 pub struct ProposalChanges {
@@ -1279,6 +1327,8 @@ impl From<&Inbox> for InboxProto {
 
 #[cfg(test)]
 mod app_data_update_tests;
+#[cfg(test)]
+mod committed_proposal_outcomes;
 #[cfg(test)]
 mod readded_installations_tests;
 

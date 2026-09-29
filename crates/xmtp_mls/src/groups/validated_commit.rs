@@ -11,7 +11,7 @@ use crate::{
 use openmls::{
     extensions::Extensions,
     group::{GroupContext, MlsGroup as OpenMlsGroup, QueuedProposal, StagedCommit},
-    messages::proposals::{Proposal, ProposalType},
+    messages::proposals::Proposal,
     prelude::{LeafNodeIndex, Sender},
 };
 
@@ -26,7 +26,7 @@ use xmtp_db::{DbQuery, StorageError};
 use xmtp_id::associations::AssociationState;
 use xmtp_id::{InboxId, associations::MemberIdentifier};
 use xmtp_mls_common::{
-    app_data::component_source::ComponentSourceError,
+    app_data::component_source::{ComponentSourceError, read_from_app_data_dict},
     group_metadata::{DmMembers, GroupMetadata, GroupMetadataError},
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError},
     libxmtp_version::{InvalidVersionFormat, LibXMTPVersion},
@@ -38,9 +38,9 @@ use xmtp_mls_validation::{
         extract_committer_and_proposers, extract_group_membership, extract_readded_installations,
         get_current_group_members, get_latest_group_membership, get_proposal_changes,
         inbox_id_from_credential, metadata_changes_between, read_committed_metadata,
-        read_post_commit_mutable_metadata, reject_psk_proposals,
-        validate_app_data_update_proposals_in_commit, validate_identity_sequence_order,
-        validate_membership_diff, validate_one_app_data_update,
+        read_post_commit_mutable_metadata, validate_app_data_update_proposals_in_commit,
+        validate_committed_proposals, validate_identity_sequence_order, validate_membership_diff,
+        validate_one_app_data_update,
     },
     group_membership::GroupMembership,
     group_permissions::{GroupMutablePermissionsError, MembershipPolicy, PolicySet},
@@ -157,7 +157,7 @@ from_rule_error!(
  *    present in the [`AssociationState`] for the `inbox_id` presented in the credential at the `to_sequence_id` found in the
  *    new [`GroupMembership`].
  * 5. All proposals must come from group members (proposer permissions are validated, not committer)
- * 6. No PSK proposals will be allowed
+ * 6. Only Add, Update, Remove, and AppDataUpdate proposals are allowed, in a valid list
  * 7. New installations may be missing from the commit but still be present in the expected diff.
  * 8. Confirms metadata character limit is not exceeded
  */
@@ -241,14 +241,13 @@ impl ValidatedCommit {
                 CommitRuleError::ProtocolVersionTooLow(min_version),
             ));
         }
-        if staged_commit
-            .queued_proposals()
-            .any(|queued| matches!(queued.proposal(), Proposal::GroupContextExtensions(_)))
-        {
-            return Err(CommitValidationError::Rule(
-                CommitRuleError::UnsupportedProposalType(ProposalType::GroupContextExtensions),
-            ));
-        }
+        // implements: GMOD-001, GMOD-030
+        validate_committed_proposals(
+            staged_commit
+                .queued_proposals()
+                .map(QueuedProposal::proposal),
+            |id| read_from_app_data_dict(id, openmls_group).is_some(),
+        )?;
         let (immutable_metadata, mutable_metadata) = read_committed_metadata(openmls_group)
             .map_err(CommitValidationError::installed_state)?;
 
@@ -296,8 +295,6 @@ impl ValidatedCommit {
             &immutable_metadata,
             &mutable_metadata,
         )?;
-
-        reject_psk_proposals(staged_commit)?;
 
         // AppDataUpdate proposals carried by a commit (inline OR by
         // reference, since `staged_commit.app_data_update_proposals()`
@@ -472,10 +469,7 @@ impl ValidatedCommit {
         let mut metadata_component_ids = Vec::new();
         for raw_id in proposed_component_ids {
             let id = xmtp_mls_common::app_data::component_id::ComponentId::from(raw_id);
-            let before = xmtp_mls_common::app_data::component_source::read_from_app_data_dict(
-                id,
-                openmls_group,
-            );
+            let before = read_from_app_data_dict(id, openmls_group);
             let after =
                 xmtp_mls_common::app_data::component_source::read_post_commit_component_bytes(
                     id,
@@ -584,8 +578,6 @@ impl ExpectedDiff {
         let extensions = openmls_group.extensions();
         let (immutable_metadata, mutable_metadata) = read_committed_metadata(openmls_group)
             .map_err(CommitValidationError::installed_state)?;
-
-        reject_psk_proposals(staged_commit)?;
 
         let expected_diff = Self::extract_expected_diff_with_proposers(
             conn,
@@ -958,11 +950,116 @@ impl FromWith<ValidatedCommit> for GroupUpdatedProto {
 }
 
 #[cfg(test)]
-mod gce_rejection_tests {
+mod committed_proposal_outcomes {
     use super::*;
+    use crate::groups::app_data::accumulate_app_data_updates;
+    use openmls::messages::proposals::{
+        AppDataUpdateOperation, AppDataUpdateProposal, ProposalType,
+    };
+    use openmls_traits::OpenMlsProvider;
+    use xmtp_mls_common::app_data::component_id::ComponentId;
 
+    /// verifies: GMOD-030
+    ///
+    /// A staged commit whose `AppDataUpdate` proposals mix an Update and a
+    /// Remove, or repeat a Remove, for one component is a terminal rejection.
+    /// The commits carry no `GroupContextExtensions` proposal, so OpenMLS's
+    /// own list check returns early at the first Remove and stages them.
     #[xmtp_common::test(unwrap_try = true)]
-    async fn dictionary_native_group_rejects_gce_proposal_and_commit() {
+    async fn committed_proposal_outcomes_reject_conflicting_component_operations() {
+        use crate::tester;
+        tester!(alix, disable_workers);
+        let conversation = alix.create_group(None, None)?;
+        conversation
+            .update_group_description("described".to_string())
+            .await?;
+        let provider = alix.context.mls_provider();
+        let signer = &alix.context.identity().installation_keys;
+        let mut group = OpenMlsGroup::load(
+            alix.context.mls_storage(),
+            &conversation.group_id.to_openmls(),
+        )??;
+        let description = ComponentId::GROUP_DESCRIPTION;
+        assert!(read_from_app_data_dict(description, &group).is_some());
+
+        // One operation is proposed by reference and one is inline: two
+        // identical Removes proposed by reference would share a reference.
+        let update = || AppDataUpdateOperation::Update(b"changed".to_vec().into());
+        for (by_reference, inline) in [
+            (
+                update(),
+                AppDataUpdateProposal::remove(description.as_u16()),
+            ),
+            (
+                AppDataUpdateOperation::Remove,
+                AppDataUpdateProposal::update(description.as_u16(), b"changed".to_vec()),
+            ),
+            (
+                AppDataUpdateOperation::Remove,
+                AppDataUpdateProposal::remove(description.as_u16()),
+            ),
+        ] {
+            group.propose_app_data_update(&provider, signer, description.as_u16(), by_reference)?;
+            let inline = Proposal::AppDataUpdate(Box::new(inline));
+            let pending: Vec<_> = group
+                .pending_proposals()
+                .map(QueuedProposal::proposal)
+                .chain([&inline])
+                .filter_map(|proposal| match proposal {
+                    Proposal::AppDataUpdate(p) => Some((p.component_id(), p.operation().clone())),
+                    _ => None,
+                })
+                .collect();
+            let updates =
+                accumulate_app_data_updates(&group, pending.iter().map(|(id, op)| (*id, op)))?;
+            let mut stage = group
+                .commit_builder()
+                .consume_proposal_store(true)
+                .add_proposal(inline)
+                .load_psks(provider.storage())?;
+            stage.with_app_data_dictionary_updates(updates);
+            stage
+                .build(provider.rand(), provider.crypto(), signer, |_| true)?
+                .stage_commit(&provider)?;
+            let staged = group.pending_commit()?;
+            let kinds: Vec<_> = staged
+                .queued_proposals()
+                .map(|queued| queued.proposal().proposal_type())
+                .collect();
+            assert_eq!(kinds, [ProposalType::AppDataUpdate; 2]);
+
+            let result = ValidatedCommit::from_staged_commit_local(
+                &alix.context,
+                &alix.context.db(),
+                staged,
+                group.own_leaf_index(),
+                &group,
+                u64::MAX,
+            );
+            let Err(error) = result else {
+                panic!("conflicting component operations were accepted");
+            };
+            assert!(
+                matches!(
+                    &error,
+                    CommitValidationError::Rule(CommitRuleError::InvalidAppDataUpdateList(id))
+                        if *id == description
+                ),
+                "{error:?}"
+            );
+            assert!(error.is_safe_rejection());
+
+            group.clear_pending_commit(provider.storage())?;
+            group.clear_pending_proposals(provider.storage())?;
+        }
+    }
+
+    /// verifies: GMOD-001
+    ///
+    /// A `GroupContextExtensions` proposal is held both standalone and inside
+    /// a commit.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn committed_proposal_outcomes_hold_gce_proposal_and_commit() {
         use crate::tester;
         tester!(alix, disable_workers);
         let conversation = alix.create_group(None, None)?;

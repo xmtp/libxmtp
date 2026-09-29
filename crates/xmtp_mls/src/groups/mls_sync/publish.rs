@@ -2,6 +2,7 @@
 
 use super::*;
 use xmtp_db::group_intent::QueryPreparedEnvelope;
+use xmtp_mls_common::app_data::component_source::ComponentSourceError;
 use xmtp_mls_validation::commit::CommitRuleError;
 
 mod dependencies;
@@ -135,6 +136,12 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     CommitRuleError::InsufficientPermissions
                                 )) | GroupError::InvalidGroupMembership
                                     | GroupError::InvalidPublicKeys(_)
+                                    // A malformed inbox id fails every attempt.
+                                    // Earlier builds queued admin-list intents
+                                    // without parsing the inbox id.
+                                    | GroupError::ComponentSource(
+                                        ComponentSourceError::InvalidInboxId(_)
+                                    )
                             ) =>
                         {
                             if self.reject_unprepared_request(&requirements)? {
@@ -601,7 +608,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 // publish batch, with the proposal first.
                 use crate::groups::app_data::stage_app_data_propose_and_commit;
                 use xmtp_mls_common::app_data::component_source::{
-                    ComponentMutation, ComponentSourceError, encode_app_data_update_payload,
+                    ComponentMutation, encode_app_data_update_payload,
                     metadata_field_to_component_id,
                 };
 
