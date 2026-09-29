@@ -542,4 +542,39 @@ mod tests {
         assert_eq!(std::fs::read(&target)?, b"target");
         std::fs::remove_dir_all(&dir)?;
     }
+
+    /// An archive takes the permissions only of a regular file its own user
+    /// owns. Whoever can create files in the destination directory could
+    /// otherwise plant a world-readable file there and have the archive
+    /// replacing it inherit that mode.
+    #[cfg(unix)]
+    #[test]
+    fn archive_inherits_only_its_owners_permissions() -> std::io::Result<()> {
+        let dir = std::env::temp_dir().join(xmtp_common::rand_hexstring());
+        std::fs::create_dir(&dir)?;
+        let (ours, link) = (dir.join("ours"), dir.join("link"));
+        std::fs::write(&ours, b"ours")?;
+        std::os::unix::fs::symlink(&ours, &link)?;
+        let ours = std::fs::metadata(&ours)?;
+
+        assert!(
+            exporter::inherits(&ours, &ours),
+            "an own file lost its mode"
+        );
+        assert!(
+            !exporter::inherits(&std::fs::symlink_metadata(&link)?, &ours),
+            "a symlink passed on its target's mode"
+        );
+        // Root owns /etc/passwd; only a root test run owns it too.
+        let foreign = std::fs::metadata("/etc/passwd")?;
+        if std::os::unix::fs::MetadataExt::uid(&foreign)
+            != std::os::unix::fs::MetadataExt::uid(&ours)
+        {
+            assert!(
+                !exporter::inherits(&foreign, &ours),
+                "another user's file passed on its mode"
+            );
+        }
+        std::fs::remove_dir_all(&dir)
+    }
 }
