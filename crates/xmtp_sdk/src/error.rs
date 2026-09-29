@@ -198,20 +198,6 @@ impl XmtpError {
         })
     }
 
-    /// An archive failure, retryable exactly when the archive classifies it
-    /// as transient.
-    pub(crate) fn from_archive(
-        error: xmtp_mls::worker::device_sync::archive::ArchiveError,
-    ) -> Self {
-        use xmtp_common::RetryableError;
-        Self::Unknown(Self::details(
-            "Unknown",
-            ErrorCategory::Unknown,
-            error.is_retryable(),
-            error.to_string(),
-        ))
-    }
-
     pub(crate) fn signer() -> Self {
         Self::Signer(ErrorDetails {
             code: "SignerFailed".into(),
@@ -469,21 +455,5 @@ mod tests {
         assert_eq!(details.code, "StorageBusy");
         assert!(matches!(details.category, ErrorCategory::Storage));
         assert!(details.retryable);
-    }
-
-    /// An archive failure keeps the archive's retry classification, so a
-    /// caller retries an export that hit a busy database but not one with a
-    /// corrupt archive.
-    #[xmtp_common::test]
-    fn archive_errors_keep_their_retryability() {
-        use xmtp_mls::worker::device_sync::archive::ArchiveError;
-        let retryable = |error| match XmtpError::from_archive(error) {
-            XmtpError::Unknown(details) => details.retryable,
-            other => panic!("expected Unknown, got {other}"),
-        };
-        assert!(retryable(ArchiveError::IO(
-            std::io::ErrorKind::Interrupted.into()
-        )));
-        assert!(!retryable(ArchiveError::InvalidFrame("cut")));
     }
 }

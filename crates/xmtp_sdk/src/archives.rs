@@ -122,7 +122,7 @@ impl Archives {
                 let mut bytes = Vec::new();
                 exporter::export(options, client.context.db(), &key, &mut bytes).map(|_| bytes)
             };
-            bytes.map_err(XmtpError::from_archive)
+            bytes.map_err(XmtpError::unknown)
         })
         .await
     }
@@ -138,7 +138,7 @@ impl Archives {
             let reader = Box::pin(BufReader::new(Cursor::new(data)));
             let mut importer = ArchiveImporter::load(reader, &key)
                 .await
-                .map_err(XmtpError::from_archive)?;
+                .map_err(XmtpError::unknown)?;
             insert_importer(&mut importer, &client.context)
                 .await
                 .map_err(XmtpError::unknown)
@@ -157,7 +157,7 @@ impl Archives {
             ArchiveImporter::load(reader, &key)
                 .await
                 .map(|importer| importer.metadata.into())
-                .map_err(XmtpError::from_archive)
+                .map_err(XmtpError::unknown)
         })
         .await
     }
@@ -264,7 +264,7 @@ impl Archives {
                     &key,
                 )
                 .await
-                .map_err(XmtpError::from_archive)?;
+                .map_err(XmtpError::unknown)?;
                 Ok(BackupMetadata::from_metadata_save(saved, BACKUP_VERSION).into())
             }),
         )
@@ -281,7 +281,7 @@ impl Archives {
         on_sdk_worker(self.client.context.clone(), async move {
             let mut importer = ArchiveImporter::from_file(path, &key)
                 .await
-                .map_err(XmtpError::from_archive)?;
+                .map_err(XmtpError::unknown)?;
             insert_importer(&mut importer, &client.context)
                 .await
                 .map_err(XmtpError::unknown)
@@ -299,7 +299,7 @@ impl Archives {
             ArchiveImporter::from_file(path, &key)
                 .await
                 .map(|importer| importer.metadata.into())
-                .map_err(XmtpError::from_archive)
+                .map_err(XmtpError::unknown)
         })
         .await
     }
