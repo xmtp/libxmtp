@@ -327,8 +327,6 @@ pub trait QueryGroup {
 
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError>;
-
     /// Return a single group that matches the given ID
     fn find_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
@@ -469,10 +467,6 @@ where
 
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         (**self).find_sync_group(id)
-    }
-
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        (**self).primary_sync_group()
     }
 
     /// Return a single group that matches the given ID
@@ -839,15 +833,6 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
             .filter(dsl::id.eq(id));
-
-        self.raw_query(|conn| query.first(conn).optional())
-    }
-
-    #[xmtp_common::db_span]
-    fn primary_sync_group(&self) -> Result<Option<StoredGroup>, crate::ConnectionError> {
-        let query = dsl::groups
-            .order(dsl::created_at_ns.desc())
-            .filter(dsl::conversation_type.eq(ConversationType::Sync));
 
         self.raw_query(|conn| query.first(conn).optional())
     }
@@ -1536,8 +1521,8 @@ pub(crate) mod tests {
             assert_eq!(results_with_created_at_ns_after[0].id, test_group_2.id);
 
             // Sync groups SHOULD NOT be returned
-            let synced_groups = conn.primary_sync_group().unwrap();
-            assert!(synced_groups.is_none());
+            let synced_groups = conn.all_sync_groups().unwrap();
+            assert!(synced_groups.is_empty());
 
             // test that dm groups are included
             let dm_results = conn.find_groups(GroupQueryArgs::default()).unwrap();

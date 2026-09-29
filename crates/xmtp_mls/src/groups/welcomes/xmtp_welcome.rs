@@ -13,6 +13,7 @@ use crate::identity_updates::{
 };
 use crate::state_tx::{state_write, state_write_with_events};
 use crate::subscriptions::internal::{InternalEvent, PreferenceOrigin, emit_preference_updates};
+use crate::worker::device_sync::is_own_sync_group;
 use crate::{
     context::XmtpSharedContext,
     groups::{
@@ -354,7 +355,6 @@ where
         if expected_membership.is_some_and(|expected| *expected != membership) {
             return Err(GroupError::LockUnavailable);
         }
-        self.validator.check_verified_membership(&membership, &db)?;
         let DecryptedWelcome {
             staged_welcome,
             added_by_inbox_id,
@@ -364,6 +364,22 @@ where
         let metadata =
             extract_group_metadata(staged_welcome.public_group().group_context().extensions())
                 .map_err(MetadataPermissionsError::from)?;
+        // Reject before identity checks, which can wait on the network.
+        // implements: SYNC-010
+        if metadata.conversation_type == ConversationType::Sync
+            && !is_own_sync_group(
+                context.inbox_id(),
+                &added_by_inbox_id,
+                staged_welcome.public_group().members(),
+            )
+        {
+            tracing::warn!(
+                added_by_inbox_id,
+                "rejecting a sync group Welcome that names another inbox"
+            );
+            return Err(GroupError::InvalidGroupMembership);
+        }
+        self.validator.check_verified_membership(&membership, &db)?;
         if metadata.conversation_type == ConversationType::Oneshot {
             Oneshot::process_welcome(
                 &provider,
@@ -501,7 +517,7 @@ where
                     .build()?
             }
             ConversationType::Sync => {
-                // Sync groups are always Allowed.
+                // The own inbox's sync groups are Allowed; others were rejected above.
                 group
                     .membership_state(GroupMembershipState::Allowed)
                     .build()?

@@ -3,7 +3,7 @@ use crate::{groups::send_message_opts::SendMessageOpts, tester};
 use xmtp_db::{
     ConnectionExt,
     consent_record::{ConsentState, ConsentType, StoredConsentRecord},
-    group::{ConversationType, StoredGroup},
+    group::{ConversationType, GroupMembershipState, StoredGroup},
 };
 
 // verifies: EVENT-024, SYNC-020
@@ -494,4 +494,144 @@ async fn test_welcome_schedules_add_installation_tasks() {
         after.len(),
         "create_or_ignore must dedup identical payloads"
     );
+}
+
+// verifies: SYNC-010
+#[rstest::rstest]
+#[case::another_inbox_adds(false)]
+#[case::another_inbox_is_a_leaf(true)]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sync_welcome_naming_another_inbox_is_rejected(#[case] own_adder: bool) {
+    tester!(alix1);
+    tester!(eve);
+    let sync_group = |context| {
+        MlsGroup::create_and_insert(
+            context,
+            ConversationType::Sync,
+            PreconfiguredPolicies::default().to_policy_set(),
+            GroupMetadataOptions::default(),
+            None,
+        )
+    };
+    // The adder is always a leaf, so no Welcome names only a foreign adder.
+    // alix1 creates its group before alix2 registers, so one commit adds
+    // alix2 and eve together and alix2's Welcome names eve as a leaf.
+    let alix1_group = own_adder
+        .then(|| sync_group(alix1.context.clone()))
+        .transpose()
+        .unwrap();
+    tester!(alix2, from: alix1);
+    let foreign_id = match alix1_group {
+        Some(group) => {
+            group.add_members(&[eve.inbox_id()]).await.unwrap();
+            group.group_id
+        }
+        None => {
+            let group = sync_group(eve.context.clone()).unwrap();
+            group.add_members(&[alix1.inbox_id()]).await.unwrap();
+            group.group_id
+        }
+    };
+
+    alix2.sync_welcomes().await.unwrap();
+
+    let db = alix2.context.db();
+    assert!(db.find_group(&foreign_id).unwrap().is_none());
+    let topic = xmtp_db::incoming_envelope::StreamTopic {
+        entity_id: alix2.context.installation_id().to_vec(),
+        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
+    };
+    let rejected = db.read_last_rejection(&topic).unwrap().unwrap();
+    assert_eq!(rejected.code, "invalid_welcome");
+    assert!(
+        db.pending_envelope(&topic, rejected.sequence_id)
+            .unwrap()
+            .is_none()
+    );
+    let target = alix2.device_sync_client().get_sync_group().await.unwrap();
+    assert_ne!(target.group_id, foreign_id);
+}
+
+// verifies: SYNC-010
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn sync_welcome_from_own_installation_is_joined() {
+    tester!(alix1);
+    tester!(alix2, from: alix1);
+    let alix2_group = alix2.device_sync_client().get_sync_group().await?;
+
+    alix1.sync_welcomes().await?;
+
+    let stored = alix1.context.db().find_group(&alix2_group.group_id)??;
+    assert_eq!(stored.membership_state, GroupMembershipState::Allowed);
+    assert_eq!(stored.added_by_inbox_id, alix1.inbox_id());
+    let target = alix1.device_sync_client().get_sync_group().await?;
+    assert_eq!(target.group_id, alix2_group.group_id);
+}
+
+/// The part of a stored sync group that names another inbox.
+#[derive(Clone, Copy)]
+enum Foreign {
+    Adder,
+    Leaf,
+    AdderAndLeaf,
+}
+
+// verifies: SYNC-010
+#[rstest::rstest]
+#[case::adder(Foreign::Adder)]
+#[case::leaf(Foreign::Leaf)]
+#[case::adder_and_leaf(Foreign::AdderAndLeaf)]
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg_attr(target_arch = "wasm32", ignore)]
+async fn stored_sync_group_naming_another_inbox_is_never_the_target(#[case] foreign: Foreign) {
+    use diesel::prelude::*;
+    use xmtp_db::schema::groups::dsl;
+
+    tester!(alix);
+    tester!(eve);
+    let own_id = alix
+        .device_sync_client()
+        .get_sync_group()
+        .await
+        .unwrap()
+        .group_id;
+    // Stands in for a foreign sync group that an older build stored.
+    let foreign_id = match foreign {
+        Foreign::Adder => alix.create_group(None, None).unwrap().group_id,
+        Foreign::Leaf => {
+            alix.create_group_with_members(&[eve.inbox_id()], None, None)
+                .await
+                .unwrap()
+                .group_id
+        }
+        Foreign::AdderAndLeaf => {
+            let group = eve
+                .create_group_with_members(&[alix.inbox_id()], None, None)
+                .await
+                .unwrap();
+            alix.sync_welcomes().await.unwrap();
+            group.group_id
+        }
+    };
+    let added_by = match foreign {
+        Foreign::Leaf => alix.inbox_id(),
+        Foreign::Adder | Foreign::AdderAndLeaf => eve.inbox_id(),
+    };
+    alix.context
+        .db()
+        .raw_query(|conn| {
+            diesel::update(dsl::groups.find(&foreign_id))
+                .set((
+                    dsl::conversation_type.eq(ConversationType::Sync),
+                    dsl::created_at_ns.eq(i64::MAX),
+                    dsl::added_by_inbox_id.eq(added_by),
+                ))
+                .execute(conn)
+        })
+        .unwrap();
+
+    let target = alix.device_sync_client().get_sync_group().await.unwrap();
+    assert_eq!(target.group_id, own_id);
 }

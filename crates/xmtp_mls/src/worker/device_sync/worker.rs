@@ -246,14 +246,13 @@ where
         let Self { init, client, .. } = &self;
 
         init.get_or_try_init(|| async {
-            let conn = self.client.context.db();
             log_event!(
                 Event::DeviceSyncInitializing,
                 self.client.context.installation_id()
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            if conn.primary_sync_group()?.is_none() {
+            if client.primary_sync_group()?.is_none() {
                 log_event!(
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
