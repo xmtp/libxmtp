@@ -65,7 +65,8 @@ fn insert(
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            import_context.changed |= context.db().insert_newer_consent_record(consent)?;
+            // A stored element counts as a restore even when only its time moved.
+            import_context.changed |= context.db().insert_newer_consent_record(consent)?.applied;
         }
         Element::Group(save) => {
             import_context.changed |= MlsGroup::restore_from_archive(context, &save)?;
@@ -214,6 +215,43 @@ mod tests {
             .unwrap();
         assert_eq!(stored.state, xmtp_db::consent_record::ConsentState::Allowed);
         assert_eq!(stored.consented_at_ns, 30);
+    }
+
+    /// An import that only moves a stored record's time still stored an
+    /// element, so it reports a restore.
+    // verifies: EVENT-001
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archived_consent_time_move_reports_a_restore() {
+        tester!(alix, disable_workers);
+        let events = alix.context.events().subscribe(
+            xmtp_events::EventFilter::new([xmtp_events::EventKind::ArchiveRestored]),
+            Some(4),
+        );
+        let record = |consented_at_ns| StoredConsentRecord {
+            entity_type: xmtp_db::consent_record::ConsentType::InboxId,
+            state: xmtp_db::consent_record::ConsentState::Allowed,
+            entity: "time-move".into(),
+            consented_at_ns,
+        };
+        assert!(alix.db().insert_newer_consent_record(record(10))?.applied);
+        let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::Consent(record(30).into())),
+        })]);
+        insert_elements(&mut elements, &alix.context).await?;
+        let stored = alix
+            .db()
+            .get_consent_record(
+                "time-move".into(),
+                xmtp_db::consent_record::ConsentType::InboxId,
+            )?
+            .unwrap();
+        assert_eq!(stored.consented_at_ns, 30);
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(ClientEvent::ArchiveRestored(restored)), ..
+            }] if restored.complete
+        ));
     }
 
     #[xmtp_common::test(unwrap_try = true)]

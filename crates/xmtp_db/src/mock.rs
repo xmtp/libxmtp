@@ -87,7 +87,7 @@ mock! {
         fn insert_newer_consent_record(
             &self,
             record: crate::consent_record::StoredConsentRecord,
-        ) -> Result<bool, crate::ConnectionError>;
+        ) -> Result<crate::consent_record::ConsentMerge, crate::ConnectionError>;
 
         fn insert_or_replace_consent_records(
             &self,

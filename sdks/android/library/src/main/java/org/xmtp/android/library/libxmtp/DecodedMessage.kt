@@ -3,6 +3,7 @@ package org.xmtp.android.library.libxmtp
 import org.xmtp.android.library.InboxId
 import org.xmtp.android.library.Topic
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
+import org.xmtp.android.library.codecs.ContentTypeIdBuilder
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.decoded
 import org.xmtp.android.library.toHex
@@ -29,9 +30,21 @@ class DecodedMessage private constructor(
      */
     val undecodable: FfiUndecodableContent? = null,
 ) {
-    /** The parsed envelope. Throws when the received bytes are not an EncodedContent. */
+    /**
+     * The parsed envelope. When the received bytes are not an EncodedContent,
+     * a synthesized envelope: the received content type when one exists (else
+     * the default ContentTypeId), the received fallback when present, and
+     * empty content. It never throws; the evidence stays on `undecodable`.
+     */
     val encodedContent: Content.EncodedContent
-        get() = parsedContent ?: throw IllegalStateException("the received bytes are not an EncodedContent")
+        get() =
+            parsedContent
+                ?: Content.EncodedContent
+                    .newBuilder()
+                    .also { envelope ->
+                        undecodable?.contentType?.let { envelope.type = ContentTypeIdBuilder.fromFfi(it) }
+                        undecodable?.fallback?.let { envelope.fallback = it }
+                    }.build()
 
     enum class MessageDeliveryStatus {
         ALL,

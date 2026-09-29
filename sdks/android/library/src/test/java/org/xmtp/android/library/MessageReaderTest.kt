@@ -13,6 +13,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
+import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.DecodedMessage
@@ -294,4 +295,27 @@ class MessageReaderTest {
             first.join()
             assertEquals(1, ended)
         }
+
+    // verifies: CTYPE-008
+    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
+    fun historyScanOverEncodedContentSkipsAMalformedRow() {
+        val cursor = FfiDeliveryCursor(databaseId = ByteArray(16), deliverySequence = 1uL)
+        val malformed = deliveryTestMessage(byteArrayOf(0x80.toByte()))
+        val valid = deliveryTestMessage(TextCodec().encode("hi").toByteArray())
+        val messages =
+            FfiMessageHistorySnapshot(
+                messages = listOf(malformed, valid).map { FfiHistoryMessage(message = it, cursor = cursor) },
+                cursor = cursor,
+            ).toMessageHistorySnapshot().messages
+        assertEquals(2, messages.size)
+        // The pattern apps use on history: it must not throw on the malformed row.
+        val text = messages.first { it.encodedContent.type.typeId == "text" }
+        assertSame(messages[1], text)
+        val synthesized = messages[0].encodedContent
+        assertEquals(ContentTypeId.getDefaultInstance(), synthesized.type)
+        assertTrue(synthesized.content.isEmpty)
+        assertEquals("", synthesized.fallback)
+        assertNotNull(messages[0].undecodable)
+        assertNull(messages[0].content<Any>())
+    }
 }

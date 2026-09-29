@@ -93,7 +93,9 @@ pub(super) fn store_preference_updates(
                         .map(|record| record.state);
                     entry.insert(initial);
                 }
-                let updated = conn.insert_newer_consent_record(consent_record.clone())?;
+                let updated = conn
+                    .insert_newer_consent_record(consent_record.clone())?
+                    .state_changed;
 
                 if updated {
                     changed.push(PreferenceUpdate::Consent(consent_record));
@@ -379,7 +381,9 @@ mod tests {
             .into()
         });
         let changed = store_preference_updates(updates.into(), &db, &metrics)?;
-        assert_eq!(changed.legacy.len(), 2);
+        // Allowed@10 is a change. Allowed@30 repeats the stored state: it
+        // moves the time but is not a change. Denied@20 is older and rejected.
+        assert_eq!(changed.legacy.len(), 1);
         let stored = db
             .get_consent_record("peer-inbox".into(), ConsentType::InboxId)?
             .unwrap();
