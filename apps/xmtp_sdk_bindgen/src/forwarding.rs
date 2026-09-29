@@ -299,6 +299,55 @@ fn hide_client_factories(source: &str, language: Language) -> Result<String> {
     Ok(output)
 }
 
+/// Account-identity membership methods. The public API is the same-name
+/// overload in the host runtime, so the generated method is internal to it.
+const IDENTITY_ROUTES: &[&str] = &[
+    "createGroupWithIdentities",
+    "createDmWithIdentity",
+    "addMembersByIdentity",
+    "removeMembersByIdentity",
+];
+
+/// Remove each identity route from its generated protocol or interface, and
+/// make the generated class method internal.
+fn hide_identity_routes(source: &str, language: Language) -> Result<String> {
+    let (declaration, method, internal): (
+        fn(&str) -> String,
+        fn(&str) -> String,
+        fn(&str) -> String,
+    ) = match language {
+        Language::Swift => (
+            |name| format!("    func {name}("),
+            |name| format!("open func {name}("),
+            |name| format!("func {name}("),
+        ),
+        Language::Kotlin => (
+            |name| format!("    suspend fun `{name}`("),
+            |name| format!("    override suspend fun `{name}`("),
+            |name| format!("    internal suspend fun `{name}`("),
+        ),
+        _ => bail!("identity routes are hidden only in Swift and Kotlin"),
+    };
+    let mut output = source.to_owned();
+    for name in IDENTITY_ROUTES {
+        let (declaration, method) = (declaration(name), method(name));
+        let declared = output
+            .lines()
+            .filter(|line| line.starts_with(&declaration))
+            .count();
+        if declared != 1 || output.matches(&method).count() != 1 {
+            bail!("generated identity route changed shape: {name}");
+        }
+        output = output
+            .lines()
+            .filter(|line| !line.starts_with(&declaration))
+            .map(|line| format!("{line}\n"))
+            .collect::<String>()
+            .replacen(&method, &internal(name), 1);
+    }
+    Ok(output)
+}
+
 /// Write the TypeScript host Client's forwarders as a base class. Each method
 /// takes and returns the binding method's own types, so a method that the
 /// binding lacks fails the TypeScript compile.
@@ -358,8 +407,11 @@ pub(crate) fn generate(
         ),
         _ => bail!("conversation forwarding needs Swift or Kotlin"),
     };
-    let source = hide_client_factories(
-        &fs::read_to_string(&binding).with_context(|| format!("read {binding}"))?,
+    let source = hide_identity_routes(
+        &hide_client_factories(
+            &fs::read_to_string(&binding).with_context(|| format!("read {binding}"))?,
+            language,
+        )?,
         language,
     )?;
     fs::write(&binding, &source)?;
@@ -470,6 +522,33 @@ mod tests {
         let hidden = hide_client_factories(kotlin, Language::Kotlin)?;
         assert_eq!(hidden.matches("internal suspend fun").count(), 2);
         assert!(hide_client_factories("changed", Language::Kotlin).is_err());
+    }
+
+    // The generated identity route leaves the public protocol and class API.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn identity_routes_are_private_to_the_runtime() {
+        let mut swift = String::new();
+        let mut kotlin = String::new();
+        for name in IDENTITY_ROUTES {
+            swift.push_str(&format!(
+                "protocol P {{\n    func {name}(members: [PublicIdentity]) async throws\n}}\nopen func {name}(members: [PublicIdentity])async throws {{\n}}\n"
+            ));
+            kotlin.push_str(&format!(
+                "interface I {{\n    suspend fun `{name}`(`members`: List<PublicIdentity>)\n}}\n    override suspend fun `{name}`(`members`: List<PublicIdentity>) {{\n}}\n"
+            ));
+        }
+        let hidden = hide_identity_routes(&swift, Language::Swift)?;
+        assert_eq!(hidden.matches("\n    func ").count(), 0);
+        assert_eq!(hidden.matches("open func").count(), 0);
+        assert_eq!(hidden.matches("\nfunc ").count(), IDENTITY_ROUTES.len());
+        let hidden = hide_identity_routes(&kotlin, Language::Kotlin)?;
+        assert_eq!(hidden.matches("\n    suspend fun").count(), 0);
+        assert_eq!(hidden.matches("override").count(), 0);
+        assert_eq!(
+            hidden.matches("internal suspend fun").count(),
+            IDENTITY_ROUTES.len()
+        );
+        assert!(hide_identity_routes("changed", Language::Swift).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

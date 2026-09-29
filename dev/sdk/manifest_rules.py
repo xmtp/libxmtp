@@ -229,7 +229,8 @@ for sdk in ("Swift", "Kotlin"):
         "newGroup newGroupCustomPermissions newGroupWithIdentities newGroupCustomPermissionsWithIdentities",
         "generated",
         f"11.4 {sdk}, Conversations",
-        finals="createGroup createGroup createGroupWithIdentities createGroupWithIdentities",
+        finals="createGroup createGroup createGroup createGroup",
+        note="Identity forms are same-name overloads (plan Decision 6).",
     )
     add(
         sdk,
@@ -440,7 +441,8 @@ for sdk in ("Node", "Browser"):
         f"11.4 {sdk}, Conversations"
         if sdk == "Node"
         else "11.4 Browser; 11.4 Node, Conversations",
-        finals="createGroup createGroupWithIdentities createGroupOptimistic createDm createDmWithIdentity",
+        finals="createGroup createGroup createGroupOptimistic createDm createDm",
+        note="Identity forms are TypeScript unions (plan Decision 6).",
     )
     add(
         sdk,
@@ -2022,7 +2024,20 @@ def _classify(entry: object) -> Decision:
         in {"addMembersByIdentifiers", "removeMembersByIdentifiers"}
     ):
         return decision(
-            "generated", spelling(name), "11.4 Node, Conversation, Group, Dm"
+            "generated",
+            name.replace("ByIdentifiers", ""),
+            "11.4 Node, Conversation, Group, Dm",
+            "Identity forms are TypeScript unions (plan Decision 6).",
+        )
+    if sdk in {"Swift", "Kotlin"} and name in {
+        "Group.addMembersByIdentity",
+        "Group.removeMembersByIdentity",
+    }:
+        return decision(
+            "generated",
+            name.replace("ByIdentity", ""),
+            f"11.4 {sdk}, Conversation, Group, Dm",
+            "Identity forms are same-name overloads (plan Decision 6).",
         )
     if sdk in {"Node", "Browser"} and name in {
         "Client.constructor",

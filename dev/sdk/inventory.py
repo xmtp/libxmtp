@@ -1132,7 +1132,7 @@ def self_test() -> None:
             ),
             "Conversations.newGroupCustomPermissionsWithIdentities": (
                 "generated",
-                "Conversations.createGroupWithIdentities",
+                "Conversations.createGroup",
             ),
             "Group.updateImageUrlPermission": ("generated", "Group.updatePermission"),
             "Group.leaveGroup": ("generated", "Group.requestRemoval"),
@@ -1204,7 +1204,7 @@ def self_test() -> None:
             "PrivatePreferences.client": ("approved removal", "—"),
             "MessageReader.next": ("generated", "MessageReader.next"),
             "Group.updateNamePermission": ("generated", "Group.updatePermission"),
-            "Group.addMembersByIdentity": ("generated", "Group.addMembersByIdentity"),
+            "Group.addMembersByIdentity": ("generated", "Group.addMembers"),
             "IdentityKind.toFfiPublicIdentifierKind": ("approved removal", "—"),
             "EncodedContent.compress": ("approved removal", "—"),
             "ClientOptions.appContext": ("platform helper", "StorageOptions(context)"),
@@ -1300,12 +1300,10 @@ def self_test() -> None:
         "Swift": {
             "Client.inMemoryDbPath",
             "Client.setLibXMTPNativeLogLevel",
-            "Group.addMembersByIdentity",
             "Conversation.clientInboxId",
             "FfiXmtpClient.waitForRegistrationVisible",
         },
         "Kotlin": {
-            "Group.addMembersByIdentity",
             "ContentTypeIdBuilder",
             "func encodedContentFromFfi",
             "func validateInboxId",

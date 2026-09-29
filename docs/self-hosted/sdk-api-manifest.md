@@ -461,11 +461,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.messageReader` | func | `Conversations.messageReader` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.newConversation` | func | `Conversations.createDm` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.newConversationWithIdentity` | func | `Conversations.createDm` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.newGroup` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.newGroupCustomPermissions` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.newGroupCustomPermissionsWithIdentities` | func | `Conversations.createGroupWithIdentities` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.newGroup` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.newGroupCustomPermissions` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.newGroupCustomPermissionsWithIdentities` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.newGroupOptimistic` | func | `Conversations.createGroupOptimistic` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.newGroupWithIdentities` | func | `Conversations.createGroupWithIdentities` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.newGroupWithIdentities` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.stream` | func | `Conversations.stream` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.streamAllMessages` | func | `Conversations.streamAllMessages` | generated | 11.4 Swift, Conversations | Behavior change: no consent list now selects allowed and unknown conversations. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.streamMessageDeletions` | func | — | approved removal | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
@@ -538,7 +538,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.==` | func | `Group.==` | static runtime | 11.7, value equality | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.addAdmin` | func | `Group.addAdmin` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.addMembers` | func | `Group.addMembers` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
-| `Group.addMembersByIdentity` | func | `Group.addMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
+| `Group.addMembersByIdentity` | func | `Group.addMembers` | generated | 11.4 Swift, Conversation, Group, Dm | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.addSuperAdmin` | func | `Group.addSuperAdmin` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.addedByInboxId` | func | `Group.addedByInboxId` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.appData` | func | `Group.state().appData` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
@@ -591,7 +591,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.publishMessages` | func | `Group.publishMessages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.removeAdmin` | func | `Group.removeAdmin` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.removeMembers` | func | `Group.removeMembers` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
-| `Group.removeMembersByIdentity` | func | `Group.removeMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
+| `Group.removeMembersByIdentity` | func | `Group.removeMembers` | generated | 11.4 Swift, Conversation, Group, Dm | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.removeSuperAdmin` | func | `Group.removeSuperAdmin` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.send` | func | `Group.send` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. Signature: `struct public func send(content:some Any,options:SendOptions?=nil)`. |
 | `Group.send` | func | `Group.send` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. Signature: `struct public func send(encodedContent:EncodedContent,visibilityOptions:MessageVisibilityOptions?=nil)`. |
@@ -1577,11 +1577,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.messageReader` | fun | `Conversations.messageReader` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.newConversation` | fun | `Conversations.createDm` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.newConversationWithIdentity` | fun | `Conversations.createDm` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.newGroup` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.newGroupCustomPermissions` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.newGroupCustomPermissionsWithIdentities` | fun | `Conversations.createGroupWithIdentities` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.newGroup` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.newGroupCustomPermissions` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.newGroupCustomPermissionsWithIdentities` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.newGroupOptimistic` | fun | `Conversations.createGroupOptimistic` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.newGroupWithIdentities` | fun | `Conversations.createGroupWithIdentities` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.newGroupWithIdentities` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.stream` | fun | `Conversations.stream` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.streamAllMessages` | fun | `Conversations.streamAllMessages` | generated | 11.4 Kotlin, Conversations | Behavior change: no consent list now selects allowed and unknown conversations. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.streamMessageDeletions` | fun | — | approved removal | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
@@ -1656,7 +1656,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group` | class | `Group` | generated | 11.1-11.2, live objects | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.addAdmin` | fun | `Group.addAdmin` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.addMembers` | fun | `Group.addMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
-| `Group.addMembersByIdentity` | fun | `Group.addMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
+| `Group.addMembersByIdentity` | fun | `Group.addMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.addSuperAdmin` | fun | `Group.addSuperAdmin` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.addedByInboxId` | fun | `Group.addedByInboxId` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.appData` | fun | `Group.state().appData` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
@@ -1716,7 +1716,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.publishMessages` | fun | `Group.publishMessages` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.removeAdmin` | fun | `Group.removeAdmin` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.removeMembers` | fun | `Group.removeMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
-| `Group.removeMembersByIdentity` | fun | `Group.removeMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
+| `Group.removeMembersByIdentity` | fun | `Group.removeMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.removeSuperAdmin` | fun | `Group.removeSuperAdmin` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.send` | fun | `Group.send` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. Signature: `suspend fun send(encodedContent:EncodedContent,opts:MessageVisibilityOptions=MessageVisibilityOptions(shouldPush=true),)`. |
 | `Group.send` | fun | `Group.send` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. Signature: `suspend fun send(text:String)`. |
@@ -2573,11 +2573,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.updateMessageDisappearingSettings` | member | `Conversation.updateDisappearingSettings` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Conversation.ts`. |
 | `Conversations.beginningDeliveryCursor` | member | `Conversations.beginningDeliveryCursor` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createDmWithIdentifier` | member | `Conversations.createDmWithIdentity` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroupWithIdentities` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createDmWithIdentifier` | member | `Conversations.createDm` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroup` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.fetchDmByIdentifier` | member | `Conversations.getDmByIdentity` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.getConversationById` | member | `Conversations.getById` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.getDmByInboxId` | member | `Conversations.getDmByInboxId` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
@@ -2624,7 +2624,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.peerInboxId` | member | `Dm.peerInboxId` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Dm.ts`. |
 | `Group.addAdmin` | member | `Group.addAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.addMembers` | member | `Group.addMembers` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
-| `Group.addMembersByIdentifiers` | member | `Group.addMembersByIdentifiers` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts`. |
+| `Group.addMembersByIdentifiers` | member | `Group.addMembers` | generated | 11.4 Node, Conversation, Group, Dm | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Group.ts`. |
 | `Group.addSuperAdmin` | member | `Group.addSuperAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.appData` | member | `Group.state().appData` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts`. |
 | `Group.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Group.ts`. |
@@ -2639,7 +2639,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.permissions` | member | `Group.state().permissions` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts`. |
 | `Group.removeAdmin` | member | `Group.removeAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.removeMembers` | member | `Group.removeMembers` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
-| `Group.removeMembersByIdentifiers` | member | `Group.removeMembersByIdentifiers` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts`. |
+| `Group.removeMembersByIdentifiers` | member | `Group.removeMembers` | generated | 11.4 Node, Conversation, Group, Dm | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Group.ts`. |
 | `Group.removeSuperAdmin` | member | `Group.removeSuperAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.requestRemoval` | member | `Group.requestRemoval` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.updateAppData` | member | `Group.updateAppData` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
@@ -3057,11 +3057,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.updateMessageDisappearingSettings` | member | `Conversation.updateDisappearingSettings` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Conversation.ts`. |
 | `Conversations.beginningDeliveryCursor` | member | `Conversations.beginningDeliveryCursor` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createDmWithIdentifier` | member | `Conversations.createDmWithIdentity` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroupWithIdentities` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createDmWithIdentifier` | member | `Conversations.createDm` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroup` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.fetchDmByIdentifier` | member | `Conversations.getDmByIdentity` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.getConversationById` | member | `Conversations.getById` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.getDmByInboxId` | member | `Conversations.getDmByInboxId` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
@@ -3109,7 +3109,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.peerInboxId` | member | `Dm.peerInboxId` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Dm.ts`. |
 | `Group.addAdmin` | member | `Group.addAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.addMembers` | member | `Group.addMembers` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
-| `Group.addMembersByIdentifiers` | member | `Group.addMembersByIdentifiers` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts`. |
+| `Group.addMembersByIdentifiers` | member | `Group.addMembers` | generated | 11.4 Node, Conversation, Group, Dm | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Group.ts`. |
 | `Group.addSuperAdmin` | member | `Group.addSuperAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.admins` | member | `Group.state().admins` | generated | 11.4 Browser | Source: `sdks/browser/src/Group.ts`. |
 | `Group.appData` | member | `Group.state().appData` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts`. |
@@ -3125,7 +3125,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.permissions` | member | `Group.state().permissions` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts`. |
 | `Group.removeAdmin` | member | `Group.removeAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.removeMembers` | member | `Group.removeMembers` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
-| `Group.removeMembersByIdentifiers` | member | `Group.removeMembersByIdentifiers` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts`. |
+| `Group.removeMembersByIdentifiers` | member | `Group.removeMembers` | generated | 11.4 Node, Conversation, Group, Dm | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Group.ts`. |
 | `Group.removeSuperAdmin` | member | `Group.removeSuperAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.requestRemoval` | member | `Group.requestRemoval` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.superAdmins` | member | `Group.state().superAdmins` | generated | 11.4 Browser | Source: `sdks/browser/src/Group.ts`. |
@@ -3406,7 +3406,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 
 ## Open items
 
-93 exports need a design decision. Their proposed status appears in the SDK table.
+89 exports need a design decision. Their proposed status appears in the SDK table.
 
 - Swift `Client.inMemoryDbPath` (`sdks/ios/Sources/XMTPiOS/Client.swift`): proposed **generated**. Not covered by the design.
 - Swift `Client.setLibXMTPNativeLogLevel` (`sdks/ios/Sources/XMTPiOS/Client.swift`): proposed **generated**. Not covered by the design.
@@ -3437,10 +3437,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 - Swift `Conversation.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Conversation.swift`): proposed **generated**. Not covered by the design.
 - Swift `Dm.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Dm.swift`): proposed **generated**. Not covered by the design.
 - Swift `Dm.encodeContent` (`sdks/ios/Sources/XMTPiOS/Dm.swift`): proposed **generated**. Not covered by the design.
-- Swift `Group.addMembersByIdentity` (`sdks/ios/Sources/XMTPiOS/Group.swift`): proposed **generated**. Not covered by the design.
 - Swift `Group.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Group.swift`): proposed **generated**. Not covered by the design.
 - Swift `Group.encodeContent` (`sdks/ios/Sources/XMTPiOS/Group.swift`): proposed **generated**. Not covered by the design.
-- Swift `Group.removeMembersByIdentity` (`sdks/ios/Sources/XMTPiOS/Group.swift`): proposed **generated**. Not covered by the design.
 - Swift `PermissionOption.admin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `PermissionOption.allow` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `PermissionOption.deny` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
@@ -3448,8 +3446,6 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 - Swift `PermissionOption.unknown` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `FfiXmtpClient.waitForRegistrationVisible` (`sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`): proposed **generated**. The standalone method keeps its behavior; design 11.4 does not name it.
 - Kotlin `Client.Companion.setLibXMTPNativeLogLevel` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`): proposed **generated**. Not covered by the design.
-- Kotlin `Group.addMembersByIdentity` (`sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`): proposed **generated**. Not covered by the design.
-- Kotlin `Group.removeMembersByIdentity` (`sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.Companion` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.Companion.conversationId` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.Companion.inboxId` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt`): proposed **generated**. Not covered by the design.

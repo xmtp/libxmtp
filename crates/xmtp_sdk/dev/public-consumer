@@ -93,6 +93,8 @@ if swift_build >"$log" 2>&1; then
 fi
 grep -q "'raw' is inaccessible due to 'internal' protection level" "$log"
 grep -q "'create' is inaccessible due to 'internal' protection level" "$log"
+grep -q "'createGroupWithIdentities' is inaccessible due to 'internal' protection level" "$log"
+grep -q "'addMembersByIdentity' is inaccessible due to 'internal' protection level" "$log"
 rm -f "$swift_negative"
 echo "Swift public consumer cannot reach the generated Client"
 
@@ -108,7 +110,9 @@ if kotlin_build >"$log" 2>&1; then
   exit 1
 fi
 grep -q "Cannot access 'val raw: Client': it is internal" "$log"
-grep -q "Cannot access 'suspend fun create" "$log"
+grep -q "Cannot access 'suspend fun create(" "$log"
+grep -q "Cannot access 'suspend fun createGroupWithIdentities" "$log"
+grep -q "Cannot access 'suspend fun addMembersByIdentity" "$log"
 rm -f "$kotlin_negative"
 echo "Kotlin public consumer cannot reach the generated Client"
 
