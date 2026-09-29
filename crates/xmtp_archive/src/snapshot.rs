@@ -356,8 +356,10 @@ mod tests {
         assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
     }
 
-    /// A file export whose caller has gone stops at its next write and
-    /// removes the file, rather than finishing an archive nobody awaits.
+    /// A file export whose caller has gone stops at its next write, rather
+    /// than finishing an archive nobody awaits. A failed or cancelled export
+    /// leaves the archive already at the destination intact and no temporary
+    /// file behind: exporting over a good backup must never destroy it.
     /// `export_to_file` cancels this token when its future is dropped.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
@@ -365,14 +367,26 @@ mod tests {
         let store = TestDb::create_ephemeral_store().await;
         let db = store.db();
         let consent = options(&[BackupElementSelection::Consent]);
-        let path = std::path::PathBuf::from(xmtp_common::tmp_path());
+        let dir = std::env::temp_dir().join(xmtp_common::rand_hexstring());
+        std::fs::create_dir(&dir)?;
+        let path = dir.join("archive");
         let cancel = tokio_util::sync::CancellationToken::new();
 
         exporter::write_file(consent.clone(), &db, &path, &KEY, &cancel)?;
-        assert!(path.exists(), "an uncancelled export wrote no file");
+        let prior = std::fs::read(&path)?;
         cancel.cancel();
         let failure = exporter::write_file(consent, &db, &path, &KEY, &cancel);
         assert!(failure.is_err(), "a cancelled export ran to completion");
-        assert!(!path.exists(), "a cancelled export left a file");
+        assert_eq!(
+            std::fs::read(&path)?,
+            prior,
+            "a failed export replaced the archive"
+        );
+        assert_eq!(
+            std::fs::read_dir(&dir)?.count(),
+            1,
+            "a failed export left a temporary file"
+        );
+        std::fs::remove_dir_all(&dir)?;
     }
 }

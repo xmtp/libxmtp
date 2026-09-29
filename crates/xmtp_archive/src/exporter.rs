@@ -76,10 +76,11 @@ impl ArchiveExporter {
         Self { archive }
     }
 
-    /// Exports to a new file at `path`, as [`export`], on tokio's blocking
-    /// pool so the snapshot never stalls an async worker, and removes the file
-    /// if the export fails. Dropping the future cancels the export at its next
-    /// write, which removes the file too. Must be called within a tokio runtime.
+    /// Exports to a file at `path`, as [`export`], on tokio's blocking pool so
+    /// the snapshot never stalls an async worker. The archive is written to a
+    /// sibling temporary file and renamed over `path` only once complete, so a
+    /// failed export leaves `path` as it was. Dropping the future cancels the
+    /// export at its next write, which counts as a failure. Must be called within a tokio runtime.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file(
         options: ArchiveOptions,
@@ -97,8 +98,9 @@ impl ArchiveExporter {
     }
 }
 
-/// Exports to a new file at `path` until `cancel` fires, and removes the file
-/// if the export fails or is cancelled.
+/// Exports to a sibling temporary file until `cancel` fires, then renames it
+/// over `path`. A failed or cancelled export removes the temporary file and
+/// leaves any archive already at `path` untouched.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn write_file(
     options: ArchiveOptions,
@@ -107,16 +109,26 @@ pub(crate) fn write_file(
     key: &[u8],
     cancel: &tokio_util::sync::CancellationToken,
 ) -> Result<BackupMetadataSave, ArchiveError> {
-    let mut file = io::BufWriter::new(std::fs::File::create(path)?);
-    let exported = export(options, db, key, Cancellable(&mut file, cancel)).and_then(|metadata| {
-        io::Write::flush(&mut file)?;
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(format!(
+        ".{:016x}.partial",
+        u64::from_le_bytes(xmtp_common::rand_array())
+    ));
+    let partial = std::path::PathBuf::from(partial);
+    let exported = (|| -> Result<_, ArchiveError> {
+        let mut file = io::BufWriter::new(std::fs::File::create(&partial)?);
+        let metadata = export(options, db, key, Cancellable(&mut file, cancel))?;
+        file.into_inner()
+            .map_err(io::IntoInnerError::into_error)?
+            .sync_all()?;
+        std::fs::rename(&partial, path)?;
         Ok(metadata)
-    });
-    if exported.is_err() {
-        drop(file);
-        if let Err(e) = std::fs::remove_file(path) {
-            tracing::warn!(path = %path.display(), error = %e, "failed export left a partial archive");
-        }
+    })();
+    if exported.is_err()
+        && let Err(e) = std::fs::remove_file(&partial)
+        && e.kind() != io::ErrorKind::NotFound
+    {
+        tracing::warn!(path = %partial.display(), error = %e, "failed export left a partial archive");
     }
     exported
 }
