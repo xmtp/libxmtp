@@ -162,13 +162,39 @@ OWNER_PERMITTED: dict[str, set[str]] = {
 # The pinned Client declarations, as `describe` prints them without indent.
 CLIENT_NODE = """\
 class Client { ... }
-conversations(): ConversationsLike;
+appVersion(...args: Parameters<ClientLike["appVersion"]>): ReturnType<ClientLike["appVersion"]>;
+archives(...args: Parameters<ClientLike["archives"]>): ReturnType<ClientLike["archives"]>;
+catchUpToLive(...args: Parameters<ClientLike["catchUpToLive"]>): ReturnType<ClientLike["catchUpToLive"]>;
+changeRecoveryIdentifier(...args: Parameters<ClientLike["changeRecoveryIdentifier"]>): ReturnType<ClientLike["changeRecoveryIdentifier"]>;
+conversations(...args: Parameters<ClientLike["conversations"]>): ReturnType<ClientLike["conversations"]>;
+decodeContent(...args: Parameters<ClientLike["decodeContent"]>): ReturnType<ClientLike["decodeContent"]>;
 decodeCustom(encoded: EncodedContent): { value?: unknown; error?: string; } | undefined;
+diagnostics(...args: Parameters<ClientLike["diagnostics"]>): ReturnType<ClientLike["diagnostics"]>;
+disableNotifications(...args: Parameters<ClientLike["disableNotifications"]>): ReturnType<ClientLike["disableNotifications"]>;
+enableNotifications(...args: Parameters<ClientLike["enableNotifications"]>): ReturnType<ClientLike["enableNotifications"]>;
 end(): Promise<void>;
 events(filter: EventFilter): Promise<EventStream>;
-inboxId(): InboxId;
-installationId(): InstallationId;
-readonly raw: ClientLike;
+identity(...args: Parameters<ClientLike["identity"]>): ReturnType<ClientLike["identity"]>;
+inboxId(...args: Parameters<ClientLike["inboxId"]>): ReturnType<ClientLike["inboxId"]>;
+inboxState(...args: Parameters<ClientLike["inboxState"]>): ReturnType<ClientLike["inboxState"]>;
+installationId(...args: Parameters<ClientLike["installationId"]>): ReturnType<ClientLike["installationId"]>;
+installationIdBytes(...args: Parameters<ClientLike["installationIdBytes"]>): ReturnType<ClientLike["installationIdBytes"]>;
+isInMemory(...args: Parameters<ClientLike["isInMemory"]>): ReturnType<ClientLike["isInMemory"]>;
+isRegistered(...args: Parameters<ClientLike["isRegistered"]>): ReturnType<ClientLike["isRegistered"]>;
+latestInboxUpdatesCount(...args: Parameters<ClientLike["latestInboxUpdatesCount"]>): ReturnType<ClientLike["latestInboxUpdatesCount"]>;
+libxmtpVersion(...args: Parameters<ClientLike["libxmtpVersion"]>): ReturnType<ClientLike["libxmtpVersion"]>;
+notificationState(...args: Parameters<ClientLike["notificationState"]>): ReturnType<ClientLike["notificationState"]>;
+options(...args: Parameters<ClientLike["options"]>): ReturnType<ClientLike["options"]>;
+ownInboxUpdatesCount(...args: Parameters<ClientLike["ownInboxUpdatesCount"]>): ReturnType<ClientLike["ownInboxUpdatesCount"]>;
+preferences(...args: Parameters<ClientLike["preferences"]>): ReturnType<ClientLike["preferences"]>;
+protected binding(): ClientLike;
+refreshServerConfiguration(...args: Parameters<ClientLike["refreshServerConfiguration"]>): ReturnType<ClientLike["refreshServerConfiguration"]>;
+register(...args: Parameters<ClientLike["register"]>): ReturnType<ClientLike["register"]>;
+removeAccount(...args: Parameters<ClientLike["removeAccount"]>): ReturnType<ClientLike["removeAccount"]>;
+revokeAllOtherInstallations(...args: Parameters<ClientLike["revokeAllOtherInstallations"]>): ReturnType<ClientLike["revokeAllOtherInstallations"]>;
+serverConfiguration(...args: Parameters<ClientLike["serverConfiguration"]>): ReturnType<ClientLike["serverConfiguration"]>;
+setCredential(...args: Parameters<ClientLike["setCredential"]>): ReturnType<ClientLike["setCredential"]>;
+signWithInstallationKey(...args: Parameters<ClientLike["signWithInstallationKey"]>): ReturnType<ClientLike["signWithInstallationKey"]>;
 startListener(filter: EventFilter, callback: (event: ClientEvent) => void | Promise<void>): Promise<bigint>;
 static build(identity: PublicIdentity, options: SDKClientOptions, inboxId?: InboxId): Promise<Client>;
 static canMessage(identities: PublicIdentity[], backend: BackendSource): Promise<Map<string, boolean>>;
@@ -184,6 +210,17 @@ static revokeInstallations(signer: Signer, inboxId: InboxId, ids: InstallationId
 static verifySignedWithPublicKey(text: string, signature: ArrayBuffer, publicKey: ArrayBuffer): Promise<boolean>;
 stopListener(id: bigint): Promise<void>;
 storage(): StorageLike;
+storagePath(...args: Parameters<ClientLike["storagePath"]>): ReturnType<ClientLike["storagePath"]>;
+syncAllDeviceSyncGroups(...args: Parameters<ClientLike["syncAllDeviceSyncGroups"]>): ReturnType<ClientLike["syncAllDeviceSyncGroups"]>;
+unsafeAddAccount(...args: Parameters<ClientLike["unsafeAddAccount"]>): ReturnType<ClientLike["unsafeAddAccount"]>;
+unsafeAddAccountSignatureRequest(...args: Parameters<ClientLike["unsafeAddAccountSignatureRequest"]>): ReturnType<ClientLike["unsafeAddAccountSignatureRequest"]>;
+unsafeApplySignatureRequest(...args: Parameters<ClientLike["unsafeApplySignatureRequest"]>): ReturnType<ClientLike["unsafeApplySignatureRequest"]>;
+unsafeChangeRecoveryIdentifierSignatureRequest(...args: Parameters<ClientLike["unsafeChangeRecoveryIdentifierSignatureRequest"]>): ReturnType<ClientLike["unsafeChangeRecoveryIdentifierSignatureRequest"]>;
+unsafeCreateInboxSignatureRequest(...args: Parameters<ClientLike["unsafeCreateInboxSignatureRequest"]>): ReturnType<ClientLike["unsafeCreateInboxSignatureRequest"]>;
+unsafeRemoveAccountSignatureRequest(...args: Parameters<ClientLike["unsafeRemoveAccountSignatureRequest"]>): ReturnType<ClientLike["unsafeRemoveAccountSignatureRequest"]>;
+unsafeRevokeAllOtherInstallationsSignatureRequest(...args: Parameters<ClientLike["unsafeRevokeAllOtherInstallationsSignatureRequest"]>): ReturnType<ClientLike["unsafeRevokeAllOtherInstallationsSignatureRequest"]>;
+unsafeRevokeInstallationsSignatureRequest(...args: Parameters<ClientLike["unsafeRevokeInstallationsSignatureRequest"]>): ReturnType<ClientLike["unsafeRevokeInstallationsSignatureRequest"]>;
+verifySignedWithInstallationKey(...args: Parameters<ClientLike["verifySignedWithInstallationKey"]>): ReturnType<ClientLike["verifySignedWithInstallationKey"]>;
 """
 CLIENT_WORKER = """\
 class Client implements ClientLike { ... }
@@ -273,7 +310,8 @@ PINNED: dict[str, dict[str, str]] = {
         "Promise<void>;",
     },
     # Owner decision O13 (2026-09-28). Node's Client is the runtime wrapper
-    # over ClientLike, with static helpers, codecs, and callback listeners.
+    # over a private ClientLike: it forwards the exported instance methods,
+    # and adds static helpers, codecs, and callback listeners.
     # The browser's Client is the generated worker proxy: it implements
     # ClientLike, `create` and `build` take a MainSession, and every async
     # method takes AbortSignal options. The parity type test compares

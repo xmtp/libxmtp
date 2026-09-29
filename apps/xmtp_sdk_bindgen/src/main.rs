@@ -3,7 +3,7 @@ mod callback_cursor;
 mod forwarding;
 mod kotlin_callbacks;
 mod kotlin_records;
-mod nullable_peer;
+mod nullable_identity;
 mod public_projection;
 mod reader_defaults;
 mod validate;
@@ -201,7 +201,7 @@ fn generate(
             if !pure_only {
                 fs::write(
                     &binding,
-                    reader_defaults::rewrite(&nullable_peer::rewrite(&fs::read_to_string(
+                    reader_defaults::rewrite(&nullable_identity::rewrite(&fs::read_to_string(
                         &binding,
                     )?)?)?,
                 )?;
@@ -297,6 +297,7 @@ fn generate(
             Language::TypescriptNapi | Language::TypescriptWasm
         )
     {
+        forwarding::generate_typescript(&metadata, out)?;
         public_projection::generate(&metadata, out)?;
     }
     if matches!(language, Language::Swift | Language::Kotlin) {

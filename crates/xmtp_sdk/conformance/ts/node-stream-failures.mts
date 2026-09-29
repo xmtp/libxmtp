@@ -55,7 +55,7 @@ export async function streamFailures(
   const deniedConversation = await reopened
     .conversations()
     .createGroup([], undefined);
-  await reopened.raw.preferences().setConsentStates([
+  await reopened.preferences().setConsentStates([
     {
       entity: new sdk.ConsentEntity.Conversation({
         conversationId: deniedConversation.id(),

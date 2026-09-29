@@ -281,7 +281,7 @@ export class ConversationStream extends ReaderStream<Conversation> {
   ): ConversationStream {
     return new ConversationStream(
       (signal) =>
-        owner.raw.conversations().conversationReader(selection, { signal }),
+        owner.conversations().conversationReader(selection, { signal }),
       owner,
       options,
     );

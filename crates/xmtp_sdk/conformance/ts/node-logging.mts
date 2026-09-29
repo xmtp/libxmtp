@@ -29,7 +29,7 @@ export async function logging(
         assert.ok(record.fields instanceof Map);
         assert.equal(typeof record.droppedRecords, "bigint");
         assert.equal(
-          reopened.raw.serverConfiguration().identifier,
+          reopened.serverConfiguration().identifier,
           snapshot.identifier,
         );
       } catch (error) {

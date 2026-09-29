@@ -299,6 +299,40 @@ fn hide_client_factories(source: &str, language: Language) -> Result<String> {
     Ok(output)
 }
 
+/// Write the TypeScript host Client's forwarders as a base class. Each method
+/// takes and returns the binding method's own types, so a method that the
+/// binding lacks fails the TypeScript compile.
+pub(crate) fn generate_typescript(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> {
+    let selected = client_methods(groups.values().flat_map(|group| &group.items));
+    let path = out.join("client-forwarding.gen.ts");
+    fs::write(&path, render_typescript(&selected))?;
+    let status = std::process::Command::new("node_modules/.bin/oxfmt")
+        .args([
+            "--config",
+            "apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json",
+        ])
+        .arg(&path)
+        .status()
+        .context("format TypeScript Client forwarders")?;
+    if !status.success() {
+        bail!("TypeScript Client forwarder formatter failed: {status}");
+    }
+    Ok(())
+}
+
+fn render_typescript(selected: &[String]) -> String {
+    let mut code = String::from(
+        "// Generated from exported Client methods. Do not edit this output.\nimport type { ClientLike } from \"./xmtp_sdk\";\n\n/** The host Client forwards these methods to its private binding Client. */\nexport abstract class ClientForwarders {\n  protected abstract binding(): ClientLike;\n",
+    );
+    for name in selected {
+        code.push_str(&format!(
+            "\n  {name}(\n    ...args: Parameters<ClientLike[\"{name}\"]>\n  ): ReturnType<ClientLike[\"{name}\"]> {{\n    return this.binding().{name}(...args);\n  }}\n"
+        ));
+    }
+    code.push_str("}\n");
+    code
+}
+
 pub(crate) fn generate(
     groups: &MetadataGroupMap,
     language: Language,

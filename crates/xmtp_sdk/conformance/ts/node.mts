@@ -6,17 +6,20 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
-import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
+import {
+  bindingClient,
+  setEventStartHookForTest,
+} from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
 import {
   assertEncodedEqual,
   checkStandardCodecs,
   isInvalidId,
 } from "./node-codecs.mts";
-import { checkReaderCursor, checkRestoredPeer } from "./reader-cursor.mts";
 import { logging } from "./node-logging.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
 import { streamFailures } from "./node-stream-failures.mts";
 import { streamLifecycle } from "./node-stream-lifecycle.mts";
+import { checkReaderCursor, checkRestoredPeer } from "./reader-cursor.mts";
 
 const viemRoot = realpathSync(
   fileURLToPath(
@@ -268,13 +271,13 @@ const credentialClient = await sdk.Client.build(
   credentialOptions,
   inboxId,
 );
-const savedBackend = credentialClient.raw.options().backend;
+const savedBackend = credentialClient.options().backend;
 assert.ok(savedBackend instanceof sdk.BackendSource.Options);
 assert.equal(
   savedBackend.inner.options.credential?.expiresAtSeconds,
   largeExpiry,
 );
-await credentialClient.raw.setCredential({
+await credentialClient.setCredential({
   name: undefined,
   value: "Bearer refreshed",
   expiresAtSeconds: largeExpiry,
@@ -307,7 +310,7 @@ assert.ok(sourceCalls > 0, "credential source was not called");
 await sourceClient.end();
 console.log("Node scenario 3: credential update and 64-bit value passed");
 
-const snapshot = reopened.raw.serverConfiguration();
+const snapshot = reopened.serverConfiguration();
 const fetched = await sdk.fetchServerConfiguration(
   new sdk.BackendSource.Options({ options: backendOptions }),
 );
@@ -352,7 +355,7 @@ const checkMixedCanMessage = (result: Map<string, boolean>) => {
   assert.equal(result.get(`passkey:${sameText}`), false);
   assert.equal(result.get(`ethereum:${identity.identifier}`), true);
 };
-checkMixedCanMessage(await reopened.raw.canMessage(mixedIdentities));
+checkMixedCanMessage(await reopened.canMessage(mixedIdentities));
 checkMixedCanMessage(
   await sdk.Client.canMessage(
     mixedIdentities,
@@ -381,7 +384,7 @@ await assert.rejects(
   (error) => error instanceof sdk.XmtpError.IdentityNotFound,
 );
 assert.equal(
-  (await reopened.raw.refreshServerConfiguration()).identifier,
+  (await reopened.refreshServerConfiguration()).identifier,
   snapshot.identifier,
 );
 await assert.rejects(
@@ -408,13 +411,13 @@ const unsigned = await sdk.Client.create(local, {
   storage: { ...options.storage, location: new sdk.StorageLocation.InMemory() },
   registration: { auto: false, nonce: undefined },
 });
-assert.equal(await unsigned.raw.isRegistered(), false);
-const request = await unsigned.raw.unsafeCreateInboxSignatureRequest();
+assert.equal(await unsigned.isRegistered(), false);
+const request = await unsigned.unsafeCreateInboxSignatureRequest();
 assert.ok(request);
 assert.ok((await request.signatureText()).length > 0);
 await request.sign(local);
-await unsigned.raw.unsafeApplySignatureRequest(request);
-assert.equal(await unsigned.raw.isRegistered(), true);
+await unsigned.unsafeApplySignatureRequest(request);
+assert.equal(await unsigned.isRegistered(), true);
 await unsigned.end();
 console.log("Node scenario 11: local signer and signature request passed");
 
@@ -464,10 +467,10 @@ const preAuthenticated = await sdk.Client.create(
   preAuthenticateOptions(preAuthCalls, false, false),
 );
 assert.deepEqual(preAuthCalls, []);
-await preAuthenticated.raw.register();
+await preAuthenticated.register();
 assert.deepEqual(preAuthCalls, ["pre-authenticate", "sign"]);
 preAuthCalls.length = 0;
-await preAuthenticated.raw.register();
+await preAuthenticated.register();
 assert.deepEqual(preAuthCalls, []);
 await preAuthenticated.end();
 await assert.rejects(
@@ -511,7 +514,7 @@ const replyId = await reopened
   .conversations()
   .replyToMessage(parentId, sdk.encodeText("reply"), undefined);
 assert.equal(
-  (await reopened.raw.decodeContent(sdk.encodeText("decoded"))).tag,
+  (await reopened.decodeContent(sdk.encodeText("decoded"))).tag,
   sdk.MessageContent_Tags.Text,
 );
 const familyMessages = await familyGroup.messages(undefined);
@@ -603,7 +606,7 @@ assert.equal(
   "codec key collision selected the wrong codec",
 );
 const collidingMessage = new sdk.Message({
-  clientKey: slashHost.raw.clientKey(),
+  clientKey: bindingClient(slashHost).clientKey(),
   content: {
     tag: sdk.MessageContent_Tags.Custom,
     inner: { encoded: colliding, rawBytes: new ArrayBuffer(0) },
@@ -632,7 +635,7 @@ const undecodedReply = await ownerWithoutCodec
 assert.equal(undecoded?.content.tag, sdk.MessageContent_Tags.Unknown);
 const serializedCustom = new Uint8Array([10, 3, 1, 2, 3]).buffer;
 const syntheticUnknown = new sdk.Message({
-  clientKey: ownerWithoutCodec.raw.clientKey(),
+  clientKey: bindingClient(ownerWithoutCodec).clientKey(),
   content: {
     tag: sdk.MessageContent_Tags.Custom,
     inner: {
@@ -728,13 +731,13 @@ await ownerWithCodec.end();
 await ownerWithoutCodec.end();
 console.log("Node scenario 6: custom codec stayed with its client");
 
-const archive = await reopened.raw
+const archive = await reopened
   .archives()
   .exportToBytes(new Uint8Array(32).fill(7).buffer, undefined);
 assert.ok(archive.byteLength > 0);
 assert.equal(
   (
-    await reopened.raw
+    await reopened
       .archives()
       .metadataFromBytes(archive, new Uint8Array(32).fill(7).buffer)
   ).backupVersion,
@@ -743,12 +746,12 @@ assert.equal(
 const archiveDir = await mkdtemp(join(tmpdir(), "xmtp-sdk-archive-"));
 try {
   const archivePath = join(archiveDir, "snapshot.xmtp");
-  await reopened.raw
+  await reopened
     .archives()
     .exportToFile(archivePath, new Uint8Array(32).fill(7).buffer, undefined);
   assert.equal(
     (
-      await reopened.raw
+      await reopened
         .archives()
         .metadataFromFile(archivePath, new Uint8Array(32).fill(7).buffer)
     ).backupVersion,
@@ -768,12 +771,12 @@ const eventFilter = {
   contentTypes: undefined,
   referencesOwnMessages: false,
 };
-const eventReader = await reopened.raw.events(eventFilter);
+const eventReader = await bindingClient(reopened).events(eventFilter);
 let listenerCalls = 0;
 const listenerId = await reopened.startListener(eventFilter, async () => {
   listenerCalls += 1;
 });
-await reopened.raw.conversations().createGroup([]);
+await reopened.conversations().createGroup([]);
 const sampleEvent = await eventReader.next();
 assert.ok(sampleEvent);
 for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
@@ -787,7 +790,7 @@ console.log("Node scenario 8: event reader and listener passed");
 // verifies: EVENT-053
 const eventStream = await reopened.events(eventFilter);
 assert.ok(eventStream instanceof sdk.EventStream);
-await reopened.raw.conversations().createGroup([]);
+await reopened.conversations().createGroup([]);
 let publicEvents = 0;
 for await (const event of eventStream) {
   assert.ok(event);
@@ -824,7 +827,7 @@ let lateCalls = 0;
 const delayedId = await reopened.startListener(eventFilter, () => {
   lateCalls += 1;
 });
-await reopened.raw.conversations().createGroup([]);
+await reopened.conversations().createGroup([]);
 await startEntered;
 await reopened.stopListener(delayedId);
 releaseStart();
@@ -843,7 +846,7 @@ reentrantId = await reopened.startListener(eventFilter, async () => {
   await reopened.stopListener(reentrantId);
   resolveStopped();
 });
-await reopened.raw.conversations().createGroup([]);
+await reopened.conversations().createGroup([]);
 await Promise.race([
   stoppedInside,
   new Promise<never>((_, reject) =>
@@ -864,7 +867,7 @@ await reopened.startListener(eventFilter, async () => {
   resolveEnded();
 });
 try {
-  await reopened.raw.conversations().createGroup([]);
+  await reopened.conversations().createGroup([]);
 } catch {
   /* end may close this call */
 }

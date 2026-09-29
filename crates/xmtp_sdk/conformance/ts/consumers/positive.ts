@@ -143,6 +143,17 @@ export async function consumeReaderSurface(
     await named.messageReader();
     await named.messageReader({ from: undefined }, { signal });
   }
+  const received: Array<string | null> = [
+    nodeGroup.creatorInboxId(),
+    nodeGroup.addedByInboxId(),
+    nodeDm.creatorInboxId(),
+    nodeDm.addedByInboxId(),
+    browserGroup.creatorInboxId(),
+    browserGroup.addedByInboxId(),
+    browserDm.creatorInboxId(),
+    browserDm.addedByInboxId(),
+  ];
+  void received;
   const nodePeer: string | null = await nodeDm.peerInboxId();
   const browserPeer: string | null = await browserDm.peerInboxId();
   const browserLike: import("../../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.ts").DmLike =

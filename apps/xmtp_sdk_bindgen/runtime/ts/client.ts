@@ -1,3 +1,4 @@
+import { ClientForwarders } from "../client-forwarding.gen";
 import {
   Client as RawClient,
   type BackendSource as BackendSourceLike,
@@ -88,16 +89,26 @@ export class ClientRegistry {
   }
 }
 
-export class Client {
+// The binding Client stays private to the runtime. Runtime modules and
+// conformance read it through `bindingClient`; the package root does not
+// export that function.
+const bindings = new WeakMap<Client, ClientLike>();
+
+export function bindingClient(client: Client): ClientLike {
+  const raw = bindings.get(client);
+  if (raw === undefined) throw new TypeError("not an SDK client");
+  return raw;
+}
+
+export class Client extends ClientForwarders {
   private readonly key: bigint;
   private readonly listeners = new Map<bigint, { stopped: boolean }>();
   private readonly pendingListeners = new Set<{ stopped: boolean }>();
   private readonly codecs: CodecRegistry;
 
-  private constructor(
-    readonly raw: ClientLike,
-    codecs: readonly AnyCodec[],
-  ) {
+  private constructor(raw: ClientLike, codecs: readonly AnyCodec[]) {
+    super();
+    bindings.set(this, raw);
     this.key = raw.clientKey();
     this.codecs = new CodecRegistry(codecs);
     ClientRegistry.set(this.key, this);
@@ -204,20 +215,12 @@ export class Client {
     return verifySignedWithPublicKey(text, signature, publicKey);
   }
 
-  inboxId(): InboxId {
-    return this.raw.inboxId();
-  }
-
-  installationId(): InstallationId {
-    return this.raw.installationId();
-  }
-
-  conversations() {
-    return this.raw.conversations();
+  protected binding(): ClientLike {
+    return bindingClient(this);
   }
 
   async events(filter: EventFilter): Promise<EventStream> {
-    return new EventStream(await this.raw.events(filter));
+    return new EventStream(await this.binding().events(filter));
   }
 
   async startListener(
@@ -227,7 +230,7 @@ export class Client {
     const gate = { stopped: false };
     this.pendingListeners.add(gate);
     try {
-      const id = await this.raw.startListener(filter, {
+      const id = await this.binding().startListener(filter, {
         async onEvent(event: ClientEvent): Promise<void> {
           if (gate.stopped) return;
           try {
@@ -248,11 +251,11 @@ export class Client {
     const gate = this.listeners.get(id);
     if (gate) gate.stopped = true;
     this.listeners.delete(id);
-    return this.raw.stopListener(id);
+    return this.binding().stopListener(id);
   }
 
   storage() {
-    return this.raw.storage();
+    return this.binding().storage();
   }
 
   decodeCustom(
@@ -266,7 +269,7 @@ export class Client {
     for (const gate of this.pendingListeners) gate.stopped = true;
     this.listeners.clear();
     try {
-      await this.raw.end();
+      await this.binding().end();
     } finally {
       ClientRegistry.delete(this.key);
     }

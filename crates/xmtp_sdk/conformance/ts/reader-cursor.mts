@@ -117,13 +117,13 @@ export async function checkRestoredPeer(
     await a.conversations().syncAll(undefined);
     const id = await dm.sendText("foreign restored DM", undefined);
     const key = new Uint8Array(32).fill(9).buffer;
-    const archive = await a.raw
+    const archive = await a
       .archives()
       .exportToBytes(
         key,
         sdk.ArchiveOptions.create({ elements: [sdk.ArchiveElement.Messages] }),
       );
-    await c.raw.archives().importFromBytes(archive, key);
+    await c.archives().importFromBytes(archive, key);
     const conversation = await c.conversations().getById(dm.id());
     assert.equal(conversation?.tag, sdk.Conversation_Tags.Dm);
     if (conversation?.tag !== sdk.Conversation_Tags.Dm)
