@@ -337,33 +337,54 @@ mod tests {
         );
     }
 
-    /// A key that is not 32 bytes is rejected before any archive byte is
-    /// written or read: the sink stays empty, an existing destination file
-    /// is left untouched, and import fails before it reads the header.
+    /// A key that is not 32 bytes, shorter or longer, is rejected before any
+    /// archive byte is written or read: the sink stays empty, an existing
+    /// destination file is left untouched, and import fails before it reads
+    /// the header. A longer key is never truncated, so two keys sharing a
+    /// 32-byte prefix can never open each other's archives.
     // verifies: ARCH-012
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_rejects_a_wrong_length_key_before_any_byte() {
         let store = TestDb::create_ephemeral_store().await;
         let db = store.db();
-        let short = &KEY[..31];
         let consent = options(&[BackupElementSelection::Consent]);
-
-        let mut sink = Vec::new();
-        let failure = exporter::export(consent.clone(), &db, short, &mut sink);
-        assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
-        assert!(sink.is_empty(), "export wrote with an invalid key");
-        #[cfg(not(target_arch = "wasm32"))]
-        {
-            let path = xmtp_common::tmp_path();
-            std::fs::write(&path, b"prior")?;
-            let failure =
-                exporter::ArchiveExporter::export_to_file(consent, db.clone(), &path, short).await;
-            assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
-            assert_eq!(std::fs::read(&path)?, b"prior", "export touched the file");
+        let long = [7; 33];
+        for key in [&KEY[..31], &long[..]] {
+            let wrong = |r: Result<_, ArchiveError>| matches!(r, Err(ArchiveError::InvalidKeyLength(n)) if n == key.len());
+            let mut sink = Vec::new();
+            let failure = exporter::export(consent.clone(), &db, key, &mut sink);
+            assert!(
+                wrong(failure.map(drop)),
+                "export accepted a {}-byte key",
+                key.len()
+            );
+            assert!(sink.is_empty(), "export wrote with an invalid key");
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let path = xmtp_common::tmp_path();
+                std::fs::write(&path, b"prior")?;
+                let failure = exporter::ArchiveExporter::export_to_file(
+                    consent.clone(),
+                    db.clone(),
+                    &path,
+                    key,
+                )
+                .await;
+                assert!(
+                    wrong(failure.map(drop)),
+                    "file export accepted a {}-byte key",
+                    key.len()
+                );
+                assert_eq!(std::fs::read(&path)?, b"prior", "export touched the file");
+            }
+            let empty = Box::pin(BufReader::new(Cursor::new(Vec::new())));
+            let failure = ArchiveImporter::load(empty, key).await;
+            assert!(
+                wrong(failure.map(drop)),
+                "import accepted a {}-byte key",
+                key.len()
+            );
         }
-        let empty = Box::pin(BufReader::new(Cursor::new(Vec::new())));
-        let failure = ArchiveImporter::load(empty, short).await;
-        assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
     }
 
     /// A file export whose caller has gone stops at its next write, rather
