@@ -570,18 +570,24 @@ pub(crate) mod tests {
     use crate::{Fetch, Store, XmtpTestDb, identity::StoredIdentity};
     use xmtp_common::{rand_vec, tmp_path};
 
+    /// Every embedded migration; a fully migrated database applied all of them.
+    pub(crate) fn embedded_migration_count() -> usize {
+        MigrationSource::<Sqlite>::migrations(&MIGRATIONS)
+            .expect("migrations are embedded")
+            .len()
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn sender_summary_and_list_upgrade_baseline_database() {
         use crate::migrations::QueryMigrations;
         use diesel::connection::SimpleConnection;
 
-        assert_eq!(MIGRATIONS.final_migration(), "20260928030000");
         let db_path = tmp_path();
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 5);
+            assert_eq!(conn.applied_migrations()?.len(), embedded_migration_count());
             while conn.applied_migrations()?.first().map(String::as_str) != Some("20260928000000") {
                 conn.raw_query(|db| {
                     db.revert_last_migration(MIGRATIONS)
@@ -598,7 +604,7 @@ pub(crate) mod tests {
             // A database at the previous self-hosted version must upgrade.
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 5);
+            assert_eq!(conn.applied_migrations()?.len(), embedded_migration_count());
             while conn.applied_migrations()?.first().map(String::as_str) != Some("20260908000000") {
                 conn.raw_query(|db| {
                     db.revert_last_migration(MIGRATIONS)
@@ -618,7 +624,7 @@ pub(crate) mod tests {
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 5);
+            assert_eq!(conn.applied_migrations()?.len(), embedded_migration_count());
             #[derive(diesel::QueryableByName)]
             struct Count {
                 #[diesel(sql_type = diesel::sql_types::BigInt)]
@@ -663,15 +669,14 @@ pub(crate) mod tests {
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            conn.raw_query(|db| {
-                db.revert_last_migration(MIGRATIONS)
-                    .map(|_| ())
-                    .map_err(diesel::result::Error::QueryBuilderError)
-            })?;
-            assert_eq!(
-                conn.applied_migrations()?.first().map(String::as_str),
-                Some("20260928010000")
-            );
+            // Revert to the version before the reserved reason, whatever follows it.
+            while conn.applied_migrations()?.first().map(String::as_str) != Some("20260928010000") {
+                conn.raw_query(|db| {
+                    db.revert_last_migration(MIGRATIONS)
+                        .map(|_| ())
+                        .map_err(diesel::result::Error::QueryBuilderError)
+                })?;
+            }
             conn.raw_query(|db| {
                 db.batch_execute(
                     "INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id)
@@ -685,8 +690,8 @@ pub(crate) mod tests {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
             assert_eq!(
-                conn.applied_migrations()?.first().map(String::as_str),
-                Some("20260928020000")
+                conn.applied_migrations()?.first(),
+                Some(&MIGRATIONS.final_migration())
             );
             let intent: StoredGroupIntent = conn.fetch(&37)?.unwrap();
             assert_eq!(intent.data, [0x11, 0x22, 0x33]);

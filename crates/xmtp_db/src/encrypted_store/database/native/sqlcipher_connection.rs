@@ -558,7 +558,10 @@ mod tests {
             .get_result::<TableName>(conn)
             .optional()?;
             assert!(old_view.is_none());
-            assert_eq!(conn.applied_migrations().unwrap().len(), 5);
+            assert_eq!(
+                conn.applied_migrations().unwrap().len(),
+                crate::encrypted_store::tests::embedded_migration_count()
+            );
             Ok(schema)
         })?;
 
