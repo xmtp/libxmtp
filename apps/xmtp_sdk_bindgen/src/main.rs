@@ -307,7 +307,18 @@ fn generate(
         )
     {
         forwarding::generate_typescript(&metadata, out)?;
-        public_projection::generate(&metadata, out)?;
+        let target = if matches!(language, Language::TypescriptNapi) {
+            public_projection::Target::Node
+        } else {
+            // The browser public layer needs worker-routed constructors and
+            // its own host Message. Until then its tree has no public entry.
+            let public = out.join("runtime/public");
+            if public.is_dir() {
+                fs::remove_dir_all(public)?;
+            }
+            public_projection::Target::Browser
+        };
+        public_projection::generate(&metadata, out, target)?;
     }
     if matches!(language, Language::Swift | Language::Kotlin) {
         forwarding::generate(&metadata, language, out)?;

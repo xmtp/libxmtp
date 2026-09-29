@@ -57,3 +57,31 @@ export function liftStorageLocation(value: B.StorageLocation, _projection: Objec
   }
 }
 "#;
+
+/// Design section 3: a TypeScript conversation is the `Group` or `Dm` object
+/// itself. Narrow it with `instanceof` or `kind()`.
+pub(super) const CONVERSATION: &str = r#"
+export type Conversation = Group | Dm;
+export function liftConversation(value: B.Conversation, projection: ObjectProjection): Conversation {
+  switch (value.tag) {
+    case B.Conversation_Tags.Group: return projection.liftGroup(value.inner.group);
+    case B.Conversation_Tags.Dm: return projection.liftDm(value.inner.dm);
+  }
+}
+export function lowerConversation(value: Conversation, projection: ObjectProjection): B.Conversation {
+  return value instanceof Group
+    ? B.Conversation.Group.new({ group: projection.lowerGroup(value) })
+    : B.Conversation.Dm.new({ dm: projection.lowerDm(value) });
+}
+"#;
+
+/// Fields that the host adds to a received custom variant after its client
+/// codec decodes it. The binding variant does not carry them.
+pub(super) fn extra_variant_fields(owner: &str, variant: &str) -> &'static str {
+    match (owner, variant) {
+        ("MessageContent" | "MessageBody", "Custom") => {
+            "readonly value?: unknown;\nreadonly error?: string;\n"
+        }
+        _ => "",
+    }
+}

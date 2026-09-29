@@ -12,8 +12,8 @@ pub(crate) struct Route {
     /// Argument names, in order, after the member argument.
     rest: &'static [&'static str],
     /// The member argument name.
-    member: &'static str,
-    list: bool,
+    pub(crate) member: &'static str,
+    pub(crate) list: bool,
 }
 
 pub(crate) const ROUTES: &[Route] = &[

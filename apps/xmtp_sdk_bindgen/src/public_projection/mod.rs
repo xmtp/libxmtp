@@ -1,5 +1,6 @@
-//! Shared public values above the private target binding.
+//! Shared public values and objects above the private target binding.
 
+mod objects;
 mod policy;
 mod values;
 
@@ -10,7 +11,18 @@ use camino::Utf8Path;
 use heck::ToLowerCamelCase;
 use uniffi_meta::{FnParamMetadata, Metadata, MetadataGroupMap, Type};
 
-pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> {
+/// The generated tree that receives the projection.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Target {
+    /// Node: the binding runs in this process, so static constructors and
+    /// top-level functions can call it directly.
+    Node,
+    /// Browser: the binding runs in the package worker. Worker-routed
+    /// constructors, functions, and the browser host Message come later.
+    Browser,
+}
+
+pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target) -> Result<()> {
     let items = groups
         .values()
         .flat_map(|group| &group.items)
@@ -18,36 +30,20 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> 
     let mut code = String::from(
         "import * as B from '#xmtp/binding';\nimport type { Message as BoundMessage } from './runtime/message.js';\nimport { Timestamp } from './runtime/ids.js';\nexport { Timestamp };\nexport const objectBrand: unique symbol = Symbol(\"xmtp.object\");\nfunction checkedVariant(value: unknown, expected: string | number): void { if (value !== expected) throw new TypeError(\"invalid public enum\"); }\n",
     );
-    code.push_str("export type Message = Omit<MessageData, 'clientKey'>;\n");
-    let mut context = String::from(
-        "export abstract class ObjectProjection {\n  abstract isBackend(value: BackendSource): value is Backend;\n  abstract liftMessage(value: BoundMessage): Message;\n  abstract lowerMessage(value: Message): BoundMessage;\n",
-    );
+    match target {
+        // The host Message class is the public message on Node.
+        Target::Node => code.push_str("import type { Message } from './runtime/public/message.js';\nexport type { Message };\n"),
+        Target::Browser => code.push_str("export type Message = Omit<MessageData, 'clientKey'>;\n"),
+    }
+    code.push_str(&crate::identity_unions::helper("B.XmtpError"));
+    code.push_str(objects::PROJECTION_INSTALL);
     for item in &items {
         match item {
+            Metadata::Object(value) if value.imp.has_struct() && value.name == "Client" => {
+                objects::client_members(&mut code, &items)?;
+            }
             Metadata::Object(value) if value.imp.has_struct() => {
-                let name = &value.name;
-                writeln!(
-                    context,
-                    "abstract lift{name}(value: B.{name}Like): {name};\nabstract lower{name}(value: {name}): B.{name}Like;"
-                )?;
-                writeln!(
-                    code,
-                    "export interface {name} {{ readonly [objectBrand]: '{name}';"
-                )?;
-                for method in &items {
-                    if let Metadata::Method(method) = method
-                        && method.self_name == *name
-                    {
-                        let result = result_type(method.return_type.as_ref(), method.is_async);
-                        writeln!(
-                            code,
-                            "{}({}): {result};",
-                            camel(&method.name),
-                            parameters(&method.inputs)
-                        )?;
-                    }
-                }
-                code.push_str("}\n");
+                objects::object(&mut code, &items, &value.name, target)?;
             }
             Metadata::Object(value) if value.imp.has_callback_interface() => {
                 foreign(&mut code, &items, &value.name)?;
@@ -63,6 +59,9 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> 
             Metadata::Enum(value) if value.name == "StorageLocation" => {
                 code.push_str(policy::STORAGE_LOCATION)
             }
+            Metadata::Enum(value) if value.name == "Conversation" => {
+                code.push_str(policy::CONVERSATION)
+            }
             Metadata::Enum(value) => values::enumeration(&mut code, value)?,
             Metadata::CustomType(value) if value.name != "Message" && value.name != "Timestamp" => {
                 writeln!(
@@ -72,16 +71,23 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> 
                     public_type(&value.builtin)
                 )?;
             }
+            Metadata::Func(value) if target == Target::Node => objects::function(&mut code, value)?,
             _ => {}
         }
     }
-    context.push_str("}\n");
-    code.push_str(&context);
+    objects::projection(&mut code, &items)?;
     let path = out.join("public-values.gen.ts");
     fs::write(
         &path,
         crate::format::typescript("public-values.gen.ts", &code)?,
     )?;
+    if target == Target::Node {
+        let api = objects::public_api(&items);
+        fs::write(
+            out.join("public-api.gen.ts"),
+            crate::format::typescript("public-api.gen.ts", &api)?,
+        )?;
+    }
     // Keep the projection's target import private. Package staging supplies the
     // final browser/node conditions when the public adapters are installed.
     fs::write(
@@ -168,12 +174,82 @@ fn camel(name: &str) -> String {
     name.to_lower_camel_case()
 }
 
+/// The binding's spelling of a method, function, or parameter name. The
+/// TypeScript backend adds `_` to a reserved word, for example `delete_`.
+fn identifier(name: &str) -> String {
+    const RESERVED: &[&str] = &[
+        "await",
+        "break",
+        "case",
+        "catch",
+        "class",
+        "const",
+        "continue",
+        "debugger",
+        "default",
+        "delete",
+        "do",
+        "else",
+        "enum",
+        "export",
+        "extends",
+        "false",
+        "finally",
+        "for",
+        "function",
+        "if",
+        "implements",
+        "import",
+        "in",
+        "instanceof",
+        "interface",
+        "let",
+        "new",
+        "null",
+        "package",
+        "private",
+        "protected",
+        "public",
+        "return",
+        "static",
+        "super",
+        "switch",
+        "this",
+        "throw",
+        "true",
+        "try",
+        "typeof",
+        "var",
+        "void",
+        "while",
+        "with",
+        "yield",
+    ];
+    let name = camel(name);
+    if RESERVED.contains(&name.as_str()) {
+        format!("{name}_")
+    } else {
+        name
+    }
+}
+
+/// Names of trailing parameters that a caller can omit.
+fn optional_parameters(inputs: &[FnParamMetadata]) -> std::collections::BTreeSet<String> {
+    super::bridge::none_defaults(inputs)
+}
+
 fn parameters(inputs: &[FnParamMetadata]) -> String {
-    let defaults = super::bridge::none_defaults(inputs);
+    parameters_with(inputs, &optional_parameters(inputs))
+}
+
+fn parameters_with(
+    inputs: &[FnParamMetadata],
+    defaults: &std::collections::BTreeSet<String>,
+) -> String {
     inputs
         .iter()
         .map(|p| {
-            let name = camel(&p.name);
+            let name = identifier(&p.name);
             let optional = if defaults.contains(&name) { "?" } else { "" };
             let ty = match &p.ty {
                 Type::Optional { inner_type } if defaults.contains(&name) => inner_type,
@@ -285,26 +361,29 @@ fn convert(ty: &Type, value: &str, lower: bool) -> String {
         | Type::Object { name, .. }
         | Type::CallbackInterface { name, .. } => format!("{direction}{name}({value}, projection)"),
         Type::Box { inner_type } => convert(inner_type, value, lower),
-        Type::Optional { inner_type } => format!(
-            "{value} === undefined ? undefined : {}",
-            convert(inner_type, value, lower)
-        ),
-        Type::Sequence { inner_type } => format!(
-            "{value}.map((item) => ({}))",
-            convert(inner_type, "item", lower)
-        ),
-        Type::Set { inner_type } => format!(
-            "new Set([...{value}].map((item) => ({})))",
-            convert(inner_type, "item", lower)
-        ),
+        // A value whose parts need no conversion passes through unchanged.
+        Type::Optional { inner_type } => match convert(inner_type, value, lower) {
+            inner if inner == value => inner,
+            inner => format!("{value} === undefined ? undefined : {inner}"),
+        },
+        Type::Sequence { inner_type } => match convert(inner_type, "item", lower) {
+            inner if inner == "item" => value.into(),
+            inner => format!("{value}.map((item) => ({inner}))"),
+        },
+        Type::Set { inner_type } => match convert(inner_type, "item", lower) {
+            inner if inner == "item" => value.into(),
+            inner => format!("new Set([...{value}].map((item) => ({inner})))"),
+        },
         Type::Map {
             key_type,
             value_type,
-        } => format!(
-            "new Map([...{value}].map(([key, item]) => [{}, {}]))",
+        } => match (
             convert(key_type, "key", lower),
-            convert(value_type, "item", lower)
-        ),
+            convert(value_type, "item", lower),
+        ) {
+            (key, item) if key == "key" && item == "item" => value.into(),
+            (key, item) => format!("new Map([...{value}].map(([key, item]) => [{key}, {item}]))"),
+        },
         Type::UInt8
         | Type::Int8
         | Type::UInt16

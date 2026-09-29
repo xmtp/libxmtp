@@ -18,3 +18,5 @@ node --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/timestamp.test.mts
 node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/node.mts
+node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
+  crates/xmtp_sdk/conformance/ts/public-layer.mts

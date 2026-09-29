@@ -9,7 +9,9 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
     let name = &record.name;
     writeln!(code, "export type {name} = {{")?;
     for field in &record.fields {
-        let optional = if matches!(field.ty, Type::Optional { .. }) {
+        // A field with a Rust default can be left out; the binding factory
+        // fills it in.
+        let optional = if matches!(field.ty, Type::Optional { .. }) || field.default.is_some() {
             "?"
         } else {
             ""
@@ -28,19 +30,56 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         } else {
             ("lift", format!("B.{name}"), name.to_owned())
         };
+        let defaults = lower && record.fields.iter().any(|field| field.default.is_some());
+        let fields = record
+            .fields
+            .iter()
+            .map(|field| {
+                let field_name = camel(&field.name);
+                if defaults && field.default.is_some() {
+                    // An explicit undefined would replace the factory default,
+                    // so a left-out field stays out.
+                    let ty = match &field.ty {
+                        Type::Optional { inner_type } => inner_type,
+                        ty => ty,
+                    };
+                    let converted = convert(ty, &format!("value.{field_name}"), lower);
+                    (
+                        true,
+                        format!(
+                            "value.{field_name} === undefined ? {{}} : {{ {field_name}: {converted} }}"
+                        ),
+                    )
+                } else {
+                    let converted = convert(&field.ty, &format!("value.{field_name}"), lower);
+                    (false, format!("{field_name}: {converted}"))
+                }
+            })
+            .collect::<Vec<_>>();
+        let body = match fields.as_slice() {
+            [(true, only)] => only.clone(),
+            fields => format!(
+                "{{ {} }}",
+                fields
+                    .iter()
+                    .map(|(spread, field)| if *spread {
+                        format!("...({field})")
+                    } else {
+                        field.clone()
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
+        };
+        let body = if defaults {
+            format!("B.{name}.create({body})")
+        } else {
+            body
+        };
         writeln!(
             code,
-            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; return {{"
+            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; return {body}; }}"
         )?;
-        for field in &record.fields {
-            let field_name = camel(&field.name);
-            writeln!(
-                code,
-                "{field_name}: {},",
-                convert(&field.ty, &format!("value.{field_name}"), lower)
-            )?;
-        }
-        code.push_str("}; }\n");
     }
     Ok(())
 }
@@ -68,6 +107,7 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
             };
             writeln!(code, "readonly {field_name}: {};", public_type(&field.ty))?;
         }
+        code.push_str(super::policy::extra_variant_fields(name, &variant.name));
         code.push_str("}\n");
     }
     code.push_str(";\n");
