@@ -88,45 +88,49 @@ pub(crate) fn membership_upkeep(
             ));
         }
     }
-    // Types come from the committed registry, not a pending one: sender and
-    // receiver decode every update in a commit against the pre-commit
-    // registry, so a map delete for a type changed in this commit would be
-    // applied as a scalar replacement.
-    for (id, metadata) in registry.iter().flatten() {
-        let Some(snapshot) = state(&states, id) else {
-            continue;
-        };
-        let payload = match component_type(id)
-            .or(ComponentType::try_from(metadata.component_type).ok())
-        {
-            Some(ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString)
-                if id != ComponentId::GROUP_MEMBERSHIP =>
+    // Only a removal leaves anything to clean up; skip decoding every map.
+    if !removed.is_empty() {
+        // Types come from the committed registry, not a pending one: sender and
+        // receiver decode every update in a commit against the pre-commit
+        // registry, so a map delete for a type changed in this commit would be
+        // applied as a scalar replacement.
+        for (id, metadata) in registry.iter().flatten() {
+            let Some(snapshot) = state(&states, id) else {
+                continue;
+            };
+            let payload = match component_type(id)
+                .or(ComponentType::try_from(metadata.component_type).ok())
             {
-                let Ok(map) = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(snapshot) else {
-                    continue;
-                };
-                let delta = removed
-                    .iter()
-                    .filter(|inbox| map.contains_key(inbox))
-                    .fold(TlsMapDelta::<InboxId, VLBytes>::new(), |delta, inbox| {
-                        delta.delete(*inbox)
-                    });
-                (!delta.mutations.is_empty()).then(|| delta.tls_serialize_detached())
+                Some(ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString)
+                    if id != ComponentId::GROUP_MEMBERSHIP =>
+                {
+                    let Ok(map) = TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(snapshot)
+                    else {
+                        continue;
+                    };
+                    let delta = removed
+                        .iter()
+                        .filter(|inbox| map.contains_key(inbox))
+                        .fold(TlsMapDelta::<InboxId, VLBytes>::new(), |delta, inbox| {
+                            delta.delete(*inbox)
+                        });
+                    (!delta.mutations.is_empty()).then(|| delta.tls_serialize_detached())
+                }
+                _ if id == ComponentId::ADMIN_LIST => {
+                    let Ok(set) = TlsSet::<InboxId>::tls_deserialize_exact(snapshot) else {
+                        continue;
+                    };
+                    let delta = removed
+                        .iter()
+                        .filter(|inbox| set.contains(inbox))
+                        .fold(TlsSetDelta::new(), |delta, inbox| delta.remove(*inbox));
+                    (!delta.mutations.is_empty()).then(|| delta.tls_serialize_detached())
+                }
+                _ => None,
+            };
+            if let Some(payload) = payload {
+                candidates.push((id, payload?));
             }
-            _ if id == ComponentId::ADMIN_LIST => {
-                let Ok(set) = TlsSet::<InboxId>::tls_deserialize_exact(snapshot) else {
-                    continue;
-                };
-                let delta = removed
-                    .iter()
-                    .filter(|inbox| set.contains(inbox))
-                    .fold(TlsSetDelta::new(), |delta, inbox| delta.remove(*inbox));
-                (!delta.mutations.is_empty()).then(|| delta.tls_serialize_detached())
-            }
-            _ => None,
-        };
-        if let Some(payload) = payload {
-            candidates.push((id, payload?));
         }
     }
 
