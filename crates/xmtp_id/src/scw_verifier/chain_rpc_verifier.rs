@@ -1,6 +1,7 @@
 //! Interaction with [ERC-1271](https://eips.ethereum.org/EIPS/eip-1271) smart contracts.
 use crate::associations::AccountId;
-use crate::scw_verifier::SmartContractSignatureVerifier;
+use crate::scw_verifier::{BlockStamp, ChainBlocks, SmartContractSignatureVerifier};
+use alloy::eips::BlockNumberOrTag;
 use alloy::network::TransactionBuilder;
 use alloy::primitives::{Address, BlockNumber, Bytes, FixedBytes};
 use alloy::providers::{DynProvider, Provider, ProviderBuilder};
@@ -95,12 +96,44 @@ impl SmartContractSignatureVerifier for RpcSmartContractWalletVerifier {
     }
 }
 
+impl RpcSmartContractWalletVerifier {
+    /// The block at `number`, or a retryable error when the chain has none.
+    async fn block(&self, number: BlockNumberOrTag) -> Result<BlockStamp, VerifierError> {
+        let block =
+            self.provider
+                .get_block_by_number(number)
+                .await?
+                .ok_or(VerifierError::MissingBlock(
+                    number.as_number().unwrap_or_default(),
+                ))?;
+        Ok(BlockStamp {
+            number: block.header.number,
+            timestamp: block.header.timestamp,
+        })
+    }
+}
+
+/// One provider serves one chain, so the chain id is already resolved.
+#[xmtp_common::async_trait]
+impl ChainBlocks for RpcSmartContractWalletVerifier {
+    async fn head(&self, _: &str) -> Result<BlockStamp, VerifierError> {
+        self.block(BlockNumberOrTag::Latest).await
+    }
+
+    async fn timestamp(&self, _: &str, number: BlockNumber) -> Result<u64, VerifierError> {
+        Ok(self.block(number.into()).await?.timestamp)
+    }
+}
+
 // Anvil does not work with WASM
 // because its a wrapper over the system-binary
 #[cfg(all(test, not(target_arch = "wasm32")))]
 pub(crate) mod tests {
     #![allow(clippy::unwrap_used)]
-    use crate::utils::test::{SignatureWithNonce, SmartWalletContext, docker_smart_wallet};
+    use crate::utils::test::{
+        EthereumProvider, SignatureWithNonce, SmartWalletContext, docker_provider,
+        docker_smart_wallet,
+    };
 
     use super::*;
     use alloy::dyn_abi::SolType;
@@ -108,6 +141,41 @@ pub(crate) mod tests {
     use alloy::providers::ext::AnvilApi;
     use alloy::signers::Signer;
     use std::time::Duration;
+    use xmtp_common::RetryableError;
+
+    /// Admission freshness compares a signature's block with the head, so the
+    /// verifier must report the chain's own head and past block timestamps,
+    /// and a block the chain has not produced must be a retryable error rather
+    /// than a verdict on the signature.
+    #[rstest::rstest]
+    #[xmtp_common::timeout(Duration::from_secs(30))]
+    #[tokio::test]
+    async fn chain_blocks_report_the_head_and_past_timestamps(
+        #[future] docker_provider: EthereumProvider,
+    ) {
+        let provider = docker_provider.await.provider;
+        provider.anvil_mine(Some(2), Some(100)).await.unwrap();
+        let verifier = RpcSmartContractWalletVerifier::new_from_provider(provider.clone());
+        let head = verifier.head("eip155:31337").await.unwrap();
+        assert!(head.number <= provider.get_block_number().await.unwrap());
+        let block = provider
+            .get_block_by_number(head.number.into())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(head.timestamp, block.header.timestamp);
+        let earlier = verifier
+            .timestamp("eip155:31337", head.number - 1)
+            .await
+            .unwrap();
+        assert!(earlier <= head.timestamp);
+        let missing = verifier
+            .timestamp("eip155:31337", head.number + 1_000_000)
+            .await
+            .unwrap_err();
+        assert!(matches!(missing, VerifierError::MissingBlock(_)));
+        assert!(missing.is_retryable());
+    }
 
     #[rstest::rstest]
     #[xmtp_common::timeout(Duration::from_secs(30))]

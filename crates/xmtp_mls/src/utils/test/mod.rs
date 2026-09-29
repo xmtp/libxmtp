@@ -117,7 +117,7 @@ pub fn identity_setup(owner: impl InboxOwner) -> IdentityStrategy {
     let nonce = 1;
     let ident = owner.get_identifier().unwrap();
     let inbox_id = ident.inbox_id(nonce).unwrap();
-    IdentityStrategy::new(inbox_id, ident, nonce, None)
+    IdentityStrategy::new(inbox_id, ident, nonce)
 }
 
 /// wrapper over a `Notify` with a 60-second timeout for waiting

@@ -115,7 +115,6 @@ async fn new_client_inner(
         inbox_id,
         wallet.get_identifier()?,
         XDBG_ID_NONCE,
-        None,
     ))
     .api_client_with_streams(api)
     .store(db)

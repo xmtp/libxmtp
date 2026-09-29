@@ -12,6 +12,7 @@ impl GroupMessageProcessingError {
         match self {
             Self::CorruptIncomingEnvelope(_) => "corrupt_incoming_envelope",
             Self::UnsupportedMlsVersion => "unsupported_mls_version",
+            Self::LostProposalState => "lost_proposal_state",
             Self::GroupPaused => "unsupported_protocol_version",
             Self::GroupInactive => "group_inactive",
             Self::IncomingHeadChanged => "incoming_head_changed",
@@ -62,6 +63,25 @@ impl GroupMessageProcessingError {
             _ => false,
         }
     }
+
+    /// True when staging failed because a committed proposal reference is not
+    /// in the local proposal store. Only the durable prefix evidence can say
+    /// whether the prefix never carried it or local state lost it.
+    pub(crate) fn is_missing_proposal(&self) -> bool {
+        use ProcessMessageWithAppDataError::{OpenMls, ResolveAppDataCommit};
+        use openmls::group::ResolveAppDataCommitError::StageCommit;
+        match self {
+            Self::OpenMlsProcessMessage(error)
+            | Self::OpenMlsProcessMessageWithAppData(OpenMls(error)) => matches!(
+                error,
+                ProcessMessageError::InvalidCommit(StageCommitError::MissingProposal)
+            ),
+            Self::OpenMlsProcessMessageWithAppData(ResolveAppDataCommit(StageCommit(error))) => {
+                matches!(error, StageCommitError::MissingProposal)
+            }
+            _ => false,
+        }
+    }
 }
 
 fn rejected_mls_input(error: &ProcessMessageError<SqlKeyStoreError>) -> bool {
@@ -97,7 +117,7 @@ fn rejected_commit(error: &StageCommitError) -> bool {
         StageCommitError::LibraryError(_)
         | StageCommitError::OwnKeyNotFound
         | StageCommitError::MissingDecryptionKey => false,
-        // An absent proposal cannot arrive before a complete ordered prefix.
+        // Terminal only once `is_missing_proposal` has ruled out lost local state.
         StageCommitError::MissingProposal
         | StageCommitError::EpochMismatch
         | StageCommitError::OwnCommitMismatch

@@ -502,6 +502,12 @@ mock! {
             msg_id: &MessageId,
         ) -> Result<usize, crate::ConnectionError>;
 
+        #[mockall::concretize]
+        fn set_failed_delivery_status_to_unpublished<MessageId: AsRef<[u8]>>(
+            &self,
+            msg_id: &MessageId,
+        ) -> Result<usize, crate::ConnectionError>;
+
         fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
         fn min_expire_at_ns(&self) -> Result<Option<i64>, crate::ConnectionError>;

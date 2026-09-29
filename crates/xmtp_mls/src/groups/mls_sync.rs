@@ -159,7 +159,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         })
     }
 
-    fn emit_message_status_changed(
+    pub(in crate::groups) fn emit_message_status_changed(
         &self,
         message_id: Vec<u8>,
         previous: xmtp_events::MessageStatus,
@@ -278,6 +278,11 @@ pub enum GroupMessageProcessingError {
     /// The MLS wire version is not supported. Keep this envelope pending.
     #[error("unsupported MLS wire version")]
     UnsupportedMlsVersion,
+    /// A commit names a proposal the ordered prefix delivered, but the local
+    /// proposal store no longer holds it. This is lost local state, not
+    /// evidence that the commit is invalid, so the head is held.
+    #[error("a committed proposal was received but is missing from local state")]
+    LostProposalState,
     /// Supported envelope framing fails validation after its complete prefix.
     #[error(transparent)]
     Envelope(xmtp_api_backend::envelope::EnvelopeError),
@@ -412,6 +417,7 @@ impl RetryableError for GroupMessageProcessingError {
             Self::PreparedAttempt(error) => error.is_retryable(),
             Self::CorruptIncomingEnvelope(_)
             | Self::UnsupportedMlsVersion
+            | Self::LostProposalState
             | Self::Envelope(_)
             | Self::OwnMessageWithoutAttempt
             | Self::UnsupportedOwnIntentKind(_) => false,

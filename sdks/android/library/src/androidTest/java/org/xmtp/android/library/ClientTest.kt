@@ -1032,7 +1032,6 @@ class ClientTest : BaseInstrumentedTest() {
                     accountIdentifier = wallet.publicIdentity.ffiPrivate,
                     inboxId = generateInboxId(wallet.publicIdentity.ffiPrivate, 0uL),
                     nonce = 0uL,
-                    legacySignedPrivateKeyProto = null,
                     deviceSyncMode = FfiDeviceSyncMode.DISABLED,
                     allowOffline = false,
                     forkRecoveryOpts = null,

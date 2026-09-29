@@ -1,6 +1,9 @@
 use super::GroupError;
 use xmtp_common::{Retry, retry_async};
-use xmtp_proto::types::{DecryptedWelcomePointer, WelcomeMessageType, WelcomeMessageV1};
+use xmtp_proto::{
+    types::{DecryptedWelcomePointer, WelcomeMessageType, WelcomeMessageV1},
+    xmtp::mls::message_contents::WelcomeWrapperAlgorithm,
+};
 
 /// Returns none if the welcome pointer is not found
 pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>(
@@ -46,7 +49,19 @@ pub async fn resolve_welcome_pointer<Context: crate::context::XmtpSharedContext>
     // These failure modes are non-retryable and will end up incrementing
     // the cursor and will prevent the welcome message from being retried.
     match welcome.variant {
-        WelcomeMessageType::V1(v1) => Ok(Some(v1)),
+        // implements: JOIN-056
+        // The envelope decoder already bound installation_key to the destination topic.
+        WelcomeMessageType::V1(v1)
+            if v1.wrapper_algorithm == WelcomeWrapperAlgorithm::SymmetricKey =>
+        {
+            Ok(Some(v1))
+        }
+        WelcomeMessageType::V1(v1) => Err(xmtp_proto::ConversionError::InvalidValue {
+            item: "WelcomePointee.wrapper_algorithm",
+            expected: "SymmetricKey",
+            got: format!("{:?}", v1.wrapper_algorithm),
+        }
+        .into()),
         WelcomeMessageType::WelcomePointer(_) => {
             tracing::warn!("Got Another welcome pointer from a welcome pointer. Ignoring.");
             Err(xmtp_proto::ConversionError::InvalidValue {

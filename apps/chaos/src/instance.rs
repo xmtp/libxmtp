@@ -502,7 +502,7 @@ pub(crate) async fn run(config_path: &std::path::Path) -> Result<()> {
     let store = ChaosStore::new(fault_db)?;
     let api =
         BackendClient::new(xmtp_api_grpc::GrpcClient::create(config.endpoint.parse()?)?.arced());
-    let client = Client::builder(IdentityStrategy::new(inbox, identifier, 0, None))
+    let client = Client::builder(IdentityStrategy::new(inbox, identifier, 0))
         .api_client_with_streams(Arc::new(api))
         .store(store)
         .default_mls_store()?
