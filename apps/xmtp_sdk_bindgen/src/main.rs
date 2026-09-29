@@ -8,7 +8,6 @@ mod kotlin_records;
 mod nullable_identity;
 mod public_projection;
 mod reader_defaults;
-mod single_load;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -240,9 +239,6 @@ fn generate(
             if matches!(language, Language::TypescriptNapi) {
                 let exports = public_node_exports(&fs::read_to_string(&binding)?, &source);
                 source = source.replace("export * from './xmtp_sdk';", &exports);
-                // The native library is process-wide; the browser worker gets
-                // its own WASM instance per package copy, so it needs no guard.
-                source = single_load::guard(&source)?;
             }
             fs::write(index, source)?;
             if is_wasm && !pure_only {
@@ -421,7 +417,7 @@ fn public_node_exports(binding: &str, index: &str) -> String {
                 .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
                 .next()
                 .unwrap_or("");
-            if name != "setLogSinkQueued" && name != "sdkClaimJsHost" && !overrides.contains(name) {
+            if name != "setLogSinkQueued" && !overrides.contains(name) {
                 if matches!(kind, Some("interface" | "type")) {
                     types.insert(name.to_owned());
                 } else {

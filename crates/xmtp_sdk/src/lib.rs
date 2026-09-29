@@ -158,18 +158,6 @@ pub fn sdk_version() -> String {
     env!("CARGO_PKG_VERSION").to_owned()
 }
 
-/// Claim this process for one JavaScript host copy. The Node package calls it
-/// once when it loads, before it registers its callback tables. The tables
-/// are process-wide, and every worker thread and every package copy loads
-/// its own JavaScript module, so only the first caller in the process gets
-/// `true`. Other hosts do not call it.
-#[cfg(not(feature = "pure-only"))]
-#[xmtp_macro::sdk_export(native_only)]
-pub fn sdk_claim_js_host() -> bool {
-    static CLAIMED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    !CLAIMED.swap(true, std::sync::atomic::Ordering::SeqCst)
-}
-
 /// An empty asynchronous call for measuring FFI scheduling cost.
 #[cfg(all(feature = "bench", not(feature = "pure-only")))]
 #[xmtp_macro::sdk_export]

@@ -24,8 +24,8 @@ const HOST_CLIENT_MEMBERS: &[&str] = &[
     "stopListener",
 ];
 
-/// Functions that the host runtime replaces or calls internally.
-const HOST_FUNCTIONS: &[&str] = &["setLogSink", "setLogSinkQueued", "sdkClaimJsHost"];
+/// Functions that the host runtime replaces.
+const HOST_FUNCTIONS: &[&str] = &["setLogSink", "setLogSinkQueued"];
 
 /// Guards that route one membership parameter. An empty list uses inbox IDs.
 /// A list that mixes inbox IDs and account identities fails before any call.
