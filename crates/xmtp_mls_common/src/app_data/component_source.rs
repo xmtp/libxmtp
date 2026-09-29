@@ -557,12 +557,17 @@ pub fn expand_app_data_update_to_changes(
 /// first-insert path for immutable seeds, so this layer must allow
 /// an `Update` whose `old_value` is `None`. The bootstrap validator
 /// catches malicious initial values upstream via byte-compare.
+///
+/// A bounded component's payload is held to the element bound before
+/// anything else, so the result does not depend on the state it applies
+/// to; the new value is then held to the snapshot bound.
 pub fn apply_app_data_update_payload(
     id: ComponentId,
     payload: &[u8],
     old_value: Option<&[u8]>,
     registry: &ComponentRegistry,
 ) -> Result<Vec<u8>, ComponentSourceError> {
+    check_update_payload_bounds(id, payload, registry)?;
     // Immutability gate. Reject only on overwrite — a fresh insert
     // (no prior value) is the bootstrap commit's first write of an
     // immutable seed and must succeed for honest receivers to reach
@@ -617,11 +622,11 @@ fn is_field_bounded(id: ComponentId) -> bool {
 
 /// Reject an `AppDataUpdate::Update` payload for component `id` that names
 /// a scalar, collection key, or collection value longer than
-/// [`MAX_FIELD_ELEMENT_BYTES`], including the key of a removal. Unlike [`apply_app_data_update_payload`],
-/// this reads only the payload, so it holds whatever state the update is
-/// later applied to.
+/// [`MAX_FIELD_ELEMENT_BYTES`], including one that a later mutation of the
+/// same payload removes and the key of a removal. It reads only the payload,
+/// so it holds whatever state the update is applied to.
 // implements: META-068
-pub fn check_update_payload_bounds(
+fn check_update_payload_bounds(
     id: ComponentId,
     payload: &[u8],
     registry: &ComponentRegistry,
@@ -2579,6 +2584,53 @@ mod tests {
                 ..
             })
         ));
+    }
+
+    /// An element over the bound is refused even when a later mutation of
+    /// the same payload removes it, so the final value cannot hide it.
+    // verifies: META-068
+    #[xmtp_common::test(unwrap_try = true)]
+    fn apply_bounds_elements_that_the_payload_later_removes() {
+        let set = ComponentId::new(0xC06D);
+        let map = ComponentId::new(0xC06E);
+        let over = || bytes(MAX_FIELD_ELEMENT_BYTES + 1);
+        let apply = |id, payload: Vec<u8>, ty| {
+            apply_app_data_update_payload(id, &payload, None, &registry_with(id, ty))
+        };
+        let exceeded = |result| {
+            matches!(
+                result,
+                Err(ComponentSourceError::FieldBoundExceeded { len: 8193, .. })
+            )
+        };
+
+        let set_payload = TlsSetDelta::<VLBytes>::new()
+            .insert(over())
+            .remove(over())
+            .tls_serialize_detached()?;
+        assert!(exceeded(apply(
+            set,
+            set_payload,
+            ComponentType::TlsSetBytes
+        )));
+        let value_payload = TlsMapDelta::<VLBytes, VLBytes>::new()
+            .insert(bytes(1), over())
+            .delete(bytes(1))
+            .tls_serialize_detached()?;
+        assert!(exceeded(apply(
+            map,
+            value_payload,
+            ComponentType::TlsMapBytesBytes
+        )));
+        let key_payload = TlsMapDelta::<VLBytes, VLBytes>::new()
+            .insert(over(), bytes(1))
+            .delete(over())
+            .tls_serialize_detached()?;
+        assert!(exceeded(apply(
+            map,
+            key_payload,
+            ComponentType::TlsMapBytesBytes
+        )));
     }
 
     /// A registry entry padded to `len` bytes by an unknown protobuf field,

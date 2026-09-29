@@ -1278,6 +1278,47 @@ fn dm_participant_cannot_grow_registry_past_snapshot_bound() {
     ));
 }
 
+/// A commit cannot carry an oversized map value by deleting it later in the
+/// same payload: element bounds hold for every value the payload names, not
+/// only those left in the final snapshot.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn commit_rejects_oversized_value_that_the_payload_later_deletes() {
+    let registry = registry_with(
+        PROFILE,
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let commit = |len: usize| {
+        let payload = TlsMapDelta::<VLBytes, VLBytes>::new()
+            .insert(VLBytes::new(b"k".to_vec()), VLBytes::new(vec![0; len]))
+            .delete(VLBytes::new(b"k".to_vec()))
+            .tls_serialize_detached()
+            .unwrap();
+        let operation = AppDataUpdateOperation::Update(payload.into());
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: PROFILE,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }],
+            |_| None,
+            &registry,
+            None,
+            None,
+        )
+        .map(drop)
+    };
+    commit(8192)?;
+    assert!(matches!(
+        commit(8193),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
 /// A standalone proposal whose value is over a field bound is refused on
 /// receipt, so members cannot fill each other's proposal stores with
 /// values that no commit may carry.

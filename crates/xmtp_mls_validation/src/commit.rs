@@ -672,8 +672,10 @@ pub fn validate_one_app_data_update(
 /// Pure core of [`validate_one_app_data_update`]: the policy checks, then
 /// the field bounds, so an oversized proposal is never stored.
 ///
-/// Element bounds are judged on the payload alone; the snapshot bound on the
-/// committed state. Other apply failures are left to commit validation,
+/// Element bounds are judged on the payload alone (see
+/// [`apply_app_data_update_payload`](xmtp_mls_common::app_data::component_source::apply_app_data_update_payload));
+/// the snapshot bound on the committed
+/// state. Other apply failures are left to commit validation,
 /// because a commit may order other proposals ahead of this one and change
 /// the state it applies to.
 // implements: META-068
@@ -690,7 +692,7 @@ pub(crate) fn validate_standalone_app_data_update(
 ) -> Result<(), CommitRuleError> {
     use openmls::messages::proposals::AppDataUpdateOperation;
     use xmtp_mls_common::app_data::component_source::{
-        ComponentSourceError, apply_app_data_update_payload, check_update_payload_bounds,
+        ComponentSourceError, apply_app_data_update_payload,
     };
 
     validate_one_app_data_update_with_old_value(
@@ -706,9 +708,7 @@ pub(crate) fn validate_standalone_app_data_update(
     let AppDataUpdateOperation::Update(payload) = operation else {
         return Ok(());
     };
-    match check_update_payload_bounds(component_id, payload.as_slice(), registry).and_then(|()| {
-        apply_app_data_update_payload(component_id, payload.as_slice(), old_value, registry)
-    }) {
+    match apply_app_data_update_payload(component_id, payload.as_slice(), old_value, registry) {
         Err(ComponentSourceError::FieldBoundExceeded { .. }) => {
             Err(CommitRuleError::InsufficientPermissions)
         }
