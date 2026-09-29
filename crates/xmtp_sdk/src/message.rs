@@ -1,8 +1,7 @@
 use prost::Message as _;
 use xmtp_content_types::{ContentCodec, reply::ReplyCodec};
 use xmtp_db::group_message::{
-    ContentType as StoredContentType, DeliveryStatus as StoredDeliveryStatus, GroupMessageKind,
-    StoredGroupMessage,
+    DeliveryStatus as StoredDeliveryStatus, GroupMessageKind, StoredGroupMessage,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
@@ -84,18 +83,6 @@ pub enum MessageBody {
     Unknown { encoded: SdkEncodedContent },
 }
 
-fn core_decodes_standard(content: &EncodedContent) -> bool {
-    let Some(kind) = content.r#type.as_ref() else {
-        return false;
-    };
-    !matches!(
-        StoredContentType::from_identifier(&kind.authority_id, &kind.type_id, kind.version_major,),
-        StoredContentType::Unknown
-            | StoredContentType::GroupMembershipChange
-            | StoredContentType::DeleteMessage
-    )
-}
-
 fn has_complete_type(content: &EncodedContent) -> bool {
     content
         .r#type
@@ -167,7 +154,7 @@ impl MessageContent {
                 }))
             }
             CoreBody::Custom(value) => Ok(Self::Custom {
-                encoded: value.into(),
+                encoded: value.encoded.into(),
                 raw_bytes: raw_bytes.to_vec(),
             }),
             _ => Ok(Self::Unknown {
@@ -204,21 +191,11 @@ impl MessageBody {
                     deleted_by: deleted_by.try_into()?,
                 })
             }
-            CoreBody::Custom(value) => {
-                if !has_complete_type(&value) {
-                    return Err(XmtpError::invalid(
-                        "nested content type identifier is incomplete",
-                    ));
-                }
-                if core_decodes_standard(&value) || value.compression.is_some() {
-                    return Err(XmtpError::invalid(
-                        "nested standard content failed to decode",
-                    ));
-                }
-                Self::Custom {
-                    encoded: value.into(),
-                }
-            }
+            // Core returns Custom only for a complete typed, decompressed
+            // envelope; a nested failure makes the outer body undecodable.
+            CoreBody::Custom(value) => Self::Custom {
+                encoded: value.encoded.into(),
+            },
             _ => Self::Unknown { encoded },
         })
     }
@@ -345,15 +322,6 @@ impl Message {
         let content = encoded
             .clone()
             .map(|content| match decoded {
-                Some(xmtp_mls::messages::decoded_message::MessageBody::Custom(
-                    ref core_content,
-                )) if !has_complete_type(&content)
-                    || core_decodes_standard(&content)
-                    || core_content.compression.is_some() =>
-                {
-                    // Core also uses Custom when a standard decode fails.
-                    MessageContent::decode_proto(content, message_bytes)
-                }
                 Some(body) => MessageContent::from_core(body, content, message_bytes),
                 None => MessageContent::decode_proto(content, message_bytes),
             })

@@ -286,10 +286,7 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
     /// Read and enrich the queued item without starting dispatch or hiding storage errors.
     /// The host must still call `check_owner` immediately before its handoff.
     pub fn enriched_message(&self) -> Result<crate::messages::decoded_message::DecodedMessage> {
-        use crate::messages::{
-            decoded_message::DecodedMessage,
-            enrichment::{EnrichMessageError, enrich_messages},
-        };
+        use crate::messages::enrichment::{EnrichMessageError, enrich_messages};
         use xmtp_db::group_message::QueryGroupMessage;
         let result = (|| {
             self.check_dispatch(false)?;
@@ -304,15 +301,12 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
                     return Err(LocalDeliveryError::EnrichedMessageUnavailable);
                 }
             };
-            // Enrichment filters failed decodes. Validate this required item first
-            // so a codec error cannot become an empty successful read.
-            DecodedMessage::try_from(message.clone()).map_err(LocalDeliveryError::Enrichment)?;
+            // Content that fails to decode is delivered as an undecodable
+            // body; only a database failure stops the read.
+            // implements: CTYPE-008
             let mut messages = enrich_messages(db, &self.group_id, vec![message]).map_err(
-                |error| match error {
-                    EnrichMessageError::DbConnection(error) => {
-                        LocalDeliveryError::Storage(StorageError::Connection(error))
-                    }
-                    error => LocalDeliveryError::Enrichment(error),
+                |EnrichMessageError::DbConnection(error)| {
+                    LocalDeliveryError::Storage(StorageError::Connection(error))
                 },
             )?;
             messages

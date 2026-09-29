@@ -14,8 +14,8 @@ use xmtp_content_types::{
 };
 use xmtp_db::group_message::{DeliveryStatus, GroupMessageKind};
 use xmtp_mls::messages::decoded_message::{
-    DecodedMessage, DecodedMessageMetadata, DeletedBy, Markdown, MessageBody,
-    Reply as ProcessedReply, Text,
+    ContentDecodeFailureKind, DecodedMessage, DecodedMessageMetadata, DeletedBy, Markdown,
+    MessageBody, Reply as ProcessedReply, Text, UndecodableContent,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     ContentTypeId, EncodedContent, GroupUpdated, group_updated::MetadataFieldChange,
@@ -58,6 +58,55 @@ pub enum FfiDecodedMessageBody {
     LeaveRequest(FfiLeaveRequest),
     DeletedMessage(FfiDeletedMessage),
     Custom(FfiEncodedContent),
+    /// Content that failed to decode, kept with its exact bytes.
+    Undecodable(FfiUndecodableContent),
+}
+
+/// Why received content could not be decoded.
+#[derive(uniffi::Enum, Clone, Debug, PartialEq)]
+pub enum FfiContentDecodeFailureKind {
+    /// Not a typed `EncodedContent`: unparseable bytes or an absent or incomplete type.
+    MalformedEnvelope,
+    /// A typed envelope whose compression, payload, or nested content failed to decode.
+    CodecDecodeFailed,
+}
+
+/// Received content the client could not decode. The exact bytes, the
+/// identifier and fallback the envelope carried, and the typed cause.
+#[derive(uniffi::Record, Clone, Debug, PartialEq)]
+pub struct FfiUndecodableContent {
+    /// The exact received bytes of the serialized envelope.
+    pub raw_bytes: Vec<u8>,
+    /// The received identifier, when the envelope parsed and carried one. It
+    /// can be incomplete. `content_type_id()` on the message reports an empty
+    /// identifier for this case; this field is the authoritative value.
+    pub content_type: Option<FfiContentTypeId>,
+    pub fallback: Option<String>,
+    pub failure_kind: FfiContentDecodeFailureKind,
+    pub failure_message: String,
+}
+
+impl From<UndecodableContent> for FfiUndecodableContent {
+    fn from(content: UndecodableContent) -> Self {
+        let envelope = content.encoded;
+        FfiUndecodableContent {
+            raw_bytes: content.raw_bytes,
+            content_type: envelope
+                .as_ref()
+                .and_then(|envelope| envelope.r#type.clone())
+                .map(Into::into),
+            fallback: envelope.and_then(|envelope| envelope.fallback),
+            failure_kind: match content.failure.kind {
+                ContentDecodeFailureKind::MalformedEnvelope => {
+                    FfiContentDecodeFailureKind::MalformedEnvelope
+                }
+                ContentDecodeFailureKind::CodecDecodeFailed => {
+                    FfiContentDecodeFailureKind::CodecDecodeFailed
+                }
+            },
+            failure_message: content.failure.message,
+        }
+    }
 }
 
 // Wrap text content in a struct to be consistent with other content types
@@ -403,6 +452,8 @@ pub enum FfiDecodedMessageContent {
     LeaveRequest(FfiLeaveRequest),
     DeletedMessage(FfiDeletedMessage),
     Custom(FfiEncodedContent),
+    /// Content that failed to decode, kept with its exact bytes.
+    Undecodable(FfiUndecodableContent),
 }
 
 // Individual From implementations for each content type
@@ -1023,7 +1074,10 @@ impl From<DecodedMessageMetadata> for FfiDecodedMessageMetadata {
             sender_installation_id: metadata.sender_installation_id,
             conversation_id: metadata.group_id.to_vec(),
             sender_inbox_id: metadata.sender_inbox_id,
-            content_type: metadata.content_type.into(),
+            // This legacy field is required. An absent received identifier
+            // becomes an empty one here; `FfiUndecodableContent.content_type`
+            // carries the true optional value.
+            content_type: metadata.content_type.unwrap_or_default().into(),
             inserted_at_ns: metadata.inserted_at_ns,
             expires_at_ns: metadata.expires_at_ns,
         }
@@ -1104,7 +1158,10 @@ impl From<MessageBody> for FfiDecodedMessageContent {
                     deleted_by: deleted_by.into(),
                 })
             }
-            MessageBody::Custom(encoded) => FfiDecodedMessageContent::Custom(encoded.into()),
+            MessageBody::Custom(custom) => FfiDecodedMessageContent::Custom(custom.encoded.into()),
+            MessageBody::Undecodable(content) => {
+                FfiDecodedMessageContent::Undecodable(content.into())
+            }
         }
     }
 }
@@ -1178,7 +1235,10 @@ pub fn content_to_optional_body(content: MessageBody) -> Option<FfiDecodedMessag
                 deleted_by: deleted_by.into(),
             }))
         }
-        MessageBody::Custom(encoded) => Some(FfiDecodedMessageBody::Custom(encoded.into())),
+        MessageBody::Custom(custom) => Some(FfiDecodedMessageBody::Custom(custom.encoded.into())),
+        MessageBody::Undecodable(content) => {
+            Some(FfiDecodedMessageBody::Undecodable(content.into()))
+        }
     }
 }
 

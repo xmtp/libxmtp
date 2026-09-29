@@ -578,12 +578,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The core reply decoder returns Custom for an unrecognized nested type instead of an unknown body that keeps the nested EncodedContent."
 
 [[waiver]]
-id = "CTYPE-028"
-kind = "untested"
-owner = "protocol"
-reason = "ReplyCodec::decode and MessageBody::decode_with_budget in crates/xmtp_mls decode the nested EncodedContent type without using the outer contentType parameter; no conflict test proves this."
-
-[[waiver]]
 id = "CTYPE-029"
 kind = "gap"
 owner = "protocol"

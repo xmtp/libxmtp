@@ -146,9 +146,7 @@ impl StreamMessages for Subscription<InternalEvent> {
             }
         })
         .flatten()
-        // let caller handle any potential decode failures
-        // this should be rare since the message already in db
-        .map(|m| DecodedMessage::try_from(m).map_err(Into::into))
+        .map(|m| Ok(DecodedMessage::from(m)))
     }
 }
 
