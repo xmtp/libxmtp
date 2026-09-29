@@ -11,7 +11,7 @@ use std::{
 };
 use xmtp_common::{RetryableError, time::Instant};
 use xmtp_db::{
-    group::GroupQueryArgs,
+    group::{GroupMembershipState, GroupQueryArgs},
     incoming_envelope::{NetworkEntityKind, StreamTopic},
     prelude::*,
 };
@@ -388,6 +388,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 })
                 .map_err(|error| IncomingError::Storage(error.into()))?
                 .into_iter()
+                // A Restored archive placeholder is inert until a Welcome activates it.
+                // implements: PROC-051
+                .filter(|group| group.membership_state != GroupMembershipState::Restored)
                 .map(|group| Topic::new_group_message(group.id))
                 .collect::<HashSet<_>>()
         } else {
@@ -425,7 +428,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     }
                 }
             }
-            scope.topics = match &scope.scope {
+            let topics: HashSet<_> = match &scope.scope {
                 ScopeKind::Topics(topics) => topics.iter().cloned().collect(),
                 ScopeKind::Groups(groups) => groups.iter().map(Topic::new_group_message).collect(),
                 ScopeKind::Barrier { .. } => scope.targets.keys().cloned().collect(),
@@ -444,6 +447,34 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     )))
                     .collect(),
             };
+            // Explicit groups check activity above, and discovery leaves out Restored groups.
+            // implements: PROC-051
+            if !matches!(scope.scope, ScopeKind::Groups(_) | ScopeKind::AllGroups) {
+                for topic in topics.difference(&scope.topics) {
+                    if topic.kind() != TopicKind::GroupMessagesV1 {
+                        continue;
+                    }
+                    let Ok(group_id) = GroupId::try_from(topic.identifier()) else {
+                        continue;
+                    };
+                    let restored = self
+                        .context
+                        .db()
+                        .find_group(&group_id)
+                        .map_err(|error| IncomingError::Storage(error.into()))?
+                        .is_some_and(|group| {
+                            group.membership_state == GroupMembershipState::Restored
+                        });
+                    if restored {
+                        self.topics
+                            .entry(topic.clone())
+                            .or_default()
+                            .processing
+                            .retired = true;
+                    }
+                }
+            }
+            scope.topics = topics;
             scope
                 .targets
                 .retain(|topic, _| scope.topics.contains(topic));
