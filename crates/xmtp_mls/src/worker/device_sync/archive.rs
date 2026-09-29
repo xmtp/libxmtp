@@ -85,7 +85,7 @@ where
         Ok(())
     }
     .await;
-    // Completed elements stay after a later failure (ARCH-021), so apply the
+    // Completed elements stay after a later failure, so apply the
     // archived activity of every accepted group on both outcomes. The import
     // error, if any, is the one reported.
     let flushed = import_ctx.post_import(context);
@@ -835,7 +835,7 @@ mod tests {
         assert!(alix.db().get_group_message(&save.id)?.is_none());
     }
 
-    /// A DM restored before a DMS-015 rejection is a completed element. Its
+    /// A DM restored before an outside-sender rejection is a completed element. Its
     /// archived activity must survive the failed import, even when no
     /// retained message carries that timestamp.
     // verifies: DMS-015, ARCH-021
