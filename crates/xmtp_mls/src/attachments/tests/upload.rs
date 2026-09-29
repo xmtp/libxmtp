@@ -1059,13 +1059,20 @@ fn causes_map() {
             Cause::BackendRejected
         );
     }
-    let unavailable = ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
-        tonic::Status::unavailable("offline"),
-    ));
-    assert_eq!(
-        api_error(xmtp_api::dyn_err(unavailable)).cause,
-        Cause::BackendUnavailable
-    );
+    // FAILED_PRECONDITION and INTERNAL clear when the operator corrects the backend.
+    for code in [
+        tonic::Code::Unavailable,
+        tonic::Code::FailedPrecondition,
+        tonic::Code::Internal,
+    ] {
+        let unavailable = ApiClientError::client(xmtp_api_grpc::error::GrpcError::Status(
+            tonic::Status::new(code, "not signed"),
+        ));
+        assert_eq!(
+            api_error(xmtp_api::dyn_err(unavailable)).cause,
+            Cause::BackendUnavailable
+        );
+    }
     let target = AttachmentClientError::from(AttachmentError::new(Cause::TargetRejected));
     assert_eq!(target.cause, Cause::TargetRejected);
 }
