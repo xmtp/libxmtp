@@ -798,7 +798,7 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
         },
         state_tx::state_write,
     };
-    use openmls::prelude::tls_codec::Serialize;
+    use openmls::{messages::proposals::AppDataUpdateOperation, prelude::tls_codec::Serialize};
     use xmtp_db::TransactionOutcome::Continue;
     use xmtp_mls_common::{
         app_data::{
@@ -832,12 +832,13 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
     assert_eq!(alix_group.super_admin_list()?.len(), 2);
     assert_eq!(bo_group.super_admin_list()?.len(), 2);
 
-    let remove = |inbox_id: &str| -> Result<Vec<u8>, crate::groups::GroupError> {
+    let remove = |inbox_id: &str| -> Result<AppDataUpdateOperation, crate::groups::GroupError> {
         let inbox_id = InboxId::from_hex(inbox_id)
             .map_err(|error| crate::groups::GroupError::ComponentSource(error.into()))?;
         let delta = TlsSetDelta::new().remove(inbox_id);
-        <SuperAdminListComponent as Component>::encode_mutation(&delta)
-            .map_err(|error| crate::groups::GroupError::ComponentSource(error.into()))
+        let payload = <SuperAdminListComponent as Component>::encode_mutation(&delta)
+            .map_err(|error| crate::groups::GroupError::ComponentSource(error.into()))?;
+        Ok(AppDataUpdateOperation::Update(payload.into()))
     };
     let updates = vec![
         (ComponentId::SUPER_ADMIN_LIST, remove(alix.inbox_id())?),

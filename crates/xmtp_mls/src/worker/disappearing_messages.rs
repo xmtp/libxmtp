@@ -200,9 +200,8 @@ mod tests {
             .events()
             .subscribe_app(EventFilter::new([EventKind::MessageExpired]))?;
         let message_id = group.send_message(b"expires", Default::default()).await?;
+        wait_until_expired(&alix.context, &message_id).await;
         let db = alix.context.db();
-        let stored = db.get_group_message(&message_id)?.unwrap();
-        assert!(stored.expire_at_ns.is_some_and(|expiry| expiry <= now_ns()));
 
         let mut worker = DisappearingMessagesWorker::new(alix.context.clone());
         worker.delete_expired_messages().await?;

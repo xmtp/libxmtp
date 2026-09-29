@@ -136,6 +136,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     CommitRuleError::InsufficientPermissions
                                 )) | GroupError::InvalidGroupMembership
                                     | GroupError::InvalidPublicKeys(_)
+                                    | GroupError::MetadataField(_)
                                     // A malformed inbox id fails every attempt.
                                     // Earlier builds queued admin-list intents
                                     // without parsing the inbox id.
@@ -632,10 +633,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 // commit that references it. Both wire messages go in one
                 // publish batch, with the proposal first.
                 use crate::groups::app_data::stage_app_data_propose_and_commit;
-                use xmtp_mls_common::app_data::component_source::{
-                    ComponentMutation, encode_app_data_update_payload,
-                    metadata_field_to_component_id,
-                };
+                use xmtp_mls_common::app_data::component_source::metadata_field_to_component_id;
 
                 let component_id = metadata_field_to_component_id(&metadata_intent.field_name)
                     .ok_or_else(|| {
@@ -644,15 +642,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         ))
                     })?;
 
-                let value = xmtp_mls_common::app_data::creation::encode_metadata_attribute_value(
+                let payload = xmtp_mls_common::app_data::creation::encode_metadata_attribute_value(
                     component_id,
                     &metadata_intent.field_value,
                 )
                 .map_err(crate::groups::app_data::migration::BootstrapSynthesisError::from)?;
-                let payload = encode_app_data_update_payload(&ComponentMutation::Bytes {
-                    component_id,
-                    new_value: &value,
-                })?;
 
                 let signer = self.context.identity().installation_keys.clone();
                 let catalogue = &self
@@ -906,21 +900,21 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let intent_data = crate::groups::intents::AppDataUpdateIntentData::try_from(
                     intent.data.as_slice(),
                 )?;
-                let signer = self.context.identity().installation_keys.clone();
-                let publish =
-                    crate::groups::app_data::sender_intents::apply_app_data_update_intent(
-                        storage,
-                        openmls_group,
-                        intent_data,
-                        &self
-                            .context
-                            .server_configuration()
-                            .configuration()
-                            .application_components,
-                        signer,
-                        intent.should_push,
-                    )?;
-                Ok(Some(publish))
+                let own = xmtp_mls_common::inbox_id::InboxId::from_hex(self.context.inbox_id())
+                    .map_err(|e| GroupError::ComponentSource(e.into()))?;
+                crate::groups::app_data::sender_intents::apply_app_data_update_intent(
+                    storage,
+                    openmls_group,
+                    intent_data,
+                    own,
+                    &self
+                        .context
+                        .server_configuration()
+                        .configuration()
+                        .application_components,
+                    self.context.identity().installation_keys.clone(),
+                    intent.should_push,
+                )
             }
             IntentKind::CommitPendingProposals => {
                 let _intent_data =
