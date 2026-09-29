@@ -184,7 +184,7 @@ impl ParameterEntry {
                     };
                     match self.state {
                         EntryState::Tag => {
-                            if value == 0 || value >> 3 == 0 {
+                            if value >> 3 == 0 || value > u64::from(u32::MAX) {
                                 return Err(invalid());
                             }
                             let field = value >> 3;
@@ -368,7 +368,7 @@ impl AttachmentDecoder {
                     };
                     match self.state {
                         ParseState::Tag => {
-                            if value == 0 || value >> 3 == 0 {
+                            if value >> 3 == 0 || value > u64::from(u32::MAX) {
                                 return Err(invalid());
                             }
                             let field = value >> 3;
@@ -1090,6 +1090,40 @@ mod tests {
                 );
             }
         }
+    }
+
+    // verifies: ATCH-051
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn protobuf_keys_above_u32_are_rejected() {
+        // Field number 2^32 with wire type 0: the key does not fit in 32 bits.
+        let oversized_key = 1u64 << 35;
+
+        let mut entry = Vec::new();
+        for (field, value) in [(0x0a, "filename"), (0x12, "report.pdf")] {
+            entry.push(field);
+            encode_varint(value.len() as u64, &mut entry);
+            entry.extend_from_slice(value.as_bytes());
+        }
+        encode_varint(oversized_key, &mut entry);
+        entry.push(0);
+        let mut in_entry = envelope(b"content".to_vec()).encode_to_vec();
+        in_entry.push(0x12);
+        encode_varint(entry.len() as u64, &mut in_entry);
+        in_entry.extend_from_slice(&entry);
+        assert!(EncodedContent::decode(in_entry.as_slice()).is_err());
+        assert_eq!(
+            decode(&in_entry).unwrap_err().cause,
+            AttachmentFailureCause::NotAnAttachment
+        );
+
+        let mut top_level = envelope(b"content".to_vec()).encode_to_vec();
+        encode_varint(oversized_key, &mut top_level);
+        top_level.push(0);
+        assert!(EncodedContent::decode(top_level.as_slice()).is_err());
+        assert_eq!(
+            decode(&top_level).unwrap_err().cause,
+            AttachmentFailureCause::NotAnAttachment
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
