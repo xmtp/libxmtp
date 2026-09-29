@@ -78,7 +78,8 @@ pub enum ArchiveError {
     /// Unreadable group.
     ///
     /// A selected group's MLS state or metadata cannot be read, so export
-    /// fails rather than omit it. Not retryable.
+    /// fails rather than omit it. Retryable only when reading its MLS state
+    /// failed transiently.
     #[error("group {group_id} cannot be exported: {source}")]
     UnreadableGroup {
         group_id: GroupId,
@@ -88,14 +89,19 @@ pub enum ArchiveError {
 }
 
 impl RetryableError for ArchiveError {
-    /// Only interrupted or timed-out I/O and transient storage failures.
-    /// Every other I/O kind, such as the `UnexpectedEof` of a truncated
-    /// archive, and every format, key and group error recurs on each attempt.
+    /// Only interrupted or timed-out I/O and transient storage failures,
+    /// including those reading a group's MLS state. Every other I/O kind, such
+    /// as the `UnexpectedEof` of a truncated archive, and every format, key,
+    /// missing-state and metadata error recurs on each attempt.
     fn is_retryable(&self) -> bool {
         use std::io::ErrorKind::*;
         match self {
             Self::IO(e) => matches!(e.kind(), Interrupted | WouldBlock | TimedOut),
             Self::Storage(e) => e.is_retryable(),
+            Self::UnreadableGroup {
+                source: UnreadableGroup::State(e),
+                ..
+            } => e.is_retryable(),
             _ => false,
         }
     }

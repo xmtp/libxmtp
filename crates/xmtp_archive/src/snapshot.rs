@@ -388,20 +388,31 @@ mod tests {
     }
 
     /// Only transient archive failures are retryable: interrupted or
-    /// timed-out I/O may succeed on a second attempt, while a truncated or
-    /// corrupt archive, a failed write, a wrong key or an unreadable group
-    /// fails the same way every time, so retrying them only delays the error.
+    /// timed-out I/O, or a group whose MLS state read hit a busy or dropped
+    /// connection, may succeed on a second attempt. A truncated or corrupt
+    /// archive, a failed write, a wrong key, or a group with no state fails
+    /// the same way every time, so retrying it only delays the error.
     #[test]
     fn archive_errors_are_retryable_only_when_transient() {
+        use crate::UnreadableGroup;
         use std::io::{Error, ErrorKind::*};
         use xmtp_common::RetryableError;
+        use xmtp_db::{ConnectionError, sql_key_store::SqlKeyStoreError};
+        let unreadable = |source| ArchiveError::UnreadableGroup {
+            group_id: GroupId::from([1; 16]),
+            source,
+        };
         for kind in [Interrupted, WouldBlock, TimedOut] {
             assert!(
                 ArchiveError::IO(kind.into()).is_retryable(),
                 "{kind} is terminal"
             );
         }
+        let dropped = SqlKeyStoreError::Connection(ConnectionError::DisconnectInTransaction);
+        assert!(unreadable(UnreadableGroup::State(dropped)).is_retryable());
         for terminal in [
+            unreadable(UnreadableGroup::MissingState),
+            unreadable(UnreadableGroup::State(SqlKeyStoreError::NotFound)),
             ArchiveError::IO(UnexpectedEof.into()),
             ArchiveError::IO(InvalidData.into()),
             ArchiveError::IO(Error::other("archive export cancelled")),
