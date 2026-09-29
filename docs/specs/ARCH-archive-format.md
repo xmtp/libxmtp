@@ -295,7 +295,7 @@ Under ARCH-023, DMS-015 can reject an authentic archive made by an older client 
 
 Current import can still replace archived creator, adder, creation time, attributes, and admin lists with placeholder values. Restored DM creation can also write fresh Allowed consent. The historical metadata and consent merge requirements remain open for those values.
 
-A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019.
+A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019. The store records unknown expiry and no expiry alike, so `exclude_disappearing_messages` still exports restored messages whose expiry is unknown. This is waived under ARCH-009 until the store can tell them apart.
 
 A frame for a missing group fails restoration when the destination lacks that group. This does not delete source data or corrupt the destination. Earlier completed elements remain, and an unchanged retry reaches the same failure.
 
