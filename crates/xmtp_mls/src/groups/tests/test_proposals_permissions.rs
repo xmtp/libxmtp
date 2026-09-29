@@ -852,7 +852,11 @@ async fn test_commit_removing_all_super_admins_is_rejected() {
                 mls_group,
                 |group, provider| -> Result<_, crate::groups::GroupError> {
                     Ok(stage_app_data_proposals_and_commit(
-                        group, provider, signer, updates,
+                        group,
+                        provider,
+                        signer,
+                        &[],
+                        updates,
                     )?)
                 },
             )?;

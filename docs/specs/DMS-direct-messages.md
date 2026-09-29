@@ -27,7 +27,7 @@ Out of scope: the join itself and its rejections (`JOIN`), component ids and enc
 | `JOIN-060` | Rejects a Welcome whose group fails the checks its kind demands. DMS-003 states the checks a DM demands. |
 | `JOIN-025` | Names the inbox that added the joiner, which DMS-003 compares against the DM pair. |
 | `JOIN-080`, `JOIN-081` | Own activation of a restored placeholder by a validated Welcome, and the type rule when neither type is DM. DMS-015 owns the type and pair rule when either type is DM. |
-| `PERM-005`, `PERM-009`, `PERM-011` | Own hardcoded authority and evaluation against each proposer's operation. This spec owns fixed DM policy values and the participant-add exception. |
+| `PERM-009`, `PERM-011`, `PERM-026`, `PERM-028` | Own hardcoded authority, the DM participant's application registry and policy authority, and evaluation against each proposer's operation. This spec owns fixed DM policy values and the participant-add exception. |
 | `CONS-010`, `CONS-024` | Own consent conflict ordering and precedence over join defaults. DMS-010 owns inheritance across a DM's groups. |
 | `PROC-025`, `PROC-026`, `PROC-034` | Own stream eligibility and delivery order. DMS-009 owns the stitched scope and query ordering; DMS-016 owns the legacy snapshot tail. |
 | `EVENT` | EVENT-020 selects events across the groups of one stitched DM. |
@@ -59,19 +59,20 @@ A DM is between two different inboxes. A client does not create a DM with itself
 
 ## 2. The fixed DM policy
 
-A DM's fixed policies deny inbox additions, inbox removals, and admin changes. DMS-004 permits the other participant's addition. Updates to existing membership entries still support installation changes under GMOD. The registry and super-admin list require a super admin under PERM-005; a DM starts with neither role.
+A DM's fixed policies deny inbox additions, inbox removals, and admin changes. DMS-004 permits the other participant's addition. Updates to existing membership entries still support installation changes under GMOD. The registry and super-admin list require a super admin under PERM-026; a DM starts with neither role. PERM-026 lets either participant change application registry entries, and PERM-028 lets it satisfy `ALLOW_IF_SUPER_ADMIN` and `ALLOW_IF_ADMIN` on application components. Neither exception reaches membership, the role lists, or a well-known component.
 
 | Registry entry | `insert_policy` | `update_policy` | `delete_policy` |
 | --- | --- | --- | --- |
 | `GROUP_MEMBERSHIP` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_DENY` |
 | `ADMIN_LIST` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
-The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. The commit-log signer is separate from the settings either participant can update; clearing disappearing settings writes disabled values instead of removing the components.
+The settings policies below apply at creation under DMS-002. The component names and wire ids belong to META section 2. Permission evaluation belongs to PERM-011. The commit-log signer is separate from the settings either participant can update; clearing disappearing settings writes disabled values instead of removing the components. The `USER_DISPLAY_NAME` row applies under META-066 rather than DMS-002, with the policies of PERM-029. A DM registry has no `GROUP_IMAGE` entry.
 
 | Registry entries | `insert_policy` | `update_policy` | `delete_policy` |
 | --- | --- | --- | --- |
 | `GROUP_NAME`, `GROUP_DESCRIPTION`, `GROUP_IMAGE_URL`, `APP_DATA`, `MESSAGE_DISAPPEAR_FROM_NS`, `MESSAGE_DISAPPEAR_IN_NS`, `MIN_SUPPORTED_PROTOCOL_VERSION` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_ALLOW` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` |
 | `COMMIT_LOG_SIGNER` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` |
+| `USER_DISPLAY_NAME` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` | `METADATA_BASE_POLICY_ALLOW_IF_SELF_OR_NON_MEMBER` |
 | `CONVERSATION_TYPE`, `CREATOR_INBOX_ID`, `DM_MEMBERS` | `METADATA_BASE_POLICY_ALLOW_IF_SUPER_ADMIN` | `METADATA_BASE_POLICY_DENY` | `METADATA_BASE_POLICY_DENY` |
 
 | ID | Title | Requirement | Why |
@@ -128,7 +129,7 @@ The winner can change when another group's activity timestamp becomes greater, i
 
 A Restored DM can contain history for two inboxes other than the importing inbox. It has no peer relative to that inbox under DMS-017. It stays inactive until a validated Welcome joins the exact stored pair and kind. Import preserves that pair, but current placeholder metadata can still replace other archived values such as creator and adder; ARCH-020 remains open for those values.
 
-A DM has no super admin, so its registry and `COMMIT_LOG_SIGNER` cannot be changed through the fixed policies. A signer rotation is not possible through those policies.
+A DM has no super admin, so its well-known registry entries and `COMMIT_LOG_SIGNER` cannot be changed through the fixed policies. A signer rotation is not possible through those policies. Only application registry entries can change, under PERM-026.
 
 History imported from an archive is trusted as written, because the archive key is its only authentication. Import does not check a message's sender against the DM pair, so an archive can add history under any sender to a DM, and the stitched thread shows that history. The client does not check a stored DM against DMS-003 again after its join, because that check would load the MLS state of every stored DM at each client open. A DM that an older client accepted with an inbox outside its pair therefore stays in the stitched thread.
 

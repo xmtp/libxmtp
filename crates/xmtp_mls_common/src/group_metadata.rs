@@ -269,8 +269,14 @@ fn read_group_metadata_from_dict(
         })?
         .to_hex();
 
-    // DM_MEMBERS: `TlsSet<InboxId>` with exactly two elements, or absent.
+    // DM_MEMBERS: `TlsSet<InboxId>` with exactly two elements in a DM, or
+    // absent. The pair grants DM-only authority, so another conversation
+    // type carrying it is malformed.
+    // implements: META-030
     let dm_members = match dict.get(&ComponentId::DM_MEMBERS.as_u16()) {
+        Some(_) if conversation_type != ConversationType::Dm => {
+            return Err(GroupMetadataError::InvalidDmMembers);
+        }
         Some(b) => {
             let set = TlsSet::<DictInboxId>::tls_deserialize_exact(b)
                 .map_err(|_| GroupMetadataError::InvalidDmMembers)?;
@@ -317,5 +323,67 @@ mod tests {
         };
 
         assert_eq!(members.to_string(), members2.to_string());
+    }
+
+    fn extensions_with(
+        conversation_type: ConversationType,
+        dm_members: bool,
+    ) -> Extensions<GroupContext> {
+        use crate::app_data::component_id::ComponentId;
+        use crate::inbox_id::InboxId as DictInboxId;
+        use crate::tls_set::TlsSet;
+        use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension, Extension};
+        use tls_codec::Serialize;
+
+        let mut dict = AppDataDictionary::new();
+        let mut insert = |id: ComponentId, bytes: Vec<u8>| {
+            let _ = dict.insert(id.as_u16(), bytes);
+        };
+        insert(ComponentId::COMPONENT_REGISTRY, vec![]);
+        insert(
+            ComponentId::CONVERSATION_TYPE,
+            (conversation_type as i32).to_be_bytes().to_vec(),
+        );
+        insert(
+            ComponentId::CREATOR_INBOX_ID,
+            DictInboxId::from_bytes([1; 32])
+                .tls_serialize_detached()
+                .unwrap(),
+        );
+        if dm_members {
+            let pair = TlsSet::from_keys([
+                DictInboxId::from_bytes([1; 32]),
+                DictInboxId::from_bytes([2; 32]),
+            ]);
+            insert(
+                ComponentId::DM_MEMBERS,
+                pair.tls_serialize_detached().unwrap(),
+            );
+        }
+        Extensions::from_vec(vec![Extension::AppDataDictionary(
+            AppDataDictionaryExtension::new(dict),
+        )])
+        .unwrap()
+    }
+
+    /// A DM pair grants DM-only authority (the pair add exception, the DM
+    /// registry exception, and the DM application super-admin role), so a
+    /// conversation that is not a DM must not be able to claim one.
+    // verifies: META-030
+    #[xmtp_common::test(unwrap_try = true)]
+    fn dm_members_are_rejected_outside_a_dm() {
+        let dm = extract_group_metadata(&extensions_with(ConversationType::Dm, true))?;
+        assert!(dm.dm_members.is_some());
+        assert!(extract_group_metadata(&extensions_with(ConversationType::Group, false)).is_ok());
+        for conversation_type in [
+            ConversationType::Group,
+            ConversationType::Sync,
+            ConversationType::Oneshot,
+        ] {
+            assert!(matches!(
+                extract_group_metadata(&extensions_with(conversation_type, true)),
+                Err(GroupMetadataError::InvalidDmMembers)
+            ));
+        }
     }
 }

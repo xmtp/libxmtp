@@ -29,7 +29,7 @@ Out of scope: policy semantics and roles (`PERM`); proposal-list validity, commi
 
 | Related | Relation |
 | --- | --- |
-| `PERM-005`, `PERM-010`, `PERM-012`, `PERM-017` | Own hardcoded authority, pre-commit authorization, denial of unregistered writes, and action-policy validity. |
+| `PERM-010`, `PERM-012`, `PERM-017`, `PERM-026` | Own hardcoded authority, pre-commit authorization, denial of unregistered writes, and action-policy validity. |
 | `GMOD-001`, `GMOD-005`, `GMOD-021` | Own permitted proposal types, membership content, and validation before commit application. |
 | `DMS` | Reads `CONVERSATION_TYPE` and `DM_MEMBERS` from this spec and owns what a DM is. |
 | `JOIN-057`, `GMOD-022`, `GMOD-025`, `GMOD-026`, `GMOD-027` | Own Welcome holds, commit pauses, the monotonic floor, and version comparison. |
@@ -46,7 +46,7 @@ Out of scope: policy semantics and roles (`PERM`); proposal-list validity, commi
 | Well-known component | A component in the XMTP range whose id, type, and encoding section 2 fixes. |
 | Application component | A component in the application range; registration and write authority follow PERM-010 and PERM-012. |
 | Registry | `COMPONENT_REGISTRY`: the map from component id to a `ComponentMetadata` entry that states the component's type and write policies. |
-| Hardcoded component | `COMPONENT_REGISTRY` and `SUPER_ADMIN_LIST`: components whose write authority PERM-005 fixes in place of a registry entry. |
+| Hardcoded component | `COMPONENT_REGISTRY` and `SUPER_ADMIN_LIST`: components whose write authority PERM-026 fixes in place of a registry entry. |
 | Immutable component | A component whose id lies in an immutable sub-range: written once and never updated or removed. |
 | Update, Remove | The operations of an `AppDataUpdate` proposal ([draft-ietf-mls-extensions-08 §4.7](https://www.ietf.org/archive/id/draft-ietf-mls-extensions-08.html#section-4.7)), distinct from MLS leaf-node Update and Remove proposals. |
 | Delta | The payload of an Update for a set or map component: an ordered list of mutations applied to the prior snapshot. |
@@ -89,11 +89,13 @@ GMOD-030 owns rejection of invalid proposal lists under the draft's section 4.7,
 
 The well-known component table gives ids, type tags, snapshot encodings, and byte limits. Creation is governed by META-018. The snapshot is the value in the dictionary; it is not necessarily the Update payload.
 
+Well-known user-scoped fields use the `USER_` name prefix. Operator documentation recommends the same prefix for application field names, without making it a configuration validation rule. `GROUP_IMAGE` bytes are opaque to the client and can carry a remote attachment descriptor; the client never fetches or parses the remote object, so a failed download does not change group state. `GROUP_IMAGE_URL` and `APP_DATA` are unchanged.
+
 Collection snapshots contain sorted, unique keys (META-012). Collection Updates carry ordered mutation sequences (META-013). Scalars carry the replacement value directly.
 
 | Id | Name | `component_type` suffix | Snapshot encoding |
 | --- | --- | --- | --- |
-| `0x8000` | `COMPONENT_REGISTRY` | `TLS_MAP_BYTES_BYTES` | `RegistryMap<ComponentId, ByteString>`; values are serialized `ComponentMetadata` |
+| `0x8000` | `COMPONENT_REGISTRY` | `TLS_MAP_BYTES_BYTES` | `RegistryMap<ComponentId, ByteString>`; values are serialized `ComponentMetadata`; bounded under META-068 |
 | `0x8001` | `SUPER_ADMIN_LIST` | `TLS_SET_INBOX_ID` | `TlsSet<InboxId>` |
 | `0x8002` | `ADMIN_LIST` | `TLS_SET_INBOX_ID` | `TlsSet<InboxId>` |
 | `0x8003` | `GROUP_MEMBERSHIP` | `TLS_MAP_INBOX_ID_BYTES` | `TlsMap<InboxId, ByteString>`; values are serialized `GroupMembershipEntry` (GMOD-005) |
@@ -105,6 +107,8 @@ Collection snapshots contain sorted, unique keys (META-012). Collection Updates 
 | `0x8009` | `APP_DATA` | `STRING` | UTF-8, at most 8192 bytes |
 | `0x800A` | `MIN_SUPPORTED_PROTOCOL_VERSION` | `STRING` | UTF-8 version under [Semantic Versioning 2.0.0 §2](https://semver.org/spec/v2.0.0.html#spec-item-2) |
 | `0x800B` | `COMMIT_LOG_SIGNER` | `BYTES` | Raw signing-key bytes of FORK-010 |
+| `0x800C` | `USER_DISPLAY_NAME` | `TLS_MAP_INBOX_ID_STRING` | `TlsMap<InboxId, ByteString>`; each value is valid UTF-8; bounded under META-068 |
+| `0x800D` | `GROUP_IMAGE` | `BYTES` | Opaque bytes; bounded under META-068 |
 | `0xBFFF` | `CONVERSATION_TYPE` | `BYTES` | 4-byte big-endian value of a defined `ConversationType` other than `CONVERSATION_TYPE_UNSPECIFIED` |
 | `0xBFFE` | `CREATOR_INBOX_ID` | `BYTES` | One `InboxId` |
 | `0xBFFD` | `DM_MEMBERS` | `TLS_SET_INBOX_ID` | `TlsSet<InboxId>` with exactly two entries |
@@ -170,6 +174,7 @@ The type table uses suffixes of the `COMPONENT_TYPE_` enum values below. `Regist
 | `STRING` | UTF-8 bytes | Replacement UTF-8 bytes |
 | `TLS_MAP_BYTES_BYTES` | `TlsMap<ByteString, ByteString>` | `TlsMapDelta<ByteString, ByteString>` |
 | `TLS_MAP_INBOX_ID_BYTES` | `TlsMap<InboxId, ByteString>` | `TlsMapDelta<InboxId, ByteString>` |
+| `TLS_MAP_INBOX_ID_STRING` | `TlsMap<InboxId, ByteString>`; each value must be valid UTF-8 | `TlsMapDelta<InboxId, ByteString>`; each inserted or updated value must be valid UTF-8 |
 | `TLS_SET_BYTES` | `TlsSet<ByteString>` | `TlsSetDelta<ByteString>` |
 | `TLS_SET_INBOX_ID` | `TlsSet<InboxId>` | `TlsSetDelta<InboxId>` |
 
@@ -189,6 +194,8 @@ enum ComponentType {
   COMPONENT_TYPE_TLS_SET_BYTES = 5;
   // A `TlsSet<InboxId>` supporting insert/remove/remove-by-hash via deltas
   COMPONENT_TYPE_TLS_SET_INBOX_ID = 6;
+  // A TlsMap<InboxId, UTF-8 bytes> with key-level insert/update/delete
+  COMPONENT_TYPE_TLS_MAP_INBOX_ID_STRING = 7;
 }
 
 message ComponentPermissions {
@@ -213,9 +220,15 @@ message ComponentMetadata {
 }
 ```
 
+`TLS_MAP_INBOX_ID_STRING` uses the same TLS snapshot and delta encoding as `TLS_MAP_INBOX_ID_BYTES`. The type tag requires UTF-8 validation of every value in an Insert or Update delta and in the resulting snapshot; an invalid value rejects the commit.
+
 `MetadataPolicy` is defined in PERM section 2. PERM-008 owns policy evaluation failure, and PERM-017 owns action-policy validity and the restricted admin policies. Structural decoding of an entry is separate from type dispatch and policy evaluation. An entry with an unknown or unspecified `component_type` can be structurally complete; it supplies no supported dispatch type. A present policy field can still contain an invalid policy tree.
 
 The registry retains raw entry bytes, including entries that cannot be decoded or used. An authorized delta can repair or delete a mutable entry. Preservation applies to entries that the commit does not change (META-016), not to every entry in every later snapshot.
+
+A backend catalogue definition is eligible for a conversation when its `in_groups` flag is true for a group, or its `in_dms` flag for a DM, and the client supports its `component_type` and every policy tag in its three member policies; no definition is eligible for a sync group. A newer backend can publish a tag an older client does not know. That client registers nothing for the ID rather than an entry it cannot write or validate, and a client that supports the tags registers it later under META-067.
+
+Registration never forces a commit of its own. A membership refresh that finds nothing to change commits nothing, so a missing field waits for the next commit, of any kind, by a client with registry authority.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -228,6 +241,9 @@ The registry retains raw entry bytes, including entries that cannot be decoded o
 | META-016 | Untouched registry entries are preserved | When a commit does not explicitly change a registry entry, the client MUST preserve that entry's bytes, including unknown protobuf fields and entries it cannot interpret. | Re-encoding an untouched entry can remove bytes that other members retain. |
 | META-017 | Untouched components pass through | When a client applies a commit, it MUST leave the bytes of every component the commit does not target unchanged, including a component it cannot decode. | |
 | META-018 | What a creator writes | When a client creates a group, it MUST populate the epoch-0 dictionary with `COMPONENT_REGISTRY`, `SUPER_ADMIN_LIST`, `ADMIN_LIST`, `GROUP_MEMBERSHIP`, `MIN_SUPPORTED_PROTOCOL_VERSION`, `CONVERSATION_TYPE`, and `CREATOR_INBOX_ID`, with the creator set to its own inbox id. It MUST include each supplied name, description, image URL, app-data string, and disappearing setting, and omit each unsupplied optional value. It MUST initialize role lists under PERM-002 or DMS-002, the DM pair under DMS-002, and the signer and one-shot payload under FORK-010 and FORK-050. | |
+| META-066 | Register fields at creation | When a client creates a group or DM, it MUST add to `COMPONENT_REGISTRY` each application definition in its configuration snapshot that is eligible for the conversation, using that definition's `component_type` and `permissions`; it MUST add `USER_DISPLAY_NAME` and, for a group, `GROUP_IMAGE` with the core policies of PERM-029, and leave all their component values absent. A sync group MUST NOT receive those entries. | A joiner reads field types and policies from the group, even when it has another backend snapshot. |
+| META-067 | Register missing fields | When a client with authority under PERM-026 builds a commit, it MUST include in that commit an Insert of each application definition eligible for the conversation whose ID has no raw key in the committed registry, subject to PERM-023; it MUST NOT overwrite a present raw entry with its backend copy. | Replacing an unreadable entry from a local snapshot would make later writes depend on which client refreshed. |
+| META-068 | Apply global field bounds | When a client validates an application component, `USER_DISPLAY_NAME`, `GROUP_IMAGE`, or `COMPONENT_REGISTRY`, it MUST reject a scalar or collection key or value longer than 8192 bytes and a collection snapshot longer than 65536 bytes after serialization. A registry entry is measured as stored, unknown protobuf fields included. | A registry type without a shared size bound lets a writer exceed the envelope budget and blocks later changes. A DM participant may write application-range registry entries, so an unbounded registry lets one participant grow every member's group context. |
 | META-019 | A joiner needs the identity | When a Welcome's group context has no dictionary, or its dictionary lacks `COMPONENT_REGISTRY`, `CONVERSATION_TYPE`, or `CREATOR_INBOX_ID`, or one of those does not decode under the table above, the client MUST record a terminal rejection for the Welcome (JOIN-048). | Without them the joiner cannot tell which checks JOIN-060 demands of the group. |
 
 ## 3. Applying an update
@@ -236,7 +252,7 @@ META-010 owns payload decoding and snapshot validation. PERM-010 fixes authoriza
 
 PERM-014 owns acceptance of components without built-in definitions. Their supported registry type selects the encoding in section 2. Component-specific invariants unknown to this client cannot be checked (Known limitations).
 
-PERM-012 rejects writes without a usable registry entry, PERM-008 denies malformed policies, and META-010 rejects unsupported type dispatch. These rules do not prevent an authorized change to the registry entry itself. PERM-001 and PERM-005 own role evaluation and hardcoded write authority.
+PERM-012 rejects writes without a usable registry entry, PERM-008 denies malformed policies, and META-010 rejects unsupported type dispatch. These rules do not prevent an authorized change to the registry entry itself. PERM-001 and PERM-026 own role evaluation and hardcoded write authority.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
@@ -261,7 +277,7 @@ enum ConversationType {
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
-| META-030 | The DM pair is exactly two | When `DM_MEMBERS` is present and does not decode to a set of exactly two `InboxId` values, the client MUST reject the Welcome or commit that carries it. | A pair of one or three is not a conversation between two people, and DMS derives the conversation's identifier from exactly two. |
+| META-030 | The DM pair is exactly two | When `DM_MEMBERS` is present and does not decode to a set of exactly two `InboxId` values, or `CONVERSATION_TYPE` is not `CONVERSATION_TYPE_DM`, the client MUST reject the Welcome or commit that carries it. | A pair of one or three is not a conversation between two people, and DMS derives the conversation's identifier from exactly two. The pair grants DM-only authority, so a conversation of another type must not carry one. |
 
 ## 5. Mutable settings and what an app reads
 
@@ -304,6 +320,11 @@ message GroupUpdated {
 | --- | --- | --- | --- |
 | META-040 | Changes are recorded by name | When a commit changes the value of a component in the table above, the client MUST record in the membership-change message it stores for that commit a `GroupUpdated.MetadataFieldChange` as defined above, whose `field_name` and value form are the table's, with `old_value` absent when the component was absent before, and MUST NOT record a change for a component whose value the commit left equal. | An app reads the change log by field name, and a change recorded for an unchanged value shows the user an edit nobody made. |
 | META-041 | Absent reads as empty | An SDK MUST present an absent `GROUP_NAME`, `GROUP_DESCRIPTION`, `GROUP_IMAGE_URL`, or `APP_DATA` to an app as the empty string. | |
+| META-069 | Describe metadata fields | When an app asks an SDK for a group's metadata fields, the SDK MUST list every application-range registry entry that decodes as `ComponentMetadata` with all three member policies, plus each present `GROUP_NAME`, `GROUP_DESCRIPTION`, `GROUP_IMAGE_URL`, `GROUP_IMAGE`, `APP_DATA`, `USER_DISPLAY_NAME`, `MESSAGE_DISAPPEAR_FROM_NS`, and `MESSAGE_DISAPPEAR_IN_NS` entry. For each it MUST expose a field ref that holds the ID and, when available, a well-known name or a matching backend snapshot `name`; the committed member policies; and a component shape of Bytes, String, Map with key and value types, Set with key type, or Unknown with the raw type tag; it MUST derive the shape under META-010 for a well-known ID and from the registry type for an application ID; and it MUST set `is_user_field` to true exactly when the effective shape is a Map with an InboxID key. When an app asks for a field by name, the SDK MUST return the listed field with that name, preferring a well-known field over an application field, or none. | Apps need type information for every developer-facing field, including one the local backend did not define, without handling raw IDs. |
+| META-070 | Read component values | When an app asks for a field listed under META-069, an SDK MUST support one field ref, a batch of field refs, and one key of a map component, resolving each ref by its component ID and reading the committed group dictionary. It MUST return a batch as a list of field ref and value records in request order. It MUST return `STRING` and `TLS_MAP_INBOX_ID_STRING` values as strings and byte-valued types as bytes. | An app cannot render fields without reading the current group state or decoding the declared type. |
+| META-071 | Write registered fields | When an SDK writes a field listed under META-069, it MUST encode its operation under the META-010 type for a well-known ID or the committed registry type for an application ID, evaluate the committed registry policies, accept strings for `STRING` and `TLS_MAP_INBOX_ID_STRING` values and bytes for byte-valued types, and report a missing entry, unsupported type, type mismatch, or denied policy without using its backend snapshot as a substitute. | A stale snapshot can describe another type or policy for the same ID. |
+| META-072 | Read user data | When an app asks an SDK for user data with optional `fields` and `inbox_ids` filters, the SDK MUST select every `is_user_field` entry for `fields = None` or exactly the supplied field refs for `fields = Some`, rejecting a ref whose ID is absent or not a user field. It MUST select the current `GROUP_MEMBERSHIP` inboxes for `inbox_ids = None` in a group, the two `DM_MEMBERS` inboxes in a DM, or exactly the supplied inboxes for `inbox_ids = Some`, including former members. It MUST read one committed dictionary snapshot and return, for each selected inbox, a list of field ref and value records with only present selected values typed as Bytes or String; an inbox with no values has an empty list. | An app can render a profile list without joining separate field maps or mixing group epochs. |
+| META-073 | Write own user data | When an app asks an SDK to update its user data with `values`, a list of field refs with optional values, the SDK MUST infer its own inbox ID and reject a ref whose ID is absent, not a user field, repeated in `values`, or given a scalar type different from its map value type. It MUST encode each `Some(value)` as an Insert or Update of that inbox key and each `None` as a Delete when that key is present, then submit the deltas in one commit subject to the committed registry policies; an empty `values` list or a request that only clears absent keys makes no commit. | Profile edits need a typed path that cannot accidentally name another inbox. |
 | META-065 | A guard compares the committed app data | When an app supplies an expected value with an `APP_DATA` write, the client MUST compare it as a UTF-8 string with the `APP_DATA` value in the dictionary of the group state it prepares the commit on, and MUST NOT prepare the commit unless the two are equal. An absent `APP_DATA` component MUST NOT be equal to any expected value. | A write built on a value another member has since replaced overwrites that member's change, and neither app sees a conflict. |
 
 ## 6. Disappearing messages
@@ -336,8 +357,6 @@ PERM-023 owns the prior floor bump for changed acceptance rules, including new r
 A client cannot apply a component whose type or entry format it cannot interpret. Without the preceding floor bump described in section 7, a commit using that form can be accepted by newer clients and rejected by older clients.
 
 A component without a built-in definition is applied by its supported registry type (PERM-014 and META-010). An older client cannot check a component-specific bound or transition rule introduced by a later release.
-
-An absent immutable collection can receive an authorized insert-only delta. A scalar's first Update is currently rejected, even when absent. This differs from the uniform write-once contract in META-004.
 
 Every rejection of an `AppDataUpdate` proposal, whether for authority, for a malformed payload, or for an invariant, is reported to the sender as one error kind. An app cannot tell a permission failure from a malformed value.
 
