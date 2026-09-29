@@ -4,6 +4,7 @@ use crate::schema::{groups, restored_group_metadata};
 use crate::{ConnectionExt, DbConnection, StorageError, group::GroupMembershipState};
 use diesel::prelude::*;
 use prost::Message;
+use std::collections::HashMap;
 use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::device_sync::group_backup::GroupSave;
 
@@ -30,11 +31,28 @@ pub trait QueryRestoredGroupMetadata {
     fn restored_group_history(&self, group_id: &GroupId)
     -> Result<Option<GroupSave>, StorageError>;
 
+    /// The archived records of every listed group that is still `Restored`,
+    /// in a bounded number of statements. Activated and unrecorded groups are absent.
+    fn restored_group_histories(
+        &self,
+        group_ids: &[GroupId],
+    ) -> Result<HashMap<GroupId, GroupSave>, StorageError>;
+
     /// Remove the archived record. Returns whether a record existed.
     fn delete_restored_group_metadata(&self, group_id: &GroupId) -> Result<bool, StorageError>;
 }
 
+/// SQLite binds each listed id; keep one statement well below its parameter limit.
+const HISTORY_BATCH_SIZE: usize = 500;
+
 impl<T: QueryRestoredGroupMetadata> QueryRestoredGroupMetadata for &T {
+    fn restored_group_histories(
+        &self,
+        group_ids: &[GroupId],
+    ) -> Result<HashMap<GroupId, GroupSave>, StorageError> {
+        (**self).restored_group_histories(group_ids)
+    }
+
     fn restored_group_metadata(
         &self,
         group_id: &GroupId,
@@ -87,6 +105,33 @@ impl<C: ConnectionExt> QueryRestoredGroupMetadata for DbConnection<C> {
                 GroupSave::decode(bytes.as_slice()).map_err(|_| StorageError::DbDeserialize)
             })
             .transpose()
+    }
+
+    // implements: ARCH-020
+    fn restored_group_histories(
+        &self,
+        group_ids: &[GroupId],
+    ) -> Result<HashMap<GroupId, GroupSave>, StorageError> {
+        let mut histories = HashMap::new();
+        for batch in group_ids.chunks(HISTORY_BATCH_SIZE) {
+            let rows: Vec<(GroupId, Vec<u8>)> = self.raw_query(|conn| {
+                restored_group_metadata::table
+                    .inner_join(groups::table)
+                    .filter(restored_group_metadata::group_id.eq_any(batch))
+                    .filter(groups::membership_state.eq(GroupMembershipState::Restored))
+                    .select((
+                        restored_group_metadata::group_id,
+                        restored_group_metadata::group_save,
+                    ))
+                    .load(conn)
+            })?;
+            for (group_id, bytes) in rows {
+                let save =
+                    GroupSave::decode(bytes.as_slice()).map_err(|_| StorageError::DbDeserialize)?;
+                histories.insert(group_id, save);
+            }
+        }
+        Ok(histories)
     }
 
     fn delete_restored_group_metadata(&self, group_id: &GroupId) -> Result<bool, StorageError> {

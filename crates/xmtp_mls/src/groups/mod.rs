@@ -6,7 +6,7 @@ mod messages;
 mod metadata;
 mod state;
 pub use builders::*;
-pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
+pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot, restored_metadata};
 pub mod change_callbacks;
 pub mod commit_log;
 pub mod commit_log_key;

@@ -1,6 +1,7 @@
 //! Admin lists, consent, epoch state, and group context.
 
 use super::*;
+use std::collections::HashMap;
 use xmtp_proto::xmtp::device_sync::group_backup::GroupSave;
 
 /// Immutable metadata from an archived record. An absent metadata message or
@@ -8,11 +9,14 @@ use xmtp_proto::xmtp::device_sync::group_backup::GroupSave;
 // implements: ARCH-024
 fn historical_metadata(history: &GroupSave) -> Result<GroupMetadata, GroupError> {
     let conversation_type: ConversationType = history.conversation_type().try_into()?;
-    let dm_members = history
-        .dm_id
-        .as_deref()
-        .map(|dm_id| crate::groups::parse_canonical_dm_id(Some(dm_id)))
-        .transpose()?;
+    // Import validates the pair only for a DM; a group's stray dm_id is inert history.
+    let dm_members = if conversation_type == ConversationType::Dm {
+        Some(crate::groups::parse_canonical_dm_id(
+            history.dm_id.as_deref(),
+        )?)
+    } else {
+        None
+    };
     let creator_inbox_id = history
         .metadata
         .as_ref()
@@ -24,6 +28,21 @@ fn historical_metadata(history: &GroupSave) -> Result<GroupMetadata, GroupError>
         dm_members,
         None,
     ))
+}
+
+/// Archived immutable metadata for every listed group that is still
+/// `Restored`, read in a bounded number of statements. A list projection
+/// uses this instead of one read per group; activated and unrecorded groups
+/// are absent and keep their live metadata.
+// implements: ARCH-020, ARCH-024
+pub fn restored_metadata(
+    db: &impl DbQuery,
+    group_ids: &[GroupId],
+) -> Result<HashMap<GroupId, GroupMetadata>, GroupError> {
+    db.restored_group_histories(group_ids)?
+        .iter()
+        .map(|(group_id, history)| Ok((*group_id, historical_metadata(history)?)))
+        .collect()
 }
 
 /// Mutable metadata from an archived record: the exact attribute map and both lists.

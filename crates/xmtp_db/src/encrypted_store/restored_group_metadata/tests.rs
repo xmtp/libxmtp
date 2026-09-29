@@ -35,6 +35,43 @@ async fn restored_group_history_reads_only_while_restored() {
 
 // verifies: ARCH-020
 #[xmtp_common::test(unwrap_try = true)]
+async fn restored_group_histories_skips_activated_and_unrecorded_rows() {
+    use crate::group::{QueryGroup, tests::generate_group};
+
+    let store = crate::TestDb::create_ephemeral_store().await;
+    let db = store.db();
+    let recorded = generate_group(Some(GroupMembershipState::Restored));
+    let activated = generate_group(Some(GroupMembershipState::Restored));
+    let unrecorded = generate_group(Some(GroupMembershipState::Restored));
+    for group in [&recorded, &activated, &unrecorded] {
+        group.store(&db)?;
+    }
+    let save = |group: &crate::group::StoredGroup| GroupSave {
+        id: group.id.to_vec(),
+        ..Default::default()
+    };
+    for group in [&recorded, &activated] {
+        StoredRestoredGroupMetadata {
+            group_id: group.id,
+            group_save: save(group).encode_to_vec(),
+        }
+        .store(&db)?;
+    }
+    db.update_group_membership(activated.id, GroupMembershipState::Allowed)?;
+
+    // More ids than one statement binds: unknown ids fill the first batch, so
+    // the recorded group is found only in the second.
+    let mut ids: Vec<GroupId> = (0..HISTORY_BATCH_SIZE)
+        .map(|_| GroupId::from(xmtp_common::rand_array::<16>()))
+        .collect();
+    ids.extend([activated.id, unrecorded.id, recorded.id]);
+    let histories = db.restored_group_histories(&ids)?;
+    assert_eq!(histories, HashMap::from([(recorded.id, save(&recorded))]));
+    assert!(db.restored_group_histories(&[])?.is_empty());
+}
+
+// verifies: ARCH-020
+#[xmtp_common::test(unwrap_try = true)]
 async fn restored_metadata_upgrades_each_prior_database() {
     let versions = {
         let store = crate::TestDb::create_ephemeral_store().await;

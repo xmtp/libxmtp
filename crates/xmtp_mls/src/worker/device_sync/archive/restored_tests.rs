@@ -546,3 +546,96 @@ async fn restored_history_never_grants_authority() {
     assert!(group.update_group_name("forged".into()).await.is_err());
     assert_eq!(group.group_name()?, "historical name");
 }
+
+// verifies: ARCH-021, ARCH-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_history_ignores_a_stray_dm_id_on_a_group() {
+    use xmtp_db::group::ConversationType;
+    tester!(alix, disable_workers);
+    let mut save = saved_group(60, false);
+    save.dm_id = Some("not-a-pair".into());
+    apply(&alix.context, vec![group_element(save.clone())]).await?;
+    let id = GroupId::try_from(save.id.as_slice())?;
+    assert_eq!(alix.db().find_group(&id)??.dm_id, None);
+    let metadata = alix.group(&id)?.metadata().await?;
+    assert_eq!(metadata.conversation_type, ConversationType::Group);
+    assert_eq!(metadata.dm_members, None);
+    assert_eq!(
+        crate::groups::restored_metadata(&alix.db(), &[id])?[&id],
+        metadata
+    );
+    // The record still carries the source value for re-export.
+    assert_eq!(
+        exported_groups(alix.db()).await?[&save.id].dm_id.as_deref(),
+        Some("not-a-pair")
+    );
+}
+
+// verifies: ARCH-015, JOIN-080, PERM-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_history_forged_claim_yields_to_live_permissions_after_activation() {
+    use crate::groups::{
+        GroupError, UpdateAdminListType, mls_sync::GroupMessageProcessingError,
+        validated_commit::CommitValidationError,
+    };
+    use xmtp_mls_validation::commit::CommitRuleError;
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let me = bo.inbox_id().to_string();
+    let mut save = saved_group(80, false);
+    save.id = alix_group.group_id.to_vec();
+    save.metadata = Some(ImmutableMetadataSave {
+        creator_inbox_id: me.clone(),
+    });
+    let lists = save.mutable_metadata.as_mut()?;
+    lists.admin_list = vec![me.clone()];
+    lists.super_admin_list = vec![me.clone()];
+    // The archive arrives before the Welcome: a Restored row with forged claims.
+    apply(&bo.context, vec![group_element(save)]).await?;
+    let handle = bo.group(&alix_group.group_id)?;
+    assert!(handle.is_super_admin(me.clone())?);
+    assert_eq!(handle.metadata().await?.creator_inbox_id, me);
+
+    bo.sync_welcomes().await?;
+    assert_ne!(
+        bo.db().find_group(&alix_group.group_id)??.membership_state,
+        GroupMembershipState::Restored
+    );
+    for group in [handle, bo.group(&alix_group.group_id)?] {
+        assert_eq!(group.metadata().await?.creator_inbox_id, alix.inbox_id());
+        assert!(!group.is_super_admin(me.clone())?);
+        assert!(!group.is_admin(me.clone())?);
+        assert!(group.is_super_admin(alix.inbox_id().to_string())?);
+        // The committed group context decides: the archived claim grants nothing.
+        let error = group
+            .update_admin_list(UpdateAdminListType::AddSuper, me.clone())
+            .await
+            .expect_err("the archived super-admin claim grants nothing");
+        let GroupError::Sync(summary) = error else {
+            panic!("expected a rejected commit, got {error:?}");
+        };
+        assert!(
+            matches!(
+                summary.other.as_deref(),
+                Some(GroupError::ReceiveError(
+                    GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
+                        CommitRuleError::InsufficientPermissions
+                    ))
+                ))
+            ),
+            "{summary:?}"
+        );
+        // The same handle holds the live membership right to send.
+        group
+            .send_message(b"after activation", Default::default())
+            .await?;
+    }
+    alix_group.sync().await?;
+    assert_eq!(alix_group.super_admin_list()?, [alix.inbox_id()]);
+    assert_eq!(
+        bo.group(&alix_group.group_id)?.super_admin_list()?,
+        [alix.inbox_id()]
+    );
+}
