@@ -21,6 +21,11 @@ export function wrapClient(raw: P.Client): Client {
   return clients.get(raw)?.deref() ?? construct(raw);
 }
 
+/** The worker proxy of a public Client. The package root does not export it. */
+export function bindingClient(client: Client): P.Client {
+  return bindingOf(client);
+}
+
 function bindingOf(client: Client): P.Client {
   const raw = bindings.get(client);
   if (raw === undefined) throw new TypeError("not an SDK client");
