@@ -1,6 +1,6 @@
 use super::{ArchiveError, BackupMetadata};
 use crate::{BACKUP_VERSION, NONCE_SIZE, TAG_SIZE, util::GenericArrayExt};
-use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
+use aes_gcm::{AesGcm, aead::Aead, aes::Aes256};
 use async_compression::futures::bufread::ZstdDecoder;
 use futures::{FutureExt, Stream, StreamExt, ready};
 use futures_util::{AsyncBufRead, AsyncReadExt};
@@ -103,6 +103,7 @@ impl ArchiveImporter {
 
     // implements: ARCH-003
     pub async fn load(mut reader: AsyncReader, key: &[u8]) -> Result<Self, ArchiveError> {
+        crate::check_key(key)?;
         let mut version = [0; 2];
         reader.read_exact(&mut version).await?;
         let version = u16::from_le_bytes(version);
@@ -120,8 +121,7 @@ impl ArchiveImporter {
             finished: false,
             metadata: BackupMetadata::default(),
 
-            #[allow(deprecated)]
-            cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
+            cipher: crate::cipher(key)?,
             #[allow(deprecated)]
             nonce: GenericArray::from(nonce),
         };
@@ -172,8 +172,7 @@ mod tests {
 
     /// Length-prefixed ciphertexts under counter nonces, or under the base nonce when `legacy`.
     fn frames(legacy: bool, elements: &[BackupElement]) -> Vec<u8> {
-        #[allow(deprecated)]
-        let cipher = Aes256Gcm::new(GenericArray::from_slice(&KEY));
+        let cipher = crate::cipher(&KEY).unwrap();
         #[allow(deprecated)]
         let mut nonce = GenericArray::from(NONCE);
         elements

@@ -6,7 +6,7 @@
 use super::BACKUP_VERSION;
 use crate::archive_options::ArchiveOptions;
 use crate::{ArchiveError, NONCE_SIZE, snapshot, util::GenericArrayExt};
-use aes_gcm::{Aes256Gcm, KeyInit, aead::Aead};
+use aes_gcm::aead::Aead;
 use async_compression::futures::write::ZstdEncoder;
 use futures::{AsyncRead, FutureExt, io::AllowStdIo};
 use futures_util::AsyncWriteExt;
@@ -34,12 +34,11 @@ pub fn export(
     key: &[u8],
     mut sink: impl io::Write,
 ) -> Result<BackupMetadataSave, ArchiveError> {
+    let cipher = crate::cipher(key)?;
     let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
     sink.write_all(&BACKUP_VERSION.to_le_bytes())?;
     sink.write_all(&nonce)?;
 
-    #[allow(deprecated)]
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(key));
     #[allow(deprecated)]
     let mut nonce = GenericArray::clone_from_slice(&nonce);
     let mut zstd = ZstdEncoder::new(AllowStdIo::new(sink));
@@ -85,6 +84,7 @@ impl ArchiveExporter {
         path: impl AsRef<std::path::Path>,
         key: &[u8],
     ) -> Result<BackupMetadataSave, ArchiveError> {
+        crate::check_key(key)?;
         let (path, key) = (path.as_ref().to_owned(), key.to_vec());
         tokio::task::spawn_blocking(move || {
             let mut file = io::BufWriter::new(std::fs::File::create(&path)?);

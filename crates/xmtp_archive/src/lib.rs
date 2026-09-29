@@ -8,11 +8,14 @@
 //! any container version above [`BACKUP_VERSION`] and ends with an error on any incomplete or
 //! malformed framing.
 use crate::archive_options::BackupElementSelection;
+use aes_gcm::{Aes256Gcm, KeyInit};
 pub use importer::ArchiveImporter;
 use thiserror::Error;
 use xmtp_common::ErrorCode;
 use xmtp_db::{ConnectionError, StorageError, diesel, sql_key_store::SqlKeyStoreError};
-use xmtp_mls_common::group_metadata::GroupMetadataError;
+use xmtp_mls_common::{
+    group_metadata::GroupMetadataError, group_mutable_metadata::GroupMutableMetadataError,
+};
 use xmtp_proto::{types::GroupId, xmtp::device_sync::BackupMetadataSave};
 
 pub const ENC_KEY_SIZE: usize = 32; // 256-bit key
@@ -64,9 +67,15 @@ pub enum ArchiveError {
     #[error(transparent)]
     #[error_code(inherit)]
     Storage(#[from] StorageError),
+    /// Invalid key length.
+    ///
+    /// The archive key is not [`ENC_KEY_SIZE`] bytes. Rejected before any archive byte is
+    /// read or written. Not retryable.
+    #[error("archive key must be {ENC_KEY_SIZE} bytes, got {0}")]
+    InvalidKeyLength(usize),
     /// Unreadable group.
     ///
-    /// A selected group's MLS state or immutable metadata cannot be read, so export
+    /// A selected group's MLS state or metadata cannot be read, so export
     /// fails rather than omit it. Not retryable.
     #[error("group {group_id} cannot be exported: {source}")]
     UnreadableGroup {
@@ -97,6 +106,22 @@ pub enum UnreadableGroup {
     State(#[from] SqlKeyStoreError),
     #[error(transparent)]
     Metadata(#[from] GroupMetadataError),
+    #[error(transparent)]
+    MutableMetadata(#[from] GroupMutableMetadataError),
+}
+
+/// Rejects a key that is not [`ENC_KEY_SIZE`] bytes.
+// implements: ARCH-012
+fn check_key(key: &[u8]) -> Result<(), ArchiveError> {
+    match key.len() {
+        ENC_KEY_SIZE => Ok(()),
+        len => Err(ArchiveError::InvalidKeyLength(len)),
+    }
+}
+
+/// The archive cipher for `key`, which must be [`ENC_KEY_SIZE`] bytes.
+fn cipher(key: &[u8]) -> Result<Aes256Gcm, ArchiveError> {
+    Aes256Gcm::new_from_slice(key).map_err(|_| ArchiveError::InvalidKeyLength(key.len()))
 }
 
 #[derive(Default)]

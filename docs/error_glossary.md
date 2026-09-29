@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **12 crates** with **413 total error codes**.
+**39 error types** across **12 crates** with **414 total error codes**.
 
 ## mobile
 
@@ -127,7 +127,8 @@ Archive export or import failure.
 | `ArchiveError::AesGcm` | AES-GCM error. Encryption or decryption failed; on import, usually a wrong key. Not retryable. |
 | `ArchiveError::IO` | I/O error. Reading or writing the archive failed. May be retryable. |
 | `ArchiveError::Decode` | Decode error. An archive element is not valid protobuf. Not retryable. |
-| `ArchiveError::UnreadableGroup` | Unreadable group. A selected group's MLS state or immutable metadata cannot be read, so export fails rather than omit it. Not retryable. |
+| `ArchiveError::InvalidKeyLength` | Invalid key length. The archive key is not [`ENC_KEY_SIZE`] bytes. Rejected before any archive byte is read or written. Not retryable. |
+| `ArchiveError::UnreadableGroup` | Unreadable group. A selected group's MLS state or metadata cannot be read, so export fails rather than omit it. Not retryable. |
 
 ## xmtp_db
 

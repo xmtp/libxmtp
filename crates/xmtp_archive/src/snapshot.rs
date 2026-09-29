@@ -26,7 +26,7 @@ use xmtp_db::{
 };
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata,
-    group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata_lossy},
+    group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata},
 };
 use xmtp_proto::xmtp::device_sync::{
     BackupElementSelection as BackupElementSelectionProto, BackupMetadataSave,
@@ -145,10 +145,7 @@ fn group_save(
     let extensions = mls_group.extensions();
     let immutable = extract_group_metadata(extensions).map_err(|e| unreadable(e.into()))?;
     let mut mutable = GroupMutableMetadata::new(Default::default(), Vec::new(), Vec::new());
-    // A malformed optional component loses that field, not the group.
-    for e in merge_dict_into_mutable_metadata_lossy(&mut mutable, extensions) {
-        tracing::warn!(group_id = %group_id, error = %e, "exporting group without a malformed metadata component");
-    }
+    merge_dict_into_mutable_metadata(&mut mutable, extensions).map_err(|e| unreadable(e.into()))?;
     let membership_state: GroupMembershipStateSave = group.membership_state.into();
     let conversation_type: ConversationTypeSave = group.conversation_type.into();
     Ok(GroupSave {
@@ -329,5 +326,33 @@ mod tests {
             record.consented_at_ns <= metadata.exported_at_ns,
             "archived a record from after its export time"
         );
+    }
+
+    /// A key that is not 32 bytes is rejected before any archive byte is
+    /// written or read: the sink stays empty, an existing destination file
+    /// is left untouched, and import fails before it reads the header.
+    // verifies: ARCH-012
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_rejects_a_wrong_length_key_before_any_byte() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        let short = &KEY[..31];
+        let consent = options(&[BackupElementSelection::Consent]);
+
+        let mut sink = Vec::new();
+        let failure = exporter::export(consent.clone(), &db, short, &mut sink);
+        assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
+        assert!(sink.is_empty(), "export wrote with an invalid key");
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = xmtp_common::tmp_path();
+            std::fs::write(&path, b"prior")?;
+            let failure = ArchiveExporter::export_to_file(consent, db.clone(), &path, short).await;
+            assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
+            assert_eq!(std::fs::read(&path)?, b"prior", "export touched the file");
+        }
+        let empty = Box::pin(BufReader::new(Cursor::new(Vec::new())));
+        let failure = ArchiveImporter::load(empty, short).await;
+        assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
     }
 }

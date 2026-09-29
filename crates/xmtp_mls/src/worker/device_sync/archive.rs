@@ -249,6 +249,68 @@ mod tests {
         }
     }
 
+    /// A selected group whose mutable metadata cannot be decoded fails the
+    /// export, rather than exporting the group without that value. The
+    /// malformed admin list is committed locally through openmls, bypassing
+    /// the commit validation that keeps it out of real groups.
+    // verifies: ARCH-017
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_export_fails_on_undecodable_group_metadata() {
+        use openmls::{
+            component::ComponentData,
+            group::MlsGroup,
+            messages::proposals::{AppDataUpdateProposal, Proposal},
+        };
+        use openmls_traits::OpenMlsProvider;
+        use xmtp_archive::{ArchiveError, UnreadableGroup};
+        use xmtp_mls_common::app_data::component_id::ComponentId;
+
+        tester!(alix, disable_workers);
+        let conversation = alix.create_group(None, None)?;
+        let provider = alix.context.mls_provider();
+        let signer = &alix.context.identity().installation_keys;
+        let mut group = MlsGroup::load(
+            alix.context.mls_storage(),
+            &conversation.group_id.to_openmls(),
+        )??;
+        let malformed = vec![0xff; 3];
+        let mut stage = group
+            .commit_builder()
+            .add_proposal(Proposal::AppDataUpdate(Box::new(
+                AppDataUpdateProposal::update(ComponentId::ADMIN_LIST.as_u16(), malformed.clone()),
+            )))
+            .load_psks(provider.storage())?;
+        let mut updater = stage.app_data_dictionary_updater();
+        updater.set(ComponentData::from_parts(
+            ComponentId::ADMIN_LIST.as_u16(),
+            malformed.into(),
+        ));
+        stage.with_app_data_dictionary_updates(updater.changes());
+        stage
+            .build(provider.rand(), provider.crypto(), signer, |_| true)?
+            .stage_commit(&provider)?;
+        group.merge_pending_commit(&provider)?;
+
+        let opts = ArchiveOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![BackupElementSelection::Messages],
+            exclude_disappearing_messages: false,
+        };
+        let key = xmtp_common::rand_vec::<32>();
+        let failure = exporter::export(opts, alix.db(), &key, Vec::new());
+        assert!(
+            matches!(
+                failure,
+                Err(ArchiveError::UnreadableGroup {
+                    group_id,
+                    source: UnreadableGroup::MutableMetadata(_),
+                }) if group_id == conversation.group_id
+            ),
+            "export dropped an undecodable metadata value: {failure:?}"
+        );
+    }
+
     /// With MESSAGES selected, a restore into a new installation holds every
     /// eligible conversation whatever its creation time or messages: an empty
     /// group, an empty DM, a group whose messages all precede the window, and

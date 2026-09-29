@@ -481,62 +481,9 @@ fn insert_absent_bounded_string_defaults(base: &mut GroupMutableMetadata) {
     }
 }
 
-/// Best-effort variant of [`merge_dict_into_mutable_metadata`] that
-/// degrades per-field instead of failing per-group: every component
-/// that decodes is applied to `base`, every component that doesn't is
-/// skipped, and the errors are returned so the caller can log them
-/// (empty vec = clean merge).
-///
-/// Exists for the archive exporter, where one malformed component must
-/// not drop the whole group from a backup — the group's messages are
-/// exported unconditionally, so a missing group row orphans them and
-/// aborts the entire restore on a foreign-key violation. Non-export
-/// callers that want fail-fast semantics keep using the strict variant
-/// above.
-pub fn merge_dict_into_mutable_metadata_lossy(
-    base: &mut GroupMutableMetadata,
-    extensions: &Extensions<GroupContext>,
-) -> Vec<GroupMutableMetadataError> {
-    use super::app_data::component_id::ComponentId;
-
-    let Some(ext) = extensions.app_data_dictionary() else {
-        return Vec::new();
-    };
-    let dict = ext.dictionary();
-    let mut errors = Vec::new();
-
-    for (field, id) in METADATA_FIELD_COMPONENT_MAP {
-        if let Some(bytes) = dict.get(&id.as_u16()) {
-            match decode_metadata_component(*id, bytes) {
-                Ok(legacy_value) => {
-                    base.attributes
-                        .insert(field.as_str().to_string(), legacy_value);
-                }
-                Err(e) => errors.push(e),
-            }
-        }
-    }
-
-    insert_absent_bounded_string_defaults(base);
-
-    for (component_id, list) in [
-        (ComponentId::ADMIN_LIST, &mut base.admin_list),
-        (ComponentId::SUPER_ADMIN_LIST, &mut base.super_admin_list),
-    ] {
-        if let Some(bytes) = dict.get(&component_id.as_u16()) {
-            match decode_inbox_id_list(component_id, bytes) {
-                Ok(ids) => *list = ids,
-                Err(e) => errors.push(e),
-            }
-        }
-    }
-    errors
-}
-
 /// Decode one Bytes/String-family component's wire bytes into its
 /// legacy string value, per the translation rules documented on
-/// [`merge_dict_into_mutable_metadata`]. Shared by the strict and
-/// lossy merge variants so both apply identical translations.
+/// [`merge_dict_into_mutable_metadata`].
 fn decode_metadata_component(
     id: super::app_data::component_id::ComponentId,
     bytes: &[u8],
@@ -565,8 +512,7 @@ fn decode_metadata_component(
 }
 
 /// Decode an `ADMIN_LIST` / `SUPER_ADMIN_LIST` component's wire bytes
-/// (`TlsSet<InboxId>`) into the legacy hex-string list form. Shared by
-/// the strict and lossy merge variants.
+/// (`TlsSet<InboxId>`) into the legacy hex-string list form.
 fn decode_inbox_id_list(
     component_id: super::app_data::component_id::ComponentId,
     bytes: &[u8],
@@ -668,69 +614,58 @@ mod tests {
             )])
             .unwrap();
 
-        for label in ["strict", "lossy"] {
-            let mut base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
-            if label == "strict" {
-                merge_dict_into_mutable_metadata(&mut base, &extensions).unwrap();
-            } else {
-                assert!(merge_dict_into_mutable_metadata_lossy(&mut base, &extensions).is_empty());
-            }
+        let mut base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
+        merge_dict_into_mutable_metadata(&mut base, &extensions).unwrap();
 
-            // The component that was present keeps its decoded value.
+        // The component that was present keeps its decoded value.
+        assert_eq!(
+            base.attributes
+                .get(MetadataField::GroupName.as_str())
+                .map(String::as_str),
+            Some("Only Name"),
+            "a present component must not be overwritten by its default",
+        );
+
+        // The absent ones read as "" rather than being missing.
+        for field in [
+            MetadataField::Description,
+            MetadataField::GroupImageUrlSquare,
+            MetadataField::AppData,
+        ] {
             assert_eq!(
-                base.attributes
-                    .get(MetadataField::GroupName.as_str())
-                    .map(String::as_str),
-                Some("Only Name"),
-                "{label}: a present component must not be overwritten by its default",
+                base.attributes.get(field.as_str()).map(String::as_str),
+                Some(""),
+                "absent {} must default to an empty string",
+                field.as_str(),
             );
+        }
 
-            // The absent ones read as "" rather than being missing.
-            for field in [
-                MetadataField::Description,
-                MetadataField::GroupImageUrlSquare,
-                MetadataField::AppData,
-            ] {
-                assert_eq!(
-                    base.attributes.get(field.as_str()).map(String::as_str),
-                    Some(""),
-                    "{label}: absent {} must default to an empty string",
-                    field.as_str(),
-                );
-            }
-
-            // Fields that legacy only seeded when actually set stay
-            // absent — they never had an empty-string default.
-            for field in [
-                MetadataField::MessageDisappearFromNS,
-                MetadataField::MessageDisappearInNS,
-                MetadataField::MinimumSupportedProtocolVersion,
-                MetadataField::CommitLogSigner,
-            ] {
-                assert!(
-                    !base.attributes.contains_key(field.as_str()),
-                    "{label}: {} must not gain a default",
-                    field.as_str(),
-                );
-            }
+        // Fields that legacy only seeded when actually set stay
+        // absent — they never had an empty-string default.
+        for field in [
+            MetadataField::MessageDisappearFromNS,
+            MetadataField::MessageDisappearInNS,
+            MetadataField::MinimumSupportedProtocolVersion,
+            MetadataField::CommitLogSigner,
+        ] {
+            assert!(
+                !base.attributes.contains_key(field.as_str()),
+                "{} must not gain a default",
+                field.as_str(),
+            );
         }
     }
 
+    /// A malformed component fails the merge rather than being dropped:
+    /// commit validation and the archive exporter both rely on it.
     #[xmtp_common::test(unwrap_try = true)]
-    fn test_lossy_merge_applies_good_fields_and_reports_bad_ones() {
+    fn test_merge_rejects_malformed_component() {
         use super::super::app_data::component_id::ComponentId;
         use openmls::extensions::{AppDataDictionary, AppDataDictionaryExtension};
         use openmls::group::GroupContext;
 
-        // One valid component (GROUP_NAME), two malformed ones
-        // (MESSAGE_DISAPPEAR_FROM_NS with the wrong byte width,
-        // ADMIN_LIST with bytes that aren't a TlsSet<InboxId>).
         let mut dict = AppDataDictionary::new();
         let _ = dict.insert(ComponentId::GROUP_NAME.as_u16(), b"Good Name".to_vec());
-        let _ = dict.insert(
-            ComponentId::MESSAGE_DISAPPEAR_FROM_NS.as_u16(),
-            vec![0x01; 3],
-        );
         let _ = dict.insert(ComponentId::ADMIN_LIST.as_u16(), vec![0xff, 0xff, 0xff]);
         let extensions: Extensions<GroupContext> =
             Extensions::from_vec(vec![Extension::AppDataDictionary(
@@ -738,43 +673,13 @@ mod tests {
             )])
             .unwrap();
 
-        // The strict variant fails on the first malformed component.
-        let mut strict_base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
-        assert!(merge_dict_into_mutable_metadata(&mut strict_base, &extensions).is_err());
-
-        // The lossy variant applies the good field, leaves the bad
-        // ones untouched, and reports both errors with their ids.
         let mut base = GroupMutableMetadata::new(HashMap::new(), vec![], vec![]);
-        let errors = merge_dict_into_mutable_metadata_lossy(&mut base, &extensions);
-
-        assert_eq!(
-            base.attributes
-                .get(MetadataField::GroupName.as_str())
-                .map(String::as_str),
-            Some("Good Name"),
-        );
-        assert!(
-            !base
-                .attributes
-                .contains_key(MetadataField::MessageDisappearFromNS.as_str())
-        );
-        assert!(base.admin_list.is_empty());
-
-        let error_ids: Vec<_> = errors
-            .iter()
-            .map(|e| match e {
-                GroupMutableMetadataError::MalformedComponent { component_id, .. } => {
-                    component_id.unwrap()
-                }
-                other => panic!("expected MalformedComponent, got: {other:?}"),
+        assert!(matches!(
+            merge_dict_into_mutable_metadata(&mut base, &extensions),
+            Err(GroupMutableMetadataError::MalformedComponent {
+                component_id: Some(ComponentId::ADMIN_LIST),
+                ..
             })
-            .collect();
-        assert_eq!(
-            error_ids,
-            vec![
-                ComponentId::MESSAGE_DISAPPEAR_FROM_NS,
-                ComponentId::ADMIN_LIST
-            ]
-        );
+        ));
     }
 }
