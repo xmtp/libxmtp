@@ -102,7 +102,10 @@ pub trait QueryConsentRecord {
         record: StoredConsentRecord,
     ) -> Result<bool, crate::ConnectionError>;
 
-    /// Insert consent_records, and replace existing entries, returns records that are new or changed
+    /// Insert consent_records, and replace existing entries, returns records that are new or changed.
+    /// A local act stores its own time even when the state repeats, so a later
+    /// echo of that act from another installation is not newer than it.
+    // implements: CONS-011
     fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
@@ -214,7 +217,10 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
                         .values(record)
                         .on_conflict((dsl::entity_type, dsl::entity))
                         .do_update()
-                        .set(dsl::state.eq(excluded(dsl::state)))
+                        .set((
+                            dsl::state.eq(excluded(dsl::state)),
+                            dsl::consented_at_ns.eq(excluded(dsl::consented_at_ns)),
+                        ))
                         .execute(conn)?;
                 }
                 Ok(())
@@ -453,6 +459,32 @@ mod tests {
                     .unwrap();
                 assert_eq!(stored.state, ConsentState::Denied);
                 assert_eq!(stored.consented_at_ns, 40);
+            }
+            Ok::<(), crate::ConnectionError>(())
+        })?;
+    }
+
+    /// A local act stores its own time even when the state does not change,
+    /// so a later echo of that act from the sync group is not newer.
+    // verifies: CONS-011
+    #[xmtp_common::test(unwrap_try = true)]
+    fn local_act_moves_the_consent_time_for_a_repeated_state() {
+        with_connection(|conn| {
+            for entity_type in [ConsentType::ConversationId, ConsentType::InboxId] {
+                let entity = "entity";
+                let first = record(entity_type, entity, ConsentState::Denied, 10);
+                let repeat = record(entity_type, entity, ConsentState::Denied, 20);
+                conn.insert_or_replace_consent_records(std::slice::from_ref(&first))?;
+                conn.insert_or_replace_consent_records(std::slice::from_ref(&repeat))?;
+                let stored = conn
+                    .get_consent_record(entity.into(), entity_type)?
+                    .unwrap();
+                assert_eq!(stored.state, ConsentState::Denied);
+                assert_eq!(stored.consented_at_ns, 20);
+                assert!(
+                    !conn.insert_newer_consent_record(repeat)?,
+                    "the echo of the local act must not count as newer"
+                );
             }
             Ok::<(), crate::ConnectionError>(())
         })?;
