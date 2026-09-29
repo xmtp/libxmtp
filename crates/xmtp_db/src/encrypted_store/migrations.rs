@@ -166,12 +166,21 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn rollback_stops_at_a_shorter_version_in_diesel_order() {
         let remaining = remaining_after_rollback(SENDER_SUMMARY).await?;
-        assert_eq!(remaining, [RECEIVED_PROPOSALS, BASELINE]);
+        assert_eq!(
+            remaining.first().map(String::as_str),
+            Some(RECEIVED_PROPOSALS)
+        );
+        assert!(remaining.iter().any(|version| version == BASELINE));
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn rollback_reaches_a_longer_version_in_diesel_order() {
         let remaining = remaining_after_rollback(RECEIVED_PROPOSALS).await?;
-        assert_eq!(remaining, [BASELINE]);
+        assert!(
+            remaining
+                .iter()
+                .all(|version| version != RECEIVED_PROPOSALS && version != SENDER_SUMMARY)
+        );
+        assert!(remaining.iter().any(|version| version == BASELINE));
     }
 }

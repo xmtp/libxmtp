@@ -697,11 +697,17 @@ mod tests {
             Ok::<_, diesel::result::Error>(())
         })?;
         connection.raw_query(|conn| {
-            assert!(
-                diesel::sql_query("SELECT * FROM received_proposals")
-                    .execute(conn)
-                    .is_err()
-            );
+            for table in [
+                "received_proposals",
+                "pending_attachments",
+                "local_attachments",
+            ] {
+                assert!(
+                    diesel::sql_query(format!("SELECT * FROM {table}"))
+                        .execute(conn)
+                        .is_err()
+                );
+            }
             Ok::<_, diesel::result::Error>(())
         })?;
 

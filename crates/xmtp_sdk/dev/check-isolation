@@ -1,11 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# GitHub runs a stacked PR's checks against the stack trunk, so this diff
-# includes the PRs below it. Only shipped code in sdks/ and bindings/ is
-# guarded: tests and changelogs there may change (spec evidence, and
-# owner-approved behaviour changes made in core).
-base=$(git merge-base HEAD origin/self-hosted)
+# Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs there may change
+# (spec evidence, and owner-approved behaviour changes made in core).
+# A stacked pull request is checked against its own base, so a lower PR's changes do not count.
+# In a pull request run, HEAD is GitHub's merge commit and its first parent is the base; the
+# workflow's base_ref can name the stack's trunk instead, so the merge commit wins. Otherwise use
+# the given base branch, or self-hosted.
+if git rev-parse -q --verify HEAD^2 >/dev/null; then
+  base_ref="HEAD^1"
+  base=$(git rev-parse HEAD^1)
+elif [ -n "${1:-}" ]; then
+  base_ref="origin/$1"
+  base=$(git merge-base HEAD "$base_ref")
+else
+  base_ref="origin/self-hosted"
+  base=$(git merge-base HEAD "$base_ref")
+fi
+echo "Checking SDK isolation against $base_ref" >&2
 if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
   exit 0
 fi

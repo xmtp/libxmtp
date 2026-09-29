@@ -58,11 +58,41 @@ mod tests {
         database.init()?;
         let conn = database.conn();
         let db = DbConnection::new(&conn);
-        let available = db.available_migrations()?;
-        assert_eq!(available.len(), 1);
+        let mut available = db.available_migrations()?;
+        available.sort();
+        assert_eq!(
+            available,
+            [
+                "2026-09-08-000000_baseline",
+                "2026-09-24-000000_attachments",
+                "2026-09-28-000000-0000_received_proposals",
+                "2026-09-28-000001_group_message_senders",
+            ]
+        );
         let applied = applied_migrations(&conn)?;
-        assert_eq!(applied.len(), 1);
-        rollback_confirmed(&conn, &applied[0])?;
+        assert_eq!(
+            applied,
+            [
+                "20260928000001",
+                "202609280000000000",
+                "20260924000000",
+                "20260908000000"
+            ]
+        );
+        // Roll back by target version through the attachments migration.
+        rollback_confirmed(&conn, "20260924000000")?;
+        assert_eq!(applied_migrations(&conn)?, [applied[3].clone()]);
+        conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
+        assert!(
+            conn.raw_query(|c| c.batch_execute("SELECT * FROM local_attachments"))
+                .is_err()
+        );
+        assert!(
+            conn.raw_query(|c| c.batch_execute("SELECT * FROM pending_attachments"))
+                .is_err()
+        );
+
+        rollback_confirmed(&conn, &applied[3])?;
         assert!(applied_migrations(&conn)?.is_empty());
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))
@@ -71,6 +101,8 @@ mod tests {
         db.run_pending_migrations()?;
         assert_eq!(applied_migrations(&conn)?, applied);
         conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
+        conn.raw_query(|c| c.batch_execute("SELECT mime_type, filename FROM local_attachments"))?;
+        conn.raw_query(|c| c.batch_execute("SELECT * FROM pending_attachments"))?;
     }
 
     #[xmtp_common::test(unwrap_try = true)]
@@ -79,7 +111,11 @@ mod tests {
         database.init()?;
         let conn = database.conn();
         let db = DbConnection::new(&conn);
-        let baseline = db.available_migrations()?.remove(0);
+        let baseline = db
+            .available_migrations()?
+            .into_iter()
+            .find(|name| name.ends_with("_baseline"))
+            .expect("baseline migration exists");
         let applied = applied_migrations(&conn)?;
         revert_migration_confirmed(&conn, &baseline)?;
         assert_eq!(applied_migrations(&conn)?, applied);
