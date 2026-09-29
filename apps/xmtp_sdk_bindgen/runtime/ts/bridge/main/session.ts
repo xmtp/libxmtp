@@ -1,4 +1,5 @@
 import {
+  abandonedAtEnd,
   bridgeError,
   decodeError,
   encodeError,
@@ -14,6 +15,8 @@ import type { RemoteObject } from "./remote-object.js";
 interface Pending {
   resolve(value: unknown): void;
   reject(error: Error): void;
+  // The owner of a read that is abandoned when that owner ends.
+  abandonedOwner?: number;
 }
 
 export class MainSession {
@@ -247,6 +250,7 @@ export class MainSession {
     return new Promise<unknown>((resolve, reject) => {
       const abort = () => this.endpoint.postMessage({ t: "cancel", id });
       this.pending.set(id, {
+        abandonedOwner: abandonedAtEnd(key) ? target?.owner : undefined,
         resolve: (value) => {
           signal?.removeEventListener("abort", abort);
           resolve(value);
@@ -353,10 +357,21 @@ export class MainSession {
       case "refused":
         this.terminate(this.errorDecoder(message.error));
         break;
-      case "return":
-        this.pending.get(message.id)?.resolve(message.value);
+      case "return": {
+        const pending = this.pending.get(message.id);
         this.pending.delete(message.id);
+        // The owner ended while this read's value was in transit. The value is
+        // not handed to the app, so it stays unacknowledged.
+        if (
+          pending?.abandonedOwner !== undefined &&
+          this.closedOwners.has(pending.abandonedOwner) &&
+          message.value !== undefined &&
+          message.value !== null
+        )
+          pending.reject(this.error("clientClosed"));
+        else pending?.resolve(message.value);
         break;
+      }
       case "error": {
         const pending = this.pending.get(message.id);
         this.pending.delete(message.id);

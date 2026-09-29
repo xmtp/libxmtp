@@ -1,4 +1,5 @@
 import {
+  abandonedAtEnd,
   assertCloneable,
   bridgeError,
   encodeError,
@@ -276,6 +277,9 @@ export interface WorkerContext {
   target?: object;
   targetHandle?: HandleWire;
   started?: () => void;
+  // The generated dispatch calls this after the binding call and its result
+  // encoding finish. Database work for the call is then complete.
+  settled?: () => void;
   createdOwner?: number;
 }
 
@@ -462,10 +466,12 @@ export class WorkerHost {
         if (endsOwner) {
           closing = this.ownerCalls.fence(owner);
           await closing.started;
-        } else accepted = this.ownerCalls.accept(owner);
+        } else
+          accepted = this.ownerCalls.accept(owner, abandonedAtEnd(message.key));
       }
       context.target = target;
       context.started = () => accepted?.start();
+      context.settled = () => accepted?.settle();
       const value = await this.dispatch(message.key, message.args, context);
       if (closing) {
         await closing.drained;

@@ -16,6 +16,21 @@ export const BRIDGE_ERROR_CODES = bridgeCodes(
 
 export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
 
+/**
+ * Reader reads whose admitted value is abandoned when the owner client ends.
+ * Client end waits for their database work, not for their reply to reach the
+ * app. The value stays unacknowledged, so a later reader or replay sees it.
+ */
+const ABANDONED_AT_END = new Set([
+  "MessageReader.next",
+  "ConversationReader.next",
+  "EventReader.next",
+]);
+
+export function abandonedAtEnd(key: string): boolean {
+  return ABANDONED_AT_END.has(key);
+}
+
 export interface ErrorWire {
   variant: string;
   code: string;
