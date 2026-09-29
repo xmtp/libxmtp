@@ -610,7 +610,7 @@ where
         )
     }
 
-    // implements: DMS-015
+    // implements: ARCH-020
     pub(crate) fn create_restored_dm_and_insert(
         context: &Context,
         dm_members: DmMembers<InboxId>,

@@ -38,7 +38,7 @@ fn archived_message(
     }
 }
 
-// verifies: DMS-003, JOIN-080, JOIN-044
+// verifies: DMS-003, DMS-015, JOIN-080, JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_dm_placeholder_activates_with_archived_history() {
     use xmtp_db::{
@@ -88,7 +88,7 @@ async fn restored_dm_placeholder_activates_with_archived_history() {
     assert!(bo.group(&dm.group_id)?.is_active()?);
 }
 
-// verifies: DMS-003, JOIN-080, JOIN-044
+// verifies: DMS-003, DMS-015, JOIN-080, JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_dm_backup_stub_activates_with_archived_history() {
     use xmtp_db::{

@@ -3,7 +3,7 @@
 use super::*;
 use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
 
-// implements: DMS-015
+// implements: DMS-001, ARCH-020
 pub(crate) fn parse_canonical_dm_id(dm_id: Option<&str>) -> Result<DmMembers<String>, GroupError> {
     let invalid = || {
         GroupError::from(MetadataPermissionsError::from(

@@ -477,7 +477,7 @@ mod tests {
         bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
-    // verifies: ARCH-015, ARCH-023, DMS-015
+    // verifies: ARCH-015, ARCH-020, ARCH-022
     #[xmtp_common::test(unwrap_try = true)]
     async fn foreign_archive_preserves_dm_pair_and_history() {
         use crate::groups::GroupError;
@@ -773,7 +773,7 @@ mod tests {
         ));
     }
 
-    // verifies: DMS-015, ARCH-021
+    // verifies: DMS-001, ARCH-021
     #[xmtp_common::test(unwrap_try = true)]
     async fn malformed_archived_dm_id_fails_before_group_insert() {
         tester!(alix, disable_workers);
