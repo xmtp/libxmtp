@@ -273,3 +273,149 @@ fn zero_limits_fall_back_to_the_compiled_defaults() {
     };
     assert_eq!(empty.without_zeroes(), LimitsConfiguration::default());
 }
+
+/// A definition that meets every rule, for a test to break one at a time.
+fn definition(component_id: u16, name: &str) -> ApplicationComponentDefinition {
+    let allow = Some(MetadataPolicy::Base(1));
+    ApplicationComponentDefinition {
+        component_id,
+        name: name.to_owned(),
+        component_type: 7,
+        permissions: ComponentPermissions {
+            insert: allow.clone(),
+            update: allow.clone(),
+            delete: allow,
+        },
+        in_groups: true,
+        in_dms: false,
+    }
+}
+
+// A client stores the catalogue it will copy into new conversations, so an
+// entry no conversation could register is refused before it is stored. Each
+// case breaks exactly one rule; the boundaries of each rule are accepted.
+// verifies: CONF-071
+#[xmtp_common::test(unwrap_try = true)]
+fn a_definition_that_breaks_one_rule_is_refused() {
+    type Edit = fn(&mut ApplicationComponentDefinition);
+    let accepted: [Edit; 7] = [
+        |d| d.component_id = 0xC000,
+        |d| d.component_id = 0xFEFF,
+        |d| d.name = "é".repeat(MAX_APPLICATION_COMPONENT_NAME_BYTES / 2),
+        |d| (d.in_groups, d.in_dms) = (false, true),
+        // A newer backend may publish a type or policy this build predates.
+        |d| d.component_type = 99,
+        |d| d.permissions.insert = Some(MetadataPolicy::Base(42)),
+        |d| {
+            d.permissions.delete = Some(MetadataPolicy::Any(vec![
+                MetadataPolicy::Base(3),
+                MetadataPolicy::And(vec![]),
+            ]))
+        },
+    ];
+    for (case, edit) in accepted.into_iter().enumerate() {
+        let mut definition = definition(0xC001, "USER_PRONOUNS");
+        edit(&mut definition);
+        assert_eq!(
+            definition.validate(),
+            Ok(()),
+            "case {case} must be accepted"
+        );
+    }
+
+    let refused: [(Edit, ApplicationComponentError); 10] = [
+        (
+            |d| d.component_id = 0xBFFF,
+            ApplicationComponentError::ComponentId,
+        ),
+        (
+            |d| d.component_id = 0xFF00,
+            ApplicationComponentError::ComponentId,
+        ),
+        (
+            |d| d.component_id = u16::MAX,
+            ApplicationComponentError::ComponentId,
+        ),
+        (|d| d.name.clear(), ApplicationComponentError::Name),
+        (
+            |d| d.name = "a".repeat(MAX_APPLICATION_COMPONENT_NAME_BYTES + 1),
+            ApplicationComponentError::Name,
+        ),
+        (
+            |d| d.component_type = 0,
+            ApplicationComponentError::ComponentType,
+        ),
+        (
+            |d| d.permissions.insert = None,
+            ApplicationComponentError::Permissions,
+        ),
+        (
+            |d| d.permissions.update = None,
+            ApplicationComponentError::Permissions,
+        ),
+        (
+            |d| d.permissions.delete = None,
+            ApplicationComponentError::Permissions,
+        ),
+        (
+            |d| d.in_groups = false,
+            ApplicationComponentError::Conversations,
+        ),
+    ];
+    for (edit, reason) in refused {
+        let mut definition = definition(0xC001, "USER_PRONOUNS");
+        edit(&mut definition);
+        assert_eq!(definition.validate(), Err(reason));
+    }
+}
+
+// Two definitions for one ID would give conversations different fields for the
+// same key, and two for one name would make name lookup ambiguous. The error
+// names the later definition, which is the one that repeats.
+// verifies: CONF-071
+#[xmtp_common::test(unwrap_try = true)]
+fn a_repeated_id_or_name_is_refused_at_its_position() {
+    validate_application_components(&[
+        definition(0xC001, "USER_PRONOUNS"),
+        definition(0xC002, "USER_STATUS"),
+    ])?;
+    assert_eq!(
+        validate_application_components(&[
+            definition(0xC001, "USER_PRONOUNS"),
+            definition(0xC002, "USER_STATUS"),
+            definition(0xC001, "USER_TIMEZONE"),
+        ]),
+        Err((2, ApplicationComponentError::DuplicateId))
+    );
+    assert_eq!(
+        validate_application_components(&[
+            definition(0xC001, "USER_PRONOUNS"),
+            definition(0xC002, "USER_PRONOUNS"),
+        ]),
+        Err((1, ApplicationComponentError::DuplicateName))
+    );
+}
+
+// The catalogue is part of the answer a client validates before it stores it,
+// so one bad definition refuses the whole configuration.
+// verifies: CONF-071
+#[xmtp_common::test(unwrap_try = true)]
+fn configuration_validation_covers_the_catalogue() {
+    let mut configuration = ServerConfiguration {
+        identifier: "org.example.xmtp".to_owned(),
+        application_components: vec![definition(0xC001, "USER_PRONOUNS")],
+        ..Default::default()
+    };
+    configuration.validate()?;
+
+    configuration
+        .application_components
+        .push(definition(0x8004, "GROUP_TOPIC"));
+    assert_eq!(
+        configuration.validate(),
+        Err(ServerConfigurationError::ApplicationComponent {
+            index: 1,
+            reason: ApplicationComponentError::ComponentId,
+        })
+    );
+}

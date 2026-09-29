@@ -668,18 +668,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
 
 [[waiver]]
-id = "CONF-078"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The backend configuration has no application component table yet, so it cannot validate one. A later PR of the configured-metadata stack adds the TOML table and startup checks."
-[[waiver]]
-id = "CONF-079"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The wire message and GetConfigurationResponse field 10 exist, but the backend does not populate application_components yet. A later PR of the configured-metadata stack publishes the validated catalogue."
-[[waiver]]
 id = "META-066"
 kind = "gap"
 owner = "protocol"
@@ -946,7 +934,7 @@ id = "CONF-061"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "No SDK exposes the attachments field of GetConfigurationResponse yet; binding and SDK exposure pending."
+reason = "No SDK exposes the attachments or application_components fields of GetConfigurationResponse yet; binding and SDK exposure pending."
 [[waiver]]
 id = "CONF-062"
 kind = "gap"

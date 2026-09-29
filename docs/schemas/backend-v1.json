@@ -145,6 +145,14 @@
         "max_installations_per_inbox": 10,
         "commit_log_enabled": true
       }
+    },
+    "application_components": {
+      "description": "Group metadata fields clients register in the conversations they\ncreate. Published sorted by `component_id`.",
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ApplicationComponentConfig"
+      },
+      "default": []
     }
   },
   "additionalProperties": false,
@@ -1300,6 +1308,80 @@
         }
       },
       "additionalProperties": false
+    },
+    "ApplicationComponentConfig": {
+      "description": "One application component. Every key is required; there are no defaults,\nbecause a published definition should not change once conversations use it.",
+      "type": "object",
+      "properties": {
+        "component_id": {
+          "description": "A number in `0xC000`–`0xFEFF`.",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 49152,
+          "maximum": 65279
+        },
+        "name": {
+          "description": "A label and lookup key, 1 to 100 bytes. Prefix a field that holds one\nvalue per inbox with `USER_`, as the well-known user fields are.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "component_type": {
+          "$ref": "#/$defs/ComponentTypeConfig"
+        },
+        "insert_policy": {
+          "$ref": "#/$defs/PolicyConfig"
+        },
+        "update_policy": {
+          "$ref": "#/$defs/PolicyConfig"
+        },
+        "delete_policy": {
+          "$ref": "#/$defs/PolicyConfig"
+        },
+        "in_groups": {
+          "description": "Register in new groups.",
+          "type": "boolean"
+        },
+        "in_dms": {
+          "description": "Register in new DMs.",
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "component_id",
+        "name",
+        "component_type",
+        "insert_policy",
+        "update_policy",
+        "delete_policy",
+        "in_groups",
+        "in_dms"
+      ]
+    },
+    "ComponentTypeConfig": {
+      "description": "The value shape of a component, one per `ComponentType`.",
+      "type": "string",
+      "enum": [
+        "bytes",
+        "string",
+        "tls_map_bytes_bytes",
+        "tls_map_inbox_id_bytes",
+        "tls_set_bytes",
+        "tls_set_inbox_id",
+        "tls_map_inbox_id_string"
+      ]
+    },
+    "PolicyConfig": {
+      "description": "Who may insert, update, or delete a value, one per `MetadataBasePolicy`.",
+      "type": "string",
+      "enum": [
+        "allow",
+        "deny",
+        "allow_if_admin",
+        "allow_if_super_admin",
+        "allow_if_self_or_non_member"
+      ]
     }
   }
 }

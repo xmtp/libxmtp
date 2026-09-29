@@ -5,11 +5,14 @@
 //! exceptions are the identifier, which is rejected when
 //! empty, and `commit_log_enabled`, which keeps `None` distinct from
 //! `Some(false)`.
+//!
+//! The application catalogue converts both ways, so the backend publishes
+//! and a client registers the same definitions the snapshot holds.
 
 use xmtp_configuration::{
-    AttachmentsConfiguration, AuthConfiguration, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
-    LimitsConfiguration, MlsConfiguration, RetentionConfiguration, ServerConfiguration,
-    SigningKeyDescription,
+    ApplicationComponentDefinition, AttachmentsConfiguration, AuthConfiguration,
+    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ComponentPermissions, LimitsConfiguration, MetadataPolicy,
+    MlsConfiguration, RetentionConfiguration, ServerConfiguration, SigningKeyDescription,
     attachments::{
         AttachmentConfigurationError, check_base_url, check_max_upload_bytes,
         check_retention_seconds,
@@ -17,6 +20,10 @@ use xmtp_configuration::{
 };
 
 use crate::backend_v1;
+use crate::xmtp::mls::message_contents::{
+    self as mls,
+    metadata_policy::{AndCondition, AnyCondition, Kind},
+};
 
 /// Take the published value, or the compiled default when it is zero.
 // implements: CONF-025
@@ -132,6 +139,84 @@ impl From<backend_v1::MlsConfiguration> for MlsConfiguration {
     }
 }
 
+impl From<mls::MetadataPolicy> for MetadataPolicy {
+    fn from(policy: mls::MetadataPolicy) -> Self {
+        let all =
+            |policies: Vec<mls::MetadataPolicy>| policies.into_iter().map(Self::from).collect();
+        match policy.kind {
+            Some(Kind::Base(base)) => Self::Base(base),
+            Some(Kind::AndCondition(and)) => Self::And(all(and.policies)),
+            Some(Kind::AnyCondition(any)) => Self::Any(all(any.policies)),
+            // A policy with no kind evaluates as the unspecified base.
+            None => Self::Base(0),
+        }
+    }
+}
+
+impl From<MetadataPolicy> for mls::MetadataPolicy {
+    fn from(policy: MetadataPolicy) -> Self {
+        let all = |policies: Vec<MetadataPolicy>| policies.into_iter().map(Self::from).collect();
+        let kind = match policy {
+            MetadataPolicy::Base(base) => Kind::Base(base),
+            MetadataPolicy::And(policies) => Kind::AndCondition(AndCondition {
+                policies: all(policies),
+            }),
+            MetadataPolicy::Any(policies) => Kind::AnyCondition(AnyCondition {
+                policies: all(policies),
+            }),
+        };
+        Self { kind: Some(kind) }
+    }
+}
+
+impl From<mls::ComponentPermissions> for ComponentPermissions {
+    fn from(permissions: mls::ComponentPermissions) -> Self {
+        Self {
+            insert: permissions.insert_policy.map(Into::into),
+            update: permissions.update_policy.map(Into::into),
+            delete: permissions.delete_policy.map(Into::into),
+        }
+    }
+}
+
+impl From<ComponentPermissions> for mls::ComponentPermissions {
+    fn from(permissions: ComponentPermissions) -> Self {
+        Self {
+            insert_policy: permissions.insert.map(Into::into),
+            update_policy: permissions.update.map(Into::into),
+            delete_policy: permissions.delete.map(Into::into),
+        }
+    }
+}
+
+impl From<backend_v1::ApplicationComponentDefinition> for ApplicationComponentDefinition {
+    fn from(definition: backend_v1::ApplicationComponentDefinition) -> Self {
+        Self {
+            // Saturating keeps an oversized ID outside the application range,
+            // so validation refuses it rather than reading a truncated ID.
+            component_id: u16::try_from(definition.component_id).unwrap_or(u16::MAX),
+            name: definition.name,
+            component_type: definition.component_type,
+            permissions: definition.permissions.unwrap_or_default().into(),
+            in_groups: definition.in_groups,
+            in_dms: definition.in_dms,
+        }
+    }
+}
+
+impl From<ApplicationComponentDefinition> for backend_v1::ApplicationComponentDefinition {
+    fn from(definition: ApplicationComponentDefinition) -> Self {
+        Self {
+            component_id: definition.component_id.into(),
+            name: definition.name,
+            component_type: definition.component_type,
+            permissions: Some(definition.permissions.into()),
+            in_groups: definition.in_groups,
+            in_dms: definition.in_dms,
+        }
+    }
+}
+
 // implements: ATCH-008, CONF-025
 impl TryFrom<backend_v1::AttachmentsConfiguration> for AttachmentsConfiguration {
     type Error = AttachmentConfigurationError;
@@ -177,6 +262,11 @@ impl From<backend_v1::GetConfigurationResponse> for ServerConfiguration {
             mls: response.mls.unwrap_or_default().into(),
             attachments,
             smart_contract_wallet_chains: response.smart_contract_wallet_chains,
+            application_components: response
+                .application_components
+                .into_iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }

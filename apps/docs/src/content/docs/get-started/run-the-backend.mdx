@@ -267,6 +267,55 @@ these values; clients read them and apply them locally.
 | `max_installations_per_inbox` | integer, 1 to 65535 | `10`    | Installations a client keeps for one inbox. Advisory.             |
 | `commit_log_enabled`          | boolean             | `true`  | Whether clients write and read the commit log on this deployment. |
 
+### `[[application_components]]`
+
+Group metadata fields the backend publishes for clients to register in the
+conversations they create. The backend stores and checks no values; each
+conversation's own registry decides what its members may write. Omit the table
+to publish none. Every key is required.
+
+| Key              | Type                       | Purpose                                                                 |
+| ---------------- | -------------------------- | ----------------------------------------------------------------------- |
+| `component_id`   | integer, `0xC000`–`0xFEFF` | The field's ID. Unique in the table.                                    |
+| `name`           | string, 1 to 100 bytes     | The label apps look the field up by. Unique, and not a well-known name. |
+| `component_type` | string                     | The value shape. See the list below.                                    |
+| `insert_policy`  | string                     | Who may add a value.                                                    |
+| `update_policy`  | string                     | Who may change a value.                                                 |
+| `delete_policy`  | string                     | Who may remove a value.                                                 |
+| `in_groups`      | boolean                    | Register the field in new groups.                                       |
+| `in_dms`         | boolean                    | Register the field in new DMs. At least one of the two must be true.    |
+
+A type is `bytes`, `string`, `tls_map_bytes_bytes`, `tls_map_inbox_id_bytes`,
+`tls_map_inbox_id_string`, `tls_set_bytes`, or `tls_set_inbox_id`. A map keyed
+by inbox ID holds one value per member.
+
+A policy is `allow`, `deny`, `allow_if_admin`, `allow_if_super_admin`, or
+`allow_if_self_or_non_member`. The last lets a member write only its own key of
+a `tls_map_inbox_id_*` field, and lets anyone remove the key of an inbox that has
+left; it denies every other type.
+
+```toml
+[[application_components]]
+component_id = 0xC000
+name = "USER_PRONOUNS"
+component_type = "tls_map_inbox_id_string"
+insert_policy = "allow_if_self_or_non_member"
+update_policy = "allow_if_self_or_non_member"
+delete_policy = "allow_if_self_or_non_member"
+in_groups = true
+in_dms = true
+```
+
+Keep a published field's ID, name, type, policies, and `in_groups` and `in_dms`
+stable. A conversation copies the definition when it registers the ID, so a
+change reaches only conversations that register it later; existing ones keep
+the old definition. Retire a field by removing it and publish a replacement
+under a new ID and name.
+
+Prefix the name of a field that holds one value per inbox with `USER_`, as the
+well-known `USER_DISPLAY_NAME` does. This is a convention; the backend does not
+check it.
+
 ## Published configuration
 
 Port `5050` also serves `xmtp.backend.v1.ConfigurationService/GetConfiguration`.
@@ -274,12 +323,13 @@ The call needs no credential, so a client can learn what a deployment requires
 before it holds one. The response is built once at startup and does not change
 while the process runs. It carries the identifier, the backend version, the
 minimum client version, a summary of `[auth]`, the retention periods, the
-published limits, the `[mls]` policy, and the configured chain ids.
+published limits, the `[mls]` policy, the configured chain ids, and the
+`[[application_components]]` table sorted by `component_id`.
 
 It never carries the JWKS URL, chain RPC URLs, public key material, clock
 leeway, refresh timing, or any database, telemetry, or listener setting. The
 encoded response must stay under 64 KiB; a very long chain, key, audience,
-issuer, or scope list fails startup.
+issuer, scope, or application component list fails startup.
 
 ## Run it locally
 

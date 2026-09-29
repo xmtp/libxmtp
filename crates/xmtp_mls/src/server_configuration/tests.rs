@@ -146,6 +146,43 @@ fn an_invalid_response_is_rejected() {
     assert!(validated(&response).is_err());
 }
 
+/// A catalogue entry no client could register makes the whole answer
+/// unusable, while tags this build does not know and an unsorted list do not:
+/// a newer deployment may publish either, and the group registry decides.
+// verifies: CONF-071
+#[xmtp_common::test(unwrap_try = true)]
+fn a_catalogue_entry_no_client_could_register_is_rejected() {
+    use xmtp_proto::xmtp::mls::message_contents::{
+        ComponentPermissions, MetadataPolicy, metadata_policy::Kind,
+    };
+    let policy = || MetadataPolicy {
+        kind: Some(Kind::Base(99)),
+    };
+    let entry = |component_id: u32, name: &str| backend_v1::ApplicationComponentDefinition {
+        component_id,
+        name: name.to_owned(),
+        component_type: 99,
+        permissions: Some(ComponentPermissions {
+            insert_policy: Some(policy()),
+            update_policy: Some(policy()),
+            delete_policy: Some(policy()),
+        }),
+        in_groups: false,
+        in_dms: true,
+    };
+    let response = |application_components| backend_v1::GetConfigurationResponse {
+        identifier: "org.example.one".to_owned(),
+        application_components,
+        ..Default::default()
+    };
+    let accepted = validated(&response(vec![entry(0xC001, "b"), entry(0xC000, "a")]))?;
+    assert_eq!(accepted.application_components[0].component_id, 0xC001);
+    assert!(matches!(
+        validated(&response(vec![entry(0xC000, "a"), entry(0xFF00, "b")])),
+        Err(ServerConfigurationError::ApplicationComponent { index: 1, .. })
+    ));
+}
+
 // The refresh worker's three attempts are driven by this
 // classification, so a transient failure must read as retryable through the
 // `ClientError` the fetch wraps it in, and a permanent one must not.
@@ -290,6 +327,18 @@ pub(crate) fn distinct_snapshot() -> ServerConfiguration {
         },
         smart_contract_wallet_chains: vec!["eip155:1".to_owned(), "eip155:8453".to_owned()],
         attachments: None,
+        application_components: vec![xmtp_configuration::ApplicationComponentDefinition {
+            component_id: 0xC001,
+            name: "USER_PRONOUNS".to_owned(),
+            component_type: 7,
+            permissions: xmtp_configuration::ComponentPermissions {
+                insert: Some(xmtp_configuration::MetadataPolicy::Base(5)),
+                update: Some(xmtp_configuration::MetadataPolicy::Base(5)),
+                delete: Some(xmtp_configuration::MetadataPolicy::Base(3)),
+            },
+            in_groups: true,
+            in_dms: false,
+        }],
     }
 }
 
@@ -327,7 +376,39 @@ max_group_members = 23
 [chains]
 "eip155:1" = "http://127.0.0.1:8545"
 "eip155:8453" = "http://127.0.0.1:8545"
+
+[[application_components]]
+component_id = 0xC001
+name = "USER_PRONOUNS"
+component_type = "tls_map_inbox_id_string"
+insert_policy = "allow_if_self_or_non_member"
+update_policy = "allow_if_self_or_non_member"
+delete_policy = "allow_if_admin"
+in_groups = true
+in_dms = true
+
+[[application_components]]
+component_id = 0xC000
+name = "topic"
+component_type = "string"
+insert_policy = "allow"
+update_policy = "allow_if_admin"
+delete_policy = "deny"
+in_groups = true
+in_dms = false
 "#;
+
+    /// The catalogue `DISTINCT` publishes, as `(component_id, name)` in the
+    /// published order.
+    fn catalogue(configuration: &xmtp_configuration::ServerConfiguration) -> Vec<(u16, &str)> {
+        configuration
+            .application_components
+            .iter()
+            .map(|definition| (definition.component_id, definition.name.as_str()))
+            .collect()
+    }
+
+    const DISTINCT_CATALOGUE: [(u16, &str); 2] = [(0xC000, "topic"), (0xC001, "USER_PRONOUNS")];
 
     fn api_at(url: &str) -> xmtp_api_backend::TestClient {
         let transport = xmtp_api_grpc::GrpcClient::create(url.parse().unwrap())
@@ -371,6 +452,7 @@ max_group_members = 23
 
     // The client reads the deployment's values
     // before any identity work and stores the copy bound to the URL it used.
+    // verifies: CONF-061
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_client_reads_and_stores_what_the_deployment_publishes() {
         let backend = EphemeralBackend::start(DISTINCT).await?;
@@ -388,6 +470,7 @@ max_group_members = 23
             configuration.smart_contract_wallet_chains,
             vec!["eip155:1".to_owned(), "eip155:8453".to_owned()]
         );
+        assert_eq!(catalogue(configuration), DISTINCT_CATALOGUE);
 
         let stored = context.db().server_configuration()?.unwrap();
         assert_eq!(stored.identifier, "org.example.distinct");
@@ -546,6 +629,52 @@ max_group_members = 23
         assert_eq!(handle.configuration().identifier, "org.example.distinct");
         assert_eq!(handle.configuration().limits.max_query_topics, 17);
         assert_eq!(handle.configuration().mls.max_group_members, 23);
+        assert_eq!(catalogue(handle.configuration()), DISTINCT_CATALOGUE);
+    }
+
+    // A refresh stores the catalogue it reads, but the running client keeps
+    // the one it started with; the next client on the database gets the new one.
+    // verifies: CONF-020, CONF-040
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn a_refreshed_catalogue_reaches_only_the_next_client() {
+        let backend = EphemeralBackend::start(DISTINCT).await?;
+        let owner = generate_local_wallet();
+        let store = TestDb::create_ephemeral_store().await;
+        let client = Client::builder(identity_setup(&owner))
+            .store(store.clone())
+            .api_client_with_streams(Arc::new(api_at(backend.url())))
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .with_disable_workers(true)
+            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+                |_| {},
+            )))
+            .default_mls_store()
+            .unwrap()
+            .build()
+            .await?;
+
+        crate::server_configuration::worker::ConfigurationWorker::new(client.context.clone())
+            .tick()
+            .await;
+
+        let stored = store.db().server_configuration()?.unwrap();
+        let stored = xmtp_configuration::ServerConfiguration::from(
+            <xmtp_proto::backend_v1::GetConfigurationResponse as prost::Message>::decode(
+                stored.response.as_slice(),
+            )?,
+        );
+        assert_eq!(catalogue(&stored), DISTINCT_CATALOGUE);
+        assert!(
+            client
+                .server_configuration()
+                .application_components
+                .is_empty()
+        );
+
+        let handle =
+            crate::server_configuration::resolve(&unreachable_api(), &store.db(), true).await?;
+        assert_eq!(catalogue(handle.configuration()), DISTINCT_CATALOGUE);
+        backend.stop().await?;
     }
 
     // A refresh rewrites the stored copy, and a
