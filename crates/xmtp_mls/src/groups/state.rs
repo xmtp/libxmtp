@@ -145,8 +145,12 @@ where
             UpdateAdminListType::AddSuper => AdminListActionType::AddSuper,
             UpdateAdminListType::RemoveSuper => AdminListActionType::RemoveSuper,
         };
+        // Parse before queueing. Publication parses the id again, and an
+        // intent that can never publish would block every later intent.
+        let inbox_id = xmtp_mls_common::inbox_id::InboxId::from_hex(&inbox_id)
+            .map_err(xmtp_mls_common::app_data::component_source::ComponentSourceError::from)?;
         let intent_data: Vec<u8> =
-            UpdateAdminListIntentData::new(intent_action_type, inbox_id).into();
+            UpdateAdminListIntentData::new(intent_action_type, inbox_id.to_hex()).into();
         let intent = QueueIntent::update_admin_list()
             .data(intent_data)
             .queue(self)?;
