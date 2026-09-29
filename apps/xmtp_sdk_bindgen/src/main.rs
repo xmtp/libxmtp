@@ -42,6 +42,10 @@ enum Command {
         config: Option<Utf8PathBuf>,
         #[arg(long)]
         pure_only: bool,
+        /// Leave generated TypeScript unformatted. For jobs that only load the
+        /// generated package and have no JavaScript toolchain.
+        #[arg(long)]
+        no_format: bool,
     },
     StageWasm {
         #[arg(long)]
@@ -68,7 +72,13 @@ fn main() -> Result<()> {
             out,
             config,
             pure_only,
-        } => generate(&lib, language, &out, config.as_deref(), pure_only),
+            no_format,
+        } => {
+            if no_format {
+                format::disable();
+            }
+            generate(&lib, language, &out, config.as_deref(), pure_only)
+        }
         Command::StageWasm { lib, out } => {
             fs::create_dir_all(&out)?;
             ubrn_common::stage_wasm(&lib, &out, "xmtp_sdk", false)?;

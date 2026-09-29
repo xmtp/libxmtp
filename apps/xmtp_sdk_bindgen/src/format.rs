@@ -3,6 +3,7 @@
 use std::{
     io::Write as _,
     process::{Command, Stdio},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use anyhow::{Context, Result, bail};
@@ -10,6 +11,15 @@ use camino::Utf8Path;
 
 const FORMATTER: &str = "node_modules/.bin/oxfmt";
 const CONFIG: &str = "apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json";
+
+// Formatting only changes layout. A job without the JavaScript toolchain,
+// such as the Windows load job, generates unformatted TypeScript instead.
+static DISABLED: AtomicBool = AtomicBool::new(false);
+
+/// Leave generated TypeScript unformatted for the rest of this process.
+pub(crate) fn disable() {
+    DISABLED.store(true, Ordering::Relaxed);
+}
 
 /// The formatter command for one source. The source goes through standard
 /// input, and `name` only selects the parser. The formatter reads no
@@ -25,8 +35,15 @@ fn command(name: &str) -> Command {
     command
 }
 
-/// Format `source` as the TypeScript file `name`.
+/// Format `source` as the TypeScript file `name`, unless formatting is off.
 pub(crate) fn typescript(name: &str, source: &str) -> Result<String> {
+    typescript_with(!DISABLED.load(Ordering::Relaxed), name, source)
+}
+
+fn typescript_with(enabled: bool, name: &str, source: &str) -> Result<String> {
+    if !enabled {
+        return Ok(source.to_owned());
+    }
     if !Utf8Path::new(FORMATTER).exists() {
         bail!("TypeScript formatter missing: run `just install` before SDK generation");
     }
@@ -65,6 +82,14 @@ pub(crate) fn typescript_files<'a>(paths: impl IntoIterator<Item = &'a Utf8Path>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // With formatting off, the source is returned unchanged and no formatter
+    // is needed.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn disabled_formatting_needs_no_formatter() {
+        let source = "export const a=1\n";
+        assert_eq!(typescript_with(false, "a.gen.ts", source)?, source);
+    }
 
     // The formatter gets the source on standard input and no path to walk.
     #[xmtp_common::test(unwrap_try = true)]
