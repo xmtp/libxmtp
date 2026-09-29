@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**38 error types** across **11 crates** with **408 total error codes**.
+**38 error types** across **11 crates** with **410 total error codes**.
 
 ## mobile
 
