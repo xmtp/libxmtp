@@ -39,6 +39,7 @@ export type AdmissionCase =
   | "admitted"
   | "cancel"
   | "owner-end"
+  | "end-fails"
   | "callback-throw"
   | "callback-reject";
 
@@ -352,6 +353,10 @@ export async function checkWorkerAdmission(
         (value) => ({ value }),
         (error: unknown) => ({ error }),
       );
+      let delivered = false;
+      void settled.then(() => {
+        delivered = true;
+      });
       expect(await session.call("__f3WaitHeld", [])).toBe(release);
       const late = returns.get(lastNext)!.promise;
       const bytes = Uint8Array.from(
@@ -366,6 +371,25 @@ export async function checkWorkerAdmission(
       ).toBe(acknowledgedA);
       if (mode === "admitted") {
         await group.updateConsentState(B.ConsentState.Denied);
+      } else if (mode === "end-fails") {
+        // The admitted reply arrives while Client.end runs, and then the end
+        // fails. The client stays open and the held value reaches the app.
+        await session.call("__f3HoldEnd", []);
+        const ending = client.end().then(
+          () => undefined,
+          (error: unknown) => error,
+        );
+        await session.call("__f3WaitEnd", []);
+        await session.call("__f3Release", [release]);
+        release = undefined;
+        await late;
+        await new Promise<void>((resolve) => setTimeout(resolve, 20));
+        expect(delivered).toBe(false);
+        await session.call("__f3FailEnd", []);
+        expect(await ending).toBeDefined();
+        const value = await pending;
+        expect(!value.done && value.value.id).toBe(ids[1]);
+        await stream.end();
       } else if (mode === "cancel") {
         abort.abort();
         expect(await session.call("__f3WaitAbort", [])).toBe(release);
@@ -387,11 +411,11 @@ export async function checkWorkerAdmission(
         expect(
           await client.conversations().sdkConformanceDeliveryPosition(groupId),
         ).toBe(acknowledgedA);
-      await session.call("__f3Release", [release]);
+      if (release !== undefined) await session.call("__f3Release", [release]);
       release = undefined;
       await late;
       const result = await settled;
-      if (mode === "admitted") {
+      if (mode === "admitted" || mode === "end-fails") {
         expect(
           "value" in result && !result.value.done && result.value.value.id,
         ).toBe(ids[1]);

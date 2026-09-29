@@ -39,6 +39,12 @@ export class MainSession {
   });
   private epoch = 0;
   private readonly closedOwners = new Set<number>();
+  // Owners whose end is in progress. Reads that arrive for them wait here
+  // until the end settles.
+  private readonly endingOwners = new Map<
+    number,
+    { pending: Pending; value: unknown }[]
+  >();
   private readonly proxies = new Map<number, Set<WeakRef<RemoteObject>>>();
   private readonly snapshots = new Map<number, Set<number>>();
   private readonly parents = new Map<number, Set<number>>();
@@ -305,15 +311,26 @@ export class MainSession {
 
   closeOwner(owner: number, handles: number[]): void {
     this.closedOwners.add(owner);
+    // The end succeeded, so reads held for it are abandoned and unacknowledged.
+    const held = this.endingOwners.get(owner) ?? [];
+    this.endingOwners.delete(owner);
+    for (const { pending } of held) pending.reject(this.error("clientClosed"));
     if (!this.dead) this.postWork({ t: "release", handles, owners: [owner] });
   }
 
   fenceOwner(owner: number): void {
     this.closedOwners.add(owner);
+    if (!this.endingOwners.has(owner)) this.endingOwners.set(owner, []);
   }
 
   unfenceOwner(owner: number): void {
-    if (!this.dead) this.closedOwners.delete(owner);
+    if (this.dead) return;
+    this.closedOwners.delete(owner);
+    // The end failed, so the client stays open. A held read reaches the app:
+    // the reader acknowledges it on its next read, as for any delivered value.
+    const held = this.endingOwners.get(owner) ?? [];
+    this.endingOwners.delete(owner);
+    for (const { pending, value } of held) pending.resolve(value);
   }
 
   terminate(cause: unknown = bridgeError("workerTerminated")): void {
@@ -325,6 +342,9 @@ export class MainSession {
     this.readyReject?.(error);
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    for (const held of this.endingOwners.values())
+      for (const { pending } of held) pending.reject(error);
+    this.endingOwners.clear();
     this.proxies.clear();
     this.snapshots.clear();
     this.parents.clear();
@@ -360,16 +380,24 @@ export class MainSession {
       case "return": {
         const pending = this.pending.get(message.id);
         this.pending.delete(message.id);
-        // The owner ended while this read's value was in transit. The value is
-        // not handed to the app, so it stays unacknowledged.
-        if (
-          pending?.abandonedOwner !== undefined &&
-          this.closedOwners.has(pending.abandonedOwner) &&
-          message.value !== undefined &&
-          message.value !== null
-        )
+        const owner = pending?.abandonedOwner;
+        const value = message.value !== undefined && message.value !== null;
+        const ending =
+          owner === undefined ? undefined : this.endingOwners.get(owner);
+        if (pending && value && ending) {
+          // The owner's end is in progress. Hold the value until the end
+          // settles: an ended owner abandons it, and a failed end delivers it.
+          ending.push({ pending, value: message.value });
+        } else if (
+          pending &&
+          value &&
+          owner !== undefined &&
+          this.closedOwners.has(owner)
+        ) {
+          // The owner ended while this read's value was in transit. The value
+          // is not handed to the app, so it stays unacknowledged.
           pending.reject(this.error("clientClosed"));
-        else pending?.resolve(message.value);
+        } else pending?.resolve(message.value);
         break;
       }
       case "error": {

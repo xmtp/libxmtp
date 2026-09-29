@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { registerAdminTests } from "./bridge-admin";
 import { registerCallbacksTests } from "./bridge-callbacks";
 import { registerCreateTests } from "./bridge-create";
+import { registerEndingTests } from "./bridge-ending";
 import { registerIdentityTests } from "./bridge-identity";
 import { registerOwnershipTests } from "./bridge-ownership";
 import { registerPackageLifetimeTests } from "./bridge-package-lifetime";
@@ -13,6 +14,7 @@ describe("browser bridge transport", () => {
   registerTransportTests();
   registerOwnershipTests();
   registerCreateTests();
+  registerEndingTests();
   registerIdentityTests();
   registerCallbacksTests();
   registerAdminTests();

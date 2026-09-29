@@ -34,6 +34,7 @@ for (const mode of [
   "admitted",
   "cancel",
   "owner-end",
+  "end-fails",
   "callback-throw",
   "callback-reject",
 ] satisfies AdmissionCase[]) {

@@ -46,6 +46,10 @@ let gate:
       release: ReturnType<typeof latch>;
     }
   | undefined;
+// A held Client.end that fails when released, to model an end that does not
+// complete.
+let endHold: ReturnType<typeof latch> | undefined;
+let endEntered: ReturnType<typeof latch> | undefined;
 let nextCalls = 0;
 let endCalls = 0;
 let endCompletions = 0;
@@ -92,6 +96,27 @@ new WorkerHost(
       return undefined;
     }
     if (key === "__f3Counts") return { nextCalls, endCalls, endCompletions };
+    if (key === "__f3HoldEnd") {
+      endHold = latch();
+      endEntered = latch();
+      return undefined;
+    }
+    if (key === "__f3WaitEnd") {
+      await endEntered?.promise;
+      return undefined;
+    }
+    if (key === "__f3FailEnd") {
+      endHold?.resolve();
+      return undefined;
+    }
+    if (key === "Client.end" && endHold) {
+      const hold = endHold;
+      endEntered?.resolve();
+      await hold.promise;
+      endHold = undefined;
+      endEntered = undefined;
+      throw new Error("end failed");
+    }
     if (key === "MessageReader.next") nextCalls++;
     if (key === "MessageReader.end") endCalls++;
     const result = await dispatchGenerated(key, args, context);
