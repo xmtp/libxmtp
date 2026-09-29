@@ -16,12 +16,10 @@ test-utils = ["xmtp_common/test-utils"]
 [dependencies]
 aes-gcm.workspace = true
 async-compression.workspace = true
-async-trait.workspace = true
 futures = { workspace = true, features = ["alloc", "std"] }
 futures-util.workspace = true
 openmls.workspace = true
 prost.workspace = true
-serde_json.workspace = true
 sha2.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
