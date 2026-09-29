@@ -286,7 +286,7 @@ Successful-import idempotence is separate from failure recovery. A failed import
 
 An archive is authenticated by the key alone. Anyone who holds the key can write an archive with any message under any sender, and an importing client cannot tell it from one the user wrote. The key is the whole trust.
 
-Archive import trusts the decrypted archive contents. Import does not verify message provenance or sender membership; the app must import only archives from a trusted source.
+Archive import trusts the decrypted archive contents. Import does not verify message provenance or sender membership, so an archive from an untrusted source can add history that did not happen.
 
 Current import can still replace archived creator, adder, creation time, attributes, and admin lists with placeholder values. Restored DM creation can also write fresh Allowed consent. The historical metadata and consent merge requirements remain open for those values.
 
