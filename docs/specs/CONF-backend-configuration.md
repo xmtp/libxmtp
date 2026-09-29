@@ -142,6 +142,9 @@ message GetConfigurationResponse {
   MlsConfiguration mls = 7;
   // CAIP-2 chain ids this backend verifies smart contract wallet signatures on.
   repeated string smart_contract_wallet_chains = 8;
+  // Attachment storage this deployment offers; absent when it offers none.
+  // The message and its rules are owned by ATCH section 1.
+  xmtp.backend.v1.AttachmentsConfiguration attachments = 9;   // pending
 }
 ```
 
@@ -194,6 +197,9 @@ A field the snapshot does not carry, or carries as 0 or empty, takes the compile
 | `mls.max_installations_per_inbox` | 10 |
 | `mls.commit_log_enabled` (absent) | `true` |
 | `smart_contract_wallet_chains` (empty) | No chain: every app-supplied smart contract wallet signature is rejected under CONF-046 |
+| `attachments` (absent) | No attachment storage: creation fails under ATCH-030 |
+| `attachments.max_upload_bytes` | 104857600 |
+| `attachments.retention_seconds` | No expiry |
 
 `identifier` has no default: an empty one is rejected under CONF-071. A present `commit_log_enabled` of `false` is not a missing value; it switches the commit log off under CONF-045.
 

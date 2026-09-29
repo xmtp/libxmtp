@@ -17,6 +17,7 @@ This file names things; it does not constrain them. Under SPEC-072 every obligat
 | A peer installation | Another installation of the same inbox as the acting client. |
 | A sender | The installation that published an envelope. |
 | A recipient | An installation the backend delivers an envelope or a push notification to. |
+| The storage target | The object storage an operator configures for remote attachments. It accepts the upload requests the backend signs and serves the stored ciphertext at its download URLs (ATCH). |
 | A validator | Whichever party checks a payload, when the obligation is the same for the backend and the client. Use a named actor when only one of them is bound. |
 
 ## Terms
@@ -42,3 +43,4 @@ This file names things; it does not constrain them. Under SPEC-072 every obligat
 | Commit-log entry | A signed record of a commit that a client publishes for fork detection. Owned by the `FORK` spec. |
 | Consent | An inbox's or conversation's state of allowed, denied, or unknown. Owned by the `CONS` spec. |
 | Content type | The typed encoding of a message payload. Owned by the `CTYPE` spec. |
+| Remote attachment | The description of a file a message carries by reference: the URL of an encrypted object, with the key material and digest to fetch and decrypt it. Its encoding is owned by `CTYPE`; its storage, upload, and download by `ATCH`. |

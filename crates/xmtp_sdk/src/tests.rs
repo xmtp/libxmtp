@@ -2852,7 +2852,6 @@ async fn connection_state_across_toxiproxy_drop() {
     .await;
 }
 
-// verifies: STORE-001
 // verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_path_keeps_opened_relative_file_after_chdir() {
@@ -3138,7 +3137,6 @@ async fn storage_default_requires_host_and_directory_names_are_unique() {
     std::fs::remove_dir_all(directory)?;
 }
 
-// verifies: STORE-008
 #[xmtp_common::test(unwrap_try = true)]
 fn storage_label_rejects_unsafe_characters() {
     for label in ["bad/name", "bad\\name", "bad:name", "bad\0name"] {
