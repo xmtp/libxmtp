@@ -792,14 +792,13 @@ impl Conversation {
   pub fn dm_peer_inbox_id(&self) -> Result<String, JsError> {
     let inbox_id = self.inner_group.context.inbox_id();
 
-    Ok(
-      self
-        .to_mls_group()
-        .dm_id
-        .as_ref()
-        .ok_or(JsError::new("Not a DM conversation or missing DM ID"))?
-        .other_inbox_id(inbox_id),
-    )
+    self
+      .to_mls_group()
+      .dm_id
+      .as_ref()
+      .ok_or(JsError::new("Not a DM conversation or missing DM ID"))?
+      .other_inbox_id(inbox_id)
+      .ok_or(JsError::new("DM peer unavailable for this inbox"))
   }
 
   #[wasm_bindgen(js_name = processStreamedGroupMessage)]

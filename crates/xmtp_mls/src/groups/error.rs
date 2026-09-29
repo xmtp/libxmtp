@@ -536,9 +536,9 @@ impl RetryableError for GroupLeaveValidationError {
 
 #[derive(Error, Debug)]
 pub enum DmValidationError {
-    #[error("DM group must have DmMembers set")]
+    #[error("DM group must include our inbox in its member pair")]
     OurInboxMustBeMember,
-    #[error("DM group must have our inbox as one of the dm members")]
+    #[error("DM group must have DM_MEMBERS set")]
     MustHaveMembersSet,
     #[error("Invalid conversation type for DM group")]
     InvalidConversationType,
@@ -548,6 +548,14 @@ pub enum DmValidationError {
     MustHaveEmptyAdminAndSuperAdmin,
     #[error("Invalid permissions for DM group")]
     InvalidPermissions,
+    #[error("DM group membership is invalid")]
+    InvalidMembership,
+    #[error("DM group member credential is invalid")]
+    InvalidMemberCredential,
+    #[error("DM group includes an inbox outside its pair")]
+    MemberOutsidePair,
+    #[error("stored DM identifier does not match its validated pair")]
+    StoredDmIdMismatch,
 }
 
 impl RetryableError for DmValidationError {
@@ -558,7 +566,11 @@ impl RetryableError for DmValidationError {
             | Self::InvalidConversationType
             | Self::ExpectedInboxesDoNotMatch
             | Self::MustHaveEmptyAdminAndSuperAdmin
-            | Self::InvalidPermissions => false,
+            | Self::InvalidPermissions
+            | Self::InvalidMembership
+            | Self::InvalidMemberCredential
+            | Self::MemberOutsidePair
+            | Self::StoredDmIdMismatch => false,
         }
     }
 }

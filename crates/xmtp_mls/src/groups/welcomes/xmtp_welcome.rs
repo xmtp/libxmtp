@@ -380,6 +380,30 @@ where
             return Err(GroupError::InvalidGroupMembership);
         }
         self.validator.check_verified_membership(&membership, &db)?;
+        // implements: DMS-015, JOIN-081
+        // A Restored row carries historical identity. A Welcome can activate
+        // it only when its authenticated kind and DM pair are unchanged.
+        let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
+        let existing_group = db.find_group(&group_id)?;
+        if let Some(existing) = &existing_group
+            && existing.membership_state == GroupMembershipState::Restored
+        {
+            if existing.conversation_type != metadata.conversation_type {
+                return Err(GroupError::InvalidWelcomeMetadata);
+            }
+            if existing.conversation_type == ConversationType::Dm {
+                let archived_pair =
+                    crate::groups::parse_canonical_dm_id(existing.dm_id.as_deref())?;
+                if metadata.dm_members.as_ref().map(String::from).as_deref()
+                    != Some(archived_pair.to_string().as_str())
+                {
+                    return Err(MetadataPermissionsError::from(
+                        crate::groups::DmValidationError::StoredDmIdMismatch,
+                    )
+                    .into());
+                }
+            }
+        }
         if metadata.conversation_type == ConversationType::Oneshot {
             Oneshot::process_welcome(
                 &provider,
@@ -391,18 +415,16 @@ where
             return Ok(None);
         }
 
-        // Extract group_id before consuming staged_welcome
-        let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
-        let existing_group = db.find_group(&group_id)?;
         let mut anchor_mode = JoinAnchorMode::Advance;
 
-        if let Some(existing) = &existing_group {
+        if let Some(existing) = &existing_group
+            && existing.membership_state != GroupMembershipState::Restored
+        {
             let mut current = OpenMlsGroup::load(&storage, &group_id.to_openmls())?
                 .ok_or(xmtp_db::NotFound::MlsGroup(group_id))?;
             let processed = db.latest_cursor_for_id(group_id, &[EntityKind::ApplicationMessage])?;
             let incoming_epoch = staged_welcome.public_group().group_context().epoch();
-            let active =
-                current.is_active() && existing.membership_state != GroupMembershipState::Restored;
+            let active = current.is_active();
             // A remove-and-re-add commit can retire this installation at the join anchor.
             // Removal can advance its public epoch without installing that epoch's secrets.
             // Welcome publication order does not establish MLS epoch order.
@@ -539,8 +561,7 @@ where
             db.update_group_membership(existing.id, GroupMembershipState::Allowed)?;
         }
 
-        // Insert or replace the group in the database.
-        // For existing groups, this only updates the sequence_id (not membership_state).
+        // Insert the group, replace a Restored placeholder, or advance an existing cursor.
         let stored_group = db.insert_or_replace_group(to_store)?;
 
         let consent_entity = hex::encode(stored_group.id);

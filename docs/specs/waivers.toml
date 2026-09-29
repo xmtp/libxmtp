@@ -231,13 +231,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A direct lookup by message id returns an expired message until cleanup deletes it."
 
 [[waiver]]
-id = "DMS-003"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A join whose adder is the client's own inbox returns before the role and policy checks, and neither join path restricts the admitted membership and ratchet-tree leaves to the declared pair."
-
-[[waiver]]
 id = "DMS-010"
 kind = "gap"
 owner = "protocol"

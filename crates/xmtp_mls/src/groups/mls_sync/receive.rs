@@ -17,6 +17,12 @@ where
     pub async fn receive(&self) -> Result<ProcessSummary, GroupError> {
         use xmtp_db::delivery::{DeliveryScope, QueryDelivery};
         let db = self.context.db();
+        if db
+            .find_group(&self.group_id)?
+            .is_some_and(|group| group.membership_state == GroupMembershipState::Restored)
+        {
+            return Err(GroupError::GroupInactive);
+        }
         let mut position = db.current_delivery_cursor()?;
         crate::subscriptions::barrier::receive_through_current(
             &self.context,

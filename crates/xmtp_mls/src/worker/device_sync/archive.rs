@@ -11,7 +11,7 @@ pub use xmtp_archive::*;
 use xmtp_db::{
     ConnectionExt, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
-    group::{ConversationType, DmIdExt, GroupMembershipState},
+    group::{ConversationType, GroupMembershipState},
     group_message::StoredGroupMessage,
     prelude::*,
 };
@@ -82,10 +82,17 @@ where
             // Propagate insert failures to the supervisor rather than skipping the record.
             insert(element, context, &mut import_ctx)?;
         }
-        import_ctx.post_import(context)?;
         Ok(())
     }
     .await;
+    // Completed elements stay after a later failure, so apply the
+    // archived activity of every accepted group on both outcomes. The import
+    // error, if any, is the one reported.
+    let flushed = import_ctx.post_import(context);
+    if let (Err(_), Err(error)) = (&result, &flushed) {
+        tracing::warn!("archived group activity was not applied after a failed import: {error}");
+    }
+    let result = result.and(flushed);
     if import_ctx.changed {
         context.events().emit(
             Some(ClientEvent::ArchiveRestored(ArchiveRestored {
@@ -167,14 +174,13 @@ fn insert(
                         ));
                     };
 
-                    let target_inbox_id = dm_id.other_inbox_id(context.inbox_id());
+                    let pair = crate::groups::parse_canonical_dm_id(Some(&dm_id))?;
 
-                    MlsGroup::create_dm_and_insert(
+                    MlsGroup::create_restored_dm_and_insert(
                         context,
-                        GroupMembershipState::Restored,
-                        target_inbox_id,
+                        pair,
                         metadata_options,
-                        Some(&save.id),
+                        &save.id,
                     )?;
                 }
                 _ => {
@@ -654,6 +660,320 @@ mod tests {
         bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
+    // verifies: ARCH-015, ARCH-020
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn foreign_archive_preserves_dm_pair_and_history() {
+        use crate::groups::GroupError;
+        use xmtp_db::{
+            consent_record::{ConsentState, ConsentType},
+            group::{DmIdExt, QueryGroup},
+            readd_status::ReaddStatus,
+        };
+        use xmtp_proto::api::HasStats;
+
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(charlie, disable_workers);
+        tester!(dana, disable_workers);
+        let source = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let alix_id = source
+            .send_message(b"from alix", Default::default())
+            .await?;
+        bo.sync_welcomes().await?;
+        let bo_group = bo.group(&source.group_id)?;
+        let bo_id = bo_group
+            .send_message(b"from bo", Default::default())
+            .await?;
+        source.sync().await?;
+        let archived_dm_id = alix
+            .db()
+            .find_group(&source.group_id)?
+            .expect("source DM")
+            .dm_id
+            .expect("DM pair");
+        assert!(!archived_dm_id.contains(charlie.inbox_id()));
+
+        let key = vec![0x38; 32];
+        let opts = ArchiveOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![BackupElementSelection::Messages],
+            exclude_disappearing_messages: false,
+        };
+        let mut export = vec![];
+        exporter::export(opts.clone(), alix.db(), &key, &mut export)?;
+        let reader = Box::pin(BufReader::new(Cursor::new(export)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &charlie.context).await?;
+
+        let stored = charlie
+            .db()
+            .find_group(&source.group_id)?
+            .expect("Restored DM");
+        assert_eq!(stored.membership_state, GroupMembershipState::Restored);
+        assert_eq!(stored.dm_id.as_deref(), Some(archived_dm_id.as_str()));
+        assert_eq!(archived_dm_id.other_inbox_id(charlie.inbox_id()), None);
+        let restored = charlie.group(&source.group_id)?;
+        assert_eq!(
+            restored
+                .metadata()
+                .await?
+                .dm_members
+                .expect("stub pair")
+                .to_string(),
+            archived_dm_id
+        );
+        assert!(!restored.is_active()?);
+        let stats = charlie.context.api().api_client.mls_stats();
+        stats.clear();
+        assert!(matches!(
+            restored.send_message(b"inactive", Default::default()).await,
+            Err(GroupError::GroupInactive)
+        ));
+        assert!(matches!(
+            restored.sync().await,
+            Err(GroupError::GroupInactive)
+        ));
+        let Err(sync_summary) = restored.sync_with_conn().await else {
+            panic!("Restored sync_with_conn must reject the request");
+        };
+        assert!(matches!(
+            sync_summary.other.as_deref(),
+            Some(GroupError::GroupInactive)
+        ));
+        assert!(matches!(
+            restored.receive().await,
+            Err(GroupError::GroupInactive)
+        ));
+        assert!(matches!(
+            charlie.client.sync_all_groups(vec![restored.clone()]).await,
+            Err(GroupError::GroupInactive)
+        ));
+        assert_eq!(stats.publish.get_count(), 0);
+        let joined = charlie.create_group(None, None)?;
+        joined.add_members(&[dana.inbox_id()]).await?;
+        dana.sync_welcomes().await?;
+        let dana_group = dana.group(&joined.group_id)?;
+        let incoming_id = dana_group
+            .send_message(b"joined group", Default::default())
+            .await?;
+        let Err(GroupError::Sync(summary)) = charlie
+            .client
+            .sync_all_groups(vec![restored.clone(), joined])
+            .await
+        else {
+            panic!("mixed explicit sync must report the inactive group");
+        };
+        assert!(matches!(
+            summary.other.as_deref(),
+            Some(GroupError::GroupInactive)
+        ));
+        assert!(charlie.db().get_group_message(&incoming_id)?.is_some());
+        let sweep = charlie.client.sync_all_welcomes_and_groups(None).await?;
+        assert_eq!(sweep.num_eligible, 1);
+        assert_eq!(sweep.num_synced, 1);
+        assert!(!restored.is_active()?);
+        let db = charlie.db();
+        // Even an allowed archived DM has no authority for remote recovery.
+        db.insert_or_replace_consent_records(&[StoredConsentRecord::new(
+            ConsentType::ConversationId,
+            ConsentState::Allowed,
+            hex::encode(source.group_id),
+        )])?;
+        let excludes_publish = db
+            .get_conversation_ids_for_remote_log_publish()?
+            .iter()
+            .all(|group| group.id != source.group_id);
+        let excludes_download = db
+            .get_conversation_ids_for_remote_log_download()?
+            .iter()
+            .all(|group| group.id != source.group_id);
+        let excludes_fork_check = db
+            .get_conversation_ids_for_fork_check()?
+            .iter()
+            .all(|id| id.as_slice() != source.group_id.as_ref());
+        db.set_group_commit_log_forked_status(&source.group_id, Some(true))?;
+        let excludes_requesting_readds = db
+            .get_conversation_ids_for_requesting_readds()?
+            .iter()
+            .all(|group| group.group_id != source.group_id);
+        ReaddStatus {
+            group_id: source.group_id,
+            installation_id: vec![0x42; 32],
+            requested_at_sequence_id: Some(1),
+            responded_at_sequence_id: None,
+        }
+        .store(&db)?;
+        let excludes_responding_readds = db
+            .get_conversation_ids_for_responding_readds()?
+            .iter()
+            .all(|group| group.group_id != source.group_id);
+        assert_eq!(
+            [
+                excludes_publish,
+                excludes_download,
+                excludes_fork_check,
+                excludes_requesting_readds,
+                excludes_responding_readds,
+            ],
+            [true; 5],
+            "Restored DM must be absent from every recovery selector"
+        );
+        for (id, sender, bytes) in [
+            (&alix_id, alix.inbox_id(), b"from alix".as_slice()),
+            (&bo_id, bo.inbox_id(), b"from bo".as_slice()),
+        ] {
+            let message = charlie.db().get_group_message(id)?.expect("pair history");
+            assert_eq!(message.sender_inbox_id, sender);
+            assert_eq!(message.decrypted_message_bytes, bytes);
+        }
+
+        let mut reexport = vec![];
+        exporter::export(opts, charlie.db(), &key, &mut reexport)?;
+        let reader = Box::pin(BufReader::new(Cursor::new(reexport)));
+        let mut exported = ArchiveImporter::load(reader, &key).await?;
+        let mut found_group = false;
+        while let Some(element) = exported.next().await {
+            if let Some(Element::Group(group)) = element?.element
+                && group.id == source.group_id.as_ref()
+            {
+                assert_eq!(group.dm_id.as_deref(), Some(archived_dm_id.as_str()));
+                found_group = true;
+            }
+        }
+        assert!(found_group, "re-export must retain the archived DM pair");
+
+        let reopened = crate::builder::ClientBuilder::from_client(charlie.client.clone())
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let reopened_group = reopened.group(&source.group_id)?;
+        assert_eq!(
+            reopened_group.dm_id.as_deref(),
+            Some(archived_dm_id.as_str())
+        );
+        assert!(!reopened_group.is_active()?);
+        assert!(reopened.db().get_group_message(&alix_id)?.is_some());
+        assert!(reopened.db().get_group_message(&bo_id)?.is_some());
+    }
+
+    // verifies: ARCH-013
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_import_leaves_a_known_message_unchanged() {
+        tester!(alix, disable_workers);
+        let group = alix.create_group(None, None)?;
+        let known_id = group.send_message(b"known", Default::default()).await?;
+        let known = alix
+            .db()
+            .get_group_message(&known_id)?
+            .expect("known message");
+        let mut save: xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave =
+            known.clone().into();
+        save.sender_inbox_id = hex::encode([0x43; 32]);
+        save.decrypted_message_bytes = b"ignored replacement".to_vec();
+        let mut duplicate = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::GroupMessage(save)),
+        })]);
+        insert_elements(&mut duplicate, &alix.context).await?;
+        assert_eq!(alix.db().get_group_message(&known_id)?, Some(known));
+    }
+
+    /// A DM restored before a failing element is a completed element. Its
+    /// archived activity must survive the failed import, even when no
+    /// retained message carries that timestamp.
+    // verifies: ARCH-021
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn failed_import_keeps_archived_activity_of_restored_prefix() {
+        use xmtp_mls_common::group_metadata::DmMembers;
+        use xmtp_proto::xmtp::device_sync::{
+            group_backup::GroupSave,
+            message_backup::{GroupMessageKindSave, GroupMessageSave},
+        };
+
+        tester!(caro, disable_workers);
+        let pair = DmMembers {
+            member_one_inbox_id: hex::encode([0x41; 32]),
+            member_two_inbox_id: hex::encode([0x42; 32]),
+        };
+        let group_id = vec![0x65; 16];
+        let archived_activity = 1_234_567;
+        let group = GroupSave {
+            id: group_id.clone(),
+            conversation_type: 2,
+            dm_id: Some(pair.to_string()),
+            last_message_ns: Some(archived_activity),
+            ..Default::default()
+        };
+        // A recognized message element with an unspecified kind is malformed.
+        let malformed = GroupMessageSave {
+            id: vec![0x66; 32],
+            group_id: group_id.clone(),
+            kind: GroupMessageKindSave::Unspecified as i32,
+            sender_inbox_id: pair.member_one_inbox_id.clone(),
+            ..Default::default()
+        };
+
+        let events = caro.context.events().subscribe(
+            xmtp_events::EventFilter::new([xmtp_events::EventKind::ArchiveRestored]),
+            Some(4),
+        );
+        let mut elements = futures::stream::iter([
+            Ok::<_, std::io::Error>(BackupElement {
+                element: Some(Element::Group(group)),
+            }),
+            Ok(BackupElement {
+                element: Some(Element::GroupMessage(malformed.clone())),
+            }),
+        ]);
+        let error = insert_elements(&mut elements, &caro.context)
+            .await
+            .expect_err("a malformed element fails the import");
+        assert!(
+            matches!(
+                error,
+                DeviceSyncError::ProtoConversion(xmtp_proto::ConversionError::Unspecified(
+                    "message_kind"
+                ))
+            ),
+            "unexpected import error: {error:?}"
+        );
+
+        let restored = caro
+            .db()
+            .find_group(&GroupId::try_from(group_id.as_slice())?)??;
+        assert_eq!(restored.membership_state, GroupMembershipState::Restored);
+        assert_eq!(restored.last_message_ns, Some(archived_activity));
+        assert!(caro.db().get_group_message(&malformed.id)?.is_none());
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(ClientEvent::ArchiveRestored(restored)), ..
+            }] if !restored.complete
+        ));
+    }
+
+    // verifies: DMS-001, ARCH-021
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn malformed_archived_dm_id_fails_before_group_insert() {
+        tester!(alix, disable_workers);
+        let group_id = vec![0x64; 16];
+        let save = xmtp_proto::xmtp::device_sync::group_backup::GroupSave {
+            id: group_id.clone(),
+            conversation_type: 2,
+            dm_id: Some("dm:malformed".into()),
+            ..Default::default()
+        };
+        let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::Group(save)),
+        })]);
+        assert!(insert_elements(&mut elements, &alix.context).await.is_err());
+        assert!(
+            alix.db()
+                .find_group(&GroupId::try_from(group_id.as_slice())?)?
+                .is_none()
+        );
+    }
+
     // verifies: EVENT-001, EVENT-017
     #[rstest::rstest]
     #[xmtp_common::test]
@@ -918,6 +1238,7 @@ mod tests {
     /// This archive was generated by the legacy creation build before groups
     /// were born with an AppData dictionary. Import must preserve the saved
     /// metadata while it creates dictionary-native backup stubs.
+    // verifies: ARCH-022
     #[xmtp_common::test(unwrap_try = true)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_import_current_legacy_archive_metadata() {
@@ -928,8 +1249,19 @@ mod tests {
 
         let key = vec![9; 32];
         let path = PathBuf::from("tests/assets/archive-current-legacy-metadata.xmtp");
+        let mut preview = ArchiveImporter::from_file(path.clone(), &key).await?;
+        let mut archived_dm_id = None;
+        while let Some(element) = preview.next().await {
+            if let Some(Element::Group(group)) = element?.element {
+                archived_dm_id = archived_dm_id.or(group.dm_id);
+            }
+        }
+        let archived_dm_id = archived_dm_id.expect("legacy DM pair");
         let mut importer = ArchiveImporter::from_file(path, &key).await?;
         tester!(alix, disable_workers);
+        let pair = crate::groups::parse_canonical_dm_id(Some(&archived_dm_id))?;
+        assert_ne!(pair.member_one_inbox_id, alix.inbox_id());
+        assert_ne!(pair.member_two_inbox_id, alix.inbox_id());
         insert_importer(&mut importer, &alix.context).await?;
 
         let groups: Vec<StoredGroup> = alix
@@ -968,6 +1300,10 @@ mod tests {
             .iter()
             .find(|group| group.conversation_type == ConversationType::Dm)
             .expect("legacy DM archive entry");
+        assert_eq!(
+            restored_dm_record.dm_id.as_deref(),
+            Some(archived_dm_id.as_str())
+        );
         assert_eq!(restored_dm_record.message_disappear_from_ns, Some(123));
         assert_eq!(restored_dm_record.message_disappear_in_ns, Some(456));
         let restored_dm = alix.group(&restored_dm_record.id)?;

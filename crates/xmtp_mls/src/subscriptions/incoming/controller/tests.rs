@@ -104,6 +104,135 @@ fn add_barrier_scope<C: XmtpSharedContext + 'static>(
     });
 }
 
+// verifies: DMS-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn one_dm_interest_reconciles_a_later_joined_duplicate() {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let first = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await?;
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let lease = coordinator.acquire_stream(IncomingScope::Groups(vec![first.group_id]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    let first_topic = Topic::new_group_message(first.group_id);
+    assert!(controller.interested().contains(&first_topic));
+    let welcome_topic = Topic::new_welcome_message(alix.context.installation_id());
+    assert!(!controller.scopes[&lease.id].topics.contains(&welcome_topic));
+    assert!(!controller.interested().contains(&welcome_topic));
+
+    let second = bo
+        .find_or_create_dm(alix.inbox_id().to_string(), None)
+        .await?;
+    assert_ne!(first.group_id, second.group_id);
+    alix.sync_welcomes().await?;
+    controller.reconcile()?;
+    let second_topic = Topic::new_group_message(second.group_id);
+    assert!(controller.scopes[&lease.id].topics.contains(&first_topic));
+    assert!(controller.scopes[&lease.id].topics.contains(&second_topic));
+    assert!(controller.interested().contains(&second_topic));
+    assert!(!controller.interested().contains(&welcome_topic));
+}
+
+// verifies: DMS-009
+#[rstest::rstest]
+#[case::stored_before_reader(false)]
+#[case::stored_after_reader(true)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn inferred_inactive_dm_does_not_request_welcome_recovery(#[case] stored_later: bool) {
+    use xmtp_db::{Store, group::GroupMembershipState};
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let first = alix
+        .find_or_create_dm(bo.inbox_id().to_string(), None)
+        .await
+        .unwrap();
+    assert!(first.is_active().unwrap());
+    let mut sibling = alix
+        .context
+        .db()
+        .find_group(&first.group_id)
+        .unwrap()
+        .unwrap();
+    sibling.id = GroupId::generate();
+    sibling.membership_state = GroupMembershipState::Restored;
+    if !stored_later {
+        sibling.store(&alix.context.db()).unwrap();
+    }
+
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let lease = coordinator.acquire_stream(IncomingScope::Groups(vec![first.group_id]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile().unwrap();
+    let first_topic = Topic::new_group_message(first.group_id);
+    let sibling_topic = Topic::new_group_message(sibling.id);
+    let welcome_topic = Topic::new_welcome_message(alix.context.installation_id());
+    if stored_later {
+        assert!(!controller.scopes[&lease.id].topics.contains(&sibling_topic));
+        sibling.store(&alix.context.db()).unwrap();
+        controller.reconcile().unwrap();
+    }
+    assert!(
+        !MlsStore::new(alix.context.clone())
+            .group(&sibling.id)
+            .unwrap()
+            .is_active()
+            .unwrap()
+    );
+
+    for _ in 0..2 {
+        assert!(controller.scopes[&lease.id].topics.contains(&first_topic));
+        assert!(controller.scopes[&lease.id].topics.contains(&sibling_topic));
+        assert!(controller.is_retired(&sibling_topic));
+        assert!(!controller.scopes[&lease.id].topics.contains(&welcome_topic));
+        assert!(!controller.interested().contains(&welcome_topic));
+        assert!(!controller.read_queue.contains(&welcome_topic));
+        controller.reconcile().unwrap();
+    }
+
+    // An explicitly selected inactive group keeps its existing recovery interest.
+    lease.replace_scope(IncomingScope::Groups(vec![sibling.id]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile().unwrap();
+    assert!(controller.interested().contains(&welcome_topic));
+    assert!(controller.read_queue.contains(&welcome_topic));
+
+    lease.replace_scope(IncomingScope::Groups(vec![first.group_id]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile().unwrap();
+    assert!(controller.scopes[&lease.id].topics.contains(&sibling_topic));
+    assert!(controller.is_retired(&sibling_topic));
+    assert!(!controller.interested().contains(&welcome_topic));
+    assert!(!controller.read_queue.contains(&welcome_topic));
+}
+
+// verifies: PROC-046
+#[xmtp_common::test(unwrap_try = true)]
+async fn all_group_network_interest_keeps_a_denied_conversation() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.update_consent_state(xmtp_db::consent_record::ConsentState::Denied)?;
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    let lease = coordinator.acquire_stream(IncomingScope::AllGroups);
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    let topic = Topic::new_group_message(group.group_id);
+    assert!(controller.scopes[&lease.id].topics.contains(&topic));
+    assert!(controller.interested().contains(&topic));
+}
+
 fn meta(topic: &Topic, sequence_id: u64) -> wire::EnvelopeMeta {
     wire::EnvelopeMeta {
         cursor: Some(wire::Cursor { sequence_id }),

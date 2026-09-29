@@ -24,7 +24,11 @@ use xmtp_db::incoming_envelope::{
 };
 #[cfg(test)]
 use xmtp_db::refresh_state::EntityKind;
-use xmtp_db::{consent_record::ConsentState, group::GroupQueryArgs, prelude::*};
+use xmtp_db::{
+    consent_record::ConsentState,
+    group::{GroupMembershipState, GroupQueryArgs},
+    prelude::*,
+};
 #[cfg(test)]
 use xmtp_macro::log_event;
 use xmtp_proto::types::Topic;
@@ -625,11 +629,27 @@ where
 
         let deadline = Instant::now() + self.context.incoming_runtime().policy().barrier_timeout;
         let mut selected = HashSet::new();
-        let groups: Vec<_> = groups
+        let selected: Vec<_> = groups
             .into_iter()
             .filter(|group| selected.insert(group.group_id))
             .collect();
-        let num_eligible = groups.len();
+        let db = self.context.db();
+        let num_eligible = selected.len();
+        let mut groups = Vec::new();
+        let mut restored_count = 0;
+        for group in selected {
+            if db
+                .find_group(&group.group_id)?
+                .is_some_and(|stored| stored.membership_state == GroupMembershipState::Restored)
+            {
+                restored_count += 1;
+            } else {
+                groups.push(group);
+            }
+        }
+        if groups.is_empty() && restored_count > 0 {
+            return Err(GroupError::GroupInactive);
+        }
         let topics = group_sync_topics(&groups);
         // Receipt can proceed while an independent outgoing request is pending.
         let _receipt = IncomingCoordinator::for_context(&self.context)
@@ -640,6 +660,9 @@ where
             .policy()
             .max_dependency_requests;
         let mut summary = super::summary::SyncSummary::default();
+        if restored_count > 0 {
+            add_group_sync_error(&mut summary, GroupError::GroupInactive);
+        }
         let publish =
             run_group_sync_work(&groups, GroupSyncWork::Publish, concurrency, deadline).await;
         for error in publish.into_iter().filter_map(Result::err) {
@@ -752,6 +775,7 @@ where
                 ..Default::default()
             })?
             .into_iter()
+            .filter(|group| group.membership_state != GroupMembershipState::Restored)
             .map(|group| {
                 MlsGroup::new(
                     self.context.clone(),

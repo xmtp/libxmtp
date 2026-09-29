@@ -630,6 +630,11 @@ pub enum InitialGroupKind<'a> {
     },
     /// A DM between the creator and this inbox.
     Dm { target_inbox_id: &'a str },
+    /// An archive placeholder whose historical pair can exclude this client.
+    RestoredDm {
+        member_one_inbox_id: &'a str,
+        member_two_inbox_id: &'a str,
+    },
 }
 
 /// Build the complete dictionary stored in epoch zero.
@@ -655,7 +660,7 @@ pub fn initial_dictionary(
     };
 
     let creator = InboxId::from_hex(creator_inbox_id)?;
-    let (conversation_type, dm_target, oneshot_message) = match kind {
+    let (conversation_type, dm_members, oneshot_message) = match kind {
         InitialGroupKind::Group {
             conversation_type,
             oneshot_message,
@@ -665,10 +670,21 @@ pub fn initial_dictionary(
             if target == creator {
                 return Err(MigrationError::DmMembersSelfReference(creator.to_hex()));
             }
-            (ConversationType::Dm, Some(target), None)
+            (ConversationType::Dm, Some((creator, target)), None)
+        }
+        InitialGroupKind::RestoredDm {
+            member_one_inbox_id,
+            member_two_inbox_id,
+        } => {
+            let first = InboxId::from_hex(member_one_inbox_id)?;
+            let second = InboxId::from_hex(member_two_inbox_id)?;
+            if first == second {
+                return Err(MigrationError::DmMembersSelfReference(first.to_hex()));
+            }
+            (ConversationType::Dm, Some((first, second)), None)
         }
     };
-    let mut registry = build_registry(policy_set, dm_target.is_some(), oneshot_message.is_some())?;
+    let mut registry = build_registry(policy_set, dm_members.is_some(), oneshot_message.is_some())?;
     register_configured_fields(&mut registry, conversation_type, catalogue)?;
     let mut dictionary = AppDataDictionary::new();
     dictionary.insert(
@@ -677,7 +693,7 @@ pub fn initial_dictionary(
     );
     let empty = TlsSet::<InboxId>::new().tls_serialize_detached()?;
     dictionary.insert(ComponentId::ADMIN_LIST.as_u16(), empty.clone());
-    let super_admins = if dm_target.is_some() {
+    let super_admins = if dm_members.is_some() {
         empty
     } else {
         [creator]
@@ -745,8 +761,8 @@ pub fn initial_dictionary(
         ComponentId::CREATOR_INBOX_ID.as_u16(),
         creator.tls_serialize_detached()?,
     );
-    if let Some(target) = dm_target {
-        let members: TlsSet<_> = [creator, target].into_iter().collect();
+    if let Some((first, second)) = dm_members {
+        let members: TlsSet<_> = [first, second].into_iter().collect();
         dictionary.insert(
             ComponentId::DM_MEMBERS.as_u16(),
             members.tls_serialize_detached()?,
