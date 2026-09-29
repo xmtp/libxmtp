@@ -510,11 +510,18 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current SDK does not report the required decode failure while preserving the outer bytes and fallback on every invalid nested content path."
 
 [[waiver]]
-id = "STORE-001"
+id = "STORE-019"
 kind = "gap"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs always put a label (`env`) in the file name, so the unlabeled `xmtp-<inbox id>.db3` is never produced; the façade SDKs implement both forms."
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "No SDK or binding opens a database with a data_dir storage location yet. The façade and the existing SDKs name the database xmtp-<label>-<inbox id>.db3 in the root directory itself."
+
+[[waiver]]
+id = "STORE-020"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "No SDK or binding exposes the storage location layouts yet. The façade and the existing SDKs put the database file in the default location or the named directory itself, with no attachments directory, and the façade has no explicit location with an attachments directory."
 
 [[waiver]]
 id = "STORE-002"
@@ -558,11 +565,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Current SDK `build` can open a new database; the façade `build` fails with a typed error."
 
 [[waiver]]
-id = "STORE-008"
+id = "STORE-021"
 kind = "gap"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs do not reject separators, the colon, and NUL in the label; the façade does."
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "The façade rejects separators, the colon, and control characters in a label, but accepts . and ..; the existing SDKs reject none of them."
 
 [[waiver]]
 id = "STORE-009"

@@ -41,6 +41,7 @@ Out of scope: the remote attachment encodings and the encryption of the payload 
 | [API section 7](API-backend-api.md#7-bounds-errors-and-transport) | Owns the status codes and the client's retry rule (API-284). The admission table of section 3 adds the conditions of `CreateUpload`. |
 | [EVENT](EVENT-client-events.md#1-kinds-and-payloads) | Owns the `attachment.*` kinds, their payloads, and their delivery. This spec owns the transitions they report. |
 | [OPS](OPS-backend-operations.md#5-telemetry) | Owns the route table and the metric catalogue, including the row for `CreateUpload`. |
+| [STORE](STORE-client-storage.md#1-database-location) | Owns the default location, the storage label, and the database file name in a data directory. An SDK maps the default location and a directory the app names onto the layouts of section 5 (STORE-020). |
 
 ## Terms
 
