@@ -11,6 +11,8 @@ publish.workspace = true
 workspace = true
 
 [dependencies]
+async-trait = { workspace = true, optional = true }
+futures.workspace = true
 hex.workspace = true
 openmls.workspace = true
 openmls_rust_crypto.workspace = true
@@ -29,12 +31,14 @@ xmtp_proto.workspace = true
 [features]
 default = []
 test-utils = [
+  "dep:async-trait",
   "xmtp_common/test-utils",
   "xmtp_id/test-utils",
   "openmls/test-utils",
 ]
 
 [dev-dependencies]
+async-trait.workspace = true
 openmls = { workspace = true, features = ["test-utils"] }
 openmls_basic_credential.workspace = true
 tokio.workspace = true

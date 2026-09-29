@@ -23,7 +23,7 @@ use xmtp_api::ApiClientWrapper;
 use xmtp_common::ErrorCode;
 use xmtp_common::time::now_ns;
 use xmtp_common::{RetryableError, retryable};
-use xmtp_configuration::{CREATE_PQ_KEY_PACKAGE_EXTENSION, KEY_PACKAGE_ROTATION_INTERVAL_NS};
+use xmtp_configuration::KEY_PACKAGE_ROTATION_INTERVAL_NS;
 use xmtp_cryptography::signature::IdentifierValidationError;
 use xmtp_cryptography::{CredentialSign, XmtpInstallationCredential};
 use xmtp_db::TransactionOutcome::Continue;
@@ -33,7 +33,7 @@ use xmtp_db::sql_key_store::{
     KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY, SqlKeyStoreError,
 };
 use xmtp_db::{ConnectionExt, MlsProviderExt, TransactionOutcome};
-use xmtp_db::{Fetch, StorageError, Store};
+use xmtp_db::{Fetch, StorageError};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
 use xmtp_id::associations::unverified::UnverifiedSignature;
 use xmtp_id::associations::{AssociationError, Identifier, InstallationKeyContext, PublicContext};
@@ -44,7 +44,6 @@ use xmtp_id::{
     associations::{
         MemberIdentifier,
         builder::{SignatureRequest, SignatureRequestBuilder, SignatureRequestError},
-        sign_with_legacy_key,
     },
 };
 use xmtp_proto::types::InstallationId;
@@ -69,7 +68,6 @@ pub enum IdentityStrategy {
         inbox_id: InboxId,
         identifier: Identifier,
         nonce: u64,
-        legacy_signed_private_key: Option<Vec<u8>>,
     },
     /// Identity that is already in the disk store
     CachedOnly,
@@ -90,17 +88,11 @@ impl IdentityStrategy {
     /// Create a new Identity Strategy, with [`IdentityStrategy::CreateIfNotFound`].
     /// If an Identity is not found in the local store, creates a new one.
     #[tracing::instrument(level = "trace", skip_all)]
-    pub fn new(
-        inbox_id: InboxId,
-        identifier: Identifier,
-        nonce: u64,
-        legacy_signed_private_key: Option<Vec<u8>>,
-    ) -> Self {
+    pub fn new(inbox_id: InboxId, identifier: Identifier, nonce: u64) -> Self {
         Self::CreateIfNotFound {
             inbox_id,
             identifier,
             nonce,
-            legacy_signed_private_key,
         }
     }
 }
@@ -147,7 +139,6 @@ impl IdentityStrategy {
                 inbox_id,
                 identifier,
                 nonce,
-                legacy_signed_private_key,
             } => {
                 if let Some(stored_identity) = stored_identity {
                     tracing::debug!(
@@ -169,7 +160,6 @@ impl IdentityStrategy {
                         inbox_id,
                         identifier,
                         nonce,
-                        legacy_signed_private_key,
                         api_client,
                         mls_storage,
                         &scw_signature_verifier,
@@ -211,11 +201,6 @@ pub enum IdentityError {
     /// MLS basic credential validation failed. Not retryable.
     #[error(transparent)]
     BasicCredential(#[from] BasicCredentialError),
-    /// Legacy key re-use.
-    ///
-    /// Attempted to reuse a legacy key. Not retryable.
-    #[error("Legacy key re-use")]
-    LegacyKeyReuse,
     /// Uninitialized identity.
     ///
     /// Identity not yet initialized. Not retryable.
@@ -226,26 +211,11 @@ pub enum IdentityError {
     /// Problem with installation key. Not retryable.
     #[error("Installation key {0}")]
     InstallationKey(String),
-    /// Malformed legacy key.
-    ///
-    /// Legacy key format is invalid. Not retryable.
-    #[error("Malformed legacy key: {0}")]
-    MalformedLegacyKey(String),
-    /// Legacy signature error.
-    ///
-    /// Legacy signature is invalid. Not retryable.
-    #[error("Legacy signature: {0}")]
-    LegacySignature(String),
     /// Crypto error.
     ///
     /// Cryptographic operation failed. Not retryable.
     #[error(transparent)]
     Crypto(#[from] CryptoError),
-    /// Legacy key mismatch.
-    ///
-    /// Legacy key does not match address. Not retryable.
-    #[error("legacy key does not match address")]
-    LegacyKeyMismatch,
     /// OpenMLS error.
     ///
     /// OpenMLS library error. Not retryable.
@@ -427,18 +397,13 @@ impl Identity {
     /// Create a new [Identity] instance.
     ///
     /// If the address is already associated with an inbox_id, the existing inbox_id will be used.
-    /// Users will be required to sign with their wallet, and the legacy is ignored even if it's provided.
-    ///
-    /// If the address is NOT associated with an inbox_id, a new inbox_id will be generated.
-    /// If a legacy key is provided, it will be used to sign the identity update and no wallet signature is needed.
-    ///
-    /// If no legacy key is provided, a wallet signature is always required.
+    /// If it is not, a new inbox_id is generated from the identifier and nonce.
+    /// Either way, the caller must sign with their wallet.
     #[tracing::instrument(level = "trace", skip_all)]
     pub(crate) async fn new<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
         inbox_id: InboxId,
         identifier: Identifier,
         nonce: u64,
-        legacy_signed_private_key: Option<Vec<u8>>,
         api_client: &ApiClientWrapper<ApiClient>,
         mls_storage: &S,
         scw_signature_verifier: impl SmartContractSignatureVerifier,
@@ -519,78 +484,6 @@ impl Identity {
                 signature_request: Some(signature_request),
                 is_ready: AtomicBool::new(false),
             };
-
-            Ok(identity)
-        } else if let Some(legacy_signed_private_key) = legacy_signed_private_key {
-            // The legacy signed private key may only be used if the nonce is 0
-            if nonce != 0 {
-                return Err(IdentityError::NewIdentity(
-                    "Nonce must be 0 if legacy key is provided".to_string(),
-                ));
-            }
-            // If the inbox_id found on the network does not match the one generated from the address and nonce, we must error
-            let generated_inbox_id = identifier.inbox_id(nonce)?;
-            if inbox_id != generated_inbox_id {
-                return Err(IdentityError::NewIdentity(
-                    "Inbox ID doesn't match nonce & address".to_string(),
-                ));
-            }
-            let mut builder = SignatureRequestBuilder::new(inbox_id.clone());
-            builder = builder.create_inbox(identifier.clone(), nonce);
-            let mut signature_request = builder
-                .add_association(
-                    MemberIdentifier::installation(installation_keys.public_slice().to_vec()),
-                    identifier.clone().into(),
-                )
-                .build();
-
-            let sig = installation_keys
-                .credential_sign::<InstallationKeyContext>(signature_request.signature_text())?;
-
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::new_installation_key(
-                        sig,
-                        installation_keys.verifying_key(),
-                    ),
-                    &scw_signature_verifier,
-                )
-                .await?;
-            signature_request
-                .add_signature(
-                    UnverifiedSignature::LegacyDelegated(sign_with_legacy_key(
-                        signature_request.signature_text(),
-                        legacy_signed_private_key,
-                    )?),
-                    &scw_signature_verifier,
-                )
-                .await?;
-
-            // Make sure to register the identity before applying the signature request
-            let identity = Self {
-                inbox_id: inbox_id.clone(),
-                installation_keys,
-                credential: create_credential(inbox_id)?,
-                signature_request: None,
-                is_ready: AtomicBool::new(true),
-            };
-
-            identity.register(api_client, mls_storage).await?;
-
-            let identity_update = signature_request.build_identity_update()?;
-            let cursor = crate::identity_updates::publish_with_conflict_retry(
-                api_client,
-                &mls_storage.db(),
-                identity_update,
-                &scw_signature_verifier,
-            )
-            .await?;
-            use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::identity::dsl};
-            mls_storage.db().raw_query(|conn| {
-                xmtp_db::diesel::update(dsl::identity)
-                    .set(dsl::registration_cursor_sequence_id.eq(cursor.0 as i64))
-                    .execute(conn)
-            })?;
 
             Ok(identity)
         } else {
@@ -699,27 +592,6 @@ impl Identity {
             .credential(self.credential())
             .installation_keys(self.installation_keys.clone())
             .build(provider, include_post_quantum)
-    }
-
-    #[tracing::instrument(level = "trace", skip_all)]
-    pub(crate) async fn register<ApiClient: XmtpApi, S: XmtpMlsStorageProvider>(
-        &self,
-        api_client: &ApiClientWrapper<ApiClient>,
-        mls_storage: &S,
-    ) -> Result<(), IdentityError> {
-        let stored_identity: Option<StoredIdentity> = mls_storage.db().fetch(&())?;
-        if stored_identity.is_some() {
-            info!("Identity already registered. skipping key package publishing");
-            return Ok(());
-        }
-
-        self.rotate_and_upload_key_package(
-            api_client,
-            mls_storage,
-            CREATE_PQ_KEY_PACKAGE_EXTENSION,
-        )
-        .await?;
-        Ok(StoredIdentity::try_from(self)?.store(&mls_storage.db())?)
     }
 
     /// Store fresh key material before upload, then record its publication receipt.
@@ -975,10 +847,9 @@ mod tests {
 
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn initialize_identity_debug_log_omits_legacy_private_key() {
+    async fn initialize_identity_debug_log_reports_strategy() {
         use super::IdentityStrategy;
         use openmls::credentials::{Credential, CredentialType};
-        use prost::Message;
         use std::sync::atomic::AtomicBool;
         use tracing::instrument::WithSubscriber;
         use xmtp_api::ApiClientWrapper;
@@ -990,19 +861,7 @@ mod tests {
             MockSmartContractSignatureVerifier, WalletTestExt,
         };
         use xmtp_logging::{Level, test_logging::LogCapture};
-        use xmtp_proto::xmtp::message_contents::{SignedPrivateKey, signed_private_key};
 
-        let private_scalar: Vec<u8> = (1..=32).collect();
-        let private_key = SignedPrivateKey {
-            created_ns: 0,
-            public_key: None,
-            union: Some(signed_private_key::Union::Secp256k1(
-                signed_private_key::Secp256k1 {
-                    bytes: private_scalar.clone(),
-                },
-            )),
-        }
-        .encode_to_vec();
         let store = xmtp_db::TestDb::create_persistent_store(None).await;
         let identifier = generate_local_wallet().identifier();
         let inbox_id = identifier.inbox_id(0).unwrap();
@@ -1017,8 +876,7 @@ mod tests {
             .unwrap();
         stored.store(&store.conn()).unwrap();
 
-        let strategy =
-            IdentityStrategy::new(inbox_id.clone(), identifier, 0, Some(private_key.clone()));
+        let strategy = IdentityStrategy::new(inbox_id.clone(), identifier, 0);
         let api = ApiClientWrapper::new(MockBackendClient::new(), Retry::default());
         let verifier = MockSmartContractSignatureVerifier::new(true);
         let capture = LogCapture::new(Level::Debug);
@@ -1031,15 +889,6 @@ mod tests {
         let output = capture.output();
         assert_eq!(loaded.inbox_id, inbox_id);
         assert!(output.contains("identity strategy"), "{output}");
-        assert!(!output.contains(&format!("{private_key:?}")), "{output}");
-        let scalar_decimal = private_scalar
-            .iter()
-            .map(u8::to_string)
-            .collect::<Vec<_>>()
-            .join(", ");
-        assert!(!output.contains(&scalar_decimal), "{output}");
-        assert!(!output.contains(&hex::encode(&private_key)), "{output}");
-        assert!(!output.contains(&hex::encode(&private_scalar)), "{output}");
         assert!(
             output.contains("\"strategy\":\"create_if_not_found\""),
             "{output}"
@@ -1188,14 +1037,8 @@ mod tests {
         use xmtp_common::ErrorCode;
 
         // Test simple variants
-        let err = IdentityError::LegacyKeyReuse;
-        assert_eq!(err.error_code(), "IdentityError::LegacyKeyReuse");
-
         let err = IdentityError::UninitializedIdentity;
         assert_eq!(err.error_code(), "IdentityError::UninitializedIdentity");
-
-        let err = IdentityError::LegacyKeyMismatch;
-        assert_eq!(err.error_code(), "IdentityError::LegacyKeyMismatch");
 
         let err = IdentityError::RequiredIdentityNotFound;
         assert_eq!(err.error_code(), "IdentityError::RequiredIdentityNotFound");

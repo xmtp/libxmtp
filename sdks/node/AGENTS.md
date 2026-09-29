@@ -21,6 +21,35 @@ through an external load balancer. CI builds the binary and runs this matrix in
 its own job; the ordinary shards exclude this file. Run these tests one process
 at a time.
 
+### Recovery budget tests
+
+The two "recovery budget" tests in `streamRecovery.test.ts` wait for the real
+Core outage budget two times each. Together they take about 18 minutes. CI
+does not run them. They run only when `XMTP_RECOVERY_BUDGET_TESTS=1`:
+
+```bash
+XMTP_RECOVERY_BUDGET_TESTS=1 dev/nix-shell 'just js test-node-sdk-ci test/streamRecovery.test.ts -t budget'
+```
+
+Run them before you push a change that can alter when a message stream
+becomes terminal, or how an app opens a replacement stream:
+
+- The recovery budget, outage, or healthy-period rules in
+  `crates/xmtp_mls/src/subscriptions/recovery.rs`.
+- Reader failure and fencing in
+  `crates/xmtp_mls/src/subscriptions/message_reader.rs`, `incoming.rs`,
+  `incoming/controller*`, or `local_delivery/`.
+- The `NetworkRecoveryExhausted` error, its message, or its mapping in
+  `crates/xmtp_sdk/src/delivery/` or `bindings/node`.
+- `onError`, iterator rejection, or `end()` in `sdks/node/src/MessageStream.ts`
+  or `sdks/node/src/utils/streams.ts`.
+- Delivery lease or cursor ownership between a failed stream and its
+  replacement.
+
+Report in the PR that you ran them and the result. Skip them for other
+changes. The Core controlled-clock tests in `recovery.rs` and
+`incoming/controller/tests.rs` cover the budget arithmetic.
+
 ## Recovery contract
 
 Core owns network recovery for message and conversation notification streams.

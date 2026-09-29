@@ -493,7 +493,7 @@ class DmTests: XCTestCase {
 				db: DbOptions(db: dbPath, encryptionKey: nil, maxDbPoolSize: nil, minDbPoolSize: nil),
 				inboxId: generateInboxId(accountIdentifier: account.identity.ffiPrivate, nonce: 0),
 				accountIdentifier: account.identity.ffiPrivate,
-				nonce: 0, legacySignedPrivateKeyProto: nil, deviceSyncMode: .disabled,
+				nonce: 0, deviceSyncMode: .disabled,
 				allowOffline: false, forkRecoveryOpts: nil,
 				workerConfig: FfiWorkerConfig(
 					defaultIntervalNs: nil, workerIntervalsNs: [], workerJittersNs: [],

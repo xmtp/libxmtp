@@ -13,7 +13,7 @@ use xmtp_id::{
     associations::AccountId,
     scw_verifier::{SmartContractSignatureVerifier, ValidationResponse, VerifierError},
 };
-use xmtp_mls_validation::test_utils::{identity_envelope, scw_create_inbox_update};
+use xmtp_mls_validation::test_utils::{TestChain, identity_envelope, scw_create_inbox_update};
 
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-212
@@ -100,7 +100,7 @@ async fn paused_server(
         first_valid,
     };
     Ok((
-        TestServer::with_verifier(|_| {}, verifier).await?,
+        TestServer::with_verifier(|_| {}, verifier, TestChain::at(1)).await?,
         entered,
         resume,
     ))

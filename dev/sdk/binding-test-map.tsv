@@ -62,7 +62,6 @@ mls/tests/client.rs	test_key_package_validation	façade: `crates/xmtp_sdk/src/te
 mls/tests/client.rs	test_get_hmac_keys	façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::facade_hmac_keys_include_duplicate_dms`
 mls/tests/client.rs	test_shutdown_is_idempotent	façade: `crates/xmtp_sdk/src/tests/reader_delivery.rs::slice_create_send_read_stream_end`
 mls/tests/client.rs	register_after_unconfirmed_registration_waits	core: `crates/xmtp_mls/src/client/tests/lifecycle.rs::register_identity_waits_until_visible`
-mls/tests/client.rs	legacy_key_creation_waits_until_visible	core: `crates/xmtp_mls/src/client/tests/lifecycle.rs::register_identity_waits_until_visible`
 mls/tests/content_types.rs	test_can_send_and_receive_reaction	façade: `crates/xmtp_sdk/src/tests/message_actions.rs::message_actions_use_ids_and_compression_is_opt_in`
 mls/tests/content_types.rs	test_reaction_encode_decode	façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields`
 mls/tests/content_types.rs	test_multi_remote_attachment_encode_decode	façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields`
