@@ -1,7 +1,12 @@
 import { expect, it } from "vitest";
 
+import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
+import {
+  PoolLocks,
+  WorkerHost,
+} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
 import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
-import { host } from "./bridge-support";
+import { heldPoolLocks, host, pair } from "./bridge-support";
 
 function latch() {
   let resolve!: () => void;
@@ -65,6 +70,70 @@ async function endWithReadInTransit(endFails: boolean) {
 }
 
 export function registerEndingTests(): void {
+  // A signer callback may end its own client. The end must not wait for the
+  // call that is parked on that callback, but the storage lock stays held
+  // until that call finishes.
+  it("ends a client from a signer callback of a running call", async () => {
+    const { held, provider } = heldPoolLocks();
+    const locks = new PoolLocks(provider);
+    const [main, worker] = pair();
+    const finishRevoke = latch();
+    const engine = new WorkerHost(
+      worker,
+      1,
+      "pool",
+      async () => {},
+      async (key, args, context) => {
+        if (key === "Client.revokeInstallations") {
+          context.started?.();
+          const signer = args[0] as { cb: number };
+          await context.callbacks.invoke(signer.cb, "sign", []);
+          await finishRevoke.promise;
+          context.settled?.();
+          return "revoked";
+        }
+        return undefined;
+      },
+      locks,
+    );
+    const session = new MainSession(main, 1, "pool");
+    await session.ready();
+    await locks.open("client-pool");
+    const clientHandle = engine.registry.add({}, "Client", undefined, () => ({
+      clientKey: 7n,
+    }));
+    locks.attachOwner(clientHandle.owner, "client-pool");
+    const client = new Client(session, clientHandle);
+    let ended: string | undefined;
+    const signer = session.callbacks.register(
+      "Signer",
+      {
+        sign: async () => {
+          ended = await Promise.race([
+            client.end().then(() => "ended"),
+            new Promise<string>((resolve) =>
+              setTimeout(() => resolve("end still pending"), 500),
+            ),
+          ]);
+          return "signature";
+        },
+      },
+      ["sign"],
+    );
+    const revoke = session.call(
+      "Client.revokeInstallations",
+      [signer],
+      clientHandle,
+    );
+    await expect.poll(() => ended, { timeout: 2000 }).toBeDefined();
+    expect(ended).toBe("ended");
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(held.has("xmtp:client-pool")).toBe(true);
+    finishRevoke.resolve();
+    await expect(revoke).resolves.toBe("revoked");
+    await expect.poll(() => held.has("xmtp:client-pool")).toBe(false);
+  });
+
   // A queued read that is aborted settles at once and is never posted.
   it("settles an aborted queued read without posting it", async () => {
     let reads = 0;

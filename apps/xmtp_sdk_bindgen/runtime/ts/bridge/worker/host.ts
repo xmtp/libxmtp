@@ -306,6 +306,23 @@ export type Dispatch = (
   context: WorkerContext,
 ) => Promise<unknown>;
 
+/** The host callback handles in a call's wire arguments. */
+function callbackHandles(value: unknown, found: number[] = []): number[] {
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) return found;
+  if (Array.isArray(value)) {
+    for (const item of value) callbackHandles(item, found);
+  } else if (value !== null && typeof value === "object") {
+    const cb: unknown = Reflect.get(value, "cb");
+    if (
+      typeof cb === "number" &&
+      typeof Reflect.get(value, "type") === "string"
+    )
+      found.push(cb);
+    else for (const item of Object.values(value)) callbackHandles(item, found);
+  }
+  return found;
+}
+
 export const RUST_PANIC_PREFIX = "[Rust panic]";
 
 export class WorkerHost {
@@ -313,8 +330,10 @@ export class WorkerHost {
   readonly callbacks: WorkerCallbacks;
   private readonly active = new Map<number, AbortController>();
   private readonly ownerCalls = new OwnerCalls();
-  // Owners whose root ended through a successful client or admin end call.
-  private readonly endedOwners = new Set<number>();
+  // Owners whose root ended through a successful client or admin end call,
+  // with the calls that must finish before the owner's storage lock is
+  // released.
+  private readonly endedOwners = new Map<number, Promise<void>>();
   private initialized = false;
   private revision = 0;
   private idleRevision = -1;
@@ -337,6 +356,7 @@ export class WorkerHost {
       (random[0] % 0x200000) * 0x100000000 + random[1],
     );
     this.callbacks = new WorkerCallbacks(endpoint);
+    this.callbacks.onInvoke = (cb) => this.ownerCalls.parked(cb);
     endpoint.onMessage((message) => this.receive(message));
     endpoint.onExit(() => this.fatal(bridgeError("workerTerminated")));
     if (endpoint.close) {
@@ -392,7 +412,10 @@ export class WorkerHost {
       clients.set(owner, this.registry.takeRoot(owner));
     for (const owner of closedOwners) this.registry.closeOwner(owner);
     for (const [owner, client] of clients) {
-      if (this.endedOwners.delete(owner)) {
+      const ended = this.endedOwners.get(owner);
+      if (ended) {
+        this.endedOwners.delete(owner);
+        await ended;
         this.locks?.closeOwner(owner);
         this.ownerCalls.forget(owner);
         continue;
@@ -406,6 +429,7 @@ export class WorkerHost {
             throw new TypeError("Client.end is missing");
           await Reflect.apply(end, client, []);
           await closing.drained;
+          await closing.done;
         } catch (error) {
           console.error("collected client could not close", error);
           this.fatal(error);
@@ -467,15 +491,22 @@ export class WorkerHost {
           closing = this.ownerCalls.fence(owner);
           await closing.started;
         } else
-          accepted = this.ownerCalls.accept(owner, abandonedAtEnd(message.key));
+          accepted = this.ownerCalls.accept(
+            owner,
+            abandonedAtEnd(message.key),
+            callbackHandles(message.args),
+          );
       }
       context.target = target;
       context.started = () => accepted?.start();
       context.settled = () => accepted?.settle();
       const value = await this.dispatch(message.key, message.args, context);
       if (closing) {
+        // A call parked on a host callback does not hold up the end reply;
+        // its host code may be waiting for this end. The storage lock waits
+        // for it when the owner is released.
         await closing.drained;
-        this.endedOwners.add(message.target!.owner);
+        this.endedOwners.set(message.target!.owner, closing.done);
       }
       const reply: WireMessage = { t: "return", id: message.id, value };
       assertCloneable(reply);

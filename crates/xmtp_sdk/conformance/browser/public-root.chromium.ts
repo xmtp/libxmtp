@@ -27,33 +27,33 @@ export async function exercise(): Promise<void> {
       credentials: undefined,
     },
   });
-  const client = await Client.create(
-    {
-      async identity() {
-        return identity;
-      },
-      async kind() {
-        return B.SignerKind.Eoa.new();
-      },
-      async sign(request: { text: string }) {
-        const signed = await account.signMessage({ message: request.text });
-        return B.Signature.Ecdsa.new(Uint8Array.from(toBytes(signed)).buffer);
-      },
+  const signer = (beforeSign?: () => Promise<void>) => ({
+    async identity() {
+      return identity;
     },
-    {
-      backend,
-      storage: {
-        location: B.StorageLocation.InMemory.new(),
-        label: undefined,
-        pool: undefined,
-        singleConnection: false,
-      },
-      deviceSync: false,
-      registration: { auto: true, nonce: undefined },
-      forkRecovery: undefined,
-      workers: undefined,
+    async kind() {
+      return B.SignerKind.Eoa.new();
     },
-  );
+    async sign(request: { text: string }) {
+      await beforeSign?.();
+      const signed = await account.signMessage({ message: request.text });
+      return B.Signature.Ecdsa.new(Uint8Array.from(toBytes(signed)).buffer);
+    },
+  });
+  const options = {
+    backend,
+    storage: {
+      location: B.StorageLocation.InMemory.new(),
+      label: undefined,
+      pool: undefined,
+      singleConnection: false,
+    },
+    deviceSync: false,
+    registration: { auto: true, nonce: undefined },
+    forkRecovery: undefined,
+    workers: undefined,
+  };
+  const client = await Client.create(signer(), options);
   check(await client.isRegistered(), "forwarded isRegistered failed");
   check(
     (await client.inboxState(false)).inboxId === client.inboxId(),
@@ -72,6 +72,34 @@ export async function exercise(): Promise<void> {
   check(message !== undefined, "sent message missing");
   check(message!.client() === client, "Message did not return the app Client");
   check((await message!.refresh())?.id === id, "Message action failed");
+  // A signer callback that ends its own client does not deadlock the end.
+  const other = await Client.create(signer(), options);
+  let ended: string | undefined;
+  const revoke = client
+    .revokeInstallations(
+      signer(async () => {
+        ended = await Promise.race([
+          client.end().then(() => "ended"),
+          new Promise<string>((resolve) =>
+            setTimeout(() => resolve("end still pending"), 5000),
+          ),
+        ]);
+      }),
+      [other.installationId()],
+    )
+    .then(
+      () => "revoked",
+      () => "failed",
+    );
+  const settled = await Promise.race([
+    revoke,
+    new Promise<string>((resolve) =>
+      setTimeout(() => resolve("revoke still pending"), 10000),
+    ),
+  ]);
+  check(ended === "ended", `end from the signer callback: ${ended}`);
+  check(settled !== "revoke still pending", "revoke did not settle");
+  await other.end();
   await client.end();
   let closed = false;
   try {
