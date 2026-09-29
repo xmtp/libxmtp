@@ -81,6 +81,9 @@ impl StorageAdmin {
         self.run(xmtp_db::export_opfs_database(&path)).await
     }
 
+    /// Trust boundary: import checks SQLite integrity and the libxmtp schema,
+    /// not the rows. A client that opens the file trusts its content. Import
+    /// only a database from a trusted source.
     pub async fn import_db(&self, path: String, data: Vec<u8>) -> Result<(), XmtpError> {
         self.run(xmtp_db::import_opfs_database(&path, &data)).await
     }

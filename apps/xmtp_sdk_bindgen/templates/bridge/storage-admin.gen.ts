@@ -9,6 +9,11 @@ export interface StorageAdmin {
   fileExists(path: string): Promise<boolean>;
   deleteFile(path: string): Promise<boolean>;
   exportDb(path: string): Promise<Uint8Array>;
+  /**
+   * Trust boundary: import checks SQLite integrity and the libxmtp schema,
+   * not the rows. A client that opens the file trusts its content. Import
+   * only a database from a trusted source.
+   */
   importDb(path: string, data: Uint8Array): Promise<void>;
   clearAll(): Promise<void>;
   end(): Promise<void>;
