@@ -32,6 +32,7 @@ async fn internal_interest_does_not_change_client_connection_state() {
 }
 use crate::{test::mock::context, tester};
 use xmtp_common::Generate;
+use xmtp_db::group::ConversationType;
 use xmtp_proto::{
     backend_v1 as wire,
     types::{GroupId, OrderedEnvelopeBatch},
@@ -3076,12 +3077,16 @@ async fn an_invalid_supported_head_does_not_hold_a_later_valid_message() {
 }
 
 /// Store a Restored archive placeholder for a group whose Welcome is not yet processed.
-fn insert_restored_placeholder<C: XmtpSharedContext>(context: &C, group_id: &GroupId) {
+fn insert_restored_placeholder<C: XmtpSharedContext>(
+    context: &C,
+    group_id: &GroupId,
+    conversation_type: ConversationType,
+) {
     crate::groups::MlsGroup::insert(
         context,
         Some(group_id.as_slice()),
-        xmtp_db::group::GroupMembershipState::Restored,
-        xmtp_db::group::ConversationType::Group,
+        GroupMembershipState::Restored,
+        conversation_type,
         crate::groups::group_permissions::PolicySet::default(),
         xmtp_mls_common::group::GroupMetadataOptions::default(),
         None,
@@ -3090,10 +3095,7 @@ fn insert_restored_placeholder<C: XmtpSharedContext>(context: &C, group_id: &Gro
     .unwrap();
 }
 
-fn membership<C: XmtpSharedContext>(
-    context: &C,
-    group_id: &GroupId,
-) -> xmtp_db::group::GroupMembershipState {
+fn membership<C: XmtpSharedContext>(context: &C, group_id: &GroupId) -> GroupMembershipState {
     context
         .db()
         .find_group(group_id)
@@ -3114,7 +3116,7 @@ async fn all_groups_discovery_skips_a_restored_group_until_its_welcome() {
     let restored = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
         .await?;
-    insert_restored_placeholder(&bo.context, &restored.group_id);
+    insert_restored_placeholder(&bo.context, &restored.group_id, ConversationType::Group);
     let restored_topic = Topic::new_group_message(restored.group_id);
     let joined_topic = Topic::new_group_message(joined.group_id);
 
@@ -3131,46 +3133,105 @@ async fn all_groups_discovery_skips_a_restored_group_until_its_welcome() {
     bo.sync_welcomes().await?;
     assert_ne!(
         membership(&bo.context, &restored.group_id),
-        xmtp_db::group::GroupMembershipState::Restored
+        GroupMembershipState::Restored
     );
     controller.reconcile()?;
     assert!(controller.interested().contains(&restored_topic));
 }
 
-// verifies: PROC-051
-#[xmtp_common::test(unwrap_try = true)]
-async fn sync_and_barrier_scopes_skip_a_restored_group_until_its_welcome() {
+/// A scope that selects a Restored group does not receive its topic until a Welcome
+/// activates the group.
+async fn scope_waits_for_the_welcome(scope: impl Fn(&Topic, &Topic) -> IncomingScope) {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
     let restored = alix
         .create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    insert_restored_placeholder(&bo.context, &restored.group_id);
+        .await
+        .unwrap();
+    insert_restored_placeholder(&bo.context, &restored.group_id, ConversationType::Group);
     let topic = Topic::new_group_message(restored.group_id);
     let welcome = Topic::new_welcome_message(bo.context.installation_id());
 
     let mut controller = controller(bo.context.clone());
     controller.command(Command::Acquire {
         id: 1,
-        scope: IncomingScope::Topics(vec![topic.clone(), welcome.clone()]),
+        scope: scope(&topic, &welcome),
     });
-    controller.command(Command::Acquire {
-        id: 2,
-        scope: IncomingScope::Barrier {
-            targets: [(topic.clone(), Cursor(0))].into(),
-            deadline: Instant::now() + Duration::from_secs(60),
-            receive_policy: IncomingReceivePolicy::ImmediateQuery,
-        },
-    });
-    controller.reconcile()?;
-    assert!(controller.interested().contains(&welcome));
+    controller.reconcile().unwrap();
     assert!(!controller.interested().contains(&topic));
 
-    bo.sync_welcomes().await?;
+    bo.sync_welcomes().await.unwrap();
     assert_ne!(
         membership(&bo.context, &restored.group_id),
-        xmtp_db::group::GroupMembershipState::Restored
+        GroupMembershipState::Restored
     );
-    controller.reconcile()?;
+    controller.reconcile().unwrap();
     assert!(controller.interested().contains(&topic));
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_topics_scope_skips_a_restored_group_until_its_welcome() {
+    scope_waits_for_the_welcome(|topic, welcome| {
+        IncomingScope::Topics(vec![topic.clone(), welcome.clone()])
+    })
+    .await;
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_barrier_scope_skips_a_restored_group_until_its_welcome() {
+    scope_waits_for_the_welcome(|topic, _| IncomingScope::Barrier {
+        targets: [(topic.clone(), Cursor(0))].into(),
+        deadline: Instant::now() + Duration::from_secs(60),
+        receive_policy: IncomingReceivePolicy::ImmediateQuery,
+    })
+    .await;
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_device_sync_scope_skips_a_restored_sync_group() {
+    tester!(alix, disable_workers);
+    let group_id = GroupId::generate();
+    insert_restored_placeholder(&alix.context, &group_id, ConversationType::Sync);
+    let topic = Topic::new_group_message(group_id);
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::DeviceSyncGroups,
+    });
+    controller.reconcile()?;
+    assert!(controller.scopes[&1].topics.contains(&topic));
+    assert!(!controller.interested().contains(&topic));
+    assert!(
+        controller
+            .interested()
+            .contains(&Topic::new_welcome_message(alix.context.installation_id()))
+    );
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn releasing_a_scope_forgets_its_restored_groups_until_selected_again() {
+    tester!(alix, disable_workers);
+    let group_id = GroupId::generate();
+    insert_restored_placeholder(&alix.context, &group_id, ConversationType::Group);
+    let topic = Topic::new_group_message(group_id);
+    let mut controller = controller(alix.context.clone());
+    let scope = || Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Topics(vec![topic.clone()]),
+    };
+    controller.command(scope());
+    controller.reconcile()?;
+    assert!(controller.is_retired(&topic));
+
+    controller.command(Command::Release(1));
+    controller.reconcile()?;
+    assert!(!controller.topics.contains_key(&topic));
+
+    controller.command(scope());
+    controller.reconcile()?;
+    assert!(!controller.interested().contains(&topic));
 }

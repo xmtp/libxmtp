@@ -217,6 +217,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.start_open();
             self.start_read();
             self.start_targets();
+            // The next pass re-evaluates network interest.
+            // implements: PROC-051
             let interval = if progress {
                 Duration::ZERO
             } else {
@@ -492,6 +494,15 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.extra_topics
                 .insert(Topic::new_welcome_message(self.context.installation_id()));
         }
+        // The retired check at the top of this function would otherwise run on every
+        // pass for a topic that no operation selects. Selecting it again repeats the
+        // scope entry checks.
+        let (scopes, extra_topics) = (&self.scopes, &self.extra_topics);
+        self.topics.retain(|topic, state| {
+            !state.processing.retired
+                || extra_topics.contains(topic)
+                || scopes.values().any(|scope| scope.topics.contains(topic))
+        });
         let interested = self.interested();
         self.dependency_registry
             .retain_parents(|parent| match parent {
