@@ -32,6 +32,15 @@ pub enum InternalEvent {
         origin: PreferenceOrigin,
     },
     MessagesDeleted(Vec<StoredGroupMessage>),
+    /// Rows removed by expiry cleanup. Their bodies are already cleared.
+    MessagesExpired(Vec<StoredGroupMessage>),
+}
+
+impl InternalEvent {
+    /// Whether the event reports deleted messages, by any cause.
+    pub(crate) fn is_message_deletion(&self) -> bool {
+        matches!(self, Self::MessagesDeleted(_) | Self::MessagesExpired(_))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -178,7 +187,7 @@ pub(crate) fn emit_expired_messages(
             None,
         );
     }
-    writer.emit(None, Some(InternalEvent::MessagesDeleted(messages)));
+    writer.emit(None, Some(InternalEvent::MessagesExpired(messages)));
     Ok(())
 }
 
