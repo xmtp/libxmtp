@@ -14,3 +14,4 @@ just test workspace -p xmtp_archive util::   # one module
 ## Gotchas
 
 - On-disk format is versioned. Old archives must still load.
+- Export streams the selection from one read transaction into the sink. Never hold that transaction across an await, and never let a sink use the database.

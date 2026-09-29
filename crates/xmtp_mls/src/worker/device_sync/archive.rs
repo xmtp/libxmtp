@@ -221,7 +221,7 @@ mod tests {
     use futures::AsyncReadExt;
     use futures::io::{BufReader, Cursor};
     use std::{path::Path, sync::Arc};
-    use xmtp_archive::exporter::ArchiveExporter;
+    use xmtp_archive::exporter;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::group_message::MsgQueryArgs;
     use xmtp_db::{
@@ -234,6 +234,191 @@ mod tests {
         group::{DMMetadataOptions, GroupMetadataOptions},
         group_mutable_metadata::MessageDisappearingSettings,
     };
+
+    /// Runs `on_first` once, when the export first writes past the archive
+    /// header, which happens while the snapshot's read transaction is open.
+    struct WriteDuringExport<F: FnMut()> {
+        archive: Vec<u8>,
+        on_first: Option<F>,
+    }
+
+    impl<F: FnMut()> std::io::Write for WriteDuringExport<F> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.archive.len() >= 2 + xmtp_archive::NONCE_SIZE {
+                self.on_first.take().into_iter().for_each(|mut f| f());
+            }
+            self.archive.write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A selected group whose mutable metadata cannot be decoded fails the
+    /// export, rather than exporting the group without that value. The
+    /// malformed admin list is committed locally through openmls, bypassing
+    /// the commit validation that keeps it out of real groups.
+    // verifies: ARCH-017
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_export_fails_on_undecodable_group_metadata() {
+        use openmls::{
+            component::ComponentData,
+            group::MlsGroup,
+            messages::proposals::{AppDataUpdateProposal, Proposal},
+        };
+        use openmls_traits::OpenMlsProvider;
+        use xmtp_archive::{ArchiveError, UnreadableGroup};
+        use xmtp_mls_common::app_data::component_id::ComponentId;
+
+        tester!(alix, disable_workers);
+        let conversation = alix.create_group(None, None)?;
+        let provider = alix.context.mls_provider();
+        let signer = &alix.context.identity().installation_keys;
+        let mut group = MlsGroup::load(
+            alix.context.mls_storage(),
+            &conversation.group_id.to_openmls(),
+        )??;
+        let malformed = vec![0xff; 3];
+        let mut stage = group
+            .commit_builder()
+            .add_proposal(Proposal::AppDataUpdate(Box::new(
+                AppDataUpdateProposal::update(ComponentId::ADMIN_LIST.as_u16(), malformed.clone()),
+            )))
+            .load_psks(provider.storage())?;
+        let mut updater = stage.app_data_dictionary_updater();
+        updater.set(ComponentData::from_parts(
+            ComponentId::ADMIN_LIST.as_u16(),
+            malformed.into(),
+        ));
+        stage.with_app_data_dictionary_updates(updater.changes());
+        stage
+            .build(provider.rand(), provider.crypto(), signer, |_| true)?
+            .stage_commit(&provider)?;
+        group.merge_pending_commit(&provider)?;
+
+        let opts = ArchiveOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![BackupElementSelection::Messages],
+            exclude_disappearing_messages: false,
+        };
+        let key = xmtp_common::rand_vec::<32>();
+        let failure = exporter::export(opts, alix.db(), &key, Vec::new());
+        assert!(
+            matches!(
+                failure,
+                Err(ArchiveError::UnreadableGroup {
+                    group_id,
+                    source: UnreadableGroup::MutableMetadata(_),
+                }) if group_id == conversation.group_id
+            ),
+            "export dropped an undecodable metadata value: {failure:?}"
+        );
+    }
+
+    /// With MESSAGES selected, a restore into a new installation holds every
+    /// eligible conversation whatever its creation time or messages: an empty
+    /// group, an empty DM, a group whose messages all precede the window, and
+    /// an old group with its in-window message. Consent edits and insertions
+    /// committed on another connection while the export is streaming are not
+    /// in the archive: the export is one snapshot. On wasm, whose single
+    /// connection the export holds, such writes are refused instead.
+    // verifies: ARCH-007, ARCH-017
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_snapshot_is_complete() {
+        use xmtp_db::consent_record::{ConsentState, ConsentType};
+        use xmtp_proto::xmtp::device_sync::{
+            backup_element::Element, consent_backup::ConsentStateSave,
+        };
+
+        tester!(alix, persistent_db, disable_workers);
+        tester!(bo, disable_workers);
+        let empty_group = alix.create_group(None, None)?;
+        let empty_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let outside = alix.create_group(None, None)?;
+        let outside_message = outside.send_message_optimistic(b"before", Default::default())?;
+        let old = alix.create_group(None, None)?;
+        let start_ns = xmtp_common::time::now_ns();
+        // The window's start is exclusive, and wasm clocks tick in whole
+        // milliseconds, so the in-window message must be sent a tick later.
+        xmtp_common::time::sleep(std::time::Duration::from_millis(2)).await;
+        // Large enough that the archive reaches the sink before consent is read.
+        let in_window = old.send_message_optimistic(&[7; 512 * 1024], Default::default())?;
+        let consent = |entity: &str, state| {
+            StoredConsentRecord::new(ConsentType::InboxId, state, entity.to_string())
+        };
+        alix.db()
+            .insert_or_replace_consent_records(&[consent("carol", ConsentState::Allowed)])?;
+
+        let opts = ArchiveOptions {
+            elements: vec![
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
+            ],
+            start_ns: Some(start_ns),
+            end_ns: None,
+            exclude_disappearing_messages: false,
+        };
+        let key = vec![7; 32];
+        let writer = alix.db();
+        let mut sink = WriteDuringExport {
+            archive: vec![],
+            on_first: Some(|| {
+                let written = writer.insert_or_replace_consent_records(&[
+                    consent("carol", ConsentState::Denied),
+                    consent("dave", ConsentState::Allowed),
+                ]);
+                // Native writers on other connections commit during the export;
+                // wasm's single connection is held by the export and refuses
+                // them, so neither can reach the snapshot.
+                #[cfg(not(target_arch = "wasm32"))]
+                written.unwrap();
+                #[cfg(target_arch = "wasm32")]
+                assert!(written.is_err(), "wasm wrote during the export");
+            }),
+        };
+        exporter::export(opts, alix.db(), &key, &mut sink)?;
+        assert!(
+            sink.on_first.is_none(),
+            "the export never wrote mid-snapshot"
+        );
+        let archive = sink.archive;
+
+        let reader = Box::pin(BufReader::new(Cursor::new(archive.clone())));
+        let consent: Vec<_> = ArchiveImporter::load(reader, &key)
+            .await?
+            .filter_map(|e| async move {
+                match e.ok()?.element? {
+                    Element::Consent(c) if c.entity == "carol" || c.entity == "dave" => Some(c),
+                    _ => None,
+                }
+            })
+            .collect()
+            .await;
+        assert!(
+            matches!(
+                consent.as_slice(),
+                [c] if c.entity == "carol" && c.state == ConsentStateSave::Allowed as i32
+            ),
+            "the export saw writes committed after its snapshot: {consent:?}"
+        );
+
+        tester!(alix2, from: alix);
+        let reader = Box::pin(BufReader::new(Cursor::new(archive)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix2.context).await?;
+
+        let db = alix2.db();
+        for group in [&empty_group, &empty_dm, &outside, &old] {
+            assert_eq!(
+                db.find_group(&group.group_id)??.membership_state,
+                GroupMembershipState::Restored
+            );
+        }
+        assert!(db.get_group_message(&in_window)?.is_some());
+        assert!(db.get_group_message(&outside_message)?.is_none());
+    }
 
     // verifies: EVENT-001, EVENT-017
     #[xmtp_common::test(unwrap_try = true)]
@@ -326,8 +511,7 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
-            exporter.read_to_end(&mut file).await?;
+            exporter::export(opts, alix.db(), &key, &mut file)?;
             file
         };
 
@@ -390,8 +574,7 @@ mod tests {
         let export = {
             let mut file = vec![];
 
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
-            exporter.read_to_end(&mut file).await?;
+            exporter::export(opts, alix.db(), &key, &mut file)?;
             file
         };
 
@@ -477,7 +660,7 @@ mod tests {
         bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
-    // verifies: ARCH-015, ARCH-020, ARCH-022
+    // verifies: ARCH-015, ARCH-020
     #[xmtp_common::test(unwrap_try = true)]
     async fn foreign_archive_preserves_dm_pair_and_history() {
         use crate::groups::GroupError;
@@ -518,9 +701,7 @@ mod tests {
             exclude_disappearing_messages: false,
         };
         let mut export = vec![];
-        ArchiveExporter::new(opts.clone(), alix.db(), &key)
-            .read_to_end(&mut export)
-            .await?;
+        exporter::export(opts.clone(), alix.db(), &key, &mut export)?;
         let reader = Box::pin(BufReader::new(Cursor::new(export)));
         let mut importer = ArchiveImporter::load(reader, &key).await?;
         insert_importer(&mut importer, &charlie.context).await?;
@@ -648,9 +829,7 @@ mod tests {
         }
 
         let mut reexport = vec![];
-        ArchiveExporter::new(opts, charlie.db(), &key)
-            .read_to_end(&mut reexport)
-            .await?;
+        exporter::export(opts, charlie.db(), &key, &mut reexport)?;
         let reader = Box::pin(BufReader::new(Cursor::new(reexport)));
         let mut exported = ArchiveImporter::load(reader, &key).await?;
         let mut found_group = false;
@@ -826,8 +1005,7 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
-            exporter.read_to_end(&mut file).await.unwrap();
+            exporter::export(opts, alix.db(), &key, &mut file).unwrap();
             file
         };
 
@@ -946,10 +1124,9 @@ mod tests {
         };
 
         let key = xmtp_common::rand_vec::<32>();
-        let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
-        exporter.write_to_file(path).await?;
+        exporter::ArchiveExporter::export_to_file(opts, alix.db(), path, &key).await?;
 
         tester!(alix2, sync_worker);
         alix2.device_sync_client().wait_for_sync_worker_init().await;
@@ -1061,6 +1238,7 @@ mod tests {
     /// This archive was generated by the legacy creation build before groups
     /// were born with an AppData dictionary. Import must preserve the saved
     /// metadata while it creates dictionary-native backup stubs.
+    // verifies: ARCH-022
     #[xmtp_common::test(unwrap_try = true)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_import_current_legacy_archive_metadata() {
@@ -1185,8 +1363,7 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
-            exporter.read_to_end(&mut file).await?;
+            exporter::export(opts, alix.db(), &key, &mut file)?;
             file
         };
 
