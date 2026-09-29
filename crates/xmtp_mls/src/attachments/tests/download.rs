@@ -413,6 +413,55 @@ async fn failed_metadata_write_removes_downloaded_file() {
     assert_eq!(tokio::fs::read(path).await?, b"attachment content");
 }
 
+// verifies: EVENT-001, ATCH-051
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn failed_metadata_write_with_kept_file_completes_download() {
+    let sender = tempfile::tempdir()?;
+    let recipient = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: sender.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    pending.upload().await?;
+    tester!(bo, attachments_dir: recipient.path(), disable_workers);
+    let client = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    client.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TRIGGER reject_attachment_metadata BEFORE INSERT ON local_attachments \
+                 BEGIN SELECT RAISE(ABORT, 'metadata rejected'); END",
+        )
+        .execute(conn)
+    })?;
+    client
+        .context
+        .attachments
+        .fail_next_download_cleanup
+        .store(true, Ordering::SeqCst);
+    let events = client.context.events().subscribe_app(EventFilter::new([
+        EventKind::AttachmentDownloadCompleted,
+        EventKind::AttachmentDownloadFailed,
+    ]))?;
+    let path = client.attachments().local_path(&remote)?;
+    let downloaded = client.attachments().download(&remote).await?;
+    assert_eq!(downloaded.path, path);
+    assert_eq!(downloaded.mime_type.as_deref(), Some("text/plain"));
+    assert_eq!(downloaded.filename.as_deref(), Some("note.txt"));
+    assert_eq!(tokio::fs::read(&path).await?, b"attachment content");
+    let emitted = events.drain();
+    assert_eq!(emitted.len(), 1);
+    assert!(matches!(
+        &emitted[0].client,
+        Some(ClientEvent::AttachmentDownloadCompleted(_))
+    ));
+}
+
 // verifies: ATCH-062, ATCH-063
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
@@ -630,6 +679,66 @@ async fn another_client_publishes_plaintext_during_download() {
         row_before
     );
     assert_eq!(requests.load(Ordering::SeqCst), 2);
+}
+
+// verifies: EVENT-001, ATCH-051
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn published_file_without_record_completes_download() {
+    let sender = tempfile::tempdir()?;
+    let recipient = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: sender.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let mut remote = pending.remote_attachment().clone();
+    let body = tokio::fs::read(sender.path().join(staged_path(&remote.content_digest)?)).await?;
+    let (url, _) = serve_body(body).await;
+    remote.url = url;
+
+    tester!(bo, attachments_dir: recipient.path(), disable_workers);
+    let first = crate::builder::ClientBuilder::from_client(bo.client.clone())
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let second = crate::builder::ClientBuilder::from_client(first.clone())
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let events = first.context.events().subscribe_app(EventFilter::new([
+        EventKind::AttachmentDownloadCompleted,
+        EventKind::AttachmentDownloadFailed,
+    ]))?;
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let resume = Arc::new(tokio::sync::Notify::new());
+    *first.context.attachments.download_move_pause.lock() = Some((entered.clone(), resume.clone()));
+    let first_remote = remote.clone();
+    let first_client = first.clone();
+    let first_download =
+        tokio::spawn(async move { first_client.attachments().download(&first_remote).await });
+    tokio::time::timeout(Duration::from_secs(5), entered.notified()).await?;
+    let published = second.attachments().download(&remote).await?;
+    let relative = plaintext_rel_path(&remote)?;
+    first.context.db().delete_local_attachment(&relative)?;
+    first.context.db().raw_query(|conn| {
+        xmtp_db::diesel::sql_query(
+            "CREATE TRIGGER reject_attachment_metadata BEFORE INSERT ON local_attachments \
+                 BEGIN SELECT RAISE(ABORT, 'metadata rejected'); END",
+        )
+        .execute(conn)
+    })?;
+    resume.notify_one();
+    let joined = tokio::time::timeout(Duration::from_secs(5), first_download).await???;
+    assert_eq!(joined, published);
+    assert_eq!(tokio::fs::read(&joined.path).await?, b"attachment content");
+    let emitted = events.drain();
+    assert_eq!(emitted.len(), 1);
+    assert!(matches!(
+        &emitted[0].client,
+        Some(ClientEvent::AttachmentDownloadCompleted(_))
+    ));
 }
 
 // verifies: ATCH-052, ATCH-062

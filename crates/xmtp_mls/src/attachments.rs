@@ -809,6 +809,8 @@ pub struct AttachmentRuntime {
     #[cfg(all(test, not(target_arch = "wasm32")))]
     fail_next_staged_removal: AtomicBool,
     #[cfg(all(test, not(target_arch = "wasm32")))]
+    fail_next_download_cleanup: AtomicBool,
+    #[cfg(all(test, not(target_arch = "wasm32")))]
     create_move_pause: Mutex<Option<Arc<CreateMovePause>>>,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     create_publish_pause: Mutex<Option<Arc<CreatePublishPause>>>,
@@ -872,6 +874,8 @@ impl Default for AttachmentRuntime {
             outcome_lock_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             fail_next_staged_removal: AtomicBool::new(false),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            fail_next_download_cleanup: AtomicBool::new(false),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -955,6 +959,8 @@ impl AttachmentRuntime {
             outcome_lock_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             fail_next_staged_removal: AtomicBool::new(false),
+            #[cfg(all(test, not(target_arch = "wasm32")))]
+            fail_next_download_cleanup: AtomicBool::new(false),
             #[cfg(all(test, not(target_arch = "wasm32")))]
             create_move_pause: Mutex::new(None),
             #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -1413,16 +1419,17 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                     if !store.is_regular_file(relative).await? {
                         return Err(AttachmentClientError::new(Cause::LocalStorage));
                     }
-                    self.context.db().insert_or_ignore_local_attachment(
-                        relative, now_ns(), None, None
-                    ).map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?;
-                    let record = self.context.db().get_local_attachment(relative)
-                        .map_err(|_| AttachmentClientError::new(Cause::LocalStorage))?
-                        .ok_or_else(|| AttachmentClientError::new(Cause::LocalStorage))?;
+                    // The file is readable at the path, so the download completes even
+                    // without a record; crash recovery adds the record at the next client creation.
+                    let record = self.context.db()
+                        .insert_or_ignore_local_attachment(relative, now_ns(), None, None)
+                        .and_then(|()| self.context.db().get_local_attachment(relative));
+                    let (mime_type, filename) = match record {
+                        Ok(Some(record)) => (record.mime_type, record.filename),
+                        _ => (Some(meta.mime_type), meta.filename),
+                    };
                     return Ok(DownloadedAttachment {
-                        path: self.local_path(remote)?,
-                        mime_type: record.mime_type,
-                        filename: record.filename,
+                        path: self.local_path(remote)?, mime_type, filename,
                     });
                 }
                 Err(error) => return Err(error.into()),
@@ -1438,10 +1445,20 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 relative, now_ns(), Some(meta.mime_type.clone()), meta.filename.clone()
             )
             .is_err() {
-                if let Err(error) = store.remove_file(relative).await {
-                    tracing::warn!(%error, "could not remove downloaded file after metadata write failed");
+                #[cfg(all(test, not(target_arch = "wasm32")))]
+                let removal = if self.runtime().fail_next_download_cleanup.swap(false, AtomicOrdering::SeqCst) {
+                    Err(AttachmentError::new(Cause::LocalStorage))
+                } else {
+                    store.remove_file(relative).await
+                };
+                #[cfg(not(all(test, not(target_arch = "wasm32"))))]
+                let removal = store.remove_file(relative).await;
+                // A file that stays is complete and verified, so the download completes;
+                // crash recovery adds its record at the next client creation.
+                match removal {
+                    Ok(()) => return Err(AttachmentClientError::new(Cause::LocalStorage)),
+                    Err(error) => tracing::warn!(%error, "could not remove downloaded file after metadata write failed"),
                 }
-                return Err(AttachmentClientError::new(Cause::LocalStorage));
             }
             Ok(DownloadedAttachment {
                 path: self.local_path(remote)?, mime_type: Some(meta.mime_type), filename: meta.filename,
