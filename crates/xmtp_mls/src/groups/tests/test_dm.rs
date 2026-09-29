@@ -7,7 +7,7 @@ use crate::context::XmtpSharedContext;
 use crate::tester;
 use crate::utils::TestMlsGroup;
 
-fn stored_sender_message(
+fn archived_message(
     group_id: xmtp_proto::types::GroupId,
     sender_inbox_id: String,
     marker: u8,
@@ -40,7 +40,7 @@ fn stored_sender_message(
 
 // verifies: DMS-003, JOIN-080, JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
-async fn restored_dm_placeholder_activates_only_with_pair_senders() {
+async fn restored_dm_placeholder_activates_with_archived_history() {
     use xmtp_db::{
         Store,
         group::{ConversationType, GroupMembershipState, QueryGroup, StoredGroup},
@@ -67,7 +67,7 @@ async fn restored_dm_placeholder_activates_only_with_pair_senders() {
         ))
         .build()?
         .store(&db)?;
-    let archived = stored_sender_message(dm.group_id, bo.inbox_id().to_string(), 0x54);
+    let archived = archived_message(dm.group_id, bo.inbox_id().to_string(), 0x54);
     archived.store(&db)?;
     assert!(
         openmls::group::MlsGroup::load(bo.context.mls_storage(), &dm.group_id.to_openmls())?
@@ -90,7 +90,7 @@ async fn restored_dm_placeholder_activates_only_with_pair_senders() {
 
 // verifies: DMS-003, JOIN-080, JOIN-044
 #[xmtp_common::test(unwrap_try = true)]
-async fn restored_dm_backup_stub_activates_with_pair_history() {
+async fn restored_dm_backup_stub_activates_with_archived_history() {
     use xmtp_db::{
         Store,
         group::{GroupMembershipState, QueryGroup},
@@ -117,7 +117,7 @@ async fn restored_dm_backup_stub_activates_with_pair_history() {
         openmls::group::MlsGroup::load(bo.context.mls_storage(), &dm.group_id.to_openmls())?
             .is_some()
     );
-    let archived = stored_sender_message(dm.group_id, bo.inbox_id().to_string(), 0x56);
+    let archived = archived_message(dm.group_id, bo.inbox_id().to_string(), 0x56);
     archived.store(&db)?;
 
     bo.sync_welcomes().await?;
@@ -186,56 +186,6 @@ async fn restored_group_rejects_dm_welcome_kind_change() {
     let stored = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(stored.membership_state, GroupMembershipState::Restored);
     assert_eq!(stored.conversation_type, ConversationType::Group);
-}
-
-// verifies: DMS-003, JOIN-080
-#[xmtp_common::test(unwrap_try = true)]
-async fn restored_dm_placeholder_rejects_outside_sender_on_welcome() {
-    use xmtp_db::{
-        Store,
-        group::{ConversationType, GroupMembershipState, QueryGroup, StoredGroup},
-    };
-    use xmtp_mls_common::group_metadata::DmMembers;
-
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-    let db = bo.db();
-    StoredGroup::builder()
-        .id(dm.group_id)
-        .created_at_ns(xmtp_common::time::now_ns())
-        .membership_state(GroupMembershipState::Restored)
-        .added_by_inbox_id(alix.inbox_id().to_string())
-        .conversation_type(ConversationType::Dm)
-        .dm_id(Some(
-            DmMembers {
-                member_one_inbox_id: alix.inbox_id().to_string(),
-                member_two_inbox_id: bo.inbox_id().to_string(),
-            }
-            .to_string(),
-        ))
-        .build()?
-        .store(&db)?;
-    stored_sender_message(dm.group_id, hex::encode([0x43; 32]), 0x53).store(&db)?;
-    assert!(
-        openmls::group::MlsGroup::load(bo.context.mls_storage(), &dm.group_id.to_openmls())?
-            .is_none()
-    );
-
-    bo.sync_welcomes().await?;
-    let stored = db
-        .find_group(&dm.group_id)?
-        .expect("rejected Welcome must keep the placeholder");
-    assert_eq!(stored.membership_state, GroupMembershipState::Restored);
-    let topic = xmtp_db::incoming_envelope::StreamTopic {
-        entity_id: bo.context.installation_id().to_vec(),
-        kind: xmtp_db::incoming_envelope::NetworkEntityKind::Welcome,
-    };
-    let rejected = db
-        .read_last_rejection(&topic)?
-        .expect("Welcome must be rejected");
-    assert_eq!(rejected.code, "invalid_welcome");
-    assert!(db.pending_envelope(&topic, rejected.sequence_id)?.is_none());
 }
 
 /// Test case: If two users are talking in a DM, and one user

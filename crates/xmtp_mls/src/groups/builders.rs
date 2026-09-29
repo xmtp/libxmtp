@@ -302,11 +302,11 @@ pub fn filter_inbox_ids_needing_updates<'a>(
 }
 
 // implements: DMS-003
-pub(crate) fn validate_dm_group(
+pub(in crate::groups) fn validate_dm_group(
     context: impl XmtpSharedContext,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
-) -> Result<DmMembers<InboxId>, MetadataPermissionsError> {
+) -> Result<(), MetadataPermissionsError> {
     // Validate dm specific immutable metadata
     let metadata = extract_group_metadata(mls_group.extensions())?;
 
@@ -388,5 +388,5 @@ pub(crate) fn validate_dm_group(
         return Err(DmValidationError::InvalidPermissions.into());
     }
 
-    Ok(dm_members.clone())
+    Ok(())
 }

@@ -66,22 +66,16 @@ mod tests {
                 "2026-09-08-000000_baseline",
                 "2026-09-24-000000_attachments",
                 "2026-09-28-000000-0000_received_proposals",
-                "2026-09-28-000001_group_message_senders",
             ]
         );
         let applied = applied_migrations(&conn)?;
         assert_eq!(
             applied,
-            [
-                "20260928000001",
-                "202609280000000000",
-                "20260924000000",
-                "20260908000000"
-            ]
+            ["202609280000000000", "20260924000000", "20260908000000"]
         );
         // Roll back by target version through the attachments migration.
         rollback_confirmed(&conn, "20260924000000")?;
-        assert_eq!(applied_migrations(&conn)?, [applied[3].clone()]);
+        assert_eq!(applied_migrations(&conn)?, [applied[2].clone()]);
         conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM local_attachments"))
@@ -92,7 +86,7 @@ mod tests {
                 .is_err()
         );
 
-        rollback_confirmed(&conn, &applied[3])?;
+        rollback_confirmed(&conn, &applied[2])?;
         assert!(applied_migrations(&conn)?.is_empty());
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))

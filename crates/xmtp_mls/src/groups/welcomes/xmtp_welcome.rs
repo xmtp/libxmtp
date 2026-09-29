@@ -531,19 +531,7 @@ where
         let to_store = match conversation_type {
             ConversationType::Group => group.membership_state(membership_state).build()?,
             ConversationType::Dm => {
-                let dm_members = validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
-                if db.has_sender_outside_pair(
-                    &group_id,
-                    [
-                        &dm_members.member_one_inbox_id,
-                        &dm_members.member_two_inbox_id,
-                    ],
-                )? {
-                    return Err(MetadataPermissionsError::from(
-                        crate::groups::DmValidationError::StoredMessageSenderOutsidePair,
-                    )
-                    .into());
-                }
+                validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
                     .membership_state(membership_state)
                     .last_message_ns(welcome.timestamp())
