@@ -82,10 +82,17 @@ where
             // Propagate insert failures to the supervisor rather than skipping the record.
             insert(element, context, &mut import_ctx)?;
         }
-        import_ctx.post_import(context)?;
         Ok(())
     }
     .await;
+    // Completed elements stay after a later failure, so apply the
+    // archived activity of every accepted group on both outcomes. The import
+    // error, if any, is the one reported.
+    let flushed = import_ctx.post_import(context);
+    if let (Err(_), Err(error)) = (&result, &flushed) {
+        tracing::warn!("archived group activity was not applied after a failed import: {error}");
+    }
+    let result = result.and(flushed);
     if import_ctx.changed {
         context.events().emit(
             Some(ClientEvent::ArchiveRestored(ArchiveRestored {
@@ -826,6 +833,71 @@ mod tests {
                 .is_err()
         );
         assert!(alix.db().get_group_message(&save.id)?.is_none());
+    }
+
+    /// A DM restored before an outside-sender rejection is a completed element. Its
+    /// archived activity must survive the failed import, even when no
+    /// retained message carries that timestamp.
+    // verifies: DMS-015, ARCH-021
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn rejected_dm_message_keeps_archived_activity_of_restored_prefix() {
+        tester!(alix, disable_workers);
+        tester!(bo, disable_workers);
+        tester!(caro, disable_workers);
+        let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let sent_id = dm.send_message(b"pair history", Default::default()).await?;
+        let dm_id = alix.db().find_group(&dm.group_id)??.dm_id;
+
+        let group_id = vec![0x65; 16];
+        let archived_activity = 1_234_567;
+        let group = xmtp_proto::xmtp::device_sync::group_backup::GroupSave {
+            id: group_id.clone(),
+            conversation_type: 2,
+            dm_id,
+            last_message_ns: Some(archived_activity),
+            ..Default::default()
+        };
+        let mut outside: xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave = alix
+            .db()
+            .get_group_message(&sent_id)?
+            .expect("sent message")
+            .into();
+        outside.id = vec![0x66; 32];
+        outside.group_id = group_id.clone();
+        outside.sender_inbox_id = hex::encode([0x43; 32]);
+
+        let events = caro.context.events().subscribe(
+            xmtp_events::EventFilter::new([xmtp_events::EventKind::ArchiveRestored]),
+            Some(4),
+        );
+        let mut elements = futures::stream::iter([
+            Ok::<_, std::io::Error>(BackupElement {
+                element: Some(Element::Group(group)),
+            }),
+            Ok(BackupElement {
+                element: Some(Element::GroupMessage(outside.clone())),
+            }),
+        ]);
+        let error = insert_elements(&mut elements, &caro.context)
+            .await
+            .expect_err("an outside sender fails the import");
+        assert!(
+            format!("{error:?}").contains("StoredMessageSenderOutsidePair"),
+            "unexpected import error: {error:?}"
+        );
+
+        let restored = caro
+            .db()
+            .find_group(&GroupId::try_from(group_id.as_slice())?)??;
+        assert_eq!(restored.membership_state, GroupMembershipState::Restored);
+        assert_eq!(restored.last_message_ns, Some(archived_activity));
+        assert!(caro.db().get_group_message(&outside.id)?.is_none());
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(ClientEvent::ArchiveRestored(restored)), ..
+            }] if !restored.complete
+        ));
     }
 
     // verifies: DMS-015, ARCH-021
