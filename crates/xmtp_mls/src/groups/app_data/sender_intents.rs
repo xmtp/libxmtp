@@ -296,6 +296,10 @@ pub(crate) fn resolve_field_writes(
 
 /// Check `updates` by this client, in order, against the committed
 /// registry's policies as a receiver would, starting from `values`.
+///
+/// The `GROUP_MEMBERSHIP` of `values` is the commit's post-commit
+/// membership: no field is `GROUP_MEMBERSHIP`, and membership upkeep only
+/// cleans up after removals already pending, never changing membership.
 // implements: META-071, META-073
 fn authorize_updates(
     openmls_group: &OpenMlsGroup,
