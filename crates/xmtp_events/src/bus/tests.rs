@@ -573,10 +573,45 @@ async fn rust_kinds_equal_the_approved_spec_kinds() {
         "notifications.failed",
         "archive.restored",
         "connection.state_changed",
+        "attachment.upload_started",
+        "attachment.upload_completed",
+        "attachment.upload_failed",
+        "attachment.download_started",
+        "attachment.download_completed",
+        "attachment.download_failed",
+        "attachment.deleted",
         "lagged",
     ];
     let actual: Vec<_> = EventKind::ALL.into_iter().map(EventKind::name).collect();
     assert_eq!(actual, expected);
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn attachment_payloads_have_no_group_id() {
+    let reference = crate::AttachmentRef {
+        attachment_key: "key".into(),
+        url: "https://example.com/object".into(),
+        content_digest: "digest".into(),
+    };
+    let failure = crate::AttachmentFailed {
+        attachment_key: reference.attachment_key.clone(),
+        url: reference.url.clone(),
+        content_digest: reference.content_digest.clone(),
+        cause: "network".into(),
+    };
+    let events = [
+        ClientEvent::AttachmentUploadStarted(reference.clone()),
+        ClientEvent::AttachmentUploadCompleted(reference.clone()),
+        ClientEvent::AttachmentUploadFailed(failure.clone()),
+        ClientEvent::AttachmentDownloadStarted(reference.clone()),
+        ClientEvent::AttachmentDownloadCompleted(reference.clone()),
+        ClientEvent::AttachmentDownloadFailed(failure),
+        ClientEvent::AttachmentDeleted(reference),
+    ];
+    for (event, kind) in events.into_iter().zip(EventKind::ALL[20..27].iter()) {
+        assert_eq!(&event.kind(), kind);
+        assert!(event.group_id().is_none());
+    }
 }
 
 #[xmtp_common::test(unwrap_try = true)]

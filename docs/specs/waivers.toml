@@ -409,8 +409,8 @@ reason = "The legacy reaction encoder and the unrestricted raw-send path still p
 id = "CTYPE-014"
 kind = "gap"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Remote-attachment decoding accepts a missing required parameter as an empty value."
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "Two gaps. The remote attachment decoder accepts a missing required parameter as an empty value. The Android and iOS SDK remote attachment codecs of the existing bindings, which the SDK façade replaces, reject an http:// URL to localhost or a loopback address that the parameters table admits."
 
 [[waiver]]
 id = "CTYPE-023"
@@ -461,11 +461,18 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current SDK does not report the required decode failure while preserving the outer bytes and fallback on every invalid nested content path."
 
 [[waiver]]
-id = "STORE-001"
+id = "STORE-019"
 kind = "gap"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs always put a label (`env`) in the file name, so the unlabeled `xmtp-<inbox id>.db3` is never produced; the façade SDKs implement both forms."
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "No SDK or binding opens a database with a data_dir storage location yet. The façade and the existing SDKs name the database xmtp-<label>-<inbox id>.db3 in the root directory itself."
+
+[[waiver]]
+id = "STORE-020"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "No SDK or binding exposes the storage location layouts yet. The façade and the existing SDKs put the database file in the default location or the named directory itself, with no attachments directory, and the façade has no explicit location with an attachments directory."
 
 [[waiver]]
 id = "STORE-002"
@@ -509,11 +516,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Current SDK `build` can open a new database; the façade `build` fails with a typed error."
 
 [[waiver]]
-id = "STORE-008"
+id = "STORE-021"
 kind = "gap"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Current SDKs do not reject separators, the colon, and NUL in the label; the façade does."
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "The façade rejects separators, the colon, and control characters in a label, but accepts . and ..; the existing SDKs reject none of them."
 
 [[waiver]]
 id = "STORE-009"
@@ -588,7 +595,7 @@ id = "EVENT-001"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "The shared client event bus has emission paths and focused tests for all 20 change kinds, including connection.state_changed. EVENT-001 remains open for the HMAC root-key path that stores a new root key under SYNC-015 and SYNC-022, alternate change paths such as replacing an ended group and activating a restored group, and a transaction that aborts before commit and then succeeds on retry. These paths do not yet have one-event assertions."
+reason = "One-event evidence remains missing for the HMAC root-key path that stores a new root key under SYNC-015 and SYNC-022, replacing an ended group, activating a restored group, and a transaction that aborts before commit and succeeds on retry."
 
 [[waiver]]
 id = "EVENT-002"
@@ -647,12 +654,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/4207"
 reason = "No open-client observer emits hmac_keys.updated when the current HMAC epoch increases, without an app call or network request."
 
 [[waiver]]
-id = "EVENT-055"
-kind = "untested"
-owner = "protocol"
-reason = "ClientBuilder registers each client public event writer with its backend AuthHandle, and AuthInner::emit_lockout emits to every registered writer; no test drives two sharing clients."
-
-[[waiver]]
 id = "EVENT-056"
 kind = "gap"
 owner = "protocol"
@@ -665,3 +666,107 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
+[[waiver]]
+id = "EVENT-015"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "The SDK does not yet deliver the seven attachment.* kinds: its event conversion skips them and the reader and listener continue past them, so an attachment event is not handed off. SDK exposure of these kinds is pending."
+[[waiver]]
+id = "EVENT-020"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "The SDK EventKind and EventFilter do not yet include the seven attachment.* kinds, so a subscription cannot select them. SDK exposure of these kinds is pending."
+[[waiver]]
+id = "ATCH-009"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+[[waiver]]
+id = "ATCH-072"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+
+[[waiver]]
+id = "ATCH-038"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+[[waiver]]
+id = "ATCH-067"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+[[waiver]]
+id = "ATCH-040"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+[[waiver]]
+id = "ATCH-069"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+[[waiver]]
+id = "ATCH-044"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+[[waiver]]
+id = "ATCH-062"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+[[waiver]]
+id = "ATCH-060"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+[[waiver]]
+id = "ATCH-061"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+
+[[waiver]]
+id = "ATCH-079"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "binding and SDK exposure pending"
+
+[[waiver]]
+id = "CONF-061"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "No SDK exposes the attachments field of GetConfigurationResponse yet; binding and SDK exposure pending."
+[[waiver]]
+id = "CONF-062"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "No SDK exposes the attachments field of GetConfigurationResponse yet; binding and SDK exposure pending."
+[[waiver]]
+id = "ATCH-039"
+kind = "gap"
+owner = "attachments"
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "Client-level test proves streaming (at most 2 MiB process growth for a 64 MiB attachment); the per-attachment 1,048,576-byte bound is not attributable in a test."
+[[waiver]]
+id = "EVENT-055"
+kind = "untested"
+owner = "protocol"
+reason = "ClientBuilder registers each client public event writer with its backend AuthHandle, and AuthInner::emit_lockout emits to every registered writer; no test drives two sharing clients."

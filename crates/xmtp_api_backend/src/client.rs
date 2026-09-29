@@ -58,6 +58,12 @@ impl<C: Client> XmtpBackendClient for BackendClient<C> {
     async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, Self::Error> {
         backend::Publish(request).query(&self.client).await
     }
+    async fn create_upload(
+        &self,
+        request: CreateUploadRequest,
+    ) -> Result<CreateUploadResponse, Self::Error> {
+        backend::CreateUpload(request).query(&self.client).await
+    }
     async fn query(&self, request: QueryRequest) -> Result<QueryResponse, Self::Error> {
         backend::Query(request).query(&self.client).await
     }

@@ -10,6 +10,7 @@ mockall::mock! {
  impl XmtpBackendClient for BackendClient {
  type Error = ApiClientError;
 async fn publish(&self, request: PublishRequest) -> Result<PublishResponse, ApiClientError>;
+async fn create_upload(&self, request: CreateUploadRequest) -> Result<CreateUploadResponse, ApiClientError>;
 async fn query(&self, request: QueryRequest) -> Result<QueryResponse, ApiClientError>;
 async fn query_newest(&self, request: QueryNewestRequest) -> Result<QueryNewestResponse, ApiClientError>;
 async fn get_inbox_ids(&self, request: GetInboxIdsRequest) -> Result<GetInboxIdsResponse, ApiClientError>;
