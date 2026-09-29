@@ -16,7 +16,7 @@ dev/nix-shell 'cargo update-schema'      # regenerate schema_gen.rs after a migr
 
 - Keep existing migrations unchanged. Add a new migration directory for each schema change. Pre-transition databases are rejected before migrations run.
 - Initialization also rejects older self-hosted formats without durable stream progress or the `server_configuration` table. Keep a backup and create a new client database for those formats. Initialization never deletes old data.
-- `XmtpDb::init()` currently accepts only the baseline as an applied version. When adding the next migration, update that check and its tests to accept later self-hosted versions while it still rejects pre-transition databases.
+- `XmtpDb::init()` accepts any embedded version as applied and rejects every other version as pre-transition, so a baseline database upgrades in place. A new migration needs no init change; cover the upgrade in `upgrades_a_baseline_database_to_the_latest_migration`.
 - Regenerate `schema_gen.rs` with `cargo update-schema` through Nix. To generate before the models compile, apply all migrations to an empty SQLite file, then run `dev/nix-shell 'diesel print-schema --database-url <file> -e client_events > crates/xmtp_db/src/encrypted_store/schema_gen.rs'`.
 
 ## Conventions
@@ -41,6 +41,7 @@ Client persistence only. The backend picks its own database layer in spec 002.
 - `QueryIncomingEnvelope` commits ordered envelopes and received progress together. Adapters validate wire metadata and the supplied hash shape first. The client never recomputes the backend envelope hash. Use `install_group_anchor` only inside the transaction that installs a validated welcome.
 - `record_welcome_discovery` records the first successful Welcome in that installation transaction. Rejoin never changes it. Do not record local creation or history import. Fixed catch-up targets use `group_ids_discovered_through`.
 - Record terminal rejection codes before deleting pending work in the same state transaction. Only the last rejection per topic is retained. No message payload enters this diagnostic.
+- `QueryReceivedProposal` is the durable evidence that the ordered prefix delivered a proposal. Record it in the state transaction that stores the proposal in the MLS proposal store. Forget it in the transaction that removes the proposal for a protocol reason: an eviction, a merged commit, or a replacing Welcome. A commit naming a proposal missing from the store is rejected only when this evidence shows the prefix never delivered it.
 - Complete a pending group or identity head in the same state transaction as its MLS or identity writes. Welcome completion is independent and checks unresolved rows through a fixed target.
 - Published message inserts and publication transitions allocate immutable local delivery numbers. Unpublished optimistic rows have no number. Message-history imports use the normal message store API.
 - `QueryDelivery` fences both acknowledgements and filtered scans with one default owner token. Call `check_delivery_owner` before each callback or iterator handoff. A candidate batch is not an acknowledgement.

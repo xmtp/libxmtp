@@ -89,4 +89,6 @@ third-party = [
   # Do not enable those test features in normal addon builds.
   { name = "napi" },
   { name = "napi-sys" },
+  # UUID v4's native random source fails to build for wasm when the hack unifies it.
+  { name = "uuid" },
 ]

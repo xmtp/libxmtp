@@ -3,14 +3,14 @@ import type {
   EncodedContent,
   MessageData,
   MessageKind,
+  MessageId,
 } from "../xmtp_sdk";
-import type { MessageID } from "./ids";
 
 /** The WASM converter lifts messages as data. Host actions use the bridge. */
 export class Message {
   constructor(readonly data: MessageData) {}
 
-  get id(): MessageID {
+  get id(): MessageId {
     return this.data.id;
   }
 

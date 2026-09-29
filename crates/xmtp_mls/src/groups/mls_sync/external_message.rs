@@ -281,7 +281,10 @@ where
                             sequence_id: cursor.0 as i64,
                             envelope_hash: None,
                             expiry_ns: None,
-                            expire_at_ns: Self::get_message_expire_at_ns(mls_group),
+                            expire_at_ns: Self::get_message_expire_at_ns(
+                                mls_group,
+                                envelope_timestamp_ns,
+                            ),
                             inserted_at_ns: 0, // Will be set by database
                             should_push: true,
                             // Persist the key from the wire envelope — the exact
@@ -347,7 +350,7 @@ where
                 // Explicitly persist the proposal to the key store so it survives group reloads.
                 // process_message() only stores proposals in-memory; without this call,
                 // they are lost when the group is reloaded from storage.
-                mls_group.store_pending_proposal(storage, *proposal_ptr)?;
+                self.store_received_proposal(mls_group, storage, *proposal_ptr)?;
                 Ok(())
             }
             ProcessedMessageContent::ExternalJoinProposalMessage(_external_proposal_ptr) => {

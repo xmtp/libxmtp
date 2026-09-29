@@ -29,11 +29,12 @@ pub(super) fn optional_postgres_url(generator: &mut SchemaGenerator) -> Schema {
     json_schema!({"anyOf": [postgres_url(generator), {"type": "null"}]})
 }
 
-/// Match the chain parser's unsigned integer range, including leading zeros and a plus sign.
+/// Match the chain parser: an unsigned 64-bit chain id in canonical decimal,
+/// with no sign and no leading zero.
 pub(super) fn chains(_: &mut SchemaGenerator) -> Schema {
     json_schema!({
         "type": "object",
-        "propertyNames": {"pattern": format!("^eip155:\\+?0*{}$(?![\\s\\S])", decimal_range(u64::MAX))},
+        "propertyNames": {"pattern": format!("^eip155:(?!0[0-9]){}$(?![\\s\\S])", decimal_range(u64::MAX))},
         "additionalProperties": with_environment(json_schema!({
             "type": "string", "format": "uri", "pattern": "^https?://[^\\s/?#]+[^\\s]*$"
         }))

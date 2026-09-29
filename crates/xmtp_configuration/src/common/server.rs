@@ -277,6 +277,15 @@ impl Default for MlsConfiguration {
     }
 }
 
+/// Attachment storage offered by this deployment.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AttachmentsConfiguration {
+    /// The validated value exactly as the backend published it.
+    pub base_url: String,
+    pub max_upload_bytes: u64,
+    pub retention_seconds: u64,
+}
+
 /// One immutable snapshot of what a deployment published.
 ///
 /// `Default` is the compiled fallback used before any fetch succeeds, and for
@@ -292,6 +301,8 @@ pub struct ServerConfiguration {
     pub retention: RetentionConfiguration,
     pub limits: LimitsConfiguration,
     pub mls: MlsConfiguration,
+    /// Absent when attachment storage is not offered or its message is unusable.
+    pub attachments: Option<AttachmentsConfiguration>,
     /// CAIP-2 chain ids this deployment verifies smart contract wallet
     /// signatures on. Empty rejects every app-supplied signature.
     pub smart_contract_wallet_chains: Vec<String>,

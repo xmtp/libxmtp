@@ -1,6 +1,4 @@
-use alloy::signers::{SignerSync, local::LocalSigner};
 use ed25519_dalek::{DigestSigner, Signature, VerifyingKey};
-use prost::Message;
 use sha2::{Digest as _, Sha512};
 use std::array::TryFromSliceError;
 use thiserror::Error;
@@ -9,22 +7,9 @@ use xmtp_cryptography::{
     CredentialSign, CredentialVerify, SignerError, SigningContextProvider,
     XmtpInstallationCredential,
 };
-use xmtp_proto::xmtp::message_contents::{
-    SignedPrivateKey as LegacySignedPrivateKeyProto, signed_private_key,
-};
-
-use super::{
-    unverified::{UnverifiedLegacyDelegatedSignature, UnverifiedRecoverableEcdsaSignature},
-    verified_signature::VerifiedSignature,
-};
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum SignatureError {
-    /// Malformed legacy key.
-    ///
-    /// Legacy key format is invalid. Not retryable.
-    #[error("Malformed legacy key: {0}")]
-    MalformedLegacyKey(String),
     #[error(transparent)]
     #[error_code(inherit)]
     CryptoSignatureError(#[from] xmtp_cryptography::signature::SignatureError),
@@ -168,7 +153,6 @@ pub enum SignatureKind {
     Erc191,
     Erc1271,
     InstallationKey,
-    LegacyDelegated,
     P256,
 }
 
@@ -178,7 +162,6 @@ impl std::fmt::Display for SignatureKind {
             SignatureKind::Erc191 => write!(f, "erc-191"),
             SignatureKind::Erc1271 => write!(f, "erc-1271"),
             SignatureKind::InstallationKey => write!(f, "installation-key"),
-            SignatureKind::LegacyDelegated => write!(f, "legacy-delegated"),
             SignatureKind::P256 => write!(f, "p256"),
         }
     }
@@ -188,14 +171,20 @@ impl std::fmt::Display for SignatureKind {
 pub enum AccountIdError {
     /// Invalid chain ID.
     ///
-    /// Chain ID is not a valid u64. Not retryable.
-    #[error("Chain ID is not a valid u64")]
+    /// Chain ID is not a u64 in canonical decimal form. Not retryable.
+    #[error("Chain ID is not a u64 in canonical decimal form")]
     InvalidChainId,
     /// Missing EIP-155 prefix.
     ///
     /// Chain ID is not prefixed with `eip155:`. Not retryable.
     #[error("Chain ID is not prefixed with eip155:")]
     MissingEip155Prefix,
+    /// Invalid account address.
+    ///
+    /// Account address is not `0x` followed by 40 hexadecimal characters.
+    /// Not retryable.
+    #[error("Account address is not 0x followed by 40 hexadecimal characters")]
+    InvalidAddress,
 }
 
 // CAIP-10[https://github.com/ChainAgnostic/CAIPs/blob/main/CAIPs/caip-10.md]
@@ -229,90 +218,32 @@ impl AccountId {
         &self.chain_id
     }
 
+    /// The chain id of an `eip155` account, whose reference must be the
+    /// chain id in canonical decimal form: no sign, no leading zero.
     pub fn get_chain_id_u64(&self) -> Result<u64, AccountIdError> {
-        let stripped = self
+        let reference = self
             .chain_id
             .strip_prefix("eip155:")
             .ok_or(AccountIdError::MissingEip155Prefix)?;
-
-        stripped
+        reference
             .parse::<u64>()
-            .map_err(|_| AccountIdError::InvalidChainId)
-    }
-}
-
-/// Decode the `legacy_signed_private_key` to legacy private / public key pairs & sign the `signature_text` with the private key.
-pub fn sign_with_legacy_key(
-    signature_text: String,
-    legacy_signed_private_key: Vec<u8>,
-) -> Result<UnverifiedLegacyDelegatedSignature, SignatureError> {
-    let legacy_signed_private_key_proto =
-        LegacySignedPrivateKeyProto::decode(legacy_signed_private_key.as_slice())?;
-    let signed_private_key::Union::Secp256k1(secp256k1) = legacy_signed_private_key_proto
-        .union
-        .ok_or(SignatureError::MalformedLegacyKey(
-            "Missing secp256k1.union field".to_string(),
-        ))?;
-    let legacy_private_key = secp256k1.bytes;
-    let signer = LocalSigner::from_slice(legacy_private_key.as_slice())?;
-    let signature = signer.sign_message_sync(signature_text.as_bytes())?;
-
-    let legacy_signed_public_key_proto =
-        legacy_signed_private_key_proto
-            .public_key
-            .ok_or(SignatureError::MalformedLegacyKey(
-                "Missing public_key field".to_string(),
-            ))?;
-
-    Ok(UnverifiedLegacyDelegatedSignature::new(
-        UnverifiedRecoverableEcdsaSignature::new(signature.as_bytes().to_vec()),
-        legacy_signed_public_key_proto,
-    ))
-}
-
-#[derive(Clone, Debug)]
-pub struct ValidatedLegacySignedPublicKey {
-    pub(crate) account_address: String,
-    pub(crate) serialized_key_data: Vec<u8>,
-    pub(crate) wallet_signature: VerifiedSignature,
-    pub(crate) public_key_bytes: Vec<u8>,
-    pub(crate) created_ns: u64,
-}
-
-impl ValidatedLegacySignedPublicKey {
-    fn header_text() -> String {
-        let label = "Create Identity".to_string();
-        format!("XMTP : {}", label)
+            .ok()
+            .filter(|chain_id| chain_id.to_string() == reference)
+            .ok_or(AccountIdError::InvalidChainId)
     }
 
-    fn body_text(serialized_legacy_key: &[u8]) -> String {
-        hex::encode(serialized_legacy_key)
-    }
-
-    fn footer_text() -> String {
-        "For more info: https://xmtp.org/signatures/".to_string()
-    }
-
-    pub fn text(serialized_legacy_key: &[u8]) -> String {
-        format!(
-            "{}\n{}\n\n{}",
-            Self::header_text(),
-            Self::body_text(serialized_legacy_key),
-            Self::footer_text()
-        )
-        .to_string()
-    }
-
-    pub fn account_address(&self) -> String {
-        self.account_address.clone()
-    }
-
-    pub fn key_bytes(&self) -> Vec<u8> {
-        self.public_key_bytes.clone()
-    }
-
-    pub fn created_ns(&self) -> u64 {
-        self.created_ns
+    /// The chain id of an `eip155` account id in the only verifiable form:
+    /// the chain id as [`Self::get_chain_id_u64`] requires, and an address of
+    /// `0x` followed by 40 hexadecimal characters. Checked before any chain
+    /// access, so a malformed account id is never routed.
+    // implements: IDENT-060
+    pub fn eip155_chain_id(&self) -> Result<u64, AccountIdError> {
+        let chain_id = self.get_chain_id_u64()?;
+        self.account_address
+            .strip_prefix("0x")
+            .is_some_and(|hex| hex.len() == 40 && hex.bytes().all(|b| b.is_ascii_hexdigit()))
+            .then_some(chain_id)
+            .ok_or(AccountIdError::InvalidAddress)
     }
 }
 
@@ -348,6 +279,5 @@ mod tests {
         assert!(!SignatureError::Invalid.is_retryable());
         assert!(!SignatureError::InvalidPublicKey.is_retryable());
         assert!(!SignatureError::InvalidClientData.is_retryable());
-        assert!(!SignatureError::MalformedLegacyKey("missing field".to_string()).is_retryable(),);
     }
 }

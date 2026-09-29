@@ -876,7 +876,6 @@ def render_sdk_rows(
             "generated",
             "static runtime",
             "platform helper",
-            "alias",
             "approved removal",
         }:
             raise ValueError(status)
@@ -932,17 +931,17 @@ def build() -> str:
         "The [design Ref](https://plan.ref.tools/eG4NJ6emCjsHcWH0) is the authority. "
         "Its Section 11.4 tables are applied by SDK and sub-table. "
         "The implementation plan's Decisions adopt design Section 20 items 1, 2, 3, 4, and 7 and use `end()` for async shutdown. "
-        "Final names use stock generator spelling: `ID` suffixes, `unsafe` camel case, string IDs, and one `Timestamp` value with `.ns` and `.date`.",
+        "Final names use stock generator spelling: `Id` suffixes, `unsafe` camel case, string IDs, and one `Timestamp` value with `.ns` and `.date`.",
         "",
         "`generated` means the facade generator emits the API. `static runtime` means hand-written host code ships with generated output. "
-        "`platform helper` means native OS code stays in the SDK. `alias` means a deprecated name kept for one major release (11.5), from a Rename row or an explicit alias row. "
+        "`platform helper` means native OS code stays in the SDK. "
         "`approved removal` means the current export leaves the API. A dash in Final name marks a removal.",
         "",
         "Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. "
         "A free property is `var name`, `val name`, or `let name`. "
         "Nested owners use dots, such as `Client.Companion.create`. A computed member is `Owner[Symbol.asyncIterator]`. "
         "A named constructor parameter in a public signature uses `Owner.parameter` and Kind `constructor parameter`. "
-        "A method may show a call shape in either name column, such as `Client.Companion.register(codec)`, `Group.state().name`, `Client.inboxID(for:)`, or `Conversation.lastActivityAtNs(contentTypes?)`; `Client.inboxID` without parentheses is the field. "
+        "A method may show a call shape in either name column, such as `Client.Companion.register(codec)`, `Group.state().name`, `Client.inboxId(for:)`, or `Conversation.lastActivityAt(contentTypes?)`; `Client.inboxId` without parentheses is the field. "
         "An enum value under a record field uses `Record.field.value`, such as `ListMessagesOptions.sortBy.sentAt`. "
         "Kotlin `Client.Companion.register(codec:)` is today's global codec method and is removed; final `Client.register()` registers an identity. "
         "A group row starts `pattern:` and shows a source glob or regular expression plus its declaration count. "
@@ -1079,6 +1078,19 @@ def self_test() -> None:
         "Node": ts_inventory("Node"),
         "Browser": ts_inventory("Browser"),
     }
+    for sdk, current in (
+        ("Swift", "Client.canMessage"),
+        ("Kotlin", "Client.Companion.canMessage"),
+        ("Kotlin", "Client.canMessage"),
+        ("Node", "Client.canMessage"),
+        ("Browser", "Client.canMessage"),
+    ):
+        entry = next(entry for entry in inventories[sdk] if entry.name == current)
+        result = classify(entry)
+        assert result.status == "generated", (sdk, current, result)
+        assert result.final == "Client.canMessage", (sdk, current, result)
+        assert "`ethereum:<core text>`" in result.note, (sdk, current, result)
+        assert "`passkey:<lowercase core hex>`" in result.note, (sdk, current, result)
     family_source = "sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift"
     families = [
         entry
@@ -1096,23 +1108,23 @@ def self_test() -> None:
     expected = {
         "Swift": {
             "Client.create": ("static runtime", "Client.create"),
-            "Client.inboxStatesForInboxIds": ("alias", "Client.inboxStates"),
+            "Client.inboxStatesForInboxIds": ("generated", "Client.inboxStates"),
             "Client.keyPackageStatusesForInstallationIds": (
-                "alias",
+                "generated",
                 "Client.keyPackageStatuses",
             ),
             "Client.getNewestMessageMetadata": (
-                "alias",
+                "generated",
                 "Client.newestMessageMetadata",
             ),
             "Client.verifySignature": (
-                "alias",
+                "generated",
                 "Client.verifySignedWithInstallationKey",
             ),
-            "Client.getOrCreateInboxId": ("alias", "Client.inboxID(for:)"),
-            "Client.libXMTPVersion": ("alias", "Client.libxmtpVersion"),
+            "Client.getOrCreateInboxId": ("generated", "Client.inboxId(for:)"),
+            "Client.libXMTPVersion": ("generated", "Client.libxmtpVersion"),
             "Client.createArchive": ("generated", "Client.archives.exportToFile"),
-            "ClientOptions.Api": ("alias", "BackendOptions"),
+            "ClientOptions.Api": ("generated", "BackendOptions"),
             "ClientOptions.waitForRegistrationVisible": ("approved removal", "—"),
             "Conversations.newConversationWithIdentity": (
                 "generated",
@@ -1123,7 +1135,7 @@ def self_test() -> None:
                 "Conversations.createGroupWithIdentities",
             ),
             "Group.updateImageUrlPermission": ("generated", "Group.updatePermission"),
-            "Group.leaveGroup": ("alias", "Group.requestRemoval"),
+            "Group.leaveGroup": ("generated", "Group.requestRemoval"),
             "Group.clearDisappearingMessageSettings": (
                 "generated",
                 "Group.updateDisappearingSettings",
@@ -1132,7 +1144,7 @@ def self_test() -> None:
             "MessageReader.messages": ("static runtime", "MessageReader.stream()"),
             "DecodedMessageV2.contentTypeId": ("static runtime", "Message.contentType"),
             "DecodedMessageV2": ("approved removal", "—"),
-            "DecodedMessage": ("alias", "Message"),
+            "DecodedMessage": ("generated", "Message"),
             "DecodedMessage.body": ("static runtime", "Message.content"),
             "GroupSyncSummary.numEligible": ("generated", "GroupSyncSummary.eligible"),
             "GroupMembershipState.allowed": (
@@ -1166,7 +1178,7 @@ def self_test() -> None:
             "Client.Companion.build": ("static runtime", "Client.build"),
             "DecodedMessageV2.contentTypeId": ("static runtime", "Message.contentType"),
             "DecodedMessageV2": ("approved removal", "—"),
-            "DecodedMessage": ("alias", "Message"),
+            "DecodedMessage": ("generated", "Message"),
             "DecodedMessage.MessageDeliveryStatus.FAILED": (
                 "generated",
                 "DeliveryStatus.failed",
@@ -1188,7 +1200,7 @@ def self_test() -> None:
                 "Member.permissionLevel.superAdmin",
             ),
             "Throwable.streamFailureDetails": ("approved removal", "—"),
-            "PrivatePreferences": ("alias", "Preferences"),
+            "PrivatePreferences": ("generated", "Preferences"),
             "PrivatePreferences.client": ("approved removal", "—"),
             "MessageReader.next": ("generated", "MessageReader.next"),
             "Group.updateNamePermission": ("generated", "Group.updatePermission"),
@@ -1206,16 +1218,16 @@ def self_test() -> None:
         },
         "Node": {
             "Client.unsafe_createInboxSignatureRequest": (
-                "alias",
+                "generated",
                 "Client.unsafeCreateInboxSignatureRequest",
             ),
             "Conversations.fetchDmByIdentifier": (
-                "alias",
+                "generated",
                 "Conversations.getDmByIdentity",
             ),
             "DecodedMessage.numReplies": ("static runtime", "Message.replyCount"),
             "Conversation._client": ("approved removal", "—"),
-            "Identifier": ("alias", "PublicIdentity"),
+            "Identifier": ("generated", "PublicIdentity"),
             "IdentifierKind": ("approved removal", "—"),
             "SendOpts": ("generated", "SendOptions"),
             "Client.createArchive": ("generated", "Client.archives.exportToFile"),
@@ -1239,7 +1251,7 @@ def self_test() -> None:
                 "MessageStream[Symbol.asyncIterator]",
             ),
             "OtherOptions.waitForRegistrationVisible": ("approved removal", "—"),
-            "Preferences.fetchInboxStates": ("alias", "Client.inboxStates"),
+            "Preferences.fetchInboxStates": ("generated", "Client.inboxStates"),
             "StorageOptions.dbEncryptionKey": (
                 "generated",
                 "StorageOptions.encryptionKey",
@@ -1255,16 +1267,16 @@ def self_test() -> None:
                 "generated",
                 "Client.unsafeApplySignatureRequest(request)",
             ),
-            "Conversation.metadata": ("alias", "Conversation.metadata"),
+            "Conversation.metadata": ("generated", "Conversation.metadata"),
             "DecodedMessage.numReplies": ("static runtime", "Message.replyCount"),
             "MessageStream[Symbol.asyncIterator]": (
                 "static runtime",
                 "MessageStream[Symbol.asyncIterator]",
             ),
-            "Identifier": ("alias", "PublicIdentity"),
+            "Identifier": ("generated", "PublicIdentity"),
             "IdentifierKind": ("approved removal", "—"),
-            "encryptAttachment": ("alias", "func encryptBytes"),
-            "decryptAttachment": ("alias", "func decryptBytes"),
+            "encryptAttachment": ("generated", "func encryptBytes"),
+            "decryptAttachment": ("generated", "func decryptBytes"),
             "Opfs.poolCapacity": ("generated", "StorageAdmin.capacity"),
             "Opfs.listFiles": ("generated", "StorageAdmin.listFiles"),
             "Opfs.fileCount": ("approved removal", "—"),

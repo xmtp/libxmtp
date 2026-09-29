@@ -1,26 +1,26 @@
 import uniffi.xmtp_sdk.*
 
 fun consumePositive(
-    id: ConversationID,
+    id: ConversationId,
     conversation: Conversation,
     content: MessageContent,
-): ConversationID {
-    val narrowed: ConversationID =
+): ConversationId {
+    val narrowed: ConversationId =
         when (conversation) {
             is Conversation.Group -> conversation.group.id()
             is Conversation.Dm -> conversation.dm.id()
         }
     if (content is MessageContent.Custom) {
         val encoded: EncodedContent = content.encoded
-        check(encoded.type.typeID.isNotEmpty())
+        check(encoded.type.typeId.isNotEmpty())
     }
     return if (narrowed == id) id else narrowed
 }
 
-fun consumeStandardIDs(content: StandardContent): MessageID? =
+fun consumeStandardIds(content: StandardContent): MessageId? =
     when (content) {
         is StandardContent.Reaction -> {
-            val inbox: InboxID? = content.referenceInboxID
+            val inbox: InboxId? = content.referenceInboxId
             check(inbox == null || inbox.toString().isNotEmpty())
             content.reference
         }
@@ -30,7 +30,7 @@ fun consumeStandardIDs(content: StandardContent): MessageID? =
         }
 
         is StandardContent.DeleteMessage -> {
-            content.messageID
+            content.messageId
         }
 
         else -> {

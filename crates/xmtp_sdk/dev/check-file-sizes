@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Keep every SDK source file at or below 1,000 lines."""
+
+from pathlib import Path
+import subprocess
+import sys
+
+root = Path(__file__).resolve().parents[3]
+paths = subprocess.check_output(
+    ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", "crates/xmtp_sdk"],
+    cwd=root,
+).split(b"\0")
+failures = []
+for name in sorted(set(paths) - {b""}):
+    path = root / name.decode()
+    if not path.is_file():
+        continue
+    content = path.read_bytes()
+    lines = content.count(b"\n") + int(bool(content) and not content.endswith(b"\n"))
+    if lines > 1000:
+        failures.append(f"{path.relative_to(root)}: {lines} lines (maximum 1000)")
+if failures:
+    print("\n".join(failures), file=sys.stderr)
+    sys.exit(1)
+print("SDK file sizes passed (maximum 1000 lines).")

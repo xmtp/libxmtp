@@ -19,12 +19,8 @@ pub async fn new_unregistered_client() -> (BenchClient, PrivateKeySigner) {
 
     let api_client = std::sync::Arc::new(DefaultTestClientCreator::create().build().unwrap());
 
-    let client = crate::Client::builder(IdentityStrategy::new(
-        inbox_id,
-        wallet.identifier(),
-        nonce,
-        None,
-    ));
+    let client =
+        crate::Client::builder(IdentityStrategy::new(inbox_id, wallet.identifier(), nonce));
 
     let client = client
         .temp_store()
@@ -74,7 +70,6 @@ pub async fn create_client_from_identity(identity: &super::Identity) -> BenchCli
         inbox_id,
         identity.identifier.clone(),
         nonce,
-        None,
     ));
 
     client

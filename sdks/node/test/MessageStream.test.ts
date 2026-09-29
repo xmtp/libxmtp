@@ -63,7 +63,7 @@ describe("MessageStream acknowledgement boundaries", () => {
     expect(reader.close).toHaveBeenCalledOnce();
   });
 
-  // verifies: PROC-031, PROC-032
+  // verifies: PROC-031
   it("reselects a stale queued item without consuming it", async () => {
     const stale = token();
     stale.checkOwner.mockReturnValue(false);
@@ -79,7 +79,6 @@ describe("MessageStream acknowledgement boundaries", () => {
     await stream.end();
   });
 
-  // verifies: PROC-032
   it("reselects when a removed item has no decoded value", async () => {
     const removed = token();
     removed.checkOwner.mockReturnValue(false);

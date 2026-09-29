@@ -34,10 +34,7 @@ use xmtp_proto::xmtp::{
             AddMissingInstallations as AddMissingInstallationsProto, Task as TaskProto,
             task::Task as TaskKindProto,
         },
-        message_contents::{
-            ContentTypeId, EncodedContent, PlaintextEnvelope,
-            plaintext_envelope::{Content, V1},
-        },
+        message_contents::{ContentTypeId, EncodedContent},
     },
 };
 
@@ -284,12 +281,6 @@ where
             send_message_opts::SendMessageOpts {
                 should_push: false,
                 idempotency_key: None,
-            },
-            |key| PlaintextEnvelope {
-                content: Some(Content::V1(V1 {
-                    content: content_bytes.clone(),
-                    idempotency_key: key.to_string(),
-                })),
             },
         )?;
 

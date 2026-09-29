@@ -255,8 +255,9 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 
 | Error Code | Description |
 |:-----------|:------------|
-| `AccountIdError::InvalidChainId` | Invalid chain ID. Chain ID is not a valid u64. Not retryable. |
+| `AccountIdError::InvalidChainId` | Invalid chain ID. Chain ID is not a u64 in canonical decimal form. Not retryable. |
 | `AccountIdError::MissingEip155Prefix` | Missing EIP-155 prefix. Chain ID is not prefixed with `eip155:`. Not retryable. |
+| `AccountIdError::InvalidAddress` | Invalid account address. Account address is not `0x` followed by 40 hexadecimal characters. Not retryable. |
 
 ### AssociationError <sub>enum</sub>
 
@@ -269,7 +270,8 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `AssociationError::NotCreated` | XID not yet created. Operating on inbox that doesn't exist yet. Not retryable. |
 | `AssociationError::MemberNotAllowed` | Member not allowed. Member kind cannot add the specified kind. Not retryable. |
 | `AssociationError::MissingExistingMember` | Missing existing member. Required signer not found or signer identity mismatch. Not retryable. |
-| `AssociationError::LegacySignatureReuse` | Legacy signature reuse. Legacy delegated signature used in disallowed context. Not retryable. |
+| `AssociationError::AlreadyMember` | Already a member. The member being added is already a member of the inbox. Not retryable. |
+| `AssociationError::EmptyUpdate` | Empty update. The identity update carries no actions. Not retryable. |
 | `AssociationError::NewMemberIdSignatureMismatch` | New member ID signature mismatch. Signer doesn't match new member identifier. Not retryable. |
 | `AssociationError::WrongInboxId` | Wrong Inbox ID. Incorrect inbox_id in association. Not retryable. |
 | `AssociationError::SignatureNotAllowed` | Signature not allowed. Signature type not permitted for this role. Not retryable. |
@@ -315,7 +317,6 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 
 | Error Code | Description |
 |:-----------|:------------|
-| `SignatureError::MalformedLegacyKey` | Malformed legacy key. Legacy key format is invalid. Not retryable. |
 | `SignatureError::Ed25519Error` | Ed25519 signature failed. Ed25519 signature verification failed. Not retryable. |
 | `SignatureError::TryFromSliceError` | Slice conversion error. Byte slice conversion failed. Not retryable. |
 | `SignatureError::Invalid` | Signature validation failed. Signature did not verify. Not retryable. |
@@ -351,6 +352,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `VerifierError::Serde` | Serialization error. JSON serialization/deserialization failed. Not retryable. |
 | `VerifierError::MalformedEipUrl` | Malformed chain ID. Chain ID string lacks expected eip155: prefix. Not retryable. |
 | `VerifierError::NoVerifier` | No verifier. Verifier not configured for the given chain ID. Retryable. |
+| `VerifierError::MissingBlock` | Missing block. The chain did not return a block at or below its reported head. Retryable. |
 | `VerifierError::InvalidHash` | Invalid hash. Hash has invalid length or format. Not retryable. |
 | `VerifierError::Other` | Other error. Unclassified verifier error. May be retryable. |
 
@@ -378,6 +380,8 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 
 | Error Code | Description |
 |:-----------|:------------|
+| `StorageLocation` | The deployment storage path could not be resolved or opened. May be retryable if local storage becomes available. |
+| `Attachment` | Attachment storage could not be prepared or cleaned. May be retryable if local storage becomes available. |
 | `ClientBuilderError::MissingParameter` | Missing parameter. Required builder parameter not provided. Not retryable. |
 | `ClientBuilderError::ClientError` | Client error. Client operation failed during build. May be retryable. |
 | `ClientBuilderError::StorageError` | Storage error. Storage initialization failed. Not retryable. |
@@ -539,13 +543,9 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `IdentityError::Decode` | Decode error. Protobuf decoding failed. Not retryable. |
 | `IdentityError::InstallationIdNotFound` | Installation not found. Installation ID not found in network association state. Not retryable. |
 | `IdentityError::BasicCredential` | Basic credential error. MLS basic credential validation failed. Not retryable. |
-| `IdentityError::LegacyKeyReuse` | Legacy key re-use. Attempted to reuse a legacy key. Not retryable. |
 | `IdentityError::UninitializedIdentity` | Uninitialized identity. Identity not yet initialized. Not retryable. |
 | `IdentityError::InstallationKey` | Installation key error. Problem with installation key. Not retryable. |
-| `IdentityError::MalformedLegacyKey` | Malformed legacy key. Legacy key format is invalid. Not retryable. |
-| `IdentityError::LegacySignature` | Legacy signature error. Legacy signature is invalid. Not retryable. |
 | `IdentityError::Crypto` | Crypto error. Cryptographic operation failed. Not retryable. |
-| `IdentityError::LegacyKeyMismatch` | Legacy key mismatch. Legacy key does not match address. Not retryable. |
 | `IdentityError::OpenMls` | OpenMLS error. OpenMLS library error. Not retryable. |
 | `IdentityError::KeyPackageGenerationError` | Key package generation error. Failed to generate MLS key package. Not retryable. |
 | `IdentityError::InboxIdMismatch` | Inbox ID mismatch. Associated InboxID does not match stored value. Not retryable. |

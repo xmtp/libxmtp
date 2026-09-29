@@ -350,7 +350,7 @@ where
             return Ok(None);
         };
         tracing::debug!("setting message @cursor=[{}] to published", envelope.cursor);
-        let message_expire_at_ns = Self::get_message_expire_at_ns(mls_group);
+        let message_expire_at_ns = Self::get_message_expire_at_ns(mls_group, envelope_timestamp_ns);
         let previous_status = storage
             .db()
             .get_group_message(&id)

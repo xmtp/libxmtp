@@ -162,7 +162,7 @@ pub(super) async fn force_add_member(
 ) {
     use crate::groups::mls_ext::WelcomePointersExtension;
     use xmtp_configuration::CREATE_PQ_KEY_PACKAGE_EXTENSION;
-    use xmtp_id::key_package::WrapperAlgorithm;
+    use xmtp_id::key_package::WrapperEncryptionExtension;
 
     use super::intents::{Installation, SendWelcomesAction};
     use openmls::prelude::tls_codec::Serialize;
@@ -172,11 +172,8 @@ pub(super) async fn force_add_member(
         .identity()
         .new_key_package(&new_member_provider, CREATE_PQ_KEY_PACKAGE_EXTENSION)
         .unwrap();
-    let hpke_init_key = key_package_result
-        .key_package
-        .hpke_init_key()
-        .as_slice()
-        .to_vec();
+    let wrapper =
+        WrapperEncryptionExtension::advertised_by(&key_package_result.key_package).unwrap();
     let (commit, welcome, _) = sender_mls_group
         .add_members(
             sender_provider,
@@ -189,8 +186,8 @@ pub(super) async fn force_add_member(
     let send_welcomes_action = SendWelcomesAction::new(
         vec![Installation {
             installation_key: new_member_client.installation_public_key().into(),
-            hpke_public_key: hpke_init_key,
-            welcome_wrapper_algorithm: WrapperAlgorithm::Curve25519,
+            hpke_public_key: wrapper.pub_key_bytes,
+            welcome_wrapper_algorithm: wrapper.algorithm,
             welcome_pointee_encryption_aead_types: WelcomePointersExtension::empty(),
         }],
         serialized_welcome,

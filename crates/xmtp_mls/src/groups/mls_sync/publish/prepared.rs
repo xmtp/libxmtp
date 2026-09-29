@@ -22,6 +22,10 @@ pub enum OutgoingPreparationError {
     /// Another writer changed the preparation base. Load it again.
     #[error("outgoing preparation state changed")]
     StateChanged,
+    /// The publish returned `OUT_OF_RANGE`, and a recovery read proved that the
+    /// backend stored none of it.
+    #[error("the backend did not store the publish that returned OUT_OF_RANGE")]
+    Unstored,
 }
 
 impl RetryableError for OutgoingPreparationError {
@@ -69,6 +73,20 @@ pub(crate) struct PreparedProposal {
     pub proposal: Vec<u8>,
 }
 
+/// Current local storage format of [`PreparedAttempt`].
+pub(crate) const PREPARED_ATTEMPT_VERSION: u8 = 3;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+/// Saved bytes whose publish returned `OUT_OF_RANGE`. The backend may have
+/// stored them, and the same request cannot be sent again, so only a `Query`
+/// of their topics can settle them.
+pub(crate) enum Unsettled {
+    /// The group attempt's envelopes.
+    Attempt,
+    /// The required follow-up Welcome batch.
+    Welcomes,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 /// Durable publication state. Immutable attempt fields fence every late reply.
 pub(crate) struct PreparedAttempt {
@@ -88,9 +106,23 @@ pub(crate) struct PreparedAttempt {
     pub welcomes: Option<PreparedWelcomes>,
     /// Terminal processing cause for this exact attempt. Later topic work cannot replace it.
     pub rejection: Option<PreparedRejection>,
+    /// Bytes that must be settled by a recovery read before anything else is sent.
+    pub unsettled: Option<Unsettled>,
 }
 
-/// Prior bincode layout. New fields cannot be supplied by serde defaults at EOF.
+/// Prior bincode layouts. New fields cannot be supplied by serde defaults at EOF.
+#[derive(Deserialize)]
+struct PreparedAttemptV2 {
+    version: u8,
+    base: PreparedBase,
+    payload_hash: Vec<u8>,
+    envelopes: Vec<Vec<u8>>,
+    proposals: Vec<PreparedProposal>,
+    receipts: Option<Vec<Vec<u8>>>,
+    welcomes: Option<PreparedWelcomes>,
+    rejection: Option<PreparedRejection>,
+}
+
 #[derive(Deserialize)]
 struct PreparedAttemptV1 {
     version: u8,
@@ -112,7 +144,7 @@ impl PreparedAttempt {
                     return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
                 }
                 Self {
-                    version: 2,
+                    version: PREPARED_ATTEMPT_VERSION,
                     base: prior.base,
                     payload_hash: prior.payload_hash,
                     envelopes: prior.envelopes,
@@ -120,12 +152,32 @@ impl PreparedAttempt {
                     receipts: prior.receipts,
                     welcomes: prior.welcomes,
                     rejection: None,
+                    unsettled: None,
                 }
             }
-            Some(2) => xmtp_db::db_deserialize(bytes)?,
+            Some(2) => {
+                let prior: PreparedAttemptV2 = xmtp_db::db_deserialize(bytes)?;
+                if prior.version != 2 {
+                    return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
+                }
+                Self {
+                    version: PREPARED_ATTEMPT_VERSION,
+                    base: prior.base,
+                    payload_hash: prior.payload_hash,
+                    envelopes: prior.envelopes,
+                    proposals: prior.proposals,
+                    receipts: prior.receipts,
+                    welcomes: prior.welcomes,
+                    rejection: prior.rejection,
+                    unsettled: None,
+                }
+            }
+            Some(&PREPARED_ATTEMPT_VERSION) => xmtp_db::db_deserialize(bytes)?,
             _ => return Err(OutgoingPreparationError::InvalidPreparedAttempt.into()),
         };
-        if attempt.version != 2 || attempt.payload_hash.len() != 32 || attempt.envelopes.is_empty()
+        if attempt.version != PREPARED_ATTEMPT_VERSION
+            || attempt.payload_hash.len() != 32
+            || attempt.envelopes.is_empty()
         {
             return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
         }
@@ -182,7 +234,8 @@ impl PreparedAttempt {
             .transpose()
     }
 
-    /// Compare immutable identity only. Receipts, Welcome progress, and rejection can change.
+    /// Compare immutable identity only. Receipts, Welcome progress, rejection,
+    /// and settlement can change.
     pub(super) fn same_attempt(&self, other: &Self) -> bool {
         self.version == other.version
             && self.base == other.base
@@ -245,6 +298,48 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         .map(TransactionOutcome::into_continued)
     }
 
+    /// Record that `batch` of `sent` returned `OUT_OF_RANGE`, so that no later
+    /// round, including one after a restart, sends it again before a recovery
+    /// read settles it. Changes nothing once that batch has receipts or the
+    /// attempt was replaced.
+    pub(super) fn mark_unsettled(
+        &self,
+        id: i32,
+        sent: &PreparedAttempt,
+        batch: Unsettled,
+    ) -> Result<(), GroupError> {
+        crate::state_tx::state_write(self.context.mls_storage(), |tx| {
+            let storage = tx.storage();
+            let db = storage.db();
+            let Some(intent) = Fetch::<StoredGroupIntent>::fetch(&db, &id)? else {
+                return Ok(Continue(()));
+            };
+            let Some(encoded) = db.prepared_envelopes(id)? else {
+                return Ok(Continue(()));
+            };
+            let mut current = PreparedAttempt::decode(&encoded)?;
+            let open = match (batch, &current.welcomes, &sent.welcomes) {
+                (Unsettled::Attempt, _, _) => {
+                    intent.state == IntentState::Published && current.receipts.is_none()
+                }
+                (Unsettled::Welcomes, Some(saved), Some(sent)) => {
+                    intent.state == IntentState::Committed
+                        && saved.same_batch(sent)
+                        && saved.receipts.is_none()
+                }
+                (Unsettled::Welcomes, _, _) => false,
+            };
+            if !open || !current.same_attempt(sent) {
+                return Ok(Continue(()));
+            }
+            current.unsettled = Some(batch);
+            let replacement = xmtp_db::db_serialize(&current)?;
+            db.compare_and_set_prepared_envelopes(id, Some(&encoded), Some(&replacement))?;
+            Ok::<_, GroupError>(Continue(()))
+        })?;
+        Ok(())
+    }
+
     /// Attach authoritative receipts only to the same still-published attempt.
     /// Deleted, resolved, and replaced attempts cannot receive a late reply.
     // implements: SEND-008
@@ -288,6 +383,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 return Ok(Continue(()));
             }
             attempt.receipts = Some(receipt_bytes);
+            attempt.unsettled = None;
             let replacement = xmtp_db::db_serialize(&attempt)?;
             if !db.compare_and_set_prepared_envelopes(
                 current.id,
