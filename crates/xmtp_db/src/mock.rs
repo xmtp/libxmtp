@@ -423,12 +423,6 @@ mock! {
     }
 
     impl QueryGroupMessage for DbQuery {
-        fn has_sender_outside_pair<'a>(
-            &self,
-            group_id: &'a GroupId,
-            pair: [&'a str; 2],
-        ) -> Result<bool, crate::ConnectionError>;
-
         fn get_group_messages(
             &self,
             group_id: &GroupId,

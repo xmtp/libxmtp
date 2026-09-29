@@ -66,7 +66,6 @@ mod tests {
                 "2026-09-08-000000_baseline",
                 "2026-09-24-000000_attachments",
                 "2026-09-28-000000-0000_received_proposals",
-                "2026-09-28-000001_group_message_senders",
                 "2026-09-28-010000_conversation_list_expiry",
             ]
         );
@@ -75,7 +74,6 @@ mod tests {
             applied,
             [
                 "20260928010000",
-                "20260928000001",
                 "202609280000000000",
                 "20260924000000",
                 "20260908000000"
@@ -92,7 +90,7 @@ mod tests {
         conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
 
         rollback_confirmed(&conn, "20260924000000")?;
-        assert_eq!(applied_migrations(&conn)?, applied[4..].to_vec());
+        assert_eq!(applied_migrations(&conn)?, applied[3..].to_vec());
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM local_attachments"))
                 .is_err()
@@ -102,7 +100,7 @@ mod tests {
                 .is_err()
         );
 
-        rollback_confirmed(&conn, &applied[4])?;
+        rollback_confirmed(&conn, &applied[3])?;
         assert!(applied_migrations(&conn)?.is_empty());
 
         db.run_pending_migrations()?;

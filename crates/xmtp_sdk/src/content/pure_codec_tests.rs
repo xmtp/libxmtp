@@ -189,6 +189,7 @@ fn standard_codec_bytes_match_the_core_send_codecs() {
 #[xmtp_common::test(unwrap_try = true)]
 fn malformed_nested_reply_content_is_rejected() {
     use prost::Message as _;
+
     let valid = xmtp_content_types::text::TextCodec::encode("valid".into())?;
     let reply = xmtp_content_types::reply::Reply {
         reference: "a".repeat(64),
