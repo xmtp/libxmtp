@@ -116,6 +116,47 @@ async fn send_state_transitions_same_key_reuses_one_message_and_one_unresolved_i
     assert_eq!(status(&group, &message_id), DeliveryStatus::Published);
 }
 
+/// Publishing a failed message again by ID must return it to `Unpublished` in
+/// the same transaction that queues its new intent, as a same-key resend does.
+// verifies: SEND-003
+#[xmtp_common::test(unwrap_try = true)]
+async fn send_state_transitions_publish_stored_message_returns_failed_message_to_unpublished() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageStatusChanged]),
+        Some(10),
+    );
+    let message_id = group.send_message_optimistic(b"retry by id", Default::default())?;
+    let refusing = refusing_group(&alix, &group.group_id, [tonic::Code::InvalidArgument]).await;
+    assert!(refusing.publish_intents().await.is_err());
+    assert_eq!(status(&group, &message_id), DeliveryStatus::Failed);
+    events.drain();
+
+    group.publish_stored_message(&message_id).await?;
+    let changes: Vec<_> = events
+        .drain()
+        .into_iter()
+        .filter_map(|event| match event.client {
+            Some(xmtp_events::ClientEvent::MessageStatusChanged(change))
+                if change.message_id == message_id =>
+            {
+                Some((change.previous, change.current))
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        changes.first(),
+        Some(&(
+            xmtp_events::MessageStatus::Failed,
+            xmtp_events::MessageStatus::Unpublished
+        ))
+    );
+    assert_eq!(status(&group, &message_id), DeliveryStatus::Published);
+}
+
 /// A backend `INVALID_ARGUMENT` proves the atomic publish stored
 /// nothing, so no echo can arrive. The refused intent must end as `Error`, its
 /// message as `Failed`, and later intents must publish in the same round,
