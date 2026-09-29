@@ -167,6 +167,18 @@ try {
   console.log(
     "Chromium public root Client ran in the package worker without a session",
   );
+  const beforeEntry = await counts();
+  const entry = await page.evaluate(async () =>
+    (await import("./public-entry.chromium.ts")).exercise(),
+  );
+  // The connected Backend holds its own worker lease until it is collected.
+  await waitForTermination(beforeEntry.terminated + 1, true);
+  assert.equal(
+    entry.length,
+    6,
+    `public entry stopped after: ${entry.join(", ")}`,
+  );
+  console.log(`Chromium public entry: ${entry.join("; ")}`);
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );
