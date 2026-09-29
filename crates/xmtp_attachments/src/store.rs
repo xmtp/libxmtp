@@ -188,9 +188,9 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
     /// Check a managed directory before its related record is removed.
-    async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError> {
-        self.exists(path).await
-    }
+    /// Return false when nothing is at the path. Fail when the entry is not a
+    /// directory.
+    async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError>;
     /// Remove only an empty directory.
     async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError>;
     async fn remove_file(&self, path: &str) -> Result<(), AttachmentError>;

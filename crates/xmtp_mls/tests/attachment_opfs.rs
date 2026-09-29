@@ -13,7 +13,8 @@ use std::sync::{
 };
 
 use xmtp_attachments::{
-    AttachmentFailureCause as Cause, LocalStore, OpfsStore, plaintext_rel_path, staged_path,
+    AttachmentFailureCause as Cause, DownloadSink, LocalStore, OpfsStore, attachment_key,
+    plaintext_rel_path, staged_path,
 };
 use xmtp_common::time::Duration;
 use xmtp_configuration::{AttachmentsConfiguration, ServerConfiguration, StaticConfigProvider};
@@ -369,6 +370,43 @@ async fn directory_at_plaintext_path_is_not_a_download() {
     let result = client.attachments().download(remote).await;
     assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
     assert!(client.db().get_local_attachment(&local)?.is_none());
+}
+
+// verifies: ATCH-046, ATCH-047
+#[xmtp_common::test(unwrap_try = true)]
+async fn file_at_key_path_stops_delete_before_record_removal() {
+    let root = test_root("attachment-key-file-delete-tests");
+    let client = opfs_client(offline_api(), root.clone()).await;
+    let pending = client
+        .attachments()
+        .create(AttachmentSource::Bytes {
+            bytes: b"key file proof".to_vec(),
+            filename: Some("proof.txt".into()),
+            mime_type: "text/plain".into(),
+        })
+        .await?;
+    let remote = pending.remote_attachment().clone();
+    let key = attachment_key(&remote)?;
+    let store = OpfsStore::new(&root).await?;
+    store.remove_dir_all(&key).await?;
+    let mut writer = store.create_temp(".tmp/stray-key-file").await?;
+    DownloadSink::write(&mut writer, b"stray").await?;
+    store.sync(&mut writer).await?;
+    drop(writer);
+    store.rename(".tmp/stray-key-file", &key).await?;
+
+    let result = client.attachments().delete_local(&remote).await;
+    assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert!(
+        client
+            .db()
+            .get_pending_attachment(&remote.content_digest)?
+            .is_some()
+    );
+    assert_eq!(
+        store.open_read(&key).await?.read_chunk(0, 64).await?,
+        b"stray"
+    );
 }
 
 // verifies: ATCH-025, ATCH-074

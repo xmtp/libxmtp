@@ -366,6 +366,10 @@ impl LocalStore for OpfsStore {
 
     async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
         let (parent, name) = self.parent(path, false).await?;
+        // A directory handle lookup rejects a file at this name.
+        JsFuture::from(parent.get_directory_handle(&name))
+            .await
+            .map_err(storage_error)?;
         let options = FileSystemRemoveOptions::new();
         options.set_recursive(true);
         JsFuture::from(parent.remove_entry_with_options(&name, &options))
@@ -374,8 +378,23 @@ impl LocalStore for OpfsStore {
         Ok(())
     }
 
+    async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError> {
+        if !self.exists(path).await? {
+            return Ok(false);
+        }
+        let (parent, name) = self.parent(path, false).await?;
+        // A directory handle lookup rejects a file at this name.
+        JsFuture::from(parent.get_directory_handle(&name))
+            .await
+            .map_err(storage_error)?;
+        Ok(true)
+    }
+
     async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError> {
         let (parent, name) = self.parent(path, false).await?;
+        JsFuture::from(parent.get_directory_handle(&name))
+            .await
+            .map_err(storage_error)?;
         JsFuture::from(parent.remove_entry(&name))
             .await
             .map_err(storage_error)?;
@@ -768,6 +787,34 @@ mod tests {
         };
         assert_eq!(error.cause, Cause::LocalStorage);
         assert!(store.exists("key/filename").await?);
+    }
+
+    // verifies: ATCH-046
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn opfs_directory_removal_rejects_file() {
+        let store = OpfsStore::new(&test_path()).await?;
+        let mut writer = store.create_temp(".tmp/stray").await?;
+        DownloadSink::write(&mut writer, b"stray").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        store.rename(".tmp/stray", "key").await?;
+        assert!(!store.prepare_remove_dir("absent").await?);
+        assert_eq!(
+            store.prepare_remove_dir("key").await.unwrap_err().cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(
+            store.remove_dir_all("key").await.unwrap_err().cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(
+            store.remove_empty_dir("key").await.unwrap_err().cause,
+            Cause::LocalStorage
+        );
+        assert_eq!(
+            store.open_read("key").await?.read_chunk(0, 64).await?,
+            b"stray"
+        );
     }
 
     // verifies: ATCH-043, ATCH-051
