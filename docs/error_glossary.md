@@ -128,7 +128,7 @@ Archive export or import failure.
 | `ArchiveError::IO` | I/O error. Reading or writing the archive failed. May be retryable. |
 | `ArchiveError::Decode` | Decode error. An archive element is not valid protobuf. Not retryable. |
 | `ArchiveError::InvalidKeyLength` | Invalid key length. The archive key is not [`ENC_KEY_SIZE`] bytes. Rejected before any archive byte is read or written. Not retryable. |
-| `ArchiveError::UnreadableGroup` | Unreadable group. A selected group's MLS state or metadata cannot be read, so export fails rather than omit it. Not retryable. |
+| `ArchiveError::UnreadableGroup` | Unreadable group. A selected group's MLS state or metadata cannot be read, so export fails rather than omit it. Retryable only when reading its MLS state failed transiently. |
 
 ## xmtp_db
 
