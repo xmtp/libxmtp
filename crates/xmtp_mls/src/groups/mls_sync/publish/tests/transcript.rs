@@ -232,3 +232,56 @@ async fn queued_reserved_intent_fails_without_blocking_later_sends() {
         .await?;
     assert_eq!(status(&group, &later), DeliveryStatus::Published);
 }
+
+/// A reserved row whose send intent an older build already prepared keeps
+/// its unknown outcome: `publish_stored_message` neither fails the row nor
+/// reports a refusal, because the saved bytes may already be on the backend
+/// and SEND-007 may publish them.
+// verifies: GMOD-035
+#[xmtp_common::test(unwrap_try = true)]
+async fn stored_reserved_message_with_saved_attempt_is_not_refused() {
+    use xmtp_db::diesel::prelude::*;
+    use xmtp_db::{ConnectionExt, schema::group_intents::dsl};
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    group.key_update().await?;
+    let key = "old-saved";
+    // Save a real prepared attempt, then give its intent the reserved
+    // envelope that an older build would have queued. The creation and
+    // preparation checks refuse to build one directly.
+    let intent = legacy_message_intent(&group, b"ordinary bytes", key)?;
+    let requirements = crate::state_tx::state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls_group, _| {
+            PublishRequirements::capture(mls_group, &intent).map(Continue)
+        })
+    })?
+    .into_continued();
+    let mut dependencies = group.resolve_publish_dependencies(&requirements).await?;
+    group
+        .prepare_publish_attempt(&requirements, &mut dependencies)?
+        .expect("a saved attempt");
+    let content = transcript_content("group_updated", 1, "xmtp.org");
+    let stored_id = legacy_stored_message(&group, &content, key)?;
+    let reserved = PlaintextEnvelope {
+        content: Some(Content::V1(V1 {
+            content: content.clone(),
+            idempotency_key: key.into(),
+        })),
+    };
+    let data: Vec<u8> = SendMessageIntentData::new(reserved.encode_to_vec()).into();
+    group.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_intents.filter(dsl::id.eq(intent.id)))
+            .set(dsl::data.eq(&data))
+            .execute(conn)
+    })?;
+
+    let result = group.publish_stored_message(&stored_id).await;
+    assert!(
+        !matches!(result, Err(GroupError::ReservedTranscriptContentType)),
+        "a saved attempt was reported as a definite refusal"
+    );
+    assert_ne!(status(&group, &stored_id), DeliveryStatus::Failed);
+    let current: StoredGroupIntent = group.context.db().fetch(&intent.id)?.unwrap();
+    assert_ne!(current.state, IntentState::Error);
+}

@@ -221,9 +221,12 @@ where
                     })?;
                 // An older build stored this row before the creation check.
                 // It fails here and is never queued; the transaction commits.
+                // A saved prepared attempt may already be on the backend, so
+                // its outcome stays unknown and SEND-007 may publish it.
                 // implements: GMOD-035
                 if message.delivery_status != DeliveryStatus::Published
                     && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
+                    && !self.has_saved_attempt(&db, &message.id)?
                 {
                     if message.delivery_status == DeliveryStatus::Unpublished {
                         db.set_delivery_status_to_failed(&message.id)?;
@@ -355,6 +358,23 @@ where
         )?;
 
         Ok(deletion_message_id)
+    }
+
+    /// Whether a send intent for this message already has a saved attempt.
+    fn has_saved_attempt(&self, db: &impl DbQuery, message_id: &[u8]) -> Result<bool, GroupError> {
+        for intent in db.find_group_intents(
+            self.group_id,
+            Some(vec![IntentState::Published]),
+            Some(vec![xmtp_db::group_intent::IntentKind::SendMessage]),
+        )? {
+            if crate::utils::id::calculate_message_id_for_intent(&intent)?.as_deref()
+                == Some(message_id)
+                && db.prepared_envelopes(intent.id)?.is_some()
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     /// Whether the outer content type is a reserved transcript type. Only the
