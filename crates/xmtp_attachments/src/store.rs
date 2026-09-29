@@ -277,43 +277,97 @@ impl StagedFile {
     }
 
     /// Hash the stored ciphertext in fixed-size chunks before upload.
-    pub async fn sha256(&self) -> Result<([u8; 32], u64), AttachmentError> {
-        use sha2::{Digest as _, Sha256};
-        let mut hash = Sha256::new();
-        let mut length = 0u64;
+    ///
+    /// Read at most one byte more than `expected_len`, so a longer file is
+    /// found without a read of the rest. The returned length differs from
+    /// `expected_len` when the file is shorter or longer.
+    pub async fn sha256(&self, expected_len: u64) -> Result<([u8; 32], u64), AttachmentError> {
+        let limit = expected_len.saturating_add(1);
         #[cfg(not(target_arch = "wasm32"))]
         {
-            use tokio::io::AsyncReadExt as _;
-            let mut file = tokio::fs::File::open(&self.path)
-                .await
-                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-            let mut chunk = [0u8; CHUNK_SIZE];
-            loop {
-                let count = file
-                    .read(&mut chunk)
-                    .await
-                    .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
-                if count == 0 {
-                    break;
-                }
-                hash.update(&chunk[..count]);
-                length += count as u64;
-            }
+            let file = match &self.opened {
+                Some(file) => file.clone(),
+                None => std::sync::Arc::new(
+                    tokio::fs::File::open(&self.path)
+                        .await
+                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+                        .into_std()
+                        .await,
+                ),
+            };
+            xmtp_common::task::spawn_blocking(move || {
+                sha256_prefix(|bytes, offset| read_at(&file, bytes, offset), limit)
+            })
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
         }
         #[cfg(target_arch = "wasm32")]
         {
-            let size = self.len();
-            while length < size {
+            use sha2::{Digest as _, Sha256};
+            let mut hash = Sha256::new();
+            let mut length = 0u64;
+            let end = self.len().min(limit);
+            while length < end {
                 let bytes = self.read_chunk(length, CHUNK_SIZE).await?;
                 if bytes.is_empty() {
                     return Err(AttachmentError::new(Cause::LocalStorage));
                 }
-                hash.update(&bytes);
+                let bytes = &bytes[..bytes.len().min((end - length) as usize)];
+                hash.update(bytes);
                 length += bytes.len() as u64;
             }
+            Ok((hash.finalize().into(), length))
         }
-        Ok((hash.finalize().into(), length))
     }
+}
+
+/// Read a file at an offset without the shared file cursor.
+#[cfg(all(not(target_arch = "wasm32"), unix))]
+pub(crate) fn read_at(
+    file: &std::fs::File,
+    bytes: &mut [u8],
+    offset: u64,
+) -> std::io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, bytes, offset)
+}
+
+/// Read a file at an offset. Windows moves the cursor, so callers always
+/// give the offset.
+#[cfg(all(not(target_arch = "wasm32"), windows))]
+pub(crate) fn read_at(
+    file: &std::fs::File,
+    bytes: &mut [u8],
+    offset: u64,
+) -> std::io::Result<usize> {
+    std::os::windows::fs::FileExt::seek_read(file, bytes, offset)
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(any(unix, windows))))]
+pub(crate) fn read_at(_: &std::fs::File, _: &mut [u8], _: u64) -> std::io::Result<usize> {
+    Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+}
+
+/// Hash the first `limit` bytes that `read_at` gives, or fewer at the end.
+#[cfg(not(target_arch = "wasm32"))]
+fn sha256_prefix(
+    mut read_at: impl FnMut(&mut [u8], u64) -> std::io::Result<usize>,
+    limit: u64,
+) -> Result<([u8; 32], u64), AttachmentError> {
+    use sha2::{Digest as _, Sha256};
+    let mut hash = Sha256::new();
+    let mut length = 0u64;
+    let mut chunk = vec![0u8; CHUNK_SIZE];
+    while length < limit {
+        let want = (limit - length).min(CHUNK_SIZE as u64) as usize;
+        let count = read_at(&mut chunk[..want], length)
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&chunk[..count]);
+        length += count as u64;
+    }
+    Ok((hash.finalize().into(), length))
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -402,6 +456,57 @@ mod tests {
         assert!(staged_path("../bad").is_err());
         assert!(temporary_path("../bad").is_err());
         assert!(staged_path(&"A".repeat(64)).is_err());
+    }
+
+    // verifies: ATCH-036
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn staged_hash_reads_only_the_limit() {
+        let source = vec![7u8; 16 * CHUNK_SIZE];
+        let mut read = 0u64;
+        let limit = 2 * CHUNK_SIZE as u64 + 1;
+        let (_, length) = sha256_prefix(
+            |bytes, offset| {
+                let start = offset as usize;
+                let count = bytes.len().min(source.len() - start);
+                bytes[..count].copy_from_slice(&source[start..start + count]);
+                read += count as u64;
+                Ok(count)
+            },
+            limit,
+        )?;
+        assert_eq!(length, limit);
+        assert_eq!(read, limit);
+    }
+
+    // verifies: ATCH-036
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn staged_hash_stops_after_expected_length() {
+        use sha2::{Digest as _, Sha256};
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let content: Vec<u8> = (0..4 * CHUNK_SIZE).map(|index| index as u8).collect();
+        let mut writer = store.create_temp(".tmp/long").await?;
+        writer.write(&content).await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        let full_length = content.len() as u64;
+        let prefix_digest =
+            |length: usize| -> [u8; 32] { Sha256::digest(&content[..length]).into() };
+
+        let staged = store.open_read(".tmp/long").await?;
+        assert!(staged.opened.is_some());
+        // A longer file: the hash reads one byte past the expected length.
+        assert_eq!(staged.sha256(10).await?, (prefix_digest(11), 11));
+        assert_eq!(
+            staged.sha256(full_length).await?,
+            (prefix_digest(content.len()), full_length)
+        );
+        // A shorter file: the hash ends at the end of the file.
+        assert_eq!(staged.sha256(full_length + 5).await?.1, full_length);
+        let by_path = StagedFile::from_path_for_test(directory.path().join(".tmp/long"));
+        assert_eq!(by_path.sha256(10).await?, (prefix_digest(11), 11));
     }
 
     #[cfg(not(target_arch = "wasm32"))]

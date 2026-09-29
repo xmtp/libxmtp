@@ -1895,7 +1895,7 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
                 Err(StoreMoveError::DestinationExists) => {
                     let valid = match store.open_read(&ciphertext).await {
                         Ok(file) => matches!(
-                            file.sha256().await,
+                            file.sha256(length).await,
                             Ok((digest, stored_length))
                                 if stored_length == length && hex::encode(digest) == hex_digest
                         ),
@@ -2563,12 +2563,17 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
         if !store.exists(&path).await.map_err(storage_error)? {
             return Err(AttachmentClientError::new(Cause::StagedUnusable));
         }
+        let expected_length = self
+            .remote
+            .content_length
+            .map(u64::from)
+            .ok_or_else(|| AttachmentClientError::new(Cause::StagedUnusable))?;
         let staged = store.open_read(&path).await.map_err(storage_error)?;
-        let (digest, length) = staged.sha256().await.map_err(storage_error)?;
-        if hex::encode(digest) != self.remote.content_digest
-            || Some(length as u32) != self.remote.content_length
-            || length > u32::MAX as u64
-        {
+        let (digest, length) = staged
+            .sha256(expected_length)
+            .await
+            .map_err(storage_error)?;
+        if hex::encode(digest) != self.remote.content_digest || length != expected_length {
             return Err(AttachmentClientError::new(Cause::StagedUnusable));
         }
         if !self.lease_is_current(token) {

@@ -864,6 +864,12 @@ async fn damaged_staged_ciphertext_is_replaced_on_create() {
         let damaged_inode = tokio::fs::metadata(&staged_file).await?.ino();
         pause.resume.notify_one();
         let created = create.await??;
+        let expected_length = u64::from(
+            created
+                .remote_attachment()
+                .content_length
+                .expect("content length"),
+        );
         let (digest, length) = alix
             .client
             .context
@@ -871,21 +877,13 @@ async fn damaged_staged_ciphertext_is_replaced_on_create() {
             .store()?
             .open_read(&staged)
             .await?
-            .sha256()
+            .sha256(expected_length)
             .await?;
         assert_eq!(
             hex::encode(digest),
             created.remote_attachment().content_digest
         );
-        assert_eq!(
-            length,
-            u64::from(
-                created
-                    .remote_attachment()
-                    .content_length
-                    .expect("content length")
-            )
-        );
+        assert_eq!(length, expected_length);
         assert_ne!(
             tokio::fs::metadata(&staged_file).await?.ino(),
             damaged_inode
