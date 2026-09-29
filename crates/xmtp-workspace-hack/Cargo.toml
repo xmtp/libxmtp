@@ -96,7 +96,7 @@ sha1 = { version = "0.10", features = ["compress"] }
 sha2 = { version = "0.10" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
-subtle = { version = "2", default-features = false, features = ["const-generics", "i128"] }
+subtle = { version = "2", features = ["const-generics"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
 time = { version = "0.3", features = ["formatting", "local-offset", "parsing"] }
 tokio-util = { version = "0.7", features = ["codec", "compat", "io", "rt"] }
@@ -195,7 +195,7 @@ sha1 = { version = "0.10", features = ["compress"] }
 sha2 = { version = "0.10" }
 slab = { version = "0.4" }
 smallvec = { version = "1", default-features = false, features = ["const_new", "serde", "union", "write"] }
-subtle = { version = "2", default-features = false, features = ["const-generics", "i128"] }
+subtle = { version = "2", features = ["const-generics"] }
 syn-7b89eefb6aaa9bf3 = { package = "syn", version = "3", features = ["full", "visit-mut"] }
 syn-f595c2ba2a3f28df = { package = "syn", version = "2", features = ["extra-traits", "fold", "full", "visit", "visit-mut"] }
 sync_wrapper = { version = "1", default-features = false, features = ["futures"] }
@@ -225,15 +225,17 @@ hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", default-features = false, features = ["server"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "tls12"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "ioctl", "no_std", "prctl"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
+rustix = { version = "1", features = ["fs", "process", "termios", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-subtle = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
@@ -254,15 +256,17 @@ hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", default-features = false, features = ["server"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "tls12"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["auxvec", "elf", "errno", "general", "ioctl", "no_std", "prctl"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
+rustix = { version = "1", features = ["fs", "process", "termios", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-subtle = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
@@ -289,10 +293,11 @@ opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
+rustix = { version = "1", features = ["fs", "process", "termios", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-subtle = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
@@ -320,10 +325,11 @@ opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
+rustix = { version = "1", features = ["fs", "process", "termios", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-subtle = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
@@ -345,15 +351,17 @@ hyper = { version = "1", default-features = false, features = ["server"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "tls12"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["general", "ioctl", "no_std", "prctl"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
+rustix = { version = "1", features = ["fs", "process", "termios", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-subtle = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
@@ -376,15 +384,17 @@ hyper = { version = "1", default-features = false, features = ["server"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "tls12"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
 libc = { version = "0.2" }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["general", "ioctl", "no_std", "prctl"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
+rustix = { version = "1", features = ["fs", "process", "termios", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-subtle = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
@@ -405,15 +415,17 @@ hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", default-features = false, features = ["server"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "tls12"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["general", "ioctl", "no_std", "prctl"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
+rustix = { version = "1", features = ["fs", "process", "termios", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-subtle = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
@@ -435,15 +447,17 @@ hmac = { version = "0.12", default-features = false, features = ["reset"] }
 hyper = { version = "1", default-features = false, features = ["server"] }
 hyper-rustls = { version = "0.27", default-features = false, features = ["http1", "http2", "native-tokio", "tls12"] }
 hyper-util = { version = "0.1", features = ["client-legacy", "client-proxy", "server-auto"] }
+linux-raw-sys = { version = "0.12", default-features = false, features = ["general", "ioctl", "no_std", "prctl"] }
 opentelemetry = { version = "0.32", features = ["testing"] }
 opentelemetry_sdk = { version = "0.32", features = ["rt-tokio", "testing"] }
 proptest = { version = "1", default-features = false, features = ["bit-set", "timeout"] }
 rand-274715c4dabd11b0 = { package = "rand", version = "0.9" }
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls-no-provider", "stream"] }
+rustix = { version = "1", features = ["fs", "process", "termios", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 rustls-webpki = { version = "0.103", default-features = false, features = ["ring", "std"] }
-subtle = { version = "2" }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 tokio-stream = { version = "0.1", features = ["net", "sync"] }
 tower = { version = "0.5", default-features = false, features = ["retry", "timeout"] }
 typenum = { version = "1", default-features = false, features = ["const-generics"] }
