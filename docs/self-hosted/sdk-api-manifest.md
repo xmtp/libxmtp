@@ -8,7 +8,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 
 | SDK | Public declarations |
 | --- | ---: |
-| Swift | 7126 |
+| Swift | 7148 |
 | Kotlin | 962 |
 | Node | 519 |
 | Browser | 530 |
@@ -854,6 +854,9 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `FfiCatchUpSummary.failed` | var | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiCatchUpSummary.init` | init | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiCatchUpSummary.messages` | var | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiContentDecodeFailureKind` | enum | `ContentDecodeFailureKind` | generated | 11.4 Swift, Messages, codecs, preferences, values | Old binding type used in a public SDK signature. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiContentDecodeFailureKind.codecDecodeFailed` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiContentDecodeFailureKind.malformedEnvelope` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiContentType` | enum | `ContentType` | generated | 11.4 Swift, Messages, codecs, preferences, values | Old binding type used in a public SDK signature. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiContentType.actions` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiContentType.attachment` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
@@ -1135,6 +1138,13 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `FfiStreamFailureKind.barrier` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiStreamFailureKind.catchUp` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiStreamFailureKind.publishedButUnconfirmed` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiUndecodableContent` | struct | `UndecodableContent` | generated | 11.4 Swift, Messages, codecs, preferences, values | Old binding type used in a public SDK signature. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiUndecodableContent.contentType` | var | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiUndecodableContent.failureKind` | var | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiUndecodableContent.failureMessage` | var | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiUndecodableContent.fallback` | var | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiUndecodableContent.init` | init | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `FfiUndecodableContent.rawBytes` | var | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiXmtpClient` | class | `Client` | generated | 11.4 Swift, Messages, codecs, preferences, values | Old binding type used in a public SDK signature. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiXmtpClient.NoHandle` | struct | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiXmtpClient.NoHandle.init` | init | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
@@ -1194,9 +1204,9 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `XmtpApiClient.cacheKey` | func | — | approved removal | 2, generated bridge replacement | Old API client member is replaced by Backend. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `XmtpApiClient.init` | init | — | approved removal | 2, generated bridge replacement | Old API client member is replaced by Backend. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `XmtpApiClient.uniffiCloneHandle` | func | — | approved removal | 2, generated bridge replacement | Old API client member is replaced by Backend. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
-| `pattern: ^(?:FfiConverter[^.]*\|func FfiConverter[^ ]*)(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (853 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `pattern: ^(?:FfiConverter[^.]*\|func FfiConverter[^ ]*)(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (863 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^Ffi(?!Converter)[A-Za-z0-9_]*(?:Callback\|Listener)(?:Impl)?(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (72 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
-| `pattern: ^Ffi[A-Za-z0-9_]+(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (842 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `pattern: ^Ffi[A-Za-z0-9_]+(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (844 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^func .+$ [after prior family rules; excluding public-signature Ffi roots]` (273 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^.+$ [after prior family rules; excluding public-signature Ffi roots]` (15 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `DeliveryCursor` | typealias | `DeliveryCursor` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift`. |
