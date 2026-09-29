@@ -1,5 +1,6 @@
 mod bridge;
 mod callback_cursor;
+mod format;
 mod forwarding;
 mod identity_unions;
 mod kotlin_callbacks;

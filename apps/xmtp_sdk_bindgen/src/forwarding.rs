@@ -351,19 +351,11 @@ fn hide_identity_routes(source: &str, language: Language) -> Result<String> {
 /// binding lacks fails the TypeScript compile.
 pub(crate) fn generate_typescript(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> {
     let selected = client_methods(groups.values().flat_map(|group| &group.items));
-    let path = out.join("client-forwarding.gen.ts");
-    fs::write(&path, render_typescript(&selected))?;
-    let status = std::process::Command::new("node_modules/.bin/oxfmt")
-        .args([
-            "--config",
-            "apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json",
-        ])
-        .arg(&path)
-        .status()
-        .context("format TypeScript Client forwarders")?;
-    if !status.success() {
-        bail!("TypeScript Client forwarder formatter failed: {status}");
-    }
+    let name = "client-forwarding.gen.ts";
+    fs::write(
+        out.join(name),
+        crate::format::typescript(name, &render_typescript(&selected))?,
+    )?;
     Ok(())
 }
 

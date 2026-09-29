@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
     fs,
-    process::Command,
 };
 
 use anyhow::{Context, Result, bail};
@@ -56,20 +55,12 @@ pub(crate) fn generate(lib: &Utf8Path, out: &Utf8Path) -> Result<()> {
     for (name, body) in &generated {
         fs::write(out.join(name), body)?;
     }
-    let formatter = Utf8Path::new("node_modules/.bin/oxfmt");
-    if !formatter.exists() {
-        bail!("browser bridge formatter missing: run `just install` before SDK generation");
-    }
-    let status = Command::new(formatter)
-        .arg("--config")
-        .arg("apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json")
-        .args(generated.keys().map(|name| out.join(name)))
-        .status()
-        .context("run browser bridge formatter")?;
-    if !status.success() {
-        bail!("browser bridge formatter failed: {status}");
-    }
-    Ok(())
+    let paths = generated
+        .keys()
+        .map(|name| out.join(name))
+        .collect::<Vec<_>>();
+    crate::format::typescript_files(paths.iter().map(|path| path.as_path()))
+        .context("format the browser bridge")
 }
 
 fn contract_hash(groups: &MetadataGroupMap) -> String {

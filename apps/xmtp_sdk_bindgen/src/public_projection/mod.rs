@@ -3,9 +3,9 @@
 mod policy;
 mod values;
 
-use std::{fmt::Write as _, fs, process::Command};
+use std::{fmt::Write as _, fs};
 
-use anyhow::{Context, Result, bail};
+use anyhow::Result;
 use camino::Utf8Path;
 use heck::ToLowerCamelCase;
 use uniffi_meta::{FnParamMetadata, Metadata, MetadataGroupMap, Type};
@@ -78,24 +78,16 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> 
     context.push_str("}\n");
     code.push_str(&context);
     let path = out.join("public-values.gen.ts");
-    fs::write(&path, code)?;
+    fs::write(
+        &path,
+        crate::format::typescript("public-values.gen.ts", &code)?,
+    )?;
     // Keep the projection's target import private. Package staging supplies the
     // final browser/node conditions when the public adapters are installed.
     fs::write(
         out.join("package.json"),
         "{\"private\":true,\"imports\":{\"#xmtp/binding\":\"./xmtp_sdk.ts\"}}\n",
     )?;
-    let status = Command::new("node_modules/.bin/oxfmt")
-        .args([
-            "--config",
-            "apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json",
-        ])
-        .arg(path)
-        .status()
-        .context("format public value projection")?;
-    if !status.success() {
-        bail!("public value formatter failed: {status}");
-    }
     Ok(())
 }
 
