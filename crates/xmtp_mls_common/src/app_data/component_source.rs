@@ -918,7 +918,7 @@ pub fn read_group_metadata_from_extensions(
 ) -> Result<Option<GroupMetadataReturn>, ComponentSourceError> {
     use prost::Message;
     use xmtp_proto::xmtp::mls::message_contents::{
-        DmMembers as DmMembersProto, Inbox as InboxProto, OneshotMessage,
+        ConversationType, DmMembers as DmMembersProto, Inbox as InboxProto, OneshotMessage,
     };
 
     let Some(ext) = extensions.app_data_dictionary() else {
@@ -951,7 +951,15 @@ pub fn read_group_metadata_from_extensions(
 
     // `DM_MEMBERS` on the wire is `TlsSet<InboxId>`; re-shape to
     // `DmMembersProto` so downstream `GroupMetadata::try_from` is unchanged.
+    // The pair grants DM-only authority, so it is malformed outside a DM.
+    // implements: META-030
     let dm_members = match dict.get(&ComponentId::DM_MEMBERS.as_u16()) {
+        Some(_) if conversation_type != ConversationType::Dm as i32 => {
+            return Err(ComponentSourceError::MalformedComponentValue {
+                component_id: ComponentId::DM_MEMBERS,
+                reason: format!("present in conversation type {conversation_type}"),
+            });
+        }
         Some(b) => {
             let set = TlsSet::<InboxId>::tls_deserialize_exact(b).map_err(|e| {
                 ComponentSourceError::MalformedComponentValue {
@@ -2262,6 +2270,36 @@ mod tests {
                 ..
             } if component_id == ComponentId::DM_MEMBERS
         ));
+    }
+
+    /// A `DM_MEMBERS` pair outside a DM is malformed. Commit authorization
+    /// reads metadata through this parser, and the pair grants DM-only
+    /// authority, so a group persisted by an older client with the pair
+    /// must not reach the policy checks.
+    // verifies: META-030
+    #[xmtp_common::test(unwrap_try = true)]
+    fn read_group_metadata_rejects_dm_members_outside_a_dm() {
+        let read = |conversation_type: i32| {
+            read_group_metadata_from_extensions(&extensions_with_entries(&[
+                (
+                    ComponentId::CONVERSATION_TYPE.as_u16(),
+                    encode_conv_type_bytes(conversation_type),
+                ),
+                (
+                    ComponentId::CREATOR_INBOX_ID.as_u16(),
+                    encode_creator_bytes(0x22),
+                ),
+                (ComponentId::DM_MEMBERS.as_u16(), encode_dm_pair(0x22, 0x33)),
+            ]))
+        };
+        read(2)?;
+        for non_dm in [0, 1, 3, 4] {
+            assert!(matches!(
+                read(non_dm),
+                Err(ComponentSourceError::MalformedComponentValue { component_id, .. })
+                    if component_id == ComponentId::DM_MEMBERS
+            ));
+        }
     }
 
     #[xmtp_common::test]
