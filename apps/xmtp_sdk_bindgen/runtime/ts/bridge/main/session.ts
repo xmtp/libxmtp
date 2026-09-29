@@ -39,6 +39,8 @@ export class MainSession {
   });
   private epoch = 0;
   private readonly closedOwners = new Set<number>();
+  // The last read on each reader handle. The next read waits for it.
+  private readonly readTails = new Map<number, Promise<void>>();
   // Owners whose end is in progress. Reads that arrive for them wait here
   // until the end settles.
   private readonly endingOwners = new Map<
@@ -226,11 +228,40 @@ export class MainSession {
   ): Promise<unknown> {
     this.localCalls++;
     try {
+      if (target && abandonedAtEnd(key))
+        return await this.sendRead(key, args, target, signal);
       return await this.sendCall(key, args, target, signal);
     } finally {
       this.localCalls--;
       this.notifyIdle();
     }
+  }
+
+  /**
+   * Posts a reader read only after the previous read on that reader settled
+   * on this thread. The worker acknowledges a delivered value when the next
+   * read starts, so a later read must not reach the worker while an earlier
+   * value could still be abandoned at Client.end. After an abandoned read the
+   * owner is closed, and the later read fails without being posted.
+   */
+  private sendRead(
+    key: string,
+    args: unknown[] | (() => unknown[]),
+    target: HandleWire,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const previous = this.readTails.get(target.h) ?? Promise.resolve();
+    const read = previous.then(() => this.sendCall(key, args, target, signal));
+    const tail = read.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.readTails.set(target.h, tail);
+    void tail.then(() => {
+      if (this.readTails.get(target.h) === tail)
+        this.readTails.delete(target.h);
+    });
+    return read;
   }
 
   private async sendCall(

@@ -50,6 +50,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   private active?: ReaderLike<T>;
   private pending?: AbortController;
   private closed = false;
+  private reads: Promise<void> = Promise.resolve();
   private closeReason?: StreamCloseReason;
   private closing?: Promise<void>;
   private readonly abortListener = () =>
@@ -172,7 +173,20 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     }
   }
 
-  async next(): Promise<IteratorResult<T>> {
+  /**
+   * Reads run one at a time. The next read acknowledges the prior value, so a
+   * second read must not start while the first value has not reached the app.
+   */
+  next(): Promise<IteratorResult<T>> {
+    const result = this.reads.then(() => this.read());
+    this.reads = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  private async read(): Promise<IteratorResult<T>> {
     if (this.closed) return this.closedResult();
     try {
       const reader = await Promise.race([this.reader, this.stopped]);

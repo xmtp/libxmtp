@@ -66,6 +66,50 @@ async function endWithReadInTransit(endFails: boolean) {
 
 export function registerEndingTests(): void {
   // verifies: PROC-028
+  it("posts a second read only after the first read settles on the main thread", async () => {
+    const readHeld = latch();
+    const readRelease = latch();
+    let reads = 0;
+    const { engine, session } = host(async (key, _args, context) => {
+      if (key === "MessageReader.next") {
+        reads++;
+        context.started?.();
+        context.settled?.();
+        readHeld.resolve();
+        await readRelease.promise;
+        return { id: `read ${reads}` };
+      }
+      return undefined;
+    });
+    await session.ready();
+    const clientHandle = engine.registry.add({}, "Client", undefined, () => ({
+      clientKey: 7n,
+    }));
+    const client = new Client(session, clientHandle);
+    const readerHandle = engine.registry.add(
+      {},
+      "MessageReader",
+      clientHandle.owner,
+    );
+    const settle = (read: Promise<unknown>) =>
+      read.then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+    const first = settle(session.call("MessageReader.next", [], readerHandle));
+    const second = settle(session.call("MessageReader.next", [], readerHandle));
+    await readHeld.promise;
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(reads).toBe(1);
+    const end = client.end();
+    readRelease.resolve();
+    await end;
+    expect(await first).toMatchObject({ error: { code: "ClientClosed" } });
+    expect(await second).toMatchObject({ error: { code: "ClientClosed" } });
+    expect(reads).toBe(1);
+  });
+
+  // verifies: PROC-028
   it("delivers a read held during a Client.end that fails", async () => {
     const { end, read } = await endWithReadInTransit(true);
     expect(end).toMatchObject({ error: { message: "end failed" } });

@@ -39,6 +39,7 @@ export type AdmissionCase =
   | "admitted"
   | "cancel"
   | "owner-end"
+  | "overlap-end"
   | "end-fails"
   | "callback-throw"
   | "callback-reject";
@@ -395,6 +396,25 @@ export async function checkWorkerAdmission(
         expect(await session.call("__f3WaitAbort", [])).toBe(release);
         expect(await pending).toEqual({ done: true, value: undefined });
         await stream.end();
+      } else if (mode === "overlap-end") {
+        // A second read while the first value is in transit must not reach
+        // the worker: its read would acknowledge the first value, which the
+        // end below abandons.
+        const second = stream.next();
+        await new Promise<void>((resolve) => setTimeout(resolve, 50));
+        expect(await session.call("__f3Counts", [])).toMatchObject({
+          nextCalls: 2,
+        });
+        await client.end();
+        client = undefined;
+        await stream.end();
+        expect(await pending).toEqual({ done: true, value: undefined });
+        expect(await second).toEqual({ done: true, value: undefined });
+        const check = await Client.build(session, identity, options, inbox);
+        expect(
+          await check.conversations().sdkConformanceDeliveryPosition(groupId),
+        ).toBe(acknowledgedA);
+        await check.end();
       } else {
         await client.end();
         client = undefined;
@@ -404,8 +424,9 @@ export async function checkWorkerAdmission(
       if (mode !== "admitted")
         expect(await session.call("__f3Counts", [])).toEqual({
           nextCalls: 2,
-          endCalls: mode === "owner-end" ? 0 : 1,
-          endCompletions: mode === "owner-end" ? 0 : 1,
+          endCalls: mode === "owner-end" || mode === "overlap-end" ? 0 : 1,
+          endCompletions:
+            mode === "owner-end" || mode === "overlap-end" ? 0 : 1,
         });
       if (client)
         expect(
@@ -426,8 +447,8 @@ export async function checkWorkerAdmission(
     }
     expect(await session.call("__f3Counts", [])).toEqual({
       nextCalls: 2,
-      endCalls: mode === "owner-end" ? 0 : 1,
-      endCompletions: mode === "owner-end" ? 0 : 1,
+      endCalls: mode === "owner-end" || mode === "overlap-end" ? 0 : 1,
+      endCompletions: mode === "owner-end" || mode === "overlap-end" ? 0 : 1,
     });
     await client?.end();
     client = undefined;
