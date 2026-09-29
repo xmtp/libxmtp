@@ -82,6 +82,14 @@ function liftBody(body: HostBody, projection: ObjectProjection): MessageBody {
   };
 }
 
+function encodedText(text: string): EncodedContent {
+  try {
+    return liftEncodedContent(encodeText(text), currentProjection());
+  } catch (error) {
+    throw publicError(error);
+  }
+}
+
 const bindings = new WeakMap<Message, BoundMessage>();
 let create!: (bound: BoundMessage) => Message;
 
@@ -185,7 +193,7 @@ export class Message {
     const isCodec = typeof content !== "string" && "encode" in content;
     const encoded =
       typeof content === "string"
-        ? liftEncodedContent(encodeText(content), currentProjection())
+        ? encodedText(content)
         : isCodec
           ? content.encode(valueOrOptions as T)
           : content;

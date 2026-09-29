@@ -69,6 +69,17 @@ function publicError(
   };
 }
 
+// Before initLogging, installing or clearing a log sink fails with the public
+// error, not the binding class.
+for (const install of [
+  () => sdk.setLogSink({ log: () => undefined }),
+  () => sdk.setLogSink(),
+])
+  assert.throws(
+    install,
+    publicError(sdk.XmtpError.InvalidInput, "InvalidInput", "input"),
+  );
+
 // A custom codec over public values.
 type Point = { x: number; y: number };
 const pointType: sdk.ContentTypeId = {
@@ -231,8 +242,15 @@ sdk.setLogSink(undefined);
 assert.equal(typeof entry.level, "string");
 assert.ok(entry.fields instanceof Map);
 
-// An ended client's messages fail with the public ClientClosed error.
+// An ended client's messages and open streams fail with the public
+// ClientClosed error.
+const open = sdk.MessageStream.openGroup(alice, group);
+await open.ready();
 await alice.end();
+await assert.rejects(
+  open.next(),
+  publicError(sdk.XmtpError.ClientClosed, "ClientClosed", "lifecycle"),
+);
 assert.throws(
   () => first.value!.client(),
   publicError(sdk.XmtpError.ClientClosed, "ClientClosed", "lifecycle"),
