@@ -9,6 +9,9 @@ import {
   type MessageBody,
   type MessageContent,
   type MessageData,
+  type MessageId,
+  type ConversationId,
+  type InboxId,
   type Reaction,
   type SendOptions,
 } from "../xmtp_sdk";
@@ -19,7 +22,6 @@ import {
   type LiftedCustomBody,
   type LiftedCustomContent,
 } from "./custom-lift";
-import type { MessageID } from "./ids";
 
 type LiftedReplyBody =
   | Exclude<MessageBody, { tag: MessageBody_Tags.Custom }>
@@ -63,20 +65,20 @@ export class Message {
     this.content = liftCustomContent(content, owner !== undefined, decoded);
   }
 
-  get id() {
+  get id(): MessageId {
     return this.data.id;
   }
 
-  get conversationID() {
-    return this.data.conversationID;
+  get conversationId(): ConversationId {
+    return this.data.conversationId;
   }
 
   get topic() {
     return this.data.topic;
   }
 
-  get senderInboxID() {
-    return this.data.senderInboxID;
+  get senderInboxId(): InboxId {
+    return this.data.senderInboxId;
   }
 
   get sentAt() {
@@ -124,10 +126,10 @@ export class Message {
   }
 
   async refresh(): Promise<Message | undefined> {
-    return this.client().conversations().getMessageByID(this.id);
+    return this.client().conversations().getMessageById(this.id);
   }
 
-  async delete(): Promise<MessageID> {
+  async delete(): Promise<MessageId> {
     return this.client().conversations().deleteMessage(this.id);
   }
 
@@ -135,7 +137,7 @@ export class Message {
     return this.client().conversations().deleteMessageLocally(this.id);
   }
 
-  async react(reaction: Reaction, options?: SendOptions): Promise<MessageID> {
+  async react(reaction: Reaction, options?: SendOptions): Promise<MessageId> {
     return this.client()
       .conversations()
       .reactToMessage(this.id, reaction, options);
@@ -144,17 +146,17 @@ export class Message {
   async reply(
     content: string | EncodedContent,
     options?: SendOptions,
-  ): Promise<MessageID>;
+  ): Promise<MessageId>;
   async reply<T>(
     codec: ContentCodec<T>,
     value: T,
     options?: SendOptions,
-  ): Promise<MessageID>;
+  ): Promise<MessageId>;
   async reply<T>(
     content: string | EncodedContent | ContentCodec<T>,
     valueOrOptions?: T | SendOptions,
     options?: SendOptions,
-  ): Promise<MessageID> {
+  ): Promise<MessageId> {
     const isCodec = typeof content !== "string" && "encode" in content;
     const encoded =
       typeof content === "string"
@@ -174,11 +176,11 @@ export class Message {
     const id = this.inReplyTo?.id;
     return id === undefined
       ? undefined
-      : this.client().conversations().getMessageByID(id);
+      : this.client().conversations().getMessageById(id);
   }
 
   async conversation(): Promise<Conversation | undefined> {
-    return this.client().conversations().getByID(this.conversationID);
+    return this.client().conversations().getById(this.conversationId);
   }
 
   client(): Client {

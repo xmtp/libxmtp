@@ -31,6 +31,7 @@ A prefix appears exactly once. A prefix whose document was deleted is removed fr
 | `STORE` | Client storage | `docs/specs/STORE-client-storage.md` |
 | `ATCH` | Remote attachments | `docs/specs/ATCH-remote-attachments.md` |
 | `EVENT` | Client events | `docs/specs/EVENT-client-events.md` |
+| `LOG` | Client logging | `docs/specs/LOG-client-logging.md` |
 
 ## Reused prefixes and their floors
 

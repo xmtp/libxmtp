@@ -18,8 +18,8 @@ if node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/consumers/n
   echo "TypeScript negative consumer compiled" >&2
   exit 1
 fi
-grep -q "TS2322.*ConversationID" "$log"
+test "$(grep -c "TS2322: Type 'number' is not assignable to type 'string'." "$log")" -eq 2
 grep -q "TS2322.*EncodedContent" "$log"
 grep -q "TS2339.*group" "$log"
-grep -q "TS2322.*MessageID" "$log"
+grep -q "TS2693.*MessageId" "$log"
 echo "TypeScript ID, content, and Group/Dm consumer checks passed"

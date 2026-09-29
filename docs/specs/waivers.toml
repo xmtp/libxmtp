@@ -287,13 +287,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Recovery can discard the old receiver before the replacement is ready, and retries failures that a terminal authentication or request-size error excludes from general recovery."
 
 [[waiver]]
-id = "PROC-023"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A live catch-up snapshot exposes the count of unresolved Welcomes, not their identifiers."
-
-[[waiver]]
 id = "PROC-036"
 kind = "gap"
 owner = "protocol"
@@ -527,7 +520,7 @@ reason = "Current SDKs use other default directories; the façade SDKs replace t
 id = "STORE-003"
 kind = "untested"
 owner = "protocol"
-reason = "Android Client.initFFiClient uses the xmtp_db directory under appContext.filesDir for the default database; no test asserts that directory."
+reason = "The Android helper and current Android Client use the xmtp_db directory under Context.filesDir. JVM conformance checks the helper and database file with a stand-in Context, but no Android instrumented test asserts the path from a real Context."
 
 [[waiver]]
 id = "STORE-004"
@@ -708,6 +701,140 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
+
+[[waiver]]
+id = "PROC-025"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "MessageReader::next marks the delivery token dispatched before message enrichment. A message deleted or expired during preparation can reach the final SDK handoff without a fresh eligibility check. Follow-up Task 3 keeps the token waiting through preparation and proves retention and expiry at final admission."
+
+[[waiver]]
+id = "PROC-046"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "The public SDK readers do not yet expose the fixed scope and filter options on every target. MessageReader::next also marks a candidate dispatched before enrichment, so a later consent change is not checked at final SDK admission. Follow-up Task 3 supplies the public options and current-state filter proof at that admission point."
+
+[[waiver]]
+id = "PROC-047"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "LocalDelivery::next_inner selects candidates within the current scope, and LocalDelivery::skip_candidate persists filter exclusions for the default owner. No public fixed-selection test proves both the preserved out-of-scope position and consumed in-scope exclusion. Follow-up Task 3 owns the missing proof."
+
+[[waiver]]
+id = "PROC-048"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "MessageReader::new acquires network interest without awaiting registration, and MessageReader::next_delivery polls LocalDelivery independently of registration acknowledgement. No public reader test holds registration acknowledgement behind a barrier while proving a stored-message handoff. Follow-up Task 3 owns the missing proof."
+
+[[waiver]]
+id = "PROC-049"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "MessageReaderControl::close releases its own IncomingLease. The incoming controller removes only that scope and computes network interest from the union of remaining scopes. No public reader test proves that ending one reader preserves another operation's shared interest. Follow-up Task 3 owns the missing proof."
+
+[[waiver]]
+id = "PROC-050"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4272"
+reason = "Full stored message results do not yet expose committed cursors and their absence through every public read path; follow-up Task 3 closes the gap."
+
+[[waiver]]
+id = "CTYPE-031"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4273"
+reason = "SendOptions defaults compression to None, and conversation::send_encoded calls compress_if_requested with that option. message_actions_use_ids_and_compression_is_opt_in checks that an omitted compression option leaves the stored envelope uncompressed. Public-package coverage of all send paths remains due in follow-up Task 6."
+
+[[waiver]]
+id = "LOG-001"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "init_logging installs the native primary layer or browser console layer independently of SinkSlot. Clearing the app sink leaves those layers installed. No generated-target test proves default log delivery on every target. Follow-up Task 7 owns the missing proof."
+
+[[waiver]]
+id = "LOG-002"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Current targets do not share one asynchronous, ordered sink dispatcher across generations; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-003"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Current app log queues and transports do not enforce one 4096-record limit; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-004"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Mobile log callbacks can still run inline with client work; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-005"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Not every target discards new records at the shared queue limit and counts those drops; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-007"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Sink replacement has no shared boundary that stops old handoffs without waiting for the active callback; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "The native SinkBridge calls LogSink::log inline during SDK operations. A callback that calls and waits for Client::end deadlocks when the emitting operation holds a ForegroundCall: end waits for that guard, which cannot drop until the callback returns. Follow-up Task 7 must dispatch callbacks independently of guarded client work."
+
+[[waiver]]
+id = "LOG-009"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "layers::sink::deliver contains callback errors and panics, and native logging layers remain separate from SinkSlot. Existing sink error and panic tests do not prove messaging and native-log survival through every public target. Follow-up Task 7 owns the missing proof."
+
+[[waiver]]
+id = "LOG-010"
+kind = "untested"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "IdentityStrategy::initialize_identity logs only a fixed strategy name and stored-identity presence. AuthBridge::on_auth_required replaces credential callback failures with fixed messages, and mobile create_client logs database-key presence and length rather than key bytes. The identity source-event test proves the removed legacy-key leak stays closed, but no complete test proves authentication credential, private signing-key, and database encryption-key omission through app sinks and native output on every public target. Follow-up Task 7 owns the remaining emitter audit and destination proof."
+
+[[waiver]]
+id = "LOG-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Current targets do not discard old-generation queued records and pending drops on replacement; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-012"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "A late callback result is not yet isolated from the installed generation on every target; follow-up Task 7 closes the gap."
+
+[[waiver]]
+id = "LOG-013"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/4274"
+reason = "Current sink paths do not capture one pending-drop snapshot when selecting each record for dispatch or preserve post-dispatch drops for later attempts across targets; follow-up Task 7 closes the gap."
+
 [[waiver]]
 id = "EVENT-015"
 kind = "gap"

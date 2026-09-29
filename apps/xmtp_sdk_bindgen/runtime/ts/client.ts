@@ -13,15 +13,17 @@ import {
   newestMessageMetadataWithBackend,
   revokeInstallationsWithBackend,
   verifySignedWithPublicKey,
-  type CanMessageEntry,
   type ClientLike,
   type ClientOptions,
   type ClientEvent,
   type EventFilter,
   ListenerError,
   type EncodedContent,
+  type ConversationId,
+  type InboxId,
+  type InstallationId,
   type InboxState,
-  type KeyPackageStatusEntry,
+  type KeyPackageStatus,
   type MessageMetadataEntry,
   type PublicIdentity,
   type ServerConfiguration,
@@ -29,7 +31,6 @@ import {
 } from "../xmtp_sdk";
 import { codecKey, decodeCustom, type AnyCodec } from "./custom-codec";
 import { EventStream } from "./events/reader";
-import type { ConversationID, InboxID, InstallationID } from "./ids";
 export type { ContentCodec } from "./codec-type";
 
 declare const process: { cwd(): string } | undefined;
@@ -116,11 +117,11 @@ export class Client {
   static async build(
     identity: PublicIdentity,
     options: SDKClientOptions,
-    inboxID?: InboxID,
+    inboxId?: InboxId,
   ): Promise<Client> {
     const { codecs = [], ...rustOptions } = options;
     return new Client(
-      await RawClient.build(identity, resolvedOptions(rustOptions), inboxID),
+      await RawClient.build(identity, resolvedOptions(rustOptions), inboxId),
       codecs,
     );
   }
@@ -134,64 +135,64 @@ export class Client {
   static canMessage(
     identities: PublicIdentity[],
     backend: BackendSourceLike,
-  ): Promise<CanMessageEntry[]> {
+  ): Promise<Map<string, boolean>> {
     return canMessageWithBackend(backend, identities);
   }
 
-  static inboxIDFor(
+  static inboxIdFor(
     identity: PublicIdentity,
     backend: BackendSourceLike,
-  ): Promise<InboxID> {
+  ): Promise<InboxId> {
     return inboxIdForWithBackend(backend, identity);
   }
 
   static inboxStates(
-    ids: InboxID[],
+    ids: InboxId[],
     backend: BackendSourceLike,
   ): Promise<InboxState[]> {
     return inboxStatesWithBackend(backend, ids);
   }
 
   static keyPackageStatuses(
-    ids: InstallationID[],
+    ids: InstallationId[],
     backend: BackendSourceLike,
-  ): Promise<KeyPackageStatusEntry[]> {
+  ): Promise<Map<string, KeyPackageStatus>> {
     return keyPackageStatusesWithBackend(backend, ids);
   }
 
   static newestMessageMetadata(
-    ids: ConversationID[],
+    ids: ConversationId[],
     backend: BackendSourceLike,
-  ): Promise<MessageMetadataEntry[]> {
+  ): Promise<Map<string, MessageMetadataEntry>> {
     return newestMessageMetadataWithBackend(backend, ids);
   }
 
   static revokeInstallations(
     signer: Signer,
-    inboxID: InboxID,
-    ids: InstallationID[],
+    inboxId: InboxId,
+    ids: InstallationId[],
     backend: BackendSourceLike,
   ): Promise<void> {
-    return revokeInstallationsWithBackend(backend, signer, inboxID, ids);
+    return revokeInstallationsWithBackend(backend, signer, inboxId, ids);
   }
 
   static isAddressAuthorized(
-    inboxID: InboxID,
+    inboxId: InboxId,
     address: string,
     backend: BackendSourceLike,
   ): Promise<boolean> {
-    return isAddressAuthorizedWithBackend(backend, inboxID, address);
+    return isAddressAuthorizedWithBackend(backend, inboxId, address);
   }
 
   static isInstallationAuthorized(
-    inboxID: InboxID,
-    installationID: InstallationID,
+    inboxId: InboxId,
+    installationId: InstallationId,
     backend: BackendSourceLike,
   ): Promise<boolean> {
     return isInstallationAuthorizedWithBackend(
       backend,
-      inboxID,
-      installationID,
+      inboxId,
+      installationId,
     );
   }
 
@@ -203,12 +204,12 @@ export class Client {
     return verifySignedWithPublicKey(text, signature, publicKey);
   }
 
-  inboxID(): InboxID {
-    return this.raw.inboxID();
+  inboxId(): InboxId {
+    return this.raw.inboxId();
   }
 
-  installationID(): InstallationID {
-    return this.raw.installationID();
+  installationId(): InstallationId {
+    return this.raw.installationId();
   }
 
   conversations() {
