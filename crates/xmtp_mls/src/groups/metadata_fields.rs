@@ -128,9 +128,14 @@ where
     /// Encode writes with `plan` and commit them. The writes are resolved
     /// and authorized once here, so a type error, a denied policy, or a
     /// payload the group would reject is reported to the caller rather than
-    /// as a failed intent. The group is synced first, so a write that
-    /// changes nothing, which commits nothing, is judged against the
-    /// group's state during this call rather than a stale local copy.
+    /// as a failed intent.
+    ///
+    /// A write that changes nothing commits nothing. It is judged after a
+    /// sync, against the group's committed state at a point during this
+    /// call, so success is true at that point, and a commit that lands
+    /// later is a later write, as it would be after a commit of ours. The
+    /// publisher cannot make this call instead: it publishes before it
+    /// receives, so it sees the same local state.
     async fn write_fields(
         &self,
         plan: impl FnOnce(&FieldSnapshot<'_>) -> Result<Vec<FieldWrite>, FieldError>,
