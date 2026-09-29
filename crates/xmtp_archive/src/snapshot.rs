@@ -390,25 +390,90 @@ mod tests {
         std::fs::remove_dir_all(&dir)?;
     }
 
-    /// Dropping a blocking export's future, as a caller that abandons
-    /// `export_to_file` does, cancels the token that export checks, so the
-    /// task stops and cleans up (see `archive_file_export_stops_when_cancelled`)
-    /// rather than running to completion unobserved.
+    /// Holds the export's first query until the test releases it, so the
+    /// test can act while the export is in flight. Dropping it, when the
+    /// export finishes with the database, closes `finished`.
+    #[cfg(not(target_arch = "wasm32"))]
+    struct Gated<C> {
+        db: C,
+        entered: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
+        release: std::sync::Mutex<std::sync::mpsc::Receiver<()>>,
+        _finished: tokio::sync::oneshot::Sender<()>,
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    impl<C: xmtp_db::ConnectionExt> xmtp_db::ConnectionExt for Gated<C> {
+        fn raw_query<T, F>(&self, fun: F) -> Result<T, xmtp_db::ConnectionError>
+        where
+            F: FnOnce(
+                &mut xmtp_db::diesel::SqliteConnection,
+            ) -> Result<T, xmtp_db::diesel::result::Error>,
+        {
+            if let Some(entered) = self.entered.lock().unwrap().take() {
+                entered.send(()).unwrap();
+                self.release.lock().unwrap().recv().unwrap();
+            }
+            self.db.raw_query(fun)
+        }
+
+        fn disconnect(&self) -> Result<(), xmtp_db::ConnectionError> {
+            self.db.disconnect()
+        }
+
+        fn reconnect(&self) -> Result<(), xmtp_db::ConnectionError> {
+            self.db.reconnect()
+        }
+    }
+
+    /// Dropping `export_to_file`'s future while its export is in flight
+    /// cancels the export: it stops rather than finishing an archive nobody
+    /// awaits, removes its temporary file, and leaves the archive already at
+    /// the destination unchanged.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
-    async fn dropping_a_blocking_export_cancels_it() {
-        let (started, running) = tokio::sync::oneshot::channel();
-        let (report, seen) = tokio::sync::oneshot::channel();
-        let export = tokio::spawn(exporter::spawn_cancellable(move |cancel| {
-            started.send(()).unwrap();
-            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-            while !cancel.is_cancelled() && std::time::Instant::now() < deadline {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-            report.send(cancel.is_cancelled()).unwrap();
-        }));
-        running.await?;
+    async fn dropping_a_file_export_cancels_it() {
+        let store = TestDb::create_ephemeral_store().await;
+        let dir = std::env::temp_dir().join(xmtp_common::rand_hexstring());
+        std::fs::create_dir(&dir)?;
+        let path = dir.join("archive");
+        std::fs::write(&path, b"prior")?;
+        let (entered, in_flight) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let (finished, done) = tokio::sync::oneshot::channel::<()>();
+        let db = Gated {
+            db: store.db(),
+            entered: Some(entered).into(),
+            release: released.into(),
+            _finished: finished,
+        };
+        let consent = options(&[BackupElementSelection::Consent]);
+        let export = tokio::spawn(ArchiveExporter::export_to_file(
+            consent,
+            db,
+            path.clone(),
+            &KEY,
+        ));
+
+        in_flight.await?;
         export.abort();
-        assert!(seen.await?, "a dropped export kept running uncancelled");
+        assert!(export.await.unwrap_err().is_cancelled());
+        release.send(())?;
+        let _ = done.await;
+        // The export has released the database; its cleanup follows at once.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while std::fs::read_dir(&dir)?.count() > 1 && std::time::Instant::now() < deadline {
+            tokio::time::sleep(std::time::Duration::from_millis(1)).await;
+        }
+        assert_eq!(
+            std::fs::read(&path)?,
+            b"prior",
+            "a dropped export replaced the archive"
+        );
+        assert_eq!(
+            std::fs::read_dir(&dir)?.count(),
+            1,
+            "a dropped export left a temporary file"
+        );
+        std::fs::remove_dir_all(&dir)?;
     }
 }

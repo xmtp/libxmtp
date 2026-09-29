@@ -90,21 +90,12 @@ impl ArchiveExporter {
     ) -> Result<BackupMetadataSave, ArchiveError> {
         crate::check_key(key)?;
         let (path, key) = (path.as_ref().to_owned(), key.to_vec());
-        spawn_cancellable(move |cancel| write_file(options, db, &path, &key, cancel))
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let _cancel_on_drop = cancel.clone().drop_guard();
+        tokio::task::spawn_blocking(move || write_file(options, db, &path, &key, &cancel))
             .await
             .map_err(io::Error::other)?
     }
-}
-
-/// Runs `task` on tokio's blocking pool with a token that is cancelled when
-/// the returned future is dropped, since dropping cannot stop the task itself.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) async fn spawn_cancellable<T: Send + 'static>(
-    task: impl FnOnce(&tokio_util::sync::CancellationToken) -> T + Send + 'static,
-) -> Result<T, tokio::task::JoinError> {
-    let cancel = tokio_util::sync::CancellationToken::new();
-    let _cancel_on_drop = cancel.clone().drop_guard();
-    tokio::task::spawn_blocking(move || task(&cancel)).await
 }
 
 /// Exports to a sibling temporary file until `cancel` fires, then renames it
