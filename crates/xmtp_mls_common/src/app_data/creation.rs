@@ -512,9 +512,13 @@ pub(crate) fn decode_conversation_type(bytes: &[u8]) -> Result<i32, MigrationErr
 }
 
 /// The registry entries a conversation takes from a backend catalogue: each
-/// definition selected for `conversation_type` (`in_groups` for a group,
-/// `in_dms` for a DM, none for a sync group) whose type and policy tags this
-/// build knows.
+/// valid definition selected for `conversation_type` (`in_groups` for a
+/// group, `in_dms` for a DM, none for a sync group) whose type and policy
+/// tags this build knows.
+///
+/// An invalid definition is skipped too. A snapshot an app supplies through
+/// a `ConfigProvider` is never validated as a whole, and a definition with a
+/// well-known ID would otherwise replace that component's policies.
 ///
 /// A definition with an unknown tag is skipped, not registered: this client
 /// could not write or validate its values, and leaving the ID absent lets a
@@ -526,6 +530,7 @@ pub fn catalogue_registry_entries(
 ) -> impl Iterator<Item = (ComponentId, ComponentMetadata)> + '_ {
     catalogue
         .iter()
+        .filter(|definition| definition.validate().is_ok())
         .filter(move |definition| match conversation_type {
             ConversationType::Dm => definition.in_dms,
             ConversationType::Sync => false,
@@ -1122,6 +1127,38 @@ mod tests {
         ] {
             assert!(!registry.contains_raw(&id));
         }
+    }
+
+    /// A catalogue definition outside the application range never reaches
+    /// the registry, even from a snapshot no one validated: one that named
+    /// `GROUP_MEMBERSHIP` would otherwise replace its admin-only policies.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-066
+    fn definitions_outside_the_application_range_are_skipped() {
+        use xmtp_configuration::MetadataPolicy;
+        let mut membership = definition(ComponentId::GROUP_MEMBERSHIP.as_u16(), true, true);
+        let allow = Some(MetadataPolicy::Base(MetadataBasePolicy::Allow as i32));
+        membership.permissions.insert = allow.clone();
+        membership.permissions.update = allow.clone();
+        membership.permissions.delete = allow;
+        let expected = registry_of(&group_dictionary(
+            ConversationType::Group,
+            &policy_set(),
+            &[],
+        ));
+        let registry = registry_of(&group_dictionary(
+            ConversationType::Group,
+            &policy_set(),
+            &[membership.clone()],
+        ));
+        assert_eq!(
+            registry.get(&ComponentId::GROUP_MEMBERSHIP)?,
+            expected.get(&ComponentId::GROUP_MEMBERSHIP)?
+        );
+        assert_eq!(
+            catalogue_registry_entries(&[membership], ConversationType::Group).count(),
+            0
+        );
     }
 
     /// A newer backend may publish a type or policy tag this build does not
