@@ -387,15 +387,24 @@ mod tests {
         }
     }
 
-    /// Only transient archive failures are retryable: an I/O failure may
-    /// succeed on a second attempt, while a wrong key, a malformed archive or
-    /// an unreadable group fails the same way every time, so retrying them
-    /// only delays the error.
+    /// Only transient archive failures are retryable: interrupted or
+    /// timed-out I/O may succeed on a second attempt, while a truncated or
+    /// corrupt archive, a failed write, a wrong key or an unreadable group
+    /// fails the same way every time, so retrying them only delays the error.
     #[test]
     fn archive_errors_are_retryable_only_when_transient() {
+        use std::io::{Error, ErrorKind::*};
         use xmtp_common::RetryableError;
-        assert!(ArchiveError::IO(std::io::Error::other("disk")).is_retryable());
+        for kind in [Interrupted, WouldBlock, TimedOut] {
+            assert!(
+                ArchiveError::IO(kind.into()).is_retryable(),
+                "{kind} is terminal"
+            );
+        }
         for terminal in [
+            ArchiveError::IO(UnexpectedEof.into()),
+            ArchiveError::IO(InvalidData.into()),
+            ArchiveError::IO(Error::other("archive export cancelled")),
             ArchiveError::InvalidKeyLength(31),
             ArchiveError::MissingMetadata,
             ArchiveError::UnsupportedVersion(u16::MAX),
@@ -510,7 +519,7 @@ mod tests {
     /// export would hold the only thread until its gate timed out. The bytes
     /// it returns are a complete archive.
     #[cfg(not(target_arch = "wasm32"))]
-    #[tokio::test(flavor = "current_thread")]
+    #[xmtp_common::test]
     async fn byte_export_leaves_the_async_worker_free() {
         let store = TestDb::create_ephemeral_store().await;
         let (entered, in_flight) = tokio::sync::oneshot::channel();

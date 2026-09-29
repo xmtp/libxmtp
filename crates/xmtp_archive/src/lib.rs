@@ -88,11 +88,13 @@ pub enum ArchiveError {
 }
 
 impl RetryableError for ArchiveError {
-    /// Only I/O and transient storage failures; format, key and group errors
-    /// recur on every attempt.
+    /// Only interrupted or timed-out I/O and transient storage failures.
+    /// Every other I/O kind, such as the `UnexpectedEof` of a truncated
+    /// archive, and every format, key and group error recurs on each attempt.
     fn is_retryable(&self) -> bool {
+        use std::io::ErrorKind::*;
         match self {
-            Self::IO(_) => true,
+            Self::IO(e) => matches!(e.kind(), Interrupted | WouldBlock | TimedOut),
             Self::Storage(e) => e.is_retryable(),
             _ => false,
         }
