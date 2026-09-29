@@ -311,23 +311,21 @@ const IDENTITY_ROUTES: &[&str] = &[
 /// Remove each identity route from its generated protocol or interface, and
 /// make the generated class method internal.
 fn hide_identity_routes(source: &str, language: Language) -> Result<String> {
-    let (declaration, method, internal): (
-        fn(&str) -> String,
-        fn(&str) -> String,
-        fn(&str) -> String,
-    ) = match language {
-        Language::Swift => (
-            |name| format!("    func {name}("),
-            |name| format!("open func {name}("),
-            |name| format!("func {name}("),
-        ),
+    // Each template names the method with `NAME`.
+    let (declaration, method, internal) = match language {
+        Language::Swift => ("    func NAME(", "open func NAME(", "func NAME("),
         Language::Kotlin => (
-            |name| format!("    suspend fun `{name}`("),
-            |name| format!("    override suspend fun `{name}`("),
-            |name| format!("    internal suspend fun `{name}`("),
+            "    suspend fun `NAME`(",
+            "    override suspend fun `NAME`(",
+            "    internal suspend fun `NAME`(",
         ),
         _ => bail!("identity routes are hidden only in Swift and Kotlin"),
     };
+    let internal = |name: &str| internal.replace("NAME", name);
+    let (declaration, method) = (
+        |name: &str| declaration.replace("NAME", name),
+        |name: &str| method.replace("NAME", name),
+    );
     let mut output = source.to_owned();
     for name in IDENTITY_ROUTES {
         let (declaration, method) = (declaration(name), method(name));
