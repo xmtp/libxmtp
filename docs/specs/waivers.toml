@@ -329,13 +329,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Removal from a group rejects pending intents without failing their message rows."
 
 [[waiver]]
-id = "ARCH-007"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Group export windows on creation time while message export windows on send time, so a message can be exported without its group and the import then fails on the group foreign key."
-
-[[waiver]]
 id = "ARCH-008"
 kind = "gap"
 owner = "protocol"
@@ -347,7 +340,7 @@ id = "ARCH-009"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An imported message carries no per-message expiry and no distinction between unknown expiry and no expiry."
+reason = "An imported message carries no per-message expiry and no distinction between unknown expiry and no expiry. So when exclude_disappearing_messages is set, export still includes restored messages whose expiry is unknown (a NULL expire_at_ns), because the store cannot tell them from messages that never expire. Separating the two needs a schema change."
 
 [[waiver]]
 id = "ARCH-012"
@@ -355,13 +348,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The mobile, node, and wasm bindings truncate an archive key longer than 32 bytes instead of rejecting it."
-
-[[waiver]]
-id = "ARCH-017"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Batched reads provide no fixed export snapshot and can silently omit groups whose MLS state or immutable metadata cannot be read."
 
 [[waiver]]
 id = "ARCH-020"

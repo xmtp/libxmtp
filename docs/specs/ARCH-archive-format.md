@@ -286,7 +286,7 @@ Successful-import idempotence is separate from failure recovery. A failed import
 
 An archive is authenticated by the key alone. Anyone who holds the key can write an archive with any message under any sender, and an importing client cannot tell it from one the user wrote. The key is the whole trust.
 
-A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019.
+A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019. The store records unknown expiry and no expiry alike, so `exclude_disappearing_messages` still exports restored messages whose expiry is unknown. This is waived under ARCH-009 until the store can tell them apart.
 
 A frame for a missing group fails restoration when the destination lacks that group. This does not delete source data or corrupt the destination. Earlier completed elements remain, and an unchanged retry reaches the same failure.
 

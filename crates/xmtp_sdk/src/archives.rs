@@ -1,19 +1,13 @@
 use std::sync::Arc;
 
-use futures::{
-    AsyncReadExt,
-    io::{BufReader, Cursor},
-};
+use futures::io::{BufReader, Cursor};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_mls::worker::device_sync::archive::BACKUP_VERSION;
 use xmtp_mls::{
     context::XmtpSharedContext,
     worker::device_sync::{
         ArchiveOptions as CoreArchiveOptions, BackupElementSelection as CoreElement,
-        archive::{
-            ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,
-            insert_importer,
-        },
+        archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_importer},
     },
 };
 
@@ -110,24 +104,25 @@ impl Archives {
         let key = key(key_bytes)?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            let mut exporter = ArchiveExporter::new(
-                options
-                    .unwrap_or(ArchiveOptions {
-                        start: None,
-                        end: None,
-                        elements: None,
-                        exclude_disappearing_messages: false,
-                    })
-                    .into(),
-                client.context.db(),
-                &key,
-            );
-            let mut bytes = Vec::new();
-            exporter
-                .read_to_end(&mut bytes)
-                .await
-                .map_err(XmtpError::unknown)?;
-            Ok(bytes)
+            let options = options
+                .unwrap_or(ArchiveOptions {
+                    start: None,
+                    end: None,
+                    elements: None,
+                    exclude_disappearing_messages: false,
+                })
+                .into();
+            // wasm has no blocking pool to offload to, so it exports inline.
+            #[cfg(not(target_arch = "wasm32"))]
+            let bytes =
+                exporter::ArchiveExporter::export_to_bytes(options, client.context.db(), &key)
+                    .await;
+            #[cfg(target_arch = "wasm32")]
+            let bytes = {
+                let mut bytes = Vec::new();
+                exporter::export(options, client.context.db(), &key, &mut bytes).map(|_| bytes)
+            };
+            bytes.map_err(XmtpError::unknown)
         })
         .await
     }
@@ -262,7 +257,7 @@ impl Archives {
                     elements: None,
                     exclude_disappearing_messages: false,
                 });
-                let saved = ArchiveExporter::export_to_file(
+                let saved = exporter::ArchiveExporter::export_to_file(
                     options.into(),
                     client.context.db(),
                     path,
