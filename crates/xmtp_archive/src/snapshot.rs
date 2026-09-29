@@ -227,19 +227,25 @@ fn group_save(
 #[cfg(test)]
 mod tests {
     use crate::{
-        ArchiveError, ArchiveImporter,
+        ArchiveError, ArchiveImporter, BACKUP_VERSION, NONCE_SIZE,
         archive_options::{ArchiveOptions, BackupElementSelection},
         exporter,
+        util::GenericArrayExt,
     };
+    use aes_gcm::aead::Aead;
     use futures::{
-        StreamExt,
+        AsyncReadExt, StreamExt,
         io::{BufReader, Cursor},
     };
+    use prost::Message;
+    #[allow(deprecated)]
+    use sha2::digest::generic_array::GenericArray;
     use xmtp_db::{
         Store, TestDb, XmtpTestDb,
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         group::{ConversationType, GroupMembershipState, StoredGroup},
     };
+    use xmtp_proto::xmtp::device_sync::BackupElement;
     use xmtp_proto::{types::GroupId, xmtp::device_sync::backup_element::Element};
 
     const KEY: [u8; 32] = [7; 32];
@@ -273,6 +279,110 @@ mod tests {
             .map(|e| e.unwrap().element.unwrap())
             .collect()
             .await
+    }
+
+    /// A sink that accepts one to three bytes per write, interrupts every
+    /// other write, and fails its first flush when asked.
+    struct ShortSink {
+        bytes: Vec<u8>,
+        writes: usize,
+        flushes: usize,
+        fail_first_flush: bool,
+    }
+
+    impl std::io::Write for ShortSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.writes += 1;
+            if self.writes.is_multiple_of(2) {
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            let amount = buf.len().min(1 + self.writes % 3);
+            self.bytes.extend_from_slice(&buf[..amount]);
+            Ok(amount)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            if self.fail_first_flush && self.flushes == 1 {
+                return Err(std::io::Error::other("flush failed"));
+            }
+            Ok(())
+        }
+    }
+
+    /// The archive is the version, the starting nonce, then one zstd stream
+    /// of length-prefixed AES-GCM frames under counter nonces: the metadata,
+    /// then each element. Short and interrupted writes change none of those
+    /// bytes, and a sink that fails a flush fails the export.
+    // verifies: ARCH-001
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn short_and_interrupted_writes_preserve_exact_frames() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        let mut records = Vec::new();
+        for entity in ["alice", "bob", "carol"] {
+            let record = StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                entity.into(),
+            );
+            record.store(&db)?;
+            records.push(record);
+        }
+        let consent = options(&[BackupElementSelection::Consent]);
+
+        let mut sink = ShortSink {
+            bytes: Vec::new(),
+            writes: 0,
+            flushes: 0,
+            fail_first_flush: true,
+        };
+        assert!(
+            exporter::export(consent.clone(), &db, &KEY, &mut sink).is_err(),
+            "a failed flush did not fail the export"
+        );
+
+        let mut sink = ShortSink {
+            bytes: Vec::new(),
+            writes: 0,
+            flushes: 0,
+            fail_first_flush: false,
+        };
+        let metadata = exporter::export(consent, &db, &KEY, &mut sink)?;
+        assert!(sink.writes > 3, "the sink saw no short writes");
+        let archive = sink.bytes;
+
+        // The header is in the clear: the version, then the starting nonce.
+        assert_eq!(&archive[..2], &BACKUP_VERSION.to_le_bytes());
+        #[allow(deprecated)]
+        let mut nonce = GenericArray::clone_from_slice(&archive[2..2 + NONCE_SIZE]);
+        let cipher = crate::cipher(&KEY)?;
+        let mut expected = Vec::new();
+        let elements = std::iter::once(Element::Metadata(metadata)).chain(
+            records
+                .into_iter()
+                .map(|record| Element::Consent(record.into())),
+        );
+        for element in elements {
+            let plaintext = BackupElement {
+                element: Some(element),
+            }
+            .encode_to_vec();
+            let ciphertext = cipher.encrypt(&nonce, &*plaintext)?;
+            nonce.increment();
+            expected.extend_from_slice(&(ciphertext.len() as u32).to_le_bytes());
+            expected.extend_from_slice(&ciphertext);
+        }
+        let mut frames = Vec::new();
+        async_compression::futures::bufread::ZstdDecoder::new(Cursor::new(
+            &archive[2 + NONCE_SIZE..],
+        ))
+        .read_to_end(&mut frames)
+        .await?;
+        assert!(
+            frames == expected,
+            "the frames differ from the counter-nonce sequence"
+        );
     }
 
     /// An export reads every eligible conversation: an eligible group it

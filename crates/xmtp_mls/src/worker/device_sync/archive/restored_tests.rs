@@ -6,7 +6,6 @@ use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use futures::io::{BufReader, Cursor};
 use prost::Message;
 use std::collections::HashMap;
-use xmtp_archive::exporter::ArchiveExporter;
 use xmtp_db::{
     ConnectionExt, Store,
     consent_record::{ConsentState, ConsentType},
@@ -278,7 +277,8 @@ async fn exported_groups(
         elements: vec![BackupElementSelection::Messages],
         exclude_disappearing_messages: false,
     };
-    let bytes = ArchiveExporter::export_to_bytes(opts, db, &key).await?;
+    let mut bytes = Vec::new();
+    xmtp_archive::exporter::export(opts, db, &key, &mut bytes)?;
     let mut importer =
         ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(bytes))), &key).await?;
     let mut saves = HashMap::new();
