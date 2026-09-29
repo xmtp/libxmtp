@@ -1,57 +1,99 @@
 // Runs in the installed consumer against the package's private public entry.
-// It loads the entry through ESM import and through CommonJS require.
 //
-// Checked: CommonJS interop keeps every public name, and `instanceof` narrows
-// a public error within each load. Not asserted (open question in the Task 4
-// report): under a TypeScript loader, require() loads a second copy of the
-// package, so a class from one load does not match a value from the other.
+// 1. The entry exports exactly the public names: the object and error classes
+//    and public functions of the generated values file, and the classes and
+//    functions of the public runtime. The expected list comes from those
+//    files, not from the entry, so a dropped name or a star re-export of the
+//    internal conversions fails here.
+// 2. A second copy of the package in the process fails at load with a public
+//    error (Decision 20). CommonJS require under a TypeScript loader loads a
+//    second copy, which would otherwise replace the first copy's native
+//    callback tables.
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import * as imported from "xmtp-sdk/public";
 
-const required: typeof imported = createRequire(import.meta.url)(
-  "xmtp-sdk/public",
+const require = createRequire(import.meta.url);
+const packageRoot = dirname(
+  fileURLToPath(import.meta.resolve("xmtp-sdk/public")),
 );
 
-const names = [
-  "Client",
-  "Conversations",
-  "Group",
-  "Dm",
-  "Message",
-  "XmtpError",
-  "MessageStream",
-  "ConversationStream",
-  "EventStream",
-  "TextCodec",
-  "Timestamp",
-  "encodeText",
-  "setLogSink",
-] as const;
-for (const name of names) {
-  assert.equal(typeof imported[name], "function", `import lost ${name}`);
-  assert.equal(typeof required[name], "function", `require lost ${name}`);
+// Conversion and wiring helpers that the entry must not export.
+const INTERNAL = new Set([
+  "currentProjection",
+  "installProjection",
+  "publicError",
+  "attachClientBinding",
+  "clientBinding",
+  "publicClient",
+  "liftBoundMessage",
+  "boundMessage",
+  "publicEventStream",
+  "hostOptions",
+  "ClientMembers",
+  "ObjectProjection",
+  "StandardCodec",
+]);
+function exportedValues(source: string): string[] {
+  return [
+    ...source.matchAll(
+      /^export (?:abstract )?(?:async )?(?:class|function) (\w+)/gm,
+    ),
+  ]
+    .map((match) => match[1]!)
+    .filter(
+      (name) =>
+        !INTERNAL.has(name) && !/^(?:lift|lower|wrap|unwrap)[A-Z]/.test(name),
+    );
 }
+const expected = new Set([
+  ...exportedValues(
+    readFileSync(join(packageRoot, "public-values.gen.ts"), "utf8"),
+  ),
+  ...readdirSync(join(packageRoot, "runtime/public"))
+    .filter((file) => file.endsWith(".ts"))
+    .flatMap((file) =>
+      exportedValues(
+        readFileSync(join(packageRoot, "runtime/public", file), "utf8"),
+      ),
+    ),
+  "Timestamp",
+]);
+assert.ok(expected.has("Preferences") && expected.has("Client"));
 assert.deepEqual(
-  Object.keys(required).sort(),
   Object.keys(imported).sort(),
-  "CommonJS interop dropped public names",
+  [...expected].sort(),
+  "the public entry does not export exactly the public names",
 );
 
-// A public error narrows with the classes of the load that made it.
-for (const sdk of [imported, required]) {
-  let error: unknown;
-  try {
-    new sdk.MarkdownCodec().decode(new sdk.TextCodec().encode("text"));
-  } catch (caught) {
-    error = caught;
-  }
-  assert.ok(error instanceof sdk.XmtpError.InvalidArgument);
-  assert.ok(error instanceof sdk.XmtpError);
+// A public error narrows with the package's classes.
+try {
+  new imported.MarkdownCodec().decode(new imported.TextCodec().encode("text"));
+  assert.fail("a wrong codec decoded");
+} catch (error) {
+  assert.ok(error instanceof imported.XmtpError.InvalidArgument);
   assert.equal(error.details.category, "input");
 }
-const shared = required.Client === imported.Client;
+
+// A second copy fails at load, before it registers anything.
+assert.throws(
+  () => require("xmtp-sdk/public"),
+  (error: unknown) => {
+    assert.ok(error instanceof Error);
+    assert.equal(error.name, "XmtpError.Unknown");
+    assert.equal(
+      error.message,
+      "the XMTP SDK was loaded twice in one process; load it once",
+    );
+    return true;
+  },
+);
+// The loaded copy keeps working.
+assert.equal(imported.encodeText("still loaded").type.typeId, "text");
 console.log(
-  `Node private entry: all names through import and require; one module: ${shared}`,
+  `Node private entry: ${expected.size} public names; a second copy fails at load`,
 );

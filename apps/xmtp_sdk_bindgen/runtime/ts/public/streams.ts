@@ -75,7 +75,8 @@ function publicReader<R, T>(
   };
 }
 
-function hostOptions(options: StreamOptions = {}): HostStreamOptions {
+/** The host options of public stream options. Exported for conformance. */
+export function hostOptions(options: StreamOptions = {}): HostStreamOptions {
   const { signal, onClose, onConnectionStateChange } = options;
   return {
     signal,

@@ -48,8 +48,9 @@ for part in uniffi runtime android; do
 done
 
 # Node: install the package into a consumer's node_modules. Its exports map
-# names only the root, so the binding and runtime files stay private. The
-# compile gate does not load the native library, so it is not copied.
+# names the root and the private public entry (`./public`, which the root
+# re-exports later), so the binding and runtime files stay private. The
+# private-entry load check below runs, so the native library is copied there.
 node_consumer="$stage/node-consumer"
 node_package="$node_consumer/node_modules/xmtp-sdk"
 mkdir -p "$node_package/node_modules/@ubjs"

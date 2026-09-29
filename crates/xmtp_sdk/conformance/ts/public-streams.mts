@@ -8,6 +8,14 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import {
+  currentProjection,
+  lowerClientOptions,
+} from "../../../../target/sdk-conformance/typescript-napi/public-values.gen.ts";
+// Internals for the connection-state and options checks below.
+import { hostOptions } from "../../../../target/sdk-conformance/typescript-napi/runtime/public/streams.ts";
+import { MessageStream as HostMessageStream } from "../../../../target/sdk-conformance/typescript-napi/runtime/streams/reader.ts";
+import { ConnectionState as BoundState } from "../../../../target/sdk-conformance/typescript-napi/xmtp_sdk.ts";
 
 const viemRoot = realpathSync(
   fileURLToPath(
@@ -98,6 +106,14 @@ const pointCodec: sdk.ContentCodec<Point> = {
   decode: (encoded) => JSON.parse(new TextDecoder().decode(encoded.content)),
 };
 
+// Options without a backend lower to an absent backend, so the binding uses
+// its default connection options.
+assert.equal(
+  lowerClientOptions({ storage: { location: "inMemory" } }, currentProjection())
+    .backend,
+  undefined,
+);
+
 // Public errors from a generated wrapper, a membership guard, and a static.
 const alice = await sdk.Client.create(signerFor(), await options([pointCodec]));
 await assert.rejects(
@@ -161,9 +177,52 @@ assert.deepEqual(
   { x: 1, y: 2 },
 );
 await messages.end();
-assert.ok(states.length > 0, "no connection state reached the app");
+// The app sees public state values, in order: the state at subscription
+// first, with no previous state.
+assert.deepEqual(states.slice(0, 2), [undefined, "connecting"]);
+const publicStates = new Set([
+  undefined,
+  "connecting",
+  "connected",
+  "reconnecting",
+  "failed",
+  "closed",
+]);
 for (const state of states)
-  assert.ok(state === undefined || typeof state === "string", `state ${state}`);
+  assert.ok(publicStates.has(state), `state ${state}`);
+
+// A reconnect reaches the app as the ordered public states, like the host
+// stream case in node-stream-lifecycle.mts, through the public options.
+{
+  const seen: [sdk.ConnectionState | undefined, sdk.ConnectionState][] = [];
+  const changes: Array<(state: BoundState) => void> = [];
+  const stream = new HostMessageStream(
+    async () => ({
+      next: () => new Promise<undefined>(() => undefined),
+      end: async () => undefined,
+      connectionState: async () => BoundState.Connected,
+      connectionStateChanged: () =>
+        new Promise<BoundState>((resolve) => changes.push(resolve)),
+    }),
+    alice,
+    hostOptions({
+      onConnectionStateChange: (previous, current) =>
+        seen.push([previous, current]),
+    }),
+  );
+  await stream.ready();
+  for (const next of [BoundState.Reconnecting, BoundState.Connected]) {
+    while (changes.length === 0) await new Promise((r) => setTimeout(r, 1));
+    changes.shift()!(next);
+  }
+  while (seen.length < 3) await new Promise((r) => setTimeout(r, 1));
+  assert.deepEqual(seen, [
+    [undefined, "connected"],
+    ["connected", "reconnecting"],
+    ["reconnecting", "connected"],
+  ]);
+  await stream.end();
+}
 
 // The onValue path delivers the same public messages.
 const replay = sdk.MessageStream.openGroup(alice, group, {
