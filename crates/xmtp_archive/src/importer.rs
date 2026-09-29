@@ -144,12 +144,11 @@ impl ArchiveImporter {
 }
 
 #[cfg(all(test, not(target_arch = "wasm32")))]
-#[cfg(test)]
 mod tests;
 
 /// Container-level cases carried from self-hosted (#4304); `tests` holds the
 /// framing cases of this branch.
-#[cfg(test)]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 mod container_tests {
     use super::*;
     use crate::ENC_KEY_SIZE;

@@ -58,6 +58,29 @@ while IFS= read -r path; do
   if [ -z "$status" ]; then
     fail_query "empty status for $path"
   fi
+  # A file-mode change fails on every path, allowlisted or not.
+  if [[ "$status" == M ]]; then
+    if ! summary=$(git diff --no-renames --summary "$base" -- "$path"); then
+      fail_query "mode summary for $path"
+    fi
+    if [ -n "$summary" ]; then
+      blocked+="$path"$'\n'
+      continue
+    fi
+  fi
+  # Scripts and generated output fail on every path. The one carve-out is the
+  # regenerated Swift bindings as a modification under SDK-040 exception 1
+  # (below); the bindings-check job matches that file against the Rust source.
+  case "$path" in
+    *.sh|*.bash|*.zsh|*.command|*.ps1|*.d.ts|*generated*|*Generated*|*/script/*|*/scripts/*|*/dev/*|*/bin/*|sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift)
+      if [ "$status:$path" != "M:sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift" ]; then
+        blocked+="$path"$'\n'; continue
+      fi ;;
+  esac
+  case "$path" in
+    */test/*|*/tests/*|*/Tests/*|*/androidTest/*|*.test.ts|*.test.js|*_test.rs|*/CHANGELOG.md|*/AGENTS.md)
+      continue ;;
+  esac
   # Design SDK-040 names two narrow pre-cutover exceptions, each an exact file
   # list. Every other shipped change still fails. The regenerated Swift
   # bindings are matched against the Rust source by the bindings-check job.
@@ -88,23 +111,6 @@ while IFS= read -r path; do
     M:bindings/node/src/conversation/dm.rs|\
     M:bindings/wasm/src/conversation.rs|\
     M:bindings/node/src/client/identity.rs)
-      continue ;;
-  esac
-  case "$path" in
-    *.sh|*.bash|*.zsh|*.command|*.ps1|*.d.ts|*generated*|*Generated*|*/script/*|*/scripts/*|*/dev/*|*/bin/*|sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift)
-      blocked+="$path"$'\n'; continue ;;
-  esac
-  if [[ "$status" == M ]]; then
-    if ! summary=$(git diff --no-renames --summary "$base" -- "$path"); then
-      fail_query "mode summary for $path"
-    fi
-    if [ -n "$summary" ]; then
-      blocked+="$path"$'\n'
-      continue
-    fi
-  fi
-  case "$path" in
-    */test/*|*/tests/*|*/Tests/*|*/androidTest/*|*.test.ts|*.test.js|*_test.rs|*/CHANGELOG.md|*/AGENTS.md)
       continue ;;
   esac
   case "$path" in

@@ -569,7 +569,6 @@ pub(crate) mod tests {
     use crate::{Fetch, Store, XmtpTestDb, identity::StoredIdentity};
     use xmtp_common::{rand_vec, tmp_path};
 
-    /// Every embedded migration; a fully migrated database applied all of them.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn sender_summary_and_list_upgrade_baseline_database() {

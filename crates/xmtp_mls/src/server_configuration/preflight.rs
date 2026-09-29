@@ -128,6 +128,8 @@ async fn run<C: XmtpSharedContext>(
             return Err(error);
         }
     };
+    // Store, then record the answer for its backend URL.
+    handle.record_deployment(&fetched.identifier).await?;
     if let Err(ClientError::ClientVersionTooOld { client, minimum }) =
         check_minimum_version(&fetched, context.version_info().pkg_semver().semver())
     {
