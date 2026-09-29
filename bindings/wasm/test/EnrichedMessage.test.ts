@@ -432,6 +432,30 @@ describe("EnrichedMessage", () => {
           ...encodeText("valid"),
           content: new Uint8Array([0xff, 0xfe]),
         };
+        // The exact serialization of `broken`: type, one parameter, content.
+        const utf8 = (text: string) =>
+          Array.from(new TextEncoder().encode(text));
+        const field = (tag: number, bytes: number[]) => [
+          tag,
+          bytes.length,
+          ...bytes,
+        ];
+        const expectedRawBytes = new Uint8Array([
+          ...field(0x0a, [
+            ...field(0x0a, utf8("xmtp.org")),
+            ...field(0x12, utf8("text")),
+            0x18,
+            0x01,
+          ]),
+          ...field(0x12, [
+            ...field(0x0a, utf8("encoding")),
+            ...field(0x12, utf8("UTF-8")),
+          ]),
+          0x22,
+          0x02,
+          0xff,
+          0xfe,
+        ]);
         const brokenId = await conversation.send(broken, { shouldPush: false });
         const afterId = await conversation.sendText("after");
         await conversation2.sync();
@@ -452,8 +476,8 @@ describe("EnrichedMessage", () => {
           const undecodable = brokenMessage!.content.content;
           expect(undecodable.failureKind).toBe("codecDecodeFailed");
           expect(undecodable.contentType?.typeId).toBe("text");
-          expect(Array.from(undecodable.rawBytes).join(",")).toContain(
-            "255,254",
+          expect(new Uint8Array(undecodable.rawBytes)).toEqual(
+            expectedRawBytes,
           );
 
           const after = messages.find((m) => m.id === afterId);
@@ -465,6 +489,11 @@ describe("EnrichedMessage", () => {
           const replyContent = replyMessage?.content.content as EnrichedReply;
           expect(replyContent.inReplyTo?.id).toBe(brokenId);
           expect(replyContent.inReplyTo?.content.type).toBe("undecodable");
+          if (replyContent.inReplyTo?.content.type !== "undecodable")
+            throw new Error();
+          expect(
+            new Uint8Array(replyContent.inReplyTo.content.content.rawBytes),
+          ).toEqual(expectedRawBytes);
         }
       });
     });

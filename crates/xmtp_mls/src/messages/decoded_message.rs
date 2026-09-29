@@ -257,12 +257,14 @@ impl MessageBody {
         budget: &mut compression::DecompressionBudget,
         depth: usize,
     ) -> Result<Self, ContentDecodeFailure> {
+        // An untyped envelope is malformed before anything else is checked.
+        let malformed_type =
+            || ContentDecodeFailure::malformed("content type identifier is absent or incomplete");
+        has_complete_type(&envelope).ok_or_else(malformed_type)?;
         // implements: CTYPE-024, CTYPE-025
         let value = compression::decompress_with_budget(envelope, budget)
             .map_err(ContentDecodeFailure::codec)?;
-        let content_type = has_complete_type(&value).ok_or_else(|| {
-            ContentDecodeFailure::malformed("content type identifier is absent or incomplete")
-        })?;
+        let content_type = has_complete_type(&value).ok_or_else(malformed_type)?;
         fn decoded<T>(result: Result<T, CodecError>) -> Result<T, ContentDecodeFailure> {
             result.map_err(ContentDecodeFailure::codec)
         }
@@ -784,7 +786,12 @@ mod tests {
             version_major: 1,
             version_minor: 0,
         });
-        for content in [untyped, partial] {
+        // Invalid compression does not change the cause of an untyped envelope.
+        let mut untyped_compressed = untyped.clone();
+        untyped_compressed.compression = Some(99);
+        let mut partial_compressed = partial.clone();
+        partial_compressed.compression = Some(99);
+        for content in [untyped, partial, untyped_compressed, partial_compressed] {
             let bytes = content.encode_to_vec();
             let decoded = DecodedMessage::from(stored_bytes(bytes.clone()));
             assert_eq!(decoded.metadata.content_type, content.r#type);

@@ -403,6 +403,30 @@ describe.concurrent("EnrichedMessage", () => {
           ...encodeText("valid"),
           content: new Uint8Array([0xff, 0xfe]),
         };
+        // The exact serialization of `broken`: type, one parameter, content.
+        const utf8 = (text: string) =>
+          Array.from(new TextEncoder().encode(text));
+        const field = (tag: number, bytes: number[]) => [
+          tag,
+          bytes.length,
+          ...bytes,
+        ];
+        const expectedRawBytes = new Uint8Array([
+          ...field(0x0a, [
+            ...field(0x0a, utf8("xmtp.org")),
+            ...field(0x12, utf8("text")),
+            0x18,
+            0x01,
+          ]),
+          ...field(0x12, [
+            ...field(0x0a, utf8("encoding")),
+            ...field(0x12, utf8("UTF-8")),
+          ]),
+          0x22,
+          0x02,
+          0xff,
+          0xfe,
+        ]);
         const brokenId = await conversation.send(broken, { shouldPush: false });
         const afterId = await conversation.sendText("after");
         await conversation2.sync();
@@ -426,8 +450,8 @@ describe.concurrent("EnrichedMessage", () => {
             ContentDecodeFailureKind.CodecDecodeFailed,
           );
           expect(undecodable?.contentType?.typeId).toBe("text");
-          expect(Array.from(undecodable!.rawBytes).join(",")).toContain(
-            "255,254",
+          expect(new Uint8Array(undecodable!.rawBytes)).toEqual(
+            expectedRawBytes,
           );
 
           expect(messages.find((m) => m.id === afterId)?.content.text).toBe(
@@ -445,6 +469,9 @@ describe.concurrent("EnrichedMessage", () => {
           );
           expect(parent?.content.undecodable?.failureKind).toBe(
             ContentDecodeFailureKind.CodecDecodeFailed,
+          );
+          expect(new Uint8Array(parent!.content.undecodable!.rawBytes)).toEqual(
+            expectedRawBytes,
           );
         }
       });
