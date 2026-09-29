@@ -7,12 +7,12 @@ async fn build_on_new_database_fails_identity_not_found(
 
     let signer = crate::generate_local_signer().await;
     let identity = signer::identity(signer).await?;
-    let inbox_id = InboxId(
+    let inbox_id = InboxId::try_from(
         identity
             .to_core()?
             .inbox_id(0)
             .map_err(XmtpError::unknown)?,
-    );
+    )?;
     let path = std::env::temp_dir().join(format!(
         "sdk-build-new-{}-{}-{}.db3",
         allow_offline,
@@ -37,7 +37,7 @@ async fn build_on_new_database_fails_identity_not_found(
             && !details.retryable)
     );
     assert!(!path.exists(), "build created a new database");
-    let store = crate::client::open_store(&settings.storage, &inbox_id.0).await?;
+    let store = crate::client::open_store(&settings.storage, inbox_id.checked()?).await?;
     let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::unknown)?;
     assert!(stored.is_none(), "build registered a new identity");
     drop(store);
@@ -74,12 +74,12 @@ async fn build_with_inaccessible_database_path_returns_storage_error() {
     settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
     let signer = crate::generate_local_signer().await;
     let identity = signer::identity(signer).await?;
-    let inbox_id = InboxId(
+    let inbox_id = InboxId::try_from(
         identity
             .to_core()?
             .inbox_id(0)
             .map_err(XmtpError::unknown)?,
-    );
+    )?;
     let result = Client::build(identity, settings, Some(inbox_id)).await;
     std::fs::remove_file(parent)?;
 
@@ -539,7 +539,7 @@ fn facade_content_records_preserve_codec_fields() {
     let encoded_reaction = ReactionCodec::encode(
         reaction
             .clone()
-            .into_proto(reference.clone(), InboxId::try_from("inbox".to_owned())?),
+            .into_proto(reference.checked()?.to_owned(), "inbox".to_owned()),
     )?;
     let decoded_reaction = MessageContent::decode(encoded_reaction.encode_to_vec())?;
     assert!(
@@ -549,7 +549,7 @@ fn facade_content_records_preserve_codec_fields() {
             && matches!(value.schema, crate::ReactionSchema::Unicode))
     );
     let proto_reaction = proto::ReactionV2::decode(encoded_reaction.content.as_slice())?;
-    assert_eq!(proto_reaction.reference, reference.0);
+    assert_eq!(proto_reaction.reference, reference.checked()?);
     assert_eq!(proto_reaction.reference_inbox_id, "inbox");
 
     let attachment = CoreAttachment {
@@ -631,7 +631,7 @@ fn facade_content_records_preserve_codec_fields() {
     assert!(matches!(
         MessageContent::decode(ReplyCodec::encode(reply)?.encode_to_vec())?,
         MessageContent::Reply { reference_id, body: crate::MessageBody::Text(value) }
-            if reference_id.0 == "b".repeat(64) && value == "answer"
+            if reference_id.checked().ok() == Some(&*"b".repeat(64)) && value == "answer"
     ));
 }
 
@@ -1025,10 +1025,10 @@ fn facade_extended_content_records_keep_nested_fields() {
     else {
         panic!("group update")
     };
-    assert_eq!(update.initiated_by_inbox_id.0, "inbox");
-    assert_eq!(update.added_inboxes[0].0, "added");
-    assert_eq!(update.removed_inboxes[0].0, "removed");
-    assert_eq!(update.left_inboxes[0].0, "left");
+    assert_eq!(update.initiated_by_inbox_id.checked()?, "inbox");
+    assert_eq!(update.added_inboxes[0].checked()?, "added");
+    assert_eq!(update.removed_inboxes[0].checked()?, "removed");
+    assert_eq!(update.left_inboxes[0].checked()?, "left");
     assert_eq!(update.metadata_field_changes[0].field_name, "name");
     assert_eq!(
         update.metadata_field_changes[0].old_value.as_deref(),
@@ -1038,10 +1038,16 @@ fn facade_extended_content_records_keep_nested_fields() {
         update.metadata_field_changes[0].new_value.as_deref(),
         Some("new")
     );
-    assert_eq!(update.added_admin_inboxes[0].0, "added-admin");
-    assert_eq!(update.removed_admin_inboxes[0].0, "removed-admin");
-    assert_eq!(update.added_super_admin_inboxes[0].0, "added-super");
-    assert_eq!(update.removed_super_admin_inboxes[0].0, "removed-super");
+    assert_eq!(update.added_admin_inboxes[0].checked()?, "added-admin");
+    assert_eq!(update.removed_admin_inboxes[0].checked()?, "removed-admin");
+    assert_eq!(
+        update.added_super_admin_inboxes[0].checked()?,
+        "added-super"
+    );
+    assert_eq!(
+        update.removed_super_admin_inboxes[0].checked()?,
+        "removed-super"
+    );
     for note in [None, Some(b"leaving".to_vec())] {
         let encoded = LeaveRequestCodec::encode(LeaveRequest {
             authenticated_note: note.clone(),

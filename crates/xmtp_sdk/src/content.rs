@@ -411,26 +411,32 @@ impl TryFrom<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpd
     }
 }
 
-impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
-    fn from(value: GroupUpdated) -> Self {
+impl TryFrom<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
+    type Error = crate::XmtpError;
+
+    fn try_from(value: GroupUpdated) -> Result<Self, Self::Error> {
         use xmtp_proto::xmtp::mls::message_contents::group_updated::{
             Inbox, MetadataFieldChange as ProtoChange,
         };
-        fn inboxes(values: Vec<crate::InboxId>) -> Vec<Inbox> {
+        fn inboxes(values: Vec<crate::InboxId>) -> Result<Vec<Inbox>, crate::XmtpError> {
             values
                 .into_iter()
-                .map(|value| Inbox { inbox_id: value.0 })
+                .map(|value| {
+                    Ok(Inbox {
+                        inbox_id: value.into_checked()?,
+                    })
+                })
                 .collect()
         }
-        Self {
-            initiated_by_inbox_id: value.initiated_by_inbox_id.0,
-            added_inboxes: inboxes(value.added_inboxes),
-            removed_inboxes: inboxes(value.removed_inboxes),
-            left_inboxes: inboxes(value.left_inboxes),
-            added_admin_inboxes: inboxes(value.added_admin_inboxes),
-            removed_admin_inboxes: inboxes(value.removed_admin_inboxes),
-            added_super_admin_inboxes: inboxes(value.added_super_admin_inboxes),
-            removed_super_admin_inboxes: inboxes(value.removed_super_admin_inboxes),
+        Ok(Self {
+            initiated_by_inbox_id: value.initiated_by_inbox_id.into_checked()?,
+            added_inboxes: inboxes(value.added_inboxes)?,
+            removed_inboxes: inboxes(value.removed_inboxes)?,
+            left_inboxes: inboxes(value.left_inboxes)?,
+            added_admin_inboxes: inboxes(value.added_admin_inboxes)?,
+            removed_admin_inboxes: inboxes(value.removed_admin_inboxes)?,
+            added_super_admin_inboxes: inboxes(value.added_super_admin_inboxes)?,
+            removed_super_admin_inboxes: inboxes(value.removed_super_admin_inboxes)?,
             metadata_field_changes: value
                 .metadata_field_changes
                 .into_iter()
@@ -440,7 +446,7 @@ impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdate
                     new_value: field.new_value,
                 })
                 .collect(),
-        }
+        })
     }
 }
 
@@ -578,10 +584,15 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
             reference,
             reference_inbox_id,
             reaction,
-        } => xmtp_content_types::reaction::ReactionCodec::encode(reaction.into_proto(
-            reference,
-            crate::InboxId(reference_inbox_id.map(|id| id.0).unwrap_or_default()),
-        )),
+        } => xmtp_content_types::reaction::ReactionCodec::encode(
+            reaction.into_proto(
+                reference.into_checked()?,
+                reference_inbox_id
+                    .map(crate::InboxId::into_checked)
+                    .transpose()?
+                    .unwrap_or_default(),
+            ),
+        ),
         StandardContent::Attachment(value) => {
             xmtp_content_types::attachment::AttachmentCodec::encode(
                 xmtp_content_types::attachment::Attachment {
@@ -634,16 +645,18 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
             reference_inbox_id,
             content,
         } => xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
-            reference: reference.0,
-            reference_inbox_id: reference_inbox_id.map(|id| id.0),
+            reference: reference.into_checked()?,
+            reference_inbox_id: reference_inbox_id
+                .map(crate::InboxId::into_checked)
+                .transpose()?,
             content: content.into(),
         }),
         StandardContent::GroupUpdated(value) => {
-            xmtp_content_types::group_updated::GroupUpdatedCodec::encode(value.into())
+            xmtp_content_types::group_updated::GroupUpdatedCodec::encode(value.try_into()?)
         }
         StandardContent::DeleteMessage { message_id } => {
             xmtp_content_types::delete_message::DeleteMessageCodec::encode(proto::DeleteMessage {
-                message_id: message_id.0,
+                message_id: message_id.into_checked()?,
             })
         }
         StandardContent::LeaveRequest(value) => {
@@ -919,15 +932,15 @@ impl Reaction {
 
     pub(crate) fn into_proto(
         self,
-        reference: crate::MessageId,
-        reference_inbox_id: crate::InboxId,
+        reference: String,
+        reference_inbox_id: String,
     ) -> xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2 {
         use xmtp_proto::xmtp::mls::message_contents::content_types::{
             ReactionAction as ProtoAction, ReactionSchema as ProtoSchema, ReactionV2,
         };
         ReactionV2 {
-            reference: reference.0,
-            reference_inbox_id: reference_inbox_id.0,
+            reference,
+            reference_inbox_id,
             action: match self.action {
                 ReactionAction::Unknown => 0,
                 ReactionAction::Added => ProtoAction::Added as i32,

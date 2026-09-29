@@ -318,7 +318,7 @@ async fn event_filter_selects_before_queueing() {
             type_id: "reply".into(),
             version_major: 1,
         }),
-        sender_inbox_id: client.inbox_id().0,
+        sender_inbox_id: client.inbox_id().into_checked()?,
     });
     bus.emit(Some(message.clone()), None);
     bus.emit_with_context(
@@ -349,7 +349,7 @@ async fn event_filter_matches_stitched_dm_identifier() {
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
     let dm = client
         .inner
-        .find_or_create_dm(other.inbox_id().0, None)
+        .find_or_create_dm(other.inbox_id().into_checked()?, None)
         .await?;
     let dm_identifier = dm.dm_id.clone().expect("DM ID");
     let reader = client
@@ -400,11 +400,11 @@ async fn consent_event_for_stitched_dm_reaches_group_filter() {
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
     let dm_a = client
         .inner
-        .find_or_create_dm(other.inbox_id().0, None)
+        .find_or_create_dm(other.inbox_id().into_checked()?, None)
         .await?;
     let dm_b = other
         .inner
-        .find_or_create_dm(client.inbox_id().0, None)
+        .find_or_create_dm(client.inbox_id().into_checked()?, None)
         .await?;
     assert_ne!(dm_a.group_id, dm_b.group_id);
     client.inner.sync_welcomes().await?;
@@ -464,7 +464,7 @@ async fn event_filter_reports_storage_error_when_resolving_dm() {
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
     let dm = client
         .inner
-        .find_or_create_dm(other.inbox_id().0, None)
+        .find_or_create_dm(other.inbox_id().into_checked()?, None)
         .await?;
     client.inner.context.db().disconnect()?;
     let result = client
@@ -1047,10 +1047,10 @@ async fn message_action_push_defaults_follow_content_type() {
             .conversations()
             .react_to_message(reference.clone(), reaction.clone(), options)
             .await?;
-        assert!(!client.inner.message(hex::decode(&id.0)?)?.should_push);
+        assert!(!client.inner.message(id.to_bytes()?)?.should_push);
     }
     let raw_text = group.send(crate::encode_text("raw".into())?, None).await?;
-    assert!(client.inner.message(hex::decode(&raw_text.0)?)?.should_push);
+    assert!(client.inner.message(raw_text.to_bytes()?)?.should_push);
     let overridden = client
         .conversations()
         .react_to_message(
@@ -1062,12 +1062,7 @@ async fn message_action_push_defaults_follow_content_type() {
             }),
         )
         .await?;
-    assert!(
-        client
-            .inner
-            .message(hex::decode(&overridden.0)?)?
-            .should_push
-    );
+    assert!(client.inner.message(overridden.to_bytes()?)?.should_push);
     client.end().await?;
 }
 
@@ -1094,7 +1089,7 @@ async fn reaction_with_compression_only_does_not_push() {
             }),
         )
         .await?;
-    let stored = client.inner.message(hex::decode(&reaction.0)?)?;
+    let stored = client.inner.message(reaction.to_bytes()?)?;
     assert!(!stored.should_push);
     client.end().await?;
 }
@@ -1132,7 +1127,7 @@ async fn added_account_opens_the_existing_inbox() {
     let identifier = signer::identity(second_signer.clone()).await?.to_core()?;
     let backend = options().backend.unwrap_or_default().resolve().await?;
     let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
-    let expected = owner.inbox_id().0;
+    let expected = owner.inbox_id().into_checked()?;
     tokio::time::timeout(Duration::from_secs(10), async {
         loop {
             let found = api
@@ -1622,7 +1617,7 @@ async fn backend_only_identity_and_message_queries() {
     )
     .await?;
     assert_eq!(metadata.len(), 1);
-    let group_id = group.id().0;
+    let group_id = group.id().into_checked()?;
     assert!(metadata[&group_id].created_at.0 > 0);
     let first_metadata = metadata[&group_id].created_at.0;
     let first_sequence_id = metadata[&group_id].sequence_id;
@@ -1773,8 +1768,8 @@ async fn latest_inbox_update_counts_preserve_registered_and_unknown_keys() {
         .latest_inbox_updates_count(vec![own.clone(), unknown.clone()], false)
         .await?;
     assert_eq!(counts.len(), 2);
-    assert!(counts[&own.0] > 0);
-    assert_eq!(counts[&unknown.0], 0);
+    assert!(counts[own.checked()?] > 0);
+    assert_eq!(counts[unknown.checked()?], 0);
     client.end().await?;
 }
 
@@ -1787,10 +1782,10 @@ async fn facade_key_package_statuses_keep_missing_entries() {
         .key_package_statuses(vec![own.clone(), missing.clone()])
         .await?;
     assert_eq!(entries.len(), 2);
-    assert!(entries[&own.0].lifetime.is_some());
-    assert!(entries[&own.0].validation_error.is_none());
-    assert!(entries[&missing.0].lifetime.is_none());
-    assert!(entries[&missing.0].validation_error.is_some());
+    assert!(entries[own.checked()?].lifetime.is_some());
+    assert!(entries[own.checked()?].validation_error.is_none());
+    assert!(entries[missing.checked()?].lifetime.is_none());
+    assert!(entries[missing.checked()?].validation_error.is_some());
 
     let backend_entries = crate::static_helpers::key_package_statuses_with_backend(
         options().backend.expect("backend options"),
@@ -1798,11 +1793,11 @@ async fn facade_key_package_statuses_keep_missing_entries() {
     )
     .await?;
     assert_eq!(backend_entries.len(), 2);
-    let registered = &backend_entries[&own.0];
+    let registered = &backend_entries[own.checked()?];
     let lifetime = registered.lifetime.as_ref().expect("registered package");
     assert!(lifetime.not_after > lifetime.not_before);
     assert!(registered.validation_error.is_none());
-    let absent = &backend_entries[&missing.0];
+    let absent = &backend_entries[missing.checked()?];
     assert!(absent.lifetime.is_none());
     assert_eq!(
         absent.validation_error.as_deref(),
@@ -1856,7 +1851,7 @@ async fn facade_message_counts_and_last_read_times() {
     a.conversations().sync_all(None).await?;
     let times = a_dm.last_read_times().await?;
     assert_eq!(times.len(), 1);
-    assert!(times[&b.inbox_id().0].0 > 0);
+    assert!(times[&b.inbox_id().into_checked()?].0 > 0);
     a.end().await?;
     b.end().await?;
 }
@@ -1889,7 +1884,9 @@ async fn facade_hmac_keys_include_duplicate_dms() {
     a.conversations().sync_all(None).await?;
     let keys = a.conversations().hmac_keys().await?;
     for id in [first.id(), second.id()] {
-        let entry = keys.get(&id.0).expect("duplicate DM must have HMAC keys");
+        let entry = keys
+            .get(id.checked()?)
+            .expect("duplicate DM must have HMAC keys");
         assert_eq!(entry.len(), 3);
         assert!(entry.iter().all(|key| key.key.len() == 42));
         assert!(entry.iter().all(|key| key.epoch >= 1));
@@ -2629,26 +2626,26 @@ async fn conversation_reader_rereads_after_fall_behind() {
         "reader must start before new groups"
     );
     let first = client.conversations().create_group(vec![], None).await?;
-    let first_id = first.id().0;
+    let first_id = first.id();
     let delivered = xmtp_common::time::timeout(Duration::from_secs(5), pending)
         .await???
         .expect("first group");
-    assert!(matches!(delivered, crate::Conversation::Group { group } if group.id().0 == first_id));
+    assert!(matches!(delivered, crate::Conversation::Group { group } if group.id() == first_id));
 
     let mut expected = HashSet::new();
     // The core event hint queue holds ten entries. Its overflow must be read
     // after the database scan has delivered all groups.
     for _ in 0..13 {
         let group = client.conversations().create_group(vec![], None).await?;
-        expected.insert(group.id().0);
+        expected.insert(group.id().into_checked()?);
     }
     for _ in 0..expected.len() {
         let conversation = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
             .await??
             .expect("stored conversation");
         let id = match conversation {
-            crate::Conversation::Group { group } => group.id().0,
-            crate::Conversation::Dm { dm } => dm.id().0,
+            crate::Conversation::Group { group } => group.id().into_checked()?,
+            crate::Conversation::Dm { dm } => dm.id().into_checked()?,
         };
         assert!(expected.remove(&id), "duplicate or unrequested group");
     }
@@ -3634,10 +3631,10 @@ async fn signer_and_credential_calls_start_off_executor() {
 async fn message_ids_round_trip_hex() {
     let raw = xmtp_proto::types::GroupId::from([0xab; 16]);
     let conversation = ConversationId::from(raw);
-    assert_eq!(conversation.0, "ab".repeat(16));
+    assert_eq!(conversation.checked()?, "ab".repeat(16));
     assert_eq!(xmtp_proto::types::GroupId::try_from(conversation)?, raw);
     let message = MessageId::from_bytes(&[0xcd; 32])?;
-    assert_eq!(MessageId::try_from(message.0.clone())?, message);
+    assert_eq!(MessageId::try_from(message.checked()?.to_owned())?, message);
     assert!(matches!(
         MessageId::try_from("CD".repeat(32)),
         Err(XmtpError::InvalidArgument(_))
@@ -3650,6 +3647,132 @@ async fn message_ids_round_trip_hex() {
         InboxId::try_from(String::new()),
         Err(XmtpError::InvalidArgument(_))
     ));
+}
+
+/// Lifts host text the way generated bindings do.
+fn host_id<T>(text: &str) -> T
+where
+    T: uniffi::Lift<crate::UniFfiTag, FfiType = uniffi::RustBuffer>,
+{
+    T::try_lift(uniffi::RustBuffer::from_vec(text.as_bytes().to_vec()))
+        .expect("host ID lift must not fail")
+}
+
+fn assert_invalid_argument<T>(result: Result<T, XmtpError>) {
+    match result {
+        Err(XmtpError::InvalidArgument(details)) => {
+            assert_eq!(details.code, "InvalidArgument");
+            assert!(matches!(details.category, crate::ErrorCategory::Input));
+            assert!(!details.retryable);
+        }
+        Err(error) => panic!("expected InvalidArgument, got {error:?}"),
+        Ok(_) => panic!("malformed ID was accepted"),
+    }
+}
+
+// Uppercase hex decodes, so only ID validation rejects it.
+fn uppercase_hex(bytes: usize) -> String {
+    "AB".repeat(bytes)
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn host_id_lift_defers_validation_to_checked_reads() {
+    let message: MessageId = host_id(&uppercase_hex(32));
+    assert_invalid_argument(message.checked());
+    assert_invalid_argument(message.to_bytes());
+    let installation: crate::InstallationId = host_id(&uppercase_hex(32));
+    assert_invalid_argument(installation.checked());
+    assert_invalid_argument(installation.to_bytes());
+    let conversation: ConversationId = host_id(&"ab".repeat(15));
+    assert_invalid_argument(conversation.to_bytes());
+    assert_invalid_argument(xmtp_proto::types::GroupId::try_from(conversation));
+    let inbox: InboxId = host_id("");
+    assert_invalid_argument(inbox.clone().into_checked());
+
+    let valid: MessageId = host_id(&"ab".repeat(32));
+    assert_eq!(valid.checked()?, "ab".repeat(32));
+    assert_eq!(valid.to_bytes()?, vec![0xab; 32]);
+
+    let nested = crate::EncodedContent {
+        r#type: crate::standard_content_type(crate::StandardContentKind::Text),
+        parameters: Default::default(),
+        fallback: None,
+        content: b"hi".to_vec(),
+    };
+    let reaction = crate::Reaction {
+        content: "+".into(),
+        action: crate::ReactionAction::Added,
+        schema: crate::ReactionSchema::Unicode,
+    };
+    let update = |added: InboxId| crate::GroupUpdated {
+        initiated_by_inbox_id: host_id("inbox"),
+        added_inboxes: vec![added],
+        removed_inboxes: vec![],
+        left_inboxes: vec![],
+        metadata_field_changes: vec![],
+        added_admin_inboxes: vec![],
+        removed_admin_inboxes: vec![],
+        added_super_admin_inboxes: vec![],
+        removed_super_admin_inboxes: vec![],
+    };
+    for content in [
+        crate::StandardContent::DeleteMessage {
+            message_id: host_id(&uppercase_hex(32)),
+        },
+        crate::StandardContent::Reaction {
+            reference: host_id(&uppercase_hex(32)),
+            reference_inbox_id: None,
+            reaction: reaction.clone(),
+        },
+        crate::StandardContent::Reaction {
+            reference: host_id(&"ab".repeat(32)),
+            reference_inbox_id: Some(host_id("")),
+            reaction,
+        },
+        crate::StandardContent::Reply {
+            reference: host_id(&uppercase_hex(32)),
+            reference_inbox_id: None,
+            content: nested.clone(),
+        },
+        crate::StandardContent::Reply {
+            reference: host_id(&"ab".repeat(32)),
+            reference_inbox_id: Some(host_id("")),
+            content: nested,
+        },
+        crate::StandardContent::GroupUpdated(update(host_id(""))),
+    ] {
+        assert_invalid_argument(crate::encode_standard(content));
+    }
+    crate::encode_standard(crate::StandardContent::GroupUpdated(update(host_id(
+        "peer",
+    ))))?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn malformed_host_ids_fail_operations_with_invalid_argument() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let conversations = client.conversations();
+    assert_invalid_argument(
+        conversations
+            .get_message_by_id(host_id(&uppercase_hex(32)))
+            .await,
+    );
+    assert_invalid_argument(conversations.get_by_id(host_id(&uppercase_hex(16))).await);
+    assert_invalid_argument(
+        client
+            .key_package_statuses(vec![host_id(&uppercase_hex(32))])
+            .await,
+    );
+    assert_invalid_argument(client.inbox_states(vec![host_id("")], false).await);
+    assert_invalid_argument(
+        client
+            .preferences()
+            .consent_state(crate::ConsentEntity::Conversation {
+                conversation_id: host_id(&uppercase_hex(16)),
+            })
+            .await,
+    );
+    client.end().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -3682,7 +3805,7 @@ async fn conversation_list_state_and_last_activity() {
     let older = client.conversations().create_group(vec![], None).await?;
     let newer = client.conversations().create_group(vec![], None).await?;
     let sent = older.send_text("most recent".into(), None).await?;
-    let stored_sent_at_ns = client.inner.message(hex::decode(&sent.0)?)?.sent_at_ns;
+    let stored_sent_at_ns = client.inner.message(sent.to_bytes()?)?.sent_at_ns;
     let ordered = client
         .conversations()
         .list(Some(ListConversationsOptions {
@@ -3817,13 +3940,16 @@ async fn encoded_sends_use_catalogue_push_defaults_and_explicit_override() {
         schema: ReactionSchema::Unicode,
     };
     let encoded_reaction = || {
-        ReactionCodec::encode(reaction().into_proto(parent.clone(), client.inbox_id()))
-            .map(Into::into)
+        ReactionCodec::encode(reaction().into_proto(
+            parent.checked()?.to_owned(),
+            client.inbox_id().into_checked()?,
+        ))
+        .map(Into::into)
     };
     let stored_push = |id: &MessageId| {
         client
             .inner
-            .message(hex::decode(&id.0).expect("message ID"))
+            .message(id.to_bytes().expect("message ID"))
             .expect("stored message")
             .should_push
     };
@@ -3878,7 +4004,7 @@ async fn assert_undecodable_standard_read_paths(
 ) -> Result<(), XmtpError> {
     let stored = client
         .inner
-        .message(hex::decode(&id.0).map_err(XmtpError::unknown)?)
+        .message(id.to_bytes()?)
         .map_err(XmtpError::unknown)?;
     let direct = crate::Message::from_stored(stored, client.client_key())?;
     let by_id = client
@@ -3920,7 +4046,7 @@ async fn invalid_text_bytes_stay_unknown_on_all_read_paths() {
     let id = group.send(encoded, None).await?;
     let raw = client
         .inner
-        .message(hex::decode(&id.0)?)?
+        .message(id.to_bytes()?)?
         .decrypted_message_bytes;
     assert_undecodable_standard_read_paths(&client, &group, id, &raw).await?;
     client.end().await?;
@@ -3948,7 +4074,7 @@ async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
     for actions in [top_level_only, actions, action_only] {
         let encoded = ActionsCodec::encode(actions)?;
         let id = group.send(encoded.into(), None).await?;
-        let stored = client.inner.message(hex::decode(&id.0)?)?;
+        let stored = client.inner.message(id.to_bytes()?)?;
         let raw = stored.decrypted_message_bytes.clone();
         let direct = crate::Message::from_stored(stored, client.client_key())?;
         let by_id = client
@@ -4165,7 +4291,7 @@ async fn failed_standard_reply_parent_decode_stays_unknown() {
         .conversations()
         .reply_to_message(parent_id.clone(), crate::encode_text("reply".into())?, None)
         .await?;
-    let parent_bytes = hex::decode(&parent_id.0)?;
+    let parent_bytes = parent_id.to_bytes()?;
     let stored = client.inner.message(parent_bytes.clone())?;
     let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
     encoded.content = vec![0xff, 0xfe];
@@ -4285,7 +4411,7 @@ async fn get_message_by_id_errors_on_unconvertible_row() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let id = group.send_text("valid".into(), None).await?;
-    let id_bytes = hex::decode(&id.0)?;
+    let id_bytes = id.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&id_bytes)))
             .set(dsl::sender_inbox_id.eq(""))
@@ -4310,7 +4436,7 @@ async fn history_skips_bad_row_and_warns_without_content() {
     let bad = group
         .send_text("sensitive-history-content".into(), None)
         .await?;
-    let bad_bytes = hex::decode(&bad.0)?;
+    let bad_bytes = bad.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&bad_bytes)))
             .set(dsl::sender_inbox_id.eq(""))
@@ -4336,7 +4462,7 @@ async fn history_skips_bad_row_and_warns_without_content() {
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
     let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
-    assert_eq!(warning["message_id"], bad.0);
+    assert_eq!(warning["message_id"], bad.checked()?);
     assert!(
         warning["error"]
             .as_str()
@@ -4367,7 +4493,7 @@ async fn history_skips_bad_reaction_and_warns_without_content() {
             None,
         )
         .await?;
-    let reaction_bytes = hex::decode(&reaction.0)?;
+    let reaction_bytes = reaction.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&reaction_bytes)))
             .set(dsl::sender_inbox_id.eq(""))
@@ -4400,7 +4526,7 @@ async fn history_skips_bad_reaction_and_warns_without_content() {
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
     let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
-    assert_eq!(warning["reaction_id"], reaction.0);
+    assert_eq!(warning["reaction_id"], reaction.checked()?);
     assert!(
         warning["error"]
             .as_str()
@@ -4424,7 +4550,7 @@ async fn reply_omits_bad_parent_and_warns_without_content() {
         .conversations()
         .reply_to_message(parent.clone(), crate::encode_text("reply".into())?, None)
         .await?;
-    let parent_bytes = hex::decode(&parent.0)?;
+    let parent_bytes = parent.to_bytes()?;
     client.inner.context.db().raw_query(|conn| {
         xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&parent_bytes)))
             .set(dsl::sender_inbox_id.eq(""))
@@ -4444,7 +4570,7 @@ async fn reply_omits_bad_parent_and_warns_without_content() {
         .expect("reply in history");
     assert!(history_reply.0.in_reply_to.is_none());
 
-    let reply_bytes = hex::decode(&reply.0)?;
+    let reply_bytes = reply.to_bytes()?;
     let enriched = group
         .inner
         .find_messages_v2_with_stored(&MsgQueryArgs::default())?
@@ -4464,7 +4590,7 @@ async fn reply_omits_bad_parent_and_warns_without_content() {
         .collect::<Vec<_>>();
     assert_eq!(warnings.len(), 1, "expected one warning: {warnings:?}");
     let warning: serde_json::Value = serde_json::from_str(warnings[0])?;
-    assert_eq!(warning["parent_id"], parent.0);
+    assert_eq!(warning["parent_id"], parent.checked()?);
     assert!(
         warning["error"]
             .as_str()
@@ -4597,7 +4723,7 @@ async fn group_updated_message_filter_finds_stored_row() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let content = GroupUpdatedCodec::encode(GroupUpdated {
-        initiated_by_inbox_id: client.inbox_id().0,
+        initiated_by_inbox_id: client.inbox_id().into_checked()?,
         ..Default::default()
     })?;
     let kind = content.r#type.clone().expect("typed content");
@@ -4687,7 +4813,7 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let id = group.send_text("valid".into(), None).await?;
-    let id_bytes = hex::decode(&id.0)?;
+    let id_bytes = id.to_bytes()?;
     let stored = client.inner.message(id_bytes.clone())?;
     let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
     encoded.compression = Some(99);
@@ -4712,7 +4838,7 @@ async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
     let group = client.conversations().create_group(vec![], None).await?;
     for empty_authority in [true, false] {
         let id = group.send_text("valid".into(), None).await?;
-        let id_bytes = hex::decode(&id.0)?;
+        let id_bytes = id.to_bytes()?;
         let stored = client.inner.message(id_bytes.clone())?;
         let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
         let kind = encoded.r#type.as_mut().expect("typed text");
@@ -4771,12 +4897,12 @@ async fn reply_with_empty_nested_identifier_stays_unknown_on_all_read_paths() {
             kind.type_id.clear();
         }
         let outer = ReplyCodec::encode(Reply {
-            reference: parent.0.clone(),
-            reference_inbox_id: Some(client.inbox_id().0.clone()),
+            reference: parent.checked()?.to_owned(),
+            reference_inbox_id: Some(client.inbox_id().into_checked()?),
             content: nested,
         })?;
         let id = group.send(outer.into(), None).await?;
-        let stored = client.inner.message(hex::decode(&id.0)?)?;
+        let stored = client.inner.message(id.to_bytes()?)?;
         let raw = stored.decrypted_message_bytes.clone();
         let direct = crate::Message::from_stored(stored, client.client_key())?;
         let by_id = client
@@ -4856,14 +4982,17 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
             action: ReactionAction::Added,
             schema: ReactionSchema::Unicode,
         }
-        .into_proto(reference.clone(), client.inbox_id()),
+        .into_proto(
+            reference.checked()?.to_owned(),
+            client.inbox_id().into_checked()?,
+        ),
     )?
     .into();
     let reply_id = client
         .conversations()
         .reply_to_message(reference.clone(), nested, None)
         .await?;
-    let stored = client.inner.message(hex::decode(&reply_id.0)?)?;
+    let stored = client.inner.message(reply_id.to_bytes()?)?;
     let decoded = client
         .decode_content(
             ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?.into(),
@@ -4901,12 +5030,15 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
             action: ReactionAction::Added,
             schema: ReactionSchema::Unicode,
         }
-        .into_proto(reference.clone(), client.inbox_id()),
+        .into_proto(
+            reference.checked()?.to_owned(),
+            client.inbox_id().into_checked()?,
+        ),
     )?;
     let expected_content = nested.content.clone();
     let compressed = compress(nested, WireCompression::Gzip)?;
     let outer = ReplyCodec::encode(Reply {
-        reference: reference.0.clone(),
+        reference: reference.checked()?.to_owned(),
         reference_inbox_id: None,
         content: compressed,
     })?;
@@ -4937,7 +5069,7 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
     let group = client.conversations().create_group(vec![], None).await?;
     let text: EncodedContent = TextCodec::encode("plain".into())?.into();
     let plain = group.send(text, None).await?;
-    let stored = client.inner.message(hex::decode(&plain.0)?)?;
+    let stored = client.inner.message(plain.to_bytes()?)?;
     assert_eq!(
         ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?.compression,
         None
@@ -4953,7 +5085,7 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
             }),
         )
         .await?;
-    let stored = client.inner.message(hex::decode(&compressed_id.0)?)?;
+    let stored = client.inner.message(compressed_id.to_bytes()?)?;
     assert!(matches!(
         MessageContent::decode(stored.decrypted_message_bytes.clone())?,
         MessageContent::Text(value) if value == "compressed"
@@ -5054,7 +5186,7 @@ async fn unknown_message_bytes_remain_available_to_the_host() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let id = group.send_text("fallback".into(), None).await?;
-    let mut stored = client.inner.message(hex::decode(&id.0)?)?;
+    let mut stored = client.inner.message(id.to_bytes()?)?;
     let original = vec![0xff, 0x00, 0x80];
     stored.decrypted_message_bytes = original.clone();
     let message = crate::Message::from_stored(stored, client.client_key())?;
@@ -5064,7 +5196,7 @@ async fn unknown_message_bytes_remain_available_to_the_host() {
     assert_eq!(raw_bytes, &original);
     assert_eq!(message.0.encoded.content, original);
 
-    let mut stored = client.inner.message(hex::decode(&id.0)?)?;
+    let mut stored = client.inner.message(id.to_bytes()?)?;
     let mut proto = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
     proto.compression = Some(12_345);
     let original_content = proto.content.clone();
@@ -5329,7 +5461,7 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
 
     let mut inactive = None;
     for id in [first.clone(), second.clone()] {
-        let bytes = hex::decode(&id.0)?;
+        let bytes = id.to_bytes()?;
         if let Some((stored, stitched)) = a.inner.message_with_group(&bytes).await?
             && stored.group_id != stitched.group_id
         {
@@ -5339,10 +5471,10 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     }
     let id = inactive.expect("one duplicate DM must be inactive");
     let owner = if id == first { &a } else { &b };
-    let stored = owner.inner.message(hex::decode(&id.0)?)?;
-    assert_eq!(stored.sender_inbox_id, owner.inbox_id().0);
+    let stored = owner.inner.message(id.to_bytes()?)?;
+    assert_eq!(stored.sender_inbox_id, owner.inbox_id().into_checked()?);
     let active_id = if id == first { &second } else { &first };
-    let active_group_id = owner.inner.message(hex::decode(&active_id.0)?)?.group_id;
+    let active_group_id = owner.inner.message(active_id.to_bytes()?)?.group_id;
     let crate::Conversation::Dm { dm: resolved_dm } = owner
         .conversations()
         .get_by_id(stored.group_id.into())
@@ -5366,7 +5498,7 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
         .send_text("keep other duplicate active".into(), None)
         .await?;
     for message_id in [&id] {
-        let bytes = hex::decode(&message_id.0)?;
+        let bytes = message_id.to_bytes()?;
         let (stored, winner) = owner
             .inner
             .message_with_group(&bytes)
@@ -5489,7 +5621,7 @@ fn standard_content_types_decode_to_records() {
         ..Default::default()
     };
     assert!(
-        matches!(MessageContent::decode(GroupUpdatedCodec::encode(update)?.encode_to_vec())?, MessageContent::GroupUpdated(value) if value.initiated_by_inbox_id.0 == "inbox")
+        matches!(MessageContent::decode(GroupUpdatedCodec::encode(update)?.encode_to_vec())?, MessageContent::GroupUpdated(value) if value.initiated_by_inbox_id.checked().ok() == Some("inbox"))
     );
     let leave = LeaveRequest {
         authenticated_note: Some(b"note".to_vec()),

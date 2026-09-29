@@ -10,8 +10,6 @@
         flakeFormatter = true;
         flakeCheck = true;
         projectRootFile = "flake.nix";
-        # Preserve upstream formatting in pinned dependency sources.
-        settings.global.excludes = [ "vendor/**" ];
         programs = {
           nixfmt.enable = true;
           rustfmt = {
