@@ -222,7 +222,7 @@ where
                 // An older build stored this row before the creation check.
                 // It fails here and is never queued; the transaction commits.
                 // A saved prepared attempt may already be on the backend, so
-                // its outcome stays unknown and SEND-007 may publish it.
+                // its outcome stays unknown and its saved bytes may still publish.
                 // implements: GMOD-035
                 if message.delivery_status != DeliveryStatus::Published
                     && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)

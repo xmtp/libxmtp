@@ -236,7 +236,7 @@ async fn queued_reserved_intent_fails_without_blocking_later_sends() {
 /// A reserved row whose send intent an older build already prepared keeps
 /// its unknown outcome: `publish_stored_message` neither fails the row nor
 /// reports a refusal, because the saved bytes may already be on the backend
-/// and SEND-007 may publish them.
+/// and may still publish.
 // verifies: GMOD-035
 #[xmtp_common::test(unwrap_try = true)]
 async fn stored_reserved_message_with_saved_attempt_is_not_refused() {
