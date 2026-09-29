@@ -31,6 +31,8 @@ Run commands from the repository root in the Nix shell. Run
   PROC-032 backlink removal in four named SDK source files, checked against
   their full base content. Later backlink changes need a reviewed gate update.
   The gate rejects code, scripts, generated output, and file-mode changes.
+  Locally, pass the base branch (`just sdk check-isolation self-hosted`): a
+  branch tip that merges trunk otherwise looks like a pull request merge commit.
   Tests and changelogs remain outside the shipped-code guard.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.

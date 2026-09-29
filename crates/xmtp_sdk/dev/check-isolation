@@ -1,31 +1,37 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs
-# there may change (spec evidence, and owner-approved behaviour changes made in
-# core). The four Task 1 SDK source files may contain only their reviewed
-# PROC-032 backlink removal. Compare their full bytes with the base after that
-# one replacement. This does not mistake string content or text outside KDoc
+# Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs there may change
+# (spec evidence, and owner-approved behaviour changes made in core). The four Task 1 SDK source
+# files may contain only their reviewed PROC-032 backlink removal. Compare their full bytes with
+# the base after that one replacement. This does not mistake string content or text outside KDoc
 # for a comment.
-# A stacked pull request is checked against its own base, so a lower PR's
-# changes do not count. In a pull request run, HEAD is GitHub's merge commit and
-# its first parent is the base; the workflow's base_ref can name the stack's
-# trunk instead, so the merge commit wins. Otherwise use the given base branch,
-# or self-hosted.
+# A stacked pull request is checked against its own base, so a lower PR's changes do not count.
+# A given base branch wins. In a pull request run (no argument), HEAD is GitHub's merge commit
+# and its first parent is the base; the workflow's base_ref can name the stack's trunk instead,
+# so the merge commit wins over self-hosted. A local branch whose tip merges trunk also has a
+# second parent, so run the gate locally with a base branch, for example
+# `just sdk check-isolation self-hosted`.
 fail_query() {
   echo "SDK isolation gate could not inspect Git state: $1" >&2
   exit 1
 }
 
-if git rev-parse -q --verify HEAD^2 >/dev/null; then
-  base_ref="HEAD^1"
-  base=$(git rev-parse HEAD^1) || fail_query "merge commit base"
-elif [ -n "${1:-}" ]; then
+if [ -n "${1:-}" ]; then
   base_ref="origin/$1"
-  base=$(git merge-base HEAD "$base_ref") || fail_query "merge base"
+  if ! base=$(git merge-base HEAD "$base_ref"); then
+    fail_query "merge base"
+  fi
+elif git rev-parse -q --verify HEAD^2 >/dev/null; then
+  base_ref="HEAD^1"
+  if ! base=$(git rev-parse HEAD^1); then
+    fail_query "merge commit base"
+  fi
 else
   base_ref="origin/self-hosted"
-  base=$(git merge-base HEAD "$base_ref") || fail_query "merge base"
+  if ! base=$(git merge-base HEAD "$base_ref"); then
+    fail_query "merge base"
+  fi
 fi
 echo "Checking SDK isolation against $base_ref" >&2
 if ! facade_changed=$(git diff --name-only "$base" -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/); then
