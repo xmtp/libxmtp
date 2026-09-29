@@ -219,10 +219,13 @@ mod tests {
     }
 
     /// Expiry cleanup reports which message was deleted, not what it said.
+    /// The item is the deleted-message placeholder, so no host decodes an
+    /// empty body.
     // verifies: META-051
     #[xmtp_common::test(unwrap_try = true)]
     async fn expired_message_deletion_event_carries_no_body() {
-        use crate::messages::decoded_message::MessageBody;
+        use crate::messages::decoded_message::{DeletedBy, MessageBody};
+        use crate::messages::enrichment::deleted_message_content_type;
         use crate::subscriptions::StreamMessages;
         use futures::StreamExt;
         use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
@@ -239,8 +242,7 @@ mod tests {
             .context
             .events()
             .subscribe(
-                EventFilter::default()
-                    .with_internal(|event| matches!(event, InternalEvent::MessagesDeleted(_))),
+                EventFilter::default().with_internal(InternalEvent::is_message_deletion),
                 Some(8),
             )
             .stream_message_deletions();
@@ -258,9 +260,21 @@ mod tests {
             .expect("a deletion item")?;
         assert_eq!(deleted.metadata.id, message_id);
         assert_eq!(deleted.metadata.group_id, group.group_id);
+        assert_eq!(deleted.metadata.sender_inbox_id, alix.inbox_id());
+        assert_eq!(
+            deleted.metadata.content_type,
+            deleted_message_content_type(),
+            "the deletion item has no content type"
+        );
         assert!(
-            !matches!(deleted.content, MessageBody::Text(_)),
-            "the deletion event carried the expired text"
+            matches!(
+                deleted.content,
+                MessageBody::DeletedMessage {
+                    deleted_by: DeletedBy::Sender
+                }
+            ),
+            "the deletion item carried a body: {:?}",
+            deleted.content
         );
         assert_eq!(deleted.fallback_text, None);
     }

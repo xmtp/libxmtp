@@ -125,7 +125,7 @@ for (const message of messages) {
 
 ### Stream deleted messages
 
-The `streamMessageDeletions` method has been deprecated and will be removed in a future release. Use the new `streamDeletedMessages` method. This new method streams the entire decoded message of deleted messages rather than just the message ID.
+The `streamMessageDeletions` method has been deprecated and will be removed in a future release. Use the new `streamDeletedMessages` method. This new method streams the decoded message of deleted messages rather than just the message ID. A message removed because it expired arrives as a deleted-message placeholder: it carries the message's identity and metadata, but no content or fallback.
 
 ```ts
 const deletedMessagesStream =
