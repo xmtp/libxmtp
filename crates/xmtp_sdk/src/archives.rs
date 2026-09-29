@@ -1,19 +1,13 @@
 use std::sync::Arc;
 
-use futures::{
-    AsyncReadExt,
-    io::{BufReader, Cursor},
-};
+use futures::io::{BufReader, Cursor};
 #[cfg(not(target_arch = "wasm32"))]
 use xmtp_mls::worker::device_sync::archive::BACKUP_VERSION;
 use xmtp_mls::{
     context::XmtpSharedContext,
     worker::device_sync::{
         ArchiveOptions as CoreArchiveOptions, BackupElementSelection as CoreElement,
-        archive::{
-            ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,
-            insert_importer,
-        },
+        archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_importer},
     },
 };
 
@@ -110,7 +104,8 @@ impl Archives {
         let key = key(key_bytes)?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            let mut exporter = ArchiveExporter::new(
+            let mut bytes = Vec::new();
+            exporter::export(
                 options
                     .unwrap_or(ArchiveOptions {
                         start: None,
@@ -121,12 +116,9 @@ impl Archives {
                     .into(),
                 client.context.db(),
                 &key,
-            );
-            let mut bytes = Vec::new();
-            exporter
-                .read_to_end(&mut bytes)
-                .await
-                .map_err(XmtpError::unknown)?;
+                &mut bytes,
+            )
+            .map_err(XmtpError::unknown)?;
             Ok(bytes)
         })
         .await
@@ -262,7 +254,7 @@ impl Archives {
                     elements: None,
                     exclude_disappearing_messages: false,
                 });
-                let saved = ArchiveExporter::export_to_file(
+                let saved = exporter::ArchiveExporter::export_to_file(
                     options.into(),
                     client.context.db(),
                     path,

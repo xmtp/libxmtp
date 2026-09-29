@@ -57,10 +57,12 @@ pub fn export(
     Ok(metadata)
 }
 
-/// An archive as an [`AsyncRead`] byte stream, for callers that consume one.
-/// [`ArchiveExporter::new`] runs [`export`] into chunks that reads release, so
-/// memory peaks near one copy of the archive. An export failure is returned by
-/// every read as an [`io::Error`] with its message, and no archive byte is served.
+/// An archive as an [`AsyncRead`] byte stream, for callers that consume one
+/// (the wasm binding). [`ArchiveExporter::new`] runs [`export`] into chunks
+/// that reads release, so memory peaks near one copy of the archive. A caller
+/// that only wants the bytes should pass its buffer to [`export`] instead. An
+/// export failure is returned by every read as an [`io::Error`] with its
+/// message, and no archive byte is served.
 pub struct ArchiveExporter {
     archive: Result<VecDeque<Vec<u8>>, String>,
 }

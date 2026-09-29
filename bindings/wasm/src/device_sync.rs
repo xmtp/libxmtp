@@ -9,7 +9,9 @@ use wasm_bindgen::{JsError, prelude::wasm_bindgen};
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::worker::device_sync::{
   ArchiveOptions as XmtpArchiveOptions, BackupElementSelection,
-  archive::{ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter, insert_importer},
+  archive::{
+    ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
+  },
 };
 use xmtp_proto::xmtp::device_sync::BackupElementSelection as BackupElementSelectionProto;
 
@@ -161,16 +163,19 @@ impl DeviceSync {
     opts: ArchiveOptions,
     key: Uint8Array,
   ) -> Result<Uint8Array, JsError> {
+    use futures::AsyncReadExt;
+
     let key = check_key(&key)?;
-    let mut archive = Vec::new();
-    exporter::export(
-      opts.into(),
-      self.inner_client.context.db(),
-      &key,
-      &mut archive,
-    )
-    .map_err(ErrorWrapper::js)?;
-    Ok(Uint8Array::from(archive.as_slice()))
+    let db = self.inner_client.context.db();
+    let mut exporter = ArchiveExporter::new(opts.into(), db, &key);
+
+    let mut buffer = Vec::new();
+    exporter
+      .read_to_end(&mut buffer)
+      .await
+      .map_err(|e| JsError::new(&format!("Failed to export archive: {}", e)))?;
+
+    Ok(Uint8Array::from(buffer.as_slice()))
   }
 
   /// Import an archive from bytes.
@@ -184,11 +189,11 @@ impl DeviceSync {
     let reader = Box::pin(BufReader::new(Cursor::new(data)));
     let mut importer = ArchiveImporter::load(reader, &key)
       .await
-      .map_err(ErrorWrapper::js)?;
+      .map_err(|e| JsError::new(&format!("Failed to load archive: {}", e)))?;
 
     insert_importer(&mut importer, &self.inner_client.context)
       .await
-      .map_err(ErrorWrapper::js)?;
+      .map_err(|e| JsError::new(&format!("Failed to import archive: {}", e)))?;
 
     Ok(())
   }
@@ -208,7 +213,7 @@ impl DeviceSync {
     let reader = Box::pin(BufReader::new(Cursor::new(data)));
     let importer = ArchiveImporter::load(reader, &key)
       .await
-      .map_err(ErrorWrapper::js)?;
+      .map_err(|e| JsError::new(&format!("Failed to load archive: {}", e)))?;
 
     Ok(importer.metadata.into())
   }
