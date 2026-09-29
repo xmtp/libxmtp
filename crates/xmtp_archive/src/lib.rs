@@ -4,7 +4,8 @@
 //! `xmtp_mls`, `xmtp_sdk`, and the bindings use [`exporter::export`], or the
 //! `exporter::ArchiveExporter` adapters (a file or buffer off the async
 //! workers on native, a byte stream on wasm), to write an archive from the database and [`ArchiveImporter`] to
-//! read one back. The exporter streams one consistent snapshot of every selected element (see
+//! read one back. [`check_key`] validates a key up front. [`ArchiveError`]
+//! implements `RetryableError`. The exporter streams one consistent snapshot of every selected element (see
 //! `snapshot`) and fails with [`ArchiveError`] if selected data cannot be read. The importer rejects
 //! any container version above [`BACKUP_VERSION`] and ends with an error on any incomplete or
 //! malformed framing.
@@ -12,7 +13,7 @@ use crate::archive_options::BackupElementSelection;
 use aes_gcm::{Aes256Gcm, KeyInit};
 pub use importer::ArchiveImporter;
 use thiserror::Error;
-use xmtp_common::ErrorCode;
+use xmtp_common::{ErrorCode, RetryableError};
 use xmtp_db::{ConnectionError, StorageError, diesel, sql_key_store::SqlKeyStoreError};
 use xmtp_mls_common::{
     group_metadata::GroupMetadataError, group_mutable_metadata::GroupMutableMetadataError,
@@ -86,6 +87,18 @@ pub enum ArchiveError {
     },
 }
 
+impl RetryableError for ArchiveError {
+    /// Only I/O and transient storage failures; format, key and group errors
+    /// recur on every attempt.
+    fn is_retryable(&self) -> bool {
+        match self {
+            Self::IO(_) => true,
+            Self::Storage(e) => e.is_retryable(),
+            _ => false,
+        }
+    }
+}
+
 impl From<ConnectionError> for ArchiveError {
     fn from(e: ConnectionError) -> Self {
         Self::Storage(e.into())
@@ -111,9 +124,11 @@ pub enum UnreadableGroup {
     MutableMetadata(#[from] GroupMutableMetadataError),
 }
 
-/// Rejects a key that is not [`ENC_KEY_SIZE`] bytes.
+/// Rejects a key that is not [`ENC_KEY_SIZE`] bytes. Export and import call
+/// it first; callers holding a large input may call it before copying that
+/// input.
 // implements: ARCH-012
-fn check_key(key: &[u8]) -> Result<(), ArchiveError> {
+pub fn check_key(key: &[u8]) -> Result<(), ArchiveError> {
     match key.len() {
         ENC_KEY_SIZE => Ok(()),
         len => Err(ArchiveError::InvalidKeyLength(len)),

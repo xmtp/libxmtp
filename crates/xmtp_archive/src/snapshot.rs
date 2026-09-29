@@ -387,6 +387,24 @@ mod tests {
         }
     }
 
+    /// Only transient archive failures are retryable: an I/O failure may
+    /// succeed on a second attempt, while a wrong key, a malformed archive or
+    /// an unreadable group fails the same way every time, so retrying them
+    /// only delays the error.
+    #[test]
+    fn archive_errors_are_retryable_only_when_transient() {
+        use xmtp_common::RetryableError;
+        assert!(ArchiveError::IO(std::io::Error::other("disk")).is_retryable());
+        for terminal in [
+            ArchiveError::InvalidKeyLength(31),
+            ArchiveError::MissingMetadata,
+            ArchiveError::UnsupportedVersion(u16::MAX),
+            ArchiveError::InvalidFrame("cut"),
+        ] {
+            assert!(!terminal.is_retryable(), "{terminal} is retryable");
+        }
+    }
+
     /// A file export whose caller has gone stops at its next write, rather
     /// than finishing an archive nobody awaits. A failed or cancelled export
     /// leaves the archive already at the destination intact and no temporary
