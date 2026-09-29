@@ -42,6 +42,7 @@ async fn test_create_from_welcome_validation() {
                 &mut mls_group,
                 &provider,
                 &alix.identity().installation_keys,
+                &[],
                 ComponentId::GROUP_MEMBERSHIP,
                 payload,
             )

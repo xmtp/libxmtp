@@ -224,13 +224,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
 
 [[waiver]]
-id = "META-004"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A scalar first write expands to an Update and fails the immutable permission gate, while an authorized insert-only delta can populate an absent immutable collection."
-
-[[waiver]]
 id = "META-051"
 kind = "gap"
 owner = "protocol"
@@ -668,6 +661,36 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
 
 [[waiver]]
+id = "META-069"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The core has no metadata field descriptor API yet. A later PR of the configured-metadata stack adds it to Rust core; exposure in bindings and SDKs is deferred by the owner beyond this stack."
+[[waiver]]
+id = "META-070"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The core has no typed field-ref read API yet. A later PR of the configured-metadata stack adds it to Rust core; exposure in bindings and SDKs is deferred by the owner beyond this stack."
+[[waiver]]
+id = "META-071"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The core has no typed field-ref write API yet. A later PR of the configured-metadata stack adds it to Rust core; exposure in bindings and SDKs is deferred by the owner beyond this stack."
+[[waiver]]
+id = "META-072"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The core has no user-data read API yet. A later PR of the configured-metadata stack adds it to Rust core; exposure in bindings and SDKs is deferred by the owner beyond this stack."
+[[waiver]]
+id = "META-073"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "The core has no own-inbox user-data write API yet. A later PR of the configured-metadata stack adds it to Rust core; exposure in bindings and SDKs is deferred by the owner beyond this stack."
+[[waiver]]
 id = "PROC-025"
 kind = "gap"
 owner = "protocol"
@@ -886,7 +909,7 @@ id = "CONF-061"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "No SDK exposes the attachments field of GetConfigurationResponse yet; binding and SDK exposure pending."
+reason = "No SDK exposes the attachments or application_components fields of GetConfigurationResponse yet; binding and SDK exposure pending."
 [[waiver]]
 id = "CONF-062"
 kind = "gap"
