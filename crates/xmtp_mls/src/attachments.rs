@@ -2350,24 +2350,31 @@ impl<Context: XmtpSharedContext> PendingAttachment<Context> {
 
     async fn lost_lease(&self, attempt: &Arc<PendingAttempt>) {
         *self.shared.lease.lock() = None;
-        self.end_local_attempt(attempt, None);
-        match self.record() {
-            Ok(Some(row)) => {
-                self.shared
-                    .watch
-                    .send_replace(status_from_row(&row, now_ns()));
-            }
-            Ok(None) => {
-                self.shared
-                    .watch
-                    .send_replace(PendingAttachmentStatus::Failed(AttachmentClientError::new(
-                        Cause::Deleted,
-                    )));
-            }
-            Err(error) => {
-                tracing::warn!(%error, "lost attachment lease status read will be retried")
+        {
+            // Read the record before this attempt ends. A delete in this client
+            // waits for that end before it removes the record and reports the
+            // failure, so a record that is gone here was removed by a delete
+            // that did not report it, for example one in another client.
+            let event_lock = self
+                .context
+                .attachment_runtime()
+                .event_lock(&self.reference().attachment_key);
+            let _event_guard = event_lock.lock().await;
+            match self.record() {
+                Ok(Some(row)) => {
+                    self.shared
+                        .watch
+                        .send_replace(status_from_row(&row, now_ns()));
+                }
+                Ok(None) => {
+                    self.publish_upload_outcome(&Err(AttachmentClientError::new(Cause::Deleted)));
+                }
+                Err(error) => {
+                    tracing::warn!(%error, "lost attachment lease status read will be retried")
+                }
             }
         }
+        self.end_local_attempt(attempt, None);
     }
 
     async fn finish_attempt(

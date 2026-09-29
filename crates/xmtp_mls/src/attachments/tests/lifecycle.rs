@@ -502,6 +502,74 @@ async fn delete_finishes_after_unrecorded_upload_outcome() {
     );
 }
 
+// verifies: ATCH-047, EVENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn delete_from_other_client_fails_upload_once() {
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), configured: offer, disable_workers);
+    let created = alix.client.attachments().create(bytes()).await?;
+    let remote = created.remote_attachment().clone();
+    let (url, entered_put, release_put) = paused_put(200).await;
+    // The uploader shares the database but has its own runtime and event bus.
+    let uploader = crate::builder::ClientBuilder::from_client(alix.client.clone())
+        .api_client(Arc::new(signed_put_api(url, 1)))
+        .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
+            offer,
+        )))
+        .attachment_options(AttachmentOptions {
+            allow_private_network: true,
+            ..Default::default()
+        })
+        .with_allow_offline(Some(true))
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    let events = uploader.context.events().subscribe_app(EventFilter::new([
+        EventKind::AttachmentUploadStarted,
+        EventKind::AttachmentUploadCompleted,
+        EventKind::AttachmentUploadFailed,
+    ]))?;
+    let pending = uploader.attachments().pending(&remote).await?;
+    let uploading = pending.clone();
+    let upload = xmtp_common::task::spawn(async move { uploading.upload().await });
+    tokio::time::timeout(Duration::from_secs(5), entered_put).await??;
+    tokio::time::timeout(
+        Duration::from_secs(5),
+        alix.client.attachments().delete_local(&remote),
+    )
+    .await??;
+    release_put.send(()).expect("release PUT response");
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(5), upload)
+            .await??
+            .unwrap_err()
+            .cause,
+        Cause::Deleted
+    );
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while pending.shared.attempt.lock().is_some() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await?;
+    assert_eq!(
+        *pending.shared.watch.borrow(),
+        PendingAttachmentStatus::Failed(AttachmentClientError::new(Cause::Deleted))
+    );
+    let emitted = events.drain();
+    assert_eq!(emitted.len(), 2);
+    assert!(matches!(
+        emitted[0].client,
+        Some(ClientEvent::AttachmentUploadStarted(_))
+    ));
+    assert!(matches!(
+        &emitted[1].client,
+        Some(ClientEvent::AttachmentUploadFailed(failed))
+            if failed.cause == Cause::Deleted.as_str()
+                && failed.content_digest == remote.content_digest
+    ));
+}
+
 // verifies: ATCH-047
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_delete_caller_does_not_leave_a_cancelled_pending_row() {
