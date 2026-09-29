@@ -373,22 +373,30 @@ mod tests {
         let cancel = tokio_util::sync::CancellationToken::new();
 
         exporter::write_file(consent.clone(), &db, &path, &KEY, &cancel)?;
+        let first = std::fs::read(&path)?;
+        #[cfg(unix)]
+        let mode = |path: &std::path::Path| {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+        };
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            let mode = |path: &std::path::Path| {
-                std::fs::metadata(path).unwrap().permissions().mode() & 0o777
-            };
             assert_eq!(mode(&path), 0o600, "a new archive is readable by others");
             std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))?;
-            exporter::write_file(consent.clone(), &db, &path, &KEY, &cancel)?;
-            assert_eq!(
-                mode(&path),
-                0o640,
-                "replacing an archive changed its permissions"
-            );
         }
+        exporter::write_file(consent.clone(), &db, &path, &KEY, &cancel)?;
         let prior = std::fs::read(&path)?;
+        assert_ne!(
+            prior, first,
+            "an export did not replace the existing archive"
+        );
+        #[cfg(unix)]
+        assert_eq!(
+            mode(&path),
+            0o640,
+            "replacing an archive changed its permissions"
+        );
         cancel.cancel();
         let failure = exporter::write_file(consent, &db, &path, &KEY, &cancel);
         assert!(failure.is_err(), "a cancelled export ran to completion");
