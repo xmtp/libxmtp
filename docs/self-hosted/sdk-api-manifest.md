@@ -3517,8 +3517,8 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/crypto.rs` | `test_ffi_error_mapping_invalid_private_key` | binding only: mobile FFI error conversion; the façade has its own error type |
 | `bindings/mobile/src/crypto.rs` | `test_ffi_error_mapping_invalid_pubkey_length` | binding only: mobile FFI error conversion; the façade has its own error type |
 | `bindings/mobile/src/crypto.rs` | `test_ffi_error_mapping_invalid_hash_length` | binding only: mobile FFI error conversion; the façade has its own error type |
-| `bindings/mobile/src/crypto.rs` | `test_ffi_basic_functionality` | façade: `crates/xmtp_sdk/src/tests.rs::encryption_round_trips_and_rejects_changed_bytes` |
-| `bindings/mobile/src/lib.rs` | `test_get_version_info` | façade: `crates/xmtp_sdk/src/tests.rs::client_configuration_and_credential_update` |
+| `bindings/mobile/src/crypto.rs` | `test_ffi_basic_functionality` | façade: `crates/xmtp_sdk/src/tests/client_setup.rs::encryption_round_trips_and_rejects_changed_bytes` |
+| `bindings/mobile/src/lib.rs` | `test_get_version_info` | façade: `crates/xmtp_sdk/src/tests/client_setup.rs::client_configuration_and_credential_update` |
 | `bindings/mobile/src/lib.rs` | `test_generic_error_code_unit_variant` | binding only: mobile FFI error and version wrappers; the façade has a separate error type |
 | `bindings/mobile/src/lib.rs` | `test_generic_error_code_string_variant` | binding only: mobile FFI error and version wrappers; the façade has a separate error type |
 | `bindings/mobile/src/lib.rs` | `test_generic_error_code_inherited_storage` | binding only: mobile FFI error and version wrappers; the façade has a separate error type |
@@ -3530,7 +3530,7 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/lib.rs` | `test_generic_error_from_error` | binding only: mobile FFI error and version wrappers; the façade has a separate error type |
 | `bindings/mobile/src/lib.rs` | `test_ffi_error_from_expired` | binding only: mobile FFI error and version wrappers; the façade has a separate error type |
 | `bindings/mobile/src/lib.rs` | `test_ffi_error_from_various_error_types` | binding only: mobile FFI error and version wrappers; the façade has a separate error type |
-| `bindings/mobile/src/lib.rs` | `auth_codes_reach_mobile_errors` | façade: `crates/xmtp_sdk/src/tests.rs::notification_and_auth_errors_keep_their_kinds` |
+| `bindings/mobile/src/lib.rs` | `auth_codes_reach_mobile_errors` | façade: `crates/xmtp_sdk/src/tests/error_records.rs::notification_and_auth_errors_keep_their_kinds` |
 | `bindings/mobile/src/logger/otlp_tests.rs` | `mobile_otlp_exports_identity_and_frees_slot` | binding only: mobile logger, file appender, or OTLP slot |
 | `bindings/mobile/src/logger.rs` | `ffi_config_maps_and_bad_dsn_errors` | binding only: mobile logger, file appender, or OTLP slot |
 | `bindings/mobile/src/logger.rs` | `test_file_appender` | binding only: mobile logger, file appender, or OTLP slot |
@@ -3544,7 +3544,7 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_proto_backup_element_selection_to_ffi_backup_element_selection` | façade: `crates/xmtp_sdk/src/archives.rs::archive_metadata_keeps_fields_and_filters_unspecified` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_proto_backup_element_selection_unspecified_fails` | binding only: mobile proto-to-FFI conversion rejects Unspecified; the façade filters unknown metadata elements |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_ffi_archive_options_to_backup_options` | façade: `crates/xmtp_sdk/src/archives.rs::archive_options_preserve_element_selection_and_time_bounds` |
-| `bindings/mobile/src/mls/device_sync/mod.rs` | `test_ffi_archive_options_empty_elements` | façade: `crates/xmtp_sdk/src/tests.rs::explicit_empty_archive_elements_export_nothing` |
+| `bindings/mobile/src/mls/device_sync/mod.rs` | `test_ffi_archive_options_empty_elements` | façade: `crates/xmtp_sdk/src/tests/archives.rs::explicit_empty_archive_elements_export_nothing` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_backup_metadata_to_ffi_backup_metadata` | façade: `crates/xmtp_sdk/src/archives.rs::archive_metadata_keeps_fields_and_filters_unspecified` |
 | `bindings/mobile/src/mls/device_sync/mod.rs` | `test_backup_metadata_filters_unspecified_elements` | façade: `crates/xmtp_sdk/src/archives.rs::archive_metadata_keeps_fields_and_filters_unspecified` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_create_new_installation_without_breaking_group` | core: `crates/xmtp_mls/src/worker/device_sync/tests.rs::test_task_runner_adds_new_installation_to_groups` |
@@ -3554,110 +3554,110 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_send_message_when_out_of_sync` | core: `crates/xmtp_mls/src/groups/tests/mod.rs::test_self_resolve_epoch_mismatch` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_send_messages_when_epochs_behind` | core: `crates/xmtp_mls/src/groups/tests/mod.rs::test_self_resolve_epoch_mismatch` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_can_add_members_when_out_of_sync` | core: `crates/xmtp_mls/src/groups/tests/mod.rs::test_self_resolve_epoch_mismatch` |
-| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_revoke_installation_for_two_users_and_group_modification` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::revoke_all_other_installations_skips_current_installation` |
-| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_revoke_installation_for_one_user_and_group_modification` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::revoke_all_other_installations_skips_current_installation` |
+| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_revoke_installation_for_two_users_and_group_modification` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::revoke_all_other_installations_skips_current_installation` |
+| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_revoke_installation_for_one_user_and_group_modification` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::revoke_all_other_installations_skips_current_installation` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_sync_consent` | core: `crates/xmtp_mls/src/worker/device_sync/tests.rs::test_incremental_consent` |
 | `bindings/mobile/src/mls/device_sync/tests.rs` | `test_set_and_get_group_consent` | core: `crates/xmtp_mls/src/groups/tests/mod.rs::test_get_and_set_consent` |
-| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_set_and_get_member_consent` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::member_consent_is_visible_in_group_member_record` |
+| `bindings/mobile/src/mls/device_sync/tests.rs` | `test_set_and_get_member_consent` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::member_consent_is_visible_in_group_member_record` |
 | `bindings/mobile/src/mls/local_delivery/tests.rs` | `replay_cursor_rejects_malformed_database_identity_with_typed_error` | binding only: reader and cursor input are Task 19 (#4250); this façade branch has no public replay cursor input |
 | `bindings/mobile/src/mls/local_delivery/tests.rs` | `catch_up_translation_keeps_previous_generation_and_typed_blocked_cause` | core: `crates/xmtp_mls/src/subscriptions/stream_failure/tests.rs::published_failure_keeps_zero_target_and_intent_identity` |
 | `bindings/mobile/src/mls/notifications.rs` | `notification_debug_redacts_credentials` | binding only: mobile debug formatting of the notification object |
-| `bindings/mobile/src/mls/tests/archive.rs` | `test_archive_excludes_disappearing_messages` | façade: `crates/xmtp_sdk/src/tests.rs::archive_excludes_disappearing_messages_when_requested` |
-| `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_storage` | façade: `crates/xmtp_sdk/src/tests.rs::storage_default_requires_host_and_directory_names_are_unique` |
-| `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_key` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::storage_key_rejects_wrong_key_for_existing_database` |
-| `bindings/mobile/src/mls/tests/client.rs` | `test_can_message` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::can_message_changes_after_peer_registration` |
-| `bindings/mobile/src/mls/tests/client.rs` | `test_key_package_validation` | façade: `crates/xmtp_sdk/src/tests.rs::facade_key_package_statuses_keep_missing_entries` |
-| `bindings/mobile/src/mls/tests/client.rs` | `test_get_hmac_keys` | façade: `crates/xmtp_sdk/src/tests.rs::facade_hmac_keys_include_duplicate_dms` |
-| `bindings/mobile/src/mls/tests/client.rs` | `test_shutdown_is_idempotent` | façade: `crates/xmtp_sdk/src/tests.rs::slice_create_send_read_stream_end` |
+| `bindings/mobile/src/mls/tests/archive.rs` | `test_archive_excludes_disappearing_messages` | façade: `crates/xmtp_sdk/src/tests/archives.rs::archive_excludes_disappearing_messages_when_requested` |
+| `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_storage` | façade: `crates/xmtp_sdk/src/tests/storage.rs::storage_default_requires_host_and_directory_names_are_unique` |
+| `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_key` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::storage_key_rejects_wrong_key_for_existing_database` |
+| `bindings/mobile/src/mls/tests/client.rs` | `test_can_message` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::can_message_changes_after_peer_registration` |
+| `bindings/mobile/src/mls/tests/client.rs` | `test_key_package_validation` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::facade_key_package_statuses_keep_missing_entries` |
+| `bindings/mobile/src/mls/tests/client.rs` | `test_get_hmac_keys` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::facade_hmac_keys_include_duplicate_dms` |
+| `bindings/mobile/src/mls/tests/client.rs` | `test_shutdown_is_idempotent` | façade: `crates/xmtp_sdk/src/tests/reader_delivery.rs::slice_create_send_read_stream_end` |
 | `bindings/mobile/src/mls/tests/client.rs` | `register_after_unconfirmed_registration_waits` | core: `crates/xmtp_mls/src/client/tests/lifecycle.rs::register_identity_waits_until_visible` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_can_send_and_receive_reaction` | façade: `crates/xmtp_sdk/src/tests.rs::message_actions_use_ids_and_compression_is_opt_in` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_reaction_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_multi_remote_attachment_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_transaction_reference_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_attachment_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_reply_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_read_receipt_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_remote_attachment_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_long_messages` | façade: `crates/xmtp_sdk/src/tests.rs::facade_long_text_message_round_trips` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_find_enriched_messages_with_reactions` | façade: `crates/xmtp_sdk/src/tests.rs::message_actions_use_ids_and_compression_is_opt_in` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_find_enriched_messages_with_replies` | façade: `crates/xmtp_sdk/src/tests.rs::message_actions_use_ids_and_compression_is_opt_in` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_intent_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_extended_content_records_keep_nested_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_actions_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_extended_content_records_keep_nested_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_group_updated_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_extended_content_records_keep_nested_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_leave_request_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_extended_content_records_keep_nested_fields` |
-| `bindings/mobile/src/mls/tests/content_types.rs` | `test_text_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_extended_content_records_keep_nested_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_can_send_and_receive_reaction` | façade: `crates/xmtp_sdk/src/tests/message_actions.rs::message_actions_use_ids_and_compression_is_opt_in` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_reaction_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_multi_remote_attachment_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_transaction_reference_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_attachment_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_reply_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_read_receipt_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_remote_attachment_roundtrip` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::facade_content_records_preserve_codec_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_long_messages` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::facade_long_text_message_round_trips` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_find_enriched_messages_with_reactions` | façade: `crates/xmtp_sdk/src/tests/message_actions.rs::message_actions_use_ids_and_compression_is_opt_in` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_find_enriched_messages_with_replies` | façade: `crates/xmtp_sdk/src/tests/message_actions.rs::message_actions_use_ids_and_compression_is_opt_in` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_intent_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::facade_extended_content_records_keep_nested_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_actions_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::facade_extended_content_records_keep_nested_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_group_updated_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::facade_extended_content_records_keep_nested_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_leave_request_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::facade_extended_content_records_keep_nested_fields` |
+| `bindings/mobile/src/mls/tests/content_types.rs` | `test_text_codec` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::facade_extended_content_records_keep_nested_fields` |
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_delete_message_encode_decode` | binding only: mobile standalone delete payload codec accepts arbitrary strings; the façade exposes a typed delete action and DeletedMessage result |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_find_or_create_dm` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_dms_sync_but_do_not_list` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_find_or_create_dm` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_dms_sync_but_do_not_list` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_stream_correct_type` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_streaming` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_stream_all_dm_messages` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_first_messages` | core: `crates/xmtp_mls/src/groups/tests/mod.rs::test_dm_stitching` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_get_dm_peer_inbox_id` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_get_dm_peer_inbox_id` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
 | `bindings/mobile/src/mls/tests/dms.rs` | `test_dm_permissions_show_expected_values` | binding only: mobile DM group-permissions getter; the façade Dm exposes consent state but no permission policy getter |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_set_disappearing_messages_when_creating_dm` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::create_options_keep_disappearing_settings_and_preset_permissions` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_can_successfully_thread_dms` | façade: `crates/xmtp_sdk/src/tests.rs::duplicate_dm_message_actions_keep_typed_results` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_can_successfully_thread_dms_with_no_messages` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_duplicate_lookup_finds_the_other_conversation` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_can_quickly_fetch_dm_peer_inbox_id` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_create_new_installation_can_see_dm` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::new_installation_can_find_existing_dm` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_can_find_duplicate_dms_for_group` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_duplicate_lookup_finds_the_other_conversation` |
-| `bindings/mobile/src/mls/tests/dms.rs` | `test_set_and_get_dm_consent` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::dm_consent_is_read_from_the_dm` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_create_group_with_members` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::group_creation_with_members_and_content_type_filters` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_create_group_with_metadata` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::group_creation_with_members_and_content_type_filters` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_removed_members_no_longer_update` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::removed_member_does_not_receive_later_group_message` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_group_permissions_show_expected_values` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::create_options_keep_disappearing_settings_and_preset_permissions` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_set_disappearing_messages_when_creating_dm` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::create_options_keep_disappearing_settings_and_preset_permissions` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_can_successfully_thread_dms` | façade: `crates/xmtp_sdk/src/tests/group_options.rs::duplicate_dm_message_actions_keep_typed_results` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_can_successfully_thread_dms_with_no_messages` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::dm_duplicate_lookup_finds_the_other_conversation` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_can_quickly_fetch_dm_peer_inbox_id` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_create_new_installation_can_see_dm` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::new_installation_can_find_existing_dm` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_can_find_duplicate_dms_for_group` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::dm_duplicate_lookup_finds_the_other_conversation` |
+| `bindings/mobile/src/mls/tests/dms.rs` | `test_set_and_get_dm_consent` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::dm_consent_is_read_from_the_dm` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_create_group_with_members` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::group_creation_with_members_and_content_type_filters` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_create_group_with_metadata` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::group_creation_with_members_and_content_type_filters` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_removed_members_no_longer_update` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::removed_member_does_not_receive_later_group_message` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_group_permissions_show_expected_values` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::create_options_keep_disappearing_settings_and_preset_permissions` |
 | `bindings/mobile/src/mls/tests/group_management.rs` | `test_permissions_updates` | core: `crates/xmtp_mls/src/groups/tests/test_metadata_permissions.rs::test_can_update_permissions_after_group_creation` |
 | `bindings/mobile/src/mls/tests/group_management.rs` | `test_app_data_permission_update` | core: `crates/xmtp_mls/src/groups/tests/test_metadata_permissions.rs::test_group_mutable_data_group_permissions` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_group_creation_custom_permissions` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::custom_permission_set_is_converted_and_invalid_set_is_rejected` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_group_creation_custom_permissions` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::custom_permission_set_is_converted_and_invalid_set_is_rejected` |
 | `bindings/mobile/src/mls/tests/group_management.rs` | `test_group_creation_custom_permissions_fails_when_invalid` | binding only: mobile checks policy fields supplied with a non-Custom mode; the façade enum cannot represent that pair, and its representable invalid policy is checked in `custom_permission_set_is_converted_and_invalid_set_is_rejected` |
 | `bindings/mobile/src/mls/tests/group_management.rs` | `test_update_policies_empty_group` | core: `crates/xmtp_mls/src/groups/tests/test_metadata_permissions.rs::test_update_policies_empty_group` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_can_stream_and_receive_metadata_update` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::reader_survives_group_name_update_without_fork` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_can_stream_and_receive_metadata_update` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::reader_survives_group_name_update_without_fork` |
 | `bindings/mobile/src/mls/tests/group_management.rs` | `test_disappearing_messages_deletion` | core: `crates/xmtp_mls/src/groups/tests/test_message_disappearing_settings.rs::test_disappearing_message_update_message_in_group` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_disappearing_messages_with_0_from_ns_settings` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::create_options_keep_disappearing_settings_and_preset_permissions` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_set_disappearing_messages_when_creating_group` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::create_options_keep_disappearing_settings_and_preset_permissions` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `rapidfire_duplicate_create` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::concurrent_create_keeps_one_inbox_id` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_disappearing_messages_with_0_from_ns_settings` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::create_options_keep_disappearing_settings_and_preset_permissions` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_set_disappearing_messages_when_creating_group` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::create_options_keep_disappearing_settings_and_preset_permissions` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `rapidfire_duplicate_create` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::concurrent_create_keeps_one_inbox_id` |
 | `bindings/mobile/src/mls/tests/group_management.rs` | `test_group_who_added_me` | core: `crates/xmtp_mls/src/groups/tests/test_send_receive.rs::test_can_read_group_creator_inbox_id` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_conversation_debug_info_returns_correct_values` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::group_creation_with_members_and_content_type_filters` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_list_conversations_last_message` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::listed_conversations_keep_last_message_and_empty_groups` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_list_conversations_no_messages` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::listed_conversations_keep_last_message_and_empty_groups` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_conversation_debug_info_returns_correct_values` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::group_creation_with_members_and_content_type_filters` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_list_conversations_last_message` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::listed_conversations_keep_last_message_and_empty_groups` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_list_conversations_no_messages` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::listed_conversations_keep_last_message_and_empty_groups` |
 | `bindings/mobile/src/mls/tests/group_management.rs` | `test_conversation_list_filters_readable_messages` | binding only: mobile list item filters its embedded last_message by readable type; the façade list has no embedded last message |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_can_list_messages_with_content_types` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::group_creation_with_members_and_content_type_filters` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_get_last_read_times` | façade: `crates/xmtp_sdk/src/tests.rs::facade_message_counts_and_last_read_times` |
-| `bindings/mobile/src/mls/tests/group_management.rs` | `test_pagination_of_conversations_list` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::conversation_list_limit_and_activity_cursor_cover_all_groups` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_can_list_messages_with_content_types` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::group_creation_with_members_and_content_type_filters` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_get_last_read_times` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::facade_message_counts_and_last_read_times` |
+| `bindings/mobile/src/mls/tests/group_management.rs` | `test_pagination_of_conversations_list` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::conversation_list_limit_and_activity_cursor_cover_all_groups` |
 | `bindings/mobile/src/mls/tests/group_management.rs` | `test_membership_state` | core: `crates/xmtp_mls/src/groups/tests/test_self_removal.rs::test_self_removal_group_update_message` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `get_inbox_id` | façade: `crates/xmtp_sdk/src/tests.rs::added_account_opens_the_existing_inbox` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_can_add_wallet_to_inbox` | façade: `crates/xmtp_sdk/src/tests.rs::added_account_opens_the_existing_inbox` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_associate_passkey` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::passkey_signature_associates_identity_through_facade` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `get_inbox_id` | façade: `crates/xmtp_sdk/src/tests/client_setup.rs::added_account_opens_the_existing_inbox` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_can_add_wallet_to_inbox` | façade: `crates/xmtp_sdk/src/tests/client_setup.rs::added_account_opens_the_existing_inbox` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_associate_passkey` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::passkey_signature_associates_identity_through_facade` |
 | `bindings/mobile/src/mls/tests/identity.rs` | `test_can_revoke_wallet` | core: `crates/xmtp_mls/src/identity_updates.rs::revoke_wallet` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_invalid_external_signature` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::unsigned_signature_request_cannot_register` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_sign_and_verify` | façade: `crates/xmtp_sdk/src/tests.rs::facade_authorization_and_installation_signatures` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_revoke_all_installations` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::revoke_all_other_installations_skips_current_installation` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_revoke_all_installations_no_crash` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::revoke_all_other_installations_skips_current_installation` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_revoke_installations` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::revoke_all_other_installations_skips_current_installation` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_can_not_create_new_inbox_id_with_already_associated_wallet` | façade: `crates/xmtp_sdk/src/tests.rs::associated_wallet_uses_existing_inbox` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_wallet_b_cannot_create_new_client_for_inbox_b_after_association` | façade: `crates/xmtp_sdk/src/tests.rs::associated_wallet_uses_existing_inbox` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_invalid_external_signature` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::unsigned_signature_request_cannot_register` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_sign_and_verify` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::facade_authorization_and_installation_signatures` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_revoke_all_installations` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::revoke_all_other_installations_skips_current_installation` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_revoke_all_installations_no_crash` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::revoke_all_other_installations_skips_current_installation` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_revoke_installations` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::revoke_all_other_installations_skips_current_installation` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_can_not_create_new_inbox_id_with_already_associated_wallet` | façade: `crates/xmtp_sdk/src/tests/lifecycle.rs::associated_wallet_uses_existing_inbox` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_wallet_b_cannot_create_new_client_for_inbox_b_after_association` | façade: `crates/xmtp_sdk/src/tests/lifecycle.rs::associated_wallet_uses_existing_inbox` |
 | `bindings/mobile/src/mls/tests/identity.rs` | `test_cannot_create_more_than_max_installations` | core: `crates/xmtp_mls/src/server_configuration/tests/applied_tests.rs::a_lowered_installation_limit_refuses_the_registration` |
-| `bindings/mobile/src/mls/tests/identity.rs` | `test_sorts_members_by_created_at_using_ffi_identifiers` | façade: `crates/xmtp_sdk/src/tests.rs::inbox_state_preserves_member_creation_order` |
+| `bindings/mobile/src/mls/tests/identity.rs` | `test_sorts_members_by_created_at_using_ffi_identifiers` | façade: `crates/xmtp_sdk/src/tests/error_records.rs::inbox_state_preserves_member_creation_order` |
 | `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_suspend_and_resume_redelivers` | binding only: reader and cursor input are Task 19 (#4250); this façade branch uses a durable MessageReader |
-| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_replays_and_is_idempotent` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::catch_up_replays_once_and_preserves_bounded_progress` |
-| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_bounded_run_is_cancel_safe` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::catch_up_replays_once_and_preserves_bounded_progress` |
+| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_replays_and_is_idempotent` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::catch_up_replays_once_and_preserves_bounded_progress` |
+| `bindings/mobile/src/mls/tests/lifecycle.rs` | `bidi_catch_up_to_live_bounded_run_is_cancel_safe` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::catch_up_replays_once_and_preserves_bounded_progress` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `radio_silence` | binding only: mobile sync-worker stream radio-silence statistics; the façade does not expose that worker stream |
-| `bindings/mobile/src/mls/tests/networking.rs` | `create_client_does_not_hit_network` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_offline_choice_is_explicit` |
-| `bindings/mobile/src/mls/tests/networking.rs` | `ffi_api_stats_exposed_correctly` | façade: `crates/xmtp_sdk/src/tests.rs::facade_api_statistics_track_and_clear_requests` |
+| `bindings/mobile/src/mls/tests/networking.rs` | `create_client_does_not_hit_network` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::backend_url_is_required_and_offline_choice_is_explicit` |
+| `bindings/mobile/src/mls/tests/networking.rs` | `ffi_api_stats_exposed_correctly` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::facade_api_statistics_track_and_clear_requests` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `test_is_connected_after_connect` | binding only: mobile connection is_connected getter; the façade Backend has no connectivity getter |
-| `bindings/mobile/src/mls/tests/networking.rs` | `backend_url_is_required` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::backend_url_is_required_and_offline_choice_is_explicit` |
+| `bindings/mobile/src/mls/tests/networking.rs` | `backend_url_is_required` | façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::backend_url_is_required_and_offline_choice_is_explicit` |
 | `bindings/mobile/src/mls/tests/networking.rs` | `api_client_cache_key_uses_backend_url_and_app_version` | binding only: mobile API-client cache key getter; the façade Backend has no cache-key getter |
 | `bindings/mobile/src/mls/tests/server_configuration.rs` | `server_configuration_exposes_every_published_field` | façade: `crates/xmtp_sdk/src/configuration.rs::server_configuration_preserves_all_published_fields` |
-| `bindings/mobile/src/mls/tests/server_configuration.rs` | `fetch_server_configuration_reads_the_shared_backend` | façade: `crates/xmtp_sdk/src/tests.rs::client_configuration_and_credential_update` |
-| `bindings/mobile/src/mls/tests/server_configuration.rs` | `refresh_server_configuration_returns_the_fetched_copy` | façade: `crates/xmtp_sdk/src/tests.rs::client_configuration_and_credential_update` |
-| `bindings/mobile/src/mls/tests/static_methods.rs` | `test_static_revoke_installations` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::static_revoke_checks_recovery_signer_and_removes_target` |
-| `bindings/mobile/src/mls/tests/static_methods.rs` | `test_static_revoke_fails_with_non_recovery_identity` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::static_revoke_checks_recovery_signer_and_removes_target` |
-| `bindings/mobile/src/mls/tests/static_methods.rs` | `test_can_get_inbox_state_statically` | façade: `crates/xmtp_sdk/src/tests.rs::backend_only_identity_and_message_queries` |
-| `bindings/mobile/src/mls/tests/static_methods.rs` | `test_get_newest_message_metadata` | façade: `crates/xmtp_sdk/src/tests.rs::backend_only_identity_and_message_queries` |
+| `bindings/mobile/src/mls/tests/server_configuration.rs` | `fetch_server_configuration_reads_the_shared_backend` | façade: `crates/xmtp_sdk/src/tests/client_setup.rs::client_configuration_and_credential_update` |
+| `bindings/mobile/src/mls/tests/server_configuration.rs` | `refresh_server_configuration_returns_the_fetched_copy` | façade: `crates/xmtp_sdk/src/tests/client_setup.rs::client_configuration_and_credential_update` |
+| `bindings/mobile/src/mls/tests/static_methods.rs` | `test_static_revoke_installations` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::static_revoke_checks_recovery_signer_and_removes_target` |
+| `bindings/mobile/src/mls/tests/static_methods.rs` | `test_static_revoke_fails_with_non_recovery_identity` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::static_revoke_checks_recovery_signer_and_removes_target` |
+| `bindings/mobile/src/mls/tests/static_methods.rs` | `test_can_get_inbox_state_statically` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::backend_only_identity_and_message_queries` |
+| `bindings/mobile/src/mls/tests/static_methods.rs` | `test_get_newest_message_metadata` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::backend_only_identity_and_message_queries` |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_can_stream_group_messages_for_updates` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_conversation_streaming` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_all_messages` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
-| `bindings/mobile/src/mls/tests/streaming.rs` | `stream_all_messages_default_excludes_denied` | façade: `crates/xmtp_sdk/src/tests.rs::all_scope_message_reader_skips_synced_denied_message` |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `stream_all_messages_default_excludes_denied` | façade: `crates/xmtp_sdk/src/tests/reader_delivery.rs::all_scope_message_reader_skips_synced_denied_message` |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_message_streaming` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_dm_message_streaming_uses_bidi` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_message_streaming_when_removed_then_added` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
@@ -3665,7 +3665,7 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_consent` | binding only: live consent events are Task 20 (#4251); this façade branch has no consent event stream |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_preferences` | binding only: live preference events are Task 20 (#4251); this façade branch has no preference event stream |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_overlapping_streams` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
-| `bindings/mobile/src/mls/tests/streaming.rs` | `test_can_stream_and_update_name_without_forking_group` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::reader_survives_group_name_update_without_fork` |
+| `bindings/mobile/src/mls/tests/streaming.rs` | `test_can_stream_and_update_name_without_forking_group` | façade: `crates/xmtp_sdk/src/tests/binding_map/configuration.rs::reader_survives_group_name_update_without_fork` |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_all_messages_with_optimistic_group_creation` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/streaming.rs` | `test_stream_message_deletions_with_full_message_details` | binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests |
 | `bindings/mobile/src/mls/tests/test_self_removal.rs` | `test_self_removal_with_pending_state` | core: `crates/xmtp_mls/src/groups/tests/test_self_removal.rs::test_self_removal_single_installations` |

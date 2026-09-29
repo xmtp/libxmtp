@@ -15,6 +15,10 @@ check-clean-generate:
 lint:
     bash "{{ root }}/crates/xmtp_sdk/dev/lint-generated"
 
+# Check every tracked or unignored SDK source file, including conformance files.
+check-file-sizes:
+    cd "{{ root }}" && crates/xmtp_sdk/dev/check-file-sizes
+
 # Import the staged WASM package and initialize its UniFFI player in Node.
 wasm-init:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-wasm-init"

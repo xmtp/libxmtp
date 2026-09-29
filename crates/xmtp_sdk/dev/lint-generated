@@ -4,6 +4,8 @@ set -euo pipefail
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
 
+crates/xmtp_sdk/dev/check-file-sizes
+
 generated=target/sdk-generated
 crates/xmtp_sdk/dev/check-fork-pin
 dev/agent-run cargo clippy -p xmtp-sdk-bindgen --all-targets --no-deps -- -Dwarnings
