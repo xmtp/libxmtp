@@ -568,50 +568,6 @@ pub(crate) mod tests {
     use crate::{Fetch, Store, XmtpTestDb, identity::StoredIdentity};
     use xmtp_common::{rand_vec, tmp_path};
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn reserved_reason_upgrade_preserves_intent_and_prepared_bytes() {
-        use crate::group_intent::{QueryGroupIntent, QueryPreparedEnvelope, StoredGroupIntent};
-        use crate::migrations::QueryMigrations;
-        use diesel::connection::SimpleConnection;
-
-        let db_path = tmp_path();
-        {
-            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
-            let conn = store.db();
-            while conn.applied_migrations()?.first().map(String::as_str) != Some("20260928010000") {
-                conn.raw_query(|db| {
-                    db.revert_last_migration(MIGRATIONS)
-                        .map(|_| ())
-                        .map_err(diesel::result::Error::QueryBuilderError)
-                })?;
-            }
-            conn.raw_query(|db| {
-                db.batch_execute(
-                    "INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id)
-                     VALUES (zeroblob(16), 0, 1, 0, 'own');
-                     INSERT INTO group_intents (id, kind, group_id, data, state, payload_hash, published_in_epoch, prepared_envelopes)
-                     VALUES (37, 1, zeroblob(16), x'112233', 2, x'445566', 9, x'778899');",
-                )
-            })?;
-        }
-        {
-            let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
-            let conn = store.db();
-            assert_eq!(
-                conn.applied_migrations()?.first().map(String::as_str),
-                Some("20260928020000")
-            );
-            let intent: StoredGroupIntent = conn.fetch(&37)?.unwrap();
-            assert_eq!(intent.data, [0x11, 0x22, 0x33]);
-            assert_eq!(intent.payload_hash, Some(vec![0x44, 0x55, 0x66]));
-            assert_eq!(intent.published_in_epoch, Some(9));
-            assert_eq!(conn.prepared_envelopes(37)?, Some(vec![0x77, 0x88, 0x99]));
-            assert_eq!(conn.local_intent_rejection_reason(37)?, None);
-        }
-        EncryptedMessageStore::<()>::remove_db_files(db_path);
-    }
-
     #[xmtp_common::test]
     async fn ephemeral_store() {
         let store = crate::TestDb::create_ephemeral_store().await;

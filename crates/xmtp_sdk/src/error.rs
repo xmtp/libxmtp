@@ -213,21 +213,6 @@ impl XmtpError {
                 true,
                 e.to_string(),
             )),
-            e @ GroupError::SendOutcomeUnknown { .. } => Self::Unknown(Self::details(
-                "SendOutcomeUnknown",
-                ErrorCategory::Conversation,
-                true,
-                e.to_string(),
-            )),
-            GroupError::Sync(summary) => match summary.rejected_intent_code() {
-                Some(code) => Self::Unknown(Self::details(
-                    code,
-                    ErrorCategory::Conversation,
-                    false,
-                    summary.to_string(),
-                )),
-                None => Self::unknown(summary),
-            },
             other => Self::unknown(other),
         }
     }
@@ -516,14 +501,5 @@ mod tests {
         assert_eq!(pending.code, "PublishedButUnconfirmed");
         assert!(matches!(pending.category, ErrorCategory::Conversation));
         assert!(pending.retryable);
-
-        let XmtpError::Unknown(unknown) =
-            XmtpError::from_group(GroupError::SendOutcomeUnknown { intent_id: 7 })
-        else {
-            panic!("expected Unknown");
-        };
-        assert_eq!(unknown.code, "SendOutcomeUnknown");
-        assert!(matches!(unknown.category, ErrorCategory::Conversation));
-        assert!(unknown.retryable);
     }
 }

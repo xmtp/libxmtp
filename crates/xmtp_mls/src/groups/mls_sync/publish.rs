@@ -35,26 +35,9 @@ fn out_of_range(error: &xmtp_api::ApiError) -> bool {
 enum NextPublish {
     Prepared(StoredGroupIntent, PreparedAttempt),
     Resolve(PublishRequirements),
-    RejectReserved(StoredGroupIntent),
-    Suppressed(ID),
 }
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
-    pub(in crate::groups::mls_sync) fn reserved_transcript_intent(
-        intent: &StoredGroupIntent,
-    ) -> Result<bool, GroupError> {
-        if intent.kind != IntentKind::SendMessage {
-            return Ok(false);
-        }
-        let data = SendMessageIntentData::from_bytes(&intent.data)?;
-        let envelope = PlaintextEnvelope::decode(data.message.as_slice())?;
-        Ok(matches!(
-            envelope.content,
-            Some(Content::V1(V1 { content, .. }))
-                if Self::is_reserved_transcript_content(&content)
-        ))
-    }
-
     /// Persist each attempt with its crypto state before publication. An ambiguous
     /// result retries the saved bytes, except `OUT_OF_RANGE`, which a recovery
     /// read settles instead. A state-changing attempt blocks later work until
@@ -111,9 +94,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                             .ok_or(OutgoingPreparationError::MissingPreparedAttempt(intent.id))?;
                         let attempt = PreparedAttempt::decode(&bytes)?;
                         attempt.validate_intent(intent)?;
-                        if Self::reserved_transcript_intent(intent)? {
-                            return Ok(Continue(Some(NextPublish::Suppressed(intent.id))));
-                        }
                         return Ok(Continue(Some(NextPublish::Prepared(
                             intent.clone(),
                             attempt,
@@ -121,9 +101,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     }
                     if storage.db().prepared_envelopes(intent.id)?.is_some() {
                         return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-                    }
-                    if Self::reserved_transcript_intent(intent)? {
-                        return Ok(Continue(Some(NextPublish::RejectReserved(intent.clone()))));
                     }
                     let requirements = PublishRequirements::capture(group, intent)?;
                     Ok::<_, GroupError>(Continue(Some(NextPublish::Resolve(requirements))))
@@ -134,17 +111,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 return rejected_request.map_or(Ok(()), Err);
             };
             let (intent, attempt) = match next {
-                NextPublish::Suppressed(id) => {
-                    sent.insert(id);
-                    continue;
-                }
-                NextPublish::RejectReserved(intent) => {
-                    if self.reject_reserved_queued_intent(&intent)? {
-                        sent.insert(intent.id);
-                        rejected_request.get_or_insert(GroupError::ReservedTranscriptContentType);
-                    }
-                    continue;
-                }
                 NextPublish::Prepared(intent, attempt) => (intent, attempt),
                 NextPublish::Resolve(requirements) => {
                     let result = match self.resolve_publish_dependencies(&requirements).await {
@@ -176,6 +142,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     | GroupError::ComponentSource(
                                         ComponentSourceError::InvalidInboxId(_)
                                     )
+                                    // Earlier builds queued reserved transcript sends.
+                                    | GroupError::ReservedTranscriptContentType
                             ) =>
                         {
                             if self.reject_unprepared_request(&requirements)? {
@@ -235,54 +203,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 return rejected_request.map_or(Ok(()), Err);
             }
         }
-    }
-
-    fn reject_reserved_queued_intent(
-        &self,
-        snapshot: &StoredGroupIntent,
-    ) -> Result<bool, GroupError> {
-        crate::state_tx::state_write_with_events(
-            self.context.mls_storage(),
-            self.context.events(),
-            |tx, event_writer| {
-                let storage = tx.storage();
-                let db = storage.db();
-                let Some(current) = Fetch::<StoredGroupIntent>::fetch(&db, &snapshot.id)? else {
-                    return Ok(Continue(false));
-                };
-                if current.group_id != self.group_id
-                    || current.kind != IntentKind::SendMessage
-                    || current.data != snapshot.data
-                    || current.state != IntentState::ToPublish
-                    || db.prepared_envelopes(current.id)?.is_some()
-                    || !Self::reserved_transcript_intent(&current)?
-                {
-                    return Ok(Continue(false));
-                }
-                let message_id = calculate_message_id_for_intent(&current)?;
-                if !db.reject_unprepared_message_intent(
-                    &current,
-                    xmtp_db::group_intent::LocalIntentRejectionReason::ReservedTranscriptContentType,
-                )? {
-                    return Ok(Continue(false));
-                }
-                if let Some(id) = message_id
-                    && let Some(message) = db.get_group_message(&id)?
-                {
-                    db.set_delivery_status_to_failed(&id)?;
-                    if message.delivery_status == DeliveryStatus::Unpublished {
-                        self.emit_message_status_changed(
-                            id,
-                            xmtp_events::MessageStatus::Unpublished,
-                            xmtp_events::MessageStatus::Failed,
-                            event_writer,
-                        );
-                    }
-                }
-                Ok::<_, GroupError>(Continue(true))
-            },
-        )
-        .map(TransactionOutcome::into_continued)
     }
 
     /// Settle an attempt whose publish returned `OUT_OF_RANGE` with a `Query`
@@ -412,150 +332,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         requirements: &PublishRequirements,
         dependencies: &mut PublishDependencies,
     ) -> Result<Option<PreparedAttempt>, GroupError> {
-        self.prepare_publish_attempt_with_policy(requirements, dependencies, false)
-    }
-
-    #[cfg(any(test, feature = "test-utils"))]
-    fn prepare_reserved_attempt_fixture(
-        &self,
-        requirements: &PublishRequirements,
-        dependencies: &mut PublishDependencies,
-    ) -> Result<Option<PreparedAttempt>, GroupError> {
-        self.prepare_publish_attempt_with_policy(requirements, dependencies, true)
-    }
-
-    /// Build a prior-client saved attempt with real MLS bytes for SDK tests.
-    #[cfg(feature = "test-utils")]
-    pub async fn prepare_reserved_attempt_for_test(
-        &self,
-        content: &[u8],
-        key: &str,
-    ) -> Result<(Vec<u8>, i32), GroupError> {
-        use xmtp_db::Store;
-
-        if !Self::is_reserved_transcript_content(content) {
-            return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-        }
-        let template_id = self.prepare_message_for_later_publish(
-            b"legacy fixture template",
-            false,
-            Some(format!("template-{key}")),
-        )?;
-        let db = self.context.db();
-        let mut message = db
-            .get_group_message(&template_id)?
-            .ok_or(GroupError::UninitializedResult)?;
-        message.id = calculate_message_id(self.group_id, content, key);
-        message.decrypted_message_bytes = content.to_vec();
-        message.idempotency_key = key.into();
-        message.store(&db)?;
-        let envelope = PlaintextEnvelope {
-            content: Some(Content::V1(V1 {
-                content: content.to_vec(),
-                idempotency_key: key.into(),
-            })),
-        };
-        let data: Vec<u8> = SendMessageIntentData::new(envelope.encode_to_vec()).into();
-        let intent = QueueIntent::send_message().data(data).queue(self)?;
-        let requirements = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            tx.with_group(self.group_id, |group, _| {
-                PublishRequirements::capture(group, &intent).map(Continue)
-            })
-        })?
-        .into_continued();
-        let mut dependencies = self.resolve_publish_dependencies(&requirements).await?;
-        self.prepare_reserved_attempt_fixture(&requirements, &mut dependencies)?
-            .ok_or(GroupError::UninitializedResult)?;
-        Ok((message.id, intent.id))
-    }
-
-    /// Put a saved reserved attempt with a future MLS epoch in backend order.
-    #[cfg(any(test, feature = "test-utils"))]
-    pub async fn publish_future_epoch_reserved_echo_for_test(
-        &self,
-        intent_id: i32,
-    ) -> Result<(), GroupError> {
-        use xmtp_db::ConnectionExt;
-        use xmtp_db::diesel::prelude::*;
-        use xmtp_db::schema::group_intents::dsl;
-
-        let attempt = crate::state_tx::state_write(self.context.mls_storage(), |tx| {
-            let storage = tx.storage();
-            let db = storage.db();
-            let intent = Fetch::<StoredGroupIntent>::fetch(&db, &intent_id)?
-                .ok_or(NotFound::IntentById(intent_id))?;
-            if intent.group_id != self.group_id
-                || intent.state != IntentState::Published
-                || !Self::reserved_transcript_intent(&intent)?
-            {
-                return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-            }
-            let original = db
-                .prepared_envelopes(intent_id)?
-                .ok_or(OutgoingPreparationError::MissingPreparedAttempt(intent_id))?;
-            let mut attempt = PreparedAttempt::decode(&original)?;
-            attempt.validate_intent(&intent)?;
-            let last = attempt
-                .envelopes
-                .last_mut()
-                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
-            let mut envelope = ClientEnvelope::decode(last.as_slice())?;
-            let Some(Payload::GroupMessage(message)) = &mut envelope.payload else {
-                return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-            };
-            // The fixture uses a one-byte TLS length for its 16-byte group ID.
-            // Epoch is the following eight-byte integer in the MLS header.
-            let group_id_len = *message
-                .data
-                .get(4)
-                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?
-                as usize;
-            if group_id_len >= 64 || group_id_len != self.group_id.as_ref().len() {
-                return Err(OutgoingPreparationError::InvalidPreparedAttempt.into());
-            }
-            let epoch_low = message
-                .data
-                .get_mut(5 + group_id_len + 7)
-                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
-            *epoch_low = epoch_low
-                .checked_add(1)
-                .ok_or(OutgoingPreparationError::InvalidPreparedAttempt)?;
-            attempt.payload_hash = sha256(&message.data).to_vec();
-            *last = envelope.encode_to_vec();
-            let replacement = xmtp_db::db_serialize(&attempt)?;
-            if !db.compare_and_set_prepared_envelopes(
-                intent_id,
-                Some(&original),
-                Some(&replacement),
-            )? {
-                return Err(OutgoingPreparationError::StateChanged.into());
-            }
-            let changed = db.raw_query(|conn| {
-                xmtp_db::diesel::update(dsl::group_intents)
-                    .filter(dsl::id.eq(intent_id))
-                    .filter(dsl::state.eq(IntentState::Published))
-                    .set(dsl::payload_hash.eq(attempt.payload_hash.as_slice()))
-                    .execute(conn)
-            })?;
-            if changed != 1 {
-                return Err(OutgoingPreparationError::StateChanged.into());
-            }
-            Ok::<_, GroupError>(Continue(attempt))
-        })?
-        .into_continued();
-        self.context
-            .api()
-            .send_group_messages(vec![attempt.publish_unit(self.context.api().limits())?])
-            .await?;
-        Ok(())
-    }
-
-    fn prepare_publish_attempt_with_policy(
-        &self,
-        requirements: &PublishRequirements,
-        dependencies: &mut PublishDependencies,
-        allow_reserved_fixture: bool,
-    ) -> Result<Option<PreparedAttempt>, GroupError> {
         crate::state_tx::state_write(self.context.mls_storage(), |tx| {
             let mut no_op = None;
             let result = tx.savepoint(|tx| {
@@ -600,13 +376,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         storage,
                         &self.context.identity().installation_keys,
                     )?;
-                    let Some(mut data) = self.get_publish_intent_data(
-                        storage,
-                        group,
-                        &intent,
-                        dependencies,
-                        allow_reserved_fixture,
-                    )?
+                    let Some(mut data) =
+                        self.get_publish_intent_data(storage, group, &intent, dependencies)?
                     else {
                         let state = Fetch::<StoredGroupIntent>::fetch(&db, &intent.id)?
                             .map_or(IntentState::ToPublish, |current| current.state);
@@ -734,7 +505,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
         openmls_group: &mut OpenMlsGroup,
         intent: &StoredGroupIntent,
         dependencies: &mut PublishDependencies,
-        allow_reserved_fixture: bool,
     ) -> Result<Option<PublishIntentData>, GroupError> {
         let provider = XmtpOpenMlsProviderRef::new(storage);
         match intent.kind {
@@ -753,7 +523,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             IntentKind::SendMessage => {
                 // We can safely assume all SendMessage intents have data
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
-                if !allow_reserved_fixture && Self::reserved_transcript_intent(intent)? {
+                // An older build queued this intent before the creation check.
+                // implements: GMOD-035
+                if let Ok(PlaintextEnvelope {
+                    content: Some(Content::V1(V1 { content, .. })),
+                }) = PlaintextEnvelope::decode(intent_data.message.as_slice())
+                    && Self::is_reserved_transcript_content(&content)
+                {
                     return Err(GroupError::ReservedTranscriptContentType);
                 }
                 // Pending proposals are handled at the API level (in send_message)

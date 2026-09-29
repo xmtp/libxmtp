@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **12 crates** with **418 total error codes**.
+**39 error types** across **12 crates** with **417 total error codes**.
 
 ## mobile
 
@@ -481,7 +481,6 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | Error Code | Description |
 |:-----------|:------------|
 | `GroupError::ReservedTranscriptContentType` | Application messages cannot use a reserved transcript content type. Not retryable. |
-| `GroupError::SendOutcomeUnknown` | A saved publish attempt may have reached the backend. Retry confirmation only. |
 | `GroupError::UserLimitExceeded` | Max user limit exceeded. Attempted to add too many members. Not retryable. |
 | `GroupError::MissingSequenceId` | Sequence ID not found. No sequence ID for an inbox after an identity-update refresh — its registration hasn't propagated yet. Retryable. |
 | `GroupError::AddressNotFound` | Addresses not found. Specified addresses have no XMTP identity. Not retryable. |

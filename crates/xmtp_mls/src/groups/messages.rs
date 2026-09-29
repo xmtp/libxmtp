@@ -1,16 +1,6 @@
 //! Sending, preparing, and querying messages.
 
 use super::*;
-use crate::utils::id::calculate_message_id_for_intent;
-use xmtp_db::group_intent::IntentKind;
-
-enum StoredPublishAction {
-    AlreadyPublished,
-    ResumeExisting(i32),
-    Queued(i32),
-    Rejected(GroupError),
-    RejectedWithoutCause(i32),
-}
 
 impl<Context> MlsGroup<Context>
 where
@@ -28,6 +18,7 @@ where
             return Err(GroupError::GroupInactive);
         }
 
+        // Refuse before any network work or pending proposal commit.
         Self::reject_reserved_transcript_content(message)?;
 
         self.ensure_not_paused().await?;
@@ -82,15 +73,15 @@ where
         Ok(())
     }
 
-    /// Publish all unpublished messages and report unresolved reserved attempts
-    /// selected by this call after later messages complete.
+    /// Publish all unpublished messages. This happens by calling `sync_until_last_intent_resolved`
+    /// which publishes all pending intents and reads them back from the network.
     #[cfg_attr(any(test, feature = "test-utils"), tracing::instrument(level = "info", fields(inbox_id = self.context.inbox_id()), skip(self)))]
     #[cfg_attr(not(any(test, feature = "test-utils")), xmtp_common::mls_span)]
     pub async fn publish_messages(&self) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
-        self.sync_until_bulk_messages_resolved().await?;
+        self.sync_until_last_intent_resolved().await?;
 
         // implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
@@ -215,90 +206,49 @@ where
         }
         self.ensure_not_paused().await?;
 
-        let action = crate::state_tx::state_write_with_events(
+        let queued = crate::state_tx::state_write_with_events(
             self.context.mls_storage(),
             self.context.events(),
-            |tx, event_writer| {
-            self.ensure_active_for_send(tx)?;
-            let storage = tx.storage();
-            let db = storage.db();
-            let message = db
-                .get_group_message(message_id)?
-                .filter(|message| message.group_id == self.group_id)
-                .ok_or_else(|| GroupError::NotFound(NotFound::MessageById(message_id.to_vec())))?;
-            if message.delivery_status == DeliveryStatus::Published {
-                return Ok(Continue(StoredPublishAction::AlreadyPublished));
-            }
-            let active = db.find_group_intents(
-                self.group_id,
-                Some(vec![IntentState::ToPublish, IntentState::Published, IntentState::Committed]),
-                Some(vec![IntentKind::SendMessage]),
-            )?;
-            for intent in active {
-                if calculate_message_id_for_intent(&intent)?.as_deref() == Some(message_id) {
-                    return Ok(Continue(StoredPublishAction::ResumeExisting(intent.id)));
-                }
-            }
-            for intent in db.locally_rejected_message_intents(self.group_id)? {
-                if calculate_message_id_for_intent(&intent)?.as_deref() == Some(message_id) {
-                    let reason = db.local_intent_rejection_reason(intent.id)?;
-                    if reason == Some(
-                        xmtp_db::group_intent::LocalIntentRejectionReason::ReservedTranscriptContentType,
-                    ) {
-                        return Ok(Continue(StoredPublishAction::Rejected(
-                            GroupError::ReservedTranscriptContentType,
-                        )));
+            |tx, events| {
+                self.ensure_active_for_send(tx)?;
+                let storage = tx.storage();
+                let db = storage.db();
+                let message = db
+                    .get_group_message(message_id)?
+                    .filter(|message| message.group_id == self.group_id)
+                    .ok_or_else(|| {
+                        GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
+                    })?;
+                // An older build stored this row before the creation check.
+                // It fails here and is never queued; the transaction commits.
+                // implements: GMOD-035
+                if message.delivery_status != DeliveryStatus::Published
+                    && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
+                {
+                    if message.delivery_status == DeliveryStatus::Unpublished {
+                        db.set_delivery_status_to_failed(&message.id)?;
+                        self.emit_message_status_changed(
+                            message.id,
+                            xmtp_events::MessageStatus::Unpublished,
+                            xmtp_events::MessageStatus::Failed,
+                            events,
+                        );
                     }
+                    return Ok(Continue(Err(GroupError::ReservedTranscriptContentType)));
                 }
-            }
-            if Self::is_reserved_transcript_content(&message.decrypted_message_bytes) {
-                let terminal = db.find_group_intents(
-                    self.group_id,
-                    Some(vec![IntentState::Error]),
-                    Some(vec![IntentKind::SendMessage]),
-                )?;
-                for intent in terminal.into_iter().rev() {
-                    if calculate_message_id_for_intent(&intent)?.as_deref() == Some(message_id) {
-                        return Ok(Continue(StoredPublishAction::RejectedWithoutCause(intent.id)));
-                    }
-                }
-                if message.delivery_status == DeliveryStatus::Unpublished {
-                    db.set_delivery_status_to_failed(&message.id)?;
-                    self.emit_message_status_changed(
-                        message.id,
-                        xmtp_events::MessageStatus::Unpublished,
-                        xmtp_events::MessageStatus::Failed,
-                        event_writer,
-                    );
-                }
-                return Ok(Continue(StoredPublishAction::Rejected(
-                    GroupError::ReservedTranscriptContentType,
-                )));
-            }
-            let action = match self.queue_stored_message(&db, event_writer, &message)? {
-                Some(intent_id) => StoredPublishAction::Queued(intent_id),
-                None => StoredPublishAction::AlreadyPublished,
-            };
-            Ok::<_, GroupError>(Continue(action))
-        },
+                self.queue_stored_message(&db, events, &message)
+                    .map(|queued| Continue(Ok(queued)))
+            },
         )?
-        .into_continued();
-        let (intent_id, needs_installation_update) = match action {
-            StoredPublishAction::AlreadyPublished => return Ok(()),
-            StoredPublishAction::Rejected(error) => return Err(error),
-            StoredPublishAction::RejectedWithoutCause(id) => {
-                return Err(GroupError::from(self.rejected_intent_summary(id)?));
-            }
-            StoredPublishAction::ResumeExisting(id) => (id, false),
-            StoredPublishAction::Queued(id) => (id, true),
-        };
+        .into_continued()?;
+        if !queued {
+            return Ok(());
+        }
 
         // Publish
-        if needs_installation_update {
-            self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
-                .await?;
-        }
-        self.sync_until_intent_resolved(intent_id).await?;
+        self.maybe_update_installations(Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS))
+            .await?;
+        self.sync_until_last_intent_resolved().await?;
 
         // Implicitly set group consent state to allowed
         self.update_consent_state(ConsentState::Allowed)?;
@@ -407,7 +357,8 @@ where
         Ok(deletion_message_id)
     }
 
-    /// Helper function to extract queryable content fields from a message
+    /// Whether the outer content type is a reserved transcript type. Only the
+    /// `xmtp.org` authority reserves these type ids, at any version.
     // implements: GMOD-035
     pub(in crate::groups) fn is_reserved_transcript_content(message: &[u8]) -> bool {
         EncodedContent::decode(message)
@@ -422,9 +373,7 @@ where
             })
     }
 
-    pub(in crate::groups) fn reject_reserved_transcript_content(
-        message: &[u8],
-    ) -> Result<(), GroupError> {
+    fn reject_reserved_transcript_content(message: &[u8]) -> Result<(), GroupError> {
         if Self::is_reserved_transcript_content(message) {
             Err(GroupError::ReservedTranscriptContentType)
         } else {
@@ -432,6 +381,7 @@ where
         }
     }
 
+    /// Helper function to extract queryable content fields from a message
     pub(in crate::groups) fn extract_queryable_content_fields(
         message: &[u8],
     ) -> QueryableContentFields {
@@ -487,21 +437,21 @@ where
     ///
     /// A published message is never queued again, and an unresolved intent for
     /// the same envelope is reused. A retry of a failed message returns it to
-    /// `Unpublished` in the same transaction as its new intent. Returns the
-    /// queued or reused intent ID, or `None` for a published message.
+    /// `Unpublished` in the same transaction as its new intent. Returns whether
+    /// the message has work to publish.
     // implements: SEND-003
     fn queue_stored_message(
         &self,
         db: &impl DbQuery,
         events: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
         message: &StoredGroupMessage,
-    ) -> Result<Option<i32>, GroupError> {
+    ) -> Result<bool, GroupError> {
         if message.delivery_status == DeliveryStatus::Published {
-            return Ok(None);
+            return Ok(false);
         }
         let envelope =
             Self::into_envelope(&message.decrypted_message_bytes, &message.idempotency_key);
-        let intent = QueueIntent::send_message()
+        QueueIntent::send_message()
             .data(Vec::<u8>::from(SendMessageIntentData::new(
                 envelope.encode_to_vec(),
             )))
@@ -515,7 +465,7 @@ where
                 events,
             );
         }
-        Ok(Some(intent.id))
+        Ok(true)
     }
 
     /// Check membership while holding the same writer as the new message or intent.

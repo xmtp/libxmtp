@@ -287,6 +287,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current reader does not expose a failed custom codec as a custom item with its error while keeping the stream open."
 
 [[waiver]]
+id = "SEND-019"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "MlsGroup::publish_messages (SDK publishMessages) waits only for the last intent it selected and does not report an exact outcome for each earlier intent. The SDK also maps an ordered rejection to Unknown without the rejected intent's stable reason code; that mapping moves to a later SEND-019 change."
+
+[[waiver]]
 id = "SEND-016"
 kind = "gap"
 owner = "protocol"

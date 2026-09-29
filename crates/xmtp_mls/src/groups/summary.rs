@@ -16,8 +16,6 @@ pub struct SyncSummary {
     pub(crate) post_commit_errors: Vec<GroupError>,
     /// an error outside of the sync occurred
     pub(crate) other: Option<Box<GroupError>>,
-    /// Stable reason from the selected intent's durable ordered rejection.
-    pub(crate) rejected_intent_code: Option<&'static str>,
 }
 
 impl RetryableError for SyncSummary {
@@ -48,11 +46,6 @@ impl crate::worker::NeedsDbReconnect for SyncSummary {
 }
 
 impl SyncSummary {
-    /// Stable reason from a rejected intent selected by this wait, if any.
-    pub fn rejected_intent_code(&self) -> Option<&'static str> {
-        self.rejected_intent_code
-    }
-
     /// synced a single message successfully
     pub fn single(msg: MessageIdentifier) -> Self {
         let mut process = ProcessSummary::default();
@@ -99,9 +92,6 @@ impl SyncSummary {
         self.publish_errors.extend(other.publish_errors);
         self.process.extend(other.process);
         self.post_commit_errors.extend(other.post_commit_errors);
-        if self.rejected_intent_code.is_none() {
-            self.rejected_intent_code = other.rejected_intent_code;
-        }
         // Preserve the first non-None cause. `extend` is called once per retry
         // round in `sync_until_intent_resolved_inner`; overwriting here would let
         // a later clean round clobber an earlier round's `other` error, losing

@@ -33,30 +33,6 @@ pub use types::*;
 
 pub type ID = i32;
 
-/// Local cause for an intent rejected before any publish attempt.
-#[repr(i32)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, AsExpression, FromSqlRow)]
-#[diesel(sql_type = Integer)]
-pub enum LocalIntentRejectionReason {
-    ReservedTranscriptContentType = 1,
-}
-
-impl ToSql<Integer, Sqlite> for LocalIntentRejectionReason {
-    fn to_sql<'b>(&'b self, out: &mut Output<'b, '_, Sqlite>) -> serialize::Result {
-        out.set_value(*self as i32);
-        Ok(IsNull::No)
-    }
-}
-
-impl FromSql<Integer, Sqlite> for LocalIntentRejectionReason {
-    fn from_sql(bytes: <Sqlite as Backend>::RawValue<'_>) -> deserialize::Result<Self> {
-        match i32::from_sql(bytes)? {
-            1 => Ok(Self::ReservedTranscriptContentType),
-            value => Err(format!("unknown local intent rejection reason {value}").into()),
-        }
-    }
-}
-
 #[repr(i32)]
 #[derive(
     Debug,
@@ -271,25 +247,6 @@ impl NewGroupIntent {
 }
 
 pub trait QueryGroupIntent {
-    /// Read the local cause for one intent. A missing intent is an error.
-    fn local_intent_rejection_reason(
-        &self,
-        intent_id: ID,
-    ) -> Result<Option<LocalIntentRejectionReason>, StorageError>;
-
-    /// List terminal message intents with local causes, newest first.
-    fn locally_rejected_message_intents(
-        &self,
-        group_id: GroupId,
-    ) -> Result<Vec<StoredGroupIntent>, StorageError>;
-
-    /// Reject only the same unprepared queued message. False means reselect.
-    fn reject_unprepared_message_intent(
-        &self,
-        intent: &StoredGroupIntent,
-        reason: LocalIntentRejectionReason,
-    ) -> Result<bool, StorageError>;
-
     fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
@@ -383,28 +340,6 @@ impl<T> QueryGroupIntent for &T
 where
     T: QueryGroupIntent,
 {
-    fn local_intent_rejection_reason(
-        &self,
-        intent_id: ID,
-    ) -> Result<Option<LocalIntentRejectionReason>, StorageError> {
-        (**self).local_intent_rejection_reason(intent_id)
-    }
-
-    fn locally_rejected_message_intents(
-        &self,
-        group_id: GroupId,
-    ) -> Result<Vec<StoredGroupIntent>, StorageError> {
-        (**self).locally_rejected_message_intents(group_id)
-    }
-
-    fn reject_unprepared_message_intent(
-        &self,
-        intent: &StoredGroupIntent,
-        reason: LocalIntentRejectionReason,
-    ) -> Result<bool, StorageError> {
-        (**self).reject_unprepared_message_intent(intent, reason)
-    }
-
     fn insert_group_intent(
         &self,
         to_save: NewGroupIntent,
@@ -501,63 +436,6 @@ where
 }
 
 impl<C: ConnectionExt> QueryGroupIntent for DbConnection<C> {
-    #[xmtp_common::db_span]
-    fn local_intent_rejection_reason(
-        &self,
-        intent_id: ID,
-    ) -> Result<Option<LocalIntentRejectionReason>, StorageError> {
-        self.raw_query(|conn| {
-            dsl::group_intents
-                .find(intent_id)
-                .select(dsl::local_rejection_reason)
-                .first::<Option<LocalIntentRejectionReason>>(conn)
-                .optional()
-        })?
-        .ok_or_else(|| NotFound::IntentById(intent_id).into())
-    }
-
-    #[xmtp_common::db_span]
-    fn locally_rejected_message_intents(
-        &self,
-        group_id: GroupId,
-    ) -> Result<Vec<StoredGroupIntent>, StorageError> {
-        Ok(self.raw_query(|conn| {
-            dsl::group_intents
-                .filter(dsl::group_id.eq(group_id))
-                .filter(dsl::kind.eq(IntentKind::SendMessage))
-                .filter(dsl::state.eq(IntentState::Error))
-                .filter(dsl::local_rejection_reason.is_not_null())
-                .order(dsl::id.desc())
-                .select(StoredGroupIntent::as_select())
-                .load(conn)
-        })?)
-    }
-
-    #[xmtp_common::db_span]
-    fn reject_unprepared_message_intent(
-        &self,
-        intent: &StoredGroupIntent,
-        reason: LocalIntentRejectionReason,
-    ) -> Result<bool, StorageError> {
-        Ok(self.raw_query(|conn| {
-            diesel::update(dsl::group_intents)
-                .filter(dsl::id.eq(intent.id))
-                .filter(dsl::group_id.eq(intent.group_id))
-                .filter(dsl::kind.eq(IntentKind::SendMessage))
-                .filter(dsl::data.eq(&intent.data))
-                .filter(dsl::state.eq(IntentState::ToPublish))
-                .filter(dsl::prepared_envelopes.is_null())
-                .filter(dsl::payload_hash.is_null())
-                .filter(dsl::published_in_epoch.is_null())
-                .filter(dsl::local_rejection_reason.is_null())
-                .set((
-                    dsl::state.eq(IntentState::Error),
-                    dsl::local_rejection_reason.eq(reason),
-                ))
-                .execute(conn)
-        })? == 1)
-    }
-
     #[xmtp_common::db_span]
     fn insert_group_intent(
         &self,
@@ -1033,69 +911,6 @@ pub(crate) mod tests {
                 .first(raw_conn)
         })
         .unwrap()
-    }
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn local_rejection_reason_is_durable_and_fenced() {
-        with_connection(|conn| {
-            let group_id = GroupId::generate();
-            insert_group(conn, group_id);
-            let intent = conn
-                .insert_group_intent(NewGroupIntent::new(
-                    IntentKind::SendMessage,
-                    group_id,
-                    vec![1, 2, 3],
-                    false,
-                ))
-                .unwrap();
-            assert_eq!(conn.local_intent_rejection_reason(intent.id).unwrap(), None);
-            assert!(matches!(
-                conn.local_intent_rejection_reason(intent.id + 1),
-                Err(StorageError::NotFound(NotFound::IntentById(_)))
-            ));
-            let mut changed = intent.clone();
-            changed.data.push(4);
-            assert!(
-                !conn
-                    .reject_unprepared_message_intent(
-                        &changed,
-                        LocalIntentRejectionReason::ReservedTranscriptContentType,
-                    )
-                    .unwrap()
-            );
-            assert!(
-                conn.reject_unprepared_message_intent(
-                    &intent,
-                    LocalIntentRejectionReason::ReservedTranscriptContentType,
-                )
-                .unwrap()
-            );
-            assert!(
-                !conn
-                    .reject_unprepared_message_intent(
-                        &intent,
-                        LocalIntentRejectionReason::ReservedTranscriptContentType,
-                    )
-                    .unwrap()
-            );
-            assert_eq!(
-                conn.local_intent_rejection_reason(intent.id).unwrap(),
-                Some(LocalIntentRejectionReason::ReservedTranscriptContentType)
-            );
-            assert_eq!(
-                conn.locally_rejected_message_intents(group_id)
-                    .unwrap()
-                    .len(),
-                1
-            );
-            conn.raw_query(|db| {
-                diesel::update(dsl::group_intents.find(intent.id))
-                    .set(dsl::local_rejection_reason.eq(Some(9)))
-                    .execute(db)
-            })
-            .unwrap();
-            assert!(conn.local_intent_rejection_reason(intent.id).is_err());
-        });
     }
 
     /// Exhaustiveness of `IntentKind::all()` is guaranteed by

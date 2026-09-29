@@ -298,22 +298,6 @@ mock! {
     }
 
     impl QueryGroupIntent for DbQuery {
-        fn local_intent_rejection_reason(
-            &self,
-            intent_id: crate::group_intent::ID,
-        ) -> Result<Option<crate::group_intent::LocalIntentRejectionReason>, StorageError>;
-
-        fn locally_rejected_message_intents(
-            &self,
-            group_id: GroupId,
-        ) -> Result<Vec<crate::group_intent::StoredGroupIntent>, StorageError>;
-
-        fn reject_unprepared_message_intent(
-            &self,
-            intent: &crate::group_intent::StoredGroupIntent,
-            reason: crate::group_intent::LocalIntentRejectionReason,
-        ) -> Result<bool, StorageError>;
-
         fn insert_group_intent(
             &self,
             to_save: crate::group_intent::NewGroupIntent,
