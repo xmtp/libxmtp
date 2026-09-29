@@ -1278,6 +1278,46 @@ fn dm_participant_cannot_grow_registry_past_snapshot_bound() {
     ));
 }
 
+/// The first write of an absent immutable map is one insert-only delta: a
+/// later Update of a key the same delta inserted would leave a value other
+/// than the first one, so the commit is refused.
+// verifies: META-004
+#[xmtp_common::test(unwrap_try = true)]
+fn commit_rejects_rewriting_an_immutable_map_key_inserted_in_the_same_delta() {
+    let immutable = ComponentId::new(0xFD01);
+    let registry = registry_with(
+        immutable,
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let commit = |delta: TlsMapDelta<VLBytes, VLBytes>| {
+        let operation =
+            AppDataUpdateOperation::Update(delta.tls_serialize_detached().unwrap().into());
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: immutable,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: "inbox_alice",
+            }],
+            |_| None,
+            &registry,
+            None,
+            None,
+        )
+        .map(drop)
+    };
+    let key = || VLBytes::new(b"k".to_vec());
+    let first = || TlsMapDelta::new().insert(key(), VLBytes::new(b"v1".to_vec()));
+    commit(first())?;
+    assert!(matches!(
+        commit(first().update(key(), VLBytes::new(b"v2".to_vec()))),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
 /// A commit cannot carry an oversized map value by deleting it later in the
 /// same payload: element bounds hold for every value the payload names, not
 /// only those left in the final snapshot.

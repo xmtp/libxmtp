@@ -35,8 +35,8 @@ pub struct ActorAuthority {
 /// component invariants.
 ///
 /// `old_value` is the whole component before this proposal (`None` when
-/// absent). Immutability reads it: an absent immutable scalar accepts
-/// one first `Update`.
+/// absent). Immutability reads it: an absent immutable component accepts
+/// one first scalar `Update` or collection `Insert`s.
 ///
 /// Construct via the generated builder so that `old_value` and `new_value`
 /// (which share the same type) can't be accidentally swapped:
@@ -103,7 +103,9 @@ pub enum ComponentPermissionError {
 /// Three-layer check:
 /// 1. **Immutability**: a component in an immutable range rejects every
 ///    delete, and every write once it has a value. An absent
-///    immutable component accepts its first write under its policy.
+///    immutable component accepts its first write under its policy: a
+///    scalar `Update` or collection `Insert`s. A map-element `Update`
+///    could only rewrite a key the same delta inserted, so it is refused.
 /// 2. **Hardcoded**: the component registry and the super admin list are
 ///    super admin only, except that a DM participant may change
 ///    application-range registry entries.
@@ -118,7 +120,13 @@ pub fn validate_component_write(
     let op = change.op;
 
     // Layer 1: Immutability check
-    if component_id.is_immutable() && (op == ComponentOp::Delete || change.old_value.is_some()) {
+    let first_write = change.old_value.is_none()
+        && match op {
+            ComponentOp::Insert => true,
+            ComponentOp::Update => change.key.is_none(),
+            ComponentOp::Delete => false,
+        };
+    if component_id.is_immutable() && !first_write {
         return Err(ComponentPermissionError::ImmutableViolation(
             component_id,
             op,
@@ -454,6 +462,37 @@ mod tests {
         assert!(matches!(
             validate_component_write(&first(admin()), &reg),
             Err(ComponentPermissionError::PermissionDenied(
+                _,
+                ComponentOp::Update
+            ))
+        ));
+    }
+
+    /// An absent immutable map takes insert-only mutations: a keyed
+    /// Update could only rewrite a value the same delta just inserted.
+    // verifies: META-004
+    #[xmtp_common::test(unwrap_try = true)]
+    fn test_immutable_absent_map_rejects_element_update() {
+        let id = ComponentId::new(0xFD01);
+        let reg = typed_registry(
+            id,
+            ComponentType::TlsMapBytesBytes,
+            allow(),
+            allow(),
+            allow(),
+        );
+        let element = |op| {
+            ComponentChange::builder()
+                .component_id(id)
+                .op(op)
+                .actor(super_admin())
+                .key(b"k")
+                .build()
+        };
+        validate_component_write(&element(ComponentOp::Insert), &reg)?;
+        assert!(matches!(
+            validate_component_write(&element(ComponentOp::Update), &reg),
+            Err(ComponentPermissionError::ImmutableViolation(
                 _,
                 ComponentOp::Update
             ))
