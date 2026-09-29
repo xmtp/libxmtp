@@ -452,7 +452,7 @@ id = "CTYPE-014"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Remote-attachment decoding accepts a missing required parameter as an empty value. The Android and iOS remote attachment codecs reject an http:// URL to localhost or a loopback address, which the parameters table admits."
+reason = "Two gaps. The remote attachment decoder accepts a missing required parameter as an empty value. The Android and iOS SDK remote attachment codecs of the existing bindings, which the SDK façade replaces, reject an http:// URL to localhost or a loopback address that the parameters table admits."
 
 [[waiver]]
 id = "CTYPE-018"
