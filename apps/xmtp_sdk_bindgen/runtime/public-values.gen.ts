@@ -99,9 +99,12 @@ export declare abstract class ObjectProjection {
   abstract lowerMessage(value: Message): BoundMessage;
 }
 export declare abstract class ClientMembers {
-  protected abstract bindingClient(): B.ClientLike;
-  conversations(): Conversations;
+  get conversations(): Conversations;
 }
+export declare function attachClientBinding(
+  client: ClientMembers,
+  binding: B.ClientLike,
+): void;
 export declare function installProjection(value: ObjectProjection): void;
 export declare function currentProjection(): ObjectProjection;
 

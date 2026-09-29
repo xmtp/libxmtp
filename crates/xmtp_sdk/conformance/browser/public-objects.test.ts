@@ -141,13 +141,14 @@ describe("public objects", () => {
   });
 
   it("returns null, not undefined, for an unknown DM peer or creator", async () => {
+    // The binding reports absence as undefined; the public result is null.
     const dm = P.wrapDm(
       binding<B.DmLike>({
         async peerInboxId() {
-          return null;
+          return undefined;
         },
         creatorInboxId() {
-          return null;
+          return undefined;
         },
         addedByInboxId() {
           return "adder";
@@ -155,8 +156,26 @@ describe("public objects", () => {
       }),
     );
     expect(await dm.peerInboxId()).toBeNull();
-    expect(dm.creatorInboxId()).toBeNull();
-    expect(dm.addedByInboxId()).toBe("adder");
+    expect(dm.creatorInboxId).toBeNull();
+    expect(dm.addedByInboxId).toBe("adder");
+  });
+
+  it("exposes synchronous, argument-free members as readonly getters", () => {
+    const group = P.wrapGroup(
+      binding<B.GroupLike>({
+        id() {
+          return "group-id";
+        },
+        kind() {
+          return B.ConversationKind.Group;
+        },
+      }),
+    );
+    expect(group.id).toBe("group-id");
+    expect(group.kind).toBe("group");
+    const getter = Object.getOwnPropertyDescriptor(P.Group.prototype, "id");
+    expect(typeof getter?.get).toBe("function");
+    expect(getter?.set).toBeUndefined();
   });
 
   it("leaves defaulted record fields to the binding factory", () => {

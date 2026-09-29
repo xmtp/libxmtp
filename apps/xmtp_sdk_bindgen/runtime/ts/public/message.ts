@@ -148,21 +148,23 @@ export class Message {
   }
 
   async refresh(): Promise<Message | undefined> {
-    return this.client().conversations().getMessageById(this.id);
+    return this.client().conversations.getMessageById(this.id);
   }
 
   async delete(): Promise<MessageId> {
-    return this.client().conversations().deleteMessage(this.id);
+    return this.client().conversations.deleteMessage(this.id);
   }
 
   async deleteLocally(): Promise<void> {
-    return this.client().conversations().deleteMessageLocally(this.id);
+    return this.client().conversations.deleteMessageLocally(this.id);
   }
 
   async react(reaction: Reaction, options?: SendOptions): Promise<MessageId> {
-    return this.client()
-      .conversations()
-      .reactToMessage(this.id, reaction, options);
+    return this.client().conversations.reactToMessage(
+      this.id,
+      reaction,
+      options,
+    );
   }
 
   async reply(
@@ -189,20 +191,22 @@ export class Message {
     const sendOptions = isCodec
       ? options
       : (valueOrOptions as SendOptions | undefined);
-    return this.client()
-      .conversations()
-      .replyToMessage(this.id, encoded, sendOptions);
+    return this.client().conversations.replyToMessage(
+      this.id,
+      encoded,
+      sendOptions,
+    );
   }
 
   async parent(): Promise<Message | undefined> {
     const id = this.inReplyTo?.id;
     return id === undefined
       ? undefined
-      : this.client().conversations().getMessageById(id);
+      : this.client().conversations.getMessageById(id);
   }
 
   async conversation(): Promise<Conversation | undefined> {
-    return this.client().conversations().getById(this.conversationId);
+    return this.client().conversations.getById(this.conversationId);
   }
 
   /** The client that returned this message. Throws `ClientClosed` when gone. */

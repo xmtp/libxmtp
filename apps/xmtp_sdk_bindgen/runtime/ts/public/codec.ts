@@ -6,3 +6,13 @@ export interface ContentCodec<T> {
   encode(value: T): EncodedContent;
   decode(encoded: EncodedContent): T;
 }
+
+/**
+ * A codec of any value type, as a client registers it. Registration only
+ * decodes received content, so the value type is erased here.
+ */
+export type AnyContentCodec = {
+  readonly type: ContentTypeId;
+  encode(value: never): EncodedContent;
+  decode(encoded: EncodedContent): unknown;
+};

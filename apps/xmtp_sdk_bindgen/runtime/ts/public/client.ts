@@ -1,5 +1,6 @@
 import {
   ClientMembers,
+  attachClientBinding,
   currentProjection,
   liftEncodedContent,
   liftInboxState,
@@ -28,14 +29,13 @@ import {
 import type {
   ContentTypeId as BoundTypeId,
   EncodedContent as BoundEncoded,
-  ClientLike,
 } from "../../xmtp_sdk";
-import type { ContentCodec } from "./codec";
+import type { AnyContentCodec } from "./codec";
 import { HostClient, bindingClient, type HostClientOptions } from "./host";
 
 /** Client options with the custom codecs that this client decodes. */
 export type ClientOptions = ProjectedClientOptions & {
-  readonly codecs?: readonly ContentCodec<never>[];
+  readonly codecs?: readonly AnyContentCodec[];
 };
 
 type HostCodec = {
@@ -45,7 +45,7 @@ type HostCodec = {
 };
 
 function hostCodec(
-  codec: ContentCodec<never>,
+  codec: AnyContentCodec,
   projection: ObjectProjection,
 ): HostCodec {
   return {
@@ -91,16 +91,13 @@ export class Client extends ClientMembers {
       const client = new Client();
       hosts.set(client, host);
       clients.set(host, client);
+      attachClientBinding(client, bindingClient(host));
       return client;
     };
   }
 
   private constructor() {
     super();
-  }
-
-  protected bindingClient(): ClientLike {
-    return bindingClient(hostOf(this));
   }
 
   static async create(signer: Signer, options: ClientOptions): Promise<Client> {

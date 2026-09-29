@@ -13,6 +13,7 @@ ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
 ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
 args=(--noEmit --strict --module esnext --moduleResolution bundler --target es2022 --allowImportingTsExtensions --skipLibCheck)
 node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/consumers/positive.ts
+node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/public-layer/positive.ts
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 if node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/consumers/negative.ts >"$log" 2>&1; then

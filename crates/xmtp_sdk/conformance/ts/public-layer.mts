@@ -50,46 +50,98 @@ async function options(): Promise<sdk.ClientOptions> {
   };
 }
 
-// A public value is plain data: no binding tag or payload tuple at any depth.
+// Fields whose public type is a string-literal union. A binding flat enum is a
+// number, so a number here is an unconverted binding value.
+const LITERAL_FIELDS = new Set([
+  "kind",
+  "deliveryStatus",
+  "permissionLevel",
+  "consentState",
+  "action",
+  "schema",
+  "level",
+  "category",
+  "membershipState",
+  "conversationType",
+  "compression",
+  "state",
+]);
+// Public objects are converted where they are created; do not look inside.
+const PUBLIC_OBJECTS = [
+  sdk.Client,
+  sdk.Conversations,
+  sdk.Group,
+  sdk.Dm,
+  sdk.Preferences,
+  sdk.Diagnostics,
+  sdk.Archives,
+  sdk.Storage,
+  sdk.Backend,
+  sdk.SignatureRequest,
+];
+const PLAIN_PROTOTYPES = new Set<unknown>([
+  Object.prototype,
+  null,
+  Array.prototype,
+  Map.prototype,
+  Set.prototype,
+  sdk.Message.prototype,
+]);
+
+// A public value is plain data at every depth: no binding tag or payload, no
+// binding class instance, no numeric enum, and no ArrayBuffer for bytes.
 function assertPublic(value: unknown, path = "value", seen = new Set()): void {
   if (value === null || typeof value !== "object" || seen.has(value)) return;
   seen.add(value);
+  assert.ok(!(value instanceof ArrayBuffer), `${path} is an ArrayBuffer`);
   if (value instanceof Uint8Array || value instanceof sdk.Timestamp) return;
+  if (PUBLIC_OBJECTS.some((type) => value instanceof type)) return;
+  assert.ok(
+    PLAIN_PROTOTYPES.has(Object.getPrototypeOf(value)),
+    `${path} is a ${value.constructor.name} instance, not plain data`,
+  );
   assert.ok(!("tag" in value), `${path} has a binding tag`);
   assert.ok(!("inner" in value), `${path} has a binding payload`);
   const entries =
     value instanceof Map ? [...value.entries()] : Object.entries(value);
-  for (const [key, item] of entries)
+  for (const [key, item] of entries) {
+    if (LITERAL_FIELDS.has(String(key)))
+      assert.notEqual(typeof item, "number", `${path}.${key} is a number`);
     assertPublic(item, `${path}.${String(key)}`, seen);
+  }
 }
 
 const alice = await sdk.Client.create(signerFor(), await options());
 const bob = await sdk.Client.create(signerFor(), await options());
 
+// The public Client keeps its binding private.
+assert.equal("bindingClient" in alice, false);
+assert.deepEqual(Object.keys(alice), []);
+
 // One binding object lifts to one public object.
-const conversations = alice.conversations();
+const conversations = alice.conversations;
 assert.ok(conversations instanceof sdk.Conversations);
 const group = await conversations.createGroup([]);
 assert.ok(group instanceof sdk.Group);
-assert.equal(group.kind(), "group");
-const fetched = await conversations.getById(group.id());
+assert.equal(group.kind, "group");
+const fetched = await conversations.getById(group.id);
 assert.ok(fetched instanceof sdk.Group, "getById returns the Group itself");
-assert.equal(fetched.id(), group.id());
+assert.equal(fetched.id, group.id);
 const listed = await conversations.list();
 assert.ok(listed.some((item) => item instanceof sdk.Group));
 
 // Membership unions: inbox IDs and account identities take one parameter.
-const bobIdentity = bob.identity();
+const bobIdentity = bob.identity;
 assert.deepEqual(Object.keys(bobIdentity).sort(), ["identifier", "kind"]);
 assert.equal(bobIdentity.kind, "ethereum");
 const added = await group.addMembers([bobIdentity]);
 assertPublic(added, "membership result");
-assert.ok((await group.members()).some((m) => m.inboxId === bob.inboxId()));
+assertPublic(await group.members(), "members");
+assertPublic(bob.identity, "identity");
+assert.ok((await group.members()).some((m) => m.inboxId === bob.inboxId));
 // A mixed list fails before any call, so Bob stays a member.
-await assert.rejects(
-  group.removeMembers([bob.inboxId(), bobIdentity] as never),
-);
-assert.ok((await group.members()).some((m) => m.inboxId === bob.inboxId()));
+await assert.rejects(group.removeMembers([bob.inboxId, bobIdentity] as never));
+assert.ok((await group.members()).some((m) => m.inboxId === bob.inboxId));
 
 // Messages are host Message objects with public-value fields.
 const textId = await group.sendText("hello public layer");
@@ -127,15 +179,15 @@ const reacted = await conversations.getMessageById(textId);
 assert.equal(reacted?.reactions[0]?.reaction.action, "added");
 
 // A DM and its optional identity results.
-const dm = await conversations.createDm(bob.inboxId());
+const dm = await conversations.createDm(bob.inboxId);
 assert.ok(dm instanceof sdk.Dm);
-assert.equal(await dm.peerInboxId(), bob.inboxId());
-assert.equal(dm.creatorInboxId(), alice.inboxId());
-assert.ok((await conversations.getById(dm.id())) instanceof sdk.Dm);
+assert.equal(await dm.peerInboxId(), bob.inboxId);
+assert.equal(dm.creatorInboxId, alice.inboxId);
+assert.ok((await conversations.getById(dm.id)) instanceof sdk.Dm);
 
 // Client values and statics use public shapes.
-assert.equal(alice.options().deviceSync, false);
-assertPublic(alice.options().storage, "options.storage");
+assert.equal(alice.options.deviceSync, false);
+assertPublic(alice.options, "options");
 assertPublic(await alice.inboxState(false), "inbox state");
 const reachable = await sdk.Client.canMessage([bobIdentity], backend);
 assert.equal(reachable.get(`ethereum:${bobIdentity.identifier}`), true);
@@ -152,7 +204,7 @@ let collected: sdk.Client | undefined = await sdk.Client.create(
   signerFor(),
   await options(),
 );
-const orphanGroup = await collected.conversations().createGroup([]);
+const orphanGroup = await collected.conversations.createGroup([]);
 const orphanId = await orphanGroup.sendText("orphan");
 const orphan = (await orphanGroup.messages()).find((m) => m.id === orphanId)!;
 collected = undefined;

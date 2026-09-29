@@ -165,6 +165,14 @@ fn render_body(code: &mut String, call: &Call, target: &str, asynchronous: bool)
     Ok(())
 }
 
+/// A synchronous, argument-free, infallible member with a result.
+pub(super) fn is_getter(method: &MethodMetadata) -> bool {
+    !method.is_async
+        && method.inputs.is_empty()
+        && method.throws.is_none()
+        && method.return_type.is_some()
+}
+
 fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &str) -> Result<()> {
     let name = camel(&method.name);
     let call = call(
@@ -174,10 +182,14 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
         method.return_type.as_ref(),
         method.is_async,
     );
+    // Decision 14: a synchronous, argument-free, infallible member is a
+    // readonly getter.
+    let getter = is_getter(method);
     writeln!(
         code,
-        "{}{name}({}): {} {{",
+        "{}{}{name}({}): {} {{",
         if method.is_async { "async " } else { "" },
+        if getter { "get " } else { "" },
         call.parameters,
         call.result_type
     )?;
@@ -252,12 +264,13 @@ pub(super) fn object(
 }
 
 pub(super) fn client_members(code: &mut String, items: &[&Metadata]) -> Result<()> {
-    code.push_str("/** Generated public Client members. The host Client supplies its binding. */\nexport abstract class ClientMembers {\nprotected abstract bindingClient(): B.ClientLike;\n");
+    // The binding stays in a module-private map, as for the object classes.
+    code.push_str("const clientBindings = new WeakMap<ClientMembers, B.ClientLike>();\n/** Attach the binding Client when the host creates a public Client. */\nexport function attachClientBinding(client: ClientMembers, binding: B.ClientLike): void { clientBindings.set(client, binding); }\nexport function clientBinding(client: ClientMembers): B.ClientLike {\n  const binding = clientBindings.get(client);\n  if (binding === undefined) throw new TypeError(\"not an XMTP Client\");\n  return binding;\n}\n/** Generated public Client members. The host Client supplies its binding. */\nexport abstract class ClientMembers {\n");
     for method in methods(items, "Client") {
         if HOST_CLIENT_MEMBERS.contains(&camel(&method.name).as_str()) {
             continue;
         }
-        member(code, "Client", method, "this.bindingClient()")?;
+        member(code, "Client", method, "clientBinding(this)")?;
     }
     code.push_str("}\n");
     Ok(())
@@ -317,8 +330,11 @@ pub(super) fn public_api(items: &[&Metadata]) -> String {
             Metadata::CallbackInterface(value) => {
                 types.insert(value.name.clone());
             }
-            // The host Client takes its options with codecs.
-            Metadata::Record(value) if value.name != "ClientOptions" => {
+            // The host Client takes its options with codecs. Message data
+            // carries the internal client key; the host Message replaces it.
+            Metadata::Record(value)
+                if value.name != "ClientOptions" && value.name != "MessageData" =>
+            {
                 types.insert(value.name.clone());
             }
             // Thrown errors keep their binding classes until the public error
@@ -341,7 +357,7 @@ pub(super) fn public_api(items: &[&Metadata]) -> String {
     let join = |names: BTreeSet<String>| names.into_iter().collect::<Vec<_>>().join(", ");
     // Explicit names: Node's CommonJS interop drops a star re-export.
     format!(
-        "// The private public entry, generated from the public projection. The\n// package roots re-export it once every target uses it. Do not edit this output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
+        "// The private public entry, generated from the public projection. The\n// package roots re-export it once every target uses it. Do not edit this output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
         join(values),
         join(types)
     )
