@@ -59,12 +59,12 @@ mkdir -p "$node_package/node_modules/@ubjs"
     cp "$generated/typescript-napi/$file" "$node_package/$file"
   done
 cat > "$node_package/package.json" <<'JSON'
-{"name":"xmtp-sdk","private":true,"type":"module","exports":{".":"./index.ts"},"imports":{"#xmtp/binding":"./xmtp_sdk.ts"}}
+{"name":"xmtp-sdk","private":true,"type":"module","exports":{".":"./index.ts","./public":"./public-api.gen.ts"},"imports":{"#xmtp/binding":"./xmtp_sdk.ts"}}
 JSON
 nix build --no-link .#ubjs-core .#ubjs-node
 ln -sfn "$(nix path-info .#ubjs-core)/lib/node_modules/@ubjs/core" "$node_package/node_modules/@ubjs/core"
 ln -sfn "$(nix path-info .#ubjs-node)/lib/node_modules/@ubjs/node" "$node_package/node_modules/@ubjs/node"
-cp -R "$fixtures/node/src" "$fixtures/node/negative" "$node_consumer/"
+cp -R "$fixtures/node/src" "$fixtures/node/negative" "$fixtures/node/private-entry" "$node_consumer/"
 
 # Browser: install the worker package and its pure module side by side, as the
 # package imports the pure module from a sibling directory. The exports map
@@ -159,6 +159,13 @@ grep -q "TS2307: Cannot find module 'xmtp-sdk/xmtp_sdk'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
 grep -q "Property 'createGroupWithIdentities' does not exist on type 'ConversationsLike'" "$log"
 echo "Node public consumer cannot reach the binding Client"
+
+# The private public entry (the roots switch to it later) loads once in the
+# installed package, whether an app imports it or requires it. This runs, so
+# the package needs its native library.
+cp "$generated/typescript-napi/libxmtp_sdk."* "$node_package/"
+node_build --types node --typeRoots sdks/node/node_modules/@types "$node_consumer/private-entry/load-twice.mts"
+(cd "$node_consumer" && NODE_OPTIONS=--preserve-symlinks node --import "$(realpath "$root/sdks/node/node_modules/tsx/dist/loader.mjs")" private-entry/load-twice.mts)
 
 browser_build() {
   node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext \

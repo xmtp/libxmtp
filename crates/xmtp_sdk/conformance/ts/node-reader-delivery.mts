@@ -1,13 +1,16 @@
 import assert from "node:assert/strict";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+// Fake-reader cases drive the shared host reader stream directly.
+import {
+  MessageStream as HostMessageStream,
+  type StreamCloseReason as HostCloseReason,
+} from "../../../../target/sdk-conformance/typescript-napi/runtime/streams/reader.ts";
 
 export async function readerDelivery(reopened: sdk.Client) {
-  const reopenedGroup = await reopened
-    .conversations()
-    .createGroup([], undefined);
+  const reopenedGroup = await reopened.conversations.createGroup([]);
   const reader = await reopenedGroup.messageReader();
-  const messageId = await reopenedGroup.sendText("durable stream", undefined);
+  const messageId = await reopenedGroup.sendText("durable stream");
   const first = await reader.next();
   assert.equal(first?.id.toString(), messageId.toString());
   await reader.end();
@@ -15,10 +18,7 @@ export async function readerDelivery(reopened: sdk.Client) {
   const repeated = await replay.next();
   assert.equal(repeated?.id.toString(), messageId.toString());
   await replay.end();
-  const stream = new sdk.MessageStream(
-    (signal) => reopenedGroup.messageReader(undefined, { signal }),
-    reopened,
-  );
+  const stream = sdk.MessageStream.openGroup(reopened, reopenedGroup);
   assert.equal(
     (await stream.next()).value?.id.toString(),
     messageId.toString(),
@@ -27,23 +27,15 @@ export async function readerDelivery(reopened: sdk.Client) {
   setTimeout(() => void stream.return(), 50);
   assert.equal((await pending).done, true);
   await stream.return();
-  const protocolGroup = await reopened
-    .conversations()
-    .createGroup([], undefined);
-  const firstId = await protocolGroup.sendText("ack on request", undefined);
-  const firstStream = new sdk.MessageStream(
-    (signal) => protocolGroup.messageReader(undefined, { signal }),
-    reopened,
-  );
+  const protocolGroup = await reopened.conversations.createGroup([]);
+  const firstId = await protocolGroup.sendText("ack on request");
+  const firstStream = sdk.MessageStream.openGroup(reopened, protocolGroup);
   assert.equal(
     (await firstStream.next()).value?.id.toString(),
     firstId.toString(),
   );
   await firstStream.return();
-  const secondStream = new sdk.MessageStream(
-    (signal) => protocolGroup.messageReader(undefined, { signal }),
-    reopened,
-  );
+  const secondStream = sdk.MessageStream.openGroup(reopened, protocolGroup);
   let replayTimer: ReturnType<typeof setTimeout>;
   const replayedItem = await Promise.race([
     secondStream.next(),
@@ -59,7 +51,7 @@ export async function readerDelivery(reopened: sdk.Client) {
     firstId.toString(),
     "item was prefetched and acknowledged",
   );
-  const secondId = await protocolGroup.sendText("second request", undefined);
+  const secondId = await protocolGroup.sendText("second request");
   assert.equal(
     (await secondStream.next()).value?.id.toString(),
     secondId.toString(),
@@ -72,12 +64,13 @@ export async function readerDelivery(reopened: sdk.Client) {
     "first item was not acknowledged on next request",
   );
   await afterAck.end();
-  const breakGroup = await reopened.conversations().createGroup([], undefined);
+  const breakGroup = await reopened.conversations.createGroup([]);
   const breakId = await breakGroup.sendText("close after break");
   const breakReasons: sdk.StreamCloseReason[] = [];
-  const retainedStream = new sdk.MessageStream(
-    (signal) => breakGroup.messageReader(undefined, { signal }),
+  const retainedStream = sdk.MessageStream.openGroup(
     reopened,
+    breakGroup,
+    undefined,
     { onClose: (reason) => breakReasons.push(reason) },
   );
   for await (const value of retainedStream) {
@@ -106,7 +99,7 @@ export async function readerDelivery(reopened: sdk.Client) {
     markCreationStarted = resolve;
   });
   let endedLate = false;
-  const opening = new sdk.MessageStream(
+  const opening = new HostMessageStream<undefined>(
     () =>
       new Promise((resolve) => {
         resolveCreation = resolve;
@@ -135,7 +128,7 @@ export async function readerDelivery(reopened: sdk.Client) {
     next: () => Promise<undefined>;
     end: () => Promise<void>;
   }) => void;
-  let pendingReplacement: sdk.MessageStream | undefined;
+  let pendingReplacement: HostMessageStream<unknown> | undefined;
   const pendingScopeOpen = async () => {
     if (pendingScopeOwned)
       throw Object.assign(new Error("stream scope is still owned"), {
@@ -149,7 +142,7 @@ export async function readerDelivery(reopened: sdk.Client) {
       },
     };
   };
-  const pendingScopeStream = new sdk.MessageStream(
+  const pendingScopeStream = new HostMessageStream(
     async () => {
       pendingScopeOwned = true;
       pendingOpenStarted();
@@ -163,7 +156,7 @@ export async function readerDelivery(reopened: sdk.Client) {
     {
       onClose: (reason) => {
         assert.equal(reason.kind, "closed");
-        pendingReplacement = new sdk.MessageStream(pendingScopeOpen, reopened);
+        pendingReplacement = new HostMessageStream(pendingScopeOpen, reopened);
       },
     },
   );
@@ -187,8 +180,8 @@ export async function readerDelivery(reopened: sdk.Client) {
   const failedOpenStartedSignal = new Promise<void>((resolve) => {
     failedOpenStarted = resolve;
   });
-  const failedOpenReasons: sdk.StreamCloseReason[] = [];
-  const failedPendingStream = new sdk.MessageStream(
+  const failedOpenReasons: HostCloseReason[] = [];
+  const failedPendingStream = new HostMessageStream(
     () => {
       failedOpenStarted();
       return new Promise<never>((_, reject) => {
