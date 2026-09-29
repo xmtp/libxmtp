@@ -6,7 +6,7 @@ use xmtp_id::associations::DeserializationError;
 use xmtp_mls::worker::device_sync::{
     ArchiveOptions, BackupElementSelection, DeviceSyncError,
     archive::{
-        ArchiveImporter, BACKUP_VERSION, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter,
+        self, ArchiveImporter, BACKUP_VERSION, BackupMetadata, exporter::ArchiveExporter,
         insert_importer,
     },
 };
@@ -151,14 +151,10 @@ impl TryFrom<BackupElementSelectionProto> for FfiBackupElementSelection {
     }
 }
 
-fn check_key(mut key: Vec<u8>) -> Result<Vec<u8>, FfiError> {
-    if key.len() < 32 {
-        return Err(FfiError::generic(format!(
-            "The encryption key must be at least {} bytes long.",
-            ENC_KEY_SIZE
-        )));
-    }
-    key.truncate(ENC_KEY_SIZE);
+/// Rejects a key that is not exactly 32 bytes.
+// implements: ARCH-012
+fn check_key(key: Vec<u8>) -> Result<Vec<u8>, FfiError> {
+    archive::check_key(&key).map_err(DeviceSyncError::Archive)?;
     Ok(key)
 }
 
@@ -192,14 +188,11 @@ mod unit_tests {
 
     #[test]
     fn test_check_key_too_short() {
-        // Key shorter than 32 bytes should fail
-        let short_key = vec![0u8; 31];
-        let result = check_key(short_key);
-        assert!(result.is_err());
-        let err = result.unwrap_err();
-        assert_eq!(
-            err.to_string(),
-            "[GenericError::Generic] The encryption key must be at least 32 bytes long."
+        let err = check_key(vec![0u8; 31]).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("archive key must be 32 bytes, got 31"),
+            "{err}"
         );
     }
 
@@ -212,16 +205,17 @@ mod unit_tests {
         assert_eq!(result.unwrap().len(), 32);
     }
 
+    /// A longer key is rejected, not truncated: truncation would make every
+    /// key sharing a 32-byte prefix open the same archive.
+    // verifies: ARCH-012
     #[test]
-    fn test_check_key_longer_gets_truncated() {
-        // Key longer than 32 bytes should be truncated
-        let long_key: Vec<u8> = (0..64).collect();
-        let result = check_key(long_key);
-        assert!(result.is_ok());
-        let truncated = result.unwrap();
-        assert_eq!(truncated.len(), 32);
-        // Verify it's the first 32 bytes
-        assert_eq!(truncated, (0..32).collect::<Vec<u8>>());
+    fn test_check_key_too_long() {
+        let err = check_key((0..33).collect()).unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("archive key must be 32 bytes, got 33"),
+            "{err}"
+        );
     }
 
     #[test]

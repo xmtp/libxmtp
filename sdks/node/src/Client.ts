@@ -960,7 +960,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * Archive application elements to file for later restoration
    *
    * @param path - The file path to save the archive
-   * @param key - Encryption key for the archive
+   * @param key - Encryption key for the archive; must be exactly 32 bytes
    * @param opts - Archive options specifying what to include (defaults to consent and messages)
    * @returns Promise that resolves when the archive is created
    */
@@ -978,7 +978,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * Import a previous archive from a file
    *
    * @param path - The file path to the archive
-   * @param key - Encryption key for the archive
+   * @param key - Encryption key for the archive; must be exactly 32 bytes
    * @returns Promise that resolves when the archive is imported
    */
   async importArchive(path: string, key: Uint8Array) {
@@ -995,7 +995,7 @@ export class Client<ContentTypes = ExtractCodecContentTypes> {
    * Reads only the metadata without loading the entire file, so this function is quick.
    *
    * @param path - The file path to the archive
-   * @param key - Encryption key for the archive
+   * @param key - Encryption key for the archive; must be exactly 32 bytes
    * @returns Promise that resolves with the archive metadata
    */
   async archiveMetadata(

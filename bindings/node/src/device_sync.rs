@@ -6,9 +6,7 @@ use std::sync::Arc;
 use xmtp_id::associations::DeserializationError;
 use xmtp_mls::worker::device_sync::{
   ArchiveOptions as XmtpArchiveOptions, BackupElementSelection, DeviceSyncError,
-  archive::{
-    ArchiveImporter, BackupMetadata, ENC_KEY_SIZE, exporter::ArchiveExporter, insert_importer,
-  },
+  archive::{self, ArchiveImporter, BackupMetadata, exporter::ArchiveExporter, insert_importer},
 };
 use xmtp_proto::xmtp::device_sync::BackupElementSelection as BackupElementSelectionProto;
 
@@ -115,16 +113,13 @@ impl From<BackupMetadata> for ArchiveMetadata {
   }
 }
 
+/// Rejects a key that is not exactly 32 bytes.
+// implements: ARCH-012
 fn check_key(key: &Uint8Array) -> Result<Vec<u8>> {
-  let key_vec: Vec<u8> = key.to_vec();
-  if key_vec.len() < 32 {
-    return Err(napi::Error::from_reason(format!(
-      "The encryption key must be at least {} bytes long.",
-      ENC_KEY_SIZE
-    )));
-  }
-  let mut key = key_vec;
-  key.truncate(ENC_KEY_SIZE);
+  let key = key.to_vec();
+  archive::check_key(&key)
+    .map_err(DeviceSyncError::Archive)
+    .map_err(ErrorWrapper::from)?;
   Ok(key)
 }
 
