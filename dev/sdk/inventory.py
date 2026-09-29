@@ -696,9 +696,19 @@ def ts_class_members(path: Path, class_name: str, sdk: str) -> list[Entry]:
                     "while",
                 }:
                     name = match.group(1)
+                    # A static and an instance member can share a name. They
+                    # are separate API, so each keeps its own row.
+                    static = re.match(
+                        r"(?:(?:public|async|readonly|override|declare)\s+)*static\b",
+                        stripped,
+                    )
                     entries.append(
                         Entry(
-                            sdk, rel(path), index + 1, f"{class_name}.{name}", "member"
+                            sdk,
+                            rel(path),
+                            index + 1,
+                            f"{class_name}.{name}",
+                            "static member" if static else "member",
                         )
                     )
                     if "(" in stripped and "{" not in stripped and ";" not in stripped:
@@ -746,9 +756,10 @@ def ts_inventory(sdk: str) -> list[Entry]:
     raw = ts_exports(root / "index.ts", set())
     # Explicit and wildcard routes can reach the same symbol. The public name
     # has one slot at the package entry point.
-    by_name: dict[str, Entry] = {}
+    # A static and an instance member with one name keep separate slots.
+    by_name: dict[tuple[str, str], Entry] = {}
     for entry in raw:
-        by_name.setdefault(entry.name, entry)
+        by_name.setdefault((entry.name, entry.kind), entry)
     return list(by_name.values())
 
 
@@ -858,6 +869,8 @@ def stable_entries(
 def declared_static(entry: Entry, source_texts: dict[str, str] | None) -> bool:
     """True when the current declaration is static or has no instance."""
     if entry.display_name.startswith("func ") or ".Companion." in entry.name:
+        return True
+    if entry.kind == "static member":
         return True
     if entry.name.startswith("pattern:") or not entry.source.startswith("sdks/"):
         return False

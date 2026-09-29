@@ -10,8 +10,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | --- | ---: |
 | Swift | 7124 |
 | Kotlin | 962 |
-| Node | 519 |
-| Browser | 530 |
+| Node | 522 |
+| Browser | 533 |
 
 ## Swift
 
@@ -2475,31 +2475,33 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.accountIdentifier` | member | `Client.identity` | generated | 11.1, Client.identity | Source: `sdks/node/src/Client.ts`. |
 | `Client.appVersion` | member | `Client.appVersion` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts`. |
 | `Client.archiveMetadata` | member | `Client.archives.metadataFromFile` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.build` | member | `static Client.build` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). The façade build requires a stored identity and does not fetch configuration for an empty database. The current Node build does not: it resolves the inbox ID from the backend and creates the client online without allowOffline, so an empty database fetches configuration and needs no stored identity. Source: `sdks/node/src/Client.ts`. |
+| `Client.build` | static member | `static Client.build` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). The façade build requires a stored identity and does not fetch configuration for an empty database. The current Node build does not: it resolves the inbox ID from the backend and creates the client online without allowOffline, so an empty database fetches configuration and needs no stored identity. Source: `sdks/node/src/Client.ts`. |
 | `Client.canMessage` | member | `Client.canMessage` | generated | 11.4 Node, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/node/src/Client.ts`. |
+| `Client.canMessage` | static member | `static Client.canMessage` | generated | 11.4 Node, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/node/src/Client.ts`. |
 | `Client.changeRecoveryIdentifier` | member | `Client.changeRecoveryIdentifier` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.close` | member | `Client.end()` | generated | plan Decisions, client end | Source: `sdks/node/src/Client.ts`. |
 | `Client.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Client.ts`. |
 | `Client.conversations` | member | `Client.conversations` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
-| `Client.create` | member | `static Client.create` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/node/src/Client.ts`. |
+| `Client.create` | static member | `static Client.create` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/node/src/Client.ts`. |
 | `Client.createArchive` | member | `Client.archives.exportToFile` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.debugInformation` | member | `Client.diagnostics` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.disableNotifications` | member | `Client.disableNotifications` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
 | `Client.enableNotifications` | member | `Client.enableNotifications` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
 | `Client.env` | member | `Client.options.storage.label` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.fetchInboxIdByIdentifier` | member | `Client.inboxId(for:)` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.fetchInboxStates` | member | `static Client.inboxStates` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.fetchInboxStates` | static member | `static Client.inboxStates` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.fetchKeyPackageStatuses` | member | `Client.keyPackageStatuses` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.fetchLatestInboxUpdatesCount` | member | `Client.latestInboxUpdatesCount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.fetchLatestInboxUpdatesCount` | static member | `Client.latestInboxUpdatesCount` | generated | 11.4 Node, Client and options | Moves from a static member to an instance member. Source: `sdks/node/src/Client.ts`. |
 | `Client.fetchOwnInboxUpdatesCount` | member | `Client.ownInboxUpdatesCount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.fetchServerConfiguration` | member | `static Client.fetchServerConfiguration` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.fetchServerConfiguration` | static member | `static Client.fetchServerConfiguration` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.importArchive` | member | `Client.archives.importFromFile` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.inboxId` | member | `Client.inboxId` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.init` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Client.ts`. |
 | `Client.installationId` | member | `Client.installationId` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.installationIdBytes` | member | `Client.installationIdBytes` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts`. |
-| `Client.isAddressAuthorized` | member | `static Client.isAddressAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
-| `Client.isInstallationAuthorized` | member | `static Client.isInstallationAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
+| `Client.isAddressAuthorized` | static member | `static Client.isAddressAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
+| `Client.isInstallationAuthorized` | static member | `static Client.isInstallationAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
 | `Client.isRegistered` | member | `Client.isRegistered()` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.libxmtpVersion` | member | `Client.libxmtpVersion` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts`. |
 | `Client.notificationState` | member | `Client.notificationState` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
@@ -2510,6 +2512,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.removeAccount` | member | `Client.removeAccount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.revokeAllOtherInstallations` | member | `Client.revokeAllOtherInstallations` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.revokeInstallations` | member | `Client.revokeInstallations` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.revokeInstallations` | static member | `static Client.revokeInstallations` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.serverConfiguration` | member | `Client.serverConfiguration` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.signWithInstallationKey` | member | `Client.signWithInstallationKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.signer` | member | — | approved removal | 11.1, Client and Signer | The client does not expose its signer. Source: `sdks/node/src/Client.ts`. |
@@ -2524,7 +2527,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.unsafe_revokeAllOtherInstallationsSignatureRequest` | member | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.unsafe_revokeInstallationsSignatureRequest` | member | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.verifySignedWithInstallationKey` | member | `Client.verifySignedWithInstallationKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.verifySignedWithPublicKey` | member | `static Client.verifySignedWithPublicKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.verifySignedWithPublicKey` | static member | `static Client.verifySignedWithPublicKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `CodecRegistry.constructor` | member | `CodecRegistry.constructor` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/node/src/CodecRegistry.ts`. |
 | `CodecRegistry.getCodec` | member | `CodecRegistry.getCodec` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/node/src/CodecRegistry.ts`. |
 | `Conversation._client` | constructor parameter | — | approved removal | 11.4 Node, Conversation, Group, Dm; 11.2 | Internal constructor storage is not a facade field. Source: `sdks/node/src/Conversation.ts`. |
@@ -2967,22 +2970,24 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.accountIdentifier` | member | `Client.identity` | generated | 11.1, Client.identity | Source: `sdks/browser/src/Client.ts`. |
 | `Client.appVersion` | member | `Client.appVersion` | generated | 11.1, Client immutable fields | Source: `sdks/browser/src/Client.ts`. |
 | `Client.archiveMetadata` | member | `Client.archives.metadataFromBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
-| `Client.build` | member | `static Client.build` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). The façade build requires a stored identity and does not fetch configuration for an empty database. The current Browser build does not: it resolves the inbox ID from the backend and creates the client online without allowOffline, so an empty database fetches configuration and needs no stored identity. Source: `sdks/browser/src/Client.ts`. |
+| `Client.build` | static member | `static Client.build` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). The façade build requires a stored identity and does not fetch configuration for an empty database. The current Browser build does not: it resolves the inbox ID from the backend and creates the client online without allowOffline, so an empty database fetches configuration and needs no stored identity. Source: `sdks/browser/src/Client.ts`. |
 | `Client.canMessage` | member | `Client.canMessage` | generated | 11.4 Browser; 11.4 Node, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/browser/src/Client.ts`. |
+| `Client.canMessage` | static member | `static Client.canMessage` | generated | 11.4 Browser; 11.4 Node, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/browser/src/Client.ts`. |
 | `Client.changeRecoveryIdentifier` | member | `Client.changeRecoveryIdentifier` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.close` | member | `Client.end()` | generated | plan Decisions, client end | Source: `sdks/browser/src/Client.ts`. |
 | `Client.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Client.ts`. |
 | `Client.conversations` | member | `Client.conversations` | generated | 11.4 Browser; 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/browser/src/Client.ts`. |
-| `Client.create` | member | `static Client.create` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/browser/src/Client.ts`. |
+| `Client.create` | static member | `static Client.create` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/browser/src/Client.ts`. |
 | `Client.createArchive` | member | `Client.archives.exportToBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.debugInformation` | member | `Client.diagnostics` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.env` | member | `Client.options.storage.label` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.fetchInboxIdByIdentifier` | member | `Client.inboxId(for:)` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
-| `Client.fetchInboxStates` | member | `static Client.inboxStates` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
+| `Client.fetchInboxStates` | static member | `static Client.inboxStates` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.fetchKeyPackageStatuses` | member | `Client.keyPackageStatuses` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.fetchLatestInboxUpdatesCount` | member | `Client.latestInboxUpdatesCount` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
+| `Client.fetchLatestInboxUpdatesCount` | static member | `Client.latestInboxUpdatesCount` | generated | 11.4 Browser | Moves from a static member to an instance member. Source: `sdks/browser/src/Client.ts`. |
 | `Client.fetchOwnInboxUpdatesCount` | member | `Client.ownInboxUpdatesCount` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
-| `Client.fetchServerConfiguration` | member | `static Client.fetchServerConfiguration` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
+| `Client.fetchServerConfiguration` | static member | `static Client.fetchServerConfiguration` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.importArchive` | member | `Client.archives.importFromBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.inboxId` | member | `Client.inboxId` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.init` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Client.ts`. |
@@ -2998,6 +3003,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.removeAccount` | member | `Client.removeAccount` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.revokeAllOtherInstallations` | member | `Client.revokeAllOtherInstallations` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.revokeInstallations` | member | `Client.revokeInstallations` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
+| `Client.revokeInstallations` | static member | `static Client.revokeInstallations` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.serverConfiguration` | member | `Client.serverConfiguration` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.signWithInstallationKey` | member | `Client.signWithInstallationKey` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.signer` | member | — | approved removal | 11.1, Client and Signer | The client does not expose its signer. Source: `sdks/browser/src/Client.ts`. |
@@ -3165,7 +3171,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Opfs.clearAll` | member | `StorageAdmin.clearAll` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.close` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.constructor` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
-| `Opfs.create` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
+| `Opfs.create` | static member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.deleteFile` | member | `StorageAdmin.deleteFile` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.exportDb` | member | `StorageAdmin.exportDb` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.fileCount` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
