@@ -387,7 +387,9 @@ impl<'a> FieldSnapshot<'a> {
     /// List the fields of `dictionary`'s registry, labelling each
     /// application field with the first `catalogue` definition of its ID
     /// when that definition is valid, as registration does. `None` is a
-    /// group without a dictionary.
+    /// group without a dictionary. [`ComponentRegistry::iter`] already
+    /// skips an entry missing any of its three member policies, so every
+    /// listed field has all three.
     // implements: META-069
     pub fn new(
         dictionary: Option<&'a AppDataDictionary>,
@@ -990,6 +992,7 @@ mod tests {
     const BROKEN: ComponentId = ComponentId::new(0xC004);
     const TAGS: ComponentId = ComponentId::new(0xC005);
     const LINKS: ComponentId = ComponentId::new(0xC006);
+    const PARTIAL: ComponentId = ComponentId::new(0xC007);
 
     fn inbox(tag: u8) -> InboxId {
         InboxId::from_bytes([tag; 32])
@@ -1086,6 +1089,19 @@ mod tests {
                 (BROKEN, vec![0xFF, 0xFF]),
                 (TAGS, entry(tag(ComponentType::TlsSetInboxId))),
                 (LINKS, entry(tag(ComponentType::TlsMapBytesBytes))),
+                // An entry without a delete policy.
+                (
+                    PARTIAL,
+                    ComponentMetadata {
+                        permissions: Some(ComponentPermissions {
+                            delete_policy: None,
+                            ..permissions(MetadataBasePolicy::Allow)
+                        }),
+                        component_type: tag(ComponentType::String),
+                        external_committer_permissions: None,
+                    }
+                    .encode_to_vec(),
+                ),
             ],
             &[
                 (
@@ -1149,7 +1165,8 @@ mod tests {
     /// public well-known fields, in ID order. A well-known field's type
     /// is the protocol's even when its registry tag disagrees; an application
     /// field's type is its registry tag, not the catalogue's; an unknown tag
-    /// is `Unknown`; internal and malformed entries are not fields.
+    /// is `Unknown`; internal and malformed entries, and entries missing a
+    /// member policy, are not fields.
     // verifies: META-069
     #[xmtp_common::test(unwrap_try = true)]
     fn fields_describe_the_committed_registry() {
