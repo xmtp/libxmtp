@@ -6,12 +6,16 @@
 //! signatures and route through the appropriate sub-module here. The
 //! component codec lives in `xmtp_mls_common::app_data::component_source`;
 //! its helpers transform bytes and do not change a group by themselves.
+//!
+//! `membership_upkeep` adds the registry reconciliation and removed-member
+//! cleanup that ride along with a membership commit.
 
 #[allow(
     dead_code,
     reason = "Retained for removal with migration code in Task 5"
 )]
 pub(crate) mod bootstrap_validator;
+pub(crate) mod membership_upkeep;
 pub mod migration;
 pub(crate) mod sender_intents;
 
@@ -465,20 +469,28 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
 /// Compute the [`AppDataUpdates`] required to commit any pending
 /// AppDataUpdate proposals in the group's proposal store.
 ///
-/// Walks the proposal store and threads each `Update` / `Remove` through
-/// [`accumulate_app_data_updates`]. The result is what callers pass to
-/// [`CommitBuilder::with_app_data_dictionary_updates`] when committing
-/// pending proposals locally.
-///
 /// Returns `Ok(None)` when there are no AppDataUpdate proposals pending —
 /// this is the common case and lets the caller skip the `with_…` plumbing
 /// entirely without changing semantics.
 pub(crate) fn pending_app_data_updates(
     mls_group: &OpenMlsGroup,
 ) -> Result<Option<AppDataUpdates>, ComponentSourceError> {
+    app_data_updates_with(mls_group, &[])
+}
+
+/// Compute the [`AppDataUpdates`] of a commit that carries the group's
+/// pending proposals and then `inline`, the order in which OpenMLS applies
+/// them. The result is what callers pass to
+/// [`CommitBuilder::with_app_data_dictionary_updates`].
+pub(crate) fn app_data_updates_with(
+    mls_group: &OpenMlsGroup,
+    inline: &[Proposal],
+) -> Result<Option<AppDataUpdates>, ComponentSourceError> {
     let iter = mls_group
         .pending_proposals()
-        .filter_map(|queued| match queued.proposal() {
+        .map(|queued| queued.proposal())
+        .chain(inline)
+        .filter_map(|proposal| match proposal {
             Proposal::AppDataUpdate(app_data) => {
                 Some((app_data.component_id(), app_data.operation()))
             }

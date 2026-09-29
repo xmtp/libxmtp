@@ -515,6 +515,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     openmls_group,
                     intent_data,
                     dependencies.take_changes()?,
+                    &self
+                        .context
+                        .server_configuration()
+                        .configuration()
+                        .application_components,
                     signer,
                 )
             }
@@ -542,11 +547,19 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let keys = self.context.identity().installation_keys.clone();
                 let (bundle, staged_commit, group_epoch) =
                     generate_prepared_commit(storage, openmls_group, |group, provider| {
-                        let updates = crate::groups::app_data::pending_app_data_updates(group)?;
+                        // A key rotation registers nothing, but it still
+                        // cleans up after any pending Remove it commits.
+                        let upkeep = crate::groups::app_data::membership_upkeep::membership_upkeep(
+                            group,
+                            &[],
+                        )?;
+                        let updates =
+                            crate::groups::app_data::app_data_updates_with(group, &upkeep)?;
                         let mut stage = group
                             .commit_builder()
                             .leaf_node_parameters(LeafNodeParameters::default())
                             .consume_proposal_store(true)
+                            .add_proposals(upkeep)
                             .load_psks(provider.storage())
                             .map_err(CommitToPendingProposalsError::from)?;
                         stage.with_app_data_dictionary_updates(updates);
@@ -699,6 +712,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     openmls_group,
                     intent_data,
                     dependencies.take_changes()?,
+                    &self
+                        .context
+                        .server_configuration()
+                        .configuration()
+                        .application_components,
                     signer,
                 )
             }
@@ -887,9 +905,17 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
 
                 let (bundle, staged_commit, group_epoch) =
                     generate_prepared_commit(storage, openmls_group, |group, provider| {
-                        build_commit_with_pending_app_data_updates(group, provider, signer, |_| {
-                            true
-                        })
+                        build_commit_with_pending_app_data_updates(
+                            group,
+                            provider,
+                            signer,
+                            &self
+                                .context
+                                .server_configuration()
+                                .configuration()
+                                .application_components,
+                            |_| true,
+                        )
                     })?;
                 let (commit, maybe_welcome, _group_info) = bundle.into_messages();
                 let staged_commit =

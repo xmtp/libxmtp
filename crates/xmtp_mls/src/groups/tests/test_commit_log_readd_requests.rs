@@ -541,6 +541,7 @@ async fn test_dictionary_native_readd_records_failed_installations() {
                         Default::default(),
                         vec![installation.clone()],
                     ),
+                    &[],
                     &alix.identity().installation_keys,
                 )?
                 .unwrap();

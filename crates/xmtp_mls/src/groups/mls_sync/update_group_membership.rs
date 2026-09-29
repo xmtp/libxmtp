@@ -1,4 +1,5 @@
 use super::*;
+use crate::groups::app_data::{app_data_updates_with, membership_upkeep::membership_upkeep};
 use crate::groups::group_membership::GroupMembership;
 use crate::groups::{
     GroupError,
@@ -14,6 +15,7 @@ use openmls::{
 use openmls_traits::signatures::Signer;
 use prost::Message;
 use tls_codec::VLBytes;
+use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId, components::tls_map_components::GroupMembershipComponent,
@@ -182,6 +184,7 @@ pub(crate) fn apply_update_group_membership_intent(
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateGroupMembershipIntentData,
     mut changes_with_kps: MembershipDiffWithKeyPackages,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let extensions = openmls_group.extensions().clone();
@@ -272,6 +275,7 @@ pub(crate) fn apply_update_group_membership_intent(
         leaf_nodes_to_remove,
         app_data_payload,
         false,
+        catalogue,
         signer,
     )?;
     Ok(Some(publish_intent_data))
@@ -281,6 +285,10 @@ pub(crate) fn apply_update_group_membership_intent(
 /// All payloads are returned together so they can be published in a single
 /// `send_group_messages` call, eliminating multiple network roundtrips.
 #[tracing::instrument(level = "trace", skip_all)]
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the catalogue is the client's fixed snapshot, threaded explicitly"
+)]
 fn compute_publish_data_for_proposal_based_update(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
@@ -288,6 +296,7 @@ fn compute_publish_data_for_proposal_based_update(
     leaf_nodes_to_remove: Vec<LeafNodeIndex>,
     app_data_membership_payload: Vec<u8>,
     inline_membership: bool,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<PublishIntentData, GroupError> {
     let ((proposal_payloads, bundle), staged_commit, group_epoch) =
@@ -359,12 +368,18 @@ fn compute_publish_data_for_proposal_based_update(
                 proposal_payloads.push(msg.tls_serialize_detached()?);
             }
 
-            // 4. Create a commit consuming all proposals. Pre-compute the dictionary
+            // 4. Carry registry reconciliation and removed-member cleanup
+            // inline, so their authority is judged against the post-commit
+            // membership.
+            let upkeep = membership_upkeep(group, catalogue)?;
+
+            // 5. Create a commit consuming all proposals. Pre-compute the dictionary
             // updates so the confirmation tag agrees with the receiver's apply path.
-            let app_data_updates = crate::groups::app_data::pending_app_data_updates(group)?;
+            let app_data_updates = app_data_updates_with(group, &upkeep)?;
             let mut stage = group
                 .commit_builder()
                 .consume_proposal_store(true)
+                .add_proposals(upkeep)
                 .propose_adds(
                     key_packages_to_add
                         .iter()
@@ -484,6 +499,7 @@ pub(crate) fn apply_readd_installations_intent(
     openmls_group: &mut OpenMlsGroup,
     intent_data: ReaddInstallationsIntentData,
     changes_with_kps: MembershipDiffWithKeyPackages,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
 ) -> Result<Option<PublishIntentData>, GroupError> {
     let readded_installations: HashSet<Vec<u8>> =
@@ -543,6 +559,7 @@ pub(crate) fn apply_readd_installations_intent(
         // A super-admin re-add must be checked as one commit. Its Remove
         // alone is forbidden; the matching Add keeps the inbox present.
         true,
+        catalogue,
         signer,
     )?;
 
@@ -661,6 +678,7 @@ mod tests {
                         vec![],
                         payload,
                         false,
+                        &[],
                         group.context.identity().installation_keys.clone(),
                     )?;
                     assert_eq!(

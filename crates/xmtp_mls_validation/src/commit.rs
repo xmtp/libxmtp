@@ -1028,7 +1028,7 @@ pub(crate) fn app_data_update_proposer_leaf(
 }
 
 /// One `AppDataUpdate` proposal in a commit, with its sender's authority.
-pub(crate) struct AppDataUpdateInCommit<'a> {
+pub struct AppDataUpdateInCommit<'a> {
     pub component_id: xmtp_mls_common::app_data::component_id::ComponentId,
     pub operation: &'a openmls::messages::proposals::AppDataUpdateOperation,
     pub actor: xmtp_mls_common::app_data::validation::ActorAuthority,
@@ -1041,7 +1041,7 @@ pub(crate) struct AppDataUpdateInCommit<'a> {
 /// Each proposal is judged against its component's state after the
 /// preceding proposals, starting from `committed`, so neither a transition
 /// invariant nor an immutable first write can be split across proposals.
-pub(crate) fn validate_app_data_update_sequence<'a>(
+pub fn validate_app_data_update_sequence<'a>(
     updates: impl IntoIterator<Item = AppDataUpdateInCommit<'a>>,
     committed: impl Fn(xmtp_mls_common::app_data::component_id::ComponentId) -> Option<Vec<u8>>,
     registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,

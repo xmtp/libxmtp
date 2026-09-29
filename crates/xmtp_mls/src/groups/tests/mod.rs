@@ -565,6 +565,7 @@ async fn test_validate_dm_group() {
             &GroupMetadataOptions::default(),
             client.inbox_id(),
             None,
+            &[],
         )
         .unwrap();
         for (id, value) in changes {
@@ -856,3 +857,4 @@ fn queryable_fields_do_not_classify_custom_reply() {
 
 mod test_dictionary_creation;
 mod test_group_id;
+mod test_profile_fields;
