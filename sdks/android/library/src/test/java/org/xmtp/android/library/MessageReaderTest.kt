@@ -17,11 +17,16 @@ import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DecodedMessageV2
 import org.xmtp.android.library.libxmtp.Reply
 import uniffi.xmtpv3.FfiContentDecodeFailureKind
+import uniffi.xmtpv3.FfiDecodedMessage
+import uniffi.xmtpv3.FfiDecodedMessageContent
 import uniffi.xmtpv3.FfiDeliveryCursor
 import uniffi.xmtpv3.FfiHistoryMessage
 import uniffi.xmtpv3.FfiMessageHistorySnapshot
+import uniffi.xmtpv3.FfiUndecodableContent
+import uniffi.xmtpv3.NoHandle
 
 private const val MESSAGE_READER_TEST_TIMEOUT_MS = 10_000L
 
@@ -322,19 +327,36 @@ class MessageReaderTest {
 
     // verifies: CTYPE-008
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun contentReturnsNullForAMismatchOrUndecodableValue() {
-        val text = DecodedMessage.createForDelivery(deliveryTestMessage(TextCodec().encode("hi").toByteArray()), null)
-        assertNotNull(text)
-        assertEquals("hi", text!!.content<String>())
-        // The pattern apps use: a typed read of the wrong type is null, never a ClassCastException.
-        val reply: Reply? = text.content<Reply>()
-        assertNull(reply)
+    fun contentIsNullAndUndecodableCarriesTheEvidenceInV1AndV2() {
+        val evidence =
+            FfiUndecodableContent(
+                rawBytes = byteArrayOf(0x80.toByte()),
+                contentType = null,
+                fallback = null,
+                failureKind = FfiContentDecodeFailureKind.MALFORMED_ENVELOPE,
+                failureMessage = "malformed",
+            )
 
-        val undecodable = DecodedMessage.createForDelivery(deliveryTestMessage(byteArrayOf(0x80.toByte())), null)
-        assertNotNull(undecodable)
-        val asText: String? = undecodable!!.content<String>()
-        assertNull(asText)
-        val asReply: Reply? = undecodable.content<Reply>()
-        assertNull(asReply)
+        // V1: the old route keeps the evidence and no content value.
+        val v1 = DecodedMessage.createForDelivery(deliveryTestMessage(byteArrayOf(0x80.toByte())), null)
+        assertNotNull(v1)
+        val v1Reply: Reply? = v1!!.content<Reply>()
+        assertNull(v1Reply)
+        assertEquals(FfiContentDecodeFailureKind.MALFORMED_ENVELOPE, v1.undecodable?.failureKind)
+
+        // V2: undecodable content is never the content value, so a typed read
+        // is null (not a ClassCastException), and the evidence is exposed.
+        val ffi =
+            object : FfiDecodedMessage(NoHandle) {
+                override fun content(): FfiDecodedMessageContent = FfiDecodedMessageContent.Undecodable(evidence)
+            }
+        val v2 = DecodedMessageV2.create(ffi)
+        assertNotNull(v2)
+        val v2Reply: Reply? = v2!!.content<Reply>()
+        assertNull(v2Reply)
+        val v2Text: String? = v2.content<String>()
+        assertNull(v2Text)
+        assertTrue(v2.undecodable!!.rawBytes.contentEquals(evidence.rawBytes))
+        assertEquals(FfiContentDecodeFailureKind.MALFORMED_ENVELOPE, v2.undecodable?.failureKind)
     }
 }

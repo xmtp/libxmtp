@@ -9,7 +9,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | SDK | Public declarations |
 | --- | ---: |
 | Swift | 7132 |
-| Kotlin | 963 |
+| Kotlin | 964 |
 | Node | 519 |
 | Browser | 530 |
 
@@ -2236,6 +2236,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessageV2.senderInboxId` | val | `Message.senderInboxId` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
 | `DecodedMessageV2.sentAt` | val | `Message.sentAt.date` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
 | `DecodedMessageV2.sentAtNs` | val | `Message.sentAt.ns` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
+| `DecodedMessageV2.undecodable` | val | `MessageContent.Unknown` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Retained undecodable content on the V2 route under the design SDK-040 exception; content() is null for it. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
 | `DisappearingMessageSettings` | class | `DisappearingMessageSettings` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DisappearingMessageSettings.kt`. |
 | `DisappearingMessageSettings.Companion` | object | `DisappearingMessageSettings.Companion` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DisappearingMessageSettings.kt`. |
 | `DisappearingMessageSettings.Companion.createFromFfi` | fun | `DisappearingMessageSettings.Companion.createFromFfi` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DisappearingMessageSettings.kt`. |

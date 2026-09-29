@@ -38,6 +38,7 @@ import uniffi.xmtpv3.FfiReactionSchema
 import uniffi.xmtpv3.FfiRemoteAttachment
 import uniffi.xmtpv3.FfiTransactionMetadata
 import uniffi.xmtpv3.FfiTransactionReference
+import uniffi.xmtpv3.FfiUndecodableContent
 import java.net.URL
 import java.util.Date
 
@@ -91,21 +92,27 @@ class DecodedMessageV2 private constructor(
     val contentTypeId: ContentTypeId
         get() = ContentTypeIdBuilder.fromFfi(libXMTPMessage.contentTypeId())
 
-    /** The decoded value, or null when decoding fails. */
-    @PublishedApi
-    internal fun decodedValue(): Any? =
+    /**
+     * Content the client could not decode: the exact received bytes, the
+     * received identifier and fallback when present, and the typed cause.
+     * `content()` is null for such a message.
+     */
+    val undecodable: FfiUndecodableContent?
+        get() = (libXMTPMessage.content() as? FfiDecodedMessageContent.Undecodable)?.v1
+
+    /**
+     * The decoded content as `T`, or null when the content is undecodable or
+     * decoding fails. The cast is erased: a wrong `T` on decodable content
+     * fails at the caller.
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <T> content(): T? =
         try {
-            decodeContent(libXMTPMessage.content())
+            decodeContent(libXMTPMessage.content()) as? T
         } catch (e: Exception) {
             Log.e("DecodedMessageV2", "Error decoding content: ${e.message}")
             null
         }
-
-    /**
-     * The decoded content as `T`, or null when the content is undecodable or
-     * is not a `T`. A mismatch never throws.
-     */
-    inline fun <reified T> content(): T? = decodedValue() as? T
 
     companion object {
         fun create(libXMTPMessage: FfiDecodedMessage): DecodedMessageV2? =
@@ -317,10 +324,10 @@ class DecodedMessageV2 private constructor(
                     encodedContent.decoded<Any>()
                 }
 
-                // Content the client could not decode: exact bytes, received
-                // identifier and fallback, and the typed cause.
+                // Undecodable content is never the content value; the
+                // evidence is on `undecodable`.
                 is FfiDecodedMessageContent.Undecodable -> {
-                    content.v1
+                    null
                 }
 
                 else -> {
@@ -378,8 +385,9 @@ class DecodedMessageV2 private constructor(
                     encodedContent.decoded<Any>()
                 }
 
+                // An undecodable nested body is never a content value.
                 is FfiDecodedMessageBody.Undecodable -> {
-                    body.v1
+                    null
                 }
 
                 else -> {

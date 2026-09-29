@@ -105,6 +105,15 @@ for sdk in ("Swift", "Kotlin"):
         finals="MessageContent.Unknown",
         note="Retained undecodable content on the old native route under the design SDK-040 exception.",
     )
+add(
+    "Kotlin",
+    "DecodedMessageV2",
+    "undecodable",
+    "generated",
+    "11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2",
+    finals="MessageContent.Unknown",
+    note="Retained undecodable content on the V2 route under the design SDK-040 exception; content() is null for it.",
+)
 
 
 for sdk in ("Swift", "Kotlin"):

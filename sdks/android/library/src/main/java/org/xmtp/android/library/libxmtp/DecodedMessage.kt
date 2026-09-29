@@ -92,15 +92,12 @@ class DecodedMessage private constructor(
     val topic: String
         get() = Topic.groupMessage(conversationId).description
 
-    /** The decoded value, or null for an undecodable message. */
-    @PublishedApi
-    internal fun decodedValue(): Any? = decodedContent
-
     /**
-     * The decoded content as `T`, or null when the message is undecodable or
-     * its content is not a `T`. A mismatch never throws.
+     * The decoded content as `T`, or null for an undecodable message. The
+     * cast is erased: a wrong `T` on decodable content fails at the caller.
      */
-    inline fun <reified T> content(): T? = decodedValue() as? T
+    @Suppress("UNCHECKED_CAST")
+    fun <T> content(): T? = decodedContent as? T
 
     val fallback: String
         get() = undecodable?.let { it.fallback ?: "" } ?: encodedContent.fallback
