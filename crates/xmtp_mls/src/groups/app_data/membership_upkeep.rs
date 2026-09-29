@@ -88,6 +88,10 @@ pub(crate) fn membership_upkeep(
             ));
         }
     }
+    // Types come from the committed registry, not a pending one: sender and
+    // receiver decode every update in a commit against the pre-commit
+    // registry, so a map delete for a type changed in this commit would be
+    // applied as a scalar replacement.
     for (id, metadata) in registry.iter().flatten() {
         let Some(snapshot) = state(&states, id) else {
             continue;
