@@ -591,12 +591,17 @@ async fn test_validate_dm_group() {
         |group: &OpenMlsGroup| validate_dm_group(&client.context, group, &added_by_inbox);
     assert!(validate(&make_group(PolicySet::new_dm(), vec![])).is_ok());
 
+    // Metadata extraction already rejects a DM pair outside a DM, so drop
+    // the pair to reach the type check itself.
     let invalid_type = make_group(
         PolicySet::new_dm(),
-        vec![(
-            ComponentId::CONVERSATION_TYPE,
-            Some((ConversationType::Group as i32).to_be_bytes().to_vec()),
-        )],
+        vec![
+            (
+                ComponentId::CONVERSATION_TYPE,
+                Some((ConversationType::Group as i32).to_be_bytes().to_vec()),
+            ),
+            (ComponentId::DM_MEMBERS, None),
+        ],
     );
     assert!(matches!(
         validate(&invalid_type),
