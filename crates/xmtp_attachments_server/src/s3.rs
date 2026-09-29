@@ -47,10 +47,16 @@ impl std::fmt::Debug for PresignedRequest {
     }
 }
 
+/// Why the backend could not sign an upload request.
 #[derive(Debug, thiserror::Error)]
 pub enum SignError {
+    /// The credential source did not answer, or its credential expires too soon to sign with.
     #[error("storage credentials unavailable")]
     CredentialsUnavailable,
+    /// The credential source reports that its own configuration is invalid.
+    #[error("storage credential source configuration is invalid")]
+    CredentialsInvalid,
+    /// The request could not be built or signed for a reason other than its credential.
     #[error("storage request could not be signed")]
     SigningFailed,
 }
@@ -170,7 +176,12 @@ impl S3Target {
                 credential_error_kind = kind,
                 "attachment credentials unavailable"
             );
-            SignError::CredentialsUnavailable
+            // Only an invalid source configuration needs the operator; the others can pass.
+            if matches!(error, CredentialsError::InvalidConfiguration(_)) {
+                SignError::CredentialsInvalid
+            } else {
+                SignError::CredentialsUnavailable
+            }
         })?;
         let now = (self.clock)();
         credential_ttl(&credentials, now, self.ttl).ok_or(SignError::CredentialsUnavailable)?;

@@ -74,7 +74,9 @@ The `credentials.kind` value selects how the backend gets signing credentials:
 
 Use `env:NAME` for secret settings in TOML. Limit the credential to PUT on the
 attachment bucket. Give the public GET path a separate read policy. If the
-backend cannot obtain credentials or sign the request, CreateUpload returns
-`UNAVAILABLE`. The backend refuses to start if `credentials.kind` is unknown or
-a required field is missing. `GetConfigurationResponse` contains no storage
+backend cannot obtain credentials, or they expire too soon, CreateUpload returns
+`UNAVAILABLE`. If the credential source reports an invalid configuration, it
+returns `FAILED_PRECONDITION`. If the backend cannot build or sign the request,
+it returns `INTERNAL`. The backend refuses to start if `credentials.kind` is
+unknown or a required field is missing. `GetConfigurationResponse` contains no storage
 credential, bucket name, or storage endpoint URL other than `base_url`.

@@ -799,6 +799,31 @@ async fn refresh_error_does_not_use_cached_credentials() {
     assert_eq!(provider.calls.load(Ordering::SeqCst), 2);
 }
 
+// verifies: ATCH-021
+#[xmtp_common::test(unwrap_try = true)]
+async fn credential_source_errors_keep_their_class() {
+    let cases = [
+        (CredentialsError::invalid_configuration("bad profile"), true),
+        (CredentialsError::not_loaded("no source"), false),
+        (
+            CredentialsError::provider_timed_out(Duration::from_secs(5)),
+            false,
+        ),
+        (CredentialsError::provider_error("sts failed"), false),
+        (CredentialsError::unhandled("unexpected"), false),
+    ];
+    for (error, invalid) in cases {
+        let provider = FakeProvider::with_results([Err(error)]);
+        let target = target(&config(), provider, fixed_clock());
+        let result = target.presign_put(&[1; 32], 1).await;
+        if invalid {
+            assert!(matches!(result, Err(SignError::CredentialsInvalid)));
+        } else {
+            assert!(matches!(result, Err(SignError::CredentialsUnavailable)));
+        }
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn debug_redacts_secrets() {
     let config = config();
