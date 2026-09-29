@@ -95,6 +95,16 @@ for name in ("UndecodableContent", "ContentDecodeFailureKind"):
         finals="MessageContent.Unknown",
         note="Retained undecodable content under the design SDK-040 exception: exact received bytes, received identifier and fallback, and the typed cause.",
     )
+for sdk in ("Swift", "Kotlin"):
+    add(
+        sdk,
+        "DecodedMessage",
+        "undecodable",
+        "generated",
+        f"11.4 {sdk}, Messages, codecs, preferences, values; 11.1-11.2",
+        finals="MessageContent.Unknown",
+        note="Retained undecodable content on the old native route under the design SDK-040 exception.",
+    )
 
 
 for sdk in ("Swift", "Kotlin"):

@@ -26,8 +26,12 @@ bindings/node/src/messages/decoded_message.rs
 bindings/wasm/src/content_types/decoded_message_content.rs
 bindings/wasm/src/enriched_message.rs
 sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift
+sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift
+sdks/ios/Sources/XMTPiOS/MessageDeliveryStream.swift
+sdks/ios/Sources/XMTPiOS/MessageReader.swift
 sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift
 sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt
+sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt
 sdks/node/src/DecodedMessage.ts
 sdks/browser/src/DecodedMessage.ts
 bindings/mobile/src/mls/conversation.rs

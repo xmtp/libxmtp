@@ -304,7 +304,8 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		XCTAssertEqual(stale.counts().acknowledgements, 0)
 	}
 
-	func testDecodeFailureRejectsTheItemAndStops() async throws {
+	// verifies: CTYPE-008, CTYPE-009, PROC-028
+	func testUndecodableContentIsHandedOffWithItsBytesAndAcknowledgedOnNext() async throws {
 		let token = Token()
 		let later = Token()
 		let stream = MessageDeliveryStream(onClose: nil)
@@ -312,33 +313,49 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		let malformed = try delivery(token: token, content: .malformed)
 		let valid = try delivery(2, token: later)
 		stream.receive(malformed)
-		try await assertThrowsAsyncError(await stream.next()) { error in
-			XCTAssertTrue(error is BinaryDecodingError)
-		}
-		stream.receive(valid)
+		let first = try await stream.next()
+		XCTAssertEqual(first?.id, "01")
+		XCTAssertEqual(first?.undecodable?.rawBytes, Data([0xFF]))
+		XCTAssertEqual(first?.undecodable?.failureKind, .malformedEnvelope)
+		XCTAssertNil(first?.undecodable?.contentType)
+		XCTAssertEqual(try first?.fallback, "")
+		let undecoded = try XCTUnwrap(first)
+		XCTAssertThrowsError(try undecoded.content() as String)
 		XCTAssertEqual(token.counts().acknowledgements, 0)
-		XCTAssertEqual(token.counts().rejections, 1)
-		XCTAssertEqual(later.counts().acknowledgements, 0)
-		XCTAssertEqual(later.counts().rejections, 1)
+		stream.receive(valid)
+		let second = try await stream.next()
+		XCTAssertEqual(second?.id, "02")
+		XCTAssertNil(second?.undecodable)
+		XCTAssertEqual(token.counts().acknowledgements, 1)
+		XCTAssertEqual(token.counts().rejections, 0)
+
+		// A typed envelope whose codec fails keeps its identifier and fallback.
+		var invalidEncoding = try TextCodec().encode(content: "hi")
+		invalidEncoding.parameters["encoding"] = "UTF-16"
+		invalidEncoding.fallback = "kept fallback"
+		let failed = try DecodedMessage.create(ffiMessage: FfiMessage(
+			id: Data([3]), sentAtNs: 1, conversationId: Data(repeating: 1, count: 16),
+			senderInboxId: "sender", content: invalidEncoding.serializedData(), kind: .application,
+			deliveryStatus: .published, sequenceId: 3, insertedAtNs: 1, expireAtNs: nil
+		))
+		XCTAssertEqual(failed?.undecodable?.failureKind, .codecDecodeFailed)
+		XCTAssertEqual(failed?.undecodable?.contentType?.typeId, "text")
+		XCTAssertEqual(failed?.undecodable?.rawBytes, try invalidEncoding.serializedData())
+		XCTAssertEqual(try failed?.fallback, "kept fallback")
 
 		let forged = try delivery(0, token: Token(), content: .forgedMembership)
 		let snapshotCursor = FfiDeliveryCursor(
 			databaseId: valid.cursor.databaseId, deliverySequence: 3
 		)
 		let snapshot = try MessageHistorySnapshot(FfiMessageHistorySnapshot(
-			messages: [forged, valid].map { FfiHistoryMessage(message: $0.message, cursor: $0.cursor) },
-			cursor: snapshotCursor
-		))
-		XCTAssertEqual(snapshot.messages.map(\.id), ["02"])
-		XCTAssertEqual(try snapshot.messages.map { try $0.content() as String }, ["message 2"])
-		XCTAssertEqual(snapshot.messages.first?.deliveryCursor, valid.cursor)
-		XCTAssertEqual(snapshot.cursor, snapshotCursor)
-		XCTAssertThrowsError(try MessageHistorySnapshot(FfiMessageHistorySnapshot(
 			messages: [forged, malformed, valid].map { FfiHistoryMessage(message: $0.message, cursor: $0.cursor) },
 			cursor: snapshotCursor
-		))) { error in
-			XCTAssertTrue(error is BinaryDecodingError)
-		}
+		))
+		XCTAssertEqual(snapshot.messages.map(\.id), ["01", "02"])
+		XCTAssertEqual(snapshot.messages.first?.undecodable?.rawBytes, Data([0xFF]))
+		XCTAssertEqual(snapshot.messages.first?.deliveryCursor, malformed.cursor)
+		XCTAssertEqual(try snapshot.messages.last?.content() as String?, "message 2")
+		XCTAssertEqual(snapshot.cursor, snapshotCursor)
 	}
 
 	// verifies: PROC-028

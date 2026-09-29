@@ -8,8 +8,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 
 | SDK | Public declarations |
 | --- | ---: |
-| Swift | 7148 |
-| Kotlin | 962 |
+| Swift | 7149 |
+| Kotlin | 963 |
 | Node | 519 |
 | Browser | 530 |
 
@@ -668,6 +668,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.sentAt` | var | `Message.sentAt.date` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `DecodedMessage.sentAtNs` | var | `Message.sentAt.ns` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `DecodedMessage.topic` | var | `Message.topic` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
+| `DecodedMessage.undecodable` | let | `MessageContent.Unknown` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Retained undecodable content on the old native route under the design SDK-040 exception. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `MessageDeliveryStatus` | enum | `DeliveryStatus` | generated | 11.2, MessageData.deliveryStatus | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `MessageDeliveryStatus.all` | case | — | approved removal | 11.2, ListMessagesOptions | An absent filter includes all statuses. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `MessageDeliveryStatus.failed` | case | `DeliveryStatus.failed` | generated | 11.2, MessageData.deliveryStatus | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
@@ -2206,7 +2207,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.conversationId` | val | `Message.conversationID` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.deliveryCursor` | constructor property | `Message.deliveryCursor` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.deliveryStatus` | val | `Message.deliveryStatus` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
-| `DecodedMessage.encodedContent` | constructor property | `Message.encodedContent` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
+| `DecodedMessage.encodedContent` | val | `Message.encodedContent` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.expiresAt` | val | `Message.expiresAt.date` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.expiresAtNs` | val | `Message.expiresAt.ns` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.fallback` | val | `Message.fallback` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
@@ -2217,6 +2218,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.sentAt` | val | `Message.sentAt.date` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.sentAtNs` | val | `Message.sentAt.ns` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.topic` | val | `Message.topic` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
+| `DecodedMessage.undecodable` | constructor property | `MessageContent.Unknown` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Retained undecodable content on the old native route under the design SDK-040 exception. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessageV2` | class | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values; 19, decision 5 | The V2 type leaves the API; its value fields move to Message. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
 | `DecodedMessageV2.Companion` | object | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
 | `DecodedMessageV2.Companion.create` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |

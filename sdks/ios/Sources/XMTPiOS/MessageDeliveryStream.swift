@@ -163,12 +163,11 @@ final class MessageDeliveryStream: @unchecked Sendable {
 				}
 				while let delivery = try await receiveNext() {
 					try Task.checkCancellation()
-					// A decode failure must not advance the cursor. Acknowledging here
-					// would skip a retained message that nothing has read, so a later
-					// reader with the codec registered would never see it. Only an
-					// intentional filter, signalled by a nil result below, consumes
-					// the item without a handoff.
-					let decoded: DecodedMessage? = try DecodedMessage.decodeForDelivery(
+					// Content that does not decode is handed off as an undecodable
+					// message with its exact bytes; the app's next request acknowledges
+					// it like any other item. Only an intentional filter, signalled by
+					// a nil result below, consumes the item without a handoff.
+					let decoded: DecodedMessage? = DecodedMessage.decodeForDelivery(
 						ffiMessage: delivery.message,
 						deliveryCursor: delivery.cursor
 					)
