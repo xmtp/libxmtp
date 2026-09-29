@@ -3,7 +3,7 @@
 use super::*;
 use xmtp_mls_validation::commit::{extract_group_membership, inbox_id_from_credential};
 
-// implements: DMS-015
+// implements: DMS-001, ARCH-020
 pub(crate) fn parse_canonical_dm_id(dm_id: Option<&str>) -> Result<DmMembers<String>, GroupError> {
     let invalid = || {
         GroupError::from(MetadataPermissionsError::from(
@@ -302,11 +302,11 @@ pub fn filter_inbox_ids_needing_updates<'a>(
 }
 
 // implements: DMS-003
-pub(crate) fn validate_dm_group(
+pub(in crate::groups) fn validate_dm_group(
     context: impl XmtpSharedContext,
     mls_group: &OpenMlsGroup,
     added_by_inbox: &str,
-) -> Result<DmMembers<InboxId>, MetadataPermissionsError> {
+) -> Result<(), MetadataPermissionsError> {
     // Validate dm specific immutable metadata
     let metadata = extract_group_metadata(mls_group.extensions())?;
 
@@ -388,5 +388,5 @@ pub(crate) fn validate_dm_group(
         return Err(DmValidationError::InvalidPermissions.into());
     }
 
-    Ok(dm_members.clone())
+    Ok(())
 }

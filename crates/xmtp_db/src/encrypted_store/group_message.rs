@@ -533,13 +533,6 @@ pub struct MessagesWithRelations {
 pub type LatestMessageTimeBySender = HashMap<String, i64>;
 
 pub trait QueryGroupMessage {
-    /// Whether this physical group has stored a message from outside the pair in this database.
-    fn has_sender_outside_pair(
-        &self,
-        group_id: &GroupId,
-        pair: [&str; 2],
-    ) -> Result<bool, crate::ConnectionError>;
-
     /// Query for group messages
     fn get_group_messages(
         &self,
@@ -693,14 +686,6 @@ impl<T> QueryGroupMessage for &T
 where
     T: QueryGroupMessage,
 {
-    fn has_sender_outside_pair(
-        &self,
-        group_id: &GroupId,
-        pair: [&str; 2],
-    ) -> Result<bool, crate::ConnectionError> {
-        (**self).has_sender_outside_pair(group_id, pair)
-    }
-
     /// Query for group messages
     fn get_group_messages(
         &self,
@@ -918,24 +903,6 @@ macro_rules! apply_message_filters {
 }
 
 impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
-    #[xmtp_common::db_span]
-    fn has_sender_outside_pair(
-        &self,
-        group_id: &GroupId,
-        pair: [&str; 2],
-    ) -> Result<bool, crate::ConnectionError> {
-        use crate::schema::group_message_senders::dsl;
-
-        self.raw_query(|conn| {
-            diesel::select(diesel::dsl::exists(
-                dsl::group_message_senders
-                    .filter(dsl::group_id.eq(group_id))
-                    .filter(dsl::sender_inbox_id.ne_all(pair)),
-            ))
-            .get_result(conn)
-        })
-    }
-
     /// Query for group messages
     #[xmtp_common::db_span]
     fn get_group_messages(

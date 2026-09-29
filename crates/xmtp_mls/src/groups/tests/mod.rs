@@ -741,10 +741,20 @@ async fn test_validate_dm_group() {
         )],
         None,
     );
-    assert!(validate(&foreign_membership).is_err());
+    assert!(matches!(
+        validate(&foreign_membership),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::MemberOutsidePair
+        ))
+    ));
 
     let foreign_leaf = make_group(PolicySet::new_dm(), vec![], Some(&third_inbox));
-    assert!(validate(&foreign_leaf).is_err());
+    assert!(matches!(
+        validate(&foreign_leaf),
+        Err(MetadataPermissionsError::DmValidation(
+            DmValidationError::MemberOutsidePair
+        ))
+    ));
 }
 
 #[xmtp_common::test]

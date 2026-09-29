@@ -152,8 +152,9 @@ mod tests {
     use crate::XmtpTestDb;
 
     const BASELINE: &str = "20260908000000";
+    // 18 digits: string order puts it before the 14-digit version below.
     const RECEIVED_PROPOSALS: &str = "202609280000000000";
-    const SENDER_SUMMARY: &str = "20260928000001";
+    const CONVERSATION_LIST_EXPIRY: &str = "20260928010000";
 
     /// Roll back to `target` on a new database and return what remains applied.
     async fn remaining_after_rollback(target: &str) -> Result<Vec<String>, ConnectionError> {
@@ -165,7 +166,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn rollback_stops_at_a_shorter_version_in_diesel_order() {
-        let remaining = remaining_after_rollback(SENDER_SUMMARY).await?;
+        let remaining = remaining_after_rollback(CONVERSATION_LIST_EXPIRY).await?;
         assert_eq!(
             remaining.first().map(String::as_str),
             Some(RECEIVED_PROPOSALS)
@@ -176,11 +177,9 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn rollback_reaches_a_longer_version_in_diesel_order() {
         let remaining = remaining_after_rollback(RECEIVED_PROPOSALS).await?;
-        assert!(
-            remaining
-                .iter()
-                .all(|version| version != RECEIVED_PROPOSALS && version != SENDER_SUMMARY)
-        );
+        assert!(remaining.iter().all(
+            |version| version != RECEIVED_PROPOSALS && version != CONVERSATION_LIST_EXPIRY
+        ));
         assert!(remaining.iter().any(|version| version == BASELINE));
     }
 }
