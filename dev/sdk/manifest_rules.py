@@ -2726,6 +2726,47 @@ def _classify(entry: object) -> Decision:
     )
 
 
+# Client members that the new SDK has only as static members, and members that
+# it has in both placements. Every other Client destination is an instance
+# member. The public-member check reads the placement from the final name.
+CLIENT_STATIC_ONLY = {
+    "create",
+    "build",
+    "fetchServerConfiguration",
+    "newestMessageMetadata",
+    "isAddressAuthorized",
+    "isInstallationAuthorized",
+    "verifySignedWithPublicKey",
+}
+CLIENT_BOTH = {
+    "canMessage",
+    "inboxId(for:)",
+    "inboxStates",
+    "keyPackageStatuses",
+    "revokeInstallations",
+}
+
+
+def client_placement(final: str, current_static: bool) -> tuple[str, str]:
+    """Return a Client destination with its placement and a note for a move.
+
+    A static destination has the `static` prefix. A member that changes
+    placement gets a note, so the migration guide can list it.
+    """
+    if not final.startswith("Client."):
+        return final, ""
+    member = final.removeprefix("Client.").split(".")[0]
+    key = member if member.endswith("(for:)") else member.split("(")[0]
+    static = key in CLIENT_STATIC_ONLY or (key in CLIENT_BOTH and current_static)
+    if static and not current_static:
+        note = "Moves from an instance member to a static member."
+    elif current_static and not static:
+        note = "Moves from a static member to an instance member."
+    else:
+        note = ""
+    return (f"static {final}" if static else final), note
+
+
 def classify(entry: object) -> Decision:
     result = _classify(entry)
     result = Decision(

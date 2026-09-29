@@ -26,9 +26,26 @@ RETAINED = {"generated", "static runtime"}
 UNDECIDED = re.compile(r"(^|; )open$")
 
 
-def expected() -> dict[str, set[str]]:
-    """Map each SDK section to its retained Client member names."""
-    members: dict[str, set[str]] = {}
+Member = tuple[str, str]  # (placement, name); placement is "static" or "instance"
+
+
+def host_name(sdk: str, placement: str, destination: str) -> str:
+    """Map a manifest destination to the member name on a host Client.
+
+    `inboxId(for:)` is Swift's static `inboxId(for:backend:)`; every other
+    form of it is `inboxIdFor`.
+    """
+    base = destination.split("(")[0]
+    if destination.endswith("(for:)") and not (
+        sdk == "Swift" and placement == "static"
+    ):
+        return base + "For"
+    return base
+
+
+def expected() -> dict[str, set[Member]]:
+    """Map each SDK section to its retained Client members and placements."""
+    members: dict[str, set[Member]] = {}
     section = None
     for line in MANIFEST.read_text().splitlines():
         heading = re.match(r"^## (Swift|Kotlin|Node|Browser)$", line)
@@ -42,9 +59,12 @@ def expected() -> dict[str, set[str]]:
             continue
         cells = [cell.strip() for cell in line.strip("|").split("|")]
         final, status, reference = cells[2], cells[3], cells[4]
-        match = re.match(r"^`Client\.([A-Za-z_]+)", final)
+        match = re.match(r"^`(static )?Client\.([A-Za-z_]+(?:\(for:\))?)", final)
         if match and status in RETAINED and not UNDECIDED.search(reference):
-            members[section].add(match.group(1))
+            placement = "static" if match.group(1) else "instance"
+            members[section].add(
+                (placement, host_name(section, placement, match.group(2)))
+            )
     return members
 
 
@@ -72,72 +92,75 @@ def top_level(body: str) -> list[str]:
     return lines
 
 
-def swift_members() -> set[str]:
+def swift_members() -> set[Member]:
     source = "\n".join(
         path.read_text()
         for path in sorted((STAGE / "XmtpSdk/Sources/XmtpSdk").rglob("*.swift"))
     )
-    names = set()
-    member = re.compile(r"^\s*(?:(public)\s+)?(?:static\s+)?(?:func|var|let)\s+`?(\w+)")
+    members = set()
+    member = re.compile(
+        r"^\s*(?:(public)\s+)?(?:(static|class)\s+)?(?:func|var|let)\s+`?(\w+)"
+    )
+
+    def add(found: re.Match[str]) -> None:
+        members.add(("static" if found.group(2) else "instance", found.group(3)))
+
     for body in blocks(
         source, re.compile(r"^public final class SDKClient\b[^{]*\{", re.M)
     ):
         for line in top_level(body):
             found = member.match(line)
             if found and found.group(1):
-                names.add(found.group(2))
+                add(found)
     for body in blocks(source, re.compile(r"^public extension SDKClient\s*\{", re.M)):
         for line in top_level(body):
             found = member.match(line)
             if found and not re.match(r"^\s*(private|fileprivate|internal)\b", line):
-                names.add(found.group(2))
-    return names
+                add(found)
+    return members
 
 
-def kotlin_members() -> set[str]:
+def kotlin_members() -> set[Member]:
     source = "\n".join(
         path.read_text() for path in sorted((STAGE / "kotlin").rglob("*.kt"))
     )
-    names = set()
+    members = set()
     hidden = re.compile(r"^\s*(private|internal|protected)\b")
     member = re.compile(r"^\s*(?:override\s+)?(?:suspend\s+)?(?:fun|val|var)\s+`?(\w+)")
     for body in blocks(source, re.compile(r"^class SDKClient\b[^{]*\{", re.M)):
         for line in top_level(body):
             found = member.match(line)
             if found and not hidden.match(line):
-                names.add(found.group(1))
+                members.add(("instance", found.group(1)))
         for companion in blocks(body, re.compile(r"^\s*companion object\s*\{", re.M)):
             for line in top_level(companion):
                 found = member.match(line)
                 if found and not hidden.match(line):
-                    names.add(found.group(1))
+                    members.add(("static", found.group(1)))
     extension = re.compile(r"^(?:suspend\s+)?fun\s+SDKClient\.`?(\w+)", re.M)
-    names.update(extension.findall(source))
-    return names
+    members.update(("instance", name) for name in extension.findall(source))
+    return members
 
 
 def typescript_missing(
-    consumer: str, package: str, names: set[str], lib: list[str]
-) -> set[str]:
-    """Return the names that are not public members of the package root Client.
+    consumer: str, package: str, members: set[Member], lib: list[str]
+) -> set[Member]:
+    """Return the members that are not public on the package root Client.
 
     `keyof` leaves out private and protected members, so the compiler rejects
-    a member that is missing or not public.
+    a member that is missing, not public, or in the other placement.
     """
     probe = STAGE / consumer / "retained-members.ts"
-    ordered = sorted(names)
+    ordered = sorted(members)
     lines = [
         f'import {{ Client }} from "{package}";',
-        "type Member<K extends PropertyKey> = K extends keyof Client",
-        "  ? true",
-        "  : K extends keyof typeof Client",
-        "    ? true",
-        "    : never;",
+        "type Instance<K extends PropertyKey> = K extends keyof Client ? true : never;",
+        "type Static<K extends PropertyKey> = K extends keyof typeof Client ? true : never;",
     ]
     first = len(lines) + 1
     lines += [
-        f'export const m{index}: Member<"{name}"> = true;'
-        for index, name in enumerate(ordered)
+        f'export const m{index}: {"Static" if placement == "static" else "Instance"}<"{name}"> = true;'
+        for index, (placement, name) in enumerate(ordered)
     ]
     probe.write_text("\n".join(lines) + "\n")
     result = subprocess.run(
@@ -192,9 +215,9 @@ def main() -> None:
     for sdk, names in wanted.items():
         if not names:
             failures.append(f"{sdk}: the manifest lists no retained Client member")
-        for name in sorted(missing[sdk]):
+        for placement, name in sorted(missing[sdk]):
             failures.append(
-                f"{sdk}: retained Client.{name} is not public in the installed product"
+                f"{sdk}: retained {placement} Client.{name} is not public in the installed product"
             )
     if failures:
         print("\n".join(failures), file=sys.stderr)

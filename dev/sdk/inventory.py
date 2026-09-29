@@ -753,9 +753,9 @@ def ts_inventory(sdk: str) -> list[Entry]:
 
 
 try:
-    from dev.sdk.manifest_rules import Decision, classify, decision
+    from dev.sdk.manifest_rules import Decision, classify, client_placement, decision
 except ModuleNotFoundError:
-    from manifest_rules import Decision, classify, decision
+    from manifest_rules import Decision, classify, client_placement, decision
 
 
 def markdown_cell(value: str) -> str:
@@ -855,6 +855,25 @@ def stable_entries(
     return [(entry, key[3]) for key, entry, _ in sorted(keyed, key=sort_key)]
 
 
+def declared_static(entry: Entry, source_texts: dict[str, str] | None) -> bool:
+    """True when the current declaration is static or has no instance."""
+    if entry.display_name.startswith("func ") or ".Companion." in entry.name:
+        return True
+    if entry.name.startswith("pattern:") or not entry.source.startswith("sdks/"):
+        return False
+    texts = source_texts or {}
+    text = texts.get(entry.source)
+    if text is None:
+        path = ROOT / entry.source
+        if not path.is_file():
+            return False
+        text = path.read_text()
+    lines = text.splitlines()
+    if not 0 < entry.line <= len(lines):
+        return False
+    return re.search(r"\bstatic\b|\bclass func\b", lines[entry.line - 1]) is not None
+
+
 def render_sdk_rows(
     sdk: str,
     entries: list[Entry],
@@ -879,6 +898,9 @@ def render_sdk_rows(
             "approved removal",
         }:
             raise ValueError(status)
+        if status in {"generated", "static runtime"}:
+            final, move = client_placement(final, declared_static(entry, source_texts))
+            note = f"{note} {move}".strip() if move else note
         current = f"`{entry.display_name}`"
         if entry.count > 1:
             current += f" ({entry.count} declarations)"
@@ -939,7 +961,7 @@ def build() -> str:
         "",
         "Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. "
         "A free property is `var name`, `val name`, or `let name`. "
-        "Nested owners use dots, such as `Client.Companion.create`. A computed member is `Owner[Symbol.asyncIterator]`. "
+        "Nested owners use dots, such as `Client.Companion.create`. A final Client member that is static in the new SDK has the `static` prefix, such as `static Client.create`; a note marks a member that changes placement. A computed member is `Owner[Symbol.asyncIterator]`. "
         "A named constructor parameter in a public signature uses `Owner.parameter` and Kind `constructor parameter`. "
         "A method may show a call shape in either name column, such as `Client.Companion.register(codec)`, `Group.state().name`, `Client.inboxId(for:)`, or `Conversation.lastActivityAt(contentTypes?)`; `Client.inboxId` without parentheses is the field. "
         "An enum value under a record field uses `Record.field.value`, such as `ListMessagesOptions.sortBy.sentAt`. "
