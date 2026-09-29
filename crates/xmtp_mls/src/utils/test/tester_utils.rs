@@ -228,6 +228,10 @@ where
             .worker_config(self.worker_config.clone().unwrap_or_default())
             .unstable_change_callbacks(self.change_callbacks.clone());
 
+        if let Some(path) = &self.attachments_dir {
+            client = client.attachments_dir(path.clone());
+        }
+
         if let Some(provider) = self.config_provider.clone() {
             client = client.config_provider(provider);
         }
@@ -424,6 +428,7 @@ pub struct TesterBuilder<Owner>
 where
     Owner: InboxOwner,
 {
+    pub attachments_dir: Option<PathBuf>,
     pub owner: Owner,
     pub sync_mode: DeviceSyncMode,
     pub fork_recovery_opts: Option<ForkRecoveryOpts>,
@@ -514,6 +519,7 @@ impl Default for TesterBuilder<PrivateKeySigner> {
             worker_config: None,
             change_callbacks: Default::default(),
             config_provider: None,
+            attachments_dir: None,
         }
     }
 }
@@ -550,6 +556,7 @@ where
             worker_config: self.worker_config,
             change_callbacks: self.change_callbacks,
             config_provider: self.config_provider,
+            attachments_dir: self.attachments_dir,
         }
     }
 
@@ -651,6 +658,11 @@ where
         provider: Arc<dyn xmtp_configuration::ConfigProvider>,
     ) -> Self {
         self.config_provider = Some(provider);
+        self
+    }
+
+    pub fn attachments_dir(mut self, path: impl Into<PathBuf>) -> Self {
+        self.attachments_dir = Some(path.into());
         self
     }
 

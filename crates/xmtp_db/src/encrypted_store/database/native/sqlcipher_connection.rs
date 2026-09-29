@@ -502,6 +502,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_db_migrates() {
+        use crate::encrypted_store::EmbeddedMigrationsExt;
         use crate::{ConnectionExt, XmtpDb};
         use diesel::sql_types::{Integer, Text};
         use std::collections::BTreeMap;
@@ -553,7 +554,7 @@ mod tests {
                 schema.insert(table.name, columns);
             }
             diesel::sql_query("SELECT * FROM conversation_list").execute(conn)?;
-            assert_eq!(conn.applied_migrations().unwrap().len(), 1);
+            assert_eq!(conn.applied_migrations().unwrap().len(), crate::MIGRATIONS.versions().len());
             Ok(schema)
         })?;
 
@@ -622,7 +623,7 @@ mod tests {
                 "CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE refresh_state (entity_id BLOB NOT NULL, entity_kind INTEGER NOT NULL, sequence_id BIGINT NOT NULL, PRIMARY KEY(entity_id, entity_kind)); INSERT INTO refresh_state VALUES (x'01', 2, 42);",
             )?;
             diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
-                .bind::<Text, _>(crate::MIGRATIONS.final_migration()).execute(conn)?;
+                .bind::<Text, _>(crate::MIGRATIONS.baseline()).execute(conn)?;
             Ok(())
         })?;
         let result = EncryptedMessageStore::new(database);
@@ -660,11 +661,45 @@ mod tests {
                 "CREATE TABLE __diesel_schema_migrations (version VARCHAR(50) PRIMARY KEY NOT NULL, run_on TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP); CREATE TABLE refresh_state (entity_id BLOB NOT NULL, entity_kind INTEGER NOT NULL, sequence_id BIGINT NOT NULL, received_sequence_id BIGINT NOT NULL DEFAULT 0, PRIMARY KEY(entity_id, entity_kind));",
             )?;
             diesel::sql_query("INSERT INTO __diesel_schema_migrations(version) VALUES (?)")
-                .bind::<Text, _>(crate::MIGRATIONS.final_migration())
+                .bind::<Text, _>(crate::MIGRATIONS.baseline())
                 .execute(conn)?;
             Ok(())
         })?;
         let result = EncryptedMessageStore::new(database);
         assert!(matches!(result, Err(StorageError::OldStreamDatabase)));
+    }
+
+    /// Schema changes ship as forward migrations. A self-hosted database that
+    /// stopped at the baseline upgrades in place, and a database that already
+    /// applied later migrations reopens. Otherwise the first proposal would
+    /// meet "no such table: received_proposals" and block its group.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn upgrades_a_baseline_database_to_the_latest_migration() {
+        use crate::encrypted_store::EmbeddedMigrationsExt;
+        use crate::{ConnectionExt, TestDb, XmtpDb, XmtpTestDb};
+        use diesel::sql_types::Text;
+
+        let database = TestDb::create_database(None).await;
+        database.init()?;
+        database.init()?;
+        let connection = database.conn();
+        connection.raw_query(|conn| {
+            conn.batch_execute(
+                "DROP TABLE received_proposals; DROP TABLE pending_attachments; DROP TABLE local_attachments;",
+            )?;
+            diesel::sql_query("DELETE FROM __diesel_schema_migrations WHERE version <> ?")
+                .bind::<Text, _>(crate::MIGRATIONS.baseline())
+                .execute(conn)
+        })?;
+
+        EncryptedMessageStore::new(database)?;
+        connection.raw_query(|conn| {
+            diesel::sql_query("SELECT * FROM received_proposals").execute(conn)
+        })?;
+        let latest = connection.raw_query(|conn| {
+            conn.applied_migrations()
+                .map_err(diesel::result::Error::QueryBuilderError)
+        })?;
+        assert_eq!(latest[0].to_string(), crate::MIGRATIONS.final_migration());
     }
 }
