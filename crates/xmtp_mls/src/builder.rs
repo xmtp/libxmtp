@@ -72,127 +72,6 @@ fn open_location_store(
     })
 }
 
-// implements: DMS-015, DMS-018
-fn validate_stored_dm_groups<C: XmtpSharedContext>(context: &C) -> Result<(), ClientBuilderError> {
-    use crate::{
-        groups::{DmValidationError, GroupError, MetadataPermissionsError},
-        state_tx::state_write,
-    };
-    use xmtp_db::{
-        TransactionOutcome,
-        consent_record::ConsentState,
-        group::{ConversationType, GroupMembershipState, GroupQueryArgs},
-    };
-
-    state_write(context.mls_storage(), |tx| -> Result<_, GroupError> {
-        let groups = {
-            let storage = tx.storage();
-            storage.db().find_groups(GroupQueryArgs {
-                conversation_type: Some(ConversationType::Dm),
-                consent_states: Some(vec![
-                    ConsentState::Allowed,
-                    ConsentState::Unknown,
-                    ConsentState::Denied,
-                ]),
-                include_duplicate_dms: true,
-                ..Default::default()
-            })?
-        };
-        #[cfg(all(test, not(target_arch = "wasm32")))]
-        dm_scan_test_hook::run(None);
-        for stored in groups {
-            // An archive placeholder has no joined MLS state, but its sender
-            // history must agree with its declared pair.
-            if stored.membership_state == GroupMembershipState::Restored {
-                let pair = crate::groups::parse_canonical_dm_id(stored.dm_id.as_deref())?;
-                let storage = tx.storage();
-                if storage.db().has_sender_outside_pair(
-                    &stored.id,
-                    [&pair.member_one_inbox_id, &pair.member_two_inbox_id],
-                )? {
-                    return Err(MetadataPermissionsError::from(
-                        DmValidationError::StoredMessageSenderOutsidePair,
-                    )
-                    .into());
-                }
-            } else {
-                tx.with_group(stored.id, |mls_group, storage| -> Result<(), GroupError> {
-                    let dm_members = crate::groups::validate_dm_group(
-                        context.clone(),
-                        mls_group,
-                        &stored.added_by_inbox_id,
-                    )?;
-                    if stored.dm_id.as_deref() != Some(dm_members.to_string().as_str()) {
-                        return Err(MetadataPermissionsError::from(
-                            DmValidationError::StoredDmIdMismatch,
-                        )
-                        .into());
-                    }
-                    if storage.db().has_sender_outside_pair(
-                        &stored.id,
-                        [
-                            &dm_members.member_one_inbox_id,
-                            &dm_members.member_two_inbox_id,
-                        ],
-                    )? {
-                        return Err(MetadataPermissionsError::from(
-                            DmValidationError::StoredMessageSenderOutsidePair,
-                        )
-                        .into());
-                    }
-                    Ok(())
-                })?;
-            }
-            #[cfg(all(test, not(target_arch = "wasm32")))]
-            dm_scan_test_hook::run(Some(stored.id));
-        }
-        Ok(TransactionOutcome::Continue(()))
-    })
-    .map(TransactionOutcome::into_continued)?;
-    Ok(())
-}
-
-#[cfg(all(test, not(target_arch = "wasm32")))]
-pub(crate) mod dm_scan_test_hook {
-    use std::{cell::RefCell, marker::PhantomData, rc::Rc};
-    use xmtp_proto::types::GroupId;
-
-    type Hook = Box<dyn FnMut(Option<GroupId>)>;
-
-    thread_local! {
-        static HOOK: RefCell<Option<Hook>> = const { RefCell::new(None) };
-    }
-
-    pub(crate) struct Guard {
-        previous: Option<Hook>,
-        _same_thread: PhantomData<Rc<()>>,
-    }
-
-    /// Run after enumeration and after each row, on the synchronous scan thread.
-    pub(crate) fn install(hook: impl FnMut(Option<GroupId>) + 'static) -> Guard {
-        Guard {
-            previous: HOOK.with(|slot| slot.replace(Some(Box::new(hook)))),
-            _same_thread: PhantomData,
-        }
-    }
-
-    pub(super) fn run(validated: Option<GroupId>) {
-        HOOK.with(|slot| {
-            if let Some(hook) = slot.borrow_mut().as_mut() {
-                hook(validated);
-            }
-        });
-    }
-
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            HOOK.with(|slot| {
-                slot.replace(self.previous.take());
-            });
-        }
-    }
-}
-
 #[derive(Error, Debug, ErrorCode)]
 pub enum ClientBuilderError {
     /// The deployment storage path could not be resolved or opened.
@@ -799,10 +678,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             identity_resolutions: Default::default(),
         });
 
-        // Old stored DMs can predate strict Welcome checks. Reject unsafe
-        // state before any worker or application read can use stitched scope.
         crate::server_configuration::bind_preflight(&context);
-        validate_stored_dm_groups(&context)?;
 
         // register workers
         if let Err(error) = context.attachments.sweep(&context).await {

@@ -612,7 +612,6 @@ where
         )
     }
 
-    // implements: DMS-015
     fn create_dm_with_members(
         context: &Context,
         membership_state: GroupMembershipState,

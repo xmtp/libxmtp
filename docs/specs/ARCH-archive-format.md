@@ -23,7 +23,7 @@ flowchart LR
 
 ## Scope
 
-In scope: the container framing, its encryption, and its version; the element kinds and their wire form; what an export includes and excludes and the selection an app makes; the later-client compatibility promise under ARCH-023; what an app can read from an archive without importing it; and how an import merges each element with existing local state.
+In scope: the container framing, its encryption, and its version; the element kinds and their wire form; what an export includes and excludes and the selection an app makes; the promise that an archive written under this version loads in every later client; what an app can read from an archive without importing it; and how an import merges each element with existing local state.
 
 Out of scope: what a consent record means and how two records merge (CONS-002, CONS-010); what a message's content means (CTYPE); what group metadata means (META); how a restored group becomes active again, which requires a validated Welcome (JOIN-080); the device sync channel, which does not carry archives (SYNC); and where an app stores an archive and its key.
 
@@ -31,7 +31,6 @@ Out of scope: what a consent record means and how two records merge (CONS-002, C
 | --- | --- |
 | CONS-002, CONS-010 | Own the consent wire form and merge rule. |
 | CTYPE | Owns the `EncodedContent` a message element carries in `decrypted_message_bytes`. |
-| `DMS-015` | Owns DM pair and sender admission during import and the required rejection covered by ARCH-023. |
 | `JOIN-080` | Owns activation of a restored group by a validated Welcome; JOIN-042 applies only after a removal commit. |
 | META | Owns the meaning of the metadata attributes and admin lists a group element carries. |
 | `SEND-002` | Owns the message id that an import uses for deduplication. |
@@ -72,7 +71,7 @@ flowchart LR
 | ARCH-002 | Legacy nonce | If a frame fails authentication under its counter nonce, then the client MUST retry it under that nonce decremented by 1 and, when that succeeds, MUST continue the counter from the nonce that succeeded; if that also fails, it MUST fail the import. | Archives written before the counter existed used one nonce for every frame, and they are the only copy a user may have. |
 | ARCH-003 | Reject a later version | When the header's version is greater than 0, the client MUST fail the import before it reads any frame, naming the version. | A later container may frame or encrypt differently, and reading it as version 0 either fails on the first frame or applies elements it misread. |
 | ARCH-004 | Elements never change meaning | The client MUST NOT reuse a field number of any message in section 2 for another meaning, MUST NOT change a field's type, and MUST NOT reuse a retired enum value in section 2. | Reinterpreting a saved field changes existing archive content. |
-| ARCH-023 | Earlier archives pass DM admission | When given a valid version 0 archive in the counter-nonce form or the legacy form under ARCH-002, the client MUST import it and preserve its groups, message ids and bytes, historical metadata, and consent under sections 2 through 4, including in a later client version, except where DMS-015 requires import to fail. When DMS-015 requires rejection, the client MUST fail import under ARCH-021, including when an older client wrote the archive. | A later client must restore supported older backups without admitting DM history that contradicts its declared pair. |
+| ARCH-022 | Earlier archives remain importable | When given a valid version 0 archive in the counter-nonce form or the legacy form under ARCH-002, the client MUST import it and preserve its groups, message ids and bytes, historical metadata, and consent under sections 2 through 4, including in a later client version. | Retaining field numbers alone does not preserve the ability to restore an older backup. |
 | ARCH-005 | Unknown elements are skipped | When an element's `element` is unset, or is a variant the client does not implement, including `event`, the client MUST skip it and continue with the next frame. | An archive from a later client would otherwise fail on the first element the older client has not learned. |
 | ARCH-018 | Reject incomplete framing | When a header is incomplete, a frame length is less than 16, the stream ends within a length prefix or before its declared ciphertext length, or zstd reports an incomplete or invalid stream, the client MUST end the import with an error. It MUST report end-of-stream success only after complete metadata and a complete zstd stream with no pending length or ciphertext bytes. | Truncated input must not hang or appear to be a complete backup. |
 
@@ -272,10 +271,6 @@ JOIN-080 lets a validated Welcome activate a group created only by archive impor
 
 Successful-import idempotence is separate from failure recovery. A failed import retains completed elements. Retrying after a transient read or storage failure can apply the remaining elements; repeating unchanged malformed input cannot repair it.
 
-DMS-015 checks the declared pair and sender evidence before an archive message enters a DM. This check applies to Restored and joined groups. A known message id remains unchanged under ARCH-013. If a new DM message fails the check, ARCH-021 retains earlier elements and stops import before the failing message becomes visible.
-
-A Restored DM can carry a historical pair that excludes the importing inbox. The stored DM identity remains that archived pair. A later Welcome must join the importing inbox under DMS-003 and match the stored pair and kind before activation. This pair check does not by itself satisfy the other historical metadata requirements of ARCH-020.
-
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | ARCH-011 | Metadata without import | An SDK MUST let an app read an archive's container version and its `metadata` element with the archive key alone, without applying any other element. | |
@@ -293,16 +288,16 @@ After validated activation, archive export uses current validated live metadata.
 
 ## Known limitations
 
-The key authenticates the archive, but it does not prove that an archived message came from MLS. A key holder can write message content under a claimed sender. DMS-015 rejects a DM message whose claimed sender is outside that DM's pair; it cannot verify a sender who is in the pair.
+An archive is authenticated by the key alone. Anyone who holds the key can write an archive with any message under any sender, and an importing client cannot tell it from one the user wrote. The key is the whole trust.
 
-Under ARCH-023, DMS-015 can reject an authentic archive made by an older client that accepted a poisoned DM.
+Archive import trusts the decrypted archive contents. Import does not verify message provenance or sender membership, so an archive from an untrusted source can add history that did not happen.
 
 A Restored conversation written by a client before the archived record existed keeps its placeholder metadata; a later import of the same group does not repair it under ARCH-014. The archived record retains operational fields of the source row, such as its pause version and cursor, for re-export only; they do not become live positions.
 
-A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019.
+A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019. The store records unknown expiry and no expiry alike, so `exclude_disappearing_messages` still exports restored messages whose expiry is unknown. This is waived under ARCH-009 until the store can tell them apart.
 
 A frame for a missing group fails restoration when the destination lacks that group. This does not delete source data or corrupt the destination. Earlier completed elements remain, and an unchanged retry reaches the same failure.
 
-Legacy repeated-nonce archives remain readable subject to ARCH-023, but nonce retry cannot restore the confidentiality or authentication lost by the writer. The container has no authenticated record count or final marker, so a valid zstd stream cut at a complete frame boundary cannot prove backup completeness.
+Legacy repeated-nonce archives remain readable, but nonce retry cannot restore the confidentiality or authentication lost by the writer. The container has no authenticated record count or final marker, so a valid zstd stream cut at a complete frame boundary cannot prove backup completeness.
 
 The zstd stream compresses ciphertext, so it provides no useful size reduction.

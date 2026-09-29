@@ -1,12 +1,9 @@
 //! Transaction boundaries and historical projections for restored history.
 use super::*;
-use crate::groups::DeleteMessageError;
+use crate::groups::{DeleteMessageError, GroupError};
 use crate::tester;
 use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
-use futures::{
-    AsyncReadExt,
-    io::{BufReader, Cursor},
-};
+use futures::io::{BufReader, Cursor};
 use prost::Message;
 use std::collections::HashMap;
 use xmtp_archive::exporter::ArchiveExporter;
@@ -281,10 +278,7 @@ async fn exported_groups(
         elements: vec![BackupElementSelection::Messages],
         exclude_disappearing_messages: false,
     };
-    let mut bytes = Vec::new();
-    ArchiveExporter::new(opts, db, &key)
-        .read_to_end(&mut bytes)
-        .await?;
+    let bytes = ArchiveExporter::export_to_bytes(opts, db, &key).await?;
     let mut importer =
         ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(bytes))), &key).await?;
     let mut saves = HashMap::new();

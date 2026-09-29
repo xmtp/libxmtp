@@ -1,234 +1,254 @@
-use super::{BACKUP_VERSION, OptionsToSave, export_stream::BatchExportStream};
+//! Archive writing. [`export`] writes the version and the starting nonce in the
+//! clear, then one zstd stream of length-prefixed AES-GCM frames: the metadata,
+//! then every element of one database snapshot. Frames are written as rows are
+//! read, so memory does not grow with the history.
+
+use super::BACKUP_VERSION;
 use crate::archive_options::ArchiveOptions;
-use crate::{NONCE_SIZE, util::GenericArrayExt};
-use aes_gcm::{Aes256Gcm, AesGcm, KeyInit, aead::Aead, aes::Aes256};
+use crate::{ArchiveError, NONCE_SIZE, snapshot, util::GenericArrayExt};
+use aes_gcm::aead::Aead;
 use async_compression::futures::write::ZstdEncoder;
-use futures::{Stream, ready, task::Context};
-use futures_util::{AsyncRead, AsyncWrite};
-use pin_project::pin_project;
+use futures::{FutureExt, io::AllowStdIo};
+use futures_util::AsyncWriteExt;
 use prost::Message;
 #[allow(deprecated)]
-use sha2::digest::{generic_array::GenericArray, typenum};
-use std::{io, pin::Pin, sync::Arc, task::Poll};
-use xmtp_db::prelude::*;
+use sha2::digest::generic_array::GenericArray;
+use std::io;
+use xmtp_db::ConnectionExt;
 use xmtp_proto::xmtp::device_sync::{BackupElement, BackupMetadataSave, backup_element::Element};
 
+/// Writes an archive of everything `options` selects, read in one snapshot
+/// measured at one export time, to `sink`, and returns its metadata. Fails,
+/// rather than omitting it, when a selected record cannot be read; on failure
+/// `sink` holds an incomplete archive that the caller must discard. `sink` is
+/// written while the snapshot's read transaction is open, so it must not use
+/// the database.
+pub fn export(
+    options: ArchiveOptions,
+    db: impl ConnectionExt,
+    key: &[u8],
+    mut sink: impl io::Write,
+) -> Result<BackupMetadataSave, ArchiveError> {
+    let cipher = crate::cipher(key)?;
+    let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
+    sink.write_all(&BACKUP_VERSION.to_le_bytes())?;
+    sink.write_all(&nonce)?;
+
+    #[allow(deprecated)]
+    let mut nonce = GenericArray::clone_from_slice(&nonce);
+    let mut zstd = ZstdEncoder::new(AllowStdIo::new(sink));
+    let write = |element: Element| -> Result<(), ArchiveError> {
+        let plaintext = BackupElement {
+            element: Some(element),
+        }
+        .encode_to_vec();
+        let ciphertext = cipher.encrypt(&nonce, &*plaintext)?;
+        nonce.increment();
+        ready(zstd.write_all(&(ciphertext.len() as u32).to_le_bytes()))?;
+        Ok(ready(zstd.write_all(&ciphertext))?)
+    };
+    let metadata = snapshot::read(&db, &options, write)?;
+    ready(zstd.close())?;
+    Ok(metadata)
+}
+
+/// Namespace for [`ArchiveExporter::export_to_file`], which the native
+/// bindings call.
 #[cfg(not(target_arch = "wasm32"))]
-mod file_export;
+pub struct ArchiveExporter;
 
-const OUTPUT_BATCH_SIZE: usize = 8_000;
-
-#[pin_project]
+/// An archive as an [`futures::AsyncRead`] byte stream, for the wasm binding.
+/// [`ArchiveExporter::new`] runs [`export`] into chunks that reads release. An
+/// export failure is returned by every read as an [`io::Error`] with its
+/// message, and no archive byte is served. Removed in the follow-up that has
+/// the wasm binding pass its buffer to [`export`] directly.
+#[cfg(target_arch = "wasm32")]
 pub struct ArchiveExporter {
-    metadata: BackupMetadataSave,
-    #[pin]
-    reader: ArchiveReader<ZstdEncoder<Vec<u8>>>,
-}
-
-#[pin_project]
-struct ArchiveReader<E> {
-    stage: Stage,
-    #[pin]
-    stream: BatchExportStream,
-    position: usize,
-    encoder: E,
-    frame: Vec<u8>,
-    frame_position: usize,
-    cipher: AesGcm<Aes256, typenum::U12, typenum::U16>,
-    nonce: GenericArray<u8, typenum::U12>,
-    nonce_buffer: Vec<u8>,
-}
-
-#[derive(Default)]
-enum Stage {
-    #[default]
-    Nonce,
-    Metadata,
-    Elements,
-    Flushing,
-    Closing,
-    Finished,
-}
-
-// Keep the output buffer accessible without coupling progress to zstd.
-trait BufferedEncoder: AsyncWrite + Unpin {
-    fn output(&mut self) -> &mut Vec<u8>;
-}
-
-impl BufferedEncoder for ZstdEncoder<Vec<u8>> {
-    fn output(&mut self) -> &mut Vec<u8> {
-        self.get_mut()
-    }
-}
-
-impl ArchiveExporter {
-    #[cfg(not(target_arch = "wasm32"))]
-    pub async fn export_to_file<D>(
-        options: ArchiveOptions,
-        db: D,
-        path: impl AsRef<std::path::Path>,
-        key: &[u8],
-    ) -> Result<BackupMetadataSave, crate::ArchiveError>
-    where
-        D: DbQuery + 'static,
-    {
-        let mut exporter = Self::new(options, db, key);
-        exporter.write_to_file(path).await?;
-
-        Ok(exporter.metadata)
-    }
-
-    pub fn new<D>(options: ArchiveOptions, db: D, key: &[u8]) -> Self
-    where
-        D: DbQuery + 'static,
-    {
-        let mut nonce_buffer = BACKUP_VERSION.to_le_bytes().to_vec();
-        let nonce = xmtp_common::rand_array::<NONCE_SIZE>();
-        nonce_buffer.extend_from_slice(&nonce);
-
-        let stream = BatchExportStream::new(&options, Arc::new(db));
-        Self {
-            metadata: BackupMetadataSave::from_options(options),
-            reader: ArchiveReader {
-                position: 0,
-                stage: Stage::default(),
-                stream,
-                encoder: ZstdEncoder::new(Vec::new()),
-                frame: Vec::new(),
-                frame_position: 0,
-                #[allow(deprecated)]
-                cipher: Aes256Gcm::new(GenericArray::from_slice(key)),
-                #[allow(deprecated)]
-                nonce: GenericArray::clone_from_slice(&nonce),
-                nonce_buffer,
-            },
-        }
-    }
-
-    pub fn metadata(&self) -> &BackupMetadataSave {
-        &self.metadata
-    }
-}
-
-// futures_util supports the same reader on native and WASM targets.
-impl AsyncRead for ArchiveExporter {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        let this = self.project();
-        this.reader.poll_read(cx, buf, this.metadata)
-    }
-}
-
-impl<E: BufferedEncoder> ArchiveReader<E> {
-    // implements: ARCH-001, ARCH-017
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut [u8],
-        metadata: &BackupMetadataSave,
-    ) -> Poll<io::Result<usize>> {
-        if buf.is_empty() {
-            return Poll::Ready(Ok(0));
-        }
-        let mut this = self.project();
-        loop {
-            if matches!(this.stage, Stage::Nonce) {
-                let amount = this.nonce_buffer.len().min(buf.len());
-                buf[..amount].copy_from_slice(&this.nonce_buffer[..amount]);
-                this.nonce_buffer.drain(..amount);
-                if this.nonce_buffer.is_empty() {
-                    *this.stage = Stage::Metadata;
-                }
-                return Poll::Ready(Ok(amount));
-            }
-
-            let output = this.encoder.output();
-            if *this.position < output.len() {
-                let amount = (output.len() - *this.position).min(buf.len());
-                buf[..amount].copy_from_slice(&output[*this.position..*this.position + amount]);
-                *this.position += amount;
-                return Poll::Ready(Ok(amount));
-            }
-            *this.position = 0;
-            output.clear();
-
-            loop {
-                // Do not poll another element or advance the nonce until this frame is accepted.
-                if !this.frame.is_empty() {
-                    while *this.frame_position < this.frame.len() {
-                        let amount = ready!(
-                            Pin::new(&mut *this.encoder)
-                                .poll_write(cx, &this.frame[*this.frame_position..])
-                        )?;
-                        if amount == 0 {
-                            return Poll::Ready(Err(io::ErrorKind::WriteZero.into()));
-                        }
-                        *this.frame_position += amount;
-                    }
-                    this.frame.clear();
-                    *this.frame_position = 0;
-                    this.nonce.increment();
-                    if matches!(this.stage, Stage::Metadata) {
-                        *this.stage = Stage::Elements;
-                    }
-                }
-
-                if matches!(this.stage, Stage::Elements)
-                    && this.encoder.output().len() >= OUTPUT_BATCH_SIZE
-                {
-                    *this.stage = Stage::Flushing;
-                }
-
-                let element = match this.stage {
-                    Stage::Nonce => unreachable!("header is written before frames"),
-                    Stage::Metadata => BackupElement {
-                        element: Some(Element::Metadata(metadata.clone())),
-                    },
-                    Stage::Elements => match ready!(this.stream.as_mut().poll_next(cx)) {
-                        Some(element) => element.map_err(storage_io_error)?,
-                        None => {
-                            *this.stage = Stage::Closing;
-                            continue;
-                        }
-                    },
-                    Stage::Flushing => {
-                        ready!(Pin::new(&mut *this.encoder).poll_flush(cx))?;
-                        *this.stage = Stage::Elements;
-                        break;
-                    }
-                    Stage::Closing => {
-                        ready!(Pin::new(&mut *this.encoder).poll_close(cx))?;
-                        *this.stage = Stage::Finished;
-                        break;
-                    }
-                    Stage::Finished => return Poll::Ready(Ok(0)),
-                };
-                let encrypted = this
-                    .cipher
-                    .encrypt(this.nonce, element.encode_to_vec().as_slice())
-                    .map_err(io::Error::other)?;
-                this.frame
-                    .extend_from_slice(&(encrypted.len() as u32).to_le_bytes());
-                this.frame.extend_from_slice(&encrypted);
-            }
-        }
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn storage_io_error(error: xmtp_db::StorageError) -> io::Error {
-    io::Error::other(error)
+    archive: Result<std::collections::VecDeque<Vec<u8>>, String>,
 }
 
 #[cfg(target_arch = "wasm32")]
-fn storage_io_error(error: xmtp_db::StorageError) -> io::Error {
-    // I/O errors require Send + Sync sources, but WASM storage errors can
-    // contain local sources. Keep their message; native keeps the typed cause.
-    io::Error::other(error.to_string())
+impl ArchiveExporter {
+    pub fn new(options: ArchiveOptions, db: impl ConnectionExt, key: &[u8]) -> Self {
+        let mut chunks = Chunks::default();
+        let archive = export(options, db, key, &mut chunks)
+            .map(|_| chunks.0)
+            .map_err(|e| e.to_string());
+        Self { archive }
+    }
 }
 
-#[cfg(test)]
-mod tests;
+#[cfg(target_arch = "wasm32")]
+impl futures::AsyncRead for ArchiveExporter {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        use std::task::Poll;
+        let chunks = match &mut self.get_mut().archive {
+            Ok(chunks) => chunks,
+            Err(error) => return Poll::Ready(Err(io::Error::other(error.clone()))),
+        };
+        let Some(chunk) = chunks.front_mut() else {
+            return Poll::Ready(Ok(0));
+        };
+        let amount = chunk.len().min(buf.len());
+        buf[..amount].copy_from_slice(&chunk[..amount]);
+        chunk.drain(..amount);
+        if chunk.is_empty() {
+            chunks.pop_front();
+        }
+        Poll::Ready(Ok(amount))
+    }
+}
+
+/// A sink that keeps each write as a chunk, so a reader can release them.
+#[cfg(target_arch = "wasm32")]
+#[derive(Default)]
+struct Chunks(std::collections::VecDeque<Vec<u8>>);
+
+#[cfg(target_arch = "wasm32")]
+impl io::Write for Chunks {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.push_back(buf.to_vec());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ArchiveExporter {
+    /// Exports to a file at `path`, as [`export`], on tokio's blocking pool so
+    /// the snapshot never stalls an async worker. The archive is written to a
+    /// sibling temporary file and renamed over `path` only once complete, so a
+    /// failed export leaves `path` as it was. The archive is a new file:
+    /// owner-only on unix and the directory's default ACL on Windows, never
+    /// the permissions of whatever `path` held. Dropping the future cancels the
+    /// export at its next write, which counts as a failure. Must be called within a tokio runtime.
+    pub async fn export_to_file(
+        options: ArchiveOptions,
+        db: impl ConnectionExt + 'static,
+        path: impl AsRef<std::path::Path>,
+        key: &[u8],
+    ) -> Result<BackupMetadataSave, ArchiveError> {
+        let path = path.as_ref().to_owned();
+        offload(key, move |key, cancel| {
+            write_file(options, db, &path, key, cancel)
+        })
+        .await
+    }
+
+    /// Exports into a buffer, as [`export`], on tokio's blocking pool so the
+    /// snapshot never stalls an async worker. Dropping the future cancels the
+    /// export at its next write. Must be called within a tokio runtime.
+    pub async fn export_to_bytes(
+        options: ArchiveOptions,
+        db: impl ConnectionExt + 'static,
+        key: &[u8],
+    ) -> Result<Vec<u8>, ArchiveError> {
+        offload(key, move |key, cancel| {
+            let mut bytes = Vec::new();
+            export(options, db, key, Cancellable(&mut bytes, cancel))?;
+            Ok(bytes)
+        })
+        .await
+    }
+}
+
+/// Checks `key`, then runs `f` on tokio's blocking pool with a token that is
+/// cancelled when the returned future is dropped.
+#[cfg(not(target_arch = "wasm32"))]
+async fn offload<T: Send + 'static>(
+    key: &[u8],
+    f: impl FnOnce(&[u8], &tokio_util::sync::CancellationToken) -> Result<T, ArchiveError>
+    + Send
+    + 'static,
+) -> Result<T, ArchiveError> {
+    crate::check_key(key)?;
+    let key = key.to_vec();
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let _cancel_on_drop = cancel.clone().drop_guard();
+    tokio::task::spawn_blocking(move || f(&key, &cancel))
+        .await
+        .map_err(io::Error::other)?
+}
+
+/// Exports to a sibling temporary file until `cancel` fires, then renames it
+/// over `path`. A failed or cancelled export removes the temporary file and
+/// leaves any archive already at `path` untouched.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn write_file(
+    options: ArchiveOptions,
+    db: impl ConnectionExt,
+    path: &std::path::Path,
+    key: &[u8],
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<BackupMetadataSave, ArchiveError> {
+    let mut partial = path.as_os_str().to_owned();
+    partial.push(format!(
+        ".{:016x}.partial",
+        u64::from_le_bytes(xmtp_common::rand_array())
+    ));
+    let partial = std::path::PathBuf::from(partial);
+    let mut create = std::fs::OpenOptions::new();
+    create.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut create, 0o600);
+    // Created before the cleanup below, which may then only remove a file
+    // this export owns.
+    let file = create.open(&partial)?;
+    let exported = (|| -> Result<_, ArchiveError> {
+        let mut file = io::BufWriter::new(file);
+        let metadata = export(options, db, key, Cancellable(&mut file, cancel))?;
+        file.into_inner()
+            .map_err(io::IntoInnerError::into_error)?
+            .sync_all()?;
+        live(cancel)?;
+        std::fs::rename(&partial, path)?;
+        Ok(metadata)
+    })();
+    if exported.is_err()
+        && let Err(e) = std::fs::remove_file(&partial)
+    {
+        tracing::warn!(path = %partial.display(), error = %e, "failed export left a partial archive");
+    }
+    exported
+}
+
+/// Fails once `cancel` fires, so a cancelled export takes the cleanup path.
+#[cfg(not(target_arch = "wasm32"))]
+fn live(cancel: &tokio_util::sync::CancellationToken) -> io::Result<()> {
+    if cancel.is_cancelled() {
+        return Err(io::Error::other("archive export cancelled"));
+    }
+    Ok(())
+}
+
+/// A sink that fails every write once its token is cancelled.
+#[cfg(not(target_arch = "wasm32"))]
+struct Cancellable<'a, W>(W, &'a tokio_util::sync::CancellationToken);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<W: io::Write> io::Write for Cancellable<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        live(self.1)?;
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
+    }
+}
+
+/// Resolves an encoder operation over a synchronous sink, which never pends.
+fn ready(op: impl Future<Output = io::Result<()>>) -> io::Result<()> {
+    op.now_or_never().unwrap_or_else(|| {
+        Err(io::Error::other(
+            "synchronous archive sink returned pending",
+        ))
+    })
+}

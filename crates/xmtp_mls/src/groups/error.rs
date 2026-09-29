@@ -557,8 +557,6 @@ pub enum DmValidationError {
     MemberOutsidePair,
     #[error("stored DM identifier does not match its validated pair")]
     StoredDmIdMismatch,
-    #[error("stored DM has a message sender outside its validated pair")]
-    StoredMessageSenderOutsidePair,
 }
 
 impl RetryableError for DmValidationError {
@@ -573,8 +571,7 @@ impl RetryableError for DmValidationError {
             | Self::InvalidMembership
             | Self::InvalidMemberCredential
             | Self::MemberOutsidePair
-            | Self::StoredDmIdMismatch
-            | Self::StoredMessageSenderOutsidePair => false,
+            | Self::StoredDmIdMismatch => false,
         }
     }
 }

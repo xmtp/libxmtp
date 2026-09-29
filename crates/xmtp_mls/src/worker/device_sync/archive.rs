@@ -1,14 +1,8 @@
 use super::DeviceSyncError;
-use crate::{
-    context::XmtpSharedContext,
-    groups::{GroupError, MlsGroup},
-};
+use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use futures::{Stream, StreamExt};
 pub use xmtp_archive::*;
-use xmtp_db::{
-    XmtpMlsStorageProvider, consent_record::StoredConsentRecord, group::ConversationType,
-    group_message::StoredGroupMessage, prelude::*,
-};
+use xmtp_db::{consent_record::StoredConsentRecord, group_message::StoredGroupMessage, prelude::*};
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 use xmtp_events::{ArchiveRestored, ClientEvent, EventWriter};
@@ -73,47 +67,7 @@ fn insert(
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
-            // Keep validation and insertion under one writer. A rejected
-            // message cannot enter stitched history between the two steps.
-            let changed = crate::state_tx::state_write(
-                context.mls_storage(),
-                |tx| -> Result<_, GroupError> {
-                    let storage = tx.storage();
-                    let db = storage.db();
-                    let existing: Option<StoredGroupMessage> = db.fetch(&message.id)?;
-                    if existing.is_some() {
-                        return Ok(xmtp_db::TransactionOutcome::Continue(false));
-                    }
-                    let group = db.find_group(&message.group_id)?.ok_or_else(|| {
-                        xmtp_db::StorageError::NotFound(xmtp_db::NotFound::GroupById(
-                            message.group_id,
-                        ))
-                    })?;
-                    if group.conversation_type == ConversationType::Dm {
-                        let pair = crate::groups::parse_canonical_dm_id(group.dm_id.as_deref())?;
-                        if ![
-                            pair.member_one_inbox_id.as_str(),
-                            pair.member_two_inbox_id.as_str(),
-                        ]
-                        .contains(&message.sender_inbox_id.as_str())
-                            || db.has_sender_outside_pair(
-                                &message.group_id,
-                                [&pair.member_one_inbox_id, &pair.member_two_inbox_id],
-                            )?
-                        {
-                            return Err(crate::groups::MetadataPermissionsError::from(
-                                crate::groups::DmValidationError::StoredMessageSenderOutsidePair,
-                            )
-                            .into());
-                        }
-                    }
-                    Ok(xmtp_db::TransactionOutcome::Continue(
-                        message.store_or_ignore_changed(&db)?,
-                    ))
-                },
-            )?
-            .into_continued();
-            import_context.changed |= changed;
+            import_context.changed |= message.store_or_ignore_changed(&context.db())?;
         }
         _ => {}
     }
@@ -134,7 +88,7 @@ mod tests {
     use futures::AsyncReadExt;
     use futures::io::{BufReader, Cursor};
     use std::{path::Path, sync::Arc};
-    use xmtp_archive::exporter::ArchiveExporter;
+    use xmtp_archive::exporter;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::group_message::MsgQueryArgs;
     use xmtp_db::{ConnectionExt, group::GroupMembershipState};
@@ -149,6 +103,191 @@ mod tests {
         group_mutable_metadata::MessageDisappearingSettings,
     };
     use xmtp_proto::types::GroupId;
+
+    /// Runs `on_first` once, when the export first writes past the archive
+    /// header, which happens while the snapshot's read transaction is open.
+    struct WriteDuringExport<F: FnMut()> {
+        archive: Vec<u8>,
+        on_first: Option<F>,
+    }
+
+    impl<F: FnMut()> std::io::Write for WriteDuringExport<F> {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if self.archive.len() >= 2 + xmtp_archive::NONCE_SIZE {
+                self.on_first.take().into_iter().for_each(|mut f| f());
+            }
+            self.archive.write(buf)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A selected group whose mutable metadata cannot be decoded fails the
+    /// export, rather than exporting the group without that value. The
+    /// malformed admin list is committed locally through openmls, bypassing
+    /// the commit validation that keeps it out of real groups.
+    // verifies: ARCH-017
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_export_fails_on_undecodable_group_metadata() {
+        use openmls::{
+            component::ComponentData,
+            group::MlsGroup,
+            messages::proposals::{AppDataUpdateProposal, Proposal},
+        };
+        use openmls_traits::OpenMlsProvider;
+        use xmtp_archive::{ArchiveError, UnreadableGroup};
+        use xmtp_mls_common::app_data::component_id::ComponentId;
+
+        tester!(alix, disable_workers);
+        let conversation = alix.create_group(None, None)?;
+        let provider = alix.context.mls_provider();
+        let signer = &alix.context.identity().installation_keys;
+        let mut group = MlsGroup::load(
+            alix.context.mls_storage(),
+            &conversation.group_id.to_openmls(),
+        )??;
+        let malformed = vec![0xff; 3];
+        let mut stage = group
+            .commit_builder()
+            .add_proposal(Proposal::AppDataUpdate(Box::new(
+                AppDataUpdateProposal::update(ComponentId::ADMIN_LIST.as_u16(), malformed.clone()),
+            )))
+            .load_psks(provider.storage())?;
+        let mut updater = stage.app_data_dictionary_updater();
+        updater.set(ComponentData::from_parts(
+            ComponentId::ADMIN_LIST.as_u16(),
+            malformed.into(),
+        ));
+        stage.with_app_data_dictionary_updates(updater.changes());
+        stage
+            .build(provider.rand(), provider.crypto(), signer, |_| true)?
+            .stage_commit(&provider)?;
+        group.merge_pending_commit(&provider)?;
+
+        let opts = ArchiveOptions {
+            start_ns: None,
+            end_ns: None,
+            elements: vec![BackupElementSelection::Messages],
+            exclude_disappearing_messages: false,
+        };
+        let key = xmtp_common::rand_vec::<32>();
+        let failure = exporter::export(opts, alix.db(), &key, Vec::new());
+        assert!(
+            matches!(
+                failure,
+                Err(ArchiveError::UnreadableGroup {
+                    group_id,
+                    source: UnreadableGroup::MutableMetadata(_),
+                }) if group_id == conversation.group_id
+            ),
+            "export dropped an undecodable metadata value: {failure:?}"
+        );
+    }
+
+    /// With MESSAGES selected, a restore into a new installation holds every
+    /// eligible conversation whatever its creation time or messages: an empty
+    /// group, an empty DM, a group whose messages all precede the window, and
+    /// an old group with its in-window message. Consent edits and insertions
+    /// committed on another connection while the export is streaming are not
+    /// in the archive: the export is one snapshot. On wasm, whose single
+    /// connection the export holds, such writes are refused instead.
+    // verifies: ARCH-007, ARCH-017
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_snapshot_is_complete() {
+        use xmtp_db::consent_record::{ConsentState, ConsentType};
+        use xmtp_proto::xmtp::device_sync::{
+            backup_element::Element, consent_backup::ConsentStateSave,
+        };
+
+        tester!(alix, persistent_db, disable_workers);
+        tester!(bo, disable_workers);
+        let empty_group = alix.create_group(None, None)?;
+        let empty_dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
+        let outside = alix.create_group(None, None)?;
+        let outside_message = outside.send_message_optimistic(b"before", Default::default())?;
+        let old = alix.create_group(None, None)?;
+        let start_ns = xmtp_common::time::now_ns();
+        // The window's start is exclusive, and wasm clocks tick in whole
+        // milliseconds, so the in-window message must be sent a tick later.
+        xmtp_common::time::sleep(std::time::Duration::from_millis(2)).await;
+        // Large enough that the archive reaches the sink before consent is read.
+        let in_window = old.send_message_optimistic(&[7; 512 * 1024], Default::default())?;
+        let consent = |entity: &str, state| {
+            StoredConsentRecord::new(ConsentType::InboxId, state, entity.to_string())
+        };
+        alix.db()
+            .insert_or_replace_consent_records(&[consent("carol", ConsentState::Allowed)])?;
+
+        let opts = ArchiveOptions {
+            elements: vec![
+                BackupElementSelection::Messages,
+                BackupElementSelection::Consent,
+            ],
+            start_ns: Some(start_ns),
+            end_ns: None,
+            exclude_disappearing_messages: false,
+        };
+        let key = vec![7; 32];
+        let writer = alix.db();
+        let mut sink = WriteDuringExport {
+            archive: vec![],
+            on_first: Some(|| {
+                let written = writer.insert_or_replace_consent_records(&[
+                    consent("carol", ConsentState::Denied),
+                    consent("dave", ConsentState::Allowed),
+                ]);
+                // Native writers on other connections commit during the export;
+                // wasm's single connection is held by the export and refuses
+                // them, so neither can reach the snapshot.
+                #[cfg(not(target_arch = "wasm32"))]
+                written.unwrap();
+                #[cfg(target_arch = "wasm32")]
+                assert!(written.is_err(), "wasm wrote during the export");
+            }),
+        };
+        exporter::export(opts, alix.db(), &key, &mut sink)?;
+        assert!(
+            sink.on_first.is_none(),
+            "the export never wrote mid-snapshot"
+        );
+        let archive = sink.archive;
+
+        let reader = Box::pin(BufReader::new(Cursor::new(archive.clone())));
+        let consent: Vec<_> = ArchiveImporter::load(reader, &key)
+            .await?
+            .filter_map(|e| async move {
+                match e.ok()?.element? {
+                    Element::Consent(c) if c.entity == "carol" || c.entity == "dave" => Some(c),
+                    _ => None,
+                }
+            })
+            .collect()
+            .await;
+        assert!(
+            matches!(
+                consent.as_slice(),
+                [c] if c.entity == "carol" && c.state == ConsentStateSave::Allowed as i32
+            ),
+            "the export saw writes committed after its snapshot: {consent:?}"
+        );
+
+        tester!(alix2, from: alix);
+        let reader = Box::pin(BufReader::new(Cursor::new(archive)));
+        let mut importer = ArchiveImporter::load(reader, &key).await?;
+        insert_importer(&mut importer, &alix2.context).await?;
+
+        let db = alix2.db();
+        for group in [&empty_group, &empty_dm, &outside, &old] {
+            assert_eq!(
+                db.find_group(&group.group_id)??.membership_state,
+                GroupMembershipState::Restored
+            );
+        }
+        assert!(db.get_group_message(&in_window)?.is_some());
+        assert!(db.get_group_message(&outside_message)?.is_none());
+    }
 
     // verifies: EVENT-001, EVENT-017
     #[xmtp_common::test(unwrap_try = true)]
@@ -311,8 +450,7 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
-            exporter.read_to_end(&mut file).await?;
+            exporter::export(opts, alix.db(), &key, &mut file)?;
             file
         };
 
@@ -375,8 +513,7 @@ mod tests {
         let export = {
             let mut file = vec![];
 
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
-            exporter.read_to_end(&mut file).await?;
+            exporter::export(opts, alix.db(), &key, &mut file)?;
             file
         };
 
@@ -462,73 +599,10 @@ mod tests {
         bo_original.test_can_talk_with(&rejoined_original).await?;
     }
 
-    // verifies: DMS-015, ARCH-013, ARCH-021, ARCH-023, DMS-009
+    // verifies: ARCH-015, ARCH-020
     #[xmtp_common::test(unwrap_try = true)]
-    async fn authentic_archive_rejects_outside_dm_sender_before_stitched_history() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        let source = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-        let good_id = source
-            .send_message(b"pair history", Default::default())
-            .await?;
-        let mut outside = alix
-            .db()
-            .get_group_message(&good_id)?
-            .expect("source message");
-        // Export orders messages by id. Keep the valid element first so
-        // Completed-prefix behavior is deterministic.
-        outside.id = vec![0xff; 32];
-        outside.sender_inbox_id = hex::encode([0x43; 32]);
-        outside.sender_installation_id = vec![0x43; 32];
-        outside.sent_at_ns += 1;
-        outside.sequence_id += 1000;
-        outside.idempotency_key = "older-poisoned-dm".into();
-        outside.store(&alix.db())?;
-
-        // The normal exporter authenticates both messages under the user's key.
-        let key = vec![0x29; 32];
-        let opts = ArchiveOptions {
-            start_ns: None,
-            end_ns: None,
-            elements: vec![BackupElementSelection::Messages],
-            exclude_disappearing_messages: false,
-        };
-        let mut export = vec![];
-        ArchiveExporter::new(opts, alix.db(), &key)
-            .read_to_end(&mut export)
-            .await?;
-
-        tester!(alix2, from: alix);
-        let active = alix2.find_or_create_dm(bo.inbox_id(), None).await?;
-        assert_ne!(active.group_id, source.group_id);
-        let reader = Box::pin(BufReader::new(Cursor::new(export)));
-        let mut importer = ArchiveImporter::load(reader, &key).await?;
-        assert!(
-            insert_importer(&mut importer, &alix2.context)
-                .await
-                .is_err()
-        );
-
-        let restored = alix2
-            .db()
-            .find_group(&source.group_id)?
-            .expect("restored DM");
-        assert_eq!(restored.membership_state, GroupMembershipState::Restored);
-        assert!(alix2.db().get_group_message(&good_id)?.is_some());
-        assert!(alix2.db().get_group_message(&outside.id)?.is_none());
-        assert!(
-            !alix2
-                .db()
-                .has_sender_outside_pair(&source.group_id, [alix2.inbox_id(), bo.inbox_id()],)?
-        );
-        let stitched = active.find_messages(&MsgQueryArgs::default())?;
-        assert!(stitched.iter().any(|message| message.id == good_id));
-        assert!(!stitched.iter().any(|message| message.id == outside.id));
-    }
-
-    // verifies: ARCH-015, ARCH-023, DMS-015
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn foreign_archive_preserves_dm_pair_and_pair_history() {
+    async fn foreign_archive_preserves_dm_pair_and_history() {
+        use crate::groups::GroupError;
         use xmtp_db::{
             consent_record::{ConsentState, ConsentType},
             group::{DmIdExt, QueryGroup},
@@ -566,9 +640,7 @@ mod tests {
             exclude_disappearing_messages: false,
         };
         let mut export = vec![];
-        ArchiveExporter::new(opts.clone(), alix.db(), &key)
-            .read_to_end(&mut export)
-            .await?;
+        exporter::export(opts.clone(), alix.db(), &key, &mut export)?;
         let reader = Box::pin(BufReader::new(Cursor::new(export)));
         let mut importer = ArchiveImporter::load(reader, &key).await?;
         insert_importer(&mut importer, &charlie.context).await?;
@@ -694,27 +766,9 @@ mod tests {
             assert_eq!(message.sender_inbox_id, sender);
             assert_eq!(message.decrypted_message_bytes, bytes);
         }
-        let mut outside: xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave = charlie
-            .db()
-            .get_group_message(&alix_id)?
-            .expect("pair message")
-            .into();
-        outside.id = vec![0xe3; 32];
-        outside.sender_inbox_id = charlie.inbox_id().to_string();
-        let mut rejected = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
-            element: Some(Element::GroupMessage(outside.clone())),
-        })]);
-        assert!(
-            insert_elements(&mut rejected, &charlie.context)
-                .await
-                .is_err()
-        );
-        assert!(charlie.db().get_group_message(&outside.id)?.is_none());
 
         let mut reexport = vec![];
-        ArchiveExporter::new(opts, charlie.db(), &key)
-            .read_to_end(&mut reexport)
-            .await?;
+        exporter::export(opts, charlie.db(), &key, &mut reexport)?;
         let reader = Box::pin(BufReader::new(Cursor::new(reexport)));
         let mut exported = ArchiveImporter::load(reader, &key).await?;
         let mut found_group = false;
@@ -742,75 +796,61 @@ mod tests {
         assert!(reopened.db().get_group_message(&bo_id)?.is_some());
     }
 
-    // verifies: DMS-015, ARCH-013
+    // verifies: ARCH-013
     #[xmtp_common::test(unwrap_try = true)]
-    async fn joined_dm_archive_import_keeps_duplicate_and_rejects_outside_sender() {
+    async fn archive_import_leaves_a_known_message_unchanged() {
         tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-        let good_id = dm.send_message(b"known", Default::default()).await?;
-        let good = alix
+        let group = alix.create_group(None, None)?;
+        let known_id = group.send_message(b"known", Default::default()).await?;
+        let known = alix
             .db()
-            .get_group_message(&good_id)?
+            .get_group_message(&known_id)?
             .expect("known message");
         let mut save: xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave =
-            good.clone().into();
+            known.clone().into();
         save.sender_inbox_id = hex::encode([0x43; 32]);
         save.decrypted_message_bytes = b"ignored replacement".to_vec();
         let mut duplicate = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
-            element: Some(Element::GroupMessage(save.clone())),
+            element: Some(Element::GroupMessage(save)),
         })]);
         insert_elements(&mut duplicate, &alix.context).await?;
-        assert_eq!(alix.db().get_group_message(&good_id)?, Some(good.clone()));
-        assert!(
-            !alix
-                .db()
-                .has_sender_outside_pair(&dm.group_id, [alix.inbox_id(), bo.inbox_id()],)?
-        );
-
-        save.id = vec![0x44; 32];
-        let mut new_message = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
-            element: Some(Element::GroupMessage(save.clone())),
-        })]);
-        assert!(
-            insert_elements(&mut new_message, &alix.context)
-                .await
-                .is_err()
-        );
-        assert!(alix.db().get_group_message(&save.id)?.is_none());
+        assert_eq!(alix.db().get_group_message(&known_id)?, Some(known));
     }
 
-    /// A DM restored before an outside-sender rejection is a completed element.
-    /// Its archived activity is written when its row is restored, so it
-    /// survives the failed import even when no retained message carries that
-    /// timestamp.
-    // verifies: DMS-015, ARCH-021
+    /// A DM restored before a failing element is a completed element. Its
+    /// archived activity must survive the failed import, even when no
+    /// retained message carries that timestamp.
+    // verifies: ARCH-021
     #[xmtp_common::test(unwrap_try = true)]
-    async fn rejected_dm_message_keeps_archived_activity_of_restored_prefix() {
-        tester!(alix, disable_workers);
-        tester!(bo, disable_workers);
-        tester!(caro, disable_workers);
-        let dm = alix.find_or_create_dm(bo.inbox_id(), None).await?;
-        let sent_id = dm.send_message(b"pair history", Default::default()).await?;
-        let dm_id = alix.db().find_group(&dm.group_id)??.dm_id;
+    async fn failed_import_keeps_archived_activity_of_restored_prefix() {
+        use xmtp_mls_common::group_metadata::DmMembers;
+        use xmtp_proto::xmtp::device_sync::{
+            group_backup::GroupSave,
+            message_backup::{GroupMessageKindSave, GroupMessageSave},
+        };
 
+        tester!(caro, disable_workers);
+        let pair = DmMembers {
+            member_one_inbox_id: hex::encode([0x41; 32]),
+            member_two_inbox_id: hex::encode([0x42; 32]),
+        };
         let group_id = vec![0x65; 16];
         let archived_activity = 1_234_567;
-        let group = xmtp_proto::xmtp::device_sync::group_backup::GroupSave {
+        let group = GroupSave {
             id: group_id.clone(),
             conversation_type: 2,
-            dm_id,
+            dm_id: Some(pair.to_string()),
             last_message_ns: Some(archived_activity),
             ..Default::default()
         };
-        let mut outside: xmtp_proto::xmtp::device_sync::message_backup::GroupMessageSave = alix
-            .db()
-            .get_group_message(&sent_id)?
-            .expect("sent message")
-            .into();
-        outside.id = vec![0x66; 32];
-        outside.group_id = group_id.clone();
-        outside.sender_inbox_id = hex::encode([0x43; 32]);
+        // A recognized message element with an unspecified kind is malformed.
+        let malformed = GroupMessageSave {
+            id: vec![0x66; 32],
+            group_id: group_id.clone(),
+            kind: GroupMessageKindSave::Unspecified as i32,
+            sender_inbox_id: pair.member_one_inbox_id.clone(),
+            ..Default::default()
+        };
 
         let events = caro.context.events().subscribe(
             xmtp_events::EventFilter::new([xmtp_events::EventKind::ArchiveRestored]),
@@ -821,14 +861,19 @@ mod tests {
                 element: Some(Element::Group(group)),
             }),
             Ok(BackupElement {
-                element: Some(Element::GroupMessage(outside.clone())),
+                element: Some(Element::GroupMessage(malformed.clone())),
             }),
         ]);
         let error = insert_elements(&mut elements, &caro.context)
             .await
-            .expect_err("an outside sender fails the import");
+            .expect_err("a malformed element fails the import");
         assert!(
-            format!("{error:?}").contains("StoredMessageSenderOutsidePair"),
+            matches!(
+                error,
+                DeviceSyncError::ProtoConversion(xmtp_proto::ConversionError::Unspecified(
+                    "message_kind"
+                ))
+            ),
             "unexpected import error: {error:?}"
         );
 
@@ -837,7 +882,7 @@ mod tests {
             .find_group(&GroupId::try_from(group_id.as_slice())?)??;
         assert_eq!(restored.membership_state, GroupMembershipState::Restored);
         assert_eq!(restored.last_message_ns, Some(archived_activity));
-        assert!(caro.db().get_group_message(&outside.id)?.is_none());
+        assert!(caro.db().get_group_message(&malformed.id)?.is_none());
         assert!(matches!(
             events.drain().as_slice(),
             [xmtp_events::EventEnvelope {
@@ -846,7 +891,7 @@ mod tests {
         ));
     }
 
-    // verifies: DMS-015, ARCH-021
+    // verifies: DMS-001, ARCH-021
     #[xmtp_common::test(unwrap_try = true)]
     async fn malformed_archived_dm_id_fails_before_group_insert() {
         tester!(alix, disable_workers);
@@ -899,8 +944,7 @@ mod tests {
 
         let file = {
             let mut file = Vec::new();
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
-            exporter.read_to_end(&mut file).await.unwrap();
+            exporter::export(opts, alix.db(), &key, &mut file).unwrap();
             file
         };
 
@@ -1019,10 +1063,9 @@ mod tests {
         };
 
         let key = xmtp_common::rand_vec::<32>();
-        let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
         let path = Path::new("archive.xmtp");
         let _ = tokio::fs::remove_file(path).await;
-        exporter.write_to_file(path).await?;
+        exporter::ArchiveExporter::export_to_file(opts, alix.db(), path, &key).await?;
 
         tester!(alix2, sync_worker);
         alix2.device_sync_client().wait_for_sync_worker_init().await;
@@ -1134,6 +1177,7 @@ mod tests {
     /// This archive was generated by the legacy creation build before groups
     /// were born with an AppData dictionary. Import must preserve the saved
     /// metadata while it creates dictionary-native backup stubs.
+    // verifies: ARCH-022
     #[xmtp_common::test(unwrap_try = true)]
     #[cfg(not(target_arch = "wasm32"))]
     async fn test_import_current_legacy_archive_metadata() {
@@ -1258,8 +1302,7 @@ mod tests {
         };
         let export = {
             let mut file = vec![];
-            let mut exporter = ArchiveExporter::new(opts, alix.db(), &key);
-            exporter.read_to_end(&mut file).await?;
+            exporter::export(opts, alix.db(), &key, &mut file)?;
             file
         };
 

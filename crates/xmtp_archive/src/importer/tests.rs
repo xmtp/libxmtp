@@ -1,4 +1,5 @@
 use super::*;
+use aes_gcm::{Aes256Gcm, KeyInit};
 use async_compression::futures::write::ZstdEncoder;
 use futures_util::{
     AsyncWriteExt,
@@ -161,7 +162,7 @@ async fn incomplete_zstd_after_metadata_is_terminal() {
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn complete_boundary_eof_and_both_nonce_forms() {
-    // verifies: ARCH-002, ARCH-018, ARCH-023.
+    // verifies: ARCH-002, ARCH-018.
     for legacy in [false, true] {
         let records = [consent("one"), consent("two")];
         let mut frames = encrypted_frame(&metadata().encode_to_vec(), &NONCE);
