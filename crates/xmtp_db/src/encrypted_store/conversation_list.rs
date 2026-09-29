@@ -705,7 +705,7 @@ pub(crate) mod tests {
             generate_consent_record(
                 ConsentType::ConversationId,
                 ConsentState::Denied,
-                hex::encode(&sync_group.id),
+                hex::encode(sync_group.id.as_slice()),
             )
             .store(conn)?;
 
