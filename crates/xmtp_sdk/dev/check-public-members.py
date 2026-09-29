@@ -79,7 +79,9 @@ def swift_members() -> set[str]:
     )
     names = set()
     member = re.compile(r"^\s*(?:(public)\s+)?(?:static\s+)?(?:func|var|let)\s+`?(\w+)")
-    for body in blocks(source, re.compile(r"^public final class SDKClient\b[^{]*\{", re.M)):
+    for body in blocks(
+        source, re.compile(r"^public final class SDKClient\b[^{]*\{", re.M)
+    ):
         for line in top_level(body):
             found = member.match(line)
             if found and found.group(1):
@@ -133,7 +135,10 @@ def typescript_missing(
         "    : never;",
     ]
     first = len(lines) + 1
-    lines += [f'export const m{index}: Member<"{name}"> = true;' for index, name in enumerate(ordered)]
+    lines += [
+        f'export const m{index}: Member<"{name}"> = true;'
+        for index, name in enumerate(ordered)
+    ]
     probe.write_text("\n".join(lines) + "\n")
     result = subprocess.run(
         [
@@ -175,9 +180,7 @@ def main() -> None:
     missing = {
         "Swift": wanted["Swift"] - swift_members(),
         "Kotlin": wanted["Kotlin"] - kotlin_members(),
-        "Node": typescript_missing(
-            "node-consumer", "xmtp-sdk", wanted["Node"], []
-        ),
+        "Node": typescript_missing("node-consumer", "xmtp-sdk", wanted["Node"], []),
         "Browser": typescript_missing(
             "browser-consumer",
             "xmtp-sdk-browser",
@@ -190,7 +193,9 @@ def main() -> None:
         if not names:
             failures.append(f"{sdk}: the manifest lists no retained Client member")
         for name in sorted(missing[sdk]):
-            failures.append(f"{sdk}: retained Client.{name} is not public in the installed product")
+            failures.append(
+                f"{sdk}: retained Client.{name} is not public in the installed product"
+            )
     if failures:
         print("\n".join(failures), file=sys.stderr)
         sys.exit(1)
