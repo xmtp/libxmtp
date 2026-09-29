@@ -178,8 +178,13 @@ assert.deepEqual(
 );
 await messages.end();
 // The app sees public state values, in order: the state at subscription
-// first, with no previous state.
-assert.deepEqual(states.slice(0, 2), [undefined, "connecting"]);
+// first, with no previous state. The stream can connect before the SDK reads
+// that state, so it is connecting or connected (PROC-044).
+assert.equal(states[0], undefined);
+assert.ok(
+  states[1] === "connecting" || states[1] === "connected",
+  `state at subscription ${states[1]}`,
+);
 const publicStates = new Set([
   undefined,
   "connecting",
