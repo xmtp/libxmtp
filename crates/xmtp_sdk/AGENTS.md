@@ -49,7 +49,10 @@ Run commands from the repository root in the Nix shell. Run
   the retained host Client surface, the identity methods, received identity,
   and Message actions. Negative probes check that the binding Client, its
   factories, the generated identity routes, the browser worker session, and
-  private package paths stay private. Run `just sdk generate` first.
+  private package paths stay private. Before it compiles them,
+  `dev/check-public-members.py` checks that every retained Client member in
+  `docs/self-hosted/sdk-api-manifest.md` is public in each installed product.
+  Run `just sdk generate` first.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

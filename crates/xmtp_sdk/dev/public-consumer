@@ -87,6 +87,10 @@ ln -sfn "$(nix path-info .#ubjs-core)/lib/node_modules/@ubjs/core" "$browser_pac
 ln -sfn "$(nix path-info .#ubjs-wasm)/lib/node_modules/@ubjs/wasm" "$browser_package/node_modules/@ubjs/wasm"
 cp -R "$fixtures/browser/src" "$fixtures/browser/negative" "$browser_consumer/"
 
+# The retained Client members come from the SDK API manifest, not from the
+# generator, so a forwarder that generation omits fails here.
+python3 crates/xmtp_sdk/dev/check-public-members.py
+
 log="$(mktemp)"
 swift_negative="$fixtures/swift/Sources/PublicConsumer/RawAccess.swift"
 kotlin_negative="$fixtures/kotlin/consumer/src/main/kotlin/RawAccess.kt"
