@@ -102,10 +102,7 @@ pub trait QueryConsentRecord {
         record: StoredConsentRecord,
     ) -> Result<bool, crate::ConnectionError>;
 
-    /// Insert consent_records, and replace existing entries, returns records that are new or changed.
-    /// A local act stores its own time even when the state repeats, so a later
-    /// echo of that act from another installation is not newer than it.
-    // implements: CONS-011
+    /// Insert consent_records, and replace existing entries, returns records that are new or changed
     fn insert_or_replace_consent_records(
         &self,
         records: &[StoredConsentRecord],
@@ -155,6 +152,9 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         self.raw_query(|conn| query.load::<StoredConsentRecord>(conn))
     }
 
+    /// Merge a received record. Returns whether the app-visible state changed.
+    /// A newer record with the stored state only moves the stored time: the
+    /// client's own act echoed back from another installation is not a change.
     // implements: CONS-010
     fn insert_newer_consent_record(
         &self,
@@ -163,7 +163,14 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         use diesel::query_dsl::methods::FilterDsl;
 
         self.raw_query(|conn| {
-            let changed = diesel::insert_into(dsl::consent_records)
+            // Two auto-committed statements: a deferred transaction that reads
+            // and then writes would fail its lock upgrade without waiting.
+            let stored_state: Option<ConsentState> = dsl::consent_records
+                .find((&record.entity_type, &record.entity))
+                .select(dsl::state)
+                .first(conn)
+                .optional()?;
+            let applied = diesel::insert_into(dsl::consent_records)
                 .values(&record)
                 .on_conflict((dsl::entity_type, dsl::entity))
                 .do_update()
@@ -179,7 +186,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
                     ),
                 )
                 .execute(conn)?;
-            Ok(changed != 0)
+            Ok(applied != 0 && stored_state != Some(record.state))
         })
     }
 
@@ -217,10 +224,7 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
                         .values(record)
                         .on_conflict((dsl::entity_type, dsl::entity))
                         .do_update()
-                        .set((
-                            dsl::state.eq(excluded(dsl::state)),
-                            dsl::consented_at_ns.eq(excluded(dsl::consented_at_ns)),
-                        ))
+                        .set(dsl::state.eq(excluded(dsl::state)))
                         .execute(conn)?;
                 }
                 Ok(())
@@ -433,7 +437,8 @@ mod tests {
                 let middle = record(entity_type, entity, ConsentState::Denied, 20);
 
                 assert!(conn.insert_newer_consent_record(first)?);
-                assert!(conn.insert_newer_consent_record(newest.clone())?);
+                // The same state at a later time moves the stored time only.
+                assert!(!conn.insert_newer_consent_record(newest.clone())?);
                 assert!(!conn.insert_newer_consent_record(middle)?);
                 let stored = conn
                     .get_consent_record(entity.into(), entity_type)?
@@ -464,26 +469,99 @@ mod tests {
         })?;
     }
 
-    /// A local act stores its own time even when the state does not change,
-    /// so a later echo of that act from the sync group is not newer.
-    // verifies: CONS-011
+    /// The client's own act, echoed back from the sync group with a later
+    /// time and the same state, moves the stored time but is not a change.
+    // verifies: CONS-010
     #[xmtp_common::test(unwrap_try = true)]
-    fn local_act_moves_the_consent_time_for_a_repeated_state() {
+    fn own_sync_echo_with_the_same_state_is_not_a_change() {
         with_connection(|conn| {
             for entity_type in [ConsentType::ConversationId, ConsentType::InboxId] {
                 let entity = "entity";
-                let first = record(entity_type, entity, ConsentState::Denied, 10);
-                let repeat = record(entity_type, entity, ConsentState::Denied, 20);
-                conn.insert_or_replace_consent_records(std::slice::from_ref(&first))?;
-                conn.insert_or_replace_consent_records(std::slice::from_ref(&repeat))?;
+                assert!(conn.insert_newer_consent_record(record(
+                    entity_type,
+                    entity,
+                    ConsentState::Allowed,
+                    10,
+                ))?);
+                // The local act keeps the stored time.
+                conn.insert_or_replace_consent_records(&[record(
+                    entity_type,
+                    entity,
+                    ConsentState::Denied,
+                    20,
+                )])?;
                 let stored = conn
                     .get_consent_record(entity.into(), entity_type)?
                     .unwrap();
-                assert_eq!(stored.state, ConsentState::Denied);
-                assert_eq!(stored.consented_at_ns, 20);
+                assert_eq!(
+                    (stored.state, stored.consented_at_ns),
+                    (ConsentState::Denied, 10)
+                );
+                // Its echo is newer but carries the same state.
                 assert!(
-                    !conn.insert_newer_consent_record(repeat)?,
-                    "the echo of the local act must not count as newer"
+                    !conn.insert_newer_consent_record(record(
+                        entity_type,
+                        entity,
+                        ConsentState::Denied,
+                        20,
+                    ))?,
+                    "an echo of the stored state must not report a change"
+                );
+                let stored = conn
+                    .get_consent_record(entity.into(), entity_type)?
+                    .unwrap();
+                assert_eq!(
+                    (stored.state, stored.consented_at_ns),
+                    (ConsentState::Denied, 20)
+                );
+                // A newer different state is still a change.
+                assert!(conn.insert_newer_consent_record(record(
+                    entity_type,
+                    entity,
+                    ConsentState::Allowed,
+                    30,
+                ))?);
+            }
+            Ok::<(), crate::ConnectionError>(())
+        })?;
+    }
+
+    /// Installation A repeats a local Denied before B's newer Allowed arrives;
+    /// both installations end on B's record because a local repeat does not
+    /// move the stored time.
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn installations_converge_when_a_local_repeat_precedes_a_newer_remote_record() {
+        with_connection(|conn| {
+            let kind = ConsentType::ConversationId;
+            // Installation A.
+            conn.insert_or_replace_consent_records(&[record(kind, "a", ConsentState::Denied, 10)])?;
+            conn.insert_or_replace_consent_records(&[record(kind, "a", ConsentState::Denied, 20)])?;
+            assert!(conn.insert_newer_consent_record(record(
+                kind,
+                "a",
+                ConsentState::Allowed,
+                15
+            ))?);
+            // Installation B.
+            assert!(conn.insert_newer_consent_record(record(
+                kind,
+                "b",
+                ConsentState::Allowed,
+                15
+            ))?);
+            assert!(!conn.insert_newer_consent_record(record(
+                kind,
+                "b",
+                ConsentState::Denied,
+                10
+            ))?);
+            for entity in ["a", "b"] {
+                let stored = conn.get_consent_record(entity.into(), kind)?.unwrap();
+                assert_eq!(
+                    (stored.state, stored.consented_at_ns),
+                    (ConsentState::Allowed, 15),
+                    "{entity}"
                 );
             }
             Ok::<(), crate::ConnectionError>(())
@@ -544,7 +622,8 @@ mod tests {
                 ConsentState::Allowed,
                 10,
             ))?);
-            assert!(conn.insert_newer_consent_record(record(
+            // The same state at a later time moves the stored time only.
+            assert!(!conn.insert_newer_consent_record(record(
                 ConsentType::InboxId,
                 entity,
                 ConsentState::Allowed,

@@ -156,6 +156,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "insert_newer_consent_record updates only state on replace and never consented_at_ns, and record equality ignores the timestamp, so a newer record with the same state never advances the merge."
 
 [[waiver]]
+id = "CONS-011"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "insert_or_replace_consent_records sets only state, so a repeated same-state act by an app is reported unchanged and the stored time never moves."
+
+[[waiver]]
 id = "CONS-023"
 kind = "gap"
 owner = "protocol"
