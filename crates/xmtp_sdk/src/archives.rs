@@ -104,20 +104,25 @@ impl Archives {
         let key = key(key_bytes)?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            exporter::ArchiveExporter::export_to_bytes(
-                options
-                    .unwrap_or(ArchiveOptions {
-                        start: None,
-                        end: None,
-                        elements: None,
-                        exclude_disappearing_messages: false,
-                    })
-                    .into(),
-                client.context.db(),
-                &key,
-            )
-            .await
-            .map_err(XmtpError::unknown)
+            let options = options
+                .unwrap_or(ArchiveOptions {
+                    start: None,
+                    end: None,
+                    elements: None,
+                    exclude_disappearing_messages: false,
+                })
+                .into();
+            // wasm has no blocking pool to offload to, so it exports inline.
+            #[cfg(not(target_arch = "wasm32"))]
+            let bytes =
+                exporter::ArchiveExporter::export_to_bytes(options, client.context.db(), &key)
+                    .await;
+            #[cfg(target_arch = "wasm32")]
+            let bytes = {
+                let mut bytes = Vec::new();
+                exporter::export(options, client.context.db(), &key, &mut bytes).map(|_| bytes)
+            };
+            bytes.map_err(XmtpError::unknown)
         })
         .await
     }
