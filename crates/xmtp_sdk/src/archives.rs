@@ -104,8 +104,7 @@ impl Archives {
         let key = key(key_bytes)?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            let mut bytes = Vec::new();
-            exporter::export(
+            exporter::ArchiveExporter::export_to_bytes(
                 options
                     .unwrap_or(ArchiveOptions {
                         start: None,
@@ -116,10 +115,9 @@ impl Archives {
                     .into(),
                 client.context.db(),
                 &key,
-                &mut bytes,
             )
-            .map_err(XmtpError::unknown)?;
-            Ok(bytes)
+            .await
+            .map_err(XmtpError::unknown)
         })
         .await
     }

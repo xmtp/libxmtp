@@ -446,7 +446,11 @@ mod tests {
         {
             if let Some(entered) = self.entered.lock().unwrap().take() {
                 entered.send(()).unwrap();
-                self.release.lock().unwrap().recv().unwrap();
+                self.release
+                    .lock()
+                    .unwrap()
+                    .recv_timeout(std::time::Duration::from_secs(5))
+                    .expect("the gated export held the test's thread");
             }
             self.db.raw_query(fun)
         }
@@ -458,6 +462,35 @@ mod tests {
         fn reconnect(&self) -> Result<(), xmtp_db::ConnectionError> {
             self.db.reconnect()
         }
+    }
+
+    /// `export_to_bytes` runs on the blocking pool, so a long export never
+    /// holds an async worker. On a single-threaded runtime the test keeps
+    /// running while the export is blocked mid-snapshot; run inline, the
+    /// export would hold the only thread until its gate timed out. The bytes
+    /// it returns are a complete archive.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[tokio::test(flavor = "current_thread")]
+    async fn byte_export_leaves_the_async_worker_free() {
+        let store = TestDb::create_ephemeral_store().await;
+        let (entered, in_flight) = tokio::sync::oneshot::channel();
+        let (release, released) = std::sync::mpsc::channel();
+        let db = Gated {
+            db: store.db(),
+            entered: Some(entered).into(),
+            release: released.into(),
+            _finished: tokio::sync::oneshot::channel().0,
+        };
+        let consent = options(&[BackupElementSelection::Consent]);
+        let export = tokio::spawn(exporter::ArchiveExporter::export_to_bytes(
+            consent, db, &KEY,
+        ));
+
+        in_flight.await.unwrap();
+        tokio::task::yield_now().await;
+        release.send(()).unwrap();
+        let archive = export.await.expect("the export ran on the async worker");
+        assert!(elements(archive.unwrap()).await.is_empty());
     }
 
     /// Dropping `export_to_file`'s future while its export is in flight

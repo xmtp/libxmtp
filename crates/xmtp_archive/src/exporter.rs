@@ -133,14 +133,46 @@ impl ArchiveExporter {
         path: impl AsRef<std::path::Path>,
         key: &[u8],
     ) -> Result<BackupMetadataSave, ArchiveError> {
-        crate::check_key(key)?;
-        let (path, key) = (path.as_ref().to_owned(), key.to_vec());
-        let cancel = tokio_util::sync::CancellationToken::new();
-        let _cancel_on_drop = cancel.clone().drop_guard();
-        tokio::task::spawn_blocking(move || write_file(options, db, &path, &key, &cancel))
-            .await
-            .map_err(io::Error::other)?
+        let path = path.as_ref().to_owned();
+        offload(key, move |key, cancel| {
+            write_file(options, db, &path, key, cancel)
+        })
+        .await
     }
+
+    /// Exports into a buffer, as [`export`], on tokio's blocking pool so the
+    /// snapshot never stalls an async worker. Dropping the future cancels the
+    /// export at its next write. Must be called within a tokio runtime.
+    pub async fn export_to_bytes(
+        options: ArchiveOptions,
+        db: impl ConnectionExt + 'static,
+        key: &[u8],
+    ) -> Result<Vec<u8>, ArchiveError> {
+        offload(key, move |key, cancel| {
+            let mut bytes = Vec::new();
+            export(options, db, key, Cancellable(&mut bytes, cancel))?;
+            Ok(bytes)
+        })
+        .await
+    }
+}
+
+/// Checks `key`, then runs `f` on tokio's blocking pool with a token that is
+/// cancelled when the returned future is dropped.
+#[cfg(not(target_arch = "wasm32"))]
+async fn offload<T: Send + 'static>(
+    key: &[u8],
+    f: impl FnOnce(&[u8], &tokio_util::sync::CancellationToken) -> Result<T, ArchiveError>
+    + Send
+    + 'static,
+) -> Result<T, ArchiveError> {
+    crate::check_key(key)?;
+    let key = key.to_vec();
+    let cancel = tokio_util::sync::CancellationToken::new();
+    let _cancel_on_drop = cancel.clone().drop_guard();
+    tokio::task::spawn_blocking(move || f(&key, &cancel))
+        .await
+        .map_err(io::Error::other)?
 }
 
 /// Exports to a sibling temporary file until `cancel` fires, then renames it

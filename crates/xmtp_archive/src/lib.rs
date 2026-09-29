@@ -2,8 +2,8 @@
 //! inside one zstd stream.
 //!
 //! `xmtp_mls`, `xmtp_sdk`, and the bindings use [`exporter::export`], or the
-//! `exporter::ArchiveExporter` adapters (a file on native, a byte stream on
-//! wasm), to write an archive from the database and [`ArchiveImporter`] to
+//! `exporter::ArchiveExporter` adapters (a file or buffer off the async
+//! workers on native, a byte stream on wasm), to write an archive from the database and [`ArchiveImporter`] to
 //! read one back. The exporter streams one consistent snapshot of every selected element (see
 //! `snapshot`) and fails with [`ArchiveError`] if selected data cannot be read. The importer rejects
 //! any container version above [`BACKUP_VERSION`] and ends with an error on any incomplete or
