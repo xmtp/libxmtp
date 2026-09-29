@@ -178,10 +178,10 @@ mod tests {
     use crate::{
         ArchiveError, ArchiveImporter,
         archive_options::{ArchiveOptions, BackupElementSelection},
-        exporter::{self, ArchiveExporter},
+        exporter,
     };
     use futures::{
-        AsyncReadExt, StreamExt,
+        StreamExt,
         io::{BufReader, Cursor},
     };
     use xmtp_db::{
@@ -256,22 +256,19 @@ mod tests {
         #[cfg(not(target_arch = "wasm32"))]
         {
             let path = xmtp_common::tmp_path();
-            let failure =
-                ArchiveExporter::export_to_file(messages.clone(), db.clone(), &path, &KEY).await;
+            let failure = exporter::ArchiveExporter::export_to_file(
+                messages.clone(),
+                db.clone(),
+                &path,
+                &KEY,
+            )
+            .await;
             assert!(failure.is_err());
             assert!(
                 !std::path::Path::new(&path).exists(),
                 "failed export left a file"
             );
         }
-        let mut read = Vec::new();
-        let failure = ArchiveExporter::new(messages, &db, &KEY)
-            .read_to_end(&mut read)
-            .await;
-        assert!(
-            failure.is_err() && read.is_empty(),
-            "stream served a failed export"
-        );
 
         let mut archive = Vec::new();
         let metadata = exporter::export(options(&[]), &db, &KEY, &mut archive)?;
@@ -347,7 +344,8 @@ mod tests {
         {
             let path = xmtp_common::tmp_path();
             std::fs::write(&path, b"prior")?;
-            let failure = ArchiveExporter::export_to_file(consent, db.clone(), &path, short).await;
+            let failure =
+                exporter::ArchiveExporter::export_to_file(consent, db.clone(), &path, short).await;
             assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
             assert_eq!(std::fs::read(&path)?, b"prior", "export touched the file");
         }
@@ -464,7 +462,7 @@ mod tests {
             _finished: finished,
         };
         let consent = options(&[BackupElementSelection::Consent]);
-        let export = tokio::spawn(ArchiveExporter::export_to_file(
+        let export = tokio::spawn(exporter::ArchiveExporter::export_to_file(
             consent,
             db,
             path.clone(),

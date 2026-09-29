@@ -8,17 +8,12 @@ use crate::archive_options::ArchiveOptions;
 use crate::{ArchiveError, NONCE_SIZE, snapshot, util::GenericArrayExt};
 use aes_gcm::aead::Aead;
 use async_compression::futures::write::ZstdEncoder;
-use futures::{AsyncRead, FutureExt, io::AllowStdIo};
+use futures::{FutureExt, io::AllowStdIo};
 use futures_util::AsyncWriteExt;
 use prost::Message;
 #[allow(deprecated)]
 use sha2::digest::generic_array::GenericArray;
-use std::{
-    collections::VecDeque,
-    io,
-    pin::Pin,
-    task::{Context, Poll},
-};
+use std::io;
 use xmtp_db::ConnectionExt;
 use xmtp_proto::xmtp::device_sync::{BackupElement, BackupMetadataSave, backup_element::Element};
 
@@ -57,31 +52,18 @@ pub fn export(
     Ok(metadata)
 }
 
-/// An archive as an [`AsyncRead`] byte stream, for callers that consume one
-/// (the wasm binding). [`ArchiveExporter::new`] runs [`export`] into chunks
-/// that reads release, so memory peaks near one copy of the archive. A caller
-/// that only wants the bytes should pass its buffer to [`export`] instead. An
-/// export failure is returned by every read as an [`io::Error`] with its
-/// message, and no archive byte is served.
-pub struct ArchiveExporter {
-    archive: Result<VecDeque<Vec<u8>>, String>,
-}
+/// Namespace for [`ArchiveExporter::export_to_file`], which the native
+/// bindings call.
+#[cfg(not(target_arch = "wasm32"))]
+pub struct ArchiveExporter;
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ArchiveExporter {
-    pub fn new(options: ArchiveOptions, db: impl ConnectionExt, key: &[u8]) -> Self {
-        let mut chunks = Chunks::default();
-        let archive = export(options, db, key, &mut chunks)
-            .map(|_| chunks.0)
-            .map_err(|e| e.to_string());
-        Self { archive }
-    }
-
     /// Exports to a file at `path`, as [`export`], on tokio's blocking pool so
     /// the snapshot never stalls an async worker. The archive is written to a
     /// sibling temporary file and renamed over `path` only once complete, so a
     /// failed export leaves `path` as it was. Dropping the future cancels the
     /// export at its next write, which counts as a failure. Must be called within a tokio runtime.
-    #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file(
         options: ArchiveOptions,
         db: impl ConnectionExt + 'static,
@@ -165,44 +147,6 @@ impl<W: io::Write> io::Write for Cancellable<'_, W> {
 
     fn flush(&mut self) -> io::Result<()> {
         self.0.flush()
-    }
-}
-
-impl AsyncRead for ArchiveExporter {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<io::Result<usize>> {
-        let chunks = match &mut self.get_mut().archive {
-            Ok(chunks) => chunks,
-            Err(error) => return Poll::Ready(Err(io::Error::other(error.clone()))),
-        };
-        let Some(chunk) = chunks.front_mut() else {
-            return Poll::Ready(Ok(0));
-        };
-        let amount = chunk.len().min(buf.len());
-        buf[..amount].copy_from_slice(&chunk[..amount]);
-        chunk.drain(..amount);
-        if chunk.is_empty() {
-            chunks.pop_front();
-        }
-        Poll::Ready(Ok(amount))
-    }
-}
-
-/// A sink that keeps each write as a chunk, so a reader can release them.
-#[derive(Default)]
-struct Chunks(VecDeque<Vec<u8>>);
-
-impl io::Write for Chunks {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        self.0.push_back(buf.to_vec());
-        Ok(buf.len())
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        Ok(())
     }
 }
 
