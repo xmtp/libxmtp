@@ -98,12 +98,14 @@ pub(crate) fn write_file(
         u64::from_le_bytes(xmtp_common::rand_array())
     ));
     let partial = std::path::PathBuf::from(partial);
+    let mut create = std::fs::OpenOptions::new();
+    create.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut create, 0o600);
+    // Created before the cleanup below, which may then only remove a file
+    // this export owns.
+    let file = create.open(&partial)?;
     let exported = (|| -> Result<_, ArchiveError> {
-        let mut create = std::fs::OpenOptions::new();
-        create.write(true).create_new(true);
-        #[cfg(unix)]
-        std::os::unix::fs::OpenOptionsExt::mode(&mut create, 0o600);
-        let file = create.open(&partial)?;
         if let Ok(existing) = std::fs::metadata(path) {
             file.set_permissions(existing.permissions())?;
         }
@@ -118,7 +120,6 @@ pub(crate) fn write_file(
     })();
     if exported.is_err()
         && let Err(e) = std::fs::remove_file(&partial)
-        && e.kind() != io::ErrorKind::NotFound
     {
         tracing::warn!(path = %partial.display(), error = %e, "failed export left a partial archive");
     }
