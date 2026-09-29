@@ -8,6 +8,7 @@ import {
   liftMessageKind,
   liftReactionMessage,
   liftReplyParent,
+  publicError,
   type ContentTypeId,
   type Conversation,
   type ConversationId,
@@ -211,7 +212,11 @@ export class Message {
 
   /** The client that returned this message. Throws `ClientClosed` when gone. */
   client(): Client {
-    return publicClient(boundMessage(this).client());
+    try {
+      return publicClient(boundMessage(this).client());
+    } catch (error) {
+      throw publicError(error);
+    }
   }
 }
 

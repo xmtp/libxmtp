@@ -27,6 +27,21 @@ const HOST_CLIENT_MEMBERS: &[&str] = &[
 /// Functions that the host runtime replaces.
 const HOST_FUNCTIONS: &[&str] = &["setLogSink", "setLogSinkQueued"];
 
+/// Guards that route one membership parameter. An empty list uses inbox IDs.
+/// A list that mixes inbox IDs and account identities fails before any call.
+pub(super) const MEMBERSHIP_GUARDS: &str = r#"
+function identityMembers<I, P>(value: Array<I> | Array<P>): value is Array<P> {
+  const items: ReadonlyArray<unknown> = value;
+  const identities = items.filter((item) => typeof item !== "string").length;
+  if (identities !== 0 && identities !== items.length)
+    throw new XmtpError.InvalidArgument({ code: "InvalidArgument", category: "input", retryable: false, message: "a member list mixes inbox IDs and account identities" });
+  return identities !== 0;
+}
+function identityMember<I, P>(value: I | P): value is P {
+  return typeof value !== "string";
+}
+"#;
+
 pub(super) const PROJECTION_INSTALL: &str = r#"
 let installed: ObjectProjection | undefined;
 /** The host runtime installs its projection once, when its entry loads. */
@@ -69,6 +84,8 @@ fn methods<'a>(items: &[&'a Metadata], owner: &str) -> Vec<&'a MethodMetadata> {
 
 /// One call: its public parameters, the binding arguments, and the result.
 struct Call {
+    /// The binding call can throw a binding error, which becomes public.
+    throws: bool,
     parameters: String,
     arguments: String,
     result_type: String,
@@ -81,6 +98,7 @@ fn call(
     inputs: &[FnParamMetadata],
     output: Option<&Type>,
     asynchronous: bool,
+    throws: bool,
 ) -> Call {
     let mut defaults = optional_parameters(inputs);
     // The binding reader interfaces keep their options optional.
@@ -137,6 +155,7 @@ fn call(
         result_type
     };
     Call {
+        throws,
         parameters,
         arguments,
         result_type,
@@ -151,6 +170,9 @@ fn render_body(code: &mut String, call: &Call, target: &str, asynchronous: bool)
             .result
             .as_deref()
             .is_some_and(|result| result.contains("projection"));
+    if call.throws {
+        code.push_str("try {\n");
+    }
     if uses_projection {
         code.push_str("const projection = currentProjection();\n");
     }
@@ -161,6 +183,9 @@ fn render_body(code: &mut String, call: &Call, target: &str, asynchronous: bool)
             call.arguments
         )?,
         None => writeln!(code, "{await_}{target}({});", call.arguments)?,
+    }
+    if call.throws {
+        code.push_str("} catch (error) {\nthrow publicError(error);\n}\n");
     }
     Ok(())
 }
@@ -181,6 +206,7 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
         &method.inputs,
         method.return_type.as_ref(),
         method.is_async,
+        method.throws.is_some(),
     );
     // Decision 14: a synchronous, argument-free, infallible member is a
     // readonly getter.
@@ -225,6 +251,7 @@ pub(super) fn object(
                     &constructor.inputs,
                     None,
                     constructor.is_async,
+                    constructor.throws.is_some(),
                 );
                 call.result = Some(format!("projection.lift{name}(result)"));
                 call.result_type = if constructor.is_async {
@@ -287,6 +314,7 @@ pub(super) fn function(code: &mut String, function: &FnMetadata) -> Result<()> {
         &function.inputs,
         function.return_type.as_ref(),
         function.is_async,
+        function.throws.is_some(),
     );
     writeln!(
         code,
@@ -337,8 +365,11 @@ pub(super) fn public_api(items: &[&Metadata]) -> String {
             {
                 types.insert(value.name.clone());
             }
-            // Thrown errors keep their binding classes until the public error
-            // shape is decided.
+            // Decision 15: the public error class is a value. Callback
+            // error enums stay internal.
+            Metadata::Enum(value) if super::errors::is_details_error(value) => {
+                values.insert(value.name.clone());
+            }
             Metadata::Enum(value) if !value.shape.is_error() => {
                 types.insert(value.name.clone());
             }
@@ -354,10 +385,12 @@ pub(super) fn public_api(items: &[&Metadata]) -> String {
             _ => {}
         }
     }
+    // The runtime exports its own synchronous log sink until F7.
+    types.remove("LogSink");
     let join = |names: BTreeSet<String>| names.into_iter().collect::<Vec<_>>().join(", ");
     // Explicit names: Node's CommonJS interop drops a star re-export.
     format!(
-        "// The private public entry, generated from the public projection. The\n// package roots re-export it once every target uses it. Do not edit this output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
+        "// The private public entry, generated from the public projection. The\n// package roots re-export it once every target uses it. Do not edit this output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ ConversationStream, MessageStream, type StreamCloseReason, type StreamOptions }} from \"./runtime/public/streams.js\";\nexport type {{ EventStream }} from \"./runtime/public/events.js\";\nexport {{ setLogSink, type LogSink }} from \"./runtime/public/logging.js\";\nexport {{ ActionsCodec, AttachmentCodec, DeleteMessageCodec, GroupUpdatedCodec, IntentCodec, LeaveRequestCodec, MarkdownCodec, MultiRemoteAttachmentCodec, ReactionV2Codec, ReadReceiptCodec, RemoteAttachmentCodec, ReplyCodec, TextCodec, TransactionReferenceCodec, WalletSendCallsCodec }} from \"./runtime/public/codecs.js\";\nexport {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
         join(values),
         join(types)
     )

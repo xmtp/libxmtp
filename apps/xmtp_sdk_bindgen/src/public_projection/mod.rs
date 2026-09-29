@@ -1,5 +1,6 @@
 //! Shared public values and objects above the private target binding.
 
+mod errors;
 mod objects;
 mod policy;
 mod values;
@@ -35,8 +36,9 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
         Target::Node => code.push_str("import type { Message } from './runtime/public/message.js';\nexport type { Message };\n"),
         Target::Browser => code.push_str("export type Message = Omit<MessageData, 'clientKey'>;\n"),
     }
-    code.push_str(&crate::identity_unions::helper("B.XmtpError"));
+    code.push_str(objects::MEMBERSHIP_GUARDS);
     code.push_str(objects::PROJECTION_INSTALL);
+    code.push_str(errors::PUBLIC_ERROR);
     for item in &items {
         match item {
             Metadata::Object(value) if value.imp.has_struct() && value.name == "Client" => {
@@ -61,6 +63,9 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
             }
             Metadata::Enum(value) if value.name == "Conversation" => {
                 code.push_str(policy::CONVERSATION)
+            }
+            Metadata::Enum(value) if errors::is_details_error(value) => {
+                errors::error_class(&mut code, value)?
             }
             Metadata::Enum(value) => values::enumeration(&mut code, value)?,
             Metadata::CustomType(value) if value.name != "Message" && value.name != "Timestamp" => {

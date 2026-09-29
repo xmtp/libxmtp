@@ -153,3 +153,127 @@ export declare const lowerPublicIdentity: Lower<
   B.PublicIdentity
 >;
 export declare const lowerSigner: Lower<Signer, B.Signer>;
+
+export type ErrorDetails = {
+  readonly code: string;
+  readonly category: string;
+  readonly retryable: boolean;
+  readonly message: string;
+};
+export declare class XmtpError extends Error {
+  readonly details: ErrorDetails;
+  constructor(details: ErrorDetails);
+}
+export declare function publicError(error: unknown): unknown;
+
+export type ConnectionState =
+  | "connecting"
+  | "connected"
+  | "reconnecting"
+  | "failed"
+  | "closed";
+export type ClientEvent = { readonly kind: string };
+export type EventFilter = { readonly kinds?: readonly string[] };
+export type LogRecord = { readonly message: string };
+export type MessageReaderOptions = { readonly from?: string };
+export type ConversationMessageReaderOptions = { readonly from?: string };
+export type ConversationReaderOptions = { readonly kind?: "group" | "dm" };
+export declare const liftConnectionState: Lift<
+  B.ConnectionState,
+  ConnectionState
+>;
+export declare const liftConversation: Lift<B.Conversation, Conversation>;
+export declare const liftClientEvent: Lift<B.ClientEvent, ClientEvent>;
+export declare const lowerEventFilter: Lower<EventFilter, B.EventFilter>;
+export declare const liftLogRecord: Lift<B.LogRecord, LogRecord>;
+export declare const lowerMessageReaderOptions: Lower<
+  MessageReaderOptions,
+  B.MessageReaderOptions
+>;
+export declare const lowerConversationMessageReaderOptions: Lower<
+  ConversationMessageReaderOptions,
+  B.ConversationMessageReaderOptions
+>;
+export declare const lowerConversationReaderOptions: Lower<
+  ConversationReaderOptions,
+  B.ConversationReaderOptions
+>;
+
+type MessageSource = {
+  messageReader(
+    options: B.ConversationMessageReaderOptions | undefined,
+    asyncOptions?: { signal: AbortSignal },
+  ): Promise<B.MessageReaderLike>;
+};
+export declare function unwrapConversations(
+  value: Conversations,
+): B.ConversationsLike & {
+  messageReader(
+    options: B.MessageReaderOptions | undefined,
+    asyncOptions?: { signal: AbortSignal },
+  ): Promise<B.MessageReaderLike>;
+};
+export declare function unwrapGroup(value: Group): MessageSource;
+export declare function unwrapDm(value: Dm): MessageSource;
+
+// Standard codec values.
+export type StandardContent = { readonly kind: string };
+export type Attachment = { readonly filename?: string };
+export type RemoteAttachment = { readonly url: string };
+export type MultiRemoteAttachment = { readonly attachments: object[] };
+export type TransactionReference = { readonly reference: string };
+export type WalletSendCalls = { readonly version: string };
+export type Actions = { readonly id: string };
+export type Intent = { readonly id: string };
+export type GroupUpdated = { readonly initiatedByInboxId: string };
+export type LeaveRequest = { readonly authenticationNote?: Uint8Array };
+export declare const liftStandardContent: Lift<
+  B.StandardContent,
+  StandardContent
+>;
+export declare const lowerStandardContent: Lower<
+  StandardContent,
+  B.StandardContent
+>;
+export declare const liftAttachment: Lift<B.Attachment, Attachment>;
+export declare const lowerAttachment: Lower<Attachment, B.Attachment>;
+export declare const liftRemoteAttachment: Lift<
+  B.RemoteAttachment,
+  RemoteAttachment
+>;
+export declare const lowerRemoteAttachment: Lower<
+  RemoteAttachment,
+  B.RemoteAttachment
+>;
+export declare const liftMultiRemoteAttachment: Lift<
+  B.MultiRemoteAttachment,
+  MultiRemoteAttachment
+>;
+export declare const lowerMultiRemoteAttachment: Lower<
+  MultiRemoteAttachment,
+  B.MultiRemoteAttachment
+>;
+export declare const liftTransactionReference: Lift<
+  B.TransactionReference,
+  TransactionReference
+>;
+export declare const lowerTransactionReference: Lower<
+  TransactionReference,
+  B.TransactionReference
+>;
+export declare const liftWalletSendCalls: Lift<
+  B.WalletSendCalls,
+  WalletSendCalls
+>;
+export declare const lowerWalletSendCalls: Lower<
+  WalletSendCalls,
+  B.WalletSendCalls
+>;
+export declare const liftActions: Lift<B.Actions, Actions>;
+export declare const lowerActions: Lower<Actions, B.Actions>;
+export declare const liftIntent: Lift<B.Intent, Intent>;
+export declare const lowerIntent: Lower<Intent, B.Intent>;
+export declare const liftGroupUpdated: Lift<B.GroupUpdated, GroupUpdated>;
+export declare const lowerGroupUpdated: Lower<GroupUpdated, B.GroupUpdated>;
+export declare const liftLeaveRequest: Lift<B.LeaveRequest, LeaveRequest>;
+export declare const lowerLeaveRequest: Lower<LeaveRequest, B.LeaveRequest>;

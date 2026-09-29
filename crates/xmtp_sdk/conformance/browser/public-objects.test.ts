@@ -135,7 +135,7 @@ describe("public objects", () => {
     ]);
     const mixed = ["inbox-a", identity] as unknown as P.PublicIdentity[];
     await expect(conversations.createGroup(mixed)).rejects.toBeInstanceOf(
-      B.XmtpError.InvalidArgument,
+      P.XmtpError.InvalidArgument,
     );
     expect(calls).toHaveLength(3);
   });
@@ -190,5 +190,51 @@ describe("public objects", () => {
         projection,
       ).deviceSync,
     ).toBe(false);
+  });
+
+  it("rethrows a binding error as the public error of its code", async () => {
+    const details = {
+      code: "ClientClosed",
+      category: B.ErrorCategory.Lifecycle,
+      retryable: false,
+      message: "client is closed",
+    };
+    const plain = new TypeError("not a binding error");
+    let thrown: unknown = B.XmtpError.ClientClosed.new(details);
+    const group = P.wrapGroup(
+      binding<B.GroupLike>({
+        async sync() {
+          throw thrown;
+        },
+      }),
+    );
+    const error: unknown = await group
+      .sync()
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(P.XmtpError.ClientClosed);
+    expect(error).toBeInstanceOf(P.XmtpError);
+    expect(error).toBeInstanceOf(Error);
+    expect(error).not.toBeInstanceOf(P.XmtpError.InvalidArgument);
+    expect(error).not.toHaveProperty("tag");
+    expect(error).not.toHaveProperty("inner");
+    expect((error as InstanceType<typeof P.XmtpError>).details).toEqual({
+      code: "ClientClosed",
+      category: "lifecycle",
+      retryable: false,
+      message: "client is closed",
+    });
+    expect((error as Error).message).toBe("client is closed");
+    thrown = plain;
+    await expect(group.sync()).rejects.toBe(plain);
+    const already = new P.XmtpError.StorageBusy({
+      code: "StorageBusy",
+      category: "storage",
+      retryable: true,
+      message: "busy",
+    });
+    expect(P.publicError(already)).toBe(already);
+    expect(P.lowerXmtpError(already, new TestProjection()).tag).toBe(
+      B.XmtpError_Tags.StorageBusy,
+    );
   });
 });

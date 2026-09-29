@@ -1,9 +1,18 @@
 // Type-checked with tsc by `sdk lint`: public-layer calls that tsx does not
 // check. It compiles only; it does not run.
 import {
+  AttachmentCodec,
   Client,
   Dm,
   Group,
+  MessageStream,
+  TextCodec,
+  XmtpError,
+  type Attachment,
+  type ConnectionState,
+  type ErrorCategory,
+  type EventStream,
+  type MessageContent,
   type ContentCodec,
   type Conversation,
   type EncodedContent,
@@ -39,4 +48,33 @@ export function readGetters(client: Client, conversation: Conversation) {
     conversation instanceof Group ? conversation : undefined;
   const encoded: EncodedContent = pointCodec.encode({ x: 0, y: 0 });
   return { inboxId, kind, creator, group, encoded };
+}
+
+export async function streamsAndErrors(client: Client, group: Group) {
+  const stream = MessageStream.openGroup(client, group, undefined, {
+    onConnectionStateChange: (_previous, current: ConnectionState) =>
+      void current,
+  });
+  for await (const message of stream) {
+    const content: MessageContent = message.content;
+    void content;
+    break;
+  }
+  const events: EventStream = await client.events({
+    kinds: ["conversationJoined"],
+    referencesOwnMessages: false,
+  });
+  void events;
+  try {
+    await group.sync();
+  } catch (error) {
+    if (error instanceof XmtpError.ClientClosed) {
+      const category: ErrorCategory = error.details.category;
+      return category;
+    }
+  }
+  const attachment: Attachment = new AttachmentCodec().decode(
+    new TextCodec().encode("text"),
+  );
+  return attachment.content;
 }

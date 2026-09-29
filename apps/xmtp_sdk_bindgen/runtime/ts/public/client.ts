@@ -2,6 +2,7 @@ import {
   ClientMembers,
   attachClientBinding,
   currentProjection,
+  liftClientEvent,
   liftEncodedContent,
   liftInboxState,
   liftKeyPackageStatus,
@@ -11,11 +12,15 @@ import {
   lowerClientOptions,
   lowerContentTypeId,
   lowerEncodedContent,
+  lowerEventFilter,
   lowerPublicIdentity,
   lowerSigner,
+  publicError,
   type BackendSource,
+  type ClientEvent,
   type ClientOptions as ProjectedClientOptions,
   type ConversationId,
+  type EventFilter,
   type InboxId,
   type InboxState,
   type InstallationId,
@@ -31,6 +36,7 @@ import type {
   EncodedContent as BoundEncoded,
 } from "../../xmtp_sdk";
 import type { AnyContentCodec } from "./codec";
+import { publicEventStream, type EventStream } from "./events";
 import { HostClient, bindingClient, type HostClientOptions } from "./host";
 
 /** Client options with the custom codecs that this client decodes. */
@@ -75,6 +81,15 @@ export function publicClient(host: HostClient): Client {
   return clients.get(host) ?? create(host);
 }
 
+/** Run a host call; a binding error leaves it as the public error. */
+async function rethrow<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    throw publicError(error);
+  }
+}
+
 function hostOf(client: Client): HostClient {
   const host = hosts.get(client);
   if (host === undefined) throw new TypeError("not an XMTP Client");
@@ -102,12 +117,13 @@ export class Client extends ClientMembers {
 
   static async create(signer: Signer, options: ClientOptions): Promise<Client> {
     const projection = currentProjection();
-    return publicClient(
-      await HostClient.create(
+    const host = await rethrow(() =>
+      HostClient.create(
         lowerSigner(signer, projection),
         hostOptions(options, projection),
       ),
     );
+    return publicClient(host);
   }
 
   static async build(
@@ -116,25 +132,26 @@ export class Client extends ClientMembers {
     inboxId?: InboxId,
   ): Promise<Client> {
     const projection = currentProjection();
-    return publicClient(
-      await HostClient.build(
+    const host = await rethrow(() =>
+      HostClient.build(
         lowerPublicIdentity(identity, projection),
         hostOptions(options, projection),
         inboxId,
       ),
     );
+    return publicClient(host);
   }
 
   static async fetchServerConfiguration(
     backend: BackendSource,
   ): Promise<ServerConfiguration> {
     const projection = currentProjection();
-    return liftServerConfiguration(
-      await HostClient.fetchServerConfiguration(
+    const configuration = await rethrow(() =>
+      HostClient.fetchServerConfiguration(
         lowerBackendSource(backend, projection),
       ),
-      projection,
     );
+    return liftServerConfiguration(configuration, projection);
   }
 
   static canMessage(
@@ -142,9 +159,11 @@ export class Client extends ClientMembers {
     backend: BackendSource,
   ): Promise<Map<string, boolean>> {
     const projection = currentProjection();
-    return HostClient.canMessage(
-      identities.map((identity) => lowerPublicIdentity(identity, projection)),
-      lowerBackendSource(backend, projection),
+    return rethrow(() =>
+      HostClient.canMessage(
+        identities.map((identity) => lowerPublicIdentity(identity, projection)),
+        lowerBackendSource(backend, projection),
+      ),
     );
   }
 
@@ -153,9 +172,11 @@ export class Client extends ClientMembers {
     backend: BackendSource,
   ): Promise<InboxId> {
     const projection = currentProjection();
-    return HostClient.inboxIdFor(
-      lowerPublicIdentity(identity, projection),
-      lowerBackendSource(backend, projection),
+    return rethrow(() =>
+      HostClient.inboxIdFor(
+        lowerPublicIdentity(identity, projection),
+        lowerBackendSource(backend, projection),
+      ),
     );
   }
 
@@ -164,9 +185,8 @@ export class Client extends ClientMembers {
     backend: BackendSource,
   ): Promise<InboxState[]> {
     const projection = currentProjection();
-    const states = await HostClient.inboxStates(
-      ids,
-      lowerBackendSource(backend, projection),
+    const states = await rethrow(() =>
+      HostClient.inboxStates(ids, lowerBackendSource(backend, projection)),
     );
     return states.map((state) => liftInboxState(state, projection));
   }
@@ -176,9 +196,11 @@ export class Client extends ClientMembers {
     backend: BackendSource,
   ): Promise<Map<string, KeyPackageStatus>> {
     const projection = currentProjection();
-    const statuses = await HostClient.keyPackageStatuses(
-      ids,
-      lowerBackendSource(backend, projection),
+    const statuses = await rethrow(() =>
+      HostClient.keyPackageStatuses(
+        ids,
+        lowerBackendSource(backend, projection),
+      ),
     );
     return new Map(
       [...statuses].map(([id, status]) => [
@@ -193,9 +215,11 @@ export class Client extends ClientMembers {
     backend: BackendSource,
   ): Promise<Map<string, MessageMetadataEntry>> {
     const projection = currentProjection();
-    const entries = await HostClient.newestMessageMetadata(
-      ids,
-      lowerBackendSource(backend, projection),
+    const entries = await rethrow(() =>
+      HostClient.newestMessageMetadata(
+        ids,
+        lowerBackendSource(backend, projection),
+      ),
     );
     return new Map(
       [...entries].map(([id, entry]) => [
@@ -212,11 +236,13 @@ export class Client extends ClientMembers {
     backend: BackendSource,
   ): Promise<void> {
     const projection = currentProjection();
-    return HostClient.revokeInstallations(
-      lowerSigner(signer, projection),
-      inboxId,
-      ids,
-      lowerBackendSource(backend, projection),
+    return rethrow(() =>
+      HostClient.revokeInstallations(
+        lowerSigner(signer, projection),
+        inboxId,
+        ids,
+        lowerBackendSource(backend, projection),
+      ),
     );
   }
 
@@ -225,10 +251,13 @@ export class Client extends ClientMembers {
     address: string,
     backend: BackendSource,
   ): Promise<boolean> {
-    return HostClient.isAddressAuthorized(
-      inboxId,
-      address,
-      lowerBackendSource(backend, currentProjection()),
+    const projection = currentProjection();
+    return rethrow(() =>
+      HostClient.isAddressAuthorized(
+        inboxId,
+        address,
+        lowerBackendSource(backend, projection),
+      ),
     );
   }
 
@@ -237,10 +266,13 @@ export class Client extends ClientMembers {
     installationId: InstallationId,
     backend: BackendSource,
   ): Promise<boolean> {
-    return HostClient.isInstallationAuthorized(
-      inboxId,
-      installationId,
-      lowerBackendSource(backend, currentProjection()),
+    const projection = currentProjection();
+    return rethrow(() =>
+      HostClient.isInstallationAuthorized(
+        inboxId,
+        installationId,
+        lowerBackendSource(backend, projection),
+      ),
     );
   }
 
@@ -249,15 +281,50 @@ export class Client extends ClientMembers {
     signature: Uint8Array,
     publicKey: Uint8Array,
   ): Promise<boolean> {
-    return HostClient.verifySignedWithPublicKey(
-      text,
-      Uint8Array.from(signature).buffer,
-      Uint8Array.from(publicKey).buffer,
+    return rethrow(() =>
+      HostClient.verifySignedWithPublicKey(
+        text,
+        Uint8Array.from(signature).buffer,
+        Uint8Array.from(publicKey).buffer,
+      ),
     );
+  }
+
+  /** A stream of the client events that `filter` selects. */
+  async events(filter: EventFilter): Promise<EventStream> {
+    const projection = currentProjection();
+    const host = hostOf(this);
+    return publicEventStream(
+      await rethrow(() => host.events(lowerEventFilter(filter, projection))),
+    );
+  }
+
+  /**
+   * Call `callback` for each client event that `filter` selects. A callback
+   * failure does not stop the listener.
+   */
+  startListener(
+    filter: EventFilter,
+    callback: (event: ClientEvent) => void | Promise<void>,
+  ): Promise<bigint> {
+    const projection = currentProjection();
+    const host = hostOf(this);
+    return rethrow(() =>
+      host.startListener(lowerEventFilter(filter, projection), (event) =>
+        callback(liftClientEvent(event, projection)),
+      ),
+    );
+  }
+
+  /** Stop a listener. Stopping an unknown or stopped listener does nothing. */
+  stopListener(id: bigint): Promise<void> {
+    const host = hostOf(this);
+    return rethrow(() => host.stopListener(id));
   }
 
   /** End the client. Messages from it then fail with `ClientClosed`. */
   end(): Promise<void> {
-    return hostOf(this).end();
+    const host = hostOf(this);
+    return rethrow(() => host.end());
   }
 }

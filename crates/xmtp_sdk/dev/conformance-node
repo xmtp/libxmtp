@@ -20,3 +20,5 @@ node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs
   crates/xmtp_sdk/conformance/ts/node.mts
 node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/public-layer.mts
+node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
+  crates/xmtp_sdk/conformance/ts/public-streams.mts

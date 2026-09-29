@@ -28,7 +28,7 @@ export type StreamOptions = {
   ) => void;
 };
 
-type ReaderLike<T> = {
+export type ReaderLike<T> = {
   next(options?: { signal: AbortSignal }): Promise<T | undefined>;
   end(): Promise<void>;
   connectionState?(): Promise<ConnectionState>;
