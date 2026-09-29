@@ -57,6 +57,69 @@ pub fn export(
 #[cfg(not(target_arch = "wasm32"))]
 pub struct ArchiveExporter;
 
+/// An archive as an [`futures::AsyncRead`] byte stream, for the wasm binding.
+/// [`ArchiveExporter::new`] runs [`export`] into chunks that reads release. An
+/// export failure is returned by every read as an [`io::Error`] with its
+/// message, and no archive byte is served. Removed in the follow-up that has
+/// the wasm binding pass its buffer to [`export`] directly.
+#[cfg(target_arch = "wasm32")]
+pub struct ArchiveExporter {
+    archive: Result<std::collections::VecDeque<Vec<u8>>, String>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl ArchiveExporter {
+    pub fn new(options: ArchiveOptions, db: impl ConnectionExt, key: &[u8]) -> Self {
+        let mut chunks = Chunks::default();
+        let archive = export(options, db, key, &mut chunks)
+            .map(|_| chunks.0)
+            .map_err(|e| e.to_string());
+        Self { archive }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl futures::AsyncRead for ArchiveExporter {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut [u8],
+    ) -> std::task::Poll<io::Result<usize>> {
+        use std::task::Poll;
+        let chunks = match &mut self.get_mut().archive {
+            Ok(chunks) => chunks,
+            Err(error) => return Poll::Ready(Err(io::Error::other(error.clone()))),
+        };
+        let Some(chunk) = chunks.front_mut() else {
+            return Poll::Ready(Ok(0));
+        };
+        let amount = chunk.len().min(buf.len());
+        buf[..amount].copy_from_slice(&chunk[..amount]);
+        chunk.drain(..amount);
+        if chunk.is_empty() {
+            chunks.pop_front();
+        }
+        Poll::Ready(Ok(amount))
+    }
+}
+
+/// A sink that keeps each write as a chunk, so a reader can release them.
+#[cfg(target_arch = "wasm32")]
+#[derive(Default)]
+struct Chunks(std::collections::VecDeque<Vec<u8>>);
+
+#[cfg(target_arch = "wasm32")]
+impl io::Write for Chunks {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.push_back(buf.to_vec());
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 impl ArchiveExporter {
     /// Exports to a file at `path`, as [`export`], on tokio's blocking pool so
