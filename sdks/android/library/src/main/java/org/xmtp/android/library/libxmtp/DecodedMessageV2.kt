@@ -91,14 +91,21 @@ class DecodedMessageV2 private constructor(
     val contentTypeId: ContentTypeId
         get() = ContentTypeIdBuilder.fromFfi(libXMTPMessage.contentTypeId())
 
-    @Suppress("UNCHECKED_CAST")
-    fun <T> content(): T? =
+    /** The decoded value, or null when decoding fails. */
+    @PublishedApi
+    internal fun decodedValue(): Any? =
         try {
-            decodeContent(libXMTPMessage.content()) as? T
+            decodeContent(libXMTPMessage.content())
         } catch (e: Exception) {
             Log.e("DecodedMessageV2", "Error decoding content: ${e.message}")
             null
         }
+
+    /**
+     * The decoded content as `T`, or null when the content is undecodable or
+     * is not a `T`. A mismatch never throws.
+     */
+    inline fun <reified T> content(): T? = decodedValue() as? T
 
     companion object {
         fun create(libXMTPMessage: FfiDecodedMessage): DecodedMessageV2? =

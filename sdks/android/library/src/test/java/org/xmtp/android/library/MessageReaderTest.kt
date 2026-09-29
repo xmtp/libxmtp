@@ -17,6 +17,7 @@ import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.Reply
 import uniffi.xmtpv3.FfiContentDecodeFailureKind
 import uniffi.xmtpv3.FfiDeliveryCursor
 import uniffi.xmtpv3.FfiHistoryMessage
@@ -317,5 +318,23 @@ class MessageReaderTest {
         assertEquals("", synthesized.fallback)
         assertNotNull(messages[0].undecodable)
         assertNull(messages[0].content<Any>())
+    }
+
+    // verifies: CTYPE-008
+    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
+    fun contentReturnsNullForAMismatchOrUndecodableValue() {
+        val text = DecodedMessage.createForDelivery(deliveryTestMessage(TextCodec().encode("hi").toByteArray()), null)
+        assertNotNull(text)
+        assertEquals("hi", text!!.content<String>())
+        // The pattern apps use: a typed read of the wrong type is null, never a ClassCastException.
+        val reply: Reply? = text.content<Reply>()
+        assertNull(reply)
+
+        val undecodable = DecodedMessage.createForDelivery(deliveryTestMessage(byteArrayOf(0x80.toByte())), null)
+        assertNotNull(undecodable)
+        val asText: String? = undecodable!!.content<String>()
+        assertNull(asText)
+        val asReply: Reply? = undecodable.content<Reply>()
+        assertNull(asReply)
     }
 }

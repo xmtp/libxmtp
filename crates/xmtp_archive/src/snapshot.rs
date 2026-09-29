@@ -337,6 +337,7 @@ mod tests {
             flushes: 0,
             fail_first_flush: true,
         };
+        // verifies: ARCH-017
         assert!(
             exporter::export(consent.clone(), &db, &KEY, &mut sink).is_err(),
             "a failed flush did not fail the export"
@@ -382,6 +383,20 @@ mod tests {
         assert!(
             frames == expected,
             "the frames differ from the counter-nonce sequence"
+        );
+
+        // Every export starts from its own random nonce.
+        let mut second = Vec::new();
+        exporter::export(
+            options(&[BackupElementSelection::Consent]),
+            &db,
+            &KEY,
+            &mut second,
+        )?;
+        assert_ne!(
+            &second[2..2 + NONCE_SIZE],
+            &archive[2..2 + NONCE_SIZE],
+            "a second export reused the starting nonce"
         );
     }
 

@@ -311,18 +311,14 @@ impl MessageBody {
                         "reply nesting exceeds {MAX_REPLY_NESTING_DEPTH} levels"
                     )));
                 }
-                // The reference is sender-controlled. A value that is not a
-                // message id is a content failure, not missing history.
+                // The reference is sender-controlled and kept as received. A
+                // value that is not a message id resolves to no parent; the
+                // reply itself is valid content.
                 let reference_id = value
                     .parameters
                     .get("reference")
                     .cloned()
                     .unwrap_or_default();
-                if reference_id.is_empty() || hex::decode(&reference_id).is_err() {
-                    return Err(ContentDecodeFailure::codec(
-                        "reply reference is not a hex message id",
-                    ));
-                }
                 // The decompressed outer content is the nested envelope's
                 // exact serialization. A nested failure fails the outer body.
                 // implements: CTYPE-027, CTYPE-028, CTYPE-029
@@ -893,29 +889,26 @@ mod tests {
         }
     }
 
-    // verifies: CTYPE-008, CTYPE-029
     #[xmtp_common::test(unwrap_try = true)]
-    async fn invalid_reply_reference_is_a_decode_failure() {
+    async fn invalid_reply_reference_is_a_reply_with_no_parent() {
+        // A sender-controlled reference that is not a message id resolves to
+        // no parent; the reply itself is valid content and is never marked
+        // undecodable. The reference is kept as received.
         for reference in ["not-valid-hex!@#", ""] {
             let outer = ReplyCodec::encode(EncodedReply {
                 reference: reference.into(),
                 reference_inbox_id: None,
                 content: TextCodec::encode("reply".into())?,
             })?;
-            let bytes = outer.encode_to_vec();
-            let decoded = DecodedMessage::from(stored_bytes(bytes.clone()));
-            let MessageBody::Undecodable(undecodable) = decoded.content else {
-                panic!(
-                    "{reference:?}: expected undecodable reply, got {:?}",
-                    decoded.content
-                );
+            let decoded = DecodedMessage::from(stored_bytes(outer.encode_to_vec()));
+            let MessageBody::Reply(reply) = decoded.content else {
+                panic!("{reference:?}: expected a reply, got {:?}", decoded.content);
             };
-            assert_eq!(undecodable.raw_bytes, bytes);
-            assert_eq!(
-                undecodable.failure.kind,
-                ContentDecodeFailureKind::CodecDecodeFailed
+            assert!(reply.in_reply_to.is_none());
+            assert_eq!(reply.reference_id, reference);
+            assert!(
+                matches!(*reply.content, MessageBody::Text(ref text) if text.content == "reply")
             );
-            assert!(undecodable.failure.message.contains("reference"));
         }
     }
 

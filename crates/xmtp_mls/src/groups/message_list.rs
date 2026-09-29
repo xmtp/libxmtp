@@ -479,22 +479,14 @@ mod tests {
             "replier1",
         );
 
-        // A sender-controlled reference that is not a message id is a
-        // content failure, not missing history.
-        // verifies: CTYPE-029
+        // A sender-controlled reference that is not a message id resolves to
+        // no parent; the reply is still valid content.
         let messages = group.find_messages_v2(&MsgQueryArgs::default()).unwrap();
         assert_message_count(&messages, 1);
-        let MessageBody::Undecodable(undecodable) = &messages[0].content else {
-            panic!(
-                "expected an undecodable reply, got {:?}",
-                messages[0].content
-            );
-        };
-        assert_eq!(
-            undecodable.failure.kind,
-            ContentDecodeFailureKind::CodecDecodeFailed
-        );
-        assert!(undecodable.encoded.is_some());
+        assert_reply_has_no_reference(&messages[0]);
+        if let MessageBody::Reply(reply) = &messages[0].content {
+            assert_eq!(reply.reference_id, "not-valid-hex!@#");
+        }
     }
 
     #[xmtp_common::test]
