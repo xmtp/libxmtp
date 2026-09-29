@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod identity_invalid_mutations;
 mod verify_updates;
 pub use verify_updates::verify_updates;
 mod association_log;
@@ -249,45 +251,6 @@ pub(crate) mod tests {
             state.get(&new_member_identifier).unwrap().added_by_entity,
             Some(account_address.into())
         );
-    }
-
-    #[wasm_bindgen_test(unsupported = test)]
-    fn create_from_legacy_key() {
-        let member_identifier = Identifier::rand_ethereum();
-        let create_action = CreateInbox {
-            nonce: 0,
-            account_identifier: member_identifier.clone(),
-            initial_identifier_signature: VerifiedSignature::new(
-                member_identifier.clone().into(),
-                SignatureKind::LegacyDelegated,
-                "0".as_bytes().to_vec(),
-                None,
-            ),
-        };
-        let inbox_id = member_identifier.inbox_id(0).unwrap();
-        let state = get_state(vec![IdentityUpdate::new_test(
-            vec![Action::CreateInbox(create_action)],
-            inbox_id.clone(),
-        )])
-        .unwrap();
-        assert_eq!(state.members().len(), 1);
-
-        // The legacy key can only be used once. After this, subsequent updates should fail
-        let update = Action::AddAssociation(AddAssociation {
-            existing_member_signature: VerifiedSignature::new(
-                member_identifier.into(),
-                SignatureKind::LegacyDelegated,
-                // All requests from the same legacy key will have the same signature nonce
-                "0".as_bytes().to_vec(),
-                None,
-            ),
-            ..Default::default()
-        });
-        let update_result = apply_update(
-            state,
-            IdentityUpdate::new_test(vec![update], inbox_id.clone()),
-        );
-        assert!(matches!(update_result, Err(AssociationError::Replay)));
     }
 
     #[wasm_bindgen_test(unsupported = test)]

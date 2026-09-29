@@ -5,9 +5,10 @@ use prost::Message;
 use support::TestServer;
 use tonic::Code;
 use xmtp_mls_validation::test_utils::{
-    GroupMessageKind, expired_key_package_envelope, group_message_envelope, identity_envelope,
-    identity_history_with_passkey, inline_welcome_envelope,
-    malformed_signature_create_inbox_update,
+    GroupMessageKind, TestChain, expired_key_package_envelope, group_message_envelope,
+    identity_envelope, identity_history_with_passkey, inline_welcome_envelope,
+    malformed_signature_create_inbox_update, scw_change_recovery_update_at,
+    scw_create_inbox_update_at,
 };
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -453,5 +454,104 @@ async fn valid_key_packages_are_retained_and_served_by_newest() {
         .into_inner();
     assert_eq!(newest.results[0].envelope, Some(fixture.envelope));
     assert_eq!(newest.results[0].meta, Some(original[0].clone()));
+    server.stop().await?;
+}
+
+/// Publish one identity update. Return its rejection's status code and publish
+/// reason, if any, with the envelope count stored afterwards.
+async fn publish_identity(
+    server: &TestServer,
+    update: xmtp_proto::xmtp::identity::associations::IdentityUpdate,
+) -> support::TestResult<(Result<(), (Code, Option<Reason>)>, i64)> {
+    let result = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![identity_envelope(update)],
+        })
+        .await
+        .map(drop)
+        .map_err(|error| {
+            let reason = tonic_types::pb::Status::decode(error.details())
+                .ok()
+                .and_then(|status| status.details.into_iter().next())
+                .and_then(|detail| api::PublishError::decode(detail.value.as_slice()).ok())
+                .map(|detail| detail.reason());
+            (error.code(), reason)
+        });
+    let rows = sqlx::query_scalar("SELECT count(*) FROM envelopes")
+        .fetch_one(&server.backend.store.primary)
+        .await?;
+    Ok((result, rows))
+}
+
+/// Accepts every signature at a block the chain has produced and, like an
+/// `eth_call` at an unknown block, fails retryably for any other.
+struct ChainVerifier(TestChain);
+
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for ChainVerifier {
+    async fn is_valid_signature(
+        &self,
+        account_id: xmtp_id::associations::AccountId,
+        _: [u8; 32],
+        _: alloy_primitives::Bytes,
+        block_number: Option<u64>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        use xmtp_id::scw_verifier::{ChainBlocks, ValidationResponse, VerifierError};
+        let head = self.0.head(account_id.get_chain_id()).await?.number;
+        let block_number = block_number.unwrap_or(head);
+        if block_number > head {
+            return Err(VerifierError::MissingBlock(block_number));
+        }
+        Ok(ValidationResponse {
+            is_valid: true,
+            block_number: Some(block_number),
+            error: None,
+        })
+    }
+}
+
+/// A removed wallet signer can sign today and name a block from before its
+/// removal, and a signature check judges only the block it names. So the
+/// backend admits a new update only when each ERC-6492 block is at or below
+/// its chain's head and at most 1800 seconds older than it, and rejects it
+/// before storage otherwise, even when the chain cannot evaluate a signature
+/// at a block it has not produced. The rule binds admission alone: a stored update
+/// whose block has since aged stays valid when its log is replayed to admit
+/// the next update, and a chain outage stays retryable rather than reading as
+/// a bad signature.
+#[xmtp_common::test(unwrap_try = true)]
+// verifies: IDENT-062
+async fn scw_admission_freshness() {
+    const HEAD: u64 = 10_000;
+    let chain = TestChain::at(HEAD);
+    let server =
+        TestServer::with_verifier(|_| {}, ChainVerifier(chain.clone()), chain.clone()).await?;
+    let stale = Err((Code::InvalidArgument, Some(Reason::InvalidSignature)));
+
+    let future = publish_identity(&server, scw_create_inbox_update_at(HEAD + 1)).await?;
+    assert_eq!(future, (stale, 0), "a block after the head");
+    let too_old = publish_identity(&server, scw_create_inbox_update_at(HEAD - 1801)).await?;
+    assert_eq!(too_old, (stale, 0), "a block 1801 seconds before the head");
+    let oldest = publish_identity(&server, scw_create_inbox_update_at(HEAD - 1800)).await?;
+    assert_eq!(oldest, (Ok(()), 1), "a block 1800 seconds before the head");
+
+    chain.set(None);
+    let outage = publish_identity(&server, scw_change_recovery_update_at(HEAD)).await?;
+    assert_eq!(
+        outage,
+        (Err((Code::Unavailable, None)), 1),
+        "a chain outage"
+    );
+
+    let later = HEAD + 1_000_000;
+    chain.set(Some(later));
+    let replayed = publish_identity(&server, scw_change_recovery_update_at(later)).await?;
+    assert_eq!(
+        replayed,
+        (Ok(()), 2),
+        "an update after an aged stored block"
+    );
     server.stop().await?;
 }

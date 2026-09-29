@@ -152,7 +152,6 @@ where
         &inbox_id,
         ident.into(),
         1,
-        None,
         Some(builder.sync_mode.into()),
         None,
         None,

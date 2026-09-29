@@ -69,7 +69,6 @@ async fn create_client_does_not_hit_network() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -111,7 +110,6 @@ async fn create_client_does_not_hit_network() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         Some(FfiDeviceSyncMode::Disabled),
         Some(true),
         None,

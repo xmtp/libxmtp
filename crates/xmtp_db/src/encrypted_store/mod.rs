@@ -33,6 +33,7 @@ pub mod pending_remove;
 pub mod pragmas;
 pub mod processed_device_sync_messages;
 pub mod readd_status;
+pub mod received_proposal;
 pub mod refresh_state;
 pub mod remote_commit_log;
 pub mod schema;
@@ -313,14 +314,10 @@ pub trait XmtpDb: MaybeSend + MaybeSync {
             ).get_result::<MigrationTable>(conn).optional()?;
             if let Some(table) = migration_table {
                 debug_assert_eq!(table.name, "__diesel_schema_migrations");
-                let baseline = "20260908000000";
-                let latest = MIGRATIONS.final_migration();
+                let known = MIGRATIONS.versions();
                 let applied = conn.applied_migrations()
                     .map_err(diesel::result::Error::QueryBuilderError)?;
-                if applied.iter().any(|version| {
-                    let version = version.to_string();
-                    version != baseline && version != latest
-                }) {
+                if applied.iter().any(|version| !known.contains(&version.to_string())) {
                     return Ok(Err(StorageError::PreTransitionDatabase));
                 }
                 if !applied.is_empty() {
@@ -520,20 +517,28 @@ pub trait MlsProviderExt: OpenMlsProvider<StorageError = SqlKeyStoreError> {
 }
 
 trait EmbeddedMigrationsExt {
-    fn final_migration(&self) -> String;
+    /// Every embedded version, oldest (the self-hosted baseline) first.
+    fn versions(&self) -> Vec<String>;
+
+    #[cfg(test)]
+    fn baseline(&self) -> String {
+        self.versions().swap_remove(0)
+    }
+
+    fn final_migration(&self) -> String {
+        self.versions()
+            .pop()
+            .expect("There is at least one migration")
+    }
 }
 impl EmbeddedMigrationsExt for EmbeddedMigrations {
-    fn final_migration(&self) -> String {
+    fn versions(&self) -> Vec<String> {
         let migrations: Vec<Box<dyn Migration<Sqlite>>> = self
             .migrations()
             .expect("Migrations are directly embedded, so this cannot error");
         migrations
-            .last()
-            .expect("There is at least one migration")
-            .name()
-            .to_string()
-            .chars()
-            .filter(|c| c.is_numeric())
+            .iter()
+            .map(|m| m.name().version().to_string())
             .collect()
     }
 }
@@ -568,18 +573,24 @@ pub(crate) mod tests {
         use crate::migrations::QueryMigrations;
         use diesel::connection::SimpleConnection;
 
-        assert_eq!(MIGRATIONS.final_migration(), "20260928000000");
+        assert_eq!(MIGRATIONS.final_migration(), "20260928000001");
+        let baseline = MIGRATIONS.baseline();
         let db_path = tmp_path();
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 2);
-            conn.raw_query(|db| {
-                db.revert_last_migration(MIGRATIONS)
-                    .map(|_| ())
-                    .map_err(diesel::result::Error::QueryBuilderError)
-            })?;
-            assert_eq!(conn.applied_migrations()?, ["20260908000000"]);
+            assert_eq!(
+                conn.applied_migrations()?.len(),
+                MIGRATIONS.versions().len()
+            );
+            while conn.applied_migrations()?.first() != Some(&baseline) {
+                conn.raw_query(|db| {
+                    db.revert_last_migration(MIGRATIONS)
+                        .map(|_| ())
+                        .map_err(diesel::result::Error::QueryBuilderError)
+                })?;
+            }
+            assert_eq!(conn.applied_migrations()?, [baseline]);
             conn.raw_query(|db| {
                 db.batch_execute(
                     "INSERT INTO groups (id, created_at_ns, membership_state, installations_last_checked, added_by_inbox_id) VALUES (x'01', 0, 1, 0, 'own');
@@ -591,7 +602,10 @@ pub(crate) mod tests {
         {
             let store = crate::TestDb::create_persistent_store(Some(db_path.clone())).await;
             let conn = store.db();
-            assert_eq!(conn.applied_migrations()?.len(), 2);
+            assert_eq!(
+                conn.applied_migrations()?.len(),
+                MIGRATIONS.versions().len()
+            );
             #[derive(diesel::QueryableByName)]
             struct Count {
                 #[diesel(sql_type = diesel::sql_types::BigInt)]

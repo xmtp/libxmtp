@@ -16933,10 +16933,6 @@ public enum FfiSignatureKind: Equatable, Hashable {
      */
     case installationKey
     /**
-     * Legacy delegated signature
-     */
-    case legacyDelegated
-    /**
      * P256 passkey signature
      */
     case p256
@@ -16967,9 +16963,7 @@ public struct FfiConverterTypeFfiSignatureKind: FfiConverterRustBuffer {
         
         case 3: return .installationKey
         
-        case 4: return .legacyDelegated
-        
-        case 5: return .p256
+        case 4: return .p256
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -16991,12 +16985,8 @@ public struct FfiConverterTypeFfiSignatureKind: FfiConverterRustBuffer {
             writeInt(&buf, Int32(3))
         
         
-        case .legacyDelegated:
-            writeInt(&buf, Int32(4))
-        
-        
         case .p256:
-            writeInt(&buf, Int32(5))
+            writeInt(&buf, Int32(4))
         
         }
     }
@@ -20467,12 +20457,11 @@ public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSigna
  *
  * // if inbox_id is not associated, we will create new one.
  * if !inbox_id {
- * if !legacy_key { nonce = random_u64() }
  * inbox_id = generate_inbox_id(account_identifier, nonce)
  * } // Otherwise, we will just use the inbox and ignore the nonce.
  * db_path = $inbox_id-$env
  *
- * xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
+ * xmtp.create_client(account_identifier, nonce, inbox_id)
  * ```
  *
  * `change_callbacks` is unstable: notifications for group-state changes,
@@ -20481,11 +20470,11 @@ public func applySignatureRequest(api: XmtpApiClient, signatureRequest: FfiSigna
  * SDK-side default) registers nothing. See
  * [`change_callbacks::FfiUnstableChangeCallbacks`].
  */
-public func createClient(api: XmtpApiClient, db: DbOptions, inboxId: String, accountIdentifier: FfiIdentifier, nonce: UInt64, legacySignedPrivateKeyProto: Data?, deviceSyncMode: FfiDeviceSyncMode?, allowOffline: Bool?, forkRecoveryOpts: FfiForkRecoveryOpts?, workerConfig: FfiWorkerConfig?, changeCallbacks: FfiUnstableChangeCallbacks? = nil)async throws  -> FfiXmtpClient  {
+public func createClient(api: XmtpApiClient, db: DbOptions, inboxId: String, accountIdentifier: FfiIdentifier, nonce: UInt64, deviceSyncMode: FfiDeviceSyncMode?, allowOffline: Bool?, forkRecoveryOpts: FfiForkRecoveryOpts?, workerConfig: FfiWorkerConfig?, changeCallbacks: FfiUnstableChangeCallbacks? = nil)async throws  -> FfiXmtpClient  {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_xmtpv3_fn_func_create_client(FfiConverterTypeXmtpApiClient_lower(api),FfiConverterTypeDbOptions_lower(db),FfiConverterString.lower(inboxId),FfiConverterTypeFfiIdentifier_lower(accountIdentifier),FfiConverterUInt64.lower(nonce),FfiConverterOptionData.lower(legacySignedPrivateKeyProto),FfiConverterOptionTypeFfiDeviceSyncMode.lower(deviceSyncMode),FfiConverterOptionBool.lower(allowOffline),FfiConverterOptionTypeFfiForkRecoveryOpts.lower(forkRecoveryOpts),FfiConverterOptionTypeFfiWorkerConfig.lower(workerConfig),FfiConverterOptionTypeFfiUnstableChangeCallbacks.lower(changeCallbacks)
+                uniffi_xmtpv3_fn_func_create_client(FfiConverterTypeXmtpApiClient_lower(api),FfiConverterTypeDbOptions_lower(db),FfiConverterString.lower(inboxId),FfiConverterTypeFfiIdentifier_lower(accountIdentifier),FfiConverterUInt64.lower(nonce),FfiConverterOptionTypeFfiDeviceSyncMode.lower(deviceSyncMode),FfiConverterOptionBool.lower(allowOffline),FfiConverterOptionTypeFfiForkRecoveryOpts.lower(forkRecoveryOpts),FfiConverterOptionTypeFfiWorkerConfig.lower(workerConfig),FfiConverterOptionTypeFfiUnstableChangeCallbacks.lower(changeCallbacks)
                 )
             },
             pollFunc: ffi_xmtpv3_rust_future_poll_u64,
@@ -20889,7 +20878,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtpv3_checksum_func_apply_signature_request() != 22379) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtpv3_checksum_func_create_client() != 41210) {
+    if (uniffi_xmtpv3_checksum_func_create_client() != 61325) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtpv3_checksum_func_get_inbox_id_for_identifier() != 47087) {
