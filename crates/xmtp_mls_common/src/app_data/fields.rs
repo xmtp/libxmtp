@@ -380,8 +380,10 @@ pub struct FieldSnapshot<'a> {
 }
 
 impl<'a> FieldSnapshot<'a> {
-    /// List the fields of `dictionary`'s registry, labelling application
-    /// fields from `catalogue`. `None` is a group without a dictionary.
+    /// List the fields of `dictionary`'s registry, labelling each
+    /// application field with the first `catalogue` definition of its ID
+    /// when that definition is valid, as registration does. `None` is a
+    /// group without a dictionary.
     // implements: META-069
     pub fn new(
         dictionary: Option<&'a AppDataDictionary>,
@@ -405,6 +407,7 @@ impl<'a> FieldSnapshot<'a> {
                     let name = catalogue
                         .iter()
                         .find(|d| d.component_id == id.as_u16())
+                        .filter(|d| d.validate().is_ok())
                         .map(|d| Cow::Owned(d.name.clone()));
                     (name, MetadataComponentType::from_tag(meta.component_type))
                 } else {
@@ -942,7 +945,9 @@ fn first_duplicate(ids: impl IntoIterator<Item = ComponentId>) -> Option<Compone
 #[cfg(test)]
 mod tests {
     use prost::Message;
-    use xmtp_configuration::ComponentPermissions as CatalogueNamePermissions;
+    use xmtp_configuration::{
+        ComponentPermissions as CataloguePermissions, MetadataPolicy as CataloguePolicy,
+    };
     use xmtp_proto::xmtp::mls::message_contents::{
         ComponentMetadata, MetadataPolicy,
         metadata_policy::{Kind, MetadataBasePolicy},
@@ -1073,16 +1078,27 @@ mod tests {
 
     /// The backend catalogue of a client whose snapshot disagrees with the
     /// group: it types `STATUS` as bytes and names it after a well-known
-    /// field.
+    /// field, and its first definition of `SCORES` is invalid, so a later
+    /// valid one must not name it either.
     fn catalogue() -> Vec<ApplicationComponentDefinition> {
-        vec![ApplicationComponentDefinition {
-            component_id: STATUS.as_u16(),
-            name: "GROUP_NAME".into(),
+        let allow = Some(CataloguePolicy::Base(MetadataBasePolicy::Allow as i32));
+        let definition = |id: ComponentId, name: &str| ApplicationComponentDefinition {
+            component_id: id.as_u16(),
+            name: name.into(),
             component_type: tag(ComponentType::Bytes),
-            permissions: CatalogueNamePermissions::default(),
+            permissions: CataloguePermissions {
+                insert: allow.clone(),
+                update: allow.clone(),
+                delete: allow.clone(),
+            },
             in_groups: true,
             in_dms: true,
-        }]
+        };
+        vec![
+            definition(STATUS, "GROUP_NAME"),
+            definition(SCORES, ""),
+            definition(SCORES, "scores"),
+        ]
     }
 
     fn snapshot(dictionary: &AppDataDictionary) -> FieldSnapshot<'_> {
