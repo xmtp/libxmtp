@@ -1187,6 +1187,97 @@ fn dm_participant_cannot_grow_application_map_past_snapshot_bound() {
     ));
 }
 
+/// A registry entry padded to `len` bytes by an unknown protobuf field,
+/// which the registry decodes past and stores whole.
+fn padded_registry_entry(len: usize) -> VLBytes {
+    let mut entry = new_component_metadata(
+        component_permissions()
+            .insert(allow())
+            .update(allow())
+            .delete(allow())
+            .call(),
+        ComponentType::Bytes,
+    )
+    .encode_to_vec();
+    // Field 15, length-delimited, with a two-byte length varint.
+    let pad = len - entry.len() - 3;
+    assert!((128..16384).contains(&pad));
+    entry.extend([0x7A, pad as u8 | 0x80, (pad >> 7) as u8]);
+    entry.resize(len, 0);
+    VLBytes::new(entry)
+}
+
+fn registry_entry_insert(id: ComponentId, len: usize) -> AppDataUpdateOperation {
+    let payload = TlsMapDelta::<ComponentId, VLBytes>::new()
+        .insert(id, padded_registry_entry(len))
+        .tls_serialize_detached()
+        .unwrap();
+    AppDataUpdateOperation::Update(payload.into())
+}
+
+/// A DM participant's standalone proposal is refused on receipt when it
+/// registers an application component whose entry, unknown protobuf fields
+/// included, is over the element bound.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn dm_participant_standalone_registry_entry_over_bound_is_rejected() {
+    let (alice, bob) = (fake_inbox(1), fake_inbox(2));
+    let dm = dm_of(alice, bob);
+    let registry = ComponentRegistry::new();
+    let propose = |len: usize| {
+        validate_standalone_app_data_update(
+            ComponentId::COMPONENT_REGISTRY,
+            &registry_entry_insert(PROFILE, len),
+            member(),
+            &alice.to_hex(),
+            &registry,
+            None,
+            Some(&dm),
+            None,
+        )
+    };
+    propose(8192)?;
+    assert!(matches!(
+        propose(8193),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
+/// A DM participant cannot grow the registry without limit by registering
+/// application components one commit at a time: the commit that would push
+/// the serialized registry past 65536 bytes is rejected.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn dm_participant_cannot_grow_registry_past_snapshot_bound() {
+    let (alice, bob) = (fake_inbox(1), fake_inbox(2));
+    let dm = dm_of(alice, bob);
+    let registry = ComponentRegistry::new();
+    let mut committed: Option<Vec<u8>> = None;
+    let mut commit = |offset: u16| {
+        let operation = registry_entry_insert(ComponentId::new(0xC100 + offset), 8000);
+        validate_app_data_update_sequence(
+            [AppDataUpdateInCommit {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                operation: &operation,
+                actor: member(),
+                proposer_inbox_id: &alice.to_hex(),
+            }],
+            |_| committed.clone(),
+            &registry,
+            Some(&dm),
+            None,
+        )
+        .map(|post| committed = post[&ComponentId::COMPONENT_REGISTRY].clone())
+    };
+    for offset in 0..8 {
+        commit(offset)?;
+    }
+    assert!(matches!(
+        commit(8),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
 /// A standalone proposal whose value is over a field bound is refused on
 /// receipt, so members cannot fill each other's proposal stores with
 /// values that no commit may carry.

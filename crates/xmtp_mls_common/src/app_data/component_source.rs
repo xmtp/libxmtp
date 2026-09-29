@@ -50,11 +50,12 @@ use tls_codec::{Deserialize, Serialize, VLBytes};
 use xmtp_proto::xmtp::mls::message_contents::ComponentType;
 
 /// Longest scalar, collection key, or collection value that an application
-/// component, `USER_DISPLAY_NAME`, or `GROUP_IMAGE` may hold.
+/// component, `USER_DISPLAY_NAME`, `GROUP_IMAGE`, or `COMPONENT_REGISTRY` may
+/// hold.
 pub const MAX_FIELD_ELEMENT_BYTES: usize = 8192;
 
 /// Longest serialized collection snapshot that an application component,
-/// `USER_DISPLAY_NAME`, or `GROUP_IMAGE` may hold.
+/// `USER_DISPLAY_NAME`, `GROUP_IMAGE`, or `COMPONENT_REGISTRY` may hold.
 pub const MAX_FIELD_SNAPSHOT_BYTES: usize = 65536;
 
 /// Errors surfaced by the component_source layer.
@@ -536,24 +537,12 @@ pub fn expand_app_data_update_to_changes(
             .map_err(Into::into);
     }
 
-    // No per-id [`Component`] impl on this client. Two type-resolution
-    // sources, tried in order:
-    //
-    // 1. In-code [`component_type`] mapping — covers well-known XMTP
-    //    ids whose type is known to this release but which have no
-    //    typed decoder (e.g. the immutable seeds CREATOR_INBOX_ID,
-    //    ONESHOT_MESSAGE — handled by bootstrap byte-compare, not by a
-    //    `Component` impl).
-    // 2. On-dict [`ComponentRegistry`] entry — covers components a
-    //    *newer* release ships that this client has never heard of;
-    //    the registry's `component_type` tag is the type oracle.
-    //
-    // Either way, the closed type universe (7 variants) means every
-    // shape — including `TlsSet` / `TlsMap` deltas — surfaces a proper
-    // per-element change list to the validator. Old and new clients
-    // converge on the same dict state for the same wire bytes.
-    let ty = component_type(component_id)
-        .map_or_else(|| registered_component_type(component_id, registry), Ok)?;
+    // No per-id [`Component`] impl on this client. The closed type
+    // universe (7 variants) means every shape — including `TlsSet` /
+    // `TlsMap` deltas — surfaces a proper per-element change list to the
+    // validator. Old and new clients converge on the same dict state for
+    // the same wire bytes.
+    let ty = resolved_type(component_id, registry)?;
     expand_to_changes_for_type(component_id, ty, operation, old_value).map_err(Into::into)
 }
 
@@ -584,36 +573,46 @@ pub fn apply_app_data_update_payload(
         return Err(ComponentSourceError::ImmutableUpdate(id));
     }
 
-    // Per-id `Component` impl on this client — handles all 13 well-
-    // known mutable components with a typed decoder.
-    if let Some(component) = lookup_component(id) {
-        return component
-            .apply_update_payload(payload, old_value)
-            .map_err(Into::into);
-    }
-
-    // Two type-resolution sources for components without a per-id
-    // impl, tried in order:
-    //
-    // 1. In-code [`component_type`] mapping — covers well-known XMTP
-    //    ids whose type is known but which have no typed decoder
-    //    (immutable seeds like CREATOR_INBOX_ID — bootstrap-only
-    //    first-write path).
-    // 2. On-dict [`ComponentRegistry`] entry — covers components a
-    //    *newer* release ships that this client has never heard of;
-    //    the registry's `component_type` tag is the type oracle.
-    let ty = component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)?;
-    let new_value = apply_update_payload_for_type(id, ty, payload, old_value)?;
+    // A per-id `Component` impl handles the well-known mutable components
+    // with a typed decoder; every other id dispatches on its resolved type.
+    let new_value = match lookup_component(id) {
+        Some(component) => component.apply_update_payload(payload, old_value)?,
+        None => {
+            apply_update_payload_for_type(id, resolved_type(id, registry)?, payload, old_value)?
+        }
+    };
     if is_field_bounded(id) {
-        check_field_bounds(id, ty, &new_value)?;
+        check_field_bounds(id, resolved_type(id, registry)?, &new_value)?;
     }
     Ok(new_value)
 }
 
+/// The type of component `id`, from two sources tried in order:
+///
+/// 1. In-code [`component_type`] mapping — covers well-known XMTP ids,
+///    including those with no typed decoder (immutable seeds like
+///    CREATOR_INBOX_ID — bootstrap-only first-write path).
+/// 2. On-dict [`ComponentRegistry`] entry — covers components a *newer*
+///    release ships that this client has never heard of; the registry's
+///    `component_type` tag is the type oracle.
+fn resolved_type(
+    id: ComponentId,
+    registry: &ComponentRegistry,
+) -> Result<ComponentType, ComponentSourceError> {
+    component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)
+}
+
 /// Whether the field bounds cover component `id`: application components,
-/// `USER_DISPLAY_NAME`, and `GROUP_IMAGE`.
+/// `USER_DISPLAY_NAME`, `GROUP_IMAGE`, and `COMPONENT_REGISTRY`, whose
+/// application-range entries a DM participant may write.
 fn is_field_bounded(id: ComponentId) -> bool {
-    id.is_app_range() || id == ComponentId::USER_DISPLAY_NAME || id == ComponentId::GROUP_IMAGE
+    id.is_app_range()
+        || [
+            ComponentId::USER_DISPLAY_NAME,
+            ComponentId::GROUP_IMAGE,
+            ComponentId::COMPONENT_REGISTRY,
+        ]
+        .contains(&id)
 }
 
 /// Reject an `AppDataUpdate::Update` payload for component `id` that names
@@ -630,9 +629,8 @@ pub fn check_update_payload_bounds(
     if !is_field_bounded(id) {
         return Ok(());
     }
-    let ty = component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)?;
     // A removal by hash names no key bytes.
-    let longest = match ty {
+    let longest = match resolved_type(id, registry)? {
         ComponentType::Bytes | ComponentType::String => Some(payload.len()),
         ComponentType::TlsSetBytes => TlsSetDelta::<VLBytes>::tls_deserialize_exact(payload)?
             .mutations
@@ -643,16 +641,10 @@ pub fn check_update_payload_bounds(
             })
             .max(),
         ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString => {
-            TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload)?
-                .mutations
-                .iter()
-                .map(|m| match m {
-                    TlsMapMutation::Insert { value, .. } | TlsMapMutation::Update { value, .. } => {
-                        value.as_slice().len()
-                    }
-                    TlsMapMutation::Delete { .. } => 0,
-                })
-                .max()
+            longest_delta_value::<InboxId>(payload)?
+        }
+        ComponentType::TlsMapBytesBytes if id == ComponentId::COMPONENT_REGISTRY => {
+            longest_delta_value::<ComponentId>(payload)?
         }
         ComponentType::TlsMapBytesBytes => {
             TlsMapDelta::<VLBytes, VLBytes>::tls_deserialize_exact(payload)?
@@ -672,11 +664,29 @@ pub fn check_update_payload_bounds(
     check_element_bound(id, longest.unwrap_or(0))
 }
 
+/// The longest value that a map delta with fixed-size `K` keys inserts or
+/// updates.
+fn longest_delta_value<K>(payload: &[u8]) -> Result<Option<usize>, tls_codec::Error>
+where
+    TlsMapDelta<K, VLBytes>: Deserialize,
+{
+    Ok(TlsMapDelta::<K, VLBytes>::tls_deserialize_exact(payload)?
+        .mutations
+        .iter()
+        .map(|m| match m {
+            TlsMapMutation::Insert { value, .. } | TlsMapMutation::Update { value, .. } => {
+                value.as_slice().len()
+            }
+            TlsMapMutation::Delete { .. } => 0,
+        })
+        .max())
+}
+
 /// Reject `value`, the new bytes of component `id` of type `ty`, when a
 /// scalar, collection key, or collection value is longer than
 /// [`MAX_FIELD_ELEMENT_BYTES`] or a collection snapshot is longer than
-/// [`MAX_FIELD_SNAPSHOT_BYTES`]. `InboxId` keys have a fixed size, so only
-/// byte keys and values are measured element by element.
+/// [`MAX_FIELD_SNAPSHOT_BYTES`]. `InboxId` and `ComponentId` keys have a
+/// fixed size, so only byte keys and values are measured element by element.
 // implements: META-068
 fn check_field_bounds(
     id: ComponentId,
@@ -697,10 +707,10 @@ fn check_field_bounds(
             .map(|v| v.as_slice().len())
             .max(),
         ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString => {
-            TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(value)?
-                .values()
-                .map(|v| v.as_slice().len())
-                .max()
+            longest_map_value::<InboxId>(value)?
+        }
+        ComponentType::TlsMapBytesBytes if id == ComponentId::COMPONENT_REGISTRY => {
+            longest_map_value::<ComponentId>(value)?
         }
         ComponentType::TlsMapBytesBytes => {
             TlsMap::<VLBytes, VLBytes>::tls_deserialize_exact(value)?
@@ -712,6 +722,17 @@ fn check_field_bounds(
     }
     .unwrap_or(0);
     check_element_bound(id, longest_element)
+}
+
+/// The longest value of a map with fixed-size `K` keys.
+fn longest_map_value<K: Ord>(value: &[u8]) -> Result<Option<usize>, tls_codec::Error>
+where
+    TlsMap<K, VLBytes>: Deserialize,
+{
+    Ok(TlsMap::<K, VLBytes>::tls_deserialize_exact(value)?
+        .values()
+        .map(|v| v.as_slice().len())
+        .max())
 }
 
 /// Reject `len`, the longest scalar, key, or value written to component
@@ -2560,8 +2581,100 @@ mod tests {
         ));
     }
 
-    /// The bounds cover application components, `USER_DISPLAY_NAME`, and
-    /// `GROUP_IMAGE` only. Other XMTP components keep their own limits.
+    /// A registry entry padded to `len` bytes by an unknown protobuf field,
+    /// which the registry decodes past and stores whole.
+    fn padded_registry_entry(len: usize) -> VLBytes {
+        let id = ComponentId::new(0xC100);
+        let mut entry = registry_with(id, ComponentType::Bytes)
+            .get(&id)
+            .unwrap()
+            .unwrap()
+            .encode_to_vec();
+        // Field 15, length-delimited, with a two-byte length varint.
+        let pad = len - entry.len() - 3;
+        assert!((128..16384).contains(&pad));
+        entry.extend([0x7A, pad as u8 | 0x80, (pad >> 7) as u8]);
+        entry.resize(len, 0);
+        VLBytes::new(entry)
+    }
+
+    /// A registry entry may hold 8192 bytes and no more, unknown protobuf
+    /// fields included: a DM participant may write application-range
+    /// entries, and the registry keeps their bytes whole.
+    // verifies: META-068
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_entries_hold_at_most_the_element_limit() {
+        let registry = ComponentRegistry::new();
+        let insert = |len| {
+            TlsMapDelta::<ComponentId, VLBytes>::new()
+                .insert(ComponentId::new(0xC100), padded_registry_entry(len))
+                .tls_serialize_detached()
+                .unwrap()
+        };
+        let apply = |payload: &[u8]| {
+            apply_app_data_update_payload(ComponentId::COMPONENT_REGISTRY, payload, None, &registry)
+                .map(drop)
+        };
+        let check = |payload: &[u8]| {
+            check_update_payload_bounds(ComponentId::COMPONENT_REGISTRY, payload, &registry)
+        };
+        let exceeded = |result| {
+            matches!(
+                result,
+                Err(ComponentSourceError::FieldBoundExceeded {
+                    len: 8193,
+                    max: MAX_FIELD_ELEMENT_BYTES,
+                    ..
+                })
+            )
+        };
+
+        let at_limit = insert(MAX_FIELD_ELEMENT_BYTES);
+        check(&at_limit)?;
+        apply(&at_limit)?;
+        let over = insert(MAX_FIELD_ELEMENT_BYTES + 1);
+        assert!(exceeded(check(&over)));
+        assert!(exceeded(apply(&over)));
+    }
+
+    /// A serialized registry may hold 65536 bytes and no more, so repeated
+    /// in-bound inserts cannot grow every member's group context without
+    /// limit.
+    // verifies: META-068
+    #[xmtp_common::test(unwrap_try = true)]
+    fn registry_holds_at_most_the_snapshot_limit() {
+        // Eight 8000-byte entries plus one of `last` bytes.
+        let write = |last: usize| {
+            let delta = (0..8)
+                .fold(TlsMapDelta::<ComponentId, VLBytes>::new(), |d, k| {
+                    d.insert(ComponentId::new(0xC100 + k), padded_registry_entry(8000))
+                })
+                .insert(ComponentId::new(0xC108), padded_registry_entry(last));
+            apply_app_data_update_payload(
+                ComponentId::COMPONENT_REGISTRY,
+                &delta.tls_serialize_detached().unwrap(),
+                None,
+                &ComponentRegistry::new(),
+            )
+        };
+        // The entry's length prefixes are two bytes from 256 up, so the
+        // snapshot grows one byte per entry byte from there.
+        let last = 256 + MAX_FIELD_SNAPSHOT_BYTES - write(256)?.len();
+
+        assert_eq!(write(last)?.len(), MAX_FIELD_SNAPSHOT_BYTES);
+        assert!(matches!(
+            write(last + 1),
+            Err(ComponentSourceError::FieldBoundExceeded {
+                component_id: ComponentId::COMPONENT_REGISTRY,
+                len: 65537,
+                max: MAX_FIELD_SNAPSHOT_BYTES,
+            })
+        ));
+    }
+
+    /// The bounds cover application components, `USER_DISPLAY_NAME`,
+    /// `GROUP_IMAGE`, and `COMPONENT_REGISTRY` only. Other XMTP components
+    /// keep their own limits.
     // verifies: META-068
     #[xmtp_common::test(unwrap_try = true)]
     fn field_bounds_skip_other_xmtp_components() {
