@@ -13779,7 +13779,7 @@ public func FfiConverterTypeFfiConsentState_lower(_ value: FfiConsentState) -> R
 
 
 /**
- * Why received content could not be decoded (CTYPE-009).
+ * Why received content could not be decoded.
  */
 
 public enum FfiContentDecodeFailureKind: Equatable, Hashable {
@@ -14286,7 +14286,7 @@ public enum FfiDecodedMessageBody: Equatable, Hashable {
     case custom(FfiEncodedContent
     )
     /**
-     * Content that failed to decode, kept with its exact bytes (CTYPE-008).
+     * Content that failed to decode, kept with its exact bytes.
      */
     case undecodable(FfiUndecodableContent
     )
@@ -14503,7 +14503,7 @@ public enum FfiDecodedMessageContent {
     case custom(FfiEncodedContent
     )
     /**
-     * Content that failed to decode, kept with its exact bytes (CTYPE-008).
+     * Content that failed to decode, kept with its exact bytes.
      */
     case undecodable(FfiUndecodableContent
     )
