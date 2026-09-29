@@ -316,7 +316,8 @@ mod tests {
     /// group, an empty DM, a group whose messages all precede the window, and
     /// an old group with its in-window message. Consent edits and insertions
     /// committed on another connection while the export is streaming are not
-    /// in the archive: the export is one snapshot.
+    /// in the archive: the export is one snapshot. On wasm, whose single
+    /// connection the export holds, such writes are refused instead.
     // verifies: ARCH-007, ARCH-017
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_snapshot_is_complete() {
@@ -358,12 +359,17 @@ mod tests {
         let mut sink = WriteDuringExport {
             archive: vec![],
             on_first: Some(|| {
-                writer
-                    .insert_or_replace_consent_records(&[
-                        consent("carol", ConsentState::Denied),
-                        consent("dave", ConsentState::Allowed),
-                    ])
-                    .unwrap();
+                let written = writer.insert_or_replace_consent_records(&[
+                    consent("carol", ConsentState::Denied),
+                    consent("dave", ConsentState::Allowed),
+                ]);
+                // Native writers on other connections commit during the export;
+                // wasm's single connection is held by the export and refuses
+                // them, so neither can reach the snapshot.
+                #[cfg(not(target_arch = "wasm32"))]
+                written.unwrap();
+                #[cfg(target_arch = "wasm32")]
+                assert!(written.is_err(), "wasm wrote during the export");
             }),
         };
         exporter::export(opts, alix.db(), &key, &mut sink)?;
