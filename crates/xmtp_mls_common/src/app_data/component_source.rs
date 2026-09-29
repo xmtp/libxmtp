@@ -78,9 +78,8 @@ pub enum ComponentSourceError {
     #[error("component {0} is immutable and cannot be updated via AppDataUpdate")]
     ImmutableUpdate(ComponentId),
 
-    /// The supplied [`ComponentMutation`] does not match the component type
-    /// of the component it targets (e.g. a `Bytes` mutation against
-    /// `ADMIN_LIST`).
+    /// A mutation does not match the component type of the component it
+    /// targets (e.g. a scalar write to `ADMIN_LIST`).
     #[error("mutation shape does not match component {0}")]
     MismatchedMutation(ComponentId),
 
@@ -224,49 +223,6 @@ impl From<ComponentSourceError> for GroupMutableMetadataError {
         GroupMutableMetadataError::MalformedComponent {
             component_id,
             reason: err.to_string(),
-        }
-    }
-}
-
-/// Describes a single, atomic mutation that a per-field intent handler wants
-/// to apply to a component. The encoder picks the wire shape (single-element
-/// [`TlsSetDelta`] for collections, passthrough for bytes components).
-///
-/// The wire format supports batching (`TlsSetDelta.mutations` is a
-/// `Vec<TlsSetMutation<K>>`), but this enum intentionally models a single
-/// atomic mutation per variant — admin-list updates today arrive as
-/// single-action intents (`UpdateAdminListIntentData` carries one inbox
-/// id and one action), and coalescing happens at the commit layer via
-/// `xmtp_mls`'s `accumulate_app_data_updates`. The migration PR that wires
-/// admin-list paths through `AppDataUpdate` should reshape this into
-/// batched variants (e.g. `InboxIdSetDelta { component_id, mutations }`)
-/// so a single proposal can carry multiple set mutations.
-#[derive(Debug, Clone)]
-pub enum ComponentMutation<'a> {
-    /// A whole-value replacement for a `Bytes`-typed component.
-    Bytes {
-        component_id: ComponentId,
-        new_value: &'a [u8],
-    },
-    /// Add a single inbox id to the admin list.
-    AdminListAdd { inbox_id: &'a str },
-    /// Remove a single inbox id from the admin list.
-    AdminListRemove { inbox_id: &'a str },
-    /// Add a single inbox id to the super-admin list.
-    SuperAdminListAdd { inbox_id: &'a str },
-    /// Remove a single inbox id from the super-admin list.
-    SuperAdminListRemove { inbox_id: &'a str },
-}
-
-impl ComponentMutation<'_> {
-    /// The `ComponentId` that this mutation targets.
-    pub fn component_id(&self) -> ComponentId {
-        match self {
-            Self::Bytes { component_id, .. } => *component_id,
-            Self::AdminListAdd { .. } | Self::AdminListRemove { .. } => ComponentId::ADMIN_LIST,
-            Self::SuperAdminListAdd { .. } | Self::SuperAdminListRemove { .. } => {
-                ComponentId::SUPER_ADMIN_LIST
-            }
         }
     }
 }
@@ -460,39 +416,6 @@ pub fn read_from_app_data_dict_from_extensions(
         .app_data_dictionary()
         .and_then(|ext| ext.dictionary().get(&id.as_u16()))
         .map(|bytes| bytes.to_vec())
-}
-
-/// Encode a [`ComponentMutation`] into the bytes that go inside an
-/// `AppDataUpdateOperation::Update(bytes)` payload on the wire.
-///
-/// - `Bytes` components pass through verbatim.
-/// - `AdminList*` / `SuperAdminList*` produce a single-element
-///   [`TlsSetDelta`] keyed on an [`InboxId`].
-pub fn encode_app_data_update_payload(
-    mutation: &ComponentMutation<'_>,
-) -> Result<Vec<u8>, ComponentSourceError> {
-    match mutation {
-        ComponentMutation::Bytes {
-            component_id,
-            new_value,
-        } => {
-            // Phase-1 bytes components only cover the GMM-attribute family.
-            if component_id_to_metadata_field(*component_id).is_none() {
-                return Err(ComponentSourceError::MismatchedMutation(*component_id));
-            }
-            Ok(new_value.to_vec())
-        }
-        ComponentMutation::AdminListAdd { inbox_id }
-        | ComponentMutation::SuperAdminListAdd { inbox_id } => {
-            let key = inbox_id_str_to_bytes(inbox_id)?;
-            encode_inbox_id_set_delta(TlsSetMutation::Insert(key))
-        }
-        ComponentMutation::AdminListRemove { inbox_id }
-        | ComponentMutation::SuperAdminListRemove { inbox_id } => {
-            let key = inbox_id_str_to_bytes(inbox_id)?;
-            encode_inbox_id_set_delta(TlsSetMutation::Remove(key))
-        }
-    }
 }
 
 use crate::app_data::typed::ExpandedComponentChange;
@@ -783,7 +706,7 @@ fn registered_component_type(
 /// Overlay AppData-dict component values onto a base [`GroupMutableMetadata`].
 ///
 /// Wire formats (must match what the sender emits via
-/// [`encode_app_data_update_payload`] / [`apply_app_data_update_payload`]):
+/// [`apply_app_data_update_payload`]):
 /// - Bytes components: raw UTF-8 string bytes.
 /// - `ADMIN_LIST` / `SUPER_ADMIN_LIST`: TLS-serialized `TlsSet<InboxId>`,
 ///   each id hex-encoded back to string form.
@@ -1119,16 +1042,6 @@ fn encode_inbox_id_set(inbox_ids: &[String]) -> Result<Vec<u8>, ComponentSourceE
     Ok(set.tls_serialize_detached()?)
 }
 
-/// Wrap a single set mutation in a `TlsSetDelta` and serialize it.
-fn encode_inbox_id_set_delta(
-    mutation: TlsSetMutation<InboxId>,
-) -> Result<Vec<u8>, ComponentSourceError> {
-    let delta = TlsSetDelta::<InboxId> {
-        mutations: vec![mutation],
-    };
-    Ok(delta.tls_serialize_detached()?)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1163,6 +1076,15 @@ mod tests {
     /// consulted and an empty one is sufficient.
     fn empty_registry() -> ComponentRegistry {
         ComponentRegistry::new()
+    }
+
+    /// A one-mutation `TlsSetDelta<InboxId>` payload.
+    fn inbox_set_delta(mutation: TlsSetMutation<InboxId>) -> Vec<u8> {
+        TlsSetDelta {
+            mutations: vec![mutation],
+        }
+        .tls_serialize_detached()
+        .unwrap()
     }
 
     /// Build a single-entry registry for tests that exercise the
@@ -1329,98 +1251,6 @@ mod tests {
         assert!(component_id_to_metadata_field(ComponentId::new(0xC000)).is_none());
     }
 
-    // --- encode_app_data_update_payload ------------------------------------
-
-    #[xmtp_common::test]
-    fn test_encode_bytes_payload_passthrough() {
-        let value = b"hello world";
-        let payload = encode_app_data_update_payload(&ComponentMutation::Bytes {
-            component_id: ComponentId::GROUP_NAME,
-            new_value: value,
-        })
-        .unwrap();
-        assert_eq!(payload, value);
-    }
-
-    #[xmtp_common::test]
-    fn test_encode_bytes_payload_rejects_non_bytes_component() {
-        // GROUP_MEMBERSHIP isn't a bytes component, so shoving a Bytes
-        // mutation at it is a programming error — callers should build a
-        // membership-specific mutation shape instead.
-        let err = encode_app_data_update_payload(&ComponentMutation::Bytes {
-            component_id: ComponentId::GROUP_MEMBERSHIP,
-            new_value: b"x",
-        })
-        .unwrap_err();
-        assert!(matches!(err, ComponentSourceError::MismatchedMutation(_)));
-    }
-
-    #[xmtp_common::test]
-    fn test_encode_admin_list_insert_delta() {
-        let inbox = fake_inbox_id(0x11);
-        let payload =
-            encode_app_data_update_payload(&ComponentMutation::AdminListAdd { inbox_id: &inbox })
-                .unwrap();
-        let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(&payload).unwrap();
-        assert_eq!(delta.mutations.len(), 1);
-        match &delta.mutations[0] {
-            TlsSetMutation::Insert(k) => assert_eq!(*k, fake_inbox(0x11)),
-            other => panic!("expected Insert, got {other:?}"),
-        }
-    }
-
-    #[xmtp_common::test]
-    fn test_encode_admin_list_remove_delta() {
-        let inbox = fake_inbox_id(0x22);
-        let payload = encode_app_data_update_payload(&ComponentMutation::AdminListRemove {
-            inbox_id: &inbox,
-        })
-        .unwrap();
-        let delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(&payload).unwrap();
-        assert_eq!(delta.mutations.len(), 1);
-        match &delta.mutations[0] {
-            TlsSetMutation::Remove(k) => assert_eq!(*k, fake_inbox(0x22)),
-            other => panic!("expected Remove, got {other:?}"),
-        }
-    }
-
-    #[xmtp_common::test]
-    fn test_encode_super_admin_list_delta() {
-        let inbox = fake_inbox_id(0x33);
-        let add = encode_app_data_update_payload(&ComponentMutation::SuperAdminListAdd {
-            inbox_id: &inbox,
-        })
-        .unwrap();
-        let remove = encode_app_data_update_payload(&ComponentMutation::SuperAdminListRemove {
-            inbox_id: &inbox,
-        })
-        .unwrap();
-        let add_delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(&add).unwrap();
-        let remove_delta = TlsSetDelta::<InboxId>::tls_deserialize_exact(&remove).unwrap();
-        assert!(matches!(&add_delta.mutations[0], TlsSetMutation::Insert(_)));
-        assert!(matches!(
-            &remove_delta.mutations[0],
-            TlsSetMutation::Remove(_)
-        ));
-    }
-
-    #[xmtp_common::test]
-    fn test_encode_admin_list_invalid_inbox_id() {
-        // "not-a-real-inbox-id" is non-hex, so the failure is the
-        // hex-decode variant rather than the length variant.
-        let err = encode_app_data_update_payload(&ComponentMutation::AdminListAdd {
-            inbox_id: "not-a-real-inbox-id",
-        })
-        .unwrap_err();
-        assert!(
-            matches!(
-                err,
-                ComponentSourceError::InvalidInboxId(InboxIdError::InvalidHex(_))
-            ),
-            "got {err:?}"
-        );
-    }
-
     // --- apply_app_data_update_payload -------------------------------------
 
     #[xmtp_common::test]
@@ -1455,8 +1285,7 @@ mod tests {
         // The synthesized full value should be a TlsSet with the one inbox id.
         let inbox = fake_inbox_id(0x44);
         let insert_payload =
-            encode_app_data_update_payload(&ComponentMutation::AdminListAdd { inbox_id: &inbox })
-                .unwrap();
+            inbox_set_delta(TlsSetMutation::Insert(InboxId::from_hex(&inbox).unwrap()));
 
         let new_bytes = apply_app_data_update_payload(
             ComponentId::ADMIN_LIST,
@@ -1480,8 +1309,7 @@ mod tests {
 
         let prior = encode_inbox_id_set(std::slice::from_ref(&alice)).unwrap();
         let insert_payload =
-            encode_app_data_update_payload(&ComponentMutation::AdminListAdd { inbox_id: &bob })
-                .unwrap();
+            inbox_set_delta(TlsSetMutation::Insert(InboxId::from_hex(&bob).unwrap()));
 
         let new_bytes = apply_app_data_update_payload(
             ComponentId::ADMIN_LIST,
@@ -1503,10 +1331,8 @@ mod tests {
         let bob = fake_inbox_id(0x02);
 
         let prior = encode_inbox_id_set(&[alice.clone(), bob.clone()]).unwrap();
-        let remove_payload = encode_app_data_update_payload(&ComponentMutation::AdminListRemove {
-            inbox_id: &alice,
-        })
-        .unwrap();
+        let remove_payload =
+            inbox_set_delta(TlsSetMutation::Remove(InboxId::from_hex(&alice).unwrap()));
 
         let new_bytes = apply_app_data_update_payload(
             ComponentId::ADMIN_LIST,
@@ -1528,10 +1354,8 @@ mod tests {
         let new_sa = fake_inbox_id(0xBB);
 
         let prior = encode_inbox_id_set(std::slice::from_ref(&owner)).unwrap();
-        let add_payload = encode_app_data_update_payload(&ComponentMutation::SuperAdminListAdd {
-            inbox_id: &new_sa,
-        })
-        .unwrap();
+        let add_payload =
+            inbox_set_delta(TlsSetMutation::Insert(InboxId::from_hex(&new_sa).unwrap()));
 
         let new_bytes = apply_app_data_update_payload(
             ComponentId::SUPER_ADMIN_LIST,
@@ -1573,9 +1397,7 @@ mod tests {
         // The delta payload is well-formed, but the old_value isn't a
         // valid TlsSet — also a TlsCodec error, just from the other side.
         let inbox = fake_inbox_id(0x55);
-        let payload =
-            encode_app_data_update_payload(&ComponentMutation::AdminListAdd { inbox_id: &inbox })
-                .unwrap();
+        let payload = inbox_set_delta(TlsSetMutation::Insert(InboxId::from_hex(&inbox).unwrap()));
         let err = apply_app_data_update_payload(
             ComponentId::ADMIN_LIST,
             &payload,
