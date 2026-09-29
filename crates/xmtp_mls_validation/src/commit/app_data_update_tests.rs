@@ -35,6 +35,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use super::{
     AppDataUpdateInCommit, CommitRuleError, app_data_update_proposer_leaf,
     validate_app_data_update_sequence, validate_one_app_data_update_with_old_value,
+    validate_standalone_app_data_update,
 };
 
 // --- actor / policy / registry helpers -----------------------------------
@@ -1184,4 +1185,58 @@ fn dm_participant_cannot_grow_application_map_past_snapshot_bound() {
         commit(8),
         Err(CommitRuleError::InsufficientPermissions)
     ));
+}
+
+/// A standalone proposal whose value is over a field bound is refused on
+/// receipt, so members cannot fill each other's proposal stores with
+/// values that no commit may carry.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn standalone_proposal_over_field_bound_is_rejected() {
+    let registry = registry_with(PROFILE, allow(), allow(), allow(), ComponentType::Bytes);
+    let propose = |len: usize| {
+        validate_standalone_app_data_update(
+            PROFILE,
+            &AppDataUpdateOperation::Update(vec![0; len].into()),
+            member(),
+            "inbox_alice",
+            &registry,
+            None,
+            None,
+            None,
+        )
+    };
+    propose(8192)?;
+    assert!(matches!(
+        propose(8193),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}
+
+/// A standalone proposal that does not apply to the committed state is
+/// still stored: its commit may order another proposal ahead of it, such
+/// as the insert that creates the key this one updates.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn standalone_proposal_is_not_judged_on_committed_state_alone() {
+    let registry = registry_with(
+        PROFILE,
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let payload = TlsMapDelta::<VLBytes, VLBytes>::new()
+        .update(VLBytes::new(b"k".to_vec()), VLBytes::new(b"v".to_vec()))
+        .tls_serialize_detached()?;
+    validate_standalone_app_data_update(
+        PROFILE,
+        &AppDataUpdateOperation::Update(payload.into()),
+        member(),
+        "inbox_alice",
+        &registry,
+        None,
+        None,
+        None,
+    )?;
 }

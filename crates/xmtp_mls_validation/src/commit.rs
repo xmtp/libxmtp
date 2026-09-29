@@ -630,8 +630,9 @@ pub fn validate_membership_diff(
 /// `KeyNotFound`). This matches the `Bytes` component case where a
 /// first-time `Update` has no prior value to diff against.
 ///
-/// Returns `Err(InsufficientPermissions)` on the first failure (expand or
-/// per-element check) so the caller can reject the wider message wholesale.
+/// Returns `Err(InsufficientPermissions)` on the first failure (expand,
+/// per-element check, or field bound) so the caller can reject the wider
+/// message wholesale.
 pub fn validate_one_app_data_update(
     component_id: xmtp_mls_common::app_data::component_id::ComponentId,
     operation: &openmls::messages::proposals::AppDataUpdateOperation,
@@ -656,7 +657,7 @@ pub fn validate_one_app_data_update(
         read_from_app_data_dict(ComponentId::GROUP_MEMBERSHIP, openmls_group).as_deref(),
     );
 
-    validate_one_app_data_update_with_old_value(
+    validate_standalone_app_data_update(
         component_id,
         operation,
         actor,
@@ -666,6 +667,49 @@ pub fn validate_one_app_data_update(
         dm_members,
         membership.as_ref(),
     )
+}
+
+/// Pure core of [`validate_one_app_data_update`]: the policy checks, then
+/// the field bounds against the committed state, so an oversized
+/// proposal is never stored.
+///
+/// Other apply failures are left to commit validation, because a commit
+/// may order other proposals ahead of this one and change the state it
+/// applies to.
+// implements: META-068
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn validate_standalone_app_data_update(
+    component_id: xmtp_mls_common::app_data::component_id::ComponentId,
+    operation: &openmls::messages::proposals::AppDataUpdateOperation,
+    actor: xmtp_mls_common::app_data::validation::ActorAuthority,
+    proposer_inbox_id: &str,
+    registry: &xmtp_mls_common::app_data::component_registry::ComponentRegistry,
+    old_value: Option<&[u8]>,
+    dm_members: Option<&DmMembers<String>>,
+    membership: Option<&std::collections::HashSet<xmtp_mls_common::inbox_id::InboxId>>,
+) -> Result<(), CommitRuleError> {
+    use openmls::messages::proposals::AppDataUpdateOperation;
+    use xmtp_mls_common::app_data::component_source::{
+        ComponentSourceError, apply_app_data_update_payload,
+    };
+
+    validate_one_app_data_update_with_old_value(
+        component_id,
+        operation,
+        actor,
+        proposer_inbox_id,
+        registry,
+        old_value,
+        dm_members,
+        membership,
+    )?;
+    if let AppDataUpdateOperation::Update(payload) = operation
+        && let Err(ComponentSourceError::FieldBoundExceeded { .. }) =
+            apply_app_data_update_payload(component_id, payload.as_slice(), old_value, registry)
+    {
+        return Err(CommitRuleError::InsufficientPermissions);
+    }
+    Ok(())
 }
 
 /// The inbox ids of a `GROUP_MEMBERSHIP` snapshot. `None` when the

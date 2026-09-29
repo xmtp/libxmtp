@@ -163,7 +163,7 @@ fn attach_component_id(
 //
 // Mirrors `apply_inbox_id_set_delta` / `expand_inbox_id_set_changes` but
 // keyed on `VLBytes`. No well-known `TlsSetBytes` component ships today;
-// this exists so a future XMTP-defined or runtime-registered bytes-set
+// this exists so a future XMTP-defined or registry-typed application bytes-set
 // component lands on old clients via the same delta-aware path the
 // inbox-id-set components use.
 
