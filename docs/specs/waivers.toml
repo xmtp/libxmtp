@@ -124,20 +124,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "An explicit empty consent filter is treated as an absent filter and returns allowed and unknown conversations."
 
 [[waiver]]
-id = "SYNC-010"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A Welcome whose conversation type is sync is accepted with no check that the adder or the leaf nodes name the client's own inbox, and primary sync group selection by greatest creation time lets an accepted foreign group become the publish target."
-
-[[waiver]]
-id = "SYNC-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The periodic scan selects unprocessed messages in every sync-typed group with no sender inbox filter, and process_message compares only the sender installation id."
-
-[[waiver]]
 id = "SYNC-021"
 kind = "gap"
 owner = "protocol"
