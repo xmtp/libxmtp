@@ -1,10 +1,17 @@
 //! App-data dictionary values that are synthesized when a conversation is created.
+//!
+//! [`initial_dictionary`] builds the epoch-0 dictionary, including the
+//! registry entries a new conversation takes from the backend catalogue.
+//! [`catalogue_registry_entries`] selects those entries; a later commit
+//! reuses it to register the ones a group is missing.
 
 use tls_codec::Serialize;
+use xmtp_configuration::ApplicationComponentDefinition;
+use xmtp_proto::types::ConversationType;
 use xmtp_proto::xmtp::mls::message_contents::{
-    ComponentPermissions, ComponentType, MembershipPolicy as MembershipPolicyProto,
-    MetadataPolicy as MetadataPolicyProto, PermissionsUpdatePolicy as PermissionsUpdatePolicyProto,
-    PolicySet as PolicySetProto,
+    ComponentMetadata, ComponentPermissions, ComponentType,
+    MembershipPolicy as MembershipPolicyProto, MetadataPolicy as MetadataPolicyProto,
+    PermissionsUpdatePolicy as PermissionsUpdatePolicyProto, PolicySet as PolicySetProto,
     membership_policy::{BasePolicy as MembershipBasePolicy, Kind as MembershipPolicyKind},
     metadata_policy::{
         AndCondition as MetadataAndCondition, AnyCondition as MetadataAnyCondition,
@@ -16,7 +23,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 use crate::{
     app_data::{
         component_id::ComponentId,
-        component_registry::{ComponentRegistry, new_component_metadata},
+        component_registry::{ComponentRegistry, ComponentRegistryError, new_component_metadata},
         migration::MigrationError,
     },
     group_mutable_metadata::MetadataField,
@@ -504,6 +511,116 @@ pub(crate) fn decode_conversation_type(bytes: &[u8]) -> Result<i32, MigrationErr
     Ok(i32::from_be_bytes(arr))
 }
 
+/// The registry entries a conversation takes from a backend catalogue: each
+/// valid definition selected for `conversation_type` (`in_groups` for a
+/// group, `in_dms` for a DM, none for a sync group) whose type and policy
+/// tags this build knows.
+///
+/// A snapshot an app supplies through a `ConfigProvider` is never validated
+/// as a whole, so only the first definition of each ID is considered, and an
+/// invalid one is skipped. Otherwise a repeated immutable ID would fail
+/// creation, and a well-known ID would replace that component's policies.
+///
+/// A definition with an unknown tag is skipped, not registered: this client
+/// could not write or validate its values, and leaving the ID absent lets a
+/// client that knows the tags register it in a later commit.
+// implements: META-066, META-067
+pub fn catalogue_registry_entries(
+    catalogue: &[ApplicationComponentDefinition],
+    conversation_type: ConversationType,
+) -> impl Iterator<Item = (ComponentId, ComponentMetadata)> + '_ {
+    let mut seen = std::collections::HashSet::new();
+    catalogue
+        .iter()
+        .filter(move |definition| seen.insert(definition.component_id))
+        .filter(|definition| definition.validate().is_ok())
+        .filter(move |definition| match conversation_type {
+            ConversationType::Dm => definition.in_dms,
+            ConversationType::Sync => false,
+            ConversationType::Group | ConversationType::Oneshot => definition.in_groups,
+        })
+        .map(|definition| {
+            (
+                ComponentId::new(definition.component_id),
+                ComponentMetadata {
+                    permissions: Some(definition.permissions.clone().into()),
+                    component_type: definition.component_type,
+                    external_committer_permissions: None,
+                },
+            )
+        })
+        .filter(|(_, metadata)| is_known_metadata(metadata))
+}
+
+/// True when this build knows the entry's component type and every policy
+/// tag in its three policies.
+fn is_known_metadata(metadata: &ComponentMetadata) -> bool {
+    fn is_known(policy: &MetadataPolicyProto) -> bool {
+        match &policy.kind {
+            Some(MetadataPolicyKind::Base(base)) => MetadataBasePolicy::try_from(*base)
+                .is_ok_and(|base| base != MetadataBasePolicy::Unspecified),
+            Some(MetadataPolicyKind::AndCondition(MetadataAndCondition { policies }))
+            | Some(MetadataPolicyKind::AnyCondition(MetadataAnyCondition { policies })) => {
+                !policies.is_empty() && policies.iter().all(is_known)
+            }
+            None => false,
+        }
+    }
+    ComponentType::try_from(metadata.component_type)
+        .is_ok_and(|component_type| component_type != ComponentType::Unspecified)
+        && metadata.permissions.as_ref().is_some_and(|permissions| {
+            [
+                &permissions.insert_policy,
+                &permissions.update_policy,
+                &permissions.delete_policy,
+            ]
+            .into_iter()
+            .all(|policy| policy.as_ref().is_some_and(is_known))
+        })
+}
+
+/// Add the entries every non-sync conversation registers at creation:
+/// `USER_DISPLAY_NAME`, `GROUP_IMAGE` for a group, and the eligible catalogue
+/// definitions. `GROUP_IMAGE` copies the `GROUP_IMAGE_URL` policies that
+/// `build_registry` selected from the policy set.
+// implements: META-066, PERM-029
+fn register_configured_fields(
+    registry: &mut ComponentRegistry,
+    conversation_type: ConversationType,
+    catalogue: &[ApplicationComponentDefinition],
+) -> Result<(), MigrationError> {
+    if conversation_type == ConversationType::Sync {
+        return Ok(());
+    }
+    let self_owned = metadata_policy(MetadataBasePolicy::AllowIfSelfOrNonMember);
+    registry.set(
+        ComponentId::USER_DISPLAY_NAME,
+        new_component_metadata(
+            ComponentPermissions {
+                insert_policy: Some(self_owned.clone()),
+                update_policy: Some(self_owned.clone()),
+                delete_policy: Some(self_owned),
+            },
+            ComponentType::TlsMapInboxIdString,
+        ),
+    )?;
+    if conversation_type != ConversationType::Dm {
+        let image_url = registry.get(&ComponentId::GROUP_IMAGE_URL)?.ok_or(
+            ComponentRegistryError::NotFound(ComponentId::GROUP_IMAGE_URL),
+        )?;
+        registry.set(
+            ComponentId::GROUP_IMAGE,
+            ComponentMetadata {
+                component_type: ComponentType::Bytes as i32,
+                ..image_url
+            },
+        )?;
+    }
+    catalogue_registry_entries(catalogue, conversation_type)
+        .try_for_each(|(id, metadata)| registry.set(id, metadata))?;
+    Ok(())
+}
+
 /// The immutable values for a new conversation.
 pub enum InitialGroupKind<'a> {
     /// A group, including sync and oneshot groups.
@@ -517,6 +634,8 @@ pub enum InitialGroupKind<'a> {
 
 /// Build the complete dictionary stored in epoch zero.
 /// Collection values are stored snapshots, not proposal deltas.
+/// `catalogue` is the client's backend snapshot; only its eligible
+/// definitions enter the registry, and no component value is taken from it.
 // implements: META-018, PERM-002
 pub fn initial_dictionary(
     kind: InitialGroupKind<'_>,
@@ -524,12 +643,12 @@ pub fn initial_dictionary(
     opts: &crate::group::GroupMetadataOptions,
     creator_inbox_id: &str,
     commit_log_signer: Option<&[u8]>,
+    catalogue: &[ApplicationComponentDefinition],
 ) -> Result<openmls::extensions::AppDataDictionary, MigrationError> {
     use crate::tls_set::TlsSet;
     use openmls::extensions::AppDataDictionary;
     use prost::Message as _;
     use std::collections::BTreeMap;
-    use xmtp_proto::types::ConversationType;
     use xmtp_proto::xmtp::mls::message_contents::{
         GroupMembershipEntry,
         group_membership_entry::{V1, Version},
@@ -549,7 +668,8 @@ pub fn initial_dictionary(
             (ConversationType::Dm, Some(target), None)
         }
     };
-    let registry = build_registry(policy_set, dm_target.is_some(), oneshot_message.is_some())?;
+    let mut registry = build_registry(policy_set, dm_target.is_some(), oneshot_message.is_some())?;
+    register_configured_fields(&mut registry, conversation_type, catalogue)?;
     let mut dictionary = AppDataDictionary::new();
     dictionary.insert(
         ComponentId::COMPONENT_REGISTRY.as_u16(),
@@ -709,6 +829,7 @@ mod tests {
             &options,
             &creator,
             Some(&signer),
+            &[],
         )?;
 
         let creator_id = InboxId::from_hex(&creator)?;
@@ -785,6 +906,7 @@ mod tests {
             &crate::group::GroupMetadataOptions::default(),
             &creator,
             None,
+            &[],
         )?;
 
         let creator_id = InboxId::from_hex(&creator)?;
@@ -830,5 +952,277 @@ mod tests {
         ] {
             assert!(!dictionary.contains(&id.as_u16()));
         }
+    }
+
+    fn definition(
+        component_id: u16,
+        in_groups: bool,
+        in_dms: bool,
+    ) -> ApplicationComponentDefinition {
+        let policy =
+            xmtp_configuration::MetadataPolicy::Base(MetadataBasePolicy::AllowIfAdmin as i32);
+        ApplicationComponentDefinition {
+            component_id,
+            name: format!("field_{component_id:x}"),
+            component_type: ComponentType::String as i32,
+            permissions: xmtp_configuration::ComponentPermissions {
+                insert: Some(policy.clone()),
+                update: Some(policy.clone()),
+                delete: Some(policy),
+            },
+            in_groups,
+            in_dms,
+        }
+    }
+
+    fn registry_of(dictionary: &openmls::extensions::AppDataDictionary) -> ComponentRegistry {
+        ComponentRegistry::from_bytes(
+            dictionary
+                .get(&ComponentId::COMPONENT_REGISTRY.as_u16())
+                .unwrap(),
+        )
+        .unwrap()
+    }
+
+    fn group_dictionary(
+        conversation_type: ConversationType,
+        policy_set: &PolicySetProto,
+        catalogue: &[ApplicationComponentDefinition],
+    ) -> openmls::extensions::AppDataDictionary {
+        initial_dictionary(
+            InitialGroupKind::Group {
+                conversation_type,
+                oneshot_message: None,
+            },
+            policy_set,
+            &crate::group::GroupMetadataOptions::default(),
+            &inbox(1),
+            None,
+            catalogue,
+        )
+        .unwrap()
+    }
+
+    fn self_owned() -> ComponentPermissions {
+        let policy = metadata_policy(MetadataBasePolicy::AllowIfSelfOrNonMember);
+        ComponentPermissions {
+            insert_policy: Some(policy.clone()),
+            update_policy: Some(policy.clone()),
+            delete_policy: Some(policy),
+        }
+    }
+
+    /// A new group registers the catalogue's group definitions with their
+    /// own type and policies, `USER_DISPLAY_NAME` as a self-owned string
+    /// map, and `GROUP_IMAGE` as bytes, and writes no value for any of them.
+    /// A DM-only definition stays out of a group.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-066, PERM-029
+    fn new_group_registers_configured_fields_without_values() {
+        let catalogue = [
+            definition(0xC000, true, false),
+            definition(0xC001, false, true),
+            definition(0xFD00, true, true),
+        ];
+        let dictionary = group_dictionary(ConversationType::Group, &policy_set(), &catalogue);
+        let registry = registry_of(&dictionary);
+
+        for id in [0xC000, 0xFD00] {
+            let expected = &catalogue.iter().find(|d| d.component_id == id).unwrap();
+            let entry = registry.get(&ComponentId::new(id))?.unwrap();
+            assert_eq!(entry.component_type, ComponentType::String as i32);
+            assert_eq!(entry.permissions, Some(expected.permissions.clone().into()));
+        }
+        assert!(!registry.contains_raw(&ComponentId::new(0xC001)));
+        assert_eq!(
+            registry.get(&ComponentId::USER_DISPLAY_NAME)?,
+            Some(new_component_metadata(
+                self_owned(),
+                ComponentType::TlsMapInboxIdString
+            ))
+        );
+        let image = registry.get(&ComponentId::GROUP_IMAGE)?.unwrap();
+        assert_eq!(image.component_type, ComponentType::Bytes as i32);
+        for id in [
+            ComponentId::new(0xC000),
+            ComponentId::new(0xFD00),
+            ComponentId::USER_DISPLAY_NAME,
+            ComponentId::GROUP_IMAGE,
+        ] {
+            assert!(!dictionary.contains(&id.as_u16()));
+        }
+    }
+
+    /// `GROUP_IMAGE` takes the image URL policies chosen at creation, so a
+    /// group that lets members change its image URL lets them change its
+    /// image, and the delete policy stays super admin.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-029
+    fn group_image_copies_the_image_url_policies() {
+        let mut policies = policy_set();
+        policies.update_metadata_policy.insert(
+            MetadataField::GroupImageUrlSquare.as_str().to_string(),
+            metadata_policy(MetadataBasePolicy::Allow),
+        );
+        let registry = registry_of(&group_dictionary(ConversationType::Group, &policies, &[]));
+        let image_url = registry.get(&ComponentId::GROUP_IMAGE_URL)?.unwrap();
+        let image = registry.get(&ComponentId::GROUP_IMAGE)?.unwrap();
+        assert_eq!(image.permissions, image_url.permissions);
+        let permissions = image.permissions.unwrap();
+        assert_eq!(
+            permissions.update_policy,
+            Some(metadata_policy(MetadataBasePolicy::Allow))
+        );
+        assert_eq!(
+            permissions.delete_policy,
+            Some(metadata_policy(MetadataBasePolicy::AllowIfSuperAdmin))
+        );
+    }
+
+    /// A DM registers its DM definitions and `USER_DISPLAY_NAME`, but not
+    /// `GROUP_IMAGE` or a group-only definition.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-066, PERM-029
+    fn new_dm_registers_dm_fields_only() {
+        let catalogue = [
+            definition(0xC000, true, false),
+            definition(0xC001, false, true),
+        ];
+        let dictionary = initial_dictionary(
+            InitialGroupKind::Dm {
+                target_inbox_id: &inbox(2),
+            },
+            &policy_set(),
+            &crate::group::GroupMetadataOptions::default(),
+            &inbox(1),
+            None,
+            &catalogue,
+        )?;
+        let registry = registry_of(&dictionary);
+        assert!(registry.contains(&ComponentId::new(0xC001)));
+        assert!(!registry.contains_raw(&ComponentId::new(0xC000)));
+        assert!(!registry.contains_raw(&ComponentId::GROUP_IMAGE));
+        assert_eq!(
+            registry.get(&ComponentId::USER_DISPLAY_NAME)?,
+            Some(new_component_metadata(
+                self_owned(),
+                ComponentType::TlsMapInboxIdString
+            ))
+        );
+        assert!(!dictionary.contains(&ComponentId::USER_DISPLAY_NAME.as_u16()));
+    }
+
+    /// A sync group carries no user or application fields, whatever the
+    /// catalogue says.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-066
+    fn sync_group_registers_no_configured_fields() {
+        let catalogue = [definition(0xC000, true, true)];
+        let registry = registry_of(&group_dictionary(
+            ConversationType::Sync,
+            &policy_set(),
+            &catalogue,
+        ));
+        for id in [
+            ComponentId::new(0xC000),
+            ComponentId::USER_DISPLAY_NAME,
+            ComponentId::GROUP_IMAGE,
+        ] {
+            assert!(!registry.contains_raw(&id));
+        }
+    }
+
+    /// A catalogue definition outside the application range never reaches
+    /// the registry, even from a snapshot no one validated: one that named
+    /// `GROUP_MEMBERSHIP` would otherwise replace its admin-only policies.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-066
+    fn definitions_outside_the_application_range_are_skipped() {
+        use xmtp_configuration::MetadataPolicy;
+        let mut membership = definition(ComponentId::GROUP_MEMBERSHIP.as_u16(), true, true);
+        let allow = Some(MetadataPolicy::Base(MetadataBasePolicy::Allow as i32));
+        membership.permissions.insert = allow.clone();
+        membership.permissions.update = allow.clone();
+        membership.permissions.delete = allow;
+        let expected = registry_of(&group_dictionary(
+            ConversationType::Group,
+            &policy_set(),
+            &[],
+        ));
+        let registry = registry_of(&group_dictionary(
+            ConversationType::Group,
+            &policy_set(),
+            &[membership.clone()],
+        ));
+        assert_eq!(
+            registry.get(&ComponentId::GROUP_MEMBERSHIP)?,
+            expected.get(&ComponentId::GROUP_MEMBERSHIP)?
+        );
+        assert_eq!(
+            catalogue_registry_entries(&[membership], ConversationType::Group).count(),
+            0
+        );
+    }
+
+    /// Only the first definition of a repeated ID is registered, whether or
+    /// not the ID is immutable, so an unvalidated snapshot neither fails
+    /// creation nor lets a later duplicate replace the first.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-066
+    fn only_the_first_definition_of_an_id_is_registered() {
+        let catalogue: Vec<_> = [0xC000, 0xFD00]
+            .into_iter()
+            .flat_map(|id| {
+                let mut duplicate = definition(id, true, true);
+                duplicate.component_type = ComponentType::Bytes as i32;
+                [definition(id, true, true), duplicate]
+            })
+            .collect();
+        let registry = registry_of(&group_dictionary(
+            ConversationType::Group,
+            &policy_set(),
+            &catalogue,
+        ));
+        for id in [0xC000, 0xFD00] {
+            assert_eq!(
+                registry
+                    .get(&ComponentId::new(id))?
+                    .map(|metadata| metadata.component_type),
+                Some(ComponentType::String as i32)
+            );
+        }
+    }
+
+    /// A newer backend may publish a type or policy tag this build does not
+    /// know. Creation skips that definition instead of failing, and leaves
+    /// its ID absent so a client that knows the tags can register it.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-066
+    fn definitions_with_unknown_tags_are_skipped() {
+        use xmtp_configuration::MetadataPolicy;
+        let mut unknown_type = definition(0xC000, true, true);
+        unknown_type.component_type = 99;
+        let mut unknown_policy = definition(0xC001, true, true);
+        unknown_policy.permissions.update = Some(MetadataPolicy::Any(vec![
+            MetadataPolicy::Base(MetadataBasePolicy::Allow as i32),
+            MetadataPolicy::Base(99),
+        ]));
+        let mut empty_condition = definition(0xC002, true, true);
+        empty_condition.permissions.delete = Some(MetadataPolicy::And(vec![]));
+        let catalogue = [
+            unknown_type,
+            unknown_policy,
+            empty_condition,
+            definition(0xC003, true, true),
+        ];
+        let registry = registry_of(&group_dictionary(
+            ConversationType::Group,
+            &policy_set(),
+            &catalogue,
+        ));
+        for id in [0xC000, 0xC001, 0xC002] {
+            assert!(!registry.contains_raw(&ComponentId::new(id)));
+        }
+        assert!(registry.contains(&ComponentId::new(0xC003)));
     }
 }

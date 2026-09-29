@@ -213,7 +213,8 @@ where
 
 /// Build a commit bundle that consumes all pending proposals and
 /// pre-computes any AppData dictionary writes required by queued
-/// `AppDataUpdate` proposals.
+/// `AppDataUpdate` proposals. The commit also carries this client's
+/// membership upkeep for `catalogue` inline.
 ///
 /// Any commit that consumes the proposal store must route through this
 /// helper so OpenMLS's `apply_app_data_update_proposals` sees the dict
@@ -226,6 +227,7 @@ pub(super) fn build_commit_with_pending_app_data_updates<P, F>(
     group: &mut OpenMlsGroup,
     provider: &P,
     signer: &impl openmls_traits::signatures::Signer,
+    catalogue: &[xmtp_configuration::ApplicationComponentDefinition],
     proposal_filter: F,
 ) -> Result<openmls::prelude::CommitMessageBundle, GroupError>
 where
@@ -234,11 +236,13 @@ where
         openmls_traits::storage::StorageProvider<1, Error = sql_key_store::SqlKeyStoreError>,
     F: FnMut(&openmls::group::QueuedProposal) -> bool,
 {
-    let app_data_updates = crate::groups::app_data::pending_app_data_updates(group)?;
+    let (upkeep, app_data_updates) =
+        crate::groups::app_data::membership_upkeep::membership_upkeep(group, catalogue)?;
 
     let mut stage = group
         .commit_builder()
         .consume_proposal_store(true)
+        .add_proposals(upkeep)
         .load_psks(provider.storage())
         .map_err(CommitToPendingProposalsError::from)?;
     stage.with_app_data_dictionary_updates(app_data_updates);

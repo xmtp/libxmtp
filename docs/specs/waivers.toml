@@ -224,13 +224,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
 
 [[waiver]]
-id = "META-004"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A scalar first write expands to an Update and fails the immutable permission gate, while an authorized insert-only delta can populate an absent immutable collection."
-
-[[waiver]]
 id = "META-051"
 kind = "gap"
 owner = "protocol"
@@ -668,18 +661,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
 
 [[waiver]]
-id = "META-066"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Group and DM creation do not read the backend catalogue or register USER_DISPLAY_NAME and GROUP_IMAGE yet. A later PR of the configured-metadata stack seeds new registries."
-[[waiver]]
-id = "META-067"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Membership refresh does not reconcile missing catalogue entries into the committed registry yet. A later PR of the configured-metadata stack adds the Insert."
-[[waiver]]
 id = "META-069"
 kind = "gap"
 owner = "protocol"
@@ -709,12 +690,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The core has no own-inbox user-data write API yet. A later PR of the configured-metadata stack adds it to Rust core; exposure in bindings and SDKs is deferred by the owner beyond this stack."
-[[waiver]]
-id = "PERM-029"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Group and DM creation do not register USER_DISPLAY_NAME or GROUP_IMAGE yet, so their creation policies are not written. A later PR of the configured-metadata stack seeds them."
 [[waiver]]
 id = "PROC-025"
 kind = "gap"

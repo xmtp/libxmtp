@@ -183,12 +183,15 @@ A commit may reference proposals other members published. Every member keeps a r
 
 A standalone proposal is judged against the committed membership, because the commit that will reference it is not yet known. A delete that is authorized only because its key leaves the membership in the same commit, such as a removed member's profile entry under PERM-027, is therefore an inline proposal of the member-removal commit and is validated there under section 5.
 
+The sender of a member removal cleans up after the inboxes it removes, so a departed member's name or admin role does not outlive its membership. Cleanup is a courtesy of the sender, not a condition of the commit: a remover whose policies forbid a cleanup delete still removes the member, and a receiver accepts a removal with or without it.
+
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |
 | GMOD-016 | Apply only what the topic returns | A client MUST NOT apply a commit it built before it has read that commit back from the group's message topic at the sequence id the backend assigned, and MUST NOT exempt it from any check of section 5 because it built it. | A sender that applies first and loses the race, or built a commit the others reject, is forked from the group. |
 | GMOD-036 | A stale commit is rebuilt | If a client reads back a commit it published and the group's current `GroupContext.epoch` is greater than the epoch the commit was built on, then the client MUST NOT apply that commit and MUST build the change again on the current group state before it publishes again. | Applying a commit from a past epoch forks the sender from every member that applied the winning commit. |
 | GMOD-018 | Welcomes follow the commit | When a client has applied a commit it built that adds leaf nodes, it MUST publish a Welcome to every installation the commit added, with `message_cursor` equal to the commit's sequence id, and MUST NOT publish any Welcome for that commit before the read-back. | An installation that receives no Welcome cannot join the group. |
 | GMOD-019 | Received proposals are validated first | When the client receives a standalone proposal, it MUST check its type and sender under section 1, the same-inbox condition for Update, the Add or Remove authority under PERM-015, and the component structure and write authority under META and PERM for `AppDataUpdate`, before retaining it as an accepted proposal. | A proposal accepted by only some members can make a later commit fork the group. |
+| GMOD-039 | Clean up removed inboxes | When a client builds a commit that removes an inbox from `GROUP_MEMBERSHIP`, it MUST include in that commit an inline delete of the inbox's key from each other registered inbox-keyed map and from `ADMIN_LIST` where present, for each delete the committed policies authorize with the context of PERM-027, and MUST omit each other delete. A receiver MUST NOT reject a removal commit for omitting a cleanup delete. | A stale name or role would outlive the membership, but a forbidden cleanup must not block the removal. |
 
 ## 5. Receiving a commit
 
