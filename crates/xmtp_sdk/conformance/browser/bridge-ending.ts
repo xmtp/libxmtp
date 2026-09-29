@@ -65,6 +65,61 @@ async function endWithReadInTransit(endFails: boolean) {
 }
 
 export function registerEndingTests(): void {
+  // A queued read that is aborted settles at once and is never posted.
+  it("settles an aborted queued read without posting it", async () => {
+    let reads = 0;
+    const { engine, session } = host(async (key) => {
+      if (key === "MessageReader.next") {
+        reads++;
+        await new Promise<void>(() => {});
+      }
+      return undefined;
+    });
+    await session.ready();
+    const owner = engine.registry.add({}, "Client");
+    const reader = engine.registry.add({}, "MessageReader", owner.owner);
+    void session.call("MessageReader.next", [], reader).catch(() => {});
+    const abort = new AbortController();
+    const second = session
+      .call("MessageReader.next", [], reader, abort.signal)
+      .then(
+        () => "resolved",
+        (error: unknown) => error,
+      );
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    abort.abort();
+    const outcome = await Promise.race([
+      second,
+      new Promise<string>((resolve) =>
+        setTimeout(() => resolve("pending"), 50),
+      ),
+    ]);
+    expect(outcome).toMatchObject({ code: "Cancelled" });
+    expect(reads).toBe(1);
+  });
+
+  // Worker death fails a queued read with the worker's error.
+  it("rejects a queued read with WorkerTerminated when the worker ends", async () => {
+    const { engine, session } = host(async (key) => {
+      if (key === "MessageReader.next") await new Promise<void>(() => {});
+      return undefined;
+    });
+    await session.ready();
+    const owner = engine.registry.add({}, "Client");
+    const reader = engine.registry.add({}, "MessageReader", owner.owner);
+    const outcome = (read: Promise<unknown>) =>
+      read.then(
+        () => "resolved",
+        (error: unknown) => error,
+      );
+    const first = outcome(session.call("MessageReader.next", [], reader));
+    const second = outcome(session.call("MessageReader.next", [], reader));
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    session.terminate();
+    expect(await first).toMatchObject({ code: "WorkerTerminated" });
+    expect(await second).toMatchObject({ code: "WorkerTerminated" });
+  });
+
   // verifies: PROC-028
   it("posts a second read only after the first read settles on the main thread", async () => {
     const readHeld = latch();

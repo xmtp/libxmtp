@@ -7,6 +7,7 @@ import { registerEndingTests } from "./bridge-ending";
 import { registerIdentityTests } from "./bridge-identity";
 import { registerOwnershipTests } from "./bridge-ownership";
 import { registerPackageLifetimeTests } from "./bridge-package-lifetime";
+import { registerStreamTests } from "./bridge-streams";
 import { registerTransportTests } from "./bridge-transport";
 import { registerWorkerSessionTests } from "./bridge-worker-sessions";
 
@@ -20,6 +21,7 @@ describe("browser bridge transport", () => {
   registerAdminTests();
   registerWorkerSessionTests();
   registerPackageLifetimeTests();
+  registerStreamTests();
 });
 
 // verifies: PROC-046

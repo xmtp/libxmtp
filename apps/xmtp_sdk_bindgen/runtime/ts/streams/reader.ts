@@ -178,7 +178,11 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
    * second read must not start while the first value has not reached the app.
    */
   next(): Promise<IteratorResult<T>> {
-    const result = this.reads.then(() => this.read());
+    // A closed stream answers at once. It does not wait for a read that is
+    // still ending its reader.
+    const result = Promise.race([this.reads, this.stopped]).then(() =>
+      this.read(),
+    );
     this.reads = result.then(
       () => undefined,
       () => undefined,

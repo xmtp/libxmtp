@@ -41,6 +41,8 @@ export class MainSession {
   private readonly closedOwners = new Set<number>();
   // The last read on each reader handle. The next read waits for it.
   private readonly readTails = new Map<number, Promise<void>>();
+  // Reads that wait for an earlier read. Worker termination fails them.
+  private readonly queuedReads = new Set<(error: Error) => void>();
   // Owners whose end is in progress. Reads that arrive for them wait here
   // until the end settles.
   private readonly endingOwners = new Map<
@@ -251,17 +253,55 @@ export class MainSession {
     signal?: AbortSignal,
   ): Promise<unknown> {
     const previous = this.readTails.get(target.h) ?? Promise.resolve();
-    const read = previous.then(() => this.sendCall(key, args, target, signal));
-    const tail = read.then(
-      () => undefined,
-      () => undefined,
-    );
+    const read = (async () => {
+      await this.readTurn(previous, signal);
+      return this.sendCall(key, args, target, signal);
+    })();
+    // A later read waits for this one and for the earlier read, even when
+    // this one was aborted while queued and never posted.
+    const tail = Promise.all([
+      previous,
+      read.then(
+        () => undefined,
+        () => undefined,
+      ),
+    ]).then(() => undefined);
     this.readTails.set(target.h, tail);
     void tail.then(() => {
       if (this.readTails.get(target.h) === tail)
         this.readTails.delete(target.h);
     });
     return read;
+  }
+
+  /**
+   * Waits for the previous read on a reader. A queued read that is aborted,
+   * or whose worker ends, fails at once and is never posted.
+   */
+  private readTurn(
+    previous: Promise<void>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (this.dead) return Promise.reject(bridgeError("workerTerminated"));
+    if (signal?.aborted)
+      return Promise.reject(bridgeError("cancelled", signal.reason));
+    return new Promise<void>((resolve, reject) => {
+      const stop = () => {
+        signal?.removeEventListener("abort", abort);
+        this.queuedReads.delete(fail);
+      };
+      const fail = (error: Error) => {
+        stop();
+        reject(error);
+      };
+      const abort = () => fail(bridgeError("cancelled", signal?.reason));
+      signal?.addEventListener("abort", abort, { once: true });
+      this.queuedReads.add(fail);
+      void previous.then(() => {
+        stop();
+        resolve();
+      });
+    });
   }
 
   private async sendCall(
@@ -373,6 +413,7 @@ export class MainSession {
     this.readyReject?.(error);
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    for (const fail of this.queuedReads) fail(error);
     for (const held of this.endingOwners.values())
       for (const { pending } of held) pending.reject(error);
     this.endingOwners.clear();
