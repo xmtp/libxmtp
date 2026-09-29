@@ -189,7 +189,11 @@ fn published_schema_enforces_every_numeric_scalar_range() {
     let baseline = serde_json::to_value(config)?;
     assert!(validator.is_valid(&baseline));
     for (section, properties) in baseline.as_object()? {
-        for (field, value) in properties.as_object()? {
+        // The catalogue is a list with no entry in the baseline; its own test covers it.
+        let Some(properties) = properties.as_object() else {
+            continue;
+        };
+        for (field, value) in properties {
             if !value.is_number() || field == "sample_ratio" {
                 continue;
             }
@@ -239,6 +243,51 @@ fn published_schema_enforces_every_numeric_scalar_range() {
             }
         }
     }
+}
+
+/// An editor must flag a catalogue entry startup would refuse for its
+/// shape: an ID outside the application range, an empty or long name, an
+/// unknown type or policy, a missing key, or an unknown key.
+#[xmtp_common::test(unwrap_try = true)]
+fn published_schema_checks_application_component_shape() {
+    let validator = validator();
+    let entry = json!({
+        "component_id": 0xC000, "name": "USER_PRONOUNS", "component_type": "tls_map_inbox_id_string",
+        "insert_policy": "allow_if_self_or_non_member", "update_policy": "allow_if_self_or_non_member",
+        "delete_policy": "allow_if_admin", "in_groups": true, "in_dms": false
+    });
+    let with = |key: &str, value: Value| {
+        let mut entry = entry.clone();
+        entry[key] = value;
+        json!({"database": {"url": "env:DB"}, "application_components": [entry]})
+    };
+    for (key, value, accepted) in [
+        ("component_id", json!(0xC000), true),
+        ("component_id", json!(0xFEFF), true),
+        ("component_id", json!(0xBFFF), false),
+        ("component_id", json!(0xFF00), false),
+        ("name", json!("x".repeat(100)), true),
+        ("name", json!(""), false),
+        ("name", json!("x".repeat(101)), false),
+        ("component_type", json!("bytes"), true),
+        ("component_type", json!("map"), false),
+        ("delete_policy", json!("deny"), true),
+        ("delete_policy", json!("everyone"), false),
+        ("in_dms", json!("false"), false),
+        ("unknown", json!(1), false),
+    ] {
+        assert_eq!(
+            validator.is_valid(&with(key, value.clone())),
+            accepted,
+            "{key} = {value}"
+        );
+    }
+    let mut missing = entry.clone();
+    missing.as_object_mut()?.remove("delete_policy");
+    assert!(
+        !validator
+            .is_valid(&json!({"database": {"url": "env:DB"}, "application_components": [missing]}))
+    );
 }
 
 #[xmtp_common::test(unwrap_try = true)]

@@ -21,8 +21,9 @@ const XMTP_RANGE_END: u16 = 0xBFFF;
 const XMTP_IMMUTABLE_START: u16 = 0xBE00;
 
 // --- Application Range: 0xC000-0xFEFF ---
-const APP_RANGE_START: u16 = 0xC000;
-const APP_RANGE_END: u16 = 0xFEFF;
+// The backend configuration validates operator IDs against the same range.
+const APP_RANGE_START: u16 = *xmtp_configuration::APPLICATION_COMPONENT_IDS.start();
+const APP_RANGE_END: u16 = *xmtp_configuration::APPLICATION_COMPONENT_IDS.end();
 /// Immutable application components: 0xFD00-0xFEFF (512 IDs, counting down).
 const APP_IMMUTABLE_START: u16 = 0xFD00;
 
@@ -96,6 +97,38 @@ impl ComponentId {
     pub const CREATOR_INBOX_ID: Self = Self(0xBFFE);
     pub const DM_MEMBERS: Self = Self(0xBFFD);
     pub const ONESHOT_MESSAGE: Self = Self(0xBFFC);
+
+    /// Every well-known component and its META section 2 name, in ID order.
+    pub const WELL_KNOWN_NAMES: [(Self, &'static str); 18] = [
+        (Self::COMPONENT_REGISTRY, "COMPONENT_REGISTRY"),
+        (Self::SUPER_ADMIN_LIST, "SUPER_ADMIN_LIST"),
+        (Self::ADMIN_LIST, "ADMIN_LIST"),
+        (Self::GROUP_MEMBERSHIP, "GROUP_MEMBERSHIP"),
+        (Self::GROUP_NAME, "GROUP_NAME"),
+        (Self::GROUP_DESCRIPTION, "GROUP_DESCRIPTION"),
+        (Self::GROUP_IMAGE_URL, "GROUP_IMAGE_URL"),
+        (Self::MESSAGE_DISAPPEAR_FROM_NS, "MESSAGE_DISAPPEAR_FROM_NS"),
+        (Self::MESSAGE_DISAPPEAR_IN_NS, "MESSAGE_DISAPPEAR_IN_NS"),
+        (Self::APP_DATA, "APP_DATA"),
+        (
+            Self::MIN_SUPPORTED_PROTOCOL_VERSION,
+            "MIN_SUPPORTED_PROTOCOL_VERSION",
+        ),
+        (Self::COMMIT_LOG_SIGNER, "COMMIT_LOG_SIGNER"),
+        (Self::USER_DISPLAY_NAME, "USER_DISPLAY_NAME"),
+        (Self::GROUP_IMAGE, "GROUP_IMAGE"),
+        (Self::ONESHOT_MESSAGE, "ONESHOT_MESSAGE"),
+        (Self::DM_MEMBERS, "DM_MEMBERS"),
+        (Self::CREATOR_INBOX_ID, "CREATOR_INBOX_ID"),
+        (Self::CONVERSATION_TYPE, "CONVERSATION_TYPE"),
+    ];
+
+    /// The well-known component with exactly this name.
+    pub fn from_well_known_name(name: &str) -> Option<Self> {
+        Self::WELL_KNOWN_NAMES
+            .iter()
+            .find_map(|&(id, known)| (known == name).then_some(id))
+    }
 
     // === Constructor and Accessors ===
 
@@ -265,6 +298,34 @@ mod tests {
         );
         assert_eq!(ComponentId::GROUP_IMAGE.event_name(), "GROUP_IMAGE");
         assert_eq!(ComponentId::new(0xc123).event_name(), "component:c123");
+    }
+
+    // An application name equal to one of these is refused at backend
+    // startup, so the table must hold every META section 2 name exactly, and
+    // only those.
+    #[xmtp_common::test]
+    fn well_known_names_match_exactly() {
+        assert_eq!(
+            ComponentId::from_well_known_name("GROUP_NAME"),
+            Some(ComponentId::GROUP_NAME)
+        );
+        assert_eq!(
+            ComponentId::from_well_known_name("CONVERSATION_TYPE"),
+            Some(ComponentId::CONVERSATION_TYPE)
+        );
+        for other in ["group_name", "GROUP_NAME ", "USER_PRONOUNS", ""] {
+            assert_eq!(ComponentId::from_well_known_name(other), None);
+        }
+        for pair in ComponentId::WELL_KNOWN_NAMES.windows(2) {
+            assert!(pair[0].0 < pair[1].0, "{pair:?} is out of ID order");
+        }
+        // A new well-known ID gets an event name; it must get a table row too.
+        for id in (XMTP_RANGE_START..=XMTP_RANGE_END).map(ComponentId::new) {
+            let listed = ComponentId::WELL_KNOWN_NAMES
+                .iter()
+                .any(|(known, _)| *known == id);
+            assert_eq!(listed, !id.event_name().starts_with("component:"), "{id:?}");
+        }
     }
 
     #[xmtp_common::test]
