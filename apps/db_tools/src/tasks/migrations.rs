@@ -66,8 +66,9 @@ mod tests {
             conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))
                 .is_err()
         );
-        rollback_confirmed(&conn, &applied[0])?;
-        assert_eq!(applied_migrations(&conn)?, applied[1..].to_vec());
+        // Roll back through the migration that retired the view.
+        rollback_confirmed(&conn, "20260928010000")?;
+        assert_eq!(applied_migrations(&conn)?, applied[2..].to_vec());
         conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
         db.run_pending_migrations()?;
         assert_eq!(applied_migrations(&conn)?, applied);
