@@ -203,6 +203,56 @@ async fn invalid_reply_parent_body_does_not_break_reads() {
     client.end().await?;
 }
 
+/// A reply parent that has expired, but that cleanup has not deleted, is
+/// omitted. The parent comes from the same relation read as the reply, so no
+/// later unrestricted reload can return it.
+// verifies: META-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn reply_parent_expired_before_lookup_is_omitted() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent_id = group.send_text("parent".into(), None).await?;
+    let reply_id = client
+        .conversations()
+        .reply_to_message(parent_id.clone(), crate::encode_text("reply".into())?, None)
+        .await?;
+    let before = client
+        .conversations()
+        .get_message_by_id(reply_id.clone())
+        .await?
+        .expect("reply");
+    assert!(before.0.in_reply_to.is_some());
+
+    let parent_bytes = parent_id.to_bytes()?;
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&parent_bytes)))
+            .set(dsl::expire_at_ns.eq(Some(1_i64)))
+            .execute(conn)
+    })?;
+    let by_id = client
+        .conversations()
+        .get_message_by_id(reply_id.clone())
+        .await?
+        .expect("reply");
+    assert!(
+        by_id.0.in_reply_to.is_none(),
+        "lookup returned an expired parent"
+    );
+    let history = group
+        .messages(None)
+        .await?
+        .into_iter()
+        .find(|message| message.0.id == reply_id)
+        .expect("reply in history");
+    assert!(
+        history.0.in_reply_to.is_none(),
+        "history returned an expired parent"
+    );
+    client.end().await?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn deleted_messages_and_reply_parents_hide_original_content() {
     use crate::MessageBody;
