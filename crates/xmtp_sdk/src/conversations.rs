@@ -2,7 +2,7 @@ use xmtp_db::group::{GroupQueryArgs, GroupQueryOrderBy};
 use xmtp_proto::types::ConversationType;
 
 use crate::{
-    ConsentState, ContentTypeId, DeliveryStatus, DisappearingSettings, InboxID, MessageKind,
+    ConsentState, ContentTypeId, DeliveryStatus, DisappearingSettings, InboxId, MessageKind,
     PermissionPolicySet, Timestamp, XmtpError,
 };
 
@@ -113,7 +113,7 @@ pub struct ListMessagesOptions {
     #[uniffi(default = None)]
     pub exclude_content_types: Option<Vec<ContentTypeId>>,
     #[uniffi(default = None)]
-    pub exclude_sender_inbox_ids: Option<Vec<InboxID>>,
+    pub exclude_sender_inbox_ids: Option<Vec<InboxId>>,
 }
 
 impl TryFrom<ListMessagesOptions> for xmtp_db::group_message::MsgQueryArgs {
@@ -156,7 +156,12 @@ impl TryFrom<ListMessagesOptions> for xmtp_db::group_message::MsgQueryArgs {
                 .transpose()?,
             exclude_sender_inbox_ids: value
                 .exclude_sender_inbox_ids
-                .map(|ids| ids.into_iter().map(|id| id.0).collect()),
+                .map(|ids| {
+                    ids.into_iter()
+                        .map(crate::InboxId::into_checked)
+                        .collect::<Result<_, _>>()
+                })
+                .transpose()?,
             ..Default::default()
         })
     }

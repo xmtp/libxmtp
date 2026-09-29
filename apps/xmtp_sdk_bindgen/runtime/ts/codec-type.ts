@@ -1,7 +1,7 @@
-import type { ContentTypeID, EncodedContent } from "../xmtp_sdk";
+import type { ContentTypeId, EncodedContent } from "../xmtp_sdk";
 
 export interface ContentCodec<T> {
-  readonly type: ContentTypeID;
+  readonly type: ContentTypeId;
   encode(value: T): EncodedContent;
   decode(encoded: EncodedContent): T;
 }

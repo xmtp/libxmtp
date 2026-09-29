@@ -133,7 +133,7 @@ async fn expired_owner_cannot_acknowledge_or_scan_after_takeover() {
     );
 }
 
-// verifies: PROC-033, PROC-035
+// verifies: PROC-033
 #[xmtp_common::test(unwrap_try = true)]
 async fn history_snapshot_cursor_and_restore_identity_prevent_gaps() {
     let store = TestDb::create_persistent_store(None).await;
@@ -272,7 +272,6 @@ async fn delayed_connection_uses_the_new_clock_before_acknowledgement_and_renewa
     );
 }
 
-// verifies: PROC-035
 #[xmtp_common::test(unwrap_try = true)]
 async fn history_snapshot_filters_before_its_limit_in_the_same_database_snapshot() {
     use crate::consent_record::StoredConsentRecord;

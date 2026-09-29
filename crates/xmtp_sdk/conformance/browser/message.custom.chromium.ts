@@ -14,9 +14,9 @@ function expect(value: unknown, message: string): asserts value {
 export function checkCustomMessageLift(): void {
   const session = {} as MainSession;
   const clientKey = 41n;
-  const type = B.ContentTypeID.create({
-    authorityID: "example.org",
-    typeID: "custom-lift",
+  const type = B.ContentTypeId.create({
+    authorityId: "example.org",
+    typeId: "custom-lift",
     versionMajor: 1,
     versionMinor: 0,
   });

@@ -5,7 +5,7 @@ use xmtp_mls::groups::group_permissions::{
 };
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
 
-use crate::{ConsentState, InboxID, InstallationID, PublicIdentity, Timestamp, XmtpError};
+use crate::{ConsentState, InboxId, InstallationId, PublicIdentity, Timestamp, XmtpError};
 
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum PermissionLevel {
@@ -16,7 +16,7 @@ pub enum PermissionLevel {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct Member {
-    pub inbox_id: InboxID,
+    pub inbox_id: InboxId,
     pub identities: Vec<PublicIdentity>,
     pub permission_level: PermissionLevel,
     pub consent_state: ConsentState,
@@ -27,7 +27,7 @@ impl TryFrom<xmtp_mls::groups::members::GroupMember> for Member {
 
     fn try_from(value: xmtp_mls::groups::members::GroupMember) -> Result<Self, Self::Error> {
         Ok(Self {
-            inbox_id: InboxID::try_from(value.inbox_id.to_string())?,
+            inbox_id: InboxId::try_from(value.inbox_id.to_string())?,
             identities: value
                 .account_identifiers
                 .into_iter()
@@ -47,9 +47,9 @@ impl TryFrom<xmtp_mls::groups::members::GroupMember> for Member {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct MembershipResult {
-    pub added: Vec<InboxID>,
-    pub removed: Vec<InboxID>,
-    pub failed_installation_ids: Vec<InstallationID>,
+    pub added: Vec<InboxId>,
+    pub removed: Vec<InboxId>,
+    pub failed_installation_ids: Vec<InstallationId>,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -65,18 +65,6 @@ impl From<xmtp_db::user_preferences::HmacKey> for HmacKey {
             epoch: value.epoch,
         }
     }
-}
-
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct ConversationHmacKeys {
-    pub conversation_id: crate::ConversationID,
-    pub keys: Vec<HmacKey>,
-}
-
-#[derive(Clone, Debug, uniffi::Record)]
-pub struct LastReadTimeEntry {
-    pub inbox_id: InboxID,
-    pub read_at: Timestamp,
 }
 
 #[derive(Clone, Debug, uniffi::Record)]
@@ -138,7 +126,7 @@ impl From<xmtp_mls::groups::MlsExtensionType> for MlsExtensionType {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct InstallationCapabilities {
-    pub installation_id: InstallationID,
+    pub installation_id: InstallationId,
     pub is_own: bool,
     pub supported_extensions: Vec<MlsExtensionType>,
     pub capabilities_known: bool,
@@ -146,7 +134,7 @@ pub struct InstallationCapabilities {
 
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct InboxCapabilities {
-    pub inbox_id: InboxID,
+    pub inbox_id: InboxId,
     pub installations: Vec<InstallationCapabilities>,
 }
 
@@ -171,13 +159,13 @@ impl TryFrom<xmtp_mls::groups::GroupMembershipCapabilities> for GroupMembershipC
                 .into_iter()
                 .map(|member| {
                     Ok(InboxCapabilities {
-                        inbox_id: InboxID::try_from(member.inbox_id.to_string())?,
+                        inbox_id: InboxId::try_from(member.inbox_id.to_string())?,
                         installations: member
                             .installations
                             .into_iter()
                             .map(|installation| {
                                 Ok(InstallationCapabilities {
-                                    installation_id: InstallationID::try_from(hex::encode(
+                                    installation_id: InstallationId::try_from(hex::encode(
                                         installation.installation_id,
                                     ))?,
                                     is_own: installation.is_own,
@@ -222,17 +210,17 @@ impl TryFrom<xmtp_mls::groups::UpdateGroupMembershipResult> for MembershipResult
             added: value
                 .added_members
                 .into_keys()
-                .map(InboxID::try_from)
+                .map(InboxId::try_from)
                 .collect::<Result<_, _>>()?,
             removed: value
                 .removed_members
                 .into_iter()
-                .map(InboxID::try_from)
+                .map(InboxId::try_from)
                 .collect::<Result<_, _>>()?,
             failed_installation_ids: value
                 .failed_installations
                 .into_iter()
-                .map(|bytes| InstallationID::try_from(hex::encode(bytes)))
+                .map(|bytes| InstallationId::try_from(hex::encode(bytes)))
                 .collect::<Result<_, _>>()?,
         })
     }
@@ -483,8 +471,8 @@ pub struct GroupState {
     pub description: String,
     pub app_data: String,
     pub membership_state: MembershipState,
-    pub admins: Vec<InboxID>,
-    pub super_admins: Vec<InboxID>,
+    pub admins: Vec<InboxId>,
+    pub super_admins: Vec<InboxId>,
     pub permissions: GroupPermissions,
 }
 
@@ -517,8 +505,8 @@ impl GroupState {
         let metadata = value
             .group
             .ok_or_else(|| XmtpError::invalid("not a group"))?;
-        let inbox_ids = |values: Vec<String>| -> Result<Vec<InboxID>, XmtpError> {
-            values.into_iter().map(InboxID::try_from).collect()
+        let inbox_ids = |values: Vec<String>| -> Result<Vec<InboxId>, XmtpError> {
+            values.into_iter().map(InboxId::try_from).collect()
         };
         Ok(Self {
             common,

@@ -1,5 +1,5 @@
 use alloy::signers::local::PrivateKeySigner;
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 use xmtp_common::{MaybeSend, MaybeSync};
 use xmtp_id::associations::Identifier;
 use xmtp_id::associations::ident;
@@ -41,6 +41,74 @@ impl From<Identifier> for PublicIdentity {
                 kind: PublicIdentityKind::Passkey,
             },
         }
+    }
+}
+
+pub(crate) fn can_message_results(
+    results: impl IntoIterator<Item = (Identifier, bool)>,
+) -> HashMap<String, bool> {
+    results
+        .into_iter()
+        .map(|(identity, available)| {
+            let key = match identity {
+                Identifier::Ethereum(ident::Ethereum(text)) => format!("ethereum:{text}"),
+                Identifier::Passkey(ident::Passkey { key, .. }) => {
+                    format!("passkey:{}", hex::encode(key))
+                }
+            };
+            (key, available)
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod can_message_tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn result_keys_keep_identity_kind_and_core_text() -> Result<(), XmtpError> {
+        let same_text = "1111111111111111111111111111111111111111";
+        let eth = PublicIdentity {
+            identifier: same_text.into(),
+            kind: PublicIdentityKind::Ethereum,
+        }
+        .to_core()?;
+        let passkey = PublicIdentity {
+            identifier: same_text.into(),
+            kind: PublicIdentityKind::Passkey,
+        }
+        .to_core()?;
+        for (first, second) in [(true, false), (false, true)] {
+            for results in [
+                vec![(eth.clone(), first), (passkey.clone(), second)],
+                vec![(passkey.clone(), second), (eth.clone(), first)],
+            ] {
+                let keys = can_message_results(results);
+                assert_eq!(keys.len(), 2);
+                assert_eq!(
+                    keys["ethereum:1111111111111111111111111111111111111111"],
+                    first
+                );
+                assert_eq!(
+                    keys["passkey:1111111111111111111111111111111111111111"],
+                    second
+                );
+            }
+        }
+        let prefixed = PublicIdentity {
+            identifier: "0xABCDEF0000000000000000000000000000000000".into(),
+            kind: PublicIdentityKind::Ethereum,
+        }
+        .to_core()?;
+        let upper_passkey = PublicIdentity {
+            identifier: "ABCDEF".into(),
+            kind: PublicIdentityKind::Passkey,
+        }
+        .to_core()?;
+        let keys = can_message_results([(prefixed, true), (upper_passkey, false)]);
+        assert!(keys["ethereum:0xabcdef0000000000000000000000000000000000"]);
+        assert!(!keys["passkey:abcdef"]);
+        Ok(())
     }
 }
 
