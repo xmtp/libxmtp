@@ -218,6 +218,53 @@ mod tests {
         assert!(events.drain().is_empty());
     }
 
+    /// Expiry cleanup reports which message was deleted, not what it said.
+    // verifies: META-051
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn expired_message_deletion_event_carries_no_body() {
+        use crate::messages::decoded_message::MessageBody;
+        use crate::subscriptions::StreamMessages;
+        use futures::StreamExt;
+        use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
+
+        tester!(alix, disable_workers);
+        let group = alix.create_group(
+            None,
+            Some(GroupMetadataOptions {
+                message_disappearing_settings: Some(MessageDisappearingSettings::new(1, 1)),
+                ..Default::default()
+            }),
+        )?;
+        let deletions = alix
+            .context
+            .events()
+            .subscribe(
+                EventFilter::default()
+                    .with_internal(|event| matches!(event, InternalEvent::MessagesDeleted(_))),
+                Some(8),
+            )
+            .stream_message_deletions();
+        futures::pin_mut!(deletions);
+        let mut secret = TextCodec::encode("secret".into())?;
+        secret.fallback = Some("secret fallback".into());
+        let message_id = group
+            .send_message(&encoded_content_to_bytes(secret), Default::default())
+            .await?;
+
+        let mut worker = DisappearingMessagesWorker::new(alix.context.clone());
+        worker.delete_expired_messages().await?;
+        let deleted = xmtp_common::time::timeout(Duration::from_secs(5), deletions.next())
+            .await?
+            .expect("a deletion item")?;
+        assert_eq!(deleted.metadata.id, message_id);
+        assert_eq!(deleted.metadata.group_id, group.group_id);
+        assert!(
+            !matches!(deleted.content, MessageBody::Text(_)),
+            "the deletion event carried the expired text"
+        );
+        assert_eq!(deleted.fallback_text, None);
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn stored_expiring_message_wakes_subscription_after_emit() {
         let (filter, depth) =
