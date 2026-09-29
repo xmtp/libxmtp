@@ -287,7 +287,7 @@ impl AsRef<GroupQueryArgs> for GroupQueryArgs {
 
 impl GroupQueryArgs {
     /// Whether the app asked for sync groups. Requested sync groups bypass the
-    /// regular filters, limit, and consent filter (SYNC-005).
+    /// regular filters, limit, and consent filter.
     pub(crate) fn requests_sync_groups(&self) -> bool {
         matches!(self.conversation_type, Some(ConversationType::Sync)) || self.include_sync_groups
     }
@@ -665,7 +665,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
         } = args.as_ref();
 
         // An empty filter names no consent state, so it matches no conversation.
-        // Requested sync groups ignore the consent filter (SYNC-005).
+        // Requested sync groups ignore the consent filter.
         if matches!(consent_states, Some(states) if states.is_empty()) {
             return self.requested_sync_group_rows(args.as_ref());
         }
@@ -1754,7 +1754,7 @@ pub(crate) mod tests {
             // The empty filter still matches no normal group, but a requested
             // sync group ignores the consent filter, as in fetch_conversation_list.
             let ids = |rows: Vec<StoredGroup>| rows.into_iter().map(|g| g.id).collect::<Vec<_>>();
-            assert_eq!(ids(empty_with_sync), vec![sync_group.id.clone()]);
+            assert_eq!(ids(empty_with_sync), vec![sync_group.id]);
             use crate::conversation_list::QueryConversationList;
             let listed = conn
                 .fetch_conversation_list(GroupQueryArgs {
@@ -1765,7 +1765,7 @@ pub(crate) mod tests {
                 .unwrap();
             assert_eq!(
                 listed.into_iter().map(|g| g.id).collect::<Vec<_>>(),
-                vec![sync_group.id.clone()]
+                vec![sync_group.id]
             );
         })
     }
