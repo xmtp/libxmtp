@@ -6,8 +6,11 @@ use xmtp_proto::types::Topic;
 
 mod deadlines;
 mod dictionary_creation;
+mod faults;
 mod membership_component;
 mod membership_recovery;
+mod out_of_range_settlement;
+mod send_state_transitions;
 
 mod transcript;
 
@@ -168,8 +171,8 @@ async fn prepared_attempt_reads_the_prior_format_without_changing_envelopes() {
     group.send_message_optimistic(b"prior prepared format", Default::default())?;
     let (_, attempt) = prepare_message(&group).await?;
 
-    // A tuple has the same bincode field layout as the prior struct.
-    let prior = xmtp_db::db_serialize(&(
+    // A tuple has the same bincode field layout as a prior struct.
+    let v1 = xmtp_db::db_serialize(&(
         1u8,
         attempt.base.clone(),
         attempt.payload_hash.clone(),
@@ -178,15 +181,27 @@ async fn prepared_attempt_reads_the_prior_format_without_changing_envelopes() {
         attempt.receipts.clone(),
         attempt.welcomes.clone(),
     ))?;
-    let restored = PreparedAttempt::decode(&prior)?;
-    assert_eq!(restored.version, 2);
-    assert_eq!(restored, attempt);
-    assert_eq!(restored.envelopes, attempt.envelopes);
-    assert!(restored.same_attempt(&attempt));
-    assert_eq!(
-        PreparedAttempt::decode(&xmtp_db::db_serialize(&restored)?)?,
-        attempt
-    );
+    let v2 = xmtp_db::db_serialize(&(
+        2u8,
+        attempt.base.clone(),
+        attempt.payload_hash.clone(),
+        attempt.envelopes.clone(),
+        attempt.proposals.clone(),
+        attempt.receipts.clone(),
+        attempt.welcomes.clone(),
+        attempt.rejection.clone(),
+    ))?;
+    for prior in [v1, v2] {
+        let restored = PreparedAttempt::decode(&prior)?;
+        assert_eq!(restored.version, prepared::PREPARED_ATTEMPT_VERSION);
+        assert_eq!(restored.unsettled, None);
+        assert_eq!(restored, attempt);
+        assert!(restored.same_attempt(&attempt));
+        assert_eq!(
+            PreparedAttempt::decode(&xmtp_db::db_serialize(&restored)?)?,
+            attempt
+        );
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]

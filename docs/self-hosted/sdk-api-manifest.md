@@ -8,7 +8,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 
 | SDK | Public declarations |
 | --- | ---: |
-| Swift | 7124 |
+| Swift | 7107 |
 | Kotlin | 962 |
 | Node | 519 |
 | Browser | 530 |
@@ -1068,7 +1068,6 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `FfiSignatureKind.erc1271` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiSignatureKind.erc191` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiSignatureKind.installationKey` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
-| `FfiSignatureKind.legacyDelegated` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiSignatureKind.p256` | case | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiSignatureRequest` | class | `SignatureRequest` | generated | 11.4 Swift, Messages, codecs, preferences, values | Old binding type used in a public SDK signature. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `FfiSignatureRequest.NoHandle` | struct | — | approved removal | 2, generated bridge replacement | Old binding method is replaced by facade output; its root is listed separately. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
@@ -1261,7 +1260,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `PrivatePreferences.streamConsent` | func | — | approved removal | 11.8, live events | Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift`. |
 | `PrivatePreferences.streamPreferenceUpdates` | func | — | approved removal | 11.8, live events | Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift`. |
 | `PrivatePreferences.sync` | func | `Preferences.sync` | generated | 11.4 Swift, Messages, codecs, preferences, values | Source: `sdks/ios/Sources/XMTPiOS/PrivatePreferences.swift`. |
-| `pattern: Proto/*.pb.swift public declarations` (3715 declarations) | generated family | — | approved removal | 2, removed protobuf sources | Pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Proto/*.pb.swift`. |
+| `pattern: Proto/*.pb.swift public declarations` (3699 declarations) | generated family | — | approved removal | 2, removed protobuf sources | Pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Proto/*.pb.swift`. |
 | `SendOptions` | struct | `SendOptions` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/SendOptions.swift`. |
 | `SendOptions.compression` | var | `SendOptions.compression` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/SendOptions.swift`. |
 | `SendOptions.contentType` | var | `SendOptions.contentType` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/SendOptions.swift`. |
@@ -3571,7 +3570,6 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/tests/client.rs` | `test_get_hmac_keys` | façade: `crates/xmtp_sdk/src/tests.rs::facade_hmac_keys_include_duplicate_dms` |
 | `bindings/mobile/src/mls/tests/client.rs` | `test_shutdown_is_idempotent` | façade: `crates/xmtp_sdk/src/tests.rs::slice_create_send_read_stream_end` |
 | `bindings/mobile/src/mls/tests/client.rs` | `register_after_unconfirmed_registration_waits` | core: `crates/xmtp_mls/src/client/tests/lifecycle.rs::register_identity_waits_until_visible` |
-| `bindings/mobile/src/mls/tests/client.rs` | `legacy_key_creation_waits_until_visible` | core: `crates/xmtp_mls/src/client/tests/lifecycle.rs::register_identity_waits_until_visible` |
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_can_send_and_receive_reaction` | façade: `crates/xmtp_sdk/src/tests.rs::message_actions_use_ids_and_compression_is_opt_in` |
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_reaction_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |
 | `bindings/mobile/src/mls/tests/content_types.rs` | `test_multi_remote_attachment_encode_decode` | façade: `crates/xmtp_sdk/src/tests/binding_map.rs::facade_content_records_preserve_codec_fields` |

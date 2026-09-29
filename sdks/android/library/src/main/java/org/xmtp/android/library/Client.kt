@@ -409,7 +409,6 @@ class Client(
                         accountIdentifier = publicIdentity.ffiPrivate,
                         inboxId = inboxId,
                         nonce = 0.toULong(),
-                        legacySignedPrivateKeyProto = null,
                         deviceSyncMode = null,
                         allowOffline = false,
                         forkRecoveryOpts = null,
@@ -663,7 +662,6 @@ class Client(
                             accountIdentifier = publicIdentity.ffiPrivate,
                             inboxId = inboxId,
                             nonce = 0.toULong(),
-                            legacySignedPrivateKeyProto = null,
                             deviceSyncMode =
                                 if (!options.deviceSyncEnabled) {
                                     FfiDeviceSyncMode.DISABLED
@@ -709,7 +707,6 @@ class Client(
                         accountIdentifier = publicIdentity.ffiPrivate,
                         inboxId = inboxId,
                         nonce = 0.toULong(),
-                        legacySignedPrivateKeyProto = null,
                         deviceSyncMode =
                             if (!options.deviceSyncEnabled) {
                                 FfiDeviceSyncMode.DISABLED

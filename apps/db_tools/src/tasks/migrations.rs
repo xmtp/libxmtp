@@ -59,9 +59,9 @@ mod tests {
         let conn = database.conn();
         let db = DbConnection::new(&conn);
         let available = db.available_migrations()?;
-        assert_eq!(available.len(), 3);
+        assert_eq!(available.len(), 5);
         let applied = applied_migrations(&conn)?;
-        assert_eq!(applied.len(), 3);
+        assert_eq!(applied.len(), 5);
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))
                 .is_err()

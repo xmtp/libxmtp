@@ -63,6 +63,7 @@ pub mod prelude {
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::readd_status::QueryReaddStatus;
+    pub use super::received_proposal::QueryReceivedProposal;
     pub use super::refresh_state::QueryRefreshState;
     pub use super::remote_commit_log::QueryRemoteCommitLog;
     pub use super::server_configuration::QueryServerConfiguration;

@@ -231,6 +231,14 @@ diesel::table! {
 }
 
 diesel::table! {
+    received_proposals (group_id, epoch, proposal_ref) {
+        group_id -> Binary,
+        epoch -> BigInt,
+        proposal_ref -> Binary,
+    }
+}
+
+diesel::table! {
     refresh_state (entity_id, entity_kind) {
         entity_id -> Binary,
         entity_kind -> Integer,
@@ -308,6 +316,7 @@ diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 diesel::joinable!(group_welcome_discovery -> groups (group_id));
 diesel::joinable!(message_deletions -> group_messages (id));
+diesel::joinable!(received_proposals -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
     association_state,
@@ -330,6 +339,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     processed_device_sync_messages,
     push_uploaded_topic,
     readd_status,
+    received_proposals,
     refresh_state,
     remote_commit_log,
     server_configuration,

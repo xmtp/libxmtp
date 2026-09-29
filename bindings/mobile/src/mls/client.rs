@@ -168,12 +168,11 @@ impl DbOptions {
 ///
 /// // if inbox_id is not associated, we will create new one.
 /// if !inbox_id {
-///     if !legacy_key { nonce = random_u64() }
 ///     inbox_id = generate_inbox_id(account_identifier, nonce)
 /// } // Otherwise, we will just use the inbox and ignore the nonce.
 /// db_path = $inbox_id-$env
 ///
-/// xmtp.create_client(account_identifier, nonce, inbox_id, Option<legacy_signed_private_key_proto>)
+/// xmtp.create_client(account_identifier, nonce, inbox_id)
 /// ```
 ///
 /// `change_callbacks` is unstable: notifications for group-state changes,
@@ -193,7 +192,6 @@ pub async fn create_client(
     inbox_id: &InboxId,
     account_identifier: FfiIdentifier,
     nonce: u64,
-    legacy_signed_private_key_proto: Option<Vec<u8>>,
     device_sync_mode: Option<FfiDeviceSyncMode>,
     allow_offline: Option<bool>,
     fork_recovery_opts: Option<FfiForkRecoveryOpts>,
@@ -259,13 +257,8 @@ pub async fn create_client(
     let store = EncryptedMessageStore::new(db)?;
 
     log::info!("Creating XMTP client");
-    let used_legacy_key = legacy_signed_private_key_proto.is_some();
-    let identity_strategy = IdentityStrategy::new(
-        inbox_id.clone(),
-        ident.clone().try_into()?,
-        nonce,
-        legacy_signed_private_key_proto,
-    );
+    let identity_strategy =
+        IdentityStrategy::new(inbox_id.clone(), ident.clone().try_into()?, nonce);
 
     let api_client = api.api_client.clone();
 
@@ -292,9 +285,6 @@ pub async fn create_client(
     }
 
     let xmtp_client = builder.default_mls_store()?.build().await?;
-    if used_legacy_key {
-        xmtp_client.ensure_registration_visible().await?;
-    }
 
     log::info!(
         "Created XMTP client for inbox_id: {}",
