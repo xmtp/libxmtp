@@ -15,8 +15,10 @@ private struct CodecRegistry {
 }
 
 /// The host client resolves storage and owns the weak message lookup entry.
+/// Generated forwarders in `ClientForwarding.swift` expose the other Client
+/// methods. The generated Client stays private to the runtime.
 public final class SDKClient: @unchecked Sendable {
-    public let raw: Client
+    let raw: Client
     let listenerGates = ListenerGates()
     private let codecs: CodecRegistry
 

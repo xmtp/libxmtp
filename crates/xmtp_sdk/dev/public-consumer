@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Stage the generated SDK as separate public products, then compile separate
+# consumer projects against them. The consumers call the retained public
+# surface from the approved plan. Negative probes must fail on visibility.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+generated=target/sdk-generated
+stage=target/sdk-public
+fixtures=crates/xmtp_sdk/conformance/public
+for language in swift kotlin; do
+  if [ ! -d "$generated/$language/runtime" ]; then
+    echo "missing $generated/$language; run 'just sdk generate' first" >&2
+    exit 1
+  fi
+done
+rm -rf -- "$stage"
+
+# Swift: a SwiftPM package with the XmtpSdk library product.
+swift_stage="$stage/XmtpSdk"
+mkdir -p "$swift_stage/Sources/XmtpSdk" "$swift_stage/Sources/xmtp_sdkFFI"
+cp "$generated/swift/xmtp_sdk.swift" "$swift_stage/Sources/XmtpSdk/"
+cp -R "$generated/swift/runtime/." "$swift_stage/Sources/XmtpSdk/"
+cp "$generated/swift/xmtp_sdkFFI.h" "$swift_stage/Sources/xmtp_sdkFFI/"
+cp "$generated/swift/xmtp_sdkFFI.modulemap" "$swift_stage/Sources/xmtp_sdkFFI/module.modulemap"
+cat > "$swift_stage/Package.swift" <<'SWIFT'
+// swift-tools-version: 6.1
+import PackageDescription
+
+let package = Package(
+    name: "XmtpSdk",
+    platforms: [.macOS(.v15)],
+    products: [.library(name: "XmtpSdk", targets: ["XmtpSdk"])],
+    targets: [
+        .systemLibrary(name: "xmtp_sdkFFI", path: "Sources/xmtp_sdkFFI"),
+        .target(name: "XmtpSdk", dependencies: ["xmtp_sdkFFI"], path: "Sources/XmtpSdk"),
+    ],
+    swiftLanguageModes: [.v5]
+)
+SWIFT
+
+# Kotlin: the generated sources and Android helpers, compiled by the fixture
+# as a separate Android library module.
+mkdir -p "$stage/kotlin"
+for part in uniffi runtime android; do
+  cp -R "$generated/kotlin/$part" "$stage/kotlin/$part"
+done
+
+log="$(mktemp)"
+swift_negative="$fixtures/swift/Sources/PublicConsumer/RawAccess.swift"
+kotlin_negative="$fixtures/kotlin/consumer/src/main/kotlin/RawAccess.kt"
+trap 'rm -f "$log" "$swift_negative" "$kotlin_negative"' EXIT
+
+swift_build() {
+  NIX_DEVSHELL=ios dev/nix-shell "swift build --package-path $fixtures/swift -Xswiftc -strict-concurrency=complete"
+}
+kotlin_build() {
+  NIX_DEVSHELL=android dev/nix-shell "sdks/android/gradlew -p $fixtures/kotlin :consumer:compileDebugKotlin --no-daemon -q"
+}
+
+# A missing retained member fails here even if the raw binding still has it.
+if ! swift_build >"$log" 2>&1; then
+  cat "$log" >&2
+  echo "Swift public consumer failed to compile" >&2
+  exit 1
+fi
+echo "Swift public consumer compiled against the staged XmtpSdk product"
+cp "$fixtures/swift/Negative/RawAccess.swift" "$swift_negative"
+if swift_build >"$log" 2>&1; then
+  echo "Swift raw-access probe compiled" >&2
+  exit 1
+fi
+grep -q "'raw' is inaccessible due to 'internal' protection level" "$log"
+grep -q "'create' is inaccessible due to 'internal' protection level" "$log"
+rm -f "$swift_negative"
+echo "Swift public consumer cannot reach the generated Client"
+
+if ! kotlin_build >"$log" 2>&1; then
+  cat "$log" >&2
+  echo "Kotlin public consumer failed to compile" >&2
+  exit 1
+fi
+echo "Android public consumer compiled against the staged SDK library"
+cp "$fixtures/kotlin/negative/RawAccess.kt" "$kotlin_negative"
+if kotlin_build >"$log" 2>&1; then
+  echo "Kotlin raw-access probe compiled" >&2
+  exit 1
+fi
+grep -q "Cannot access 'val raw: Client': it is internal" "$log"
+grep -q "Cannot access 'suspend fun create" "$log"
+rm -f "$kotlin_negative"
+echo "Kotlin public consumer cannot reach the generated Client"

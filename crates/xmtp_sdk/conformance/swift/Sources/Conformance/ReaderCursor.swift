@@ -7,11 +7,11 @@ func checkReaderCursor(signer: Signer, backend: BackendOptions) async throws {
     let options = ClientOptions(backend: .options(options: backend), storage: StorageOptions(location: .path(path)), deviceSync: false)
     var host = try await SDKClient.create(signer: signer, options: options)
     let identity = try await signer.identity()
-    let inbox = host.raw.inboxId()
-    try await host.raw.conversations().sdkConformanceSeedDeliveryCursor()
-    let group = try await host.raw.conversations().createGroup(members: [], options: nil)
+    let inbox = host.inboxId()
+    try await host.conversations().sdkConformanceSeedDeliveryCursor()
+    let group = try await host.conversations().createGroup(members: [InboxId](), options: nil)
     let groupId = group.id()
-    let beginning = try await host.raw.conversations().beginningDeliveryCursor()
+    let beginning = try await host.conversations().beginningDeliveryCursor()
     let firstId = try await group.sendText(text: "large A")
     guard let first = try await group.messages(options: nil).first(where: { $0.id == firstId }), let cursor = first.deliveryCursor else { throw ConformanceFailure("cursor absent") }
     func sequence(_ cursor: String) throws -> UInt64 {
@@ -20,7 +20,7 @@ func checkReaderCursor(signer: Signer, backend: BackendOptions) async throws {
     }
     let firstSequence = try sequence(cursor)
     precondition(firstSequence == 9_007_199_254_740_993)
-    let lookup = try await host.raw.conversations().getMessageById(id: firstId)
+    let lookup = try await host.conversations().getMessageById(id: firstId)
     let refreshed = try await first.refresh()
     precondition(lookup?.deliveryCursor == cursor && refreshed?.deliveryCursor == cursor)
     precondition(Message(data: first.data) == first)
@@ -53,19 +53,19 @@ func checkReaderCursor(signer: Signer, backend: BackendOptions) async throws {
     try await resume.end()
     let encoded = try TextCodec().encode("reply")
     let replyId = try await group.sendReply(reference: firstId, referenceInboxId: nil, content: encoded)
-    let reply = try await host.raw.conversations().getMessageById(id: replyId)
+    let reply = try await host.conversations().getMessageById(id: replyId)
     let parent = try await reply?.parent()
     precondition(parent?.deliveryCursor == cursor)
     let preparedId = try await group.prepareMessage(encoded: encoded)
-    guard let pending = try await host.raw.conversations().getMessageById(id: preparedId) else { throw ConformanceFailure("optimistic message missing") }
+    guard let pending = try await host.conversations().getMessageById(id: preparedId) else { throw ConformanceFailure("optimistic message missing") }
     precondition(pending.id == preparedId)
     precondition(pending.deliveryCursor == nil)
     try await group.publishMessage(id: preparedId)
-    let published = try await host.raw.conversations().getMessageById(id: preparedId)
+    let published = try await host.conversations().getMessageById(id: preparedId)
     precondition(published?.deliveryCursor != nil)
     try await host.end()
     host = try await SDKClient.build(identity: identity, options: options, inboxId: inbox)
-    guard case let .group(restored)? = try await host.raw.conversations().getById(id: groupId) else { throw ConformanceFailure("group missing") }
+    guard case let .group(restored)? = try await host.conversations().getById(id: groupId) else { throw ConformanceFailure("group missing") }
     let replayClosed = AsyncStream<Void>.makeStream()
     let replay = try await host.messages(in: restored, options: ConversationMessageReaderOptions(from: cursor), onClose: { _ in replayClosed.continuation.finish() })
     var replayCount = 0
@@ -86,21 +86,21 @@ func checkRestoredPeer(backend: BackendOptions) async throws {
     let a = try await SDKClient.create(signer: await generateLocalSigner(), options: options)
     let b = try await SDKClient.create(signer: await generateLocalSigner(), options: options)
     let c = try await SDKClient.create(signer: await generateLocalSigner(), options: options)
-    let dm = try await a.raw.conversations().createDm(peer: b.raw.inboxId())
-    let other = try await b.raw.conversations().createDm(peer: a.raw.inboxId())
+    let dm = try await a.conversations().createDm(peer: b.inboxId())
+    let other = try await b.conversations().createDm(peer: a.inboxId())
     precondition(dm.id() != other.id())
     let peerA = try await dm.peerInboxId()
     let peerB = try await other.peerInboxId()
-    precondition(peerA == b.raw.inboxId() && peerB == a.raw.inboxId())
-    _ = try await a.raw.conversations().syncAll(consentStates: nil)
+    precondition(peerA == b.inboxId() && peerB == a.inboxId())
+    _ = try await a.conversations().syncAll(consentStates: nil)
     let id = try await dm.sendText(text: "foreign restored DM")
     let key = Data(repeating: 9, count: 32)
-    let archive = try await a.raw.archives().exportToBytes(keyBytes: key, options: ArchiveOptions(elements: [.messages]))
-    try await c.raw.archives().importFromBytes(data: archive, keyBytes: key)
-    guard case let .dm(restored)? = try await c.raw.conversations().getById(id: dm.id()) else { throw ConformanceFailure("DM missing") }
+    let archive = try await a.archives().exportToBytes(keyBytes: key, options: ArchiveOptions(elements: [.messages]))
+    try await c.archives().importFromBytes(data: archive, keyBytes: key)
+    guard case let .dm(restored)? = try await c.conversations().getById(id: dm.id()) else { throw ConformanceFailure("DM missing") }
     let peer = try await restored.peerInboxId()
     precondition(peer == nil)
-    let listed = try await c.raw.conversations().listDms(options: ListConversationsOptions(includeDuplicateDms: true))
+    let listed = try await c.conversations().listDms(options: ListConversationsOptions(includeDuplicateDms: true))
     precondition(listed.count == 2)
     for item in listed {
         let peer = try await item.peerInboxId(); precondition(peer == nil)
@@ -111,7 +111,7 @@ func checkRestoredPeer(backend: BackendOptions) async throws {
     precondition(duplicatePeer == nil)
     let cursor = try await restored.messages(options: nil).first { $0.id == id }?.deliveryCursor
     precondition(cursor != nil)
-    let beginning = try await c.raw.conversations().beginningDeliveryCursor()
+    let beginning = try await c.conversations().beginningDeliveryCursor()
     let closed = AsyncStream<Void>.makeStream()
     let stream = try await c.messages(in: restored, options: ConversationMessageReaderOptions(from: beginning), onClose: { _ in closed.continuation.finish() })
     var dmCount = 0
@@ -125,7 +125,7 @@ func checkRestoredPeer(backend: BackendOptions) async throws {
     precondition(first?.deliveryCursor == cursor)
     try await reader.end()
     do { _ = try await restored.messageReader(options: ConversationMessageReaderOptions(from: "invalid")); throw ConformanceFailure("invalid cursor accepted") } catch XmtpError.InvalidCursor {}
-    let foreign = try await a.raw.conversations().beginningDeliveryCursor()
+    let foreign = try await a.conversations().beginningDeliveryCursor()
     do { _ = try await restored.messageReader(options: ConversationMessageReaderOptions(from: foreign)); throw ConformanceFailure("foreign cursor accepted") } catch XmtpError.ForeignCursor {}
     try await c.end()
     try await b.end()

@@ -63,6 +63,11 @@ conformance-package: wasm-init
 conformance-bridge-unit *args: wasm-init
     cd "{{ root }}" && NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run --config crates/xmtp_sdk/conformance/browser/vitest.config.mts --browser.enabled=false {{ args }}
 
+# Compile separate Swift and Kotlin consumers against staged public products.
+# Run `just sdk generate` first.
+public-consumer:
+    bash "{{ root }}/crates/xmtp_sdk/dev/public-consumer"
+
 manifest-check:
     cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
 

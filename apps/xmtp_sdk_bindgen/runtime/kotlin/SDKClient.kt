@@ -17,9 +17,13 @@ private class CodecRegistry(
     }
 }
 
-/** The host client resolves storage and owns the weak message lookup entry. */
+/**
+ * The host client resolves storage and owns the weak message lookup entry.
+ * Generated forwarders in `ClientForwarding.kt` expose the other Client methods.
+ * The generated Client stays private to the runtime.
+ */
 class SDKClient private constructor(
-    val raw: Client,
+    internal val raw: Client,
     codecs: List<SDKContentCodec>,
 ) {
     private val codecs = CodecRegistry(codecs)
@@ -179,7 +183,7 @@ class SDKClient private constructor(
             onConnectionStateChange = onConnectionStateChange,
         )
 
-    fun conversations(
+    fun conversationStream(
         kind: ConversationKind? = null,
         consentStates: List<ConsentState>? = null,
         onClose: ((SDKStreamCloseReason) -> Unit)? = null,

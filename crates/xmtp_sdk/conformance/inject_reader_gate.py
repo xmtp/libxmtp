@@ -38,8 +38,8 @@ if language == "kotlin":
 elif language == "swift":
     source = replace_once(
         source,
-        "    public let raw: Client\n",
-        "    public let raw: Client\n\n"
+        "    let raw: Client\n",
+        "    let raw: Client\n\n"
         "    nonisolated(unsafe) static var readerOpenedForTest: (@Sendable (MessageReader) async -> Void)?\n"
         "    nonisolated(unsafe) static var conversationReaderOpeningForTest: (@Sendable () async -> Void)?\n"
         "    nonisolated(unsafe) static var conversationReaderOpenedForTest: (@Sendable (ConversationReader) async -> Void)?\n",

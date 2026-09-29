@@ -141,6 +141,164 @@ fn render(
     Ok(methods)
 }
 
+/// Client methods that the host Client implements itself, or that stay private
+/// because they identify a transport handle.
+const HOST_CLIENT_METHODS: &[&str] = &[
+    "clientKey",
+    "end",
+    "events",
+    "startListener",
+    "stopListener",
+    "storage",
+];
+
+/// Select the host names of every exported Client instance method that the host
+/// Client must forward.
+fn client_methods<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Vec<String> {
+    let mut names = items
+        .into_iter()
+        .filter_map(|item| match item {
+            Metadata::Method(method) if method.self_name == "Client" => {
+                Some(host_name(&method.name))
+            }
+            _ => None,
+        })
+        .filter(|name| !HOST_CLIENT_METHODS.contains(&name.as_str()))
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+/// Swift class methods carry their default arguments; the protocol does not.
+fn swift_client_declarations(source: &str) -> Result<BTreeMap<String, String>> {
+    let body = source
+        .split_once("open class Client:")
+        .context("generated Swift binding has no Client class")?
+        .1
+        .split_once("public struct FfiConverterTypeClient")
+        .context("generated Swift binding has no end for the Client class")?
+        .0;
+    Ok(body
+        .lines()
+        .filter_map(|line| {
+            let declaration = line.strip_prefix("open func ")?;
+            let name = declaration.split_once('(')?.0.trim_matches('`');
+            Some((name.to_string(), line.to_string()))
+        })
+        .collect())
+}
+
+fn render_client(
+    selected: &[String],
+    declarations: &BTreeMap<String, String>,
+    language: Language,
+) -> Result<String> {
+    let swift = matches!(language, Language::Swift);
+    let mut methods = String::new();
+    for name in selected {
+        let Some(declaration) = declarations.get(name) else {
+            bail!("Client.{name}: exported method is missing from generated bindings");
+        };
+        let args = arguments(declaration, swift).join(", ");
+        if swift {
+            let signature = declaration
+                .trim_start_matches("open func ")
+                .trim_end()
+                .trim_end_matches('{')
+                .replace(")async", ") async")
+                .replace(")throws", ") throws")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let effect = if signature.contains(" async throws") {
+                "try await "
+            } else if signature.contains(" async") {
+                "await "
+            } else if signature.contains(" throws") {
+                "try "
+            } else {
+                ""
+            };
+            methods.push_str(&format!(
+                "    func {signature} {{\n        {effect}raw.{name}({args})\n    }}\n\n"
+            ));
+        } else {
+            let signature = declaration.replace("fun `", "fun SDKClient.`");
+            methods.push_str(&format!("{signature} = raw.`{name}`({args})\n\n"));
+        }
+    }
+    Ok(methods)
+}
+
+fn generate_client(
+    groups: &MetadataGroupMap,
+    language: Language,
+    source: &str,
+    out: &Utf8Path,
+) -> Result<()> {
+    let selected = client_methods(groups.values().flat_map(|group| &group.items));
+    let (found, header, footer, filename) = match language {
+        Language::Swift => (
+            swift_client_declarations(source)?,
+            "/// Generated from exported Client methods. Do not edit this output.\nimport Foundation\n\npublic extension SDKClient {\n",
+            "}\n",
+            "ClientForwarding.swift",
+        ),
+        Language::Kotlin => (
+            declarations(source, "public interface ClientInterface {", "fun ")?,
+            "// Generated from exported Client methods. Do not edit this output.\npackage uniffi.xmtp_sdk\n\n",
+            "",
+            "ClientForwarding.kt",
+        ),
+        _ => bail!("Client forwarding needs Swift or Kotlin"),
+    };
+    let rendered = render_client(&selected, &found, language)?;
+    fs::write(
+        out.join("runtime").join(filename),
+        format!(
+            "{header}{}{footer}",
+            rendered.trim_end_matches('\n').to_owned() + "\n"
+        ),
+    )?;
+    Ok(())
+}
+
+/// Apps construct the host Client. Keep the generated Client factories visible
+/// only to the runtime module, so they cannot bypass its registry and codecs.
+fn hide_client_factories(source: &str, language: Language) -> Result<String> {
+    let replacements: &[(&str, &str)] = match language {
+        Language::Swift => &[
+            (
+                "\npublic static func build(identity: PublicIdentity,",
+                "\nstatic func build(identity: PublicIdentity,",
+            ),
+            (
+                "\npublic static func create(signer: Signer,",
+                "\nstatic func create(signer: Signer,",
+            ),
+        ],
+        Language::Kotlin => &[
+            (
+                "     suspend fun `build`(`identity`: PublicIdentity,",
+                "     internal suspend fun `build`(`identity`: PublicIdentity,",
+            ),
+            (
+                "     suspend fun `create`(`signer`: Signer,",
+                "     internal suspend fun `create`(`signer`: Signer,",
+            ),
+        ],
+        _ => bail!("Client factories are hidden only in Swift and Kotlin"),
+    };
+    let mut output = source.to_owned();
+    for (from, to) in replacements {
+        if output.matches(from).count() != 1 {
+            bail!("generated Client factory changed shape: {}", from.trim());
+        }
+        output = output.replacen(from, to, 1);
+    }
+    Ok(output)
+}
+
 pub(crate) fn generate(
     groups: &MetadataGroupMap,
     language: Language,
@@ -166,7 +324,12 @@ pub(crate) fn generate(
         ),
         _ => bail!("conversation forwarding needs Swift or Kotlin"),
     };
-    let source = fs::read_to_string(&binding).with_context(|| format!("read {binding}"))?;
+    let source = hide_client_factories(
+        &fs::read_to_string(&binding).with_context(|| format!("read {binding}"))?,
+        language,
+    )?;
+    fs::write(&binding, &source)?;
+    generate_client(groups, language, &source, out)?;
     let group = declarations(&source, group_start, prefix)?;
     let dm = declarations(&source, dm_start, prefix)?;
     let rendered = render(&selected, &group, &dm, language)?;
@@ -232,6 +395,47 @@ mod tests {
         assert!(output.contains("group.sendText(text: text)"));
         assert!(output.contains("dm.sendText(text: text)"));
         assert!(!output.contains("addMembers"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn every_exported_client_method_is_forwarded_except_host_methods() {
+        let items = vec![
+            Metadata::Method(method("Client", "catch_up_to_live", None)),
+            Metadata::Method(method("Client", "client_key", None)),
+            Metadata::Method(method("Client", "end", None)),
+            Metadata::Method(method("Group", "sync", None)),
+        ];
+        let selected = client_methods(&items);
+        assert_eq!(selected, vec!["catchUpToLive".to_string()]);
+        let swift = swift_client_declarations(
+            "open class Client: ClientProtocol {\nopen func catchUpToLive(timeoutMs: UInt64? = nil)async throws  -> CatchUpSummary  {\n}\npublic struct FfiConverterTypeClient {}",
+        )?;
+        let output = render_client(&selected, &swift, Language::Swift)?;
+        assert!(output.contains(
+            "func catchUpToLive(timeoutMs: UInt64? = nil) async throws -> CatchUpSummary {\n        try await raw.catchUpToLive(timeoutMs: timeoutMs)"
+        ));
+        let kotlin = BTreeMap::from([(
+            "catchUpToLive".into(),
+            "suspend fun `catchUpToLive`(`timeoutMs`: kotlin.ULong? = null): CatchUpSummary".into(),
+        )]);
+        let output = render_client(&selected, &kotlin, Language::Kotlin)?;
+        assert!(output.contains(
+            "suspend fun SDKClient.`catchUpToLive`(`timeoutMs`: kotlin.ULong? = null): CatchUpSummary = raw.`catchUpToLive`(timeoutMs)"
+        ));
+        let missing = render_client(&selected, &BTreeMap::new(), Language::Kotlin).unwrap_err();
+        assert!(missing.to_string().contains("Client.catchUpToLive"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn client_factories_are_private_to_the_runtime() {
+        let swift = "open class Client {\npublic static func build(identity: PublicIdentity, options: ClientOptions)\npublic static func create(signer: Signer, options: ClientOptions)\n}";
+        let hidden = hide_client_factories(swift, Language::Swift)?;
+        assert!(!hidden.contains("public static func"));
+        assert!(hidden.contains("\nstatic func create(signer: Signer,"));
+        let kotlin = "     suspend fun `build`(`identity`: PublicIdentity, x)\n     suspend fun `create`(`signer`: Signer, x)";
+        let hidden = hide_client_factories(kotlin, Language::Kotlin)?;
+        assert_eq!(hidden.matches("internal suspend fun").count(), 2);
+        assert!(hide_client_factories("changed", Language::Kotlin).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]
