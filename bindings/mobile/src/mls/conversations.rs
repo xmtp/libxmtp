@@ -444,8 +444,7 @@ impl FfiConversations {
     }
 
     /// Get notified when a message is deleted by the disappearing messages worker.
-    /// The callback receives the deleted message's identity and metadata as a
-    /// deleted-message placeholder. It carries no content or fallback.
+    /// The callback receives the decoded message that was deleted.
     pub async fn stream_message_deletions(
         &self,
         callback: Arc<dyn FfiMessageDeletionCallback>,
