@@ -1,21 +1,27 @@
 use crate::test_support as support;
 
 use crate::api;
+use crate::api::publish_error::Reason;
 use prost::Message;
 use support::TestServer;
 use tonic::Code;
-use xmtp_mls_validation::test_utils::{
-    identity_envelope, identity_history_with_passkey, scw_create_inbox_update,
+use xmtp_id::associations::{
+    Identifier, MemberIdentifier,
+    builder::SignatureRequestBuilder,
+    test_utils::{
+        LEGACY_WALLET, WalletTestExt, add_installation_key_signature, add_wallet_signature,
+        retired_signature_create_inbox,
+    },
 };
-use xmtp_proto::xmtp::identity::associations::IdentifierKind;
+use xmtp_mls_validation::test_utils::{
+    TestChain, identity_envelope, identity_history_with_passkey, scw_create_inbox_update,
+};
+use xmtp_proto::xmtp::identity::associations::{
+    IdentifierKind, IdentityUpdate, identity_action::Kind, signature,
+};
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn installation_members_are_excluded_from_identifier_lookup_projection() {
-    use xmtp_id::associations::{
-        MemberIdentifier,
-        builder::SignatureRequestBuilder,
-        test_utils::{WalletTestExt, add_installation_key_signature, add_wallet_signature},
-    };
     let server = TestServer::new(|_| {}).await?;
     let wallet = xmtp_cryptography::utils::generate_local_wallet();
     let installation = xmtp_cryptography::basic_credential::XmtpInstallationCredential::new();
@@ -203,10 +209,6 @@ async fn identity_cap_rejects_new_updates_but_preserves_readable_history() {
 #[xmtp_common::test(unwrap_try = true)]
 // verifies: API-270
 async fn revoking_latest_association_exposes_older_active_inbox() {
-    use xmtp_id::associations::{
-        builder::SignatureRequestBuilder,
-        test_utils::{WalletTestExt, add_wallet_signature},
-    };
     let server = TestServer::new(|_| {}).await?;
     let wallet = xmtp_cryptography::utils::generate_local_wallet();
     let identifier = wallet.identifier();
@@ -338,6 +340,7 @@ async fn scw_signature_limit_accepts_exact_count_and_rejects_one_past() {
     let server = TestServer::with_verifier(
         |config| config.limits.max_scw_signatures = 1,
         VerdictVerifier,
+        TestChain::at(1),
     )
     .await?;
     let signature = api::verify_smart_contract_wallet_signatures_request::Signature {
@@ -379,6 +382,7 @@ async fn identity_update_scw_signature_limit_is_checked_before_verification() {
     let server = TestServer::with_verifier(
         |config| config.limits.max_scw_signatures = 1,
         CountingVerifier(calls.clone()),
+        TestChain::at(1),
     )
     .await?;
     let update = scw_create_inbox_update();
@@ -433,7 +437,7 @@ async fn scw_verdicts_preserve_input_order_and_resolved_blocks() {
     ) else {
         return;
     };
-    let server = TestServer::with_verifier(|_| {}, VerdictVerifier).await?;
+    let server = TestServer::with_verifier(|_| {}, VerdictVerifier, TestChain::at(1)).await?;
     let signatures = [(1, None), (0, Some(12)), (1, Some(13))]
         .map(|(byte, block_number)| {
             api::verify_smart_contract_wallet_signatures_request::Signature {
@@ -517,5 +521,233 @@ async fn configured_chain_provider_failure_is_unavailable() {
         ),
         1.0
     );
+    server.stop().await?;
+}
+
+/// Every stored envelope and every identifier association, which a rejected
+/// identity update must leave exactly as they were.
+type IdentityRows = (
+    Vec<(i64, Vec<u8>)>,
+    Vec<(String, i16, Vec<u8>, i64, Option<i64>)>,
+);
+
+async fn identity_rows(server: &TestServer) -> support::TestResult<IdentityRows> {
+    let store = &server.backend.store.primary;
+    Ok((
+        sqlx::query_as("SELECT sequence_id, payload FROM envelopes ORDER BY sequence_id")
+            .fetch_all(store)
+            .await?,
+        sqlx::query_as(
+            "SELECT identifier, identifier_kind, inbox_id, association_sequence_id, revocation_sequence_id
+             FROM identifier_association ORDER BY identifier, inbox_id",
+        )
+        .fetch_all(store)
+        .await?,
+    ))
+}
+
+/// Publishes `ClientEnvelope`s exactly as encoded, so a test can put a field
+/// the generated types no longer have on the wire. A repeated message field and
+/// a repeated bytes field share one wire form.
+async fn publish_encoded(
+    server: &TestServer,
+    envelopes: Vec<Vec<u8>>,
+) -> Result<api::PublishResponse, tonic::Status> {
+    #[derive(Clone, PartialEq, Message)]
+    struct EncodedPublishRequest {
+        #[prost(bytes = "vec", repeated, tag = "1")]
+        envelopes: Vec<Vec<u8>>,
+    }
+    let mut grpc = tonic::client::Grpc::new(server.channel.clone());
+    grpc.ready()
+        .await
+        .map_err(|error| tonic::Status::unavailable(error.to_string()))?;
+    grpc.unary(
+        tonic::Request::new(EncodedPublishRequest { envelopes }),
+        http::uri::PathAndQuery::from_static("/xmtp.backend.v1.PublishService/Publish"),
+        tonic_prost::ProstCodec::default(),
+    )
+    .await
+    .map(tonic::Response::into_inner)
+}
+
+/// The reason a publish was refused as an invalid argument.
+fn rejection(error: &tonic::Status) -> support::TestResult<Reason> {
+    assert_eq!(error.code(), Code::InvalidArgument, "{error:?}");
+    let status = tonic_types::pb::Status::decode(error.details())?;
+    Ok(api::PublishError::decode(status.details[0].value.as_slice())?.reason())
+}
+
+/// A `ClientEnvelope` holding an encoded identity update.
+fn encoded_identity_envelope(update: &[u8]) -> Vec<u8> {
+    xmtp_id::associations::test_utils::length_delimited(4, update)
+}
+
+/// Each update a validator must reject is refused on admission as an invalid
+/// argument, before any chain call, and leaves the log and the identifier
+/// lookups exactly as they were: an empty update, a recovery identifier in
+/// mixed case, an add of a current member, a smart contract wallet signature
+/// outside `eip155`, and a signature in the retired field 4.
+// verifies: IDENT-001, IDENT-013, IDENT-040, IDENT-060
+#[xmtp_common::test(unwrap_try = true)]
+async fn identity_invalid_mutations_are_rejected_on_admission() {
+    let calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let server =
+        TestServer::with_verifier(|_| {}, CountingVerifier(calls.clone()), TestChain::at(1))
+            .await?;
+    let wallet = xmtp_cryptography::utils::generate_local_wallet();
+    let installation = xmtp_cryptography::basic_credential::XmtpInstallationCredential::new();
+    let mut request = SignatureRequestBuilder::new(wallet.get_inbox_id(0))
+        .create_inbox(wallet.identifier(), 0)
+        .add_association(
+            MemberIdentifier::installation(installation.public_bytes().to_vec()),
+            wallet.identifier().into(),
+        )
+        .build();
+    add_wallet_signature(&mut request, &wallet).await;
+    add_installation_key_signature(&mut request, &installation).await;
+    server
+        .publish(vec![identity_envelope(
+            request.build_identity_update()?.into(),
+        )])
+        .await?;
+    let inbox_id = wallet.get_inbox_id(0);
+    let before = identity_rows(&server).await?;
+
+    let empty = IdentityUpdate {
+        inbox_id: inbox_id.clone(),
+        client_timestamp_ns: 1,
+        actions: vec![],
+    };
+    let mixed_case = Identifier::from_proto(
+        wallet
+            .identifier()
+            .to_string()
+            .to_uppercase()
+            .replacen("0X", "0x", 1),
+        IdentifierKind::Ethereum,
+        None,
+    )?;
+    let mut mixed_case_recovery = SignatureRequestBuilder::new(&inbox_id)
+        .change_recovery_address(wallet.identifier().into(), mixed_case)
+        .build();
+    add_wallet_signature(&mut mixed_case_recovery, &wallet).await;
+    let mut duplicate_add = SignatureRequestBuilder::new(&inbox_id)
+        .add_association(
+            MemberIdentifier::installation(installation.public_bytes().to_vec()),
+            wallet.identifier().into(),
+        )
+        .build();
+    add_wallet_signature(&mut duplicate_add, &wallet).await;
+    add_installation_key_signature(&mut duplicate_add, &installation).await;
+    let mut cosmos = scw_create_inbox_update();
+    let Some(Kind::CreateInbox(create)) = &mut cosmos.actions[0].kind else {
+        unreachable!("the fixture creates an inbox")
+    };
+    let Some(signature::Signature::Erc6492(scw)) = create
+        .initial_identifier_signature
+        .as_mut()
+        .and_then(|signature| signature.signature.as_mut())
+    else {
+        unreachable!("the fixture is signed by a smart contract wallet")
+    };
+    scw.account_id = scw.account_id.replacen("eip155:1", "cosmos:cosmoshub-4", 1);
+    let legacy_inbox = Identifier::eth(LEGACY_WALLET)?.inbox_id(0)?;
+
+    for (case, envelope, reason) in [
+        (
+            "empty",
+            empty.encode_to_vec(),
+            Reason::InvalidIdentityUpdate,
+        ),
+        (
+            "mixed-case recovery",
+            IdentityUpdate::from(mixed_case_recovery.build_identity_update()?).encode_to_vec(),
+            Reason::MalformedPayload,
+        ),
+        (
+            "duplicate add",
+            IdentityUpdate::from(duplicate_add.build_identity_update()?).encode_to_vec(),
+            Reason::InvalidIdentityUpdate,
+        ),
+        (
+            "non-eip155 account",
+            cosmos.encode_to_vec(),
+            Reason::InvalidSignature,
+        ),
+        (
+            "retired field 4",
+            retired_signature_create_inbox(&legacy_inbox, LEGACY_WALLET),
+            Reason::MalformedPayload,
+        ),
+    ] {
+        let error = publish_encoded(&server, vec![encoded_identity_envelope(&envelope)])
+            .await
+            .expect_err(case);
+        assert_eq!(rejection(&error)?, reason, "{case}: {error:?}");
+        assert_eq!(identity_rows(&server).await?, before, "{case}");
+    }
+    assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 0);
+    server.stop().await?;
+}
+
+/// A stored log is replayed through the same validation as a new update, so a
+/// stored update carrying the retired field 4 makes every later update on its
+/// inbox fail, with no change to the log or the identifier lookups. The same
+/// later update is accepted once the stored update is restored.
+// verifies: IDENT-001
+#[xmtp_common::test(unwrap_try = true)]
+async fn identity_invalid_mutations_retired_signature_fails_replay() {
+    let server = TestServer::new(|_| {}).await?;
+    let wallet = xmtp_cryptography::utils::generate_local_wallet();
+    let inbox_id = wallet.get_inbox_id(0);
+    let mut create = SignatureRequestBuilder::new(&inbox_id)
+        .create_inbox(wallet.identifier(), 0)
+        .build();
+    add_wallet_signature(&mut create, &wallet).await;
+    server
+        .publish(vec![identity_envelope(
+            create.build_identity_update()?.into(),
+        )])
+        .await?;
+    let (original, _) = identity_rows(&server).await?;
+    let [(sequence_id, original)] = original.as_slice() else {
+        unreachable!("the log holds only the creation")
+    };
+    let installation = xmtp_cryptography::basic_credential::XmtpInstallationCredential::new();
+    let mut add = SignatureRequestBuilder::new(&inbox_id)
+        .add_association(
+            MemberIdentifier::installation(installation.public_bytes().to_vec()),
+            wallet.identifier().into(),
+        )
+        .build();
+    add_wallet_signature(&mut add, &wallet).await;
+    add_installation_key_signature(&mut add, &installation).await;
+    let add = identity_envelope(add.build_identity_update()?.into());
+
+    let set_payload = |payload: Vec<u8>| {
+        sqlx::query("UPDATE envelopes SET payload = $1 WHERE sequence_id = $2")
+            .bind(payload)
+            .bind(sequence_id)
+            .execute(&server.backend.store.primary)
+    };
+    set_payload(encoded_identity_envelope(&retired_signature_create_inbox(
+        &inbox_id,
+        &wallet.identifier().to_string(),
+    )))
+    .await?;
+    let before = identity_rows(&server).await?;
+    let error = server
+        .publisher()
+        .publish(api::PublishRequest {
+            envelopes: vec![add.clone()],
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(rejection(&error)?, Reason::MalformedPayload, "{error:?}");
+    assert_eq!(identity_rows(&server).await?, before);
+
+    set_payload(original.clone()).await?;
+    assert_eq!(server.publish(vec![add]).await?.len(), 1);
     server.stop().await?;
 }

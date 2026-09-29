@@ -6,8 +6,11 @@ use xmtp_proto::types::Topic;
 
 mod deadlines;
 mod dictionary_creation;
+mod faults;
 mod membership_component;
 mod membership_recovery;
+mod out_of_range_settlement;
+mod send_state_transitions;
 
 mod transcript;
 
@@ -168,8 +171,8 @@ async fn prepared_attempt_reads_the_prior_format_without_changing_envelopes() {
     group.send_message_optimistic(b"prior prepared format", Default::default())?;
     let (_, attempt) = prepare_message(&group).await?;
 
-    // A tuple has the same bincode field layout as the prior struct.
-    let prior = xmtp_db::db_serialize(&(
+    // A tuple has the same bincode field layout as a prior struct.
+    let v1 = xmtp_db::db_serialize(&(
         1u8,
         attempt.base.clone(),
         attempt.payload_hash.clone(),
@@ -178,15 +181,27 @@ async fn prepared_attempt_reads_the_prior_format_without_changing_envelopes() {
         attempt.receipts.clone(),
         attempt.welcomes.clone(),
     ))?;
-    let restored = PreparedAttempt::decode(&prior)?;
-    assert_eq!(restored.version, 2);
-    assert_eq!(restored, attempt);
-    assert_eq!(restored.envelopes, attempt.envelopes);
-    assert!(restored.same_attempt(&attempt));
-    assert_eq!(
-        PreparedAttempt::decode(&xmtp_db::db_serialize(&restored)?)?,
-        attempt
-    );
+    let v2 = xmtp_db::db_serialize(&(
+        2u8,
+        attempt.base.clone(),
+        attempt.payload_hash.clone(),
+        attempt.envelopes.clone(),
+        attempt.proposals.clone(),
+        attempt.receipts.clone(),
+        attempt.welcomes.clone(),
+        attempt.rejection.clone(),
+    ))?;
+    for prior in [v1, v2] {
+        let restored = PreparedAttempt::decode(&prior)?;
+        assert_eq!(restored.version, prepared::PREPARED_ATTEMPT_VERSION);
+        assert_eq!(restored.unsettled, None);
+        assert_eq!(restored, attempt);
+        assert!(restored.same_attempt(&attempt));
+        assert_eq!(
+            PreparedAttempt::decode(&xmtp_db::db_serialize(&restored)?)?,
+            attempt
+        );
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -542,6 +557,27 @@ async fn oversized_unprepared_message_does_not_block_later_intents() {
             .prepared_envelopes(rejected[0].id)?
             .is_none()
     );
+}
+
+// verifies: SEND-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn malformed_admin_list_intent_does_not_block_later_intents() {
+    use crate::groups::intents::{AdminListActionType, UpdateAdminListIntentData};
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    // Earlier builds queued the caller's inbox id without parsing it.
+    let data: Vec<u8> = UpdateAdminListIntentData::new(AdminListActionType::Add, "x".into()).into();
+    let malformed = QueueIntent::update_admin_list().data(data).queue(&group)?;
+
+    group
+        .update_group_name("after malformed intent".into())
+        .await?;
+    assert_eq!(group.group_name()?, "after malformed intent");
+    let failed = Fetch::<StoredGroupIntent>::fetch(&group.context.db(), &malformed.id)??;
+    assert_eq!(failed.state, IntentState::Error);
+    assert!(group.context.db().prepared_envelopes(failed.id)?.is_none());
+    assert!(group.admin_list()?.is_empty());
 }
 
 #[xmtp_common::test(unwrap_try = true)]

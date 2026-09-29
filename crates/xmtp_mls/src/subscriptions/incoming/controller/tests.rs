@@ -216,7 +216,7 @@ async fn inferred_inactive_dm_does_not_request_welcome_recovery(#[case] stored_l
     assert!(!controller.read_queue.contains(&welcome_topic));
 }
 
-// verifies: PROC-032
+// verifies: PROC-046
 #[xmtp_common::test(unwrap_try = true)]
 async fn all_group_network_interest_keeps_a_denied_conversation() {
     tester!(alix, disable_workers);

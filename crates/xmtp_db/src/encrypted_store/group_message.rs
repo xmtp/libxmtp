@@ -628,6 +628,9 @@ pub trait QueryGroupMessage {
         sequence_id: Cursor,
     ) -> Result<Option<StoredGroupMessage>, crate::ConnectionError>;
 
+    /// Mark a message published at the backend's `timestamp` and `cursor`. The
+    /// first publication stores `message_expire_at_ns`; a message already published
+    /// keeps the expiry it was first given.
     fn set_delivery_status_to_published<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
@@ -637,6 +640,13 @@ pub trait QueryGroupMessage {
     ) -> Result<usize, crate::StorageError>;
 
     fn set_delivery_status_to_failed<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, crate::ConnectionError>;
+
+    /// Return a `Failed` message to `Unpublished` for a queued retry.
+    /// Any other status is left unchanged; returns the number of rows changed.
+    fn set_failed_delivery_status_to_unpublished<MessageId: AsRef<[u8]>>(
         &self,
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError>;
@@ -814,6 +824,13 @@ where
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError> {
         (**self).set_delivery_status_to_failed(msg_id)
+    }
+
+    fn set_failed_delivery_status_to_unpublished<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, crate::ConnectionError> {
+        (**self).set_failed_delivery_status_to_unpublished(msg_id)
     }
 
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError> {
@@ -1311,13 +1328,24 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             cursor
         );
         super::stream_storage::stream_transaction(self, |conn| {
-            let Some((group_id, previous_sent_at_ns)) = dsl::group_messages
-                .filter(dsl::id.eq(msg_id.as_ref()))
-                .select((dsl::group_id, dsl::sent_at_ns))
-                .first::<(GroupId, i64)>(conn)
-                .optional()?
+            let Some((group_id, previous_sent_at_ns, previous_status, previous_expire_at_ns)) =
+                dsl::group_messages
+                    .filter(dsl::id.eq(msg_id.as_ref()))
+                    .select((
+                        dsl::group_id,
+                        dsl::sent_at_ns,
+                        dsl::delivery_status,
+                        dsl::expire_at_ns,
+                    ))
+                    .first::<(GroupId, i64, DeliveryStatus, Option<i64>)>(conn)
+                    .optional()?
             else {
                 return Ok(0);
+            };
+            let expire_at_ns = if previous_status == DeliveryStatus::Published {
+                previous_expire_at_ns
+            } else {
+                message_expire_at_ns
             };
             let changed = diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
@@ -1325,7 +1353,7 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
                     dsl::delivery_status.eq(DeliveryStatus::Published),
                     dsl::sent_at_ns.eq(timestamp as i64),
                     dsl::sequence_id.eq(cursor.0 as i64),
-                    dsl::expire_at_ns.eq(message_expire_at_ns),
+                    dsl::expire_at_ns.eq(expire_at_ns),
                 ))
                 .execute(conn)?;
             if changed > 0 {
@@ -1360,6 +1388,19 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             diesel::update(dsl::group_messages)
                 .filter(dsl::id.eq(msg_id.as_ref()))
                 .set((dsl::delivery_status.eq(DeliveryStatus::Failed),))
+                .execute(conn)
+        })
+    }
+
+    fn set_failed_delivery_status_to_unpublished<MessageId: AsRef<[u8]>>(
+        &self,
+        msg_id: &MessageId,
+    ) -> Result<usize, crate::ConnectionError> {
+        self.raw_query(|conn| {
+            diesel::update(dsl::group_messages)
+                .filter(dsl::id.eq(msg_id.as_ref()))
+                .filter(dsl::delivery_status.eq(DeliveryStatus::Failed))
+                .set(dsl::delivery_status.eq(DeliveryStatus::Unpublished))
                 .execute(conn)
         })
     }

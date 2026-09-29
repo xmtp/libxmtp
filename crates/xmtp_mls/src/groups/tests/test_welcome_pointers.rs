@@ -19,7 +19,7 @@ use xmtp_proto::xmtp::mls::message_contents::WelcomeMetadata;
 use xmtp_proto::xmtp::mls::message_contents::welcome_pointer::WelcomeV1Pointer;
 use xmtp_proto::xmtp::mls::message_contents::{
     WelcomePointeeEncryptionAeadType, WelcomePointer as WelcomePointerProto,
-    WelcomePointerWrapperAlgorithm,
+    WelcomePointerWrapperAlgorithm, WelcomeWrapperAlgorithm,
 };
 
 #[xmtp_common::timeout(Duration::from_secs(40))]
@@ -463,58 +463,9 @@ async fn test_welcome_pointer_pending_retry_resolution() {
     group.sync().await.unwrap();
 
     tracing::info!("Creating welcome for group");
-    // Now we send a welcome from this group to bo. To get the delay we want,
-    // we reach into some internals.
-    let intent = group
-        .get_membership_update_intent(&[bo.inbox_id()], &[])
-        .await?;
-    let signer = &group.context.identity().installation_keys;
-    let context = &group.context;
-    let old_membership = group.with_group_snapshot(|openmls_group| {
-        Ok(xmtp_mls_validation::commit::extract_group_membership(
-            openmls_group.extensions(),
-        )?)
-    })?;
-    let new_membership = intent.apply_to_group_membership(&old_membership);
-    let changes = crate::groups::mls_sync::calculate_membership_changes_with_keypackages(
-        context,
-        &group.group_id,
-        &new_membership,
-        &old_membership,
-    )
-    .await?;
-    let (send_welcome_action, payloads) = crate::state_tx::state_write(context.mls_storage(), |tx| {
-        tx.with_group(group.group_id, |openmls_group, storage| {
-            let publish_intent_data =
-                crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(storage, openmls_group, intent, changes, signer)?
-                    .unwrap();
-            let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
-                publish_intent_data.post_commit_data().unwrap().as_slice(),
-            )?;
-            let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
-            let staged_commit = publish_intent_data.staged_commit().unwrap();
-            openmls_group.merge_staged_commit(
-                &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
-                crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
-            )?;
-
-            Ok::<_, crate::groups::GroupError>(xmtp_db::TransactionOutcome::Continue((action, publish_intent_data.payloads_to_publish)))
-        })
-    })?
-    .into_continued();
-    let commit_units = group.prepare_group_messages(
-        payloads
-            .iter()
-            .map(|payload| (payload.as_slice(), false))
-            .collect(),
-    )?;
-    let commit_receipt = alix
-        .context
-        .api()
-        .send_group_messages(commit_units)
-        .await?
-        .pop()?;
-    let join_anchor = commit_receipt.cursor?.sequence_id;
+    // Publish the commit but not its Welcome, so the test controls delivery.
+    let (welcome_message, join_anchor) =
+        publish_commit_without_welcome(&group, bo.inbox_id()).await;
 
     tracing::info!("Creating welcome pointer");
     let welcome_pointer_v1 = WelcomeV1Pointer {
@@ -615,7 +566,7 @@ async fn test_welcome_pointer_pending_retry_resolution() {
     );
 
     let data = wrap_payload_symmetric(
-        &send_welcome_action.welcome_message,
+        &welcome_message,
         WelcomePointersExtension::preferred_type(),
         &welcome_pointer_v1.encryption_key,
         &welcome_pointer_v1.data_nonce,
@@ -634,17 +585,17 @@ async fn test_welcome_pointer_pending_retry_resolution() {
     .unwrap();
 
     let welcome_data = xmtp_proto::backend_v1::WelcomeMessage {
-        version: Some(
-            xmtp_proto::backend_v1::welcome_message::Version::V1(
-                xmtp_proto::backend_v1::welcome_message::V1 {
-                    installation_key:welcome_pointer_v1.destination.clone(),
-                    data,
-                    hpke_public_key:bo_hpke_public_key.to_vec(),
-                    wrapper_algorithm: xmtp_proto::xmtp::mls::message_contents::WelcomePointerWrapperAlgorithm::XwingMlkem768Draft6.into(),
-                    welcome_metadata,
-                }
-            )
-        ),
+        version: Some(xmtp_proto::backend_v1::welcome_message::Version::V1(
+            xmtp_proto::backend_v1::welcome_message::V1 {
+                installation_key: welcome_pointer_v1.destination.clone(),
+                data,
+                hpke_public_key: vec![],
+                wrapper_algorithm:
+                    xmtp_proto::xmtp::mls::message_contents::WelcomeWrapperAlgorithm::SymmetricKey
+                        .into(),
+                welcome_metadata,
+            },
+        )),
     };
 
     let events = bo.context.events().subscribe(
@@ -715,3 +666,287 @@ async fn test_welcome_pointer_pending_retry_resolution() {
             .unwrap();
     assert_eq!(conversation_group.group_id, bo_group.group_id);
 }
+
+/// Publish a commit adding `inbox_id` and return its plaintext Welcome and join
+/// anchor without sending the Welcome.
+async fn publish_commit_without_welcome(group: &TestMlsGroup, inbox_id: &str) -> (Vec<u8>, u64) {
+    let intent = group
+        .get_membership_update_intent(&[inbox_id], &[])
+        .await
+        .unwrap();
+    let signer = &group.context.identity().installation_keys;
+    let context = &group.context;
+    let old_membership = group
+        .with_group_snapshot(|openmls_group| {
+            Ok(xmtp_mls_validation::commit::extract_group_membership(
+                openmls_group.extensions(),
+            )?)
+        })
+        .unwrap();
+    let new_membership = intent.apply_to_group_membership(&old_membership);
+    let changes = crate::groups::mls_sync::calculate_membership_changes_with_keypackages(
+        context,
+        &group.group_id,
+        &new_membership,
+        &old_membership,
+    )
+    .await
+    .unwrap();
+    let (action, payloads) = crate::state_tx::state_write(context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |openmls_group, storage| {
+            let publish_intent_data =
+                crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(storage, openmls_group, intent, changes, signer)?
+                    .unwrap();
+            let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
+                publish_intent_data.post_commit_data().unwrap().as_slice(),
+            )?;
+            let crate::groups::intents::PostCommitAction::SendWelcomes(action) = post_commit_action;
+            let staged_commit = publish_intent_data.staged_commit().unwrap();
+            openmls_group.merge_staged_commit(
+                &xmtp_db::XmtpOpenMlsProviderRef::new(storage),
+                crate::groups::mls_sync::decode_staged_commit(staged_commit.as_slice())?,
+            ).unwrap();
+
+            Ok::<_, crate::groups::GroupError>(xmtp_db::TransactionOutcome::Continue((action, publish_intent_data.payloads_to_publish)))
+        })
+    })
+    .unwrap()
+    .into_continued();
+    let commit_units = group
+        .prepare_group_messages(
+            payloads
+                .iter()
+                .map(|payload| (payload.as_slice(), false))
+                .collect(),
+        )
+        .unwrap();
+    let commit_receipt = context
+        .api()
+        .send_group_messages(commit_units)
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    (
+        action.welcome_message,
+        commit_receipt.cursor.unwrap().sequence_id,
+    )
+}
+
+/// One of the two public keys a post-quantum key package is reachable through.
+#[derive(Clone, Copy)]
+enum PackageKey {
+    Init,
+    PostQuantum,
+}
+
+/// A Welcome or welcome pointer is opened only under the algorithm and key its
+/// key package advertised, and a pointee only in the symmetric-key form.
+///
+/// Every input is encrypted to the key matching its stated algorithm, so it
+/// decrypts under code that picks the private key from the stated algorithm
+/// alone; each rejection therefore comes from the advertisement check, not from
+/// a decryption failure. A classical wrapper over a post-quantum package is the
+/// downgrade a party able to break X25519 would forge. Pointer wrappers admit no
+/// classical algorithm on the wire, so their decryptable mismatch is the
+/// post-quantum wrapper addressed through the package's classical init key.
+// verifies: JOIN-076, JOIN-056
+#[rstest::rstest]
+#[case::classical_package(false, WrapperAlgorithm::Curve25519, PackageKey::Init, None, None)]
+#[case::post_quantum_package(
+    true,
+    WrapperAlgorithm::XWingMLKEM768Draft6,
+    PackageKey::PostQuantum,
+    None,
+    None
+)]
+#[case::classical_wrapper_through_init_key_of_post_quantum_package(
+    true,
+    WrapperAlgorithm::Curve25519,
+    PackageKey::Init,
+    None,
+    Some(ADVERTISEMENT)
+)]
+#[case::classical_wrapper_through_post_quantum_key(
+    true,
+    WrapperAlgorithm::Curve25519,
+    PackageKey::PostQuantum,
+    None,
+    Some(ADVERTISEMENT)
+)]
+#[case::post_quantum_wrapper_through_init_key(
+    true,
+    WrapperAlgorithm::XWingMLKEM768Draft6,
+    PackageKey::Init,
+    None,
+    Some(ADVERTISEMENT)
+)]
+#[case::pointer(
+    true,
+    WrapperAlgorithm::XWingMLKEM768Draft6,
+    PackageKey::PostQuantum,
+    Some(WelcomeWrapperAlgorithm::SymmetricKey),
+    None
+)]
+#[case::pointer_through_init_key(
+    true,
+    WrapperAlgorithm::XWingMLKEM768Draft6,
+    PackageKey::Init,
+    Some(WelcomeWrapperAlgorithm::SymmetricKey),
+    Some(ADVERTISEMENT)
+)]
+#[case::pointee_with_wrong_wrapper_field(
+    true,
+    WrapperAlgorithm::XWingMLKEM768Draft6,
+    PackageKey::PostQuantum,
+    Some(WelcomeWrapperAlgorithm::XwingMlkem768Draft6),
+    Some("WelcomePointee.wrapper_algorithm")
+)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn welcome_wrapper_matches_advertisement(
+    #[case] post_quantum_package: bool,
+    #[case] stated: WrapperAlgorithm,
+    #[case] addressed: PackageKey,
+    #[case] pointee_wrapper: Option<WelcomeWrapperAlgorithm>,
+    #[case] rejected_by: Option<&'static str>,
+) {
+    use crate::groups::welcome_sync::{
+        WelcomeHeadOutcome, WelcomeService, pending_welcome_for_test,
+    };
+    use xmtp_proto::backend_v1::welcome_message::{V1, Version, WelcomePointer};
+
+    tester!(alix);
+    tester!(bo, disable_workers);
+    let group = alix.create_group(None, None).unwrap();
+    let (welcome_message, join_anchor) =
+        publish_commit_without_welcome(&group, bo.inbox_id()).await;
+    let package = bo
+        .context
+        .identity()
+        .new_key_package(&bo.context.mls_provider(), post_quantum_package)
+        .unwrap();
+    let key = |key| match key {
+        PackageKey::Init => package.key_package.hpke_init_key().as_slice().to_vec(),
+        PackageKey::PostQuantum => package.pq_pub_key.clone().unwrap(),
+    };
+    let encrypted_to = key(match stated {
+        WrapperAlgorithm::Curve25519 => PackageKey::Init,
+        WrapperAlgorithm::XWingMLKEM768Draft6 => PackageKey::PostQuantum,
+    });
+    let metadata = WelcomeMetadata {
+        message_cursor: join_anchor,
+    }
+    .encode_to_vec();
+    let send = async |version| {
+        alix.context
+            .api()
+            .send_welcome_messages(&[xmtp_proto::backend_v1::WelcomeMessage {
+                version: Some(version),
+            }])
+            .await
+            .unwrap()
+    };
+
+    let message = match pointee_wrapper {
+        None => {
+            let (data, welcome_metadata) = wrap_payload_hpke(
+                &welcome_message,
+                &metadata,
+                &encrypted_to,
+                stated,
+                WELCOME_HPKE_LABEL,
+            )
+            .unwrap();
+            Version::V1(V1 {
+                installation_key: bo.context.installation_id().to_vec(),
+                data,
+                hpke_public_key: key(addressed),
+                wrapper_algorithm: stated.into(),
+                welcome_metadata,
+            })
+        }
+        Some(pointee_wrapper) => {
+            let pointer = WelcomeV1Pointer {
+                destination: xmtp_common::rand_vec::<32>(),
+                aead_type: WelcomePointeeEncryptionAeadType::Chacha20Poly1305.into(),
+                encryption_key: xmtp_common::rand_vec::<32>(),
+                data_nonce: xmtp_common::rand_vec::<12>(),
+                welcome_metadata_nonce: xmtp_common::rand_vec::<12>(),
+            };
+            let seal = |plaintext: &[u8], nonce: &[u8]| {
+                wrap_payload_symmetric(
+                    plaintext,
+                    WelcomePointersExtension::preferred_type(),
+                    &pointer.encryption_key,
+                    nonce,
+                )
+                .unwrap()
+            };
+            send(Version::V1(V1 {
+                installation_key: pointer.destination.clone(),
+                data: seal(&welcome_message, &pointer.data_nonce),
+                hpke_public_key: vec![],
+                wrapper_algorithm: pointee_wrapper.into(),
+                welcome_metadata: seal(&metadata, &pointer.welcome_metadata_nonce),
+            }))
+            .await;
+            let pointer = WelcomePointerProto {
+                version: Some(
+                    xmtp_proto::xmtp::mls::message_contents::welcome_pointer::Version::WelcomeV1Pointer(
+                        pointer,
+                    ),
+                ),
+            };
+            Version::WelcomePointer(WelcomePointer {
+                installation_key: bo.context.installation_id().to_vec(),
+                welcome_pointer: wrap_payload_hpke(
+                    &pointer.encode_to_vec(),
+                    &[],
+                    &encrypted_to,
+                    stated,
+                    WELCOME_HPKE_LABEL,
+                )
+                .unwrap()
+                .0,
+                hpke_public_key: key(addressed),
+                wrapper_algorithm: stated.into(),
+            })
+        }
+    };
+    send(message).await;
+
+    let welcome = alix
+        .context
+        .api()
+        .query_welcome_messages(bo.context.installation_id())
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    pending_welcome_for_test(&bo.context, &welcome)
+        .await
+        .unwrap();
+    let WelcomeHeadOutcome::Progress { result, .. } = WelcomeService::new(bo.context.clone())
+        .resolve_pending_welcome(welcome.cursor)
+        .await
+        .unwrap()
+    else {
+        panic!("the Welcome neither joined nor was rejected");
+    };
+    match (result, rejected_by) {
+        (Ok(Some(joined)), None) => assert_eq!(joined.group_id, group.group_id),
+        (
+            Err(crate::groups::GroupError::ConversionError(
+                xmtp_proto::ConversionError::InvalidValue { item, .. },
+            )),
+            Some(check),
+        ) => assert_eq!(item, check),
+        (result, expected) => panic!(
+            "expected rejection by {expected:?}, got {:?}",
+            result.map(|joined| joined.map(|group| group.group_id))
+        ),
+    }
+}
+
+/// The rejection raised by the advertised-wrapper check.
+const ADVERTISEMENT: &str = "WelcomeMessage.wrapper_algorithm";

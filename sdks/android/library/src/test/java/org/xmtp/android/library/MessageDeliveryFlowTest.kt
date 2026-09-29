@@ -185,7 +185,7 @@ class MessageDeliveryFlowTest {
             }
         }
 
-    // verifies: PROC-031, PROC-032
+    // verifies: PROC-031
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun selectionChangeReselectsWithoutAcknowledgement() =
         runBlocking {

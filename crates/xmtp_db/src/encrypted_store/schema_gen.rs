@@ -154,6 +154,15 @@ diesel::table! {
 }
 
 diesel::table! {
+    local_attachments (path) {
+        path -> Text,
+        created_at_ns -> BigInt,
+        mime_type -> Nullable<Text>,
+        filename -> Nullable<Text>,
+    }
+}
+
+diesel::table! {
     local_commit_log (rowid) {
         rowid -> Integer,
         group_id -> Binary,
@@ -196,6 +205,22 @@ diesel::table! {
 }
 
 diesel::table! {
+    pending_attachments (content_digest) {
+        content_digest -> Text,
+        remote_attachment -> Binary,
+        created_at_ns -> BigInt,
+        status -> Text,
+        failure_cause -> Nullable<Text>,
+        failure_credential_kind -> Nullable<Text>,
+        failure_retryable -> Nullable<Bool>,
+        failure_missing_scope -> Nullable<Bool>,
+        failure_http_status -> Nullable<Integer>,
+        lease_id -> Nullable<Binary>,
+        lease_expires_at_ns -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
     pending_remove (group_id, inbox_id) {
         group_id -> Binary,
         inbox_id -> Text,
@@ -227,6 +252,14 @@ diesel::table! {
         installation_id -> Binary,
         requested_at_sequence_id -> Nullable<BigInt>,
         responded_at_sequence_id -> Nullable<BigInt>,
+    }
+}
+
+diesel::table! {
+    received_proposals (group_id, epoch, proposal_ref) {
+        group_id -> Binary,
+        epoch -> BigInt,
+        proposal_ref -> Binary,
     }
 }
 
@@ -315,6 +348,7 @@ diesel::joinable!(group_intents -> groups (group_id));
 diesel::joinable!(group_messages -> groups (group_id));
 diesel::joinable!(group_welcome_discovery -> groups (group_id));
 diesel::joinable!(message_deletions -> group_messages (id));
+diesel::joinable!(received_proposals -> groups (group_id));
 diesel::joinable!(restored_group_metadata -> groups (group_id));
 
 diesel::allow_tables_to_appear_in_same_query!(
@@ -330,14 +364,17 @@ diesel::allow_tables_to_appear_in_same_query!(
     identity_updates,
     incoming_envelopes,
     key_package_history,
+    local_attachments,
     local_commit_log,
     message_deletions,
     openmls_key_store,
     openmls_key_value,
+    pending_attachments,
     pending_remove,
     processed_device_sync_messages,
     push_uploaded_topic,
     readd_status,
+    received_proposals,
     refresh_state,
     remote_commit_log,
     restored_group_metadata,

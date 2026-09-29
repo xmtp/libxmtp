@@ -25,6 +25,69 @@ mod incoming;
 mod integration;
 mod limits;
 
+#[rstest]
+#[case(tonic::Code::InvalidArgument)]
+#[case(tonic::Code::OutOfRange)]
+#[case(tonic::Code::Unimplemented)]
+// The backend's configuration stops signing until the operator corrects it.
+#[case(tonic::Code::FailedPrecondition)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_upload_does_not_retry_permanent_rejections(
+    #[case] code: tonic::Code,
+) -> crate::Result<()> {
+    let mut mock = MockBackendClient::new();
+    mock.expect_create_upload()
+        .times(1)
+        .returning(move |_| Err(status(code)));
+
+    let error = wrapper(mock)
+        .create_upload(wire::CreateUploadRequest {
+            content_digest: vec![7; 32],
+            content_length: 42,
+        })
+        .await
+        .unwrap_err();
+    assert_eq!(grpc_status(&error).map(tonic::Status::code), Some(code));
+    Ok(())
+}
+
+#[rstest]
+#[case(tonic::Code::Unavailable)]
+#[case(tonic::Code::DeadlineExceeded)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_upload_retries_transient_rejections(
+    #[case] code: tonic::Code,
+) -> crate::Result<()> {
+    let mut mock = MockBackendClient::new();
+    let attempts = Arc::new(AtomicUsize::new(0));
+    let count = attempts.clone();
+    mock.expect_create_upload()
+        .times(2)
+        .returning(move |request| {
+            assert_eq!(request.content_digest, vec![7; 32]);
+            assert_eq!(request.content_length, 42);
+            if count.fetch_add(1, Ordering::SeqCst) == 0 {
+                return Err(status(code));
+            }
+            Ok(wire::CreateUploadResponse {
+                method: "PUT".to_owned(),
+                url: "https://storage.example/upload".to_owned(),
+                headers: vec![],
+                expires_in_seconds: 300,
+            })
+        });
+
+    let response = wrapper(mock)
+        .create_upload(wire::CreateUploadRequest {
+            content_digest: vec![7; 32],
+            content_length: 42,
+        })
+        .await?;
+    assert_eq!(response.method, "PUT");
+    assert_eq!(attempts.load(Ordering::SeqCst), 2);
+    Ok(())
+}
+
 fn wrapper(mock: MockBackendClient) -> ApiClientWrapper<MockBackendClient> {
     let strategy = ExponentialBackoff::builder()
         .duration(Duration::ZERO)
@@ -158,7 +221,6 @@ fn size_status(code: tonic::Code) -> ApiClientError {
 }
 
 #[rstest]
-#[case(tonic::Code::OutOfRange)]
 #[case(tonic::Code::ResourceExhausted)]
 #[case(tonic::Code::InvalidArgument)]
 #[xmtp_common::test(unwrap_try = true)]
@@ -191,6 +253,98 @@ async fn publish_size_errors_split_between_atomic_units(#[case] code: tonic::Cod
     assert_eq!(result[0].topic, result[1].topic);
     assert_eq!(result[2].topic, result[3].topic);
     assert_ne!(result[0].topic, result[2].topic);
+}
+
+/// `OUT_OF_RANGE` can follow a committed publish, so smaller requests with the
+/// same envelopes are not a safe response: the status reaches the caller after
+/// one request, for it to settle with a read.
+// verifies: API-284
+#[xmtp_common::test(unwrap_try = true)]
+async fn publish_out_of_range_surfaces_without_splitting() {
+    let mut mock = MockBackendClient::new();
+    mock.expect_publish()
+        .times(1)
+        .returning(|_| Err(size_status(tonic::Code::OutOfRange)));
+    let error = wrapper(mock)
+        .publish_units(vec![
+            PublishUnit::single(welcome(1)).unwrap(),
+            PublishUnit::single(welcome(2)).unwrap(),
+        ])
+        .await
+        .unwrap_err();
+    assert_eq!(grpc_status(&error).unwrap().code(), tonic::Code::OutOfRange);
+}
+
+/// Settlement reads each envelope's topic and matches by hash: a returned
+/// envelope settles with its stored metadata, and one the read does not
+/// return is unstored. Unrelated records on the topic are skipped, and
+/// identical envelopes all settle from their one stored copy.
+// verifies: SEND-007
+#[xmtp_common::test(unwrap_try = true)]
+async fn settle_units_matches_stored_envelopes_by_hash() {
+    let (stored, unstored, other) = (welcome(1), welcome(2), welcome(3));
+    let stored_topic = parse_envelope(stored.clone())?.topic;
+    let unrelated = wire::EnvelopeMeta {
+        topic: Some(wire::Topic {
+            topic: stored_topic.cloned_vec(),
+        }),
+        ..meta(&other, 1)
+    };
+    let rows = vec![
+        wire::ServerEnvelope {
+            meta: Some(unrelated),
+            envelope: None,
+        },
+        wire::ServerEnvelope {
+            meta: Some(meta(&stored, 2)),
+            envelope: None,
+        },
+    ];
+    let mut mock = MockBackendClient::new();
+    mock.expect_query().returning(move |request| {
+        let asks_stored = request
+            .queries
+            .iter()
+            .any(|query| query.topic.as_ref().unwrap().topic == stored_topic.cloned_vec());
+        Ok(wire::QueryResponse {
+            envelopes: if asks_stored { rows.clone() } else { vec![] },
+            continuation: Some(wire::Continuation { has_more: false }),
+        })
+    });
+    let settled = wrapper(mock)
+        .settle_units(&[
+            PublishUnit::single(stored.clone())?,
+            PublishUnit::single(unstored)?,
+            PublishUnit::single(stored.clone())?,
+        ])
+        .await?;
+    assert_eq!(
+        settled,
+        vec![Some(meta(&stored, 2)), None, Some(meta(&stored, 2))]
+    );
+}
+
+/// A record without a valid message hash could be any envelope, so the read
+/// cannot prove one absent. Settlement fails instead of reporting it unstored,
+/// which would publish a stored envelope again.
+// verifies: SEND-007
+#[xmtp_common::test(unwrap_try = true)]
+async fn settle_units_fails_on_a_record_without_a_hash() {
+    let envelope = welcome(1);
+    let topic = parse_envelope(envelope.clone())?.topic;
+    let mut mock = MockBackendClient::new();
+    mock.expect_query().times(1).returning(move |_| {
+        Ok(wire::QueryResponse {
+            envelopes: vec![query_row(&topic, 1)],
+            continuation: Some(wire::Continuation { has_more: false }),
+        })
+    });
+    assert!(matches!(
+        wrapper(mock)
+            .settle_units(&[PublishUnit::single(envelope).unwrap()])
+            .await,
+        Err(ApiError::InvalidResponse("settled metadata"))
+    ));
 }
 
 #[rstest]

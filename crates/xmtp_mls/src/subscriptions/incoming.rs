@@ -52,7 +52,7 @@ pub(crate) trait SubscriptionFactory: MaybeSend + MaybeSync {
 pub struct IncomingRuntime {
     policy: super::policy::StreamPolicy,
     pub(crate) factory: Option<Arc<dyn SubscriptionFactory>>,
-    #[cfg(test)]
+    #[cfg(any(test, feature = "test-utils"))]
     pub(crate) original_factory: Option<Arc<dyn SubscriptionFactory>>,
     pub(crate) coordinator: Mutex<Option<Arc<IncomingCoordinator>>>,
     /// A new controller on this client cannot resend a rejected wire request.
@@ -68,7 +68,7 @@ impl IncomingRuntime {
     ) -> Self {
         Self {
             policy,
-            #[cfg(test)]
+            #[cfg(any(test, feature = "test-utils"))]
             original_factory: factory.clone(),
             factory,
             coordinator: Mutex::new(None),

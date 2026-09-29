@@ -186,6 +186,11 @@ impl CommitLogStorer for MlsGroup {
         let last_epoch_number = self.epoch().as_u64() as i64;
         let last_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
         self.merge_staged_commit(provider, staged_commit)?;
+        // The merge emptied the proposal store; its delivery evidence goes with it.
+        provider
+            .key_store()
+            .db()
+            .forget_received_proposals(self.group_id().try_into()?)?;
         let applied_epoch_authenticator = self.epoch_authenticator().as_slice().to_vec();
 
         if removed_us {

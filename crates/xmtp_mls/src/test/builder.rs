@@ -13,21 +13,12 @@ use xmtp_db::sql_key_store::SqlKeyStore;
 use xmtp_db::{Store, identity::StoredIdentity};
 
 use openmls::credentials::{Credential, CredentialType};
-use prost::Message;
-use xmtp_common::rand_u64;
 use xmtp_cryptography::XmtpInstallationCredential;
 use xmtp_cryptography::utils::generate_local_wallet;
+use xmtp_id::associations::Identifier;
 use xmtp_id::associations::test_utils::{MockSmartContractSignatureVerifier, WalletTestExt};
-use xmtp_id::associations::unverified::UnverifiedSignature;
-use xmtp_id::associations::{Identifier, ValidatedLegacySignedPublicKey};
 use xmtp_proto::api_client::ApiBuilder;
 use xmtp_proto::api_client::XmtpTestClient;
-use xmtp_proto::xmtp::message_contents::signature::WalletEcdsaCompact;
-use xmtp_proto::xmtp::message_contents::signed_private_key::{Secp256k1, Union};
-use xmtp_proto::xmtp::message_contents::unsigned_public_key::{self, Secp256k1Uncompressed};
-use xmtp_proto::xmtp::message_contents::{
-    Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey, signature,
-};
 
 use xmtp_proto::backend_v1::{
     GetInboxIdsResponse, get_inbox_ids_response::Response as GetInboxIdsResponseItem,
@@ -58,56 +49,6 @@ fn retry() -> Retry<ExponentialBackoff> {
     Retry::default()
 }
 
-/// Generate a random legacy key proto bytes and corresponding account address.
-async fn generate_random_legacy_key() -> (Vec<u8>, String) {
-    let wallet = generate_local_wallet();
-    let ident = wallet.get_identifier().unwrap();
-    let address = format!("{ident}");
-    let created_ns = rand_u64();
-    let secret_key = alloy::signers::k256::ecdsa::SigningKey::from_slice(
-        &xmtp_cryptography::rand::rand_array::<32>(),
-    )
-    .unwrap();
-    let public_key = alloy::signers::k256::ecdsa::VerifyingKey::from(&secret_key);
-    let public_key_bytes = public_key.to_sec1_bytes().to_vec();
-    let mut public_key_buf = vec![];
-    UnsignedPublicKey {
-        created_ns,
-        union: Some(unsigned_public_key::Union::Secp256k1Uncompressed(
-            Secp256k1Uncompressed {
-                bytes: public_key_bytes.clone(),
-            },
-        )),
-    }
-    .encode(&mut public_key_buf)
-    .unwrap();
-    let message = ValidatedLegacySignedPublicKey::text(&public_key_buf);
-    let signed_public_key = match wallet.sign(&message).unwrap() {
-        UnverifiedSignature::RecoverableEcdsa(sig) => sig.signature_bytes().to_vec(),
-        _ => unreachable!("Wallets only provide ecdsa signatures."),
-    };
-    let (bytes, recovery_id) = signed_public_key.as_slice().split_at(64);
-    let recovery_id = recovery_id[0];
-    let signed_private_key: SignedPrivateKey = SignedPrivateKey {
-        created_ns,
-        public_key: Some(SignedPublicKey {
-            key_bytes: public_key_buf,
-            signature: Some(Signature {
-                union: Some(signature::Union::WalletEcdsaCompact(WalletEcdsaCompact {
-                    bytes: bytes.to_vec(),
-                    recovery: recovery_id.into(),
-                })),
-            }),
-        }),
-        union: Some(Union::Secp256k1(Secp256k1 {
-            bytes: secret_key.to_bytes().to_vec(),
-        })),
-    };
-    let mut buf = vec![];
-    signed_private_key.encode(&mut buf).unwrap();
-    (buf, address.to_lowercase())
-}
-
 #[xmtp_common::test]
 async fn builder_test() {
     let wallet = generate_local_wallet();
@@ -124,51 +65,10 @@ async fn test_client_creation() {
     }
 
     let identity_strategies_test_cases = vec![
-        // legacy cases
-        IdentityStrategyTestCase {
-            strategy: {
-                let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
-                IdentityStrategy::new(
-                    legacy_ident.inbox_id(1).unwrap(),
-                    Identifier::eth(legacy_account_address.clone()).unwrap(),
-                    1,
-                    Some(legacy_key),
-                )
-            },
-            err: Some("Nonce must be 0 if legacy key is provided".to_string()),
-        },
-        IdentityStrategyTestCase {
-            strategy: {
-                let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
-                IdentityStrategy::new(
-                    legacy_ident.inbox_id(1).unwrap(),
-                    Identifier::eth(legacy_account_address.clone()).unwrap(),
-                    0,
-                    Some(legacy_key),
-                )
-            },
-            err: Some("Inbox ID doesn't match nonce & address".to_string()),
-        },
-        IdentityStrategyTestCase {
-            strategy: {
-                let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-                let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
-                IdentityStrategy::new(
-                    legacy_ident.inbox_id(0).unwrap(),
-                    Identifier::eth(legacy_account_address.clone()).unwrap(),
-                    0,
-                    Some(legacy_key),
-                )
-            },
-            err: None,
-        },
-        // non-legacy cases
         IdentityStrategyTestCase {
             strategy: {
                 let ident = generate_local_wallet().get_identifier().unwrap();
-                IdentityStrategy::new(ident.inbox_id(1).unwrap(), ident, 0, None)
+                IdentityStrategy::new(ident.inbox_id(1).unwrap(), ident, 0)
             },
             err: Some("Inbox ID doesn't match nonce & address".to_string()),
         },
@@ -180,7 +80,6 @@ async fn test_client_creation() {
                     account_ident.inbox_id(nonce).unwrap(),
                     Identifier::eth(account_ident.clone()).unwrap(),
                     nonce,
-                    None,
                 )
             },
             err: None,
@@ -189,12 +88,7 @@ async fn test_client_creation() {
             strategy: {
                 let nonce = 0;
                 let account_ident = generate_local_wallet().get_identifier().unwrap();
-                IdentityStrategy::new(
-                    account_ident.inbox_id(nonce).unwrap(),
-                    account_ident,
-                    nonce,
-                    None,
-                )
+                IdentityStrategy::new(account_ident.inbox_id(nonce).unwrap(), account_ident, nonce)
             },
             err: None,
         },
@@ -226,22 +120,17 @@ async fn test_client_creation() {
     }
 }
 
-// First, create a client1 using legacy key and then test following cases:
+// First, create and register client1 with a wallet, then test the following cases:
 // - create client2 from same db with [IdentityStrategy::CachedOnly]
 // - create client3 from same db with [IdentityStrategy::CreateIfNotFound]
 // - create client4 with different db.
 #[xmtp_common::test]
 async fn test_2nd_time_client_creation() {
-    let (legacy_key, legacy_account_address) = generate_random_legacy_key().await;
-    let legacy_ident = Identifier::eth(&legacy_account_address).unwrap();
-    let inbox_id = legacy_ident.inbox_id(0).unwrap();
+    let wallet = generate_local_wallet();
+    let ident = wallet.identifier();
+    let inbox_id = ident.inbox_id(0).unwrap();
 
-    let identity_strategy = IdentityStrategy::new(
-        inbox_id.clone(),
-        legacy_ident.clone(),
-        0,
-        Some(legacy_key.clone()),
-    );
+    let identity_strategy = IdentityStrategy::new(inbox_id.clone(), ident.clone(), 0);
     let store = xmtp_db::TestDb::create_persistent_store(None).await;
 
     let client1 = Client::builder(identity_strategy.clone())
@@ -253,7 +142,7 @@ async fn test_2nd_time_client_creation() {
         .build()
         .await
         .unwrap();
-    assert!(client1.context.signature_request().is_none());
+    register_client(&client1, &wallet).await;
 
     let client2 = Client::builder(IdentityStrategy::CachedOnly)
         .store(store.clone())
@@ -268,20 +157,15 @@ async fn test_2nd_time_client_creation() {
     assert!(client1.inbox_id() == client2.inbox_id());
     assert!(client1.installation_public_key() == client2.installation_public_key());
 
-    let client3 = Client::builder(IdentityStrategy::new(
-        inbox_id.clone(),
-        legacy_ident.clone(),
-        0,
-        None,
-    ))
-    .store(store.clone())
-    .api_client(DefaultTestClientCreator::create().build().unwrap())
-    .default_mls_store()
-    .unwrap()
-    .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-    .build()
-    .await
-    .unwrap();
+    let client3 = Client::builder(IdentityStrategy::new(inbox_id.clone(), ident, 0))
+        .store(store.clone())
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
+        .default_mls_store()
+        .unwrap()
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .build()
+        .await
+        .unwrap();
     assert!(client3.context.signature_request().is_none());
     assert!(client1.inbox_id() == client3.inbox_id());
     assert!(client1.installation_public_key() == client3.installation_public_key());
@@ -329,7 +213,7 @@ async fn api_identity_mismatch() {
 
     let wrapper = ApiClientWrapper::new(mock_api, retry());
 
-    let identity = IdentityStrategy::new("other_inbox_id".to_string(), ident, nonce, None);
+    let identity = IdentityStrategy::new("other_inbox_id".to_string(), ident, nonce);
     assert!(matches!(
         identity
             .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
@@ -433,7 +317,7 @@ async fn api_identity_happy_path() {
         .unwrap();
 
     stored.store(&store.conn()).unwrap();
-    let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
+    let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce);
     assert!(
         dbg!(
             identity
@@ -469,7 +353,7 @@ async fn stored_identity_happy_path() {
 
     stored.store(&store.conn()).unwrap();
     let wrapper = ApiClientWrapper::new(mock_api, retry());
-    let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
+    let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce);
     assert!(
         identity
             .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
@@ -505,7 +389,7 @@ async fn stored_identity_mismatch() {
     let wrapper = ApiClientWrapper::new(mock_api, retry());
 
     let inbox_id = "inbox_id".to_string();
-    let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce, None);
+    let identity = IdentityStrategy::new(inbox_id.clone(), ident, nonce);
     let err = identity
         .initialize_identity(&wrapper, &SqlKeyStore::new(&store.db()), &scw_verifier)
         .await
@@ -532,7 +416,6 @@ async fn identity_persistence_test() {
         inbox_id.clone(),
         wallet.identifier(),
         nonce,
-        None,
     ))
     .api_client(DefaultTestClientCreator::create().build().unwrap())
     .store(store_a)
@@ -550,20 +433,15 @@ async fn identity_persistence_test() {
     // Reload the existing store and wallet
     let store_b = xmtp_db::TestDb::create_persistent_store(Some(tmpdb.clone())).await;
 
-    let client_b = Client::builder(IdentityStrategy::new(
-        inbox_id,
-        wallet.identifier(),
-        nonce,
-        None,
-    ))
-    .api_client(DefaultTestClientCreator::create().build().unwrap())
-    .store(store_b)
-    .default_mls_store()
-    .unwrap()
-    .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-    .build()
-    .await
-    .unwrap();
+    let client_b = Client::builder(IdentityStrategy::new(inbox_id, wallet.identifier(), nonce))
+        .api_client(DefaultTestClientCreator::create().build().unwrap())
+        .store(store_b)
+        .default_mls_store()
+        .unwrap()
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .build()
+        .await
+        .unwrap();
     let keybytes_b = client_b.installation_public_key().to_vec();
     drop(client_b);
 

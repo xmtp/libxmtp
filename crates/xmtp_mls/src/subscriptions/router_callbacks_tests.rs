@@ -493,13 +493,15 @@ async fn lifecycle_helpers_are_noops_without_a_transport() {
 async fn sync_group_messages_are_intercepted_not_delivered() {
     use crate::context::XmtpSharedContext;
     use crate::subscriptions::internal::InternalEvent;
-    use xmtp_db::prelude::*;
     use xmtp_events::EventFilter;
     tester!(alix, sync_worker);
 
     // The device-sync worker creates the sync group in the background.
     xmtp_common::wait_for_some(|| async {
-        alix.client.context.db().primary_sync_group().ok().flatten()
+        alix.device_sync_client()
+            .primary_sync_group()
+            .ok()
+            .flatten()
     })
     .await
     .expect("the sync worker creates a sync group");

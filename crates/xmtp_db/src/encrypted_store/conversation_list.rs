@@ -185,7 +185,7 @@ impl<C: ConnectionExt> DbConnection<C> {
     ) -> Result<Vec<ConversationListItem>, StorageError> {
         args.validate()?;
         if matches!(&args.consent_states, Some(states) if states.is_empty()) {
-            return Ok(Vec::new());
+            return self.requested_sync_groups(args, current_time_ns);
         }
 
         let effective_consent_states = args
@@ -299,21 +299,32 @@ impl<C: ConnectionExt> DbConnection<C> {
 
         let mut conversations = self.raw_query(|conn| query.load::<ConversationListItem>(conn))?;
 
-        // Sync groups bypass the regular filters and limit, as before.
-        if matches!(args.conversation_type, Some(ConversationType::Sync))
-            || args.include_sync_groups
-        {
-            let sync = sql_query(format!(
-                "{} SELECT c.* FROM conversation_list c WHERE c.conversation_type = ?",
-                conversation_list_cte()
-            ))
-            .bind::<BigInt, _>(current_time_ns)
-            .bind::<Integer, _>(ConversationType::Sync as i32);
-            let mut sync_groups = self.raw_query(|conn| sync.load::<ConversationListItem>(conn))?;
-            conversations.append(&mut sync_groups);
-        }
-
+        conversations.append(&mut self.requested_sync_groups(args, current_time_ns)?);
         Ok(conversations)
+    }
+
+    /// Sync groups the app asked for, or none. They bypass the regular filters
+    /// and limit, as before. A sync group is the user's own state, not a
+    /// conversation, so a consent record, and the consent filter, has no effect
+    /// on it (docs/specs/SYNC-device-sync.md, section 1).
+    // implements: SYNC-005
+    fn requested_sync_groups(
+        &self,
+        args: &GroupQueryArgs,
+        current_time_ns: i64,
+    ) -> Result<Vec<ConversationListItem>, StorageError> {
+        if !matches!(args.conversation_type, Some(ConversationType::Sync))
+            && !args.include_sync_groups
+        {
+            return Ok(Vec::new());
+        }
+        let sync = sql_query(format!(
+            "{} SELECT c.* FROM conversation_list c WHERE c.conversation_type = ?",
+            conversation_list_cte()
+        ))
+        .bind::<BigInt, _>(current_time_ns)
+        .bind::<Integer, _>(ConversationType::Sync as i32);
+        Ok(self.raw_query(|conn| sync.load::<ConversationListItem>(conn))?)
     }
 }
 
@@ -671,8 +682,51 @@ pub(crate) mod tests {
                     ..Default::default()
                 })
                 .unwrap();
-            assert!(empty_with_sync.is_empty());
+            assert_eq!(
+                empty_with_sync
+                    .iter()
+                    .map(|group| &group.id)
+                    .collect::<Vec<_>>(),
+                [&sync_group.id]
+            );
         })
+    }
+
+    /// A consent record has no effect on a sync group. When the app asks for
+    /// sync groups, a Denied sync group is listed for any consent filter,
+    /// including an empty one.
+    // verifies: SYNC-005
+    #[xmtp_common::test(unwrap_try = true)]
+    fn requested_sync_groups_ignore_the_consent_filter() {
+        with_connection(|conn| -> Result<(), crate::StorageError> {
+            let mut sync_group = generate_group(Some(GroupMembershipState::Allowed));
+            sync_group.conversation_type = ConversationType::Sync;
+            sync_group.store(conn)?;
+            generate_consent_record(
+                ConsentType::ConversationId,
+                ConsentState::Denied,
+                hex::encode(sync_group.id.as_slice()),
+            )
+            .store(conn)?;
+
+            for consent_states in [vec![ConsentState::Allowed], vec![]] {
+                let listed = conn.fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(consent_states.clone()),
+                    include_sync_groups: true,
+                    ..Default::default()
+                })?;
+                assert!(
+                    listed.iter().any(|group| group.id == sync_group.id),
+                    "a Denied sync group was hidden by {consent_states:?}"
+                );
+                let without_sync = conn.fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(consent_states),
+                    ..Default::default()
+                })?;
+                assert!(!without_sync.iter().any(|group| group.id == sync_group.id));
+            }
+            Ok(())
+        })?
     }
 
     /// A `Restored` archive placeholder for a DM must not hide the row the

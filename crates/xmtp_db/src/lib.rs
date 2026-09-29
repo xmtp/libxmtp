@@ -41,6 +41,7 @@ pub type DefaultMlsStore = SqlKeyStore<<DefaultStore as XmtpDb>::DbQuery>;
 pub mod prelude {
     pub use super::ReadOnly;
     pub use super::association_state::QueryAssociationStateCache;
+    pub use super::attachments::{QueryLocalAttachment, QueryPendingAttachment};
     pub use super::consent_record::QueryConsentRecord;
     pub use super::conversation_list::QueryConversationList;
     pub use super::delivery::QueryDelivery;
@@ -63,6 +64,7 @@ pub mod prelude {
     pub use super::pragmas::Pragmas;
     pub use super::processed_device_sync_messages::QueryDeviceSyncMessages;
     pub use super::readd_status::QueryReaddStatus;
+    pub use super::received_proposal::QueryReceivedProposal;
     pub use super::refresh_state::QueryRefreshState;
     pub use super::remote_commit_log::QueryRemoteCommitLog;
     pub use super::restored_group_metadata::QueryRestoredGroupMetadata;

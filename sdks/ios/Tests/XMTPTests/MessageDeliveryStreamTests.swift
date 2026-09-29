@@ -249,7 +249,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		}
 	}
 
-	// verifies: PROC-031, PROC-032
+	// verifies: PROC-031
 	func testSelectionChangeRejectsTheStaleItemAndWaitsForFreshSelection() async throws {
 		for content in [TestContent.text, .forgedMembership] {
 			let rejected = expectation(description: "stale item rejected")

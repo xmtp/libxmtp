@@ -5,7 +5,10 @@ Run commands from the repository root in the Nix shell. Run
 
 - `just sdk generate` builds the SDK libraries and writes Swift, Kotlin, Node,
   worker WASM, and pure browser WASM bindings to `target/sdk-generated/`.
-- `just sdk lint` checks generated names and TypeScript source. It also
+- `just sdk check-file-sizes` checks the 1,000-line limit for every SDK source
+  file, including conformance files. Generated and ignored build files are excluded.
+  Keep most new files below 500 lines.
+- `just sdk lint` checks file sizes, generated names, and TypeScript source. It also
   rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
   benchmark exports in the default bindings and in
   `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks in test source sets.
@@ -21,14 +24,22 @@ Run commands from the repository root in the Nix shell. Run
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
   enables the off-by-default `bench` feature and writes separate bindings to
   `target/sdk-bench/`.
-- `just sdk check-isolation` rejects a façade branch that changes shipped code
-  in `sdks/` or `bindings/`. Its only exceptions are the exact files of the
-  two design SDK-040 changes (retained undecodable content; the foreign
-  Restored DM peer getter). Tests, changelogs, and `AGENTS.md` files there
-  are not guarded.
+- `just sdk check-isolation` rejects shipped-code changes in `sdks/` or
+  `bindings/` on a façade branch. Its Task 1 exception accepts only the reviewed
+  PROC-032 backlink removal in four named SDK source files, checked against
+  their full base content. Later backlink changes need a reviewed gate update.
+  Its other exceptions are the exact files of the two design SDK-040 changes
+  (retained undecodable content; the foreign Restored DM peer getter).
+  The gate rejects code, scripts, generated output, and file-mode changes.
+  Locally, pass the base branch (`just sdk check-isolation self-hosted`): a
+  branch tip that merges trunk otherwise looks like a pull request merge commit.
+  Tests and changelogs remain outside the shipped-code guard.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 `xmtp_sdk` to this crate root so Swift and Kotlin load `uniffi.toml`.
+
+Content and conversation exports use named `include!` files to keep UniFFI
+module paths stable. Use ordinary modules for helpers without exported metadata.

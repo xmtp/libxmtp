@@ -13,6 +13,13 @@ impl<A: XmtpBackendClient> XmtpBackendClient for GuardedApi<A> {
         self.check_preflight().await?;
         self.raw.publish(request).await.map_err(dyn_err)
     }
+    async fn create_upload(
+        &self,
+        request: wire::CreateUploadRequest,
+    ) -> Result<wire::CreateUploadResponse> {
+        self.check_preflight().await?;
+        self.raw.create_upload(request).await.map_err(dyn_err)
+    }
     async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse> {
         self.check_preflight().await?;
         self.raw.query(request).await.map_err(dyn_err)

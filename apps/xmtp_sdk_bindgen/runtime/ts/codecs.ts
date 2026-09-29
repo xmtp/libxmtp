@@ -6,7 +6,7 @@ import {
   decodeStandard,
   encodeStandard,
   standardContentType,
-  type ContentTypeID,
+  type ContentTypeId,
   type EncodedContent,
   type Attachment,
   type RemoteAttachment,
@@ -44,7 +44,7 @@ function matchingValue(
 }
 
 abstract class PureCodec<T> implements ContentCodec<T> {
-  readonly type: ContentTypeID;
+  readonly type: ContentTypeId;
 
   protected constructor(
     kind: StandardContentKind,

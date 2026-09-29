@@ -228,11 +228,9 @@ export async function rejectBuildWithoutStoredIdentity(
   const current = await connection();
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   const identifier = `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
-  const inbox = B.InboxID.fromString(
-    Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
-      byte.toString(16).padStart(2, "0"),
-    ).join(""),
-  );
+  const inbox = Array.from(crypto.getRandomValues(new Uint8Array(32)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
   try {
     const client = await Client.build(
       current,

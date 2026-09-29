@@ -77,6 +77,24 @@ impl XmtpBackendClient for ScriptedApi {
         );
         Ok(Default::default())
     }
+    async fn create_upload(
+        &self,
+        _: wire::CreateUploadRequest,
+    ) -> Result<wire::CreateUploadResponse, Self::Error> {
+        self.0.calls.lock().push("create_upload");
+        assert_eq!(
+            self.0
+                .db
+                .db()
+                .server_configuration()
+                .unwrap()
+                .unwrap()
+                .backend_url,
+            NEW,
+            "target entered before stored URL changed"
+        );
+        Ok(Default::default())
+    }
     async fn get_inbox_ids(
         &self,
         _: wire::GetInboxIdsRequest,

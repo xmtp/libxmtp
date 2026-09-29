@@ -9,16 +9,16 @@ just wasm check
 just wasm lint                          # clippy + rustfmt
 just wasm build                         # nix build .#wasm-bindings
 just wasm test                          # Rust tests on wasm32. Needs `just backend up`
-just wasm test backoff_retry             # one test
 just wasm test-integration              # TypeScript tests in test/. Needs `just backend up`
 just wasm test-ci                       # what CI runs (Nix build). Needs `just backend up`
 ```
 
 ## Gotchas
 
-- Uses `NIX_DEVSHELL=wasm`. Needs `just backend up`. gRPC-Web uses the backend listener on port 5050.
+- Uses `NIX_DEVSHELL=wasm`. Needs `just backend up`. Use the worktree's backend port (`just backend status`). Wasm tests read `XMTP_BACKEND_URL` at build time and use port 5050 without it, so load the worktree's values first: `dev/worktree-env && . dev/docker/load-env`.
+- On macOS, `just wasm test` fails to link iconv. Use `NIX_DEVSHELL=rust dev/nix-shell 'dev/worktree-env && . dev/docker/load-env && dev/agent-run cargo nextest run --locked --profile ci --cargo-profile wasm-test --target wasm32-unknown-unknown -p <crate>'`.
 - `test-integration` makes the copied Nix output writable so later runs can replace it.
-- `just wasm test` runs a fixed crate list: `wasm_packages` in `wasm.just`. Add a crate there to test it on wasm.
+- `just wasm test` runs a fixed crate list: `wasm_packages` in `wasm.just`. CI runs `wasmPackages` in `nix/package/wasm-nextest.nix`. Add a crate to both lists to test it on wasm.
 - No threads, no filesystem, no `std::time`. Use `xmtp_common` time and rand helpers.
 
 ## Conventions

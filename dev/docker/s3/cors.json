@@ -1,0 +1,8 @@
+{
+  "CORSRules": [{
+    "AllowedOrigins": ["*"],
+    "AllowedMethods": ["PUT", "GET"],
+    "AllowedHeaders": ["content-length", "host", "if-none-match", "x-amz-checksum-sha256"],
+    "MaxAgeSeconds": 3600
+  }]
+}

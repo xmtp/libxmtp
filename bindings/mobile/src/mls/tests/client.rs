@@ -24,7 +24,6 @@ async fn test_create_client_with_storage() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -39,7 +38,6 @@ async fn test_create_client_with_storage() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         None,
         None,
         None,
@@ -80,7 +78,6 @@ async fn test_create_client_with_key() {
         None,
         None,
         None,
-        None,
     )
     .await
     .unwrap();
@@ -102,7 +99,6 @@ async fn test_create_client_with_key() {
         &inbox_id,
         ffi_inbox_owner.identifier(),
         nonce,
-        None,
         None,
         None,
         None,
@@ -133,7 +129,6 @@ async fn test_can_message() {
         &amal_inbox_id,
         amal.identifier(),
         nonce,
-        None,
         None,
         None,
         None,
@@ -174,7 +169,6 @@ async fn test_can_message() {
         &bola_inbox_id,
         bola.identifier(),
         nonce,
-        None,
         None,
         None,
         None,
@@ -329,7 +323,6 @@ async fn register_after_unconfirmed_registration_waits() {
             wallet.identifier(),
             1,
             None,
-            None,
             allow_offline,
             None,
             None,
@@ -379,75 +372,4 @@ async fn register_after_unconfirmed_registration_waits() {
     let stored: StoredIdentity = reopened.inner_client.context.db().fetch(&())?.unwrap();
     assert_eq!(stored.registration_cursor_sequence_id, None);
     reopened.inner_client.close().await?;
-}
-
-// verifies: IDENT-072
-#[xmtp_common::test(unwrap_try = true)]
-async fn legacy_key_creation_waits_until_visible() {
-    use xmtp_db::{Fetch, identity::StoredIdentity};
-    use xmtp_id::associations::ValidatedLegacySignedPublicKey;
-    use xmtp_proto::xmtp::message_contents::{
-        Signature, SignedPrivateKey, SignedPublicKey, UnsignedPublicKey, signature,
-        signature::WalletEcdsaCompact,
-        signed_private_key::{Secp256k1, Union},
-        unsigned_public_key::{self, Secp256k1Uncompressed},
-    };
-
-    let wallet = FfiWalletInboxOwner::new();
-    let created_ns = xmtp_common::rand_u64();
-    let secret = alloy::signers::k256::ecdsa::SigningKey::from_slice(
-        &xmtp_cryptography::rand::rand_array::<32>(),
-    )?;
-    let public_key = alloy::signers::k256::ecdsa::VerifyingKey::from(&secret);
-    let mut public_key_bytes = Vec::new();
-    UnsignedPublicKey {
-        created_ns,
-        union: Some(unsigned_public_key::Union::Secp256k1Uncompressed(
-            Secp256k1Uncompressed {
-                bytes: public_key.to_sec1_bytes().to_vec(),
-            },
-        )),
-    }
-    .encode(&mut public_key_bytes)?;
-    let signed_public_key = wallet.sign(ValidatedLegacySignedPublicKey::text(&public_key_bytes))?;
-    let (signature_bytes, recovery_id) = signed_public_key.split_at(64);
-    let mut legacy_key = Vec::new();
-    SignedPrivateKey {
-        created_ns,
-        public_key: Some(SignedPublicKey {
-            key_bytes: public_key_bytes,
-            signature: Some(Signature {
-                union: Some(signature::Union::WalletEcdsaCompact(WalletEcdsaCompact {
-                    bytes: signature_bytes.to_vec(),
-                    recovery: recovery_id[0].into(),
-                })),
-            }),
-        }),
-        union: Some(Union::Secp256k1(Secp256k1 {
-            bytes: secret.to_bytes().to_vec(),
-        })),
-    }
-    .encode(&mut legacy_key)?;
-
-    let identifier = wallet.identifier();
-    let inbox = identifier.inbox_id(0)?;
-    let client = create_client(
-        connect_to_backend_test().await,
-        DbOptions::new(Some(tmp_path()), None, None, None, None),
-        &inbox,
-        identifier,
-        0,
-        Some(legacy_key),
-        None,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await?;
-    assert!(client.inner_client.identity().is_ready());
-    assert!(client.inner_client.is_registration_visible()?);
-    let stored: StoredIdentity = client.inner_client.context.db().fetch(&())?.unwrap();
-    assert_eq!(stored.registration_cursor_sequence_id, None);
-    client.inner_client.close().await?;
 }

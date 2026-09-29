@@ -237,6 +237,14 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     ),
                     _ => error,
                 };
+                let error = if error.is_missing_proposal()
+                    && tx.with_group(self.group_id, |group, storage| {
+                        proposal_state_lost(group, &storage.db(), self.group_id)
+                    })? {
+                    GroupMessageProcessingError::LostProposalState
+                } else {
+                    error
+                };
                 if let GroupMessageProcessingError::CommitValidation(CommitValidationError::Rule(
                     CommitRuleError::ProtocolVersionTooLow(version),
                 )) = &error
@@ -356,6 +364,27 @@ fn group_is_restored(
     Ok(db
         .find_group(group_id)?
         .is_some_and(|group| group.membership_state == GroupMembershipState::Restored))
+}
+
+/// True when the prefix delivered a proposal at the current epoch that the
+/// proposal store no longer holds. A commit can only reference proposals from
+/// its own epoch, so if the store holds every delivered one, a missing
+/// reference was absent from the prefix. Any lost delivered proposal holds the
+/// commit, because the evidence cannot name the reference the commit lacks.
+// implements: PROC-011, PROC-012
+fn proposal_state_lost(
+    group: &OpenMlsGroup,
+    db: &impl DbQuery,
+    group_id: GroupId,
+) -> Result<bool, GroupMessageProcessingError> {
+    let held: HashSet<&[u8]> = group
+        .pending_proposals()
+        .map(|proposal| proposal.proposal_reference_ref().as_slice())
+        .collect();
+    Ok(db
+        .received_proposals(group_id, group.epoch().as_u64() as i64)?
+        .iter()
+        .any(|reference| !held.contains(reference.as_slice())))
 }
 
 fn check_current_head(

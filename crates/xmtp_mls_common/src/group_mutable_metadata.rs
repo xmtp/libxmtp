@@ -114,6 +114,15 @@ impl MessageDisappearingSettings {
     pub fn is_enabled(&self) -> bool {
         self.from_ns > 0 && self.in_ns > 0
     }
+
+    /// The deadline of an application message sent at `sent_at_ns`, or `None` when
+    /// the settings are disabled or the message predates `from_ns`. A deadline past
+    /// `i64::MAX` clamps to it.
+    // implements: META-050
+    pub fn expire_at_ns(&self, sent_at_ns: i64) -> Option<i64> {
+        (self.is_enabled() && sent_at_ns >= self.from_ns)
+            .then(|| sent_at_ns.saturating_add(self.in_ns))
+    }
 }
 
 /// Represents the mutable metadata for a group.
@@ -579,6 +588,31 @@ fn decode_inbox_id_list(
 mod tests {
     use super::*;
     use std::collections::HashMap;
+
+    /// The deadline is the backend sent time plus the duration, exactly: a message
+    /// sent before `from_ns` or under disabled settings gets none, one sent at
+    /// `from_ns` gets one, and a sum past `i64::MAX` clamps rather than overflowing.
+    // verifies: META-050
+    #[xmtp_common::test]
+    fn message_expiry_from_sent_time() {
+        let settings = MessageDisappearingSettings::new(1_000, 50);
+        assert_eq!(settings.expire_at_ns(999), None);
+        assert_eq!(settings.expire_at_ns(1_000), Some(1_050));
+        assert_eq!(settings.expire_at_ns(5_000), Some(5_050));
+
+        for disabled in [(0, 50), (1_000, 0), (-1, 50), (1_000, -1)] {
+            let disabled = MessageDisappearingSettings::new(disabled.0, disabled.1);
+            assert_eq!(disabled.expire_at_ns(5_000), None, "{disabled:?}");
+        }
+
+        let long = MessageDisappearingSettings::new(1, i64::MAX);
+        assert_eq!(long.expire_at_ns(1), Some(i64::MAX));
+        assert_eq!(long.expire_at_ns(i64::MAX), Some(i64::MAX));
+        let edge = MessageDisappearingSettings::new(1, i64::MAX - 10);
+        assert_eq!(edge.expire_at_ns(10), Some(i64::MAX));
+        assert_eq!(edge.expire_at_ns(11), Some(i64::MAX));
+        assert_eq!(edge.expire_at_ns(9), Some(i64::MAX - 1));
+    }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn test_commit_log_signer_utility_method() {
