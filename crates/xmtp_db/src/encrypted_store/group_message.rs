@@ -644,6 +644,10 @@ pub trait QueryGroupMessage {
         msg_id: &MessageId,
     ) -> Result<usize, crate::ConnectionError>;
 
+    /// Delete published application messages whose `expire_at_ns` has passed.
+    /// The returned rows keep identity and metadata, but their
+    /// `decrypted_message_bytes` are empty: a deletion event must not deliver
+    /// the body of an expired message.
     fn delete_expired_messages(&self) -> Result<Vec<StoredGroupMessage>, crate::ConnectionError>;
 
     /// The soonest `expire_at_ns` among published Application messages that have
@@ -1387,6 +1391,17 @@ impl<C: ConnectionExt> QueryGroupMessage for DbConnection<C> {
             )
             .returning(StoredGroupMessage::as_returning())
             .load::<StoredGroupMessage>(conn)
+        })
+        .map(|deleted| {
+            deleted
+                .into_iter()
+                // An expired body, content or fallback, must not outlive its row.
+                // implements: META-051
+                .map(|message| StoredGroupMessage {
+                    decrypted_message_bytes: Vec::new(),
+                    ..message
+                })
+                .collect()
         })
     }
 

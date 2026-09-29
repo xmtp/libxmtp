@@ -313,9 +313,7 @@ impl<C: ConnectionExt> DbConnection<C> {
         args: &GroupQueryArgs,
         current_time_ns: i64,
     ) -> Result<Vec<ConversationListItem>, StorageError> {
-        if !matches!(args.conversation_type, Some(ConversationType::Sync))
-            && !args.include_sync_groups
-        {
+        if !args.requests_sync_groups() {
             return Ok(Vec::new());
         }
         let sync = sql_query(format!(

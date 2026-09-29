@@ -286,6 +286,12 @@ impl AsRef<GroupQueryArgs> for GroupQueryArgs {
 }
 
 impl GroupQueryArgs {
+    /// Whether the app asked for sync groups. Requested sync groups bypass the
+    /// regular filters, limit, and consent filter.
+    pub(crate) fn requests_sync_groups(&self) -> bool {
+        matches!(self.conversation_type, Some(ConversationType::Sync)) || self.include_sync_groups
+    }
+
     pub fn validate(&self) -> Result<(), crate::ConnectionError> {
         if self.last_activity_after_ns.is_some() && self.created_after_ns.is_some() {
             return Err(crate::ConnectionError::InvalidQuery(
@@ -615,6 +621,22 @@ where
     }
 }
 
+impl<C: ConnectionExt> DbConnection<C> {
+    /// The stored rows of the sync groups the app asked for, or none. The
+    /// conversation list's `requested_sync_groups` applies the same rule.
+    // implements: SYNC-005
+    fn requested_sync_group_rows(
+        &self,
+        args: &GroupQueryArgs,
+    ) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
+        if !args.requests_sync_groups() {
+            return Ok(Vec::new());
+        }
+        let query = dsl::groups.filter(dsl::conversation_type.eq(ConversationType::Sync));
+        self.raw_query(|conn| query.load(conn))
+    }
+}
+
 impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Return regular `Purpose::Conversation` groups with additional optional filters
     #[xmtp_common::db_span]
@@ -634,7 +656,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             limit,
             conversation_type,
             consent_states,
-            include_sync_groups,
+            include_sync_groups: _,
             include_duplicate_dms,
             last_activity_after_ns,
             last_activity_before_ns,
@@ -642,8 +664,10 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             order_by,
         } = args.as_ref();
 
+        // An empty filter names no consent state, so it matches no conversation.
+        // Requested sync groups ignore the consent filter.
         if matches!(consent_states, Some(states) if states.is_empty()) {
-            return Ok(Vec::new());
+            return self.requested_sync_group_rows(args.as_ref());
         }
 
         let order_expression = match order_by.clone().unwrap_or_default() {
@@ -766,14 +790,7 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
             self.raw_query(|conn| inner_joined_query.load::<StoredGroup>(conn))?
         };
 
-        // Were sync groups explicitly asked for? Was the include_sync_groups flag set to true?
-        // Then query for those separately
-        if matches!(conversation_type, Some(ConversationType::Sync)) || *include_sync_groups {
-            let query = dsl::groups.filter(dsl::conversation_type.eq(ConversationType::Sync));
-            let mut sync_groups = self.raw_query(|conn| query.load(conn))?;
-            groups.append(&mut sync_groups);
-        }
-
+        groups.append(&mut self.requested_sync_group_rows(args.as_ref())?);
         Ok(groups)
     }
 
@@ -1628,7 +1645,7 @@ pub(crate) mod tests {
         })
     }
 
-    // verifies: CONS-030
+    // verifies: CONS-030, SYNC-005
     #[xmtp_common::test]
     fn test_find_groups_by_consent_state() {
         with_connection(|conn| {
@@ -1734,7 +1751,22 @@ pub(crate) mod tests {
                     ..Default::default()
                 })
                 .unwrap();
-            assert!(empty_with_sync.is_empty());
+            // The empty filter still matches no normal group, but a requested
+            // sync group ignores the consent filter, as in fetch_conversation_list.
+            let ids = |rows: Vec<StoredGroup>| rows.into_iter().map(|g| g.id).collect::<Vec<_>>();
+            assert_eq!(ids(empty_with_sync), vec![sync_group.id]);
+            use crate::conversation_list::QueryConversationList;
+            let listed = conn
+                .fetch_conversation_list(GroupQueryArgs {
+                    consent_states: Some(vec![]),
+                    include_sync_groups: true,
+                    ..Default::default()
+                })
+                .unwrap();
+            assert_eq!(
+                listed.into_iter().map(|g| g.id).collect::<Vec<_>>(),
+                vec![sync_group.id]
+            );
         })
     }
 
