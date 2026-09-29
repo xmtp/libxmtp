@@ -1,5 +1,22 @@
 use super::*;
 
+// verifies: OPS-017, OPS-019
+#[xmtp_common::test(unwrap_try = true)]
+fn create_upload_uses_attachment_rpc_labels() {
+    let rpc = RpcLabels::from_path("/xmtp.backend.v1.AttachmentService/CreateUpload");
+    assert_eq!(rpc.service, "xmtp.backend.v1.AttachmentService");
+    assert_eq!(rpc.method, "CreateUpload");
+    assert_eq!(
+        rpc.labels(),
+        [
+            ("grpc_type", "unary"),
+            ("grpc_service", "xmtp.backend.v1.AttachmentService"),
+            ("grpc_method", "CreateUpload"),
+        ]
+    );
+    assert!(!rpc.health);
+}
+
 // verifies: OPS-016, OPS-017
 #[xmtp_common::test(unwrap_try = true)]
 fn catalogue_matches_documented_types_and_help_for_every_metric() {

@@ -248,6 +248,7 @@ async fn test_spoofed_inbox_id() {
     let mut malicious_identity = alix.context.identity.clone();
     malicious_identity.credential = malicious_credential;
     let malicious_context = Arc::new(XmtpMlsLocalContext {
+        attachments: alix.context.attachments.clone(),
         identity: malicious_identity,
         api_client: alix.context.api_client.clone(),
         store: alix.context.store.clone(),

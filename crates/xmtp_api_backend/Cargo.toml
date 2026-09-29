@@ -53,6 +53,7 @@ wasm-bindgen-test = { workspace = true, optional = true }
 futures-test.workspace = true
 hex.workspace = true
 mockall.workspace = true
+prost-types = "0.14"
 rstest.workspace = true
 tokio.workspace = true
 xmtp_mls_validation = { workspace = true, features = ["test-utils"] }
