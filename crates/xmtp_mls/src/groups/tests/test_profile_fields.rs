@@ -29,7 +29,7 @@ use crate::{
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, UpdateAdminListType,
-        app_data::{GroupAppDataError, app_data_updates_with},
+        app_data::{GroupAppDataError, pending_app_data_updates},
         intents::{AppDataUpdateIntentData, ProposeMemberUpdateIntentData, QueueIntent},
         mls_sync::generate_prepared_commit,
     },
@@ -178,7 +178,7 @@ fn stage_unchecked<P: OpenMlsProvider>(
             .map_err(GroupAppDataError::Propose)?;
         proposals.push(proposal);
     }
-    let dictionary = app_data_updates_with(group, &[]).unwrap_or_else(|_| {
+    let dictionary = pending_app_data_updates(group).unwrap_or_else(|_| {
         let mut updater = group.app_data_dictionary_updater();
         for (id, payload) in updates {
             updater.set(ComponentData::from_parts(

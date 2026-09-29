@@ -111,17 +111,7 @@ pub enum ProcessMessageWithAppDataError<StorageError: std::error::Error> {
 /// produce the resulting [`AppDataUpdates`] the commit builder / message
 /// processor wants.
 ///
-/// Accumulates per-component state in a local [`BTreeMap`]
-/// (`Some(bytes)` for an Update, `None` for a Remove) so that two proposals
-/// targeting the same component inside one batch chain correctly — the
-/// second one's `apply_app_data_update_payload` call sees the first
-/// proposal's effect as its `old_value`. The migration PR's bootstrap
-/// commit emits multiple `AppDataUpdate(COMPONENT_REGISTRY, ...)` proposals
-/// back-to-back and would otherwise lose all but the last one.
-///
-/// Returns `Ok(None)` when the iterator yields no proposals (an empty
-/// `BTreeMap::new()` is heap-free, so the common zero-proposal case costs
-/// essentially nothing).
+/// Returns `Ok(None)` when the iterator yields no proposals.
 pub(crate) fn accumulate_app_data_updates<'a, I>(
     mls_group: &OpenMlsGroup,
     proposals: I,
@@ -129,85 +119,106 @@ pub(crate) fn accumulate_app_data_updates<'a, I>(
 where
     I: IntoIterator<Item = (openmls::component::ComponentId, &'a AppDataUpdateOperation)>,
 {
-    let mut in_batch: BTreeMap<openmls::component::ComponentId, Option<Vec<u8>>> = BTreeMap::new();
+    let mut batch = AppDataBatch::new(mls_group)?;
+    for (id, operation) in proposals {
+        batch.apply(id, operation)?;
+    }
+    Ok(batch.updates())
+}
 
-    // Load the pre-commit registry once. It supplies the
-    // `ComponentType` tag the type-aware dispatcher in
-    // `apply_app_data_update_payload` uses when an unknown component id
-    // arrives. Registry updates that land in the same commit don't
-    // retroactively change this snapshot — the typed path would need
-    // an in-batch registry overlay to handle the corner case where the
-    // very same commit both registers a new component and writes to
-    // it.
-    let registry = load_component_registry(mls_group)?;
+/// The dictionary a sequence of `AppDataUpdate` proposals produces, built
+/// one proposal at a time.
+///
+/// Per-component state (`Some(bytes)` for an Update, `None` for a Remove)
+/// lets two proposals for the same component chain: the second sees the
+/// first's effect as its old value. Every payload decodes against the
+/// pre-commit registry, as on the receive side, so a registry change in
+/// the same commit does not change how its other updates are read.
+pub(crate) struct AppDataBatch<'a> {
+    group: &'a OpenMlsGroup,
+    registry: ComponentRegistry,
+    states: BTreeMap<openmls::component::ComponentId, Option<Vec<u8>>>,
+}
 
-    for (openmls_id, operation) in proposals {
-        let xmtp_id = ComponentId::from(openmls_id);
-        match operation {
+impl<'a> AppDataBatch<'a> {
+    pub(crate) fn new(group: &'a OpenMlsGroup) -> Result<Self, ComponentSourceError> {
+        Ok(Self {
+            group,
+            registry: load_component_registry(group)?,
+            states: BTreeMap::new(),
+        })
+    }
+
+    /// A batch holding the group's pending proposals, in the order a
+    /// commit that consumes the proposal store applies them.
+    pub(crate) fn pending(group: &'a OpenMlsGroup) -> Result<Self, ComponentSourceError> {
+        let mut batch = Self::new(group)?;
+        for queued in group.pending_proposals() {
+            if let Proposal::AppDataUpdate(proposal) = queued.proposal() {
+                batch.apply(proposal.component_id(), proposal.operation())?;
+            }
+        }
+        Ok(batch)
+    }
+
+    pub(crate) fn apply(
+        &mut self,
+        id: openmls::component::ComponentId,
+        operation: &AppDataUpdateOperation,
+    ) -> Result<(), ComponentSourceError> {
+        let value = match operation {
             AppDataUpdateOperation::Update(payload) => {
-                // Resolve `old_value` from in-batch state first; fall back
-                // to the pre-commit dict only if no earlier proposal in
-                // this batch touched the same component. The match borrows
-                // from `in_batch` only for the duration of the arm body —
-                // `apply_app_data_update_payload` returns an owned `Vec<u8>`
-                // that outlives the borrow, so the follow-up `insert` is
-                // legal without cloning the prior bytes.
-                let new_value = match in_batch.get(&openmls_id) {
-                    Some(Some(bytes)) => apply_app_data_update_payload(
+                let xmtp_id = ComponentId::from(id);
+                let old = self.state(xmtp_id);
+                Some(
+                    apply_app_data_update_payload(
                         xmtp_id,
                         payload.as_slice(),
-                        Some(bytes.as_slice()),
-                        &registry,
-                    ),
-                    Some(None) => {
-                        apply_app_data_update_payload(xmtp_id, payload.as_slice(), None, &registry)
-                    }
-                    None => {
-                        let from_dict = read_from_app_data_dict(xmtp_id, mls_group);
-                        apply_app_data_update_payload(
-                            xmtp_id,
-                            payload.as_slice(),
-                            from_dict.as_deref(),
-                            &registry,
-                        )
-                    }
-                }
-                .inspect_err(|e| {
-                    tracing::warn!(
-                        component_id = %xmtp_id,
-                        error = %e,
-                        "Failed to apply AppDataUpdate payload"
-                    );
-                })?;
-                in_batch.insert(openmls_id, Some(new_value));
+                        old.as_deref(),
+                        &self.registry,
+                    )
+                    .inspect_err(|e| {
+                        tracing::warn!(
+                            component_id = %xmtp_id,
+                            error = %e,
+                            "Failed to apply AppDataUpdate payload"
+                        );
+                    })?,
+                )
             }
-            AppDataUpdateOperation::Remove => {
-                // Maps straight to `updater.remove(&id)` below — the
-                // component impl's `apply_update_payload` is never
-                // consulted for `Remove`, so component-level Remove
-                // rejections (e.g. the whole-registry Remove ban in
-                // `ComponentRegistryComponent::expand_to_changes`) are
-                // enforced during commit validation
-                // (`ValidatedCommit::from_staged_commit`), not
-                // re-checked here. That's sound because both current
-                // commit-processing paths validate before applying.
-                in_batch.insert(openmls_id, None);
-            }
+            // A Remove never consults the component's payload rules, so
+            // component-level Remove rejections (e.g. the whole-registry
+            // Remove ban) are enforced by commit validation, which both
+            // commit-processing paths run before applying.
+            AppDataUpdateOperation::Remove => None,
+        };
+        self.states.insert(id, value);
+        Ok(())
+    }
+
+    /// The component's value after the proposals applied so far.
+    pub(crate) fn state(&self, id: ComponentId) -> Option<Vec<u8>> {
+        match self.states.get(&id.as_u16()) {
+            Some(value) => value.clone(),
+            None => read_from_app_data_dict(id, self.group),
         }
     }
 
-    if in_batch.is_empty() {
-        return Ok(None);
-    }
-
-    let mut updater = mls_group.app_data_dictionary_updater();
-    for (id, value) in in_batch {
-        match value {
-            Some(bytes) => updater.set(ComponentData::from_parts(id, bytes.into())),
-            None => updater.remove(&id),
+    /// The [`AppDataUpdates`] for the commit; `None` when no proposal was
+    /// applied.
+    pub(crate) fn updates(self) -> Option<AppDataUpdates> {
+        if self.states.is_empty() {
+            return None;
         }
+        let mut updater = self.group.app_data_dictionary_updater();
+        for (id, value) in self.states {
+            match value {
+                Some(bytes) => updater.set(ComponentData::from_parts(id, bytes.into())),
+                None => updater.remove(&id),
+            }
+        }
+        updater.changes()
     }
-    Ok(updater.changes())
 }
 
 /// AppDataUpdate-aware wrapper around [`OpenMlsGroup::process_message`].
@@ -362,26 +373,18 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
         proposals.push(proposal);
     }
 
-    // Step 2: registry reconciliation, and cleanup after any swept removal.
-    let upkeep = membership_upkeep::membership_upkeep(mls_group, catalogue)
+    // Step 2: registry reconciliation and cleanup after any swept removal,
+    // with the dict updates of every `AppDataUpdate` in the store (earlier
+    // intents' queued proposals included) followed by the inline upkeep, so
+    // the final dict bytes match what `process_message_with_app_data`
+    // produces on the receive side. If OpenMLS ever changes
+    // `consume_proposal_store(true)`'s sweep or `pending_proposals()`
+    // ordering, receivers reject the commit with `WrongConfirmationTag`; the
+    // AppDataUpdate E2E tests in `groups/tests/test_proposals.rs` catch that.
+    let (upkeep, app_data_updates) = membership_upkeep::membership_upkeep(mls_group, catalogue)
         .map_err(|e| GroupAppDataError::Upkeep(Box::new(e)))?;
 
-    // Step 3: compute the dict updates from every `AppDataUpdate` in the
-    // store, including earlier intents' queued proposals, then the inline
-    // upkeep, so the final dict bytes match what
-    // `process_message_with_app_data` produces on the receive side. If
-    // OpenMLS ever changes `consume_proposal_store(true)`'s sweep or
-    // `pending_proposals()` ordering, receivers reject the commit with
-    // `WrongConfirmationTag`; the AppDataUpdate E2E tests in
-    // `groups/tests/test_proposals.rs` catch that.
-    let app_data_updates = app_data_updates_with(mls_group, &upkeep).inspect_err(|e| {
-        tracing::error!(
-            error = %e,
-            "Failed to compute AppDataUpdates for standalone propose+commit"
-        );
-    })?;
-
-    // Step 4: build a commit that consumes the proposal store. The
+    // Step 3: build a commit that consumes the proposal store. The
     // just-queued proposals are encoded as `ProposalRef`s; only the upkeep
     // is inline.
     let mut stage = mls_group
@@ -466,28 +469,7 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
 pub(crate) fn pending_app_data_updates(
     mls_group: &OpenMlsGroup,
 ) -> Result<Option<AppDataUpdates>, ComponentSourceError> {
-    app_data_updates_with(mls_group, &[])
-}
-
-/// Compute the [`AppDataUpdates`] of a commit that carries the group's
-/// pending proposals and then `inline`, the order in which OpenMLS applies
-/// them. The result is what callers pass to
-/// [`CommitBuilder::with_app_data_dictionary_updates`].
-pub(crate) fn app_data_updates_with(
-    mls_group: &OpenMlsGroup,
-    inline: &[Proposal],
-) -> Result<Option<AppDataUpdates>, ComponentSourceError> {
-    let iter = mls_group
-        .pending_proposals()
-        .map(|queued| queued.proposal())
-        .chain(inline)
-        .filter_map(|proposal| match proposal {
-            Proposal::AppDataUpdate(app_data) => {
-                Some((app_data.component_id(), app_data.operation()))
-            }
-            _ => None,
-        });
-    accumulate_app_data_updates(mls_group, iter)
+    Ok(AppDataBatch::pending(mls_group)?.updates())
 }
 
 /// Read the committed component registry from the dictionary.

@@ -1,5 +1,5 @@
 use super::*;
-use crate::groups::app_data::{app_data_updates_with, membership_upkeep::membership_upkeep};
+use crate::groups::app_data::membership_upkeep::membership_upkeep;
 use crate::groups::group_membership::GroupMembership;
 use crate::groups::{
     GroupError,
@@ -370,12 +370,11 @@ fn compute_publish_data_for_proposal_based_update(
 
             // 4. Carry registry reconciliation and removed-member cleanup
             // inline, so their authority is judged against the post-commit
-            // membership.
-            let upkeep = membership_upkeep(group, catalogue)?;
+            // membership. Pre-compute the dictionary updates so the
+            // confirmation tag agrees with the receiver's apply path.
+            let (upkeep, app_data_updates) = membership_upkeep(group, catalogue)?;
 
-            // 5. Create a commit consuming all proposals. Pre-compute the dictionary
-            // updates so the confirmation tag agrees with the receiver's apply path.
-            let app_data_updates = app_data_updates_with(group, &upkeep)?;
+            // 5. Create a commit consuming all proposals.
             let mut stage = group
                 .commit_builder()
                 .consume_proposal_store(true)

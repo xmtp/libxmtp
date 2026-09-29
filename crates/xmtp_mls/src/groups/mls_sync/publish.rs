@@ -547,16 +547,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let keys = self.context.identity().installation_keys.clone();
                 let (bundle, staged_commit, group_epoch) =
                     generate_prepared_commit(storage, openmls_group, |group, provider| {
-                        let upkeep = crate::groups::app_data::membership_upkeep::membership_upkeep(
-                            group,
-                            &self
-                                .context
-                                .server_configuration()
-                                .configuration()
-                                .application_components,
-                        )?;
-                        let updates =
-                            crate::groups::app_data::app_data_updates_with(group, &upkeep)?;
+                        let (upkeep, updates) =
+                            crate::groups::app_data::membership_upkeep::membership_upkeep(
+                                group,
+                                &self
+                                    .context
+                                    .server_configuration()
+                                    .configuration()
+                                    .application_components,
+                            )?;
                         let mut stage = group
                             .commit_builder()
                             .leaf_node_parameters(LeafNodeParameters::default())

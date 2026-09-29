@@ -4,16 +4,17 @@
 //! A commit registers the catalogue entries its group lacks and deletes the
 //! per-inbox map keys and admin-list key of each inbox it removes, whether
 //! the removal is its own or a swept pending proposal.
-//! [`membership_upkeep`] returns those changes as inline proposals.
+//! [`membership_upkeep`] returns those changes as inline proposals, with the
+//! dictionary updates of the whole commit.
 //! Each one passes the receiver's own validation against the post-commit
 //! membership before it is kept; a change the committer may not make is
 //! dropped, so upkeep never blocks the commit it rides on. Receivers require
 //! none of it.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashSet};
 
 use openmls::{
-    group::MlsGroup as OpenMlsGroup,
+    group::{AppDataUpdates, MlsGroup as OpenMlsGroup},
     messages::proposals::{AppDataUpdateProposal, Proposal},
 };
 use prost::Message;
@@ -36,44 +37,34 @@ use xmtp_mls_validation::commit::{
 };
 use xmtp_proto::{types::ConversationType, xmtp::mls::message_contents::ComponentType};
 
-use super::{load_component_registry, pending_app_data_updates};
+use super::{AppDataBatch, load_component_registry};
 use crate::groups::GroupError;
 
-type States = HashMap<ComponentId, Option<Vec<u8>>>;
-
 /// The inline `AppDataUpdate` proposals this client adds to a commit, in
-/// addition to the group's pending proposals.
+/// addition to the group's pending proposals, and the dictionary updates
+/// of a commit that carries both, in the order OpenMLS applies them.
 // implements: META-067, GMOD-039
 pub(crate) fn membership_upkeep(
     group: &OpenMlsGroup,
     catalogue: &[ApplicationComponentDefinition],
-) -> Result<Vec<Proposal>, GroupError> {
+) -> Result<(Vec<Proposal>, Option<AppDataUpdates>), GroupError> {
     let registry = load_component_registry(group)?;
     let (immutable, mutable) = read_committed_metadata(group)?;
     let committer =
         extract_commit_participant(&group.own_leaf_index(), group, &immutable, &mutable)?;
-    let mut states: States = pending_app_data_updates(group)?
-        .into_iter()
-        .flatten()
-        .map(|(id, value)| (ComponentId::from(id), value))
-        .collect();
-    let state = |states: &States, id| {
-        states
-            .get(&id)
-            .cloned()
-            .unwrap_or_else(|| read_from_app_data_dict(id, group))
-    };
+    let mut batch = AppDataBatch::pending(group)?;
 
     let committed_members = inbox_keys(read_from_app_data_dict(
         ComponentId::GROUP_MEMBERSHIP,
         group,
     ));
-    let members = inbox_keys(state(&states, ComponentId::GROUP_MEMBERSHIP));
+    let members = inbox_keys(batch.state(ComponentId::GROUP_MEMBERSHIP));
     let removed: Vec<InboxId> = committed_members.difference(&members).copied().collect();
     let members: HashSet<InboxId> = members.into_iter().collect();
 
     let mut candidates = Vec::new();
-    if let Some(pending) = state(&states, ComponentId::COMPONENT_REGISTRY)
+    if let Some(pending) = batch
+        .state(ComponentId::COMPONENT_REGISTRY)
         .and_then(|bytes| ComponentRegistry::from_bytes(&bytes).ok())
     {
         let missing = unregistered(
@@ -95,7 +86,7 @@ pub(crate) fn membership_upkeep(
         // registry, so a map delete for a type changed in this commit would be
         // applied as a scalar replacement.
         for (id, metadata) in registry.iter().flatten() {
-            let Some(snapshot) = state(&states, id) else {
+            let Some(snapshot) = batch.state(id) else {
                 continue;
             };
             let payload = match component_type(id)
@@ -145,13 +136,13 @@ pub(crate) fn membership_upkeep(
         };
         match validate_app_data_update_sequence(
             [update],
-            |id| state(&states, id),
+            |id| batch.state(id),
             &registry,
             immutable.dm_members.as_ref(),
             Some(&members),
         ) {
-            Ok(post) => {
-                states.extend(post);
+            Ok(_) => {
+                batch.apply(id.as_u16(), proposal.operation())?;
                 proposals.push(Proposal::AppDataUpdate(Box::new(proposal)));
             }
             Err(error) => {
@@ -159,7 +150,7 @@ pub(crate) fn membership_upkeep(
             }
         }
     }
-    Ok(proposals)
+    Ok((proposals, batch.updates()))
 }
 
 /// An insert for each catalogue entry eligible for `conversation_type`
