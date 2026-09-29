@@ -125,7 +125,9 @@ impl ArchiveExporter {
     /// Exports to a file at `path`, as [`export`], on tokio's blocking pool so
     /// the snapshot never stalls an async worker. The archive is written to a
     /// sibling temporary file and renamed over `path` only once complete, so a
-    /// failed export leaves `path` as it was. Dropping the future cancels the
+    /// failed export leaves `path` as it was. The archive is a new file:
+    /// owner-only on unix and the directory's default ACL on Windows, never
+    /// the permissions of whatever `path` held. Dropping the future cancels the
     /// export at its next write, which counts as a failure. Must be called within a tokio runtime.
     pub async fn export_to_file(
         options: ArchiveOptions,
@@ -177,9 +179,7 @@ async fn offload<T: Send + 'static>(
 
 /// Exports to a sibling temporary file until `cancel` fires, then renames it
 /// over `path`. A failed or cancelled export removes the temporary file and
-/// leaves any archive already at `path` untouched. The file takes the
-/// permissions of the file it replaces when [`inherits`] allows; otherwise it
-/// is owner-only on unix.
+/// leaves any archive already at `path` untouched.
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) fn write_file(
     options: ArchiveOptions,
@@ -202,11 +202,6 @@ pub(crate) fn write_file(
     // this export owns.
     let file = create.open(&partial)?;
     let exported = (|| -> Result<_, ArchiveError> {
-        if let Ok(existing) = std::fs::symlink_metadata(path)
-            && inherits(&existing, &file.metadata()?)
-        {
-            file.set_permissions(existing.permissions())?;
-        }
         let mut file = io::BufWriter::new(file);
         let metadata = export(options, db, key, Cancellable(&mut file, cancel))?;
         file.into_inner()
@@ -222,24 +217,6 @@ pub(crate) fn write_file(
         tracing::warn!(path = %partial.display(), error = %e, "failed export left a partial archive");
     }
     exported
-}
-
-/// Whether an archive whose temporary file is `ours` may take the permissions
-/// of `existing`: only a regular file (not a symlink's target) with the same
-/// owner, so a file planted by someone else cannot widen who reads the archive.
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn inherits(existing: &std::fs::Metadata, ours: &std::fs::Metadata) -> bool {
-    #[cfg(unix)]
-    let same_owner = {
-        use std::os::unix::fs::MetadataExt;
-        existing.uid() == ours.uid()
-    };
-    #[cfg(not(unix))]
-    let same_owner = {
-        let _ = ours;
-        true
-    };
-    existing.file_type().is_file() && same_owner
 }
 
 /// Fails once `cancel` fires, so a cancelled export takes the cleanup path.

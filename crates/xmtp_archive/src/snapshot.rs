@@ -369,9 +369,10 @@ mod tests {
     /// A file export whose caller has gone stops at its next write, rather
     /// than finishing an archive nobody awaits. A failed or cancelled export
     /// leaves the archive already at the destination intact and no temporary
-    /// file behind: exporting over a good backup must never destroy it. A
-    /// new archive is owner-only and a replacement keeps the permissions of
-    /// the archive it replaces, so an export never widens who can read it.
+    /// file behind: exporting over a good backup must never destroy it. Every
+    /// archive, new or replacing one, is owner-only: it never takes the
+    /// permissions of whatever the destination held, which anyone able to
+    /// write the directory could have planted.
     /// `export_to_file` cancels this token when its future is dropped.
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
@@ -395,7 +396,7 @@ mod tests {
         {
             use std::os::unix::fs::PermissionsExt;
             assert_eq!(mode(&path), 0o600, "a new archive is readable by others");
-            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))?;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644))?;
         }
         exporter::write_file(consent.clone(), &db, &path, &KEY, &cancel)?;
         let prior = std::fs::read(&path)?;
@@ -406,8 +407,8 @@ mod tests {
         #[cfg(unix)]
         assert_eq!(
             mode(&path),
-            0o640,
-            "replacing an archive changed its permissions"
+            0o600,
+            "an archive took the permissions of the file it replaced"
         );
         cancel.cancel();
         let failure = exporter::write_file(consent, &db, &path, &KEY, &cancel);
@@ -574,40 +575,5 @@ mod tests {
         );
         assert_eq!(std::fs::read(&target)?, b"target");
         std::fs::remove_dir_all(&dir)?;
-    }
-
-    /// An archive takes the permissions only of a regular file its own user
-    /// owns. Whoever can create files in the destination directory could
-    /// otherwise plant a world-readable file there and have the archive
-    /// replacing it inherit that mode.
-    #[cfg(unix)]
-    #[test]
-    fn archive_inherits_only_its_owners_permissions() -> std::io::Result<()> {
-        let dir = std::env::temp_dir().join(xmtp_common::rand_hexstring());
-        std::fs::create_dir(&dir)?;
-        let (ours, link) = (dir.join("ours"), dir.join("link"));
-        std::fs::write(&ours, b"ours")?;
-        std::os::unix::fs::symlink(&ours, &link)?;
-        let ours = std::fs::metadata(&ours)?;
-
-        assert!(
-            exporter::inherits(&ours, &ours),
-            "an own file lost its mode"
-        );
-        assert!(
-            !exporter::inherits(&std::fs::symlink_metadata(&link)?, &ours),
-            "a symlink passed on its target's mode"
-        );
-        // Root owns /etc/passwd; only a root test run owns it too.
-        let foreign = std::fs::metadata("/etc/passwd")?;
-        if std::os::unix::fs::MetadataExt::uid(&foreign)
-            != std::os::unix::fs::MetadataExt::uid(&ours)
-        {
-            assert!(
-                !exporter::inherits(&foreign, &ours),
-                "another user's file passed on its mode"
-            );
-        }
-        std::fs::remove_dir_all(&dir)
     }
 }
