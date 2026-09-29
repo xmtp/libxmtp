@@ -151,21 +151,21 @@ fn fence(states: Vec<Rc<RefCell<ConnectionState>>>) {
 pub async fn list_opfs_databases() -> Result<Vec<String>, StorageError> {
     let _utility = ActiveUtility::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    Ok(resume_sqlite().await?.list())
+    Ok(resume_sqlite(true).await?.list())
 }
 
 /// Read the file count after pending VFS transitions finish.
 pub async fn opfs_database_count() -> Result<u32, StorageError> {
     let _utility = ActiveUtility::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    Ok(resume_sqlite().await?.count())
+    Ok(resume_sqlite(true).await?.count())
 }
 
 /// Read the pool capacity after pending VFS transitions finish.
 pub async fn opfs_pool_capacity() -> Result<u32, StorageError> {
     let _utility = ActiveUtility::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    Ok(resume_sqlite().await?.get_capacity())
+    Ok(resume_sqlite(true).await?.get_capacity())
 }
 
 /// Check for a file without observing maps during a VFS transition.
@@ -173,7 +173,7 @@ pub async fn opfs_database_exists(path: &str) -> Result<bool, StorageError> {
     super::validate_persistent_path(path)?;
     let _utility = ActiveUtility::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    Ok(resume_sqlite()
+    Ok(resume_sqlite(true)
         .await?
         .exists(path)
         .map_err(PlatformStorageError::from)?)
@@ -185,7 +185,7 @@ pub async fn export_opfs_database(path: &str) -> Result<Vec<u8>, StorageError> {
     super::validate_persistent_path(path)?;
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    let util = resume_sqlite().await?;
+    let util = resume_sqlite(true).await?;
     closed_target(Some(path))?;
     Ok(util.export_db(path).map_err(PlatformStorageError::from)?)
 }
@@ -234,7 +234,7 @@ pub async fn import_opfs_database(path: &str, data: &[u8]) -> Result<(), Storage
     super::validate_persistent_path(path)?;
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    let util = resume_sqlite().await?;
+    let util = resume_sqlite(true).await?;
     let prepared = restored_bytes(data).await?;
     let states = closed_target(Some(path))?;
     if util.exists(path).map_err(PlatformStorageError::from)? {
@@ -257,7 +257,7 @@ pub async fn delete_opfs_database(path: &str) -> Result<bool, StorageError> {
     super::validate_persistent_path(path)?;
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    let util = resume_sqlite().await?;
+    let util = resume_sqlite(true).await?;
     let states = closed_target(Some(path))?;
     let result = util.delete_db(path).map_err(PlatformStorageError::from)?;
     fence(states);
@@ -268,7 +268,7 @@ pub async fn delete_opfs_database(path: &str) -> Result<bool, StorageError> {
 pub async fn clear_opfs_databases() -> Result<(), StorageError> {
     let _lifecycle = PoolChange::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    let util = resume_sqlite().await?;
+    let util = resume_sqlite(true).await?;
     let states = closed_target(None)?;
     // Fence before the VFS releases its file handles across this await.
     fence(states);

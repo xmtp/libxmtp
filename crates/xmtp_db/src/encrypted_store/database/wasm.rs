@@ -114,9 +114,19 @@ pub fn get_sqlite() -> Option<Result<&'static OpfsSAHPoolUtil, &'static String>>
 /// However, if opfs needs to be used before client creation, this should
 /// be called.
 pub async fn init_sqlite() {
-    if let Err(e) = try_init_sqlite().await {
+    if let Err(e) = init_sqlite_lenient().await {
         tracing::error!("{e}");
     }
+}
+
+/// The legacy install. A failed install stays retryable in this worker, as
+/// before strict opens: a later call installs once another owner releases
+/// the pool.
+async fn init_sqlite_lenient() -> Result<(), PlatformStorageError> {
+    let _utility = restore::ActiveUtility::acquire()?;
+    let _transition = POOL_TRANSITION.lock().await;
+    resume_sqlite(false).await?;
+    Ok(())
 }
 
 // Admission is synchronous. Every admitted operation takes this mutex before
@@ -161,14 +171,16 @@ impl Drop for VfsTransitionFailure {
 pub async fn try_init_sqlite() -> Result<(), PlatformStorageError> {
     let _utility = restore::ActiveUtility::acquire()?;
     let _transition = POOL_TRANSITION.lock().await;
-    resume_sqlite().await?;
+    resume_sqlite(true).await?;
     Ok(())
 }
 
-/// The caller must hold POOL_TRANSITION and an admission guard.
-async fn resume_sqlite() -> Result<&'static OpfsSAHPoolUtil, PlatformStorageError> {
+/// The caller must hold POOL_TRANSITION and an admission guard. A strict
+/// transition that fails or is cancelled makes the pool unusable in this
+/// worker. A lenient one, for legacy callers, leaves it retryable.
+async fn resume_sqlite(strict: bool) -> Result<&'static OpfsSAHPoolUtil, PlatformStorageError> {
     check_pool_usable()?;
-    let failure = VfsTransitionFailure(true);
+    let failure = VfsTransitionFailure(strict);
     let util = SQLITE.get_or_try_init(init_opfs).await?;
     let util = util
         .0
@@ -311,10 +323,10 @@ impl WasmDb {
                 let _transition = POOL_TRANSITION.lock().await;
                 if strict {
                     restore::closed_target(Some(db_path))?;
-                    let util = resume_sqlite().await?;
+                    let util = resume_sqlite(true).await?;
                     maybe_resize(util).await?;
                 } else {
-                    match resume_sqlite().await {
+                    match resume_sqlite(false).await {
                         Ok(util) => maybe_resize(util).await?,
                         Err(error) => tracing::error!(
                             "OPFS pool is unavailable; {db_path} opens on the default SQLite VFS: {error}"

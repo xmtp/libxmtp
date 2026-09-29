@@ -550,10 +550,38 @@ xmtp_common::if_wasm! {
         assert!(!blocker.exists(&path)?, "the fallback database used the held pool");
         assert!(matches!(
             WasmDb::new_strict(&StorageOption::Persistent(xmtp_common::tmp_path())).await,
-            Err(PlatformStorageError::PoolUnusable)
+            Err(PlatformStorageError::SAH(_))
         ));
         store.release_connection()?;
         blocker.pause_vfs()?;
+    }
+
+    /// A legacy install that fails while another owner holds the pool stays
+    /// retryable in this worker. It uses the install that the legacy browser
+    /// OPFS functions call. After the owner releases the pool, the next
+    /// legacy install and open use it.
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn legacy_install_retries_after_the_owner_releases_the_pool() {
+        use xmtp_db::WasmDb;
+
+        let blocker = occupy_access_handles().await;
+        xmtp_db::database::init_sqlite().await;
+        assert!(!matches!(get_sqlite(), Some(Ok(_))));
+        let fallback = xmtp_common::tmp_path();
+        let store = EncryptedMessageStore::new(WasmDb::new(&StorageOption::Persistent(fallback)).await?)?;
+        store.release_connection()?;
+        assert!(!xmtp_db::opfs_requires_worker_restart());
+        blocker.pause_vfs()?;
+
+        xmtp_db::database::init_sqlite().await;
+        let Some(Ok(util)) = get_sqlite() else {
+            panic!("legacy install did not retry");
+        };
+        let path = xmtp_common::tmp_path();
+        let store = EncryptedMessageStore::new(WasmDb::new(&StorageOption::Persistent(path.clone())).await?)?;
+        assert!(util.exists(&path)?, "the legacy open did not use the pool");
+        store.release_connection()?;
+        xmtp_db::delete_opfs_database(&path).await?;
     }
 
     /// A real SAH conflict returns its typed cause. Even after that conflict
