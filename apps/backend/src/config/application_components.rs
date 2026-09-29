@@ -26,7 +26,8 @@ pub struct ApplicationComponentConfig {
     /// A number in `0xC000`–`0xFEFF`.
     #[schemars(range(min = 0xC000, max = 0xFEFF))]
     pub component_id: u16,
-    /// A label and lookup key, 1 to 100 bytes. Prefix a field that holds one
+    /// A label and lookup key, 1 to 100 UTF-8 bytes. The schema can bound only
+    /// characters, so startup checks bytes. Prefix a field that holds one
     /// value per inbox with `USER_`, as the well-known user fields are.
     #[schemars(length(min = 1, max = MAX_APPLICATION_COMPONENT_NAME_BYTES))]
     pub name: String,

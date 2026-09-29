@@ -98,7 +98,7 @@ pub enum ApplicationComponentError {
     Name,
     #[error("component_type must be set")]
     ComponentType,
-    #[error("insert, update, and delete policies must all be set")]
+    #[error("insert, update, and delete policies must all be set and non-empty")]
     Permissions,
     #[error("in_groups or in_dms must be true")]
     Conversations,
@@ -330,12 +330,26 @@ impl LimitsConfiguration {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MetadataPolicy {
     /// A `MetadataBasePolicy` tag. `0`, unspecified, also stands for a wire
-    /// policy with no kind set; the two evaluate identically.
+    /// policy with no kind set; validation refuses both.
     Base(i32),
     /// Every policy must allow.
     And(Vec<MetadataPolicy>),
     /// At least one policy must allow.
     Any(Vec<MetadataPolicy>),
+}
+
+impl MetadataPolicy {
+    /// False when some branch is unspecified or an empty condition, which no
+    /// evaluator can apply. An unknown positive tag passes: a newer client may
+    /// know it.
+    fn is_specified(&self) -> bool {
+        match self {
+            Self::Base(base) => *base > 0,
+            Self::And(policies) | Self::Any(policies) => {
+                !policies.is_empty() && policies.iter().all(Self::is_specified)
+            }
+        }
+    }
 }
 
 /// The member policies of one component. `None` is a policy the definition
@@ -378,7 +392,10 @@ impl ApplicationComponentDefinition {
             Err(ApplicationComponentError::Name)
         } else if self.component_type <= 0 {
             Err(ApplicationComponentError::ComponentType)
-        } else if insert.is_none() || update.is_none() || delete.is_none() {
+        } else if ![insert, update, delete]
+            .iter()
+            .all(|policy| policy.as_ref().is_some_and(MetadataPolicy::is_specified))
+        {
             Err(ApplicationComponentError::Permissions)
         } else if !self.in_groups && !self.in_dms {
             Err(ApplicationComponentError::Conversations)

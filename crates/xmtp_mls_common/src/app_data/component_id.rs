@@ -319,6 +319,13 @@ mod tests {
         for pair in ComponentId::WELL_KNOWN_NAMES.windows(2) {
             assert!(pair[0].0 < pair[1].0, "{pair:?} is out of ID order");
         }
+        // A new well-known ID gets an event name; it must get a table row too.
+        for id in (XMTP_RANGE_START..=XMTP_RANGE_END).map(ComponentId::new) {
+            let listed = ComponentId::WELL_KNOWN_NAMES
+                .iter()
+                .any(|(known, _)| *known == id);
+            assert_eq!(listed, !id.event_name().starts_with("component:"), "{id:?}");
+        }
     }
 
     #[xmtp_common::test]

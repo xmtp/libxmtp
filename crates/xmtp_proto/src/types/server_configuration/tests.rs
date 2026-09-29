@@ -205,17 +205,12 @@ fn an_unrepresentable_definition_is_refused_after_conversion() {
         reason(|d| d.permissions.as_mut().unwrap().delete_policy = None),
         refused(ApplicationComponentError::Permissions)
     );
-    // A policy with no kind is present; it evaluates as the unspecified base.
-    let mut response = populated();
-    response.application_components[0]
-        .permissions
-        .as_mut()?
-        .insert_policy = Some(mls::MetadataPolicy { kind: None });
-    let configuration = ServerConfiguration::from(response);
-    configuration.validate()?;
+    // A policy with no kind is set but unusable, like the unspecified base.
     assert_eq!(
-        configuration.application_components[0].permissions.insert,
-        Some(MetadataPolicy::Base(0))
+        reason(|d| {
+            d.permissions.as_mut().unwrap().insert_policy = Some(mls::MetadataPolicy { kind: None })
+        }),
+        refused(ApplicationComponentError::Permissions)
     );
 }
 

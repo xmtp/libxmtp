@@ -632,49 +632,53 @@ in_dms = false
         assert_eq!(catalogue(handle.configuration()), DISTINCT_CATALOGUE);
     }
 
-    // A refresh stores the catalogue it reads, but the running client keeps
-    // the one it started with; the next client on the database gets the new one.
+    // A refresh stores a changed catalogue, but the running client keeps the
+    // one it started with; the next client on the database gets the new one.
     // verifies: CONF-020, CONF-040
     #[xmtp_common::test(unwrap_try = true)]
     async fn a_refreshed_catalogue_reaches_only_the_next_client() {
-        let backend = EphemeralBackend::start(DISTINCT).await?;
+        let before = EphemeralBackend::start(DISTINCT).await?;
+        let after =
+            EphemeralBackend::start(&DISTINCT.replace(r#"name = "topic""#, r#"name = "mood""#))
+                .await?;
         let owner = generate_local_wallet();
         let store = TestDb::create_ephemeral_store().await;
-        let client = Client::builder(identity_setup(&owner))
-            .store(store.clone())
-            .api_client_with_streams(Arc::new(api_at(backend.url())))
-            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
-            .with_disable_workers(true)
-            .config_provider(Arc::new(xmtp_configuration::StaticConfigProvider::edited(
-                |_| {},
-            )))
-            .default_mls_store()
-            .unwrap()
-            .build()
-            .await?;
+        drop(build_at(before.url(), store.clone(), &owner, identity_setup(&owner)).await?);
+        before.stop().await?;
+        // The deployment now at this URL has since renamed a field.
+        let stored = store.db().server_configuration()?.unwrap();
+        store.db().store_server_configuration(
+            &stored.identifier,
+            after.url(),
+            &stored.response,
+            stored.fetched_at_ns,
+        )?;
 
-        crate::server_configuration::worker::ConfigurationWorker::new(client.context.clone())
+        let context = build_at(after.url(), store.clone(), &owner, identity_setup(&owner)).await?;
+        assert_eq!(
+            catalogue(context.server_configuration.configuration()),
+            DISTINCT_CATALOGUE
+        );
+        crate::server_configuration::worker::ConfigurationWorker::new(context.clone())
             .tick()
             .await;
 
+        let renamed = [(0xC000, "mood"), (0xC001, "USER_PRONOUNS")];
         let stored = store.db().server_configuration()?.unwrap();
         let stored = xmtp_configuration::ServerConfiguration::from(
             <xmtp_proto::backend_v1::GetConfigurationResponse as prost::Message>::decode(
                 stored.response.as_slice(),
             )?,
         );
-        assert_eq!(catalogue(&stored), DISTINCT_CATALOGUE);
-        assert!(
-            client
-                .server_configuration()
-                .application_components
-                .is_empty()
+        assert_eq!(catalogue(&stored), renamed);
+        assert_eq!(
+            catalogue(context.server_configuration.configuration()),
+            DISTINCT_CATALOGUE
         );
-
         let handle =
             crate::server_configuration::resolve(&unreachable_api(), &store.db(), true).await?;
-        assert_eq!(catalogue(handle.configuration()), DISTINCT_CATALOGUE);
-        backend.stop().await?;
+        assert_eq!(catalogue(handle.configuration()), renamed);
+        after.stop().await?;
     }
 
     // A refresh rewrites the stored copy, and a

@@ -309,7 +309,7 @@ fn a_definition_that_breaks_one_rule_is_refused() {
         |d| {
             d.permissions.delete = Some(MetadataPolicy::Any(vec![
                 MetadataPolicy::Base(3),
-                MetadataPolicy::And(vec![]),
+                MetadataPolicy::And(vec![MetadataPolicy::Base(42)]),
             ]))
         },
     ];
@@ -323,7 +323,7 @@ fn a_definition_that_breaks_one_rule_is_refused() {
         );
     }
 
-    let refused: [(Edit, ApplicationComponentError); 10] = [
+    let refused: [(Edit, ApplicationComponentError); 14] = [
         (
             |d| d.component_id = 0xBFFF,
             ApplicationComponentError::ComponentId,
@@ -341,6 +341,11 @@ fn a_definition_that_breaks_one_rule_is_refused() {
             |d| d.name = "a".repeat(MAX_APPLICATION_COMPONENT_NAME_BYTES + 1),
             ApplicationComponentError::Name,
         ),
+        // The bound is in bytes: 51 two-byte characters are too long.
+        (
+            |d| d.name = "é".repeat(MAX_APPLICATION_COMPONENT_NAME_BYTES / 2 + 1),
+            ApplicationComponentError::Name,
+        ),
         (
             |d| d.component_type = 0,
             ApplicationComponentError::ComponentType,
@@ -355,6 +360,24 @@ fn a_definition_that_breaks_one_rule_is_refused() {
         ),
         (
             |d| d.permissions.delete = None,
+            ApplicationComponentError::Permissions,
+        ),
+        // Present but unusable: every write under it would be invalid.
+        (
+            |d| d.permissions.insert = Some(MetadataPolicy::Base(0)),
+            ApplicationComponentError::Permissions,
+        ),
+        (
+            |d| d.permissions.update = Some(MetadataPolicy::And(vec![])),
+            ApplicationComponentError::Permissions,
+        ),
+        (
+            |d| {
+                d.permissions.delete = Some(MetadataPolicy::Any(vec![
+                    MetadataPolicy::Base(3),
+                    MetadataPolicy::And(vec![]),
+                ]))
+            },
             ApplicationComponentError::Permissions,
         ),
         (

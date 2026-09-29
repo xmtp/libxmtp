@@ -1321,7 +1321,7 @@
           "maximum": 65279
         },
         "name": {
-          "description": "A label and lookup key, 1 to 100 bytes. Prefix a field that holds one\nvalue per inbox with `USER_`, as the well-known user fields are.",
+          "description": "A label and lookup key, 1 to 100 UTF-8 bytes. The schema can bound only\ncharacters, so startup checks bytes. Prefix a field that holds one\nvalue per inbox with `USER_`, as the well-known user fields are.",
           "type": "string",
           "minLength": 1,
           "maxLength": 100
