@@ -162,7 +162,11 @@ OWNER_PERMITTED: dict[str, set[str]] = {
 # The private public entries (compare_public). SDK-037 and the pure module
 # split these names from the browser worker entry, each with its reason.
 PUBLIC_NODE_ONLY = {
-    **{name: reason for name, reason in SDK_037_NODE_ONLY.items() if not name.endswith("_Tags")},
+    **{
+        name: reason
+        for name, reason in SDK_037_NODE_ONLY.items()
+        if not name.endswith("_Tags")
+    },
     "setLogSink": "F7 adds the asynchronous browser log sink",
     "LogSink": "F7 adds the asynchronous browser log sink",
     **{name: "pure module" for name in PURE_ONLY},
@@ -720,9 +724,13 @@ def compare_public(out: Path) -> list[str]:
         node_exports.keys() - PUBLIC_NODE_ONLY.keys()
     ) | PUBLIC_BROWSER_ONLY.keys()
     for name in sorted(PUBLIC_NODE_ONLY.keys() - node_exports.keys()):
-        errors.append(f"{name}: public Node-only list names it and Node does not export it")
+        errors.append(
+            f"{name}: public Node-only list names it and Node does not export it"
+        )
     for name in sorted(expected - web_exports.keys()):
-        errors.append(f"{name}: the Node public entry exports it and the browser does not")
+        errors.append(
+            f"{name}: the Node public entry exports it and the browser does not"
+        )
     for name in sorted(web_exports.keys() - expected):
         errors.append(f"{name}: the browser public entry exports it outside its list")
     for name in sorted(expected & web_exports.keys() & node_exports.keys()):
