@@ -16,12 +16,14 @@ use xmtp_id::{
         AccountId, Identifier, MemberIdentifier,
         builder::SignatureRequestBuilder,
         test_utils::{MockSmartContractSignatureVerifier, WalletTestExt, add_wallet_signature},
-        unsigned_actions::UnsignedCreateInbox,
+        unsigned_actions::{UnsignedChangeRecoveryAddress, UnsignedCreateInbox},
         unverified::{
-            UnverifiedAction, UnverifiedCreateInbox, UnverifiedIdentityUpdate, UnverifiedSignature,
+            UnverifiedAction, UnverifiedChangeRecoveryAddress, UnverifiedCreateInbox,
+            UnverifiedIdentityUpdate, UnverifiedSignature,
         },
     },
     key_package::{KeyPackageOptions, build_key_package, create_credential},
+    scw_verifier::{BlockStamp, ChainBlocks, VerifierError},
     utils::passkey::PasskeyUser,
 };
 use xmtp_proto::xmtp::{
@@ -34,8 +36,51 @@ use xmtp_proto::xmtp::{
     mls::message_contents::PlaintextCommitLogEntry,
 };
 
+use std::sync::{Arc, Mutex};
+
 pub const GROUP_ID: [u8; 16] = [0x11; 16];
 pub const INSTALLATION_ID: [u8; 32] = [0x22; 32];
+
+/// A controlled chain producing one block per second, so block `n` has
+/// timestamp `n`. Every chain id and every clone share one head; a head of
+/// `None` is an outage that fails every call with a retryable error.
+#[derive(Debug, Clone)]
+pub struct TestChain(Arc<Mutex<Option<u64>>>);
+
+impl TestChain {
+    pub fn at(head: u64) -> Self {
+        Self(Arc::new(Mutex::new(Some(head))))
+    }
+
+    pub fn set(&self, head: Option<u64>) {
+        *self.0.lock().expect("test chain lock") = head;
+    }
+
+    fn head_number(&self) -> Result<u64, VerifierError> {
+        self.0
+            .lock()
+            .expect("test chain lock")
+            .ok_or_else(|| VerifierError::Io(std::io::Error::other("test chain is down")))
+    }
+}
+
+#[xmtp_common::async_trait]
+impl ChainBlocks for TestChain {
+    async fn head(&self, _: &str) -> Result<BlockStamp, VerifierError> {
+        let number = self.head_number()?;
+        Ok(BlockStamp {
+            number,
+            timestamp: number,
+        })
+    }
+
+    async fn timestamp(&self, _: &str, number: u64) -> Result<u64, VerifierError> {
+        if number > self.head_number()? {
+            return Err(VerifierError::MissingBlock(number));
+        }
+        Ok(number)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GroupMessageKind {
@@ -324,26 +369,61 @@ pub async fn identity_history_with_passkey() -> IdentityHistoryFixture {
 }
 
 /// Build an update that reaches a smart-contract verifier during signature validation.
-pub fn scw_create_inbox_update() -> IdentityUpdate {
-    let account = "0x1111111111111111111111111111111111111111";
-    let identifier = Identifier::eth(account).expect("fixture account is valid");
-    let inbox_id = identifier
+const SCW_ACCOUNT: &str = "0x1111111111111111111111111111111111111111";
+
+fn scw_signature(bytes: u8, block_number: u64) -> UnverifiedSignature {
+    UnverifiedSignature::new_smart_contract_wallet(
+        vec![bytes],
+        AccountId::new_evm(1, SCW_ACCOUNT.to_string()),
+        block_number,
+    )
+}
+
+fn scw_inbox_id() -> String {
+    Identifier::eth(SCW_ACCOUNT)
+        .expect("fixture account is valid")
         .inbox_id(0)
-        .expect("fixture account derives an inbox");
+        .expect("fixture account derives an inbox")
+}
+
+/// Create the fixture wallet's inbox with an ERC-6492 signature at block 1.
+pub fn scw_create_inbox_update() -> IdentityUpdate {
+    scw_create_inbox_update_at(1)
+}
+
+/// Create the fixture wallet's inbox with an ERC-6492 signature at `block_number`.
+pub fn scw_create_inbox_update_at(block_number: u64) -> IdentityUpdate {
     UnverifiedIdentityUpdate::new(
-        inbox_id,
+        scw_inbox_id(),
         1,
         vec![UnverifiedAction::CreateInbox(UnverifiedCreateInbox::new(
             UnsignedCreateInbox {
-                account_identifier: identifier,
+                account_identifier: Identifier::eth(SCW_ACCOUNT).expect("fixture account is valid"),
                 nonce: 0,
             },
-            UnverifiedSignature::new_smart_contract_wallet(
-                vec![0x55],
-                AccountId::new_evm(1, account.to_string()),
-                1,
-            ),
+            scw_signature(0x55, block_number),
         ))],
+    )
+    .into()
+}
+
+/// Move the fixture inbox's recovery identifier, signed by the wallet at
+/// `block_number`. It applies after [`scw_create_inbox_update_at`].
+pub fn scw_change_recovery_update_at(block_number: u64) -> IdentityUpdate {
+    UnverifiedIdentityUpdate::new(
+        scw_inbox_id(),
+        2,
+        vec![UnverifiedAction::ChangeRecoveryAddress(
+            UnverifiedChangeRecoveryAddress::new(
+                UnsignedChangeRecoveryAddress {
+                    new_recovery_identifier: Identifier::eth(
+                        "0x3333333333333333333333333333333333333333",
+                    )
+                    .expect("fixture recovery is valid"),
+                },
+                scw_signature(0x56, block_number),
+            ),
+        )],
     )
     .into()
 }
@@ -374,19 +454,12 @@ pub fn identity_envelope(update: IdentityUpdate) -> ClientEnvelope {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct RawRecoveryFixture {
-    pub history: Vec<IdentityUpdate>,
-    pub rejected_update: IdentityUpdate,
-    pub raw_recovery_identifier: String,
-}
-
-/// Preserve the current raw recovery-identifier behavior.
-pub async fn identity_history_with_raw_recovery() -> RawRecoveryFixture {
+/// A signed inbox creation, and a signed update that hands its recovery role
+/// to an uppercase Ethereum identifier.
+pub async fn mixed_case_recovery_change() -> (IdentityUpdate, IdentityUpdate) {
     let original_recovery = generate_local_wallet();
     let next_recovery = generate_local_wallet();
     let original_identifier = original_recovery.identifier();
-    let next_identifier = next_recovery.identifier();
     let inbox_id = original_recovery.get_inbox_id(0);
 
     let mut create = SignatureRequestBuilder::new(&inbox_id)
@@ -398,12 +471,11 @@ pub async fn identity_history_with_raw_recovery() -> RawRecoveryFixture {
         .expect("signed create update is complete")
         .into();
 
-    let raw_recovery_identifier = next_identifier.to_string().to_ascii_uppercase();
-    let raw_recovery =
-        Identifier::from_proto(&raw_recovery_identifier, IdentifierKind::Ethereum, None)
-            .expect("raw Ethereum recovery identifier decodes without normalization");
+    let mixed_case = next_recovery.identifier().to_string().to_ascii_uppercase();
+    let mixed_case = Identifier::from_proto(&mixed_case, IdentifierKind::Ethereum, None)
+        .expect("the builder takes an Ethereum identifier as given");
     let mut change = SignatureRequestBuilder::new(&inbox_id)
-        .change_recovery_address(original_identifier.clone().into(), raw_recovery)
+        .change_recovery_address(original_identifier.into(), mixed_case)
         .build();
     add_wallet_signature(&mut change, &original_recovery).await;
     let change = change
@@ -411,20 +483,7 @@ pub async fn identity_history_with_raw_recovery() -> RawRecoveryFixture {
         .expect("signed recovery update is complete")
         .into();
 
-    let mut revoke = SignatureRequestBuilder::new(&inbox_id)
-        .revoke_association(next_identifier.clone().into(), original_identifier.into())
-        .build();
-    add_wallet_signature(&mut revoke, &next_recovery).await;
-    let rejected_update = revoke
-        .build_identity_update()
-        .expect("signed revoke update is complete")
-        .into();
-
-    RawRecoveryFixture {
-        history: vec![create, change],
-        rejected_update,
-        raw_recovery_identifier,
-    }
+    (create, change)
 }
 
 pub fn commit_log_envelope(group_id: impl AsRef<[u8]>) -> ClientEnvelope {

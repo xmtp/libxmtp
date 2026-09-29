@@ -931,14 +931,7 @@ impl Installation {
     pub fn from_verified_key_package(
         key_package: &VerifiedKeyPackageV2,
     ) -> Result<Self, IntentError> {
-        let wrapper_encryption = key_package.wrapper_encryption()?.unwrap_or_else(|| {
-            // Default to using the hpke init key as the pub key and Curve25519 as the algorithm
-            // if no extension is present. This means you are on an older key package
-            WrapperEncryptionExtension::new(
-                WrapperAlgorithm::Curve25519,
-                key_package.hpke_init_key(),
-            )
-        });
+        let wrapper_encryption = WrapperEncryptionExtension::advertised_by(&key_package.inner)?;
 
         let welcome_pointee_encryption_aead_types = key_package
             .inner

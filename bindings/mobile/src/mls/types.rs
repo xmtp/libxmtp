@@ -133,8 +133,6 @@ pub enum FfiSignatureKind {
     Erc1271,
     /// Installation key signature
     InstallationKey,
-    /// Legacy delegated signature
-    LegacyDelegated,
     /// P256 passkey signature
     P256,
 }
@@ -146,9 +144,6 @@ impl From<xmtp_id::associations::SignatureKind> for FfiSignatureKind {
             xmtp_id::associations::SignatureKind::Erc1271 => FfiSignatureKind::Erc1271,
             xmtp_id::associations::SignatureKind::InstallationKey => {
                 FfiSignatureKind::InstallationKey
-            }
-            xmtp_id::associations::SignatureKind::LegacyDelegated => {
-                FfiSignatureKind::LegacyDelegated
             }
             xmtp_id::associations::SignatureKind::P256 => FfiSignatureKind::P256,
         }

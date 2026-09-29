@@ -343,12 +343,8 @@ pub(crate) async fn create_client_inner(
   nonce: u64,
   change_callbacks: Option<change_callbacks::UnstableChangeCallbacks>,
 ) -> Result<Client, JsError> {
-  let identity_strategy = IdentityStrategy::new(
-    inbox_id,
-    account_identifier.clone().try_into()?,
-    nonce,
-    None,
-  );
+  let identity_strategy =
+    IdentityStrategy::new(inbox_id, account_identifier.clone().try_into()?, nonce);
 
   let mut builder = xmtp_mls::Client::builder(identity_strategy)
     .api_client_with_streams(api_client)

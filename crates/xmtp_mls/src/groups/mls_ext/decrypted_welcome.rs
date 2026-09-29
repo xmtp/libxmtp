@@ -17,9 +17,10 @@ use xmtp_db::{
     NotFound,
     sql_key_store::{KEY_PACKAGE_REFERENCES, KEY_PACKAGE_WRAPPER_PRIVATE_KEY},
 };
-use xmtp_id::key_package::WrapperAlgorithm;
+use xmtp_id::key_package::{WrapperAlgorithm, WrapperEncryptionExtension};
 use xmtp_mls_common::mls_ext::payload_encryption::{unwrap_payload_hpke, unwrap_payload_symmetric};
 use xmtp_proto::{
+    ConversionError,
     types::{
         DecryptedWelcomePointer, WelcomeMessage, WelcomeMessageType, WelcomeMessageV1,
         WelcomePointer,
@@ -62,8 +63,7 @@ impl DecryptedWelcome {
         } = welcome_v1;
         tracing::debug!(welcome_id = %welcome.cursor, "Trying to decrypt welcome");
         let wrapper_ciphersuite = WrapperAlgorithm::try_from(*wrapper_algorithm)?;
-        let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
-        let private_key = find_private_key(provider, &hash_ref, &wrapper_ciphersuite)?;
+        let private_key = find_private_key(provider, hpke_public_key, wrapper_ciphersuite)?;
 
         let (welcome_bytes, welcome_metadata_bytes) = unwrap_payload_hpke(
             data,
@@ -211,7 +211,7 @@ impl ResolvedWelcome {
     }
 }
 
-pub(super) fn find_key_package_hash_ref(
+fn find_key_package_hash_ref(
     provider: &impl XmtpMlsStorageProvider,
     hpke_public_key: &[u8],
 ) -> Result<KeyPackageRef, GroupError> {
@@ -222,28 +222,45 @@ pub(super) fn find_key_package_hash_ref(
         .ok_or(NotFound::KeyPackageReference(serialized_hpke_public_key))?)
 }
 
-/// For Curve25519 keys, we can just get the private key from the key package bundle
-/// For Post Quantum keys, we use look up the KEY_PACKAGE_WRAPPER_PRIVATE_KEY which is keyed
-/// by the hash reference of the key package.
-pub(super) fn find_private_key(
+/// Read the private key for a wrapper addressed to `hpke_public_key`.
+///
+/// Both public keys of a post-quantum key package lead to it, and authenticated
+/// decryption does not prove which wrapper was used, so the stated algorithm and
+/// key must be exactly the ones the package advertised.
+/// For Curve25519 the private key is the bundle's init key. For post-quantum it is
+/// the KEY_PACKAGE_WRAPPER_PRIVATE_KEY entry keyed by the package's hash reference.
+// implements: JOIN-076
+fn find_private_key(
     provider: &impl XmtpMlsStorageProvider,
-    hash_ref: &KeyPackageRef,
-    wrapper_ciphersuite: &WrapperAlgorithm,
+    hpke_public_key: &[u8],
+    wrapper_algorithm: WrapperAlgorithm,
 ) -> Result<Vec<u8>, GroupError> {
-    match wrapper_ciphersuite {
-        WrapperAlgorithm::Curve25519 => {
-            let key_package: Option<KeyPackageBundle> = provider.key_package(hash_ref)?;
-            Ok(key_package
-                .map(|kp| kp.init_private_key().to_vec())
-                .ok_or_else(|| NotFound::KeyPackage(hash_ref.as_slice().to_vec()))?)
+    let hash_ref = find_key_package_hash_ref(provider, hpke_public_key)?;
+    let bundle: KeyPackageBundle = provider
+        .key_package(&hash_ref)?
+        .ok_or_else(|| NotFound::KeyPackage(hash_ref.as_slice().to_vec()))?;
+    let advertised = WrapperEncryptionExtension::advertised_by(bundle.key_package())?;
+    if (advertised.algorithm, advertised.pub_key_bytes.as_slice())
+        != (wrapper_algorithm, hpke_public_key)
+    {
+        return Err(ConversionError::InvalidValue {
+            item: "WelcomeMessage.wrapper_algorithm",
+            expected: "the wrapper algorithm and key the key package advertised",
+            got: format!(
+                "{wrapper_algorithm:?}, advertised {:?}",
+                advertised.algorithm
+            ),
         }
+        .into());
+    }
+    match wrapper_algorithm {
+        WrapperAlgorithm::Curve25519 => Ok(bundle.init_private_key().to_vec()),
         WrapperAlgorithm::XWingMLKEM768Draft6 => {
-            let serialized_hash_ref = bincode::serialize(hash_ref)
+            let serialized_hash_ref = bincode::serialize(&hash_ref)
                 .map_err(|_| GroupError::NotFound(NotFound::PostQuantumPrivateKey))?;
-            let private_key =
-                provider.read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)?;
-
-            Ok(private_key.ok_or(NotFound::PostQuantumPrivateKey)?)
+            Ok(provider
+                .read(KEY_PACKAGE_WRAPPER_PRIVATE_KEY, &serialized_hash_ref)?
+                .ok_or(NotFound::PostQuantumPrivateKey)?)
         }
     }
 }
@@ -282,9 +299,12 @@ pub(crate) fn decrypt_welcome_pointer(
     welcome_pointer: &WelcomePointer,
 ) -> Result<DecryptedWelcomePointer, GroupError> {
     tracing::debug!("Trying to decrypt welcome pointer");
-    let hash_ref = find_key_package_hash_ref(provider, &welcome_pointer.hpke_public_key)?;
     let wrapper_algorithm = WrapperAlgorithm::try_from(welcome_pointer.wrapper_algorithm)?;
-    let private_key = find_private_key(provider, &hash_ref, &wrapper_algorithm)?;
+    let private_key = find_private_key(
+        provider,
+        &welcome_pointer.hpke_public_key,
+        wrapper_algorithm,
+    )?;
 
     let welcome_bytes = unwrap_payload_hpke(
         &welcome_pointer.welcome_pointer,

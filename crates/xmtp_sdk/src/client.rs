@@ -461,7 +461,6 @@ impl Client {
             inbox_id,
             identifier,
             options.registration.nonce.unwrap_or(0),
-            None,
         ))
         .api_client_with_streams(backend.api.clone())
         .with_allow_offline(Some(options.allow_offline))
