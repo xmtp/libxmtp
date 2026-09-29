@@ -37,7 +37,12 @@ import type {
 } from "../../xmtp_sdk";
 import type { AnyContentCodec } from "./codec";
 import { publicEventStream, type EventStream } from "./events";
-import { HostClient, bindingClient, type HostClientOptions } from "./host";
+import {
+  HostClient,
+  bindingClient,
+  checkStorage,
+  type HostClientOptions,
+} from "./host";
 
 /** Client options with the custom codecs that this client decodes. */
 export type ClientOptions = ProjectedClientOptions & {
@@ -61,10 +66,12 @@ function hostCodec(
   };
 }
 
-function hostOptions(
+/** The host options of public Client options. Exported for conformance. */
+export function hostOptions(
   options: ClientOptions,
   projection: ObjectProjection,
 ): HostClientOptions {
+  checkStorage(options.storage);
   const { codecs = [], ...rest } = options;
   return {
     ...lowerClientOptions(rest, projection),

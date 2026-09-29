@@ -37,6 +37,8 @@ const INTERNAL = new Set([
   "boundMessage",
   "publicEventStream",
   "hostOptions",
+  "boundMessageOf",
+  "checkStorage",
   "ClientMembers",
   "ObjectProjection",
   "StandardCodec",

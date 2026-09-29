@@ -226,7 +226,9 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
         &method.inputs,
         method.return_type.as_ref(),
         method.is_async,
-        method.throws.is_some(),
+        // A browser proxy can refuse any call of an ended client, including
+        // an infallible getter, so every member converts a thrown error.
+        true,
     );
     // Decision 14: a synchronous, argument-free, infallible member is a
     // readonly getter.

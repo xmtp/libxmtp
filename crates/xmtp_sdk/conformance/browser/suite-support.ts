@@ -8,13 +8,27 @@ import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
-import { Backend } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import {
+  Backend,
+  Client as ProxyClient,
+} from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
+import { wrapClient } from "../../../../target/sdk-generated/typescript-wasm/public-client.gen";
+import {
+  currentProjection,
+  lowerPublicIdentity,
+  lowerSigner,
+  publicError,
+} from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
-import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
+import {
+  hostOptions,
+  publicClient,
+} from "../../../../target/sdk-generated/typescript-wasm/runtime/public/client";
 
 export function expect(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -55,27 +69,57 @@ export function connection(hash = CONTRACT_HASH): {
   return { worker, session: new MainSession(endpoint, PROTOCOL_VERSION, hash) };
 }
 
+// The transport tests create clients in their own worker session. The public
+// layer then wraps the session's worker proxy, as it wraps the package's.
+export type Created = { client: sdk.Client; proxy: ProxyClient };
+
+export async function create(
+  session: MainSession,
+  signer: sdk.Signer,
+  options: sdk.ClientOptions,
+): Promise<Created> {
+  const projection = currentProjection();
+  const proxy = await ProxyClient.create(
+    session,
+    lowerSigner(signer, projection),
+    hostOptions(options, projection),
+  ).catch((error: unknown) => {
+    throw publicError(error);
+  });
+  return { client: publicClient(wrapClient(proxy)), proxy };
+}
+
+export async function build(
+  session: MainSession,
+  identity: sdk.PublicIdentity,
+  options: sdk.ClientOptions,
+  inboxId?: sdk.InboxId,
+): Promise<Created> {
+  const projection = currentProjection();
+  const proxy = await ProxyClient.build(
+    session,
+    lowerPublicIdentity(identity, projection),
+    hostOptions(options, projection),
+    inboxId,
+  ).catch((error: unknown) => {
+    throw publicError(error);
+  });
+  return { client: publicClient(wrapClient(proxy)), proxy };
+}
+
 export function signer(
   session: MainSession,
   reenter = false,
   backendURL?: string,
-): {
-  identity: () => Promise<B.PublicIdentity>;
-  kind: () => Promise<B.SignerKind>;
-  sign: (request: { text: string }) => Promise<B.Signature>;
-  didReenter: () => boolean;
-} {
+): sdk.Signer & { didReenter: () => boolean } {
   const account = privateKeyToAccount(generatePrivateKey());
   let reentered = false;
   return {
     async identity() {
-      return {
-        identifier: account.address.toLowerCase(),
-        kind: B.PublicIdentityKind.Ethereum,
-      };
+      return { identifier: account.address.toLowerCase(), kind: "ethereum" };
     },
     async kind() {
-      return B.SignerKind.Eoa.new();
+      return { kind: "eoa" };
     },
     async sign(request) {
       if (reenter) {
@@ -94,7 +138,7 @@ export function signer(
         reentered = true;
       }
       const signed = await account.signMessage({ message: request.text });
-      return B.Signature.Ecdsa.new(Uint8Array.from(toBytes(signed)).buffer);
+      return { kind: "ecdsa", value: Uint8Array.from(toBytes(signed)) };
     },
     didReenter: () => reentered,
   };
@@ -104,27 +148,13 @@ export function options(
   path: string,
   backendURL: string,
   auto = true,
-): B.ClientOptions {
+): sdk.ClientOptions {
   return {
-    backend: B.BackendSource.Options.new({
-      options: {
-        url: backendURL,
-        appVersion: undefined,
-        credential: undefined,
-        credentials: undefined,
-      },
-    }),
-    storage: {
-      location: B.StorageLocation.Path.new(path),
-      label: path,
-      pool: undefined,
-      singleConnection: false,
-    },
+    backend: { url: backendURL },
+    storage: { location: { path }, label: path, singleConnection: false },
     deviceSync: false,
     allowOffline: false,
-    registration: { auto, nonce: undefined },
-    forkRecovery: undefined,
-    workers: undefined,
+    registration: { auto },
   };
 }
 
@@ -142,6 +172,20 @@ export async function checkError(
   throw new Error(message);
 }
 
+/** A public error of this code, with plain details. */
+export function isPublicError(
+  error: unknown,
+  type: abstract new (...args: never[]) => sdk.XmtpError,
+  category: string,
+): boolean {
+  return (
+    error instanceof type &&
+    error.details.category === category &&
+    !("tag" in error) &&
+    !("inner" in error)
+  );
+}
+
 export async function checkRejectedPromise(
   action: () => Promise<unknown>,
   label: string,
@@ -156,8 +200,8 @@ export async function checkRejectedPromise(
   await checkError(
     () => result,
     (error) =>
-      B.XmtpError.ClientClosed.instanceOf(error) &&
-      error.inner[0].code === "ClientClosed",
+      isPublicError(error, sdk.XmtpError.ClientClosed, "lifecycle") &&
+      (error as sdk.XmtpError).details.code === "ClientClosed",
     `${label} did not reject with ClientClosed`,
   );
 }

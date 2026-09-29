@@ -16,3 +16,6 @@ export { encodeText } from "../../xmtp_sdk";
 export function boundMessageOf(value: RuntimeMessage): RuntimeMessage {
   return value;
 }
+
+/** Node storage accepts every public storage option. */
+export function checkStorage(_storage: object): void {}
