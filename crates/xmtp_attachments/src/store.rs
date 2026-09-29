@@ -231,8 +231,12 @@ impl StagedFile {
     async fn is_regular_file(&self) -> Result<bool, AttachmentError> {
         #[cfg(not(target_arch = "wasm32"))]
         {
-            Ok(tokio::fs::metadata(&self.path)
-                .await
+            // Check the opened file. The path can name another entry by now.
+            Ok(self
+                .opened
+                .as_ref()
+                .ok_or_else(|| AttachmentError::new(Cause::LocalStorage))?
+                .metadata()
                 .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
                 .is_file())
         }
@@ -657,6 +661,22 @@ mod tests {
             Cause::LocalStorage
         );
         assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+    }
+
+    // verifies: ATCH-052
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_regular_file_check_uses_opened_file() {
+        let root = tempfile::tempdir()?;
+        let store = NativeStore::new(root.path()).await?;
+        std::fs::create_dir(root.path().join("key"))?;
+        std::fs::write(root.path().join("key/file"), b"plain")?;
+        let opened = store.open_read("key/file").await?;
+        // Put a directory at the path after the open.
+        std::fs::remove_file(root.path().join("key/file"))?;
+        std::fs::create_dir(root.path().join("key/file"))?;
+
+        assert!(opened.is_regular_file().await?);
     }
 
     #[cfg(unix)]
