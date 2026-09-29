@@ -240,6 +240,11 @@ pub enum GroupError {
     /// AppDataUpdate path. Not retryable.
     #[error("component source error: {0}")]
     ComponentSource(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
+    /// A metadata field read or write is invalid for the group's committed
+    /// fields: an unknown field, a wrong type, or a write the committed
+    /// state rejects. Not retryable.
+    #[error("metadata field error: {0}")]
+    MetadataField(#[from] xmtp_mls_common::app_data::fields::FieldError),
     /// AppData commit error.
     ///
     /// Failed to build or stage a commit that bundles an inline AppDataUpdate
@@ -598,6 +603,7 @@ impl RetryableError for GroupError {
             Self::MinVersionDowngrade { .. } => false,
             Self::InvalidMinVersion { .. } => false,
             Self::ComponentSource(_) => false,
+            Self::MetadataField(_) => false,
             Self::AppDataCommit(e) => e.is_retryable(),
             // Bootstrap synthesis can fail on a transient identity-update
             // API blip — delegate to the inner error so we retry on

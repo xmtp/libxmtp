@@ -695,7 +695,7 @@ async fn publish_commit_without_welcome(group: &TestMlsGroup, inbox_id: &str) ->
     let (action, payloads) = crate::state_tx::state_write(context.mls_storage(), |tx| {
         tx.with_group(group.group_id, |openmls_group, storage| {
             let publish_intent_data =
-                crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(storage, openmls_group, intent, changes, signer)?
+                crate::groups::mls_sync::update_group_membership::apply_update_group_membership_intent(storage, openmls_group, intent, changes, &[], signer)?
                     .unwrap();
             let post_commit_action = crate::groups::intents::PostCommitAction::from_bytes(
                 publish_intent_data.post_commit_data().unwrap().as_slice(),

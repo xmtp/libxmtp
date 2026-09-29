@@ -219,13 +219,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
 
 [[waiver]]
-id = "META-004"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A scalar first write expands to an Update and fails the immutable permission gate, while an authorized insert-only delta can populate an absent immutable collection."
-
-[[waiver]]
 id = "DMS-010"
 kind = "gap"
 owner = "protocol"
@@ -308,13 +301,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "An imported message carries no per-message expiry and no distinction between unknown expiry and no expiry. So when exclude_disappearing_messages is set, export still includes restored messages whose expiry is unknown (a NULL expire_at_ns), because the store cannot tell them from messages that never expire. Separating the two needs a schema change."
-
-[[waiver]]
-id = "ARCH-012"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The mobile, node, and wasm bindings truncate an archive key longer than 32 bytes instead of rejecting it."
 
 [[waiver]]
 id = "ARCH-020"
@@ -606,6 +592,37 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Not every current binding is known to reject an out-of-range Actions expiry; the façade decoder rejects it, with its test in the stacked #4253."
 
 [[waiver]]
+id = "META-069"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Rust core implements this as MlsGroup::metadata_fields and metadata_field in xmtp_mls, with tests. No binding or SDK exposes it yet, so an app cannot call it; the owner deferred binding and SDK exposure while the bindings absorb other changes."
+[[waiver]]
+id = "META-070"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Rust core implements this as MlsGroup::metadata_value, metadata_values, and map_value in xmtp_mls, with tests. No binding or SDK exposes it yet, so an app cannot call it; the owner deferred binding and SDK exposure while the bindings absorb other changes."
+[[waiver]]
+id = "META-071"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Rust core implements this as MlsGroup::update_metadata_field in xmtp_mls, with tests. No binding or SDK exposes it yet, so an app cannot call it; the owner deferred binding and SDK exposure while the bindings absorb other changes."
+[[waiver]]
+id = "META-072"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Rust core implements this as MlsGroup::user_data in xmtp_mls, with tests. No binding or SDK exposes it yet, so an app cannot call it; the owner deferred binding and SDK exposure while the bindings absorb other changes."
+[[waiver]]
+id = "META-073"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "Rust core implements this as MlsGroup::update_user_data in xmtp_mls, with tests. No binding or SDK exposes it yet, so an app cannot call it; the owner deferred binding and SDK exposure while the bindings absorb other changes."
+
+[[waiver]]
 id = "CTYPE-031"
 kind = "untested"
 owner = "protocol"
@@ -813,8 +830,7 @@ id = "CONF-061"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "No SDK exposes the attachments field of GetConfigurationResponse yet; binding and SDK exposure pending."
-
+reason = "No SDK exposes the attachments or application_components fields of GetConfigurationResponse yet; binding and SDK exposure pending."
 [[waiver]]
 id = "CONF-062"
 kind = "gap"

@@ -568,6 +568,7 @@ async fn test_validate_dm_group() {
             &GroupMetadataOptions::default(),
             client.inbox_id(),
             None,
+            &[],
         )
         .unwrap();
         for (id, value) in changes {
@@ -604,12 +605,17 @@ async fn test_validate_dm_group() {
         .is_ok()
     );
 
+    // Metadata extraction already rejects a DM pair outside a DM, so drop
+    // the pair to reach the type check itself.
     let invalid_type = make_group(
         PolicySet::new_dm(),
-        vec![(
-            ComponentId::CONVERSATION_TYPE,
-            Some((ConversationType::Group as i32).to_be_bytes().to_vec()),
-        )],
+        vec![
+            (
+                ComponentId::CONVERSATION_TYPE,
+                Some((ConversationType::Group as i32).to_be_bytes().to_vec()),
+            ),
+            (ComponentId::DM_MEMBERS, None),
+        ],
         None,
     );
     assert!(matches!(
@@ -709,6 +715,7 @@ async fn test_validate_dm_group() {
         &GroupMetadataOptions::default(),
         client.inbox_id(),
         None,
+        &[],
     )?;
     let mut membership_entries =
         xmtp_mls_common::app_data::migration::decode_group_membership_dict(
@@ -954,3 +961,5 @@ fn queryable_fields_do_not_classify_custom_reply() {
 
 mod test_dictionary_creation;
 mod test_group_id;
+mod test_metadata_fields;
+mod test_profile_fields;

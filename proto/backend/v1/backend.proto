@@ -23,6 +23,7 @@ package xmtp.backend.v1;
 
 import "identity/associations/association.proto";
 import "identity/associations/signature.proto";
+import "mls/message_contents/component_permissions.proto";
 import "mls/message_contents/welcome_pointer.proto";
 import "mls/message_contents/wrapper_encryption.proto";
 
@@ -466,6 +467,17 @@ message MlsConfiguration {
   optional bool commit_log_enabled = 3;
 }
 
+// One operator-defined application component. A client registers it in the
+// conversations the flags select; it carries no initial value.
+message ApplicationComponentDefinition {
+  uint32 component_id = 1;
+  string name = 2;
+  xmtp.mls.message_contents.ComponentType component_type = 3;
+  xmtp.mls.message_contents.ComponentPermissions permissions = 4;
+  bool in_groups = 5;
+  bool in_dms = 6;
+}
+
 // Published as GetConfigurationResponse.attachments (CONF section 2.1).
 // Absent when the deployment offers no attachment storage.
 message AttachmentsConfiguration {
@@ -493,6 +505,8 @@ message GetConfigurationResponse {
   // Attachment storage this deployment offers; absent when it offers none.
   // The message and its rules are owned by ATCH section 1.
   xmtp.backend.v1.AttachmentsConfiguration attachments = 9;
+  // Sorted by component_id ascending.
+  repeated ApplicationComponentDefinition application_components = 10;
 }
 
 message CreateUploadRequest {

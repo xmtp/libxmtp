@@ -212,15 +212,21 @@ impl<C: Component> ErasedComponent for C {
 /// `ComponentOp` field on a [`ComponentChange`] so the validator can
 /// call `validate_component_write` directly.
 ///
-/// `value` is `None` for `Delete` ops on collection components when
-/// the receiver removes by key (e.g. unresolvable `RemoveByHash`); for
-/// every other case it is `Some` with the new value bytes.
+/// `key` is the TLS-encoded element key of a map mutation, which the
+/// self-owned policy and the DM registry exception read (PERM-027,
+/// PERM-026). It is `None` for scalars, for set mutations (whose
+/// `value` is the element), and for a whole-component `Remove`.
+///
+/// `value` is the new value bytes for an Insert or Update, and the
+/// element for a set Delete. It is `None` for a map Delete and a
+/// whole-component `Remove`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExpandedComponentChange {
     /// Whether this entry is an Insert, Update, or Delete.
     pub op: ComponentOp,
-    /// The new value bytes for Insert/Update, or `None` for Delete
-    /// when the value is not available.
+    /// The TLS-encoded map key, if this entry mutates a map element.
+    pub key: Option<Vec<u8>>,
+    /// The new value bytes, or the removed set element.
     pub value: Option<Vec<u8>>,
 }
 
@@ -356,10 +362,12 @@ mod tests {
             match op {
                 AppDataUpdateOperation::Update(payload) => Ok(vec![ExpandedComponentChange {
                     op: ComponentOp::Update,
+                    key: None,
                     value: Some(payload.as_slice().to_vec()),
                 }]),
                 AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
                     op: ComponentOp::Delete,
+                    key: None,
                     value: None,
                 }]),
             }
