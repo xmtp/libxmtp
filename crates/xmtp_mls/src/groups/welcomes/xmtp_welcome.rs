@@ -380,6 +380,7 @@ where
             return Err(GroupError::InvalidGroupMembership);
         }
         self.validator.check_verified_membership(&membership, &db)?;
+        // implements: DMS-015
         // A Restored row carries historical identity. A Welcome can activate
         // it only when its authenticated kind and DM pair are unchanged.
         let group_id = GroupId::try_from(staged_welcome.public_group().group_id())?;
@@ -531,19 +532,7 @@ where
         let to_store = match conversation_type {
             ConversationType::Group => group.membership_state(membership_state).build()?,
             ConversationType::Dm => {
-                let dm_members = validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
-                if db.has_sender_outside_pair(
-                    &group_id,
-                    [
-                        &dm_members.member_one_inbox_id,
-                        &dm_members.member_two_inbox_id,
-                    ],
-                )? {
-                    return Err(MetadataPermissionsError::from(
-                        crate::groups::DmValidationError::StoredMessageSenderOutsidePair,
-                    )
-                    .into());
-                }
+                validate_dm_group(context, &mls_group, &added_by_inbox_id)?;
                 group
                     .membership_state(membership_state)
                     .last_message_ns(welcome.timestamp())
