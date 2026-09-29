@@ -29,6 +29,8 @@ mod limits;
 #[case(tonic::Code::InvalidArgument)]
 #[case(tonic::Code::OutOfRange)]
 #[case(tonic::Code::Unimplemented)]
+// The backend's configuration stops signing until the operator corrects it.
+#[case(tonic::Code::FailedPrecondition)]
 #[xmtp_common::test(unwrap_try = true)]
 async fn create_upload_does_not_retry_permanent_rejections(
     #[case] code: tonic::Code,
