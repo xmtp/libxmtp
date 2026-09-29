@@ -27,14 +27,22 @@ pub(super) fn error_class(code: &mut String, value: &EnumMetadata) -> Result<()>
         code,
         "/** A failure from the XMTP SDK. Its subclass names the code in `details.code`. */\nexport class {name} extends Error {{\n  readonly details: ErrorDetails;\n  constructor(details: ErrorDetails) {{\n    super(details.message);\n    this.name = `{name}.${{details.code}}`;\n    this.details = details;\n  }}"
     )?;
+    // Each subclass is typed as the base class, so declarations stay small.
     for variant in &value.variants {
         writeln!(
             code,
-            "  static readonly {v} = class {v} extends {name} {{}};",
+            "  declare static readonly {v}: typeof {name};",
             v = variant.name
         )?;
     }
     code.push_str("}\n");
+    for variant in &value.variants {
+        writeln!(
+            code,
+            "Object.defineProperty({name}, \"{v}\", {{ value: class {name}{v} extends {name} {{}} }});",
+            v = variant.name
+        )?;
+    }
     // Lift: one subclass per binding variant.
     writeln!(
         code,
@@ -56,7 +64,7 @@ pub(super) fn error_class(code: &mut String, value: &EnumMetadata) -> Result<()>
     for variant in &value.variants {
         writeln!(
             code,
-            "  if (value instanceof {name}.{v}) return B.{name}.{v}.new(details);",
+            "  if (value.constructor === {name}.{v}) return B.{name}.{v}.new(details);",
             v = variant.name
         )?;
     }
