@@ -128,14 +128,18 @@ mod identity_tests {
         let unknown_creator = identity("", OTHER);
         assert_eq!(unknown_creator.creator_inbox_id, None);
         assert_eq!(
-            unknown_creator.added_by_inbox_id.map(|id| id.into_checked().unwrap()),
+            unknown_creator
+                .added_by_inbox_id
+                .map(|id| id.into_checked().unwrap()),
             Some(OTHER.into())
         );
         assert!(!unknown_creator.is_creator);
 
         let unknown_adder = identity(OWN, "");
         assert_eq!(
-            unknown_adder.creator_inbox_id.map(|id| id.into_checked().unwrap()),
+            unknown_adder
+                .creator_inbox_id
+                .map(|id| id.into_checked().unwrap()),
             Some(OWN.into())
         );
         assert_eq!(unknown_adder.added_by_inbox_id, None);
