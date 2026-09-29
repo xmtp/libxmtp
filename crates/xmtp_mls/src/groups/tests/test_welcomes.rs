@@ -104,9 +104,15 @@ async fn ordinary_welcome_rejects_peer_admin_combinator() {
                 .stage_commit(&provider)?;
             mls_group.merge_pending_commit(&provider)?;
 
-            let publish =
-                apply_update_group_membership_intent(storage, mls_group, intent, changes, signer)?
-                    .unwrap();
+            let publish = apply_update_group_membership_intent(
+                storage,
+                mls_group,
+                intent,
+                changes,
+                &[],
+                signer,
+            )?
+            .unwrap();
             let PostCommitAction::SendWelcomes(action) =
                 PostCommitAction::from_bytes(&publish.post_commit_data().unwrap())?;
             mls_group.merge_staged_commit(
@@ -349,6 +355,7 @@ async fn test_spoofed_inbox_id() {
                 openmls_group,
                 intent,
                 changes,
+                &[],
                 signer,
             )?
             .unwrap();

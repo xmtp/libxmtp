@@ -72,13 +72,9 @@ where
 /// Expand a `TlsMap`-shape `AppDataUpdate` proposal into per-mutation
 /// `ExpandedComponentChange` entries.
 ///
-/// Convention for `value` field on the emitted changes:
-/// - `Insert(_, v)` and `Update(_, v)` carry the new value bytes
-///   (`v.as_slice().to_vec()`) — this is what change-aware policies
-///   would inspect.
-/// - `Delete(k)` carries the key bytes via `K::tls_serialize_detached`,
-///   matching the `TlsSet` expand convention where the value field
-///   identifies the affected element.
+/// Every emitted change carries the TLS-encoded key, which the
+/// self-owned policy and the DM registry exception read. `Insert` and `Update` also carry the new value bytes;
+/// `Delete` carries none. A whole-component `Remove` carries neither.
 ///
 /// `prior` is currently unused — Map components don't have a
 /// `RemoveByHash` analogue (deletes carry the literal key on the
@@ -106,6 +102,7 @@ where
     match op {
         AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
             op: ComponentOp::Delete,
+            key: None,
             value: None,
         }]),
         AppDataUpdateOperation::Update(payload) => {
@@ -125,27 +122,22 @@ fn expand_decoded_tls_map_delta<K>(
 where
     K: tls_codec::Serialize + tls_codec::Size,
 {
-    let mut out = Vec::with_capacity(delta.mutations.len());
-    for mutation in delta.mutations {
-        match mutation {
-            TlsMapMutation::Insert { value, .. } => out.push(ExpandedComponentChange {
-                op: ComponentOp::Insert,
-                value: Some(value.as_slice().to_vec()),
-            }),
-            TlsMapMutation::Update { value, .. } => out.push(ExpandedComponentChange {
-                op: ComponentOp::Update,
-                value: Some(value.as_slice().to_vec()),
-            }),
-            TlsMapMutation::Delete { key } => {
-                let key_bytes = key.tls_serialize_detached()?;
-                out.push(ExpandedComponentChange {
-                    op: ComponentOp::Delete,
-                    value: Some(key_bytes),
-                });
-            }
-        }
-    }
-    Ok(out)
+    delta
+        .mutations
+        .into_iter()
+        .map(|mutation| {
+            let (op, key, value) = match mutation {
+                TlsMapMutation::Insert { key, value } => (ComponentOp::Insert, key, Some(value)),
+                TlsMapMutation::Update { key, value } => (ComponentOp::Update, key, Some(value)),
+                TlsMapMutation::Delete { key } => (ComponentOp::Delete, key, None),
+            };
+            Ok(ExpandedComponentChange {
+                op,
+                key: Some(key.tls_serialize_detached()?),
+                value: value.map(Vec::from),
+            })
+        })
+        .collect()
 }
 
 // ============================================================================
@@ -475,8 +467,11 @@ mod tests {
         let changes = GroupMembershipComponent::expand_to_changes(&op, None).unwrap();
         assert_eq!(changes.len(), 1);
         assert_eq!(changes[0].op, ComponentOp::Delete);
-        // The value field carries the TLS-encoded key for context.
-        assert!(changes[0].value.is_some());
+        assert_eq!(
+            changes[0].key,
+            Some(fixture_inbox_id(5).tls_serialize_detached()?)
+        );
+        assert_eq!(changes[0].value, None);
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -15,9 +15,10 @@
 //! 3. The compile-time `assert_table_is_sorted_and_unique` check at
 //!    the bottom of this file verifies invariants on every build.
 //!
-//! Custom (host-registered) components live outside this table — see
-//! `app_data::custom` (added in jj change #14) for the runtime
-//! registration path.
+//! Application-range components have no entry and no process-local
+//! handler: every client decodes them with the standard codec for the
+//! type in the group's committed registry, so no local code can change
+//! which commits a client accepts.
 
 use crate::app_data::{
     component_id::ComponentId,
@@ -54,7 +55,7 @@ use crate::app_data::{
 /// | Range            | Purpose                                       |
 /// |------------------|-----------------------------------------------|
 /// | `0x8000-0xBFFF`  | XMTP-allocated well-known ids (this table)    |
-/// | `0xC000-0xFEFF`  | Application-range `RuntimeComponent` ids      |
+/// | `0xC000-0xFEFF`  | Application ids, decoded by registry type     |
 /// | `0xFF00-0xFFFF`  | Reserved (hard-rejected, no graceful-degrade) |
 ///
 /// Adding a new well-known entry here changes the protocol's
@@ -70,8 +71,9 @@ use crate::app_data::{
 /// pulls its registered [`ComponentType`], and dispatches through the
 /// type-level decoder. The closed type universe covers every shape:
 /// Bytes / String pass-through, `TlsSet<InboxId>` / `TlsSet<bytes>` /
-/// `TlsMap<InboxId, bytes>` / `TlsMap<bytes, bytes>` apply their deltas
-/// element-wise — old and new clients converge on the same dict bytes.
+/// `TlsMap<InboxId, bytes>` / `TlsMap<InboxId, UTF-8 bytes>` /
+/// `TlsMap<bytes, bytes>` apply their deltas element-wise — old and new
+/// clients converge on the same dict bytes.
 /// The tolerance path covers the XMTP range (`0x8000-0xBFFF`) and the
 /// application range (`0xC000-0xFEFF`); the reserved range
 /// (`0xFF00-0xFFFF`) is **still hard-rejected** — those slots are
@@ -79,7 +81,7 @@ use crate::app_data::{
 /// new ids there.
 ///
 /// **Requirements when adding a new well-known component:**
-/// - The component MUST be reachable through one of the six
+/// - The component MUST be reachable through one of the seven
 ///   [`ComponentType`] variants. The wire codec for each is fixed; an
 ///   old client decodes it the same way a typed client would.
 /// - The component MUST NOT carry receive-side invariants beyond
@@ -117,12 +119,10 @@ use crate::app_data::{
 /// Two ergonomic patterns for shipping a new component without
 /// editing `WELL_KNOWN`:
 ///
-/// 1. **Application-range `RuntimeComponent`.** Components in
-///    `0xC000-0xFCFF` registered at runtime via the
-///    `RuntimeComponent` facility (see `app_data::custom`) ship
-///    without touching `WELL_KNOWN` — only the host that registered
-///    the component decodes its payload, while old clients
-///    type-dispatch via the registry the same way.
+/// 1. **Application-range component.** A component in
+///    `0xC000-0xFEFF` registered in a group's `COMPONENT_REGISTRY`
+///    with one of the standard types ships without touching
+///    `WELL_KNOWN`; every client type-dispatches it via the registry.
 /// 2. **Coordinated protocol-version bump.** Required only when the
 ///    new component must reject specific bytes that the type-level
 ///    codec would otherwise accept (e.g. a per-id invariant beyond
@@ -154,33 +154,18 @@ pub static WELL_KNOWN: &[(ComponentId, &'static dyn ErasedComponent)] = &[
     (ComponentId::DM_MEMBERS, &DmMembersComponent),
 ];
 
-/// Look up the [`ErasedComponent`] for a [`ComponentId`].
+/// Look up the well-known [`ErasedComponent`] for a [`ComponentId`].
 ///
-/// The two sources are disjoint by construction — `WELL_KNOWN`
-/// entries all sit in the XMTP range (`0x8000-0xBFFF`) and runtime
-/// entries are gated to the app range (`0xC000-0xFEFF`) at
-/// registration time — so we route by id space and skip the wrong
-/// table entirely:
-///
-/// 1. XMTP range → binary-search the static `WELL_KNOWN` table.
-/// 2. App range → consult the process-global runtime registry
-///    ([`super::custom::lookup_runtime_component`]).
-/// 3. Reserved range (`0xFF00-0xFFFF`) → no dispatch.
-///
-/// Returns `None` if the id is in a known range but has no impl
-/// registered (e.g. the `0xBE0x` immutable seeds — handled by the
-/// bootstrap validator's byte-compare path rather than the trait).
+/// Returns `None` for every application-range and reserved id, and for
+/// a well-known id with no impl (e.g. the `0xBE0x` immutable seeds —
+/// handled by the bootstrap validator's byte-compare path rather than
+/// the trait). Callers then decode by the id's registered type.
+// implements: META-010
 pub fn lookup_component(id: ComponentId) -> Option<&'static dyn ErasedComponent> {
-    if id.is_xmtp_range() {
-        return WELL_KNOWN
-            .binary_search_by_key(&id.as_u16(), |(component_id, _)| component_id.as_u16())
-            .ok()
-            .map(|idx| WELL_KNOWN[idx].1);
-    }
-    if id.is_app_range() {
-        return super::custom::lookup_runtime_component(id);
-    }
-    None
+    WELL_KNOWN
+        .binary_search_by_key(&id.as_u16(), |(component_id, _)| component_id.as_u16())
+        .ok()
+        .map(|idx| WELL_KNOWN[idx].1)
 }
 
 /// Compile-time check that [`WELL_KNOWN`] is strictly ascending by
@@ -244,9 +229,10 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn lookup_returns_none_for_unknown_id() {
-        // App-range custom id — resolved via runtime registry, not WELL_KNOWN.
-        let custom = ComponentId::new(0xC123);
-        assert!(lookup_component(custom).is_none());
+        // Application ids never dispatch to local code.
+        for id in [0xC000, 0xC123, 0xFEFF] {
+            assert!(lookup_component(ComponentId::new(id)).is_none());
+        }
 
         // Immutable seed without a Component impl yet — bootstrap
         // validator handles it via byte-compare, not the trait.

@@ -4,7 +4,6 @@ pub mod component_registry;
 pub mod component_source;
 pub mod components;
 pub mod creation;
-pub mod custom;
 pub mod migration;
 pub mod policy_set;
 pub mod protocol_floor;

@@ -153,15 +153,16 @@ impl ComponentRegistry {
     /// existing entry — there is no audit log here because the audit trail
     /// lives in the MLS commit history that produced the change.
     ///
-    /// A valid write to an id that currently holds an unrecognized entry
-    /// repairs it — the raw bytes are overwritten, so `to_bytes` serializes
-    /// the repaired value rather than resurrecting the broken bytes.
+    /// A valid write to a mutable id that currently holds an unrecognized
+    /// entry repairs it — the raw bytes are overwritten, so `to_bytes`
+    /// serializes the repaired value rather than resurrecting the broken
+    /// bytes.
     ///
     /// Rejects invalid IDs, IDs in the reserved range, hardcoded components
     /// (whose permissions are enforced in code, not metadata), immutable
-    /// components that already hold a recognized entry (write-once
-    /// semantics), metadata missing required fields, and constrained
-    /// components with invalid policy values.
+    /// components that already hold any raw entry (write-once semantics),
+    /// metadata missing required fields, and constrained components with
+    /// invalid policy values.
     pub fn set(
         &mut self,
         id: ComponentId,
@@ -196,6 +197,15 @@ impl ComponentRegistry {
         self.inner
             .get(id)
             .is_some_and(|raw| Self::decode_recognized(*id, raw.as_slice()).is_ok())
+    }
+
+    /// Returns true if the registry holds any bytes for `id`, recognized
+    /// or not. Reconciliation keys off this rather than
+    /// [`contains`](Self::contains): an entry this build cannot read is
+    /// still the group's entry and must not be replaced from a local copy.
+    // implements: META-067
+    pub fn contains_raw(&self, id: &ComponentId) -> bool {
+        self.inner.contains_key(id)
     }
 
     /// Returns the number of *recognized* entries. Unrecognized entries
@@ -336,9 +346,10 @@ impl ComponentRegistry {
     ///   metadata entries here would create a silent disagreement between
     ///   what the registry says and what `validate_component_write` actually
     ///   enforces)
-    /// - Immutable IDs that already hold a *recognized* entry (write-once).
-    ///   An immutable id holding only an unrecognized entry is repairable,
-    ///   since write-once protects an established value, not broken bytes.
+    /// - Immutable IDs that already hold any raw entry (write-once). An
+    ///   entry this build cannot read may be a newer client's valid one, so
+    ///   write-once covers it too.
+    // implements: META-015
     fn validate_modifiable(&self, id: &ComponentId) -> Result<(), ComponentRegistryError> {
         if !id.is_in_component_space() {
             return Err(ComponentRegistryError::InvalidComponentId(*id));
@@ -349,7 +360,7 @@ impl ComponentRegistry {
         if id.is_hardcoded() {
             return Err(ComponentRegistryError::HardcodedComponent(*id));
         }
-        if id.is_immutable() && self.contains(id) {
+        if id.is_immutable() && self.contains_raw(id) {
             return Err(ComponentRegistryError::ImmutableComponent(*id));
         }
         Ok(())
@@ -1142,6 +1153,35 @@ mod tests {
             round_tripped.get(&ComponentId::GROUP_NAME).unwrap(),
             Some(sample_meta())
         );
+    }
+
+    /// An immutable-range entry this build cannot read may be a newer
+    /// client's valid write. Write-once must hold for it, or a local write
+    /// would replace the group's entry because `contains` hides it.
+    #[xmtp_common::test]
+    // verifies: META-015
+    fn test_set_refuses_unrecognized_immutable_entry() {
+        let id = ComponentId::new(0xFD00);
+        let bytes = raw_bytes_with_entry(id, vec![0xFF, 0xFF]);
+        let mut reg = ComponentRegistry::from_bytes(&bytes).unwrap();
+        assert!(!reg.contains(&id));
+        assert!(matches!(
+            reg.set(id, sample_meta()),
+            Err(ComponentRegistryError::ImmutableComponent(_))
+        ));
+        assert_eq!(reg.to_bytes().unwrap(), bytes);
+    }
+
+    /// Reconciliation asks whether the group holds any entry for an ID, so
+    /// `contains_raw` must see an unreadable entry that `contains` hides.
+    #[xmtp_common::test]
+    // verifies: META-067
+    fn test_contains_raw_sees_unrecognized_entry() {
+        let id = ComponentId::new(0xC001);
+        let reg = ComponentRegistry::from_bytes(&raw_bytes_with_entry(id, vec![0xFF])).unwrap();
+        assert!(!reg.contains(&id));
+        assert!(reg.contains_raw(&id));
+        assert!(!reg.contains_raw(&ComponentId::new(0xC002)));
     }
 
     #[xmtp_common::test]

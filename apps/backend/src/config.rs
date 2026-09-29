@@ -23,6 +23,7 @@ use xmtp_configuration::{
     BACKEND_DEFAULT_QUERY_LIMIT, BACKEND_DEFAULT_WELCOME_SECONDS,
 };
 
+pub mod application_components;
 pub mod auth;
 pub mod push;
 mod schema;
@@ -80,6 +81,15 @@ pub enum ConfigError {
     },
     #[error("environment variable {name} is not available")]
     Environment { name: String },
+    #[error("configuration is invalid: application_components[{index}] ({reason})")]
+    ApplicationComponent {
+        index: usize,
+        reason: xmtp_configuration::ApplicationComponentError,
+    },
+    #[error(
+        "configuration is invalid: application_components[{index}] (name must not equal a well-known component name)"
+    )]
+    WellKnownComponentName { index: usize },
 }
 
 #[derive(Debug, Error)]
@@ -162,6 +172,10 @@ pub struct Config {
     pub limits: LimitsConfig,
     #[serde(default)]
     pub mls: MlsConfig,
+    /// Group metadata fields clients register in the conversations they
+    /// create. Published sorted by `component_id`.
+    #[serde(default)]
+    pub application_components: Vec<application_components::ApplicationComponentConfig>,
 }
 
 impl Config {
@@ -241,6 +255,7 @@ impl Config {
         self.validate_chains()?;
         self.limits.validate()?;
         self.mls.validate()?;
+        application_components::validate(&self.application_components)?;
         // Inline signing keys are the only key source known before startup. A
         // JWKS deployment re-checks the assembled response once its key set
         // has been fetched.
@@ -325,6 +340,7 @@ impl Config {
                     retention_seconds: attachments.retention_seconds.unwrap_or_default(),
                 }
             }),
+            application_components: application_components::published(&self.application_components),
         }
     }
 
@@ -390,6 +406,7 @@ impl std::fmt::Debug for Config {
             .field("validation", &self.validation)
             .field("limits", &self.limits)
             .field("mls", &self.mls)
+            .field("application_components", &self.application_components)
             .finish()
     }
 }
