@@ -389,4 +389,26 @@ mod tests {
         );
         std::fs::remove_dir_all(&dir)?;
     }
+
+    /// Dropping a blocking export's future, as a caller that abandons
+    /// `export_to_file` does, cancels the token that export checks, so the
+    /// task stops and cleans up (see `archive_file_export_stops_when_cancelled`)
+    /// rather than running to completion unobserved.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn dropping_a_blocking_export_cancels_it() {
+        let (started, running) = tokio::sync::oneshot::channel();
+        let (report, seen) = tokio::sync::oneshot::channel();
+        let export = tokio::spawn(exporter::spawn_cancellable(move |cancel| {
+            started.send(()).unwrap();
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            while !cancel.is_cancelled() && std::time::Instant::now() < deadline {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+            report.send(cancel.is_cancelled()).unwrap();
+        }));
+        running.await?;
+        export.abort();
+        assert!(seen.await?, "a dropped export kept running uncancelled");
+    }
 }
