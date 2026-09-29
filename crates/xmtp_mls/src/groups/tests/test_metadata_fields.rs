@@ -275,6 +275,33 @@ async fn test_stale_snapshot_uses_the_group_type() {
     assert_eq!(bo_group.epoch().await?, epoch);
 }
 
+/// A write that matches the writer's local, unsynced state is still
+/// committed once the writer has synced, because another member may have
+/// changed the field since. Dropping it locally would report success for
+/// a value the group never gets.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_unchanged_write_against_stale_state_lands() {
+    tester!(alix, configured: |c| c.application_components = catalogue());
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let rename = |name| ComponentMutation::Replace(string(name));
+    let name = MetadataFieldRef::GROUP_NAME;
+    group.update_metadata_field(&name, &rename("Team")).await?;
+    bo_group.sync().await?;
+    group.update_metadata_field(&name, &rename("Other")).await?;
+
+    bo_group
+        .update_metadata_field(&name, &rename("Team"))
+        .await?;
+    group.sync().await?;
+    assert_eq!(group.group_name()?, "Team");
+    assert_eq!(bo_group.group_name()?, "Team");
+}
+
 /// A field write commits a value of the field's type, by any name. A write
 /// of the current value commits nothing. A value of the wrong type, an
 /// unlisted field, or a write the committed policies deny fails before any

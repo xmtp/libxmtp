@@ -128,12 +128,15 @@ where
     /// Encode writes with `plan` and commit them. The writes are resolved
     /// and authorized once here, so a type error, a denied policy, or a
     /// payload the group would reject is reported to the caller rather than
-    /// as a failed intent, and a write that changes nothing commits nothing.
+    /// as a failed intent. The group is synced first, so a write that
+    /// changes nothing, which commits nothing, is judged against the
+    /// group's state during this call rather than a stale local copy.
     async fn write_fields(
         &self,
         plan: impl FnOnce(&FieldSnapshot<'_>) -> Result<Vec<FieldWrite>, FieldError>,
     ) -> Result<(), GroupError> {
         self.ensure_not_paused().await?;
+        self.sync().await?;
         let own = InboxId::from_hex(self.context.inbox_id())
             .map_err(|e| GroupError::ComponentSource(e.into()))?;
         let writes = self.with_group_snapshot(|group: &OpenMlsGroup| {
