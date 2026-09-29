@@ -62,7 +62,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     expect(second.reject).toHaveBeenCalledOnce();
   });
 
-  // verifies: PROC-031, PROC-032
+  // verifies: PROC-031
   it("discards a stale worker token and selects again", async () => {
     const stale = token();
     stale.checkOwner.mockResolvedValue(false);
@@ -77,7 +77,6 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     await stream.end();
   });
 
-  // verifies: PROC-032
   it("reselects when a removed worker item has no decoded value", async () => {
     const removed = token();
     removed.checkOwner.mockResolvedValue(false);

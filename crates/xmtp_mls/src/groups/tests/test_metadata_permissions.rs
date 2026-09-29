@@ -519,6 +519,43 @@ async fn test_group_admin_list_update() {
         .expect_err("expected err");
 }
 
+/// A malformed inbox id fails the call and queues nothing that could block
+/// later changes to the group.
+#[rstest::rstest]
+#[case::not_hex(UpdateAdminListType::Add, "x".to_string())]
+#[case::short_hex(UpdateAdminListType::RemoveSuper, "ab".repeat(31))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn malformed_admin_inbox_id_is_refused_before_queueing(
+    #[case] action: UpdateAdminListType,
+    #[case] inbox_id: String,
+) -> Result<(), GroupError> {
+    use xmtp_mls_common::app_data::component_source::ComponentSourceError;
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+
+    let result = group.update_admin_list(action, inbox_id).await;
+    assert!(
+        matches!(
+            result,
+            Err(GroupError::ComponentSource(
+                ComponentSourceError::InvalidInboxId(_)
+            ))
+        ),
+        "{result:?}"
+    );
+    let admin_intents = group.context.db().find_group_intents(
+        group.group_id,
+        None,
+        Some(vec![xmtp_db::group_intent::IntentKind::UpdateAdminList]),
+    )?;
+    assert!(admin_intents.is_empty(), "{admin_intents:?}");
+
+    group.update_group_name("after refusal".into()).await?;
+    assert_eq!(group.group_name()?, "after refusal");
+    Ok(())
+}
+
 #[xmtp_common::test]
 async fn test_group_super_admin_list_update() {
     tester!(amal);

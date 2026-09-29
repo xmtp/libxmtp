@@ -4,10 +4,12 @@ use crate::{
     groups::{
         GroupError, MlsGroup, PreconfiguredPolicies, send_message_opts, summary::SyncSummary,
     },
+    identity::parse_credential,
     mls_store::{MlsStore, MlsStoreError},
     subscriptions::{SubscribeError, internal::InternalEvent},
     worker::{NeedsDbReconnect, metrics::WorkerMetrics},
 };
+use openmls::prelude::{BasicCredential, Member};
 use owo_colors::OwoColorize;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc};
@@ -46,6 +48,42 @@ pub use xmtp_archive::archive_options::{ArchiveOptions, BackupElementSelection};
 
 #[cfg(test)]
 mod tests;
+
+/// Encode sync content as the `EncodedContent` bytes of a sync message.
+fn sync_message_bytes(content: ContentProto) -> Vec<u8> {
+    let content = DeviceSyncContentProto {
+        content: Some(content),
+    };
+    encoded_content_to_bytes(EncodedContent {
+        r#type: Some(ContentTypeId {
+            authority_id: "xmtp.org".to_string(),
+            type_id: "application/x-protobuf".to_string(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        parameters: HashMap::new(),
+        fallback: None,
+        compression: None,
+        content: content.encode_to_vec(),
+    })
+}
+
+/// A sync group belongs to the own inbox only when that inbox added this
+/// client and every leaf node's credential names it.
+// implements: SYNC-010
+pub(crate) fn is_own_sync_group(
+    own_inbox_id: &str,
+    added_by_inbox_id: &str,
+    members: impl IntoIterator<Item = Member>,
+) -> bool {
+    added_by_inbox_id == own_inbox_id
+        && members.into_iter().all(|member| {
+            BasicCredential::try_from(member.credential)
+                .ok()
+                .and_then(|credential| parse_credential(credential.identity()).ok())
+                .is_some_and(|inbox_id| inbox_id == own_inbox_id)
+        })
+}
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum DeviceSyncError {
@@ -244,10 +282,6 @@ where
         &self,
         content: ContentProto,
     ) -> Result<Vec<u8>, ClientError> {
-        let content = DeviceSyncContentProto {
-            content: Some(content),
-        };
-
         let sync_group = self.get_sync_group().await?;
 
         let msg = format!(
@@ -257,24 +291,7 @@ where
         );
         tracing::info!("{}", msg.yellow());
 
-        let mut content_bytes = vec![];
-        content
-            .encode(&mut content_bytes)
-            .map_err(|err| ClientError::Generic(err.to_string()))?;
-
-        let encoded_content = EncodedContent {
-            r#type: Some(ContentTypeId {
-                authority_id: "xmtp.org".to_string(),
-                type_id: "application/x-protobuf".to_string(),
-                version_major: 1,
-                version_minor: 0,
-            }),
-            parameters: HashMap::new(),
-            fallback: None,
-            compression: None,
-            content: content_bytes,
-        };
-        let content_bytes = encoded_content_to_bytes(encoded_content);
+        let content_bytes = sync_message_bytes(content);
 
         let message_id = sync_group.prepare_message(
             &content_bytes,
@@ -295,12 +312,36 @@ where
         Ok(message_id)
     }
 
+    /// The newest sync group that only the own inbox is in.
+    /// Older builds stored sync groups from other inboxes; this skips them.
+    // implements: SYNC-002, SYNC-010
+    pub(crate) fn primary_sync_group(&self) -> Result<Option<MlsGroup<Context>>, GroupError> {
+        let own_inbox_id = self.context.inbox_id();
+        for stored in self.context.db().all_sync_groups()? {
+            let group = self.mls_store.group(&stored.id)?;
+            let own = group.with_group_snapshot(|mls_group| {
+                Ok(is_own_sync_group(
+                    own_inbox_id,
+                    &stored.added_by_inbox_id,
+                    mls_group.members(),
+                ))
+            })?;
+            if own {
+                return Ok(Some(group));
+            }
+            tracing::debug!(
+                group_id = %stored.id,
+                "skipping a sync group that names another inbox"
+            );
+        }
+        Ok(None)
+    }
+
     // implements: SYNC-001
     #[instrument(level = "trace", skip_all)]
     pub async fn get_sync_group(&self) -> Result<MlsGroup<Context>, GroupError> {
-        let db = self.context.db();
-        let sync_group = match db.primary_sync_group()? {
-            Some(sync_group) => self.mls_store.group(&sync_group.id)?,
+        let sync_group = match self.primary_sync_group()? {
+            Some(sync_group) => sync_group,
             None => {
                 let sync_group = MlsGroup::create_and_insert(
                     self.context.clone(),

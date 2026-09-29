@@ -96,14 +96,14 @@ pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
 pub use error::{ErrorCategory, ErrorDetails, XmtpError};
 #[cfg(not(feature = "pure-only"))]
 pub use events::{
-    ClientEvent, EventFilter, EventKind, EventListener, EventReader, ListenerError, ListenerID,
+    ClientEvent, EventFilter, EventKind, EventListener, EventReader, ListenerError, ListenerId,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use identity::{
-    CanMessageEntry, CatchUpSummary, GroupSyncSummary, InboxCountEntry, InboxState, Installation,
-    KeyPackageLifetime, KeyPackageStatus, KeyPackageStatusEntry, SignatureKind, SignatureRequest,
+    CatchUpSummary, GroupSyncSummary, InboxState, Installation, KeyPackageLifetime,
+    KeyPackageStatus, SignatureKind, SignatureRequest,
 };
-pub use ids::{ConversationID, InboxID, InstallationID, MessageID, Timestamp};
+pub use ids::{ConversationId, InboxId, InstallationId, MessageId, Timestamp};
 #[cfg(not(feature = "pure-only"))]
 pub use logging::{LogLevel, LogRecord, LogSink, LogSinkError, LoggingOptions, OtelOptions};
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
@@ -126,11 +126,11 @@ pub use signer::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use state::{
-    CommitLogForkStatus, ConversationDebugInfo, ConversationHmacKeys, ConversationState,
-    DisappearingSettings, GroupMembershipCapabilities, GroupPermissions, GroupPolicyType,
-    GroupState, HmacKey, InboxCapabilities, InstallationCapabilities, LastReadTimeEntry, Member,
-    MembershipResult, MembershipState, MetadataFieldKind, MlsExtensionType, NotificationOverride,
-    PermissionLevel, PermissionPolicy, PermissionPolicySet, PermissionUpdateKind,
+    CommitLogForkStatus, ConversationDebugInfo, ConversationState, DisappearingSettings,
+    GroupMembershipCapabilities, GroupPermissions, GroupPolicyType, GroupState, HmacKey,
+    InboxCapabilities, InstallationCapabilities, Member, MembershipResult, MembershipState,
+    MetadataFieldKind, MlsExtensionType, NotificationOverride, PermissionLevel, PermissionPolicy,
+    PermissionPolicySet, PermissionUpdateKind,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use static_helpers::MessageMetadataEntry;

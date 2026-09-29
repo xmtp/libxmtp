@@ -96,6 +96,7 @@ pub async fn flush_telemetry() {
 
 mod sink {
     use super::{LOGGING, LogLevel, XmtpError};
+    use crate::Timestamp;
     use std::sync::Arc;
     #[cfg(not(target_arch = "wasm32"))]
     use xmtp_logging::BoundedSink;
@@ -170,7 +171,7 @@ mod sink {
         pub target: String,
         pub message: String,
         pub fields: std::collections::HashMap<String, String>,
-        pub timestamp_ns: i64,
+        pub timestamp: Timestamp,
         pub dropped_records: u64,
     }
 
@@ -181,7 +182,7 @@ mod sink {
                 target: value.target,
                 message: value.message,
                 fields: value.fields.into_iter().collect(),
-                timestamp_ns: value.timestamp_ns,
+                timestamp: Timestamp(value.timestamp_ns),
                 dropped_records: value.dropped_records,
             }
         }

@@ -9,7 +9,10 @@ import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
-import { Client, Message } from "../../../../target/sdk-generated/typescript-wasm/index";
+import {
+  Client,
+  Message,
+} from "../../../../target/sdk-generated/typescript-wasm/index";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
@@ -20,16 +23,21 @@ import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 function deleted(message: Message | undefined, label: string): void {
   if (!message) throw new Error(`${label} was not found`);
   if (message.content.tag !== B.MessageContent_Tags.DeletedMessage)
-    throw new Error(`${label} exposed ${message.content.tag} instead of DeletedMessage`);
+    throw new Error(
+      `${label} exposed ${message.content.tag} instead of DeletedMessage`,
+    );
 }
 
 // A deleted message keeps its original encoded bytes. The host content must
 // come from Rust's deleted marker, including when the bytes use a custom type.
 export async function checkDeletedMessages(backendURL: string): Promise<void> {
   await Pure.initPureWasm();
-  const worker = new Worker(new URL("./message.deleted.worker.ts", import.meta.url), {
-    type: "module",
-  });
+  const worker = new Worker(
+    new URL("./message.deleted.worker.ts", import.meta.url),
+    {
+      type: "module",
+    },
+  );
   const endpoint: WireEndpoint = {
     postMessage(message, transfer) {
       worker.postMessage(message, { transfer });
@@ -91,39 +99,37 @@ export async function checkDeletedMessages(backendURL: string): Promise<void> {
     step = "create group";
     const group = await client.conversations().createGroup([], undefined);
     step = "send text";
-    const textID = await group.sendText("secret text", undefined);
+    const textId = await group.sendText("secret text", undefined);
     step = "send reply";
-    const replyID = await client.conversations().replyToMessage(
-      textID,
-      Pure.encodeText("reply"),
-      undefined,
-    );
+    const replyId = await client
+      .conversations()
+      .replyToMessage(textId, Pure.encodeText("reply"), undefined);
     step = "delete text";
-    await client.conversations().deleteMessage(textID);
+    await client.conversations().deleteMessage(textId);
     step = "sync deleted text";
     await group.sync();
 
     step = "read deleted text";
-    const deletedText = await client.conversations().getMessageByID(textID);
+    const deletedText = await client.conversations().getMessageById(textId);
     deleted(deletedText, "text lookup");
     deleted(
       (await group.messages(undefined)).find(
-        (message) => message.id.toString() === textID.toString(),
+        (message) => message.id.toString() === textId.toString(),
       ),
       "text list",
     );
-    const reply = await client.conversations().getMessageByID(replyID);
+    const reply = await client.conversations().getMessageById(replyId);
     if (reply?.inReplyToContent?.tag !== B.MessageBody_Tags.DeletedMessage)
       throw new Error("reply parent exposed the deleted text");
 
-    const customType = B.ContentTypeID.create({
-      authorityID: "example.org",
-      typeID: "deleted-browser-content",
+    const customType = B.ContentTypeId.create({
+      authorityId: "example.org",
+      typeId: "deleted-browser-content",
       versionMajor: 1,
       versionMinor: 0,
     });
     step = "send custom content";
-    const customID = await group.send(
+    const customId = await group.send(
       B.EncodedContent.create({
         type: customType,
         content: new TextEncoder().encode("secret custom").buffer,
@@ -131,8 +137,9 @@ export async function checkDeletedMessages(backendURL: string): Promise<void> {
       undefined,
     );
     step = "decode deleted custom bytes";
-    const custom = await client.conversations().getMessageByID(customID);
-    if (!custom || !deletedText) throw new Error("message fixture was not found");
+    const custom = await client.conversations().getMessageById(customId);
+    if (!custom || !deletedText)
+      throw new Error("message fixture was not found");
     // Core does not allow deleting an unknown custom type. Lift its real encoded
     // bytes with the deleted marker from the text message to test the host path.
     deleted(
@@ -143,12 +150,14 @@ export async function checkDeletedMessages(backendURL: string): Promise<void> {
       "deleted custom bytes",
     );
   } catch (error) {
-    const inner = error !== null && typeof error === "object"
-      ? Reflect.get(error, "inner")
-      : undefined;
-    const detail = Array.isArray(inner) && inner[0] !== null && typeof inner[0] === "object"
-      ? Reflect.get(inner[0], "message")
-      : undefined;
+    const inner =
+      error !== null && typeof error === "object"
+        ? Reflect.get(error, "inner")
+        : undefined;
+    const detail =
+      Array.isArray(inner) && inner[0] !== null && typeof inner[0] === "object"
+        ? Reflect.get(inner[0], "message")
+        : undefined;
     throw new Error(`${step}: ${String(error)}: ${String(detail)}`);
   } finally {
     await client?.end();

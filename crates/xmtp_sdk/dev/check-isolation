@@ -2,31 +2,110 @@
 set -euo pipefail
 
 # Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs there may change
-# (spec evidence, and owner-approved behaviour changes made in core).
+# (spec evidence, and owner-approved behaviour changes made in core). The four Task 1 SDK source
+# files may contain only their reviewed PROC-032 backlink removal. Compare their full bytes with
+# the base after that one replacement. This does not mistake string content or text outside KDoc
+# for a comment.
 # A stacked pull request is checked against its own base, so a lower PR's changes do not count.
-# In a pull request run, HEAD is GitHub's merge commit and its first parent is the base; the
-# workflow's base_ref can name the stack's trunk instead, so the merge commit wins. Otherwise use
-# the given base branch, or self-hosted.
-if git rev-parse -q --verify HEAD^2 >/dev/null; then
-  base_ref="HEAD^1"
-  base=$(git rev-parse HEAD^1)
-elif [ -n "${1:-}" ]; then
+# A given base branch wins. In a pull request run (no argument), HEAD is GitHub's merge commit
+# and its first parent is the base; the workflow's base_ref can name the stack's trunk instead,
+# so the merge commit wins over self-hosted. A local branch whose tip merges trunk also has a
+# second parent, so run the gate locally with a base branch, for example
+# `just sdk check-isolation self-hosted`.
+fail_query() {
+  echo "SDK isolation gate could not inspect Git state: $1" >&2
+  exit 1
+}
+
+if [ -n "${1:-}" ]; then
   base_ref="origin/$1"
-  base=$(git merge-base HEAD "$base_ref")
+  if ! base=$(git merge-base HEAD "$base_ref"); then
+    fail_query "merge base"
+  fi
+elif git rev-parse -q --verify HEAD^2 >/dev/null; then
+  base_ref="HEAD^1"
+  if ! base=$(git rev-parse HEAD^1); then
+    fail_query "merge commit base"
+  fi
 else
   base_ref="origin/self-hosted"
-  base=$(git merge-base HEAD "$base_ref")
+  if ! base=$(git merge-base HEAD "$base_ref"); then
+    fail_query "merge base"
+  fi
 fi
 echo "Checking SDK isolation against $base_ref" >&2
-if [ -z "$(git diff --name-only "$base"...HEAD -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/)" ]; then
+if ! facade_changed=$(git diff --name-only "$base" -- crates/xmtp_sdk/ apps/xmtp_sdk_bindgen/); then
+  fail_query "façade paths"
+fi
+if [ -z "$facade_changed" ]; then
   exit 0
 fi
 
-changed=$(git diff --name-only "$base"...HEAD -- sdks/ bindings/ \
-  | grep -vE '(^|/)(tests?|Tests|androidTest)/|\.test\.[cm]?[jt]s$|_tests?\.rs$|(^|/)CHANGELOG\.md$' \
-  || true)
-if [ -n "$changed" ]; then
+if ! changed=$(git diff --no-renames --name-only "$base" -- sdks/ bindings/); then
+  fail_query "SDK and binding paths"
+fi
+if ! base_file=$(mktemp); then
+  fail_query "temporary base file"
+fi
+trap 'rm -f "$base_file"' EXIT
+blocked=""
+while IFS= read -r path; do
+  [ -z "$path" ] && continue
+  if ! name_status=$(git diff --no-renames --name-status "$base" -- "$path"); then
+    fail_query "status for $path"
+  fi
+  status=${name_status%%$'\t'*}
+  if [ -z "$status" ]; then
+    fail_query "empty status for $path"
+  fi
+  case "$path" in
+    *.sh|*.bash|*.zsh|*.command|*.ps1|*.d.ts|*generated*|*Generated*|*/script/*|*/scripts/*|*/dev/*|*/bin/*|sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift)
+      blocked+="$path"$'\n'; continue ;;
+  esac
+  if [[ "$status" == M ]]; then
+    if ! summary=$(git diff --no-renames --summary "$base" -- "$path"); then
+      fail_query "mode summary for $path"
+    fi
+    if [ -n "$summary" ]; then
+      blocked+="$path"$'\n'
+      continue
+    fi
+  fi
+  case "$path" in
+    */test/*|*/tests/*|*/Tests/*|*/androidTest/*|*.test.ts|*.test.js|*_test.rs|*/CHANGELOG.md)
+      continue ;;
+  esac
+  case "$path" in
+    sdks/node/src/MessageStream.ts|sdks/browser/src/MessageStream.ts|sdks/ios/Sources/XMTPiOS/MessageDeliveryStream.swift|sdks/android/library/src/main/java/org/xmtp/android/library/MessageDeliveryFlow.kt) ;;
+    *) blocked+="$path"$'\n'; continue ;;
+  esac
+  if [[ "$status" != M ]]; then
+    blocked+="$path"$'\n'
+    continue
+  fi
+  if ! git show "$base:$path" > "$base_file"; then
+    fail_query "base content for $path"
+  fi
+  if ! python3 -c '
+import sys
+
+lines = {
+    "sdks/node/src/MessageStream.ts": b"  // implements: PROC-028, PROC-031, PROC-032\n",
+    "sdks/browser/src/MessageStream.ts": b"  // implements: PROC-028, PROC-031, PROC-032\n",
+    "sdks/ios/Sources/XMTPiOS/MessageDeliveryStream.swift": b"\t// implements: PROC-028, PROC-031, PROC-032\n",
+    "sdks/android/library/src/main/java/org/xmtp/android/library/MessageDeliveryFlow.kt": b" * implements: PROC-028, PROC-031, PROC-032\n",
+}
+data = sys.stdin.buffer.read()
+old = lines[sys.argv[1]]
+if data.count(old) != 1:
+    sys.exit(1)
+sys.stdout.buffer.write(data.replace(old, old.replace(b", PROC-032", b""), 1))
+' "$path" < "$base_file" | cmp -s - "$path"; then
+    blocked+="$path"$'\n'
+  fi
+done <<< "$changed"
+if [ -n "$blocked" ]; then
   echo "SDK facade changes cannot alter shipped code in sdks/ or bindings/:" >&2
-  echo "$changed" >&2
+  printf '%s' "$blocked" >&2
   exit 1
 fi

@@ -25,10 +25,10 @@ function expect(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
 }
 
-function contentType(typeID: string, versionMajor: number): B.ContentTypeID {
-  return B.ContentTypeID.create({
-    authorityID: "xmtp.org",
-    typeID,
+function contentType(typeId: string, versionMajor: number): B.ContentTypeId {
+  return B.ContentTypeId.create({
+    authorityId: "xmtp.org",
+    typeId,
     versionMajor,
     versionMinor: 0,
   });
@@ -36,9 +36,12 @@ function contentType(typeID: string, versionMajor: number): B.ContentTypeID {
 
 function text(content: unknown): string | undefined {
   if (content === null || typeof content !== "object") return undefined;
-  if (Reflect.get(content, "tag") !== B.MessageContent_Tags.Text) return undefined;
+  if (Reflect.get(content, "tag") !== B.MessageContent_Tags.Text)
+    return undefined;
   const inner: unknown = Reflect.get(content, "inner");
-  return Array.isArray(inner) && typeof inner[0] === "string" ? inner[0] : undefined;
+  return Array.isArray(inner) && typeof inner[0] === "string"
+    ? inner[0]
+    : undefined;
 }
 
 // The worker sends each message with the content that Rust decoded. The host
@@ -48,8 +51,8 @@ export function checkStandardMessageLift(): void {
   const session = {} as MainSession;
   const clientKey = 43n;
   registerClient(session, { clientKey: () => clientKey } as Client, []);
-  const reference = B.MessageID.fromRust("00".repeat(32));
-  const undecodable = (type: B.ContentTypeID): B.EncodedContent =>
+  const reference: B.MessageId = "00".repeat(32);
+  const undecodable = (type: B.ContentTypeId): B.EncodedContent =>
     B.EncodedContent.create({
       type,
       content: new Uint8Array([0x1f, 0x8b, 0x08, 0xff]).buffer,
@@ -65,7 +68,10 @@ export function checkStandardMessageLift(): void {
       content: B.MessageBody.Text.new("worker parent"),
     } as B.ReplyParent,
   });
-  expect(text(textMessage.content) === "worker text", "host decoded text again");
+  expect(
+    text(textMessage.content) === "worker text",
+    "host decoded text again",
+  );
   expect(
     textMessage.inReplyToContent?.tag === B.MessageBody_Tags.Text &&
       textMessage.inReplyToContent.inner[0] === "worker parent",
@@ -75,7 +81,7 @@ export function checkStandardMessageLift(): void {
   const reply = lift({
     encoded: undecodable(contentType("reply", 1)),
     content: B.MessageContent.Reply.new({
-      referenceID: reference,
+      referenceId: reference,
       body: B.MessageBody.Text.new("worker reply"),
     }),
   });
@@ -89,7 +95,7 @@ export function checkStandardMessageLift(): void {
     encoded: undecodable(contentType("reaction", 1)),
     content: B.MessageContent.Reaction.new({
       reference,
-      referenceInboxID: undefined,
+      referenceInboxId: undefined,
       reaction: {
         content: "👍",
         action: B.ReactionAction.Added,
@@ -109,9 +115,12 @@ export function checkStandardMessageLift(): void {
 // read through the bridge with the content that Rust decoded.
 export async function checkStandardMessages(backendURL: string): Promise<void> {
   await Pure.initPureWasm();
-  const worker = new Worker(new URL("./message.deleted.worker.ts", import.meta.url), {
-    type: "module",
-  });
+  const worker = new Worker(
+    new URL("./message.deleted.worker.ts", import.meta.url),
+    {
+      type: "module",
+    },
+  );
   const endpoint: WireEndpoint = {
     postMessage(message, transfer) {
       worker.postMessage(message, { transfer });
@@ -173,24 +182,25 @@ export async function checkStandardMessages(backendURL: string): Promise<void> {
     step = "create group";
     const group = await client.conversations().createGroup([], undefined);
     step = "send gzip text";
-    const textID = await group.sendText("gzip text", {
+    const textId = await group.sendText("gzip text", {
       optimistic: false,
       compression: B.Compression.Gzip,
     });
     step = "send deflate reply";
-    const replyID = await client.conversations().replyToMessage(
-      textID,
-      Pure.encodeText("deflate reply"),
-      { optimistic: false, compression: B.Compression.Deflate },
-    );
+    const replyId = await client
+      .conversations()
+      .replyToMessage(textId, Pure.encodeText("deflate reply"), {
+        optimistic: false,
+        compression: B.Compression.Deflate,
+      });
     step = "send legacy reaction";
-    const reactionID = await group.send(
+    const reactionId = await group.send(
       B.EncodedContent.create({
         type: contentType("reaction", 1),
         content: new TextEncoder().encode(
           JSON.stringify({
             action: "added",
-            reference: textID.toString(),
+            reference: textId.toString(),
             schema: "unicode",
             content: "👍",
           }),
@@ -201,10 +211,13 @@ export async function checkStandardMessages(backendURL: string): Promise<void> {
 
     step = "list messages";
     const messages = await group.messages(undefined);
-    const find = (id: B.MessageID): Message | undefined =>
+    const find = (id: B.MessageId): Message | undefined =>
       messages.find((message) => message.id.toString() === id.toString());
-    expect(text(find(textID)?.content) === "gzip text", "gzip text was not decoded");
-    const reply = find(replyID);
+    expect(
+      text(find(textId)?.content) === "gzip text",
+      "gzip text was not decoded",
+    );
+    const reply = find(replyId);
     expect(
       reply?.replyContent?.tag === B.MessageBody_Tags.Text &&
         reply.replyContent.inner[0] === "deflate reply",
@@ -217,19 +230,21 @@ export async function checkStandardMessages(backendURL: string): Promise<void> {
     );
 
     step = "read legacy reaction";
-    const reaction = await client.conversations().getMessageByID(reactionID);
+    const reaction = await client.conversations().getMessageById(reactionId);
     expect(
       reaction?.content.tag === B.MessageContent_Tags.Reaction &&
         reaction.content.inner.reaction.content === "👍",
       "legacy reaction was not decoded",
     );
   } catch (error) {
-    const inner = error !== null && typeof error === "object"
-      ? Reflect.get(error, "inner")
-      : undefined;
-    const detail = Array.isArray(inner) && inner[0] !== null && typeof inner[0] === "object"
-      ? Reflect.get(inner[0], "message")
-      : undefined;
+    const inner =
+      error !== null && typeof error === "object"
+        ? Reflect.get(error, "inner")
+        : undefined;
+    const detail =
+      Array.isArray(inner) && inner[0] !== null && typeof inner[0] === "object"
+        ? Reflect.get(inner[0], "message")
+        : undefined;
     throw new Error(`${step}: ${String(error)}: ${String(detail)}`);
   } finally {
     await client?.end();

@@ -15,6 +15,9 @@ Never copy a function between crates; move it and import it. Read the package's
 - **Errors**: `thiserror` enums, `#[from]` on sub-errors, `#[derive(ErrorCode)]`
   when the code crosses FFI, a hand-written `RetryableError`. Never stringify an
   inner error. See [errors.md](errors.md).
+- **Error control flow**: use typed error variants or stable error codes.
+  Never branch on `Display`, `Debug`, or error message text. Preserve the typed
+  cause and code across FFI and transport boundaries. Messages are for diagnostics only.
 - **Time**: `xmtp_common::time::{now_ns, sleep, timeout, Duration, Instant}`.
   Never `std::time::Instant` or `tokio::time` in shared code.
 - **Tasks**: `xmtp_common::spawn(ready, fut)` and keep the `StreamHandle`.

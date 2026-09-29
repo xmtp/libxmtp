@@ -246,14 +246,13 @@ where
         let Self { init, client, .. } = &self;
 
         init.get_or_try_init(|| async {
-            let conn = self.client.context.db();
             log_event!(
                 Event::DeviceSyncInitializing,
                 self.client.context.installation_id()
             );
 
             // The only thing that sync init really does right now is ensures that there's a sync group.
-            if conn.primary_sync_group()?.is_none() {
+            if client.primary_sync_group()?.is_none() {
                 log_event!(
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
@@ -359,7 +358,7 @@ impl<Context> DeviceSyncClient<Context>
 where
     Context: XmtpSharedContext,
 {
-    async fn process_sync_group_messages(
+    pub(super) async fn process_sync_group_messages(
         &self,
         handle: &WorkerMetrics<SyncMetric>,
         messages: Vec<StoredGroupMessage>,
@@ -370,6 +369,19 @@ where
         let installation_id = self.installation_id();
 
         for msg in messages {
+            // Older builds stored sync groups from other inboxes.
+            // implements: SYNC-011
+            if msg.sender_inbox_id != self.context.inbox_id() {
+                tracing::warn!(
+                    group_id = %msg.group_id,
+                    sender_inbox_id = %msg.sender_inbox_id,
+                    "dropping a sync message from another inbox"
+                );
+                self.context
+                    .db()
+                    .mark_device_sync_msg_as_processed(&msg.id)?;
+                continue;
+            }
             let content = EncodedContent::decode(&*msg.decrypted_message_bytes)
                 .ok()
                 .and_then(|content| decode_supported_content(&content.content));

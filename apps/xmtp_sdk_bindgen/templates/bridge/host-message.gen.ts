@@ -15,7 +15,7 @@ import {
 import * as B from "./xmtp_sdk.js";
 
 export interface ContentCodec<T = unknown> {
-  readonly type: B.ContentTypeID;
+  readonly type: B.ContentTypeId;
   encode(value: T): B.EncodedContent;
   decode(encoded: B.EncodedContent): T;
 }
@@ -109,7 +109,7 @@ type LiftedReplyBody =
   | LiftedCustomBody;
 type HostReply = {
   tag: B.MessageContent_Tags.Reply;
-  inner: { referenceID: B.MessageID; body: LiftedReplyBody };
+  inner: { referenceId: B.MessageId; body: LiftedReplyBody };
 };
 type HostContent =
   | Exclude<
@@ -142,7 +142,7 @@ function decodeContent(
   return {
     tag: B.MessageContent_Tags.Reply,
     inner: {
-      referenceID: content.inner.referenceID,
+      referenceId: content.inner.referenceId,
       body: decodeBody(session, key, content.inner.body),
     },
   };
@@ -182,19 +182,19 @@ export class Message extends B.Message {
         : undefined;
   }
 
-  get conversationID(): B.ConversationID {
-    return this.data.conversationID;
+  get conversationId(): B.ConversationId {
+    return this.data.conversationId;
   }
   get topic(): string {
     return this.data.topic;
   }
-  get senderInboxID(): B.InboxID {
-    return this.data.senderInboxID;
+  get senderInboxId(): B.InboxId {
+    return this.data.senderInboxId;
   }
   get sentAt(): B.Timestamp {
     return this.data.sentAt;
   }
-  get contentType(): B.ContentTypeID {
+  get contentType(): B.ContentTypeId {
     return this.data.contentType;
   }
   get fallback(): string | undefined {
@@ -223,12 +223,12 @@ export class Message extends B.Message {
   }
 
   async refresh(): Promise<Message | undefined> {
-    const value = await this.client().conversations().getMessageByID(this.id);
+    const value = await this.client().conversations().getMessageById(this.id);
     return value === undefined
       ? undefined
       : new Message(value.data, this.session);
   }
-  async delete(): Promise<B.MessageID> {
+  async delete(): Promise<B.MessageId> {
     return this.client().conversations().deleteMessage(this.id);
   }
   async deleteLocally(): Promise<void> {
@@ -237,7 +237,7 @@ export class Message extends B.Message {
   async react(
     reaction: B.Reaction,
     options?: B.SendOptions,
-  ): Promise<B.MessageID> {
+  ): Promise<B.MessageId> {
     return this.client()
       .conversations()
       .reactToMessage(this.id, reaction, options);
@@ -245,17 +245,17 @@ export class Message extends B.Message {
   reply(
     content: string | B.EncodedContent,
     options?: B.SendOptions,
-  ): Promise<B.MessageID>;
+  ): Promise<B.MessageId>;
   reply<T>(
     codec: ContentCodec<T>,
     value: T,
     options?: B.SendOptions,
-  ): Promise<B.MessageID>;
+  ): Promise<B.MessageId>;
   async reply(
     content: string | B.EncodedContent | ContentCodec<unknown>,
     valueOrOptions?: unknown,
     options?: B.SendOptions,
-  ): Promise<B.MessageID> {
+  ): Promise<B.MessageId> {
     if (typeof content !== "string" && "encode" in content)
       return this.client()
         .conversations()
@@ -274,13 +274,13 @@ export class Message extends B.Message {
   async parent(): Promise<Message | undefined> {
     const id = this.inReplyTo?.id;
     if (id === undefined) return undefined;
-    const value = await this.client().conversations().getMessageByID(id);
+    const value = await this.client().conversations().getMessageById(id);
     return value === undefined
       ? undefined
       : new Message(value.data, this.session);
   }
   async conversation(): Promise<B.Conversation | undefined> {
-    return this.client().conversations().getByID(this.conversationID);
+    return this.client().conversations().getById(this.conversationId);
   }
 }
 

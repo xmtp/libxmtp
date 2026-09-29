@@ -559,6 +559,27 @@ async fn oversized_unprepared_message_does_not_block_later_intents() {
     );
 }
 
+// verifies: SEND-009
+#[xmtp_common::test(unwrap_try = true)]
+async fn malformed_admin_list_intent_does_not_block_later_intents() {
+    use crate::groups::intents::{AdminListActionType, UpdateAdminListIntentData};
+
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    // Earlier builds queued the caller's inbox id without parsing it.
+    let data: Vec<u8> = UpdateAdminListIntentData::new(AdminListActionType::Add, "x".into()).into();
+    let malformed = QueueIntent::update_admin_list().data(data).queue(&group)?;
+
+    group
+        .update_group_name("after malformed intent".into())
+        .await?;
+    assert_eq!(group.group_name()?, "after malformed intent");
+    let failed = Fetch::<StoredGroupIntent>::fetch(&group.context.db(), &malformed.id)??;
+    assert_eq!(failed.state, IntentState::Error);
+    assert!(group.context.db().prepared_envelopes(failed.id)?.is_none());
+    assert!(group.admin_list()?.is_empty());
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn preparation_rejects_changed_proposal_refs_at_the_same_epoch() -> Result<(), GroupError> {
     tester!(alix, disable_workers);

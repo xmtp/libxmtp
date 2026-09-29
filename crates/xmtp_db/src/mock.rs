@@ -195,10 +195,6 @@ mock! {
             id: &GroupId,
         ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
 
-        fn primary_sync_group(
-            &self,
-        ) -> Result<Option<crate::group::StoredGroup>, crate::ConnectionError>;
-
         fn find_group(
             &self,
             id: &GroupId,

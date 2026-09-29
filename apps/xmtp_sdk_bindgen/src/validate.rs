@@ -92,6 +92,7 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                     bail!("{item_name}: return Message, not MessageData");
                 }
                 check_message_inputs(&item_name, &method.inputs)?;
+                check_id_inputs(&item_name, &method.inputs, method.throws.as_ref(), &items)?;
                 if records.contains(method.self_name.as_str()) {
                     bail!("{item_name}: exported record method is not supported");
                 }
@@ -112,6 +113,10 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                     bail!("{item_name}: return Message, not MessageData");
                 }
                 check_message_inputs(&item_name, &method.inputs)?;
+                // Foreign callbacks receive values from Rust. They do not lift host IDs.
+                if !foreign_traits.contains(method.trait_name.as_str()) {
+                    check_id_inputs(&item_name, &method.inputs, method.throws.as_ref(), &items)?;
+                }
                 if method.name == "close" {
                     bail!("{item_name}: exported object close method is not supported");
                 }
@@ -127,6 +132,12 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                 check_message_inputs(
                     &format!("{}.{}", constructor.self_name, constructor.name),
                     &constructor.inputs,
+                )?;
+                check_id_inputs(
+                    &format!("{}.{}", constructor.self_name, constructor.name),
+                    &constructor.inputs,
+                    constructor.throws.as_ref(),
+                    &items,
                 )?;
                 check_error_type(
                     &format!("{}.{}", constructor.self_name, constructor.name),
@@ -152,6 +163,12 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                     bail!("{}: return Message, not MessageData", function.name);
                 }
                 check_message_inputs(&function.name, &function.inputs)?;
+                check_id_inputs(
+                    &function.name,
+                    &function.inputs,
+                    function.throws.as_ref(),
+                    &items,
+                )?;
                 check_error_type(&function.name, function.throws.as_ref())?;
             }
             _ => {}
@@ -258,7 +275,70 @@ fn takes_message_record(ty: &Type) -> bool {
 
 fn check_message_inputs(item_name: &str, inputs: &[uniffi_meta::FnParamMetadata]) -> Result<()> {
     if inputs.iter().any(|input| takes_message_record(&input.ty)) {
-        bail!("{item_name}: exported function takes a message record; pass MessageID");
+        bail!("{item_name}: exported function takes a message record; pass MessageId");
+    }
+    Ok(())
+}
+
+fn contains_id(ty: &Type, items: &[&Metadata], visited: &mut HashSet<(String, String)>) -> bool {
+    match ty {
+        Type::Custom { name, .. }
+            if matches!(
+                name.as_str(),
+                "InboxId" | "InstallationId" | "ConversationId" | "MessageId"
+            ) =>
+        {
+            true
+        }
+        Type::Optional { inner_type }
+        | Type::Sequence { inner_type }
+        | Type::Set { inner_type }
+        | Type::Box { inner_type } => contains_id(inner_type, items, visited),
+        Type::Map {
+            key_type,
+            value_type,
+        } => contains_id(key_type, items, visited) || contains_id(value_type, items, visited),
+        Type::Record { module_path, name } | Type::Enum { module_path, name } => {
+            if !visited.insert((module_path.clone(), name.clone())) {
+                return false;
+            }
+            items.iter().any(|item| match item {
+                Metadata::Record(record)
+                    if record.module_path == *module_path && record.name == *name =>
+                {
+                    record
+                        .fields
+                        .iter()
+                        .any(|field| contains_id(&field.ty, items, visited))
+                }
+                Metadata::Enum(enumeration)
+                    if enumeration.module_path == *module_path && enumeration.name == *name =>
+                {
+                    enumeration.variants.iter().any(|variant| {
+                        variant
+                            .fields
+                            .iter()
+                            .any(|field| contains_id(&field.ty, items, visited))
+                    })
+                }
+                _ => false,
+            })
+        }
+        _ => false,
+    }
+}
+
+fn check_id_inputs(
+    item_name: &str,
+    inputs: &[uniffi_meta::FnParamMetadata],
+    thrown: Option<&Type>,
+    items: &[&Metadata],
+) -> Result<()> {
+    let has_id = inputs
+        .iter()
+        .any(|input| contains_id(&input.ty, items, &mut HashSet::new()));
+    if has_id && !matches!(thrown, Some(Type::Enum { name, .. }) if name == "XmtpError") {
+        bail!("{item_name}: ID input requires Result<_, XmtpError>");
     }
     Ok(())
 }
@@ -462,6 +542,69 @@ mod tests {
     }
 
     #[xmtp_common::test(unwrap_try = true)]
+    fn id_inputs_require_xmtp_error_even_when_nested() -> Result<()> {
+        let id = Type::Custom {
+            module_path: "test".into(),
+            name: "ConversationId".into(),
+            builtin: Box::new(Type::String),
+        };
+        let wrapper = Metadata::Record(RecordMetadata {
+            module_path: "test".into(),
+            name: "Lookup".into(),
+            orig_name: None,
+            remote: false,
+            fields: vec![FieldMetadata {
+                name: "ids".into(),
+                orig_name: None,
+                ty: Type::Optional {
+                    inner_type: Box::new(Type::Sequence {
+                        inner_type: Box::new(Type::Map {
+                            key_type: Box::new(Type::String),
+                            value_type: Box::new(id),
+                        }),
+                    }),
+                },
+                default: None,
+                docstring: None,
+            }],
+            docstring: None,
+        });
+        let mut lookup = method("Conversations", "lookup", true);
+        let Metadata::Method(ref mut operation) = lookup else {
+            unreachable!()
+        };
+        operation.inputs.push(FnParamMetadata::simple(
+            "lookup",
+            Type::Record {
+                module_path: "test".into(),
+                name: "Lookup".into(),
+            },
+        ));
+        for thrown in [None, Some(Type::String)] {
+            let mut candidate = lookup.clone();
+            let Metadata::Method(ref mut method) = candidate else {
+                unreachable!()
+            };
+            method.throws = thrown;
+            let error = validate_items(&[wrapper.clone(), candidate]).unwrap_err();
+            assert!(
+                error
+                    .to_string()
+                    .contains("Conversations.lookup: ID input requires")
+            );
+        }
+        let Metadata::Method(ref mut operation) = lookup else {
+            unreachable!()
+        };
+        operation.throws = Some(Type::Enum {
+            module_path: "test".into(),
+            name: "XmtpError".into(),
+        });
+        validate_items(&[wrapper, lookup])?;
+        Ok(())
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
     fn pure_export_rejects_async_and_nested_object_input() {
         let mut pure = Metadata::Func(FnMetadata {
             module_path: "test".into(),
@@ -653,7 +796,7 @@ mod tests {
             validate_items(&[action])
                 .unwrap_err()
                 .to_string()
-                .contains("pass MessageID")
+                .contains("pass MessageId")
         );
         let mut record_action = method("Conversations", "reply_to_message", true);
         let Metadata::Method(ref mut value) = record_action else {
@@ -670,7 +813,7 @@ mod tests {
             validate_items(&[record_action])
                 .unwrap_err()
                 .to_string()
-                .contains("pass MessageID")
+                .contains("pass MessageId")
         );
         let mut valid = method("Conversations", "delete_message", true);
         let Metadata::Method(ref mut value) = valid else {
@@ -707,7 +850,7 @@ mod tests {
                 validate_items(&[action])
                     .unwrap_err()
                     .to_string()
-                    .contains("pass MessageID")
+                    .contains("pass MessageId")
             );
         }
     }
