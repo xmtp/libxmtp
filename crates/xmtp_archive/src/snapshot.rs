@@ -355,4 +355,24 @@ mod tests {
         let failure = ArchiveImporter::load(empty, short).await;
         assert!(matches!(failure, Err(ArchiveError::InvalidKeyLength(31))));
     }
+
+    /// A file export whose caller has gone stops at its next write and
+    /// removes the file, rather than finishing an archive nobody awaits.
+    /// `export_to_file` cancels this token when its future is dropped.
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archive_file_export_stops_when_cancelled() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        let consent = options(&[BackupElementSelection::Consent]);
+        let path = std::path::PathBuf::from(xmtp_common::tmp_path());
+        let cancel = tokio_util::sync::CancellationToken::new();
+
+        exporter::write_file(consent.clone(), &db, &path, &KEY, &cancel)?;
+        assert!(path.exists(), "an uncancelled export wrote no file");
+        cancel.cancel();
+        let failure = exporter::write_file(consent, &db, &path, &KEY, &cancel);
+        assert!(failure.is_err(), "a cancelled export ran to completion");
+        assert!(!path.exists(), "a cancelled export left a file");
+    }
 }

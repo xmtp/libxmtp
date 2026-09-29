@@ -333,6 +333,9 @@ mod tests {
         let outside_message = outside.send_message_optimistic(b"before", Default::default())?;
         let old = alix.create_group(None, None)?;
         let start_ns = xmtp_common::time::now_ns();
+        // The window's start is exclusive, and wasm clocks tick in whole
+        // milliseconds, so the in-window message must be sent a tick later.
+        xmtp_common::time::sleep(std::time::Duration::from_millis(2)).await;
         // Large enough that the archive reaches the sink before consent is read.
         let in_window = old.send_message_optimistic(&[7; 512 * 1024], Default::default())?;
         let consent = |entity: &str, state| {

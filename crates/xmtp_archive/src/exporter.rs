@@ -78,7 +78,8 @@ impl ArchiveExporter {
 
     /// Exports to a new file at `path`, as [`export`], on tokio's blocking
     /// pool so the snapshot never stalls an async worker, and removes the file
-    /// if the export fails. Must be called within a tokio runtime.
+    /// if the export fails. Dropping the future cancels the export at its next
+    /// write, which removes the file too. Must be called within a tokio runtime.
     #[cfg(not(target_arch = "wasm32"))]
     pub async fn export_to_file(
         options: ArchiveOptions,
@@ -88,22 +89,53 @@ impl ArchiveExporter {
     ) -> Result<BackupMetadataSave, ArchiveError> {
         crate::check_key(key)?;
         let (path, key) = (path.as_ref().to_owned(), key.to_vec());
-        tokio::task::spawn_blocking(move || {
-            let mut file = io::BufWriter::new(std::fs::File::create(&path)?);
-            let exported = export(options, db, &key, &mut file).and_then(|metadata| {
-                io::Write::flush(&mut file)?;
-                Ok(metadata)
-            });
-            if exported.is_err() {
-                drop(file);
-                if let Err(e) = std::fs::remove_file(&path) {
-                    tracing::warn!(path = %path.display(), error = %e, "failed export left a partial archive");
-                }
-            }
-            exported
-        })
-        .await
-        .map_err(io::Error::other)?
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let _cancel_on_drop = cancel.clone().drop_guard();
+        tokio::task::spawn_blocking(move || write_file(options, db, &path, &key, &cancel))
+            .await
+            .map_err(io::Error::other)?
+    }
+}
+
+/// Exports to a new file at `path` until `cancel` fires, and removes the file
+/// if the export fails or is cancelled.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn write_file(
+    options: ArchiveOptions,
+    db: impl ConnectionExt,
+    path: &std::path::Path,
+    key: &[u8],
+    cancel: &tokio_util::sync::CancellationToken,
+) -> Result<BackupMetadataSave, ArchiveError> {
+    let mut file = io::BufWriter::new(std::fs::File::create(path)?);
+    let exported = export(options, db, key, Cancellable(&mut file, cancel)).and_then(|metadata| {
+        io::Write::flush(&mut file)?;
+        Ok(metadata)
+    });
+    if exported.is_err() {
+        drop(file);
+        if let Err(e) = std::fs::remove_file(path) {
+            tracing::warn!(path = %path.display(), error = %e, "failed export left a partial archive");
+        }
+    }
+    exported
+}
+
+/// A sink that fails every write once its token is cancelled.
+#[cfg(not(target_arch = "wasm32"))]
+struct Cancellable<'a, W>(W, &'a tokio_util::sync::CancellationToken);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl<W: io::Write> io::Write for Cancellable<'_, W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        if self.1.is_cancelled() {
+            return Err(io::Error::other("archive export cancelled"));
+        }
+        self.0.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.0.flush()
     }
 }
 
