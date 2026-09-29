@@ -516,9 +516,10 @@ pub(crate) fn decode_conversation_type(bytes: &[u8]) -> Result<i32, MigrationErr
 /// group, `in_dms` for a DM, none for a sync group) whose type and policy
 /// tags this build knows.
 ///
-/// An invalid definition is skipped too. A snapshot an app supplies through
-/// a `ConfigProvider` is never validated as a whole, and a definition with a
-/// well-known ID would otherwise replace that component's policies.
+/// A snapshot an app supplies through a `ConfigProvider` is never validated
+/// as a whole, so only the first definition of each ID is considered, and an
+/// invalid one is skipped. Otherwise a repeated immutable ID would fail
+/// creation, and a well-known ID would replace that component's policies.
 ///
 /// A definition with an unknown tag is skipped, not registered: this client
 /// could not write or validate its values, and leaving the ID absent lets a
@@ -528,8 +529,10 @@ pub fn catalogue_registry_entries(
     catalogue: &[ApplicationComponentDefinition],
     conversation_type: ConversationType,
 ) -> impl Iterator<Item = (ComponentId, ComponentMetadata)> + '_ {
+    let mut seen = std::collections::HashSet::new();
     catalogue
         .iter()
+        .filter(move |definition| seen.insert(definition.component_id))
         .filter(|definition| definition.validate().is_ok())
         .filter(move |definition| match conversation_type {
             ConversationType::Dm => definition.in_dms,
@@ -1159,6 +1162,35 @@ mod tests {
             catalogue_registry_entries(&[membership], ConversationType::Group).count(),
             0
         );
+    }
+
+    /// Only the first definition of a repeated ID is registered, whether or
+    /// not the ID is immutable, so an unvalidated snapshot neither fails
+    /// creation nor lets a later duplicate replace the first.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: META-066
+    fn only_the_first_definition_of_an_id_is_registered() {
+        let catalogue: Vec<_> = [0xC000, 0xFD00]
+            .into_iter()
+            .flat_map(|id| {
+                let mut duplicate = definition(id, true, true);
+                duplicate.component_type = ComponentType::Bytes as i32;
+                [definition(id, true, true), duplicate]
+            })
+            .collect();
+        let registry = registry_of(&group_dictionary(
+            ConversationType::Group,
+            &policy_set(),
+            &catalogue,
+        ));
+        for id in [0xC000, 0xFD00] {
+            assert_eq!(
+                registry
+                    .get(&ComponentId::new(id))?
+                    .map(|metadata| metadata.component_type),
+                Some(ComponentType::String as i32)
+            );
+        }
     }
 
     /// A newer backend may publish a type or policy tag this build does not
