@@ -746,13 +746,21 @@ impl<'a> FieldSnapshot<'a> {
         write: &FieldWrite,
     ) -> Result<Option<AppDataUpdateOperation>, FieldError> {
         let id = write.component_id;
-        let actual = self.resolve_id(id)?.component_type;
+        let descriptor = self.resolve_id(id)?;
+        let actual = descriptor.component_type;
         if actual.tag() != Some(write.component_type) {
             return Err(FieldError::TypeChanged {
                 component_id: id,
                 expected: write.component_type,
                 actual,
             });
+        }
+        let own_key = matches!(
+            write.operation,
+            WriteOperation::SetOwn(_) | WriteOperation::ClearOwn
+        );
+        if own_key && !descriptor.is_user_field() {
+            return Err(FieldError::TypeMismatch(id));
         }
         let current = values.and_then(|d| d.get(&id.as_u16()));
         let owned = || -> Result<bool, FieldError> {
@@ -1823,6 +1831,34 @@ mod tests {
             )]),
             Err(FieldError::Component(_))
         ));
+    }
+
+    /// An own-key write names an entry of an inbox-keyed map, so one queued
+    /// for any other shape is refused rather than applied as that shape's
+    /// payload, even when its type tag matches.
+    // verifies: META-073
+    #[xmtp_common::test(unwrap_try = true)]
+    fn own_writes_need_a_user_field() {
+        let dictionary = group();
+        let fields = snapshot(&dictionary);
+        for (id, ty) in [
+            (STATUS, ComponentType::String),
+            (LINKS, ComponentType::TlsMapBytesBytes),
+        ] {
+            for operation in [
+                WriteOperation::SetOwn(b"x".to_vec()),
+                WriteOperation::ClearOwn,
+            ] {
+                assert!(matches!(
+                    fields.resolve_writes(
+                        Some(&dictionary),
+                        inbox(0xA),
+                        &[own_write(id, ty, operation)]
+                    ),
+                    Err(FieldError::TypeMismatch(got)) if got == id
+                ));
+            }
+        }
     }
 
     /// A write encoded under one snapshot is refused if its field changed
