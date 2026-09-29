@@ -1240,3 +1240,39 @@ fn standalone_proposal_is_not_judged_on_committed_state_alone() {
         None,
     )?;
 }
+
+/// An oversized map value is rejected even when its update cannot apply to
+/// the committed state: element bounds are judged on the payload alone, so
+/// the deferred state check cannot hide them.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn standalone_proposal_update_of_absent_key_over_bound_is_rejected() {
+    let registry = registry_with(
+        PROFILE,
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let validate = |len: usize| {
+        let payload = TlsMapDelta::<VLBytes, VLBytes>::new()
+            .update(VLBytes::new(b"k".to_vec()), VLBytes::new(vec![0; len]))
+            .tls_serialize_detached()
+            .unwrap();
+        validate_standalone_app_data_update(
+            PROFILE,
+            &AppDataUpdateOperation::Update(payload.into()),
+            member(),
+            "inbox_alice",
+            &registry,
+            None,
+            None,
+            None,
+        )
+    };
+    validate(8192)?;
+    assert!(matches!(
+        validate(8193),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}

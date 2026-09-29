@@ -670,12 +670,12 @@ pub fn validate_one_app_data_update(
 }
 
 /// Pure core of [`validate_one_app_data_update`]: the policy checks, then
-/// the field bounds against the committed state, so an oversized
-/// proposal is never stored.
+/// the field bounds, so an oversized proposal is never stored.
 ///
-/// Other apply failures are left to commit validation, because a commit
-/// may order other proposals ahead of this one and change the state it
-/// applies to.
+/// Element bounds are judged on the payload alone; the snapshot bound on the
+/// committed state. Other apply failures are left to commit validation,
+/// because a commit may order other proposals ahead of this one and change
+/// the state it applies to.
 // implements: META-068
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn validate_standalone_app_data_update(
@@ -690,7 +690,7 @@ pub(crate) fn validate_standalone_app_data_update(
 ) -> Result<(), CommitRuleError> {
     use openmls::messages::proposals::AppDataUpdateOperation;
     use xmtp_mls_common::app_data::component_source::{
-        ComponentSourceError, apply_app_data_update_payload,
+        ComponentSourceError, apply_app_data_update_payload, check_update_payload_bounds,
     };
 
     validate_one_app_data_update_with_old_value(
@@ -703,13 +703,17 @@ pub(crate) fn validate_standalone_app_data_update(
         dm_members,
         membership,
     )?;
-    if let AppDataUpdateOperation::Update(payload) = operation
-        && let Err(ComponentSourceError::FieldBoundExceeded { .. }) =
-            apply_app_data_update_payload(component_id, payload.as_slice(), old_value, registry)
-    {
-        return Err(CommitRuleError::InsufficientPermissions);
+    let AppDataUpdateOperation::Update(payload) = operation else {
+        return Ok(());
+    };
+    match check_update_payload_bounds(component_id, payload.as_slice(), registry).and_then(|()| {
+        apply_app_data_update_payload(component_id, payload.as_slice(), old_value, registry)
+    }) {
+        Err(ComponentSourceError::FieldBoundExceeded { .. }) => {
+            Err(CommitRuleError::InsufficientPermissions)
+        }
+        _ => Ok(()),
     }
-    Ok(())
 }
 
 /// The inbox ids of a `GROUP_MEMBERSHIP` snapshot. `None` when the

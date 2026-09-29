@@ -15,6 +15,8 @@
 //! component, `USER_DISPLAY_NAME`, or `GROUP_IMAGE` whose scalar,
 //! collection key, or collection value exceeds [`MAX_FIELD_ELEMENT_BYTES`],
 //! or whose serialized collection exceeds [`MAX_FIELD_SNAPSHOT_BYTES`].
+//! [`check_update_payload_bounds`] applies the element bound to what an
+//! update payload writes, without the state it applies to.
 //!
 //! ## Inbox-id encoding
 //!
@@ -36,7 +38,7 @@ use crate::{
     },
     group_mutable_metadata::{GroupMutableMetadata, GroupMutableMetadataError, MetadataField},
     inbox_id::{InboxId, InboxIdError},
-    tls_map::{TlsMap, TlsMapError},
+    tls_map::{TlsMap, TlsMapDelta, TlsMapError, TlsMapMutation},
     tls_set::{TlsSet, TlsSetDelta, TlsSetError, TlsSetMutation},
 };
 use openmls::{
@@ -602,10 +604,72 @@ pub fn apply_app_data_update_payload(
     //    the registry's `component_type` tag is the type oracle.
     let ty = component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)?;
     let new_value = apply_update_payload_for_type(id, ty, payload, old_value)?;
-    if id.is_app_range() || id == ComponentId::USER_DISPLAY_NAME || id == ComponentId::GROUP_IMAGE {
+    if is_field_bounded(id) {
         check_field_bounds(id, ty, &new_value)?;
     }
     Ok(new_value)
+}
+
+/// Whether the field bounds cover component `id`: application components,
+/// `USER_DISPLAY_NAME`, and `GROUP_IMAGE`.
+fn is_field_bounded(id: ComponentId) -> bool {
+    id.is_app_range() || id == ComponentId::USER_DISPLAY_NAME || id == ComponentId::GROUP_IMAGE
+}
+
+/// Reject an `AppDataUpdate::Update` payload for component `id` that writes
+/// a scalar, collection key, or collection value longer than
+/// [`MAX_FIELD_ELEMENT_BYTES`]. Unlike [`apply_app_data_update_payload`],
+/// this reads only the payload, so it holds whatever state the update is
+/// later applied to.
+// implements: META-068
+pub fn check_update_payload_bounds(
+    id: ComponentId,
+    payload: &[u8],
+    registry: &ComponentRegistry,
+) -> Result<(), ComponentSourceError> {
+    if !is_field_bounded(id) {
+        return Ok(());
+    }
+    let ty = component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)?;
+    // Removals write nothing, so they measure as zero.
+    let longest_written = match ty {
+        ComponentType::Bytes | ComponentType::String => Some(payload.len()),
+        ComponentType::TlsSetBytes => TlsSetDelta::<VLBytes>::tls_deserialize_exact(payload)?
+            .mutations
+            .iter()
+            .map(|m| match m {
+                TlsSetMutation::Insert(key) => key.as_slice().len(),
+                TlsSetMutation::Remove(_) | TlsSetMutation::RemoveByHash(_) => 0,
+            })
+            .max(),
+        ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString => {
+            TlsMapDelta::<InboxId, VLBytes>::tls_deserialize_exact(payload)?
+                .mutations
+                .iter()
+                .map(|m| match m {
+                    TlsMapMutation::Insert { value, .. } | TlsMapMutation::Update { value, .. } => {
+                        value.as_slice().len()
+                    }
+                    TlsMapMutation::Delete { .. } => 0,
+                })
+                .max()
+        }
+        ComponentType::TlsMapBytesBytes => {
+            TlsMapDelta::<VLBytes, VLBytes>::tls_deserialize_exact(payload)?
+                .mutations
+                .iter()
+                .flat_map(|m| match m {
+                    TlsMapMutation::Insert { key, value }
+                    | TlsMapMutation::Update { key, value } => {
+                        [key.as_slice().len(), value.as_slice().len()]
+                    }
+                    TlsMapMutation::Delete { .. } => [0, 0],
+                })
+                .max()
+        }
+        ComponentType::TlsSetInboxId | ComponentType::Unspecified => None,
+    };
+    check_element_bound(id, longest_written.unwrap_or(0))
 }
 
 /// Reject `value`, the new bytes of component `id` of type `ty`, when a
@@ -619,15 +683,14 @@ fn check_field_bounds(
     ty: ComponentType,
     value: &[u8],
 ) -> Result<(), ComponentSourceError> {
-    let exceeded = |len, max| ComponentSourceError::FieldBoundExceeded {
-        component_id: id,
-        len,
-        max,
-    };
     let longest_element = match ty {
         ComponentType::Bytes | ComponentType::String => Some(value.len()),
         _ if value.len() > MAX_FIELD_SNAPSHOT_BYTES => {
-            return Err(exceeded(value.len(), MAX_FIELD_SNAPSHOT_BYTES));
+            return Err(ComponentSourceError::FieldBoundExceeded {
+                component_id: id,
+                len: value.len(),
+                max: MAX_FIELD_SNAPSHOT_BYTES,
+            });
         }
         ComponentType::TlsSetBytes => TlsSet::<VLBytes>::tls_deserialize_exact(value)?
             .iter()
@@ -648,8 +711,18 @@ fn check_field_bounds(
         ComponentType::TlsSetInboxId | ComponentType::Unspecified => None,
     }
     .unwrap_or(0);
-    if longest_element > MAX_FIELD_ELEMENT_BYTES {
-        return Err(exceeded(longest_element, MAX_FIELD_ELEMENT_BYTES));
+    check_element_bound(id, longest_element)
+}
+
+/// Reject `len`, the longest scalar, key, or value written to component
+/// `id`, when it is over [`MAX_FIELD_ELEMENT_BYTES`].
+fn check_element_bound(id: ComponentId, len: usize) -> Result<(), ComponentSourceError> {
+    if len > MAX_FIELD_ELEMENT_BYTES {
+        return Err(ComponentSourceError::FieldBoundExceeded {
+            component_id: id,
+            len,
+            max: MAX_FIELD_ELEMENT_BYTES,
+        });
     }
     Ok(())
 }
@@ -1031,7 +1104,6 @@ mod tests {
             component_registry::{ComponentOp, new_component_metadata},
         },
         inbox_id::INBOX_ID_BYTE_LEN,
-        tls_map::TlsMapDelta,
         tls_set::TlsKeyHash,
     };
     use prost::Message;
@@ -2460,5 +2532,49 @@ mod tests {
         let registry = registry_with(registered, ComponentType::Bytes);
         apply_app_data_update_payload(registered, &over, None, &registry)?;
         apply_app_data_update_payload(ComponentId::GROUP_DESCRIPTION, &over, None, &registry)?;
+    }
+
+    /// A payload's element bound is measured on what it writes: set inserts,
+    /// map keys and values. Removals and deletes write nothing and pass
+    /// whatever key they name.
+    // verifies: META-068
+    #[xmtp_common::test(unwrap_try = true)]
+    fn payload_bounds_measure_only_written_elements() {
+        let set = ComponentId::new(0xC06B);
+        let map = ComponentId::new(0xC06C);
+        let registries = [
+            registry_with(set, ComponentType::TlsSetBytes),
+            registry_with(map, ComponentType::TlsMapBytesBytes),
+        ];
+        let over = MAX_FIELD_ELEMENT_BYTES + 1;
+        let check = |id, payload: Vec<u8>| {
+            check_update_payload_bounds(id, &payload, &registries[usize::from(id == map)])
+        };
+        let exceeded = |result| matches!(result, Err(ComponentSourceError::FieldBoundExceeded { len, .. }) if len == over);
+
+        let set_delta = |delta: TlsSetDelta<VLBytes>| delta.tls_serialize_detached().unwrap();
+        check(
+            set,
+            set_delta(TlsSetDelta::new().insert(bytes(MAX_FIELD_ELEMENT_BYTES))),
+        )?;
+        assert!(exceeded(check(
+            set,
+            set_delta(TlsSetDelta::new().insert(bytes(over)))
+        )));
+        check(set, set_delta(TlsSetDelta::new().remove(bytes(over))))?;
+
+        let map_delta =
+            |delta: TlsMapDelta<VLBytes, VLBytes>| delta.tls_serialize_detached().unwrap();
+        assert!(exceeded(check(
+            map,
+            map_delta(TlsMapDelta::new().update(bytes(over), bytes(1)))
+        )));
+        assert!(exceeded(check(
+            map,
+            map_delta(TlsMapDelta::new().update(bytes(1), bytes(over)))
+        )));
+        check(map, map_delta(TlsMapDelta::new().delete(bytes(over))))?;
+
+        check(ComponentId::GROUP_DESCRIPTION, vec![b'a'; over])?;
     }
 }
