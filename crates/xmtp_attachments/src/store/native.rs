@@ -1,11 +1,11 @@
 use std::{
+    collections::HashSet,
     io,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-#[cfg(windows)]
-use cap_fs_ext::DirExt;
+use cap_fs_ext::DirExt as _;
 use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 #[cfg(windows)]
 use cap_std::fs::MetadataExt;
@@ -16,8 +16,8 @@ use cap_std::fs::{Dir, OpenOptions};
 use cap_std::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 
 use super::{
-    LocalStore, StagedFile, StoreFile, StoreMoveError, StoreWriter, is_reconcile_dir,
-    validate_relative, validate_temp,
+    LocalStore, StagedFile, StoreFile, StoreMoveError, StoreRemoveError, StoreWriter,
+    is_reconcile_dir, validate_relative, validate_temp,
 };
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
@@ -462,6 +462,20 @@ fn is_link(metadata: &cap_std::fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
 }
 
+/// Add the path of every entry below `dir` to `paths`. Do not follow links.
+fn entry_paths(dir: &Dir, prefix: &Path, paths: &mut HashSet<PathBuf>) -> io::Result<()> {
+    for entry in dir.entries()? {
+        let name = entry?.file_name();
+        let path = prefix.join(&name);
+        let metadata = dir.symlink_metadata(&name)?;
+        if metadata.is_dir() && !is_link(&metadata) {
+            entry_paths(&dir.open_dir_nofollow(&name)?, &path, paths)?;
+        }
+        paths.insert(path);
+    }
+    Ok(())
+}
+
 fn exists_nofollow(parent: &Dir, name: &str) -> io::Result<bool> {
     match parent.symlink_metadata(name) {
         Ok(metadata) if is_link(&metadata) => Err(io::Error::new(
@@ -716,16 +730,35 @@ impl LocalStore for NativeStore {
             .map_err(storage_error)
     }
 
-    async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
+    async fn remove_dir_all(&self, path: &str) -> Result<(), StoreRemoveError> {
         validate_relative(path)?;
         let (parent, name) = self.parent(path, false).map_err(storage_error)?;
-        #[cfg(unix)]
-        let child = self
-            .open_managed_child(&parent, &name, false)
-            .map_err(storage_error)?;
-        #[cfg(not(unix))]
-        let child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
-        child.remove_open_dir_all().map_err(storage_error)
+        let open = || -> io::Result<Dir> {
+            #[cfg(unix)]
+            {
+                self.open_managed_child(&parent, &name, false)
+            }
+            #[cfg(not(unix))]
+            {
+                parent.open_dir_nofollow(&name)
+            }
+        };
+        let child = open().map_err(storage_error)?;
+        // A removal can fail after it deleted some entries. Compare the
+        // entries before and after a failure to report that.
+        let mut before = HashSet::new();
+        entry_paths(&child, Path::new(""), &mut before).map_err(storage_error)?;
+        let Err(error) = child.remove_open_dir_all() else {
+            return Ok(());
+        };
+        let mut after = HashSet::new();
+        let removed_any = open()
+            .and_then(|child| entry_paths(&child, Path::new(""), &mut after))
+            .map_or(true, |()| !before.is_subset(&after));
+        Err(StoreRemoveError {
+            error: storage_error(error),
+            removed_any,
+        })
     }
 
     async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError> {

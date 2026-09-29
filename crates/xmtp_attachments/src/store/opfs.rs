@@ -9,8 +9,8 @@ use web_sys::{
 };
 
 use super::{
-    LocalStore, StagedFile, StoreFile, StoreMoveError, StoreWriter, is_reconcile_dir,
-    validate_relative, validate_temp,
+    LocalStore, StagedFile, StoreFile, StoreMoveError, StoreRemoveError, StoreWriter,
+    is_reconcile_dir, validate_relative, validate_temp,
 };
 use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
 
@@ -364,18 +364,30 @@ impl LocalStore for OpfsStore {
         OpfsStore::replace(self, from, to).await
     }
 
-    async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
+    async fn remove_dir_all(&self, path: &str) -> Result<(), StoreRemoveError> {
         let (parent, name) = self.parent(path, false).await?;
         // A directory handle lookup rejects a file at this name.
-        JsFuture::from(parent.get_directory_handle(&name))
+        let dir: FileSystemDirectoryHandle = JsFuture::from(parent.get_directory_handle(&name))
             .await
+            .map_err(storage_error)?
+            .dyn_into()
             .map_err(storage_error)?;
+        // A removal can fail after it deleted some entries. Compare the
+        // entries before and after a failure to report that.
+        let before = entry_paths(&dir).await?;
         let options = FileSystemRemoveOptions::new();
         options.set_recursive(true);
-        JsFuture::from(parent.remove_entry_with_options(&name, &options))
+        let Err(error) = JsFuture::from(parent.remove_entry_with_options(&name, &options)).await
+        else {
+            return Ok(());
+        };
+        let removed_any = entry_paths(&dir)
             .await
-            .map_err(storage_error)?;
-        Ok(())
+            .map_or(true, |after| !before.is_subset(&after));
+        Err(StoreRemoveError {
+            error: storage_error(error),
+            removed_any,
+        })
     }
 
     async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError> {
@@ -472,41 +484,13 @@ impl LocalStore for OpfsStore {
         let mut files = Vec::new();
         let mut dirs = vec![(self.root.clone(), String::new())];
         while let Some((dir, prefix)) = dirs.pop() {
-            let entries: js_sys::Function = js_sys::Reflect::get(dir.as_ref(), &"entries".into())
-                .map_err(storage_error)?
-                .dyn_into()
-                .map_err(storage_error)?;
-            let iterator = entries.call0(dir.as_ref()).map_err(storage_error)?;
-            let next: js_sys::Function = js_sys::Reflect::get(&iterator, &"next".into())
-                .map_err(storage_error)?
-                .dyn_into()
-                .map_err(storage_error)?;
-            loop {
-                let promise: js_sys::Promise = next
-                    .call0(&iterator)
-                    .map_err(storage_error)?
-                    .dyn_into()
-                    .map_err(storage_error)?;
-                let step = JsFuture::from(promise).await.map_err(storage_error)?;
-                if js_sys::Reflect::get(&step, &"done".into())
-                    .map_err(storage_error)?
-                    .as_bool()
-                    == Some(true)
-                {
-                    break;
-                }
-                let pair: js_sys::Array = js_sys::Reflect::get(&step, &"value".into())
-                    .map_err(storage_error)?
-                    .dyn_into()
-                    .map_err(storage_error)?;
-                let name = pair.get(0).as_string().ok_or_else(|| storage_error(()))?;
+            for (name, handle) in directory_entries(&dir).await? {
                 let descend = prefix.is_empty() && is_reconcile_dir(&name);
                 let path = if prefix.is_empty() {
                     name
                 } else {
                     format!("{prefix}/{name}")
                 };
-                let handle = pair.get(1);
                 if let Some(child) = handle.dyn_ref::<FileSystemDirectoryHandle>() {
                     if descend {
                         dirs.push((child.clone(), path));
@@ -527,6 +511,65 @@ impl LocalStore for OpfsStore {
         }
         Ok(files)
     }
+}
+
+/// Return the name and handle of each entry of one directory.
+async fn directory_entries(
+    dir: &FileSystemDirectoryHandle,
+) -> Result<Vec<(String, JsValue)>, AttachmentError> {
+    let entries: js_sys::Function = js_sys::Reflect::get(dir.as_ref(), &"entries".into())
+        .map_err(storage_error)?
+        .dyn_into()
+        .map_err(storage_error)?;
+    let iterator = entries.call0(dir.as_ref()).map_err(storage_error)?;
+    let next: js_sys::Function = js_sys::Reflect::get(&iterator, &"next".into())
+        .map_err(storage_error)?
+        .dyn_into()
+        .map_err(storage_error)?;
+    let mut found = Vec::new();
+    loop {
+        let promise: js_sys::Promise = next
+            .call0(&iterator)
+            .map_err(storage_error)?
+            .dyn_into()
+            .map_err(storage_error)?;
+        let step = JsFuture::from(promise).await.map_err(storage_error)?;
+        if js_sys::Reflect::get(&step, &"done".into())
+            .map_err(storage_error)?
+            .as_bool()
+            == Some(true)
+        {
+            return Ok(found);
+        }
+        let pair: js_sys::Array = js_sys::Reflect::get(&step, &"value".into())
+            .map_err(storage_error)?
+            .dyn_into()
+            .map_err(storage_error)?;
+        let name = pair.get(0).as_string().ok_or_else(|| storage_error(()))?;
+        found.push((name, pair.get(1)));
+    }
+}
+
+/// Return the path of every entry below `dir`.
+async fn entry_paths(
+    dir: &FileSystemDirectoryHandle,
+) -> Result<std::collections::HashSet<String>, AttachmentError> {
+    let mut paths = std::collections::HashSet::new();
+    let mut dirs = vec![(dir.clone(), String::new())];
+    while let Some((dir, prefix)) = dirs.pop() {
+        for (name, handle) in directory_entries(&dir).await? {
+            let path = if prefix.is_empty() {
+                name
+            } else {
+                format!("{prefix}/{name}")
+            };
+            if let Some(child) = handle.dyn_ref::<FileSystemDirectoryHandle>() {
+                dirs.push((child.clone(), path.clone()));
+            }
+            paths.insert(path);
+        }
+    }
+    Ok(paths)
 }
 
 impl Drop for StoreWriter {
@@ -804,7 +847,7 @@ mod tests {
             Cause::LocalStorage
         );
         assert_eq!(
-            store.remove_dir_all("key").await.unwrap_err().cause,
+            store.remove_dir_all("key").await.unwrap_err().error.cause,
             Cause::LocalStorage
         );
         assert_eq!(

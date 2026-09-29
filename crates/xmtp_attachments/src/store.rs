@@ -163,6 +163,25 @@ impl StoreMoveError {
     }
 }
 
+/// A directory removal that failed.
+#[derive(Debug, thiserror::Error)]
+#[error("{error}")]
+pub struct StoreRemoveError {
+    pub error: AttachmentError,
+    /// True when the removal deleted at least one entry below the directory
+    /// before it failed.
+    pub removed_any: bool,
+}
+
+impl From<AttachmentError> for StoreRemoveError {
+    fn from(error: AttachmentError) -> Self {
+        Self {
+            error,
+            removed_any: false,
+        }
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait DownloadSink: xmtp_common::wasm::MaybeSend {
@@ -186,7 +205,9 @@ pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSyn
     async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError>;
     /// Atomically replace the destination with a completed temporary file.
     async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
-    async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
+    /// Remove a directory and every entry below it. A removal can fail after
+    /// it deleted some entries; the error then reports that it did.
+    async fn remove_dir_all(&self, path: &str) -> Result<(), StoreRemoveError>;
     /// Check a managed directory before its related record is removed.
     /// Return false when nothing is at the path. Fail when the entry is not a
     /// directory.
@@ -666,7 +687,12 @@ mod tests {
         std::os::unix::fs::symlink(outside.path(), root.path().join("key"))?;
 
         assert_eq!(
-            store.remove_dir_all("key/sub").await.unwrap_err().cause,
+            store
+                .remove_dir_all("key/sub")
+                .await
+                .unwrap_err()
+                .error
+                .cause,
             Cause::LocalStorage
         );
         assert_eq!(std::fs::read(outside.path().join("sub/file"))?, b"outside");
@@ -714,10 +740,54 @@ mod tests {
                 .remove_dir_all(&foreign)
                 .await
                 .expect_err("foreign-owned directory must fail")
+                .error
                 .cause,
             Cause::LocalStorage
         );
         assert!(foreign_path.is_dir());
+    }
+
+    // verifies: EVENT-001
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_failed_removal_reports_removed_entries() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreMode(std::path::PathBuf);
+        impl Drop for RestoreMode {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+
+        let root = tempfile::tempdir()?;
+        let store = NativeStore::new(root.path()).await?;
+        // The file can be removed, but not the directory in a read-only root.
+        std::fs::create_dir(root.path().join("partial"))?;
+        std::fs::write(root.path().join("partial/file"), b"plain")?;
+        // Nothing can be removed from a read-only child directory.
+        std::fs::create_dir_all(root.path().join("blocked/sub"))?;
+        std::fs::write(root.path().join("blocked/sub/file"), b"plain")?;
+        let _restore = [
+            RestoreMode(root.path().to_path_buf()),
+            RestoreMode(root.path().join("blocked/sub")),
+        ];
+        std::fs::set_permissions(
+            root.path().join("blocked/sub"),
+            std::fs::Permissions::from_mode(0o500),
+        )?;
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o500))?;
+
+        let partial = store.remove_dir_all("partial").await.unwrap_err();
+        assert_eq!(partial.error.cause, Cause::LocalStorage);
+        assert!(partial.removed_any);
+        assert!(!root.path().join("partial/file").exists());
+        assert!(root.path().join("partial").is_dir());
+
+        let blocked = store.remove_dir_all("blocked").await.unwrap_err();
+        assert_eq!(blocked.error.cause, Cause::LocalStorage);
+        assert!(!blocked.removed_any);
+        assert!(root.path().join("blocked/sub/file").exists());
     }
 
     #[cfg(unix)]

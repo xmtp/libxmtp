@@ -20,7 +20,7 @@ pub use sanitize::{local_file_name, sanitize_path_component, sanitize_path_compo
 pub use store::OpfsStore;
 pub use store::{
     AttachmentOptions, DownloadSink, LocalStore, StagedFile, StoreFile, StoreMoveError,
-    StoreWriter, staged_path, temporary_path,
+    StoreRemoveError, StoreWriter, staged_path, temporary_path,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use store::{NativeStore, create_private_directory};

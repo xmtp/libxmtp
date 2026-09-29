@@ -1619,7 +1619,13 @@ impl<Context: XmtpSharedContext> Attachments<Context> {
             }
         }
         if key_exists {
-            store.remove_dir_all(&key).await?;
+            if let Err(error) = store.remove_dir_all(&key).await {
+                // A removal that fails part way has still deleted local files.
+                if error.removed_any {
+                    emit_deleted();
+                }
+                return Err(error.error.into());
+            }
             emit_deleted();
         }
         if deleted_pending && store.exists(&staged).await? {

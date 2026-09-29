@@ -702,6 +702,82 @@ async fn deletion_event_survives_later_row_failure() {
     ));
 }
 
+// verifies: EVENT-001
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn partial_key_removal_emits_one_deletion_event() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    struct RestoreMode(std::path::PathBuf);
+    impl Drop for RestoreMode {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let key = attachment_key(&remote)?;
+    let plaintext = dir.path().join(plaintext_rel_path(&remote)?);
+    let events = alix
+        .client
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::AttachmentDeleted]))?;
+    // The plaintext file can be removed, but not the key directory.
+    let _restore = RestoreMode(dir.path().to_path_buf());
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o500))?;
+
+    let result = alix.client.attachments().delete_local(&remote).await;
+    assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert!(!plaintext.exists());
+    assert!(dir.path().join(&key).is_dir());
+    let emitted = events.drain();
+    assert_eq!(emitted.len(), 1);
+    assert!(
+        matches!(&emitted[0].client, Some(ClientEvent::AttachmentDeleted(reference)) if reference.attachment_key == key)
+    );
+}
+
+// verifies: EVENT-001
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn failed_key_removal_without_removal_emits_no_deletion_event() {
+    use std::os::unix::fs::PermissionsExt as _;
+
+    struct RestoreMode(std::path::PathBuf);
+    impl Drop for RestoreMode {
+        fn drop(&mut self) {
+            let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+        }
+    }
+
+    let dir = tempfile::tempdir()?;
+    tester!(alix, attachments_dir: dir.path(), disable_workers);
+    let pending = alix.client.attachments().create(bytes()).await?;
+    let remote = pending.remote_attachment().clone();
+    let key = attachment_key(&remote)?;
+    let key_path = dir.path().join(&key);
+    // Only an entry that cannot be removed stays in the key directory.
+    std::fs::remove_file(dir.path().join(plaintext_rel_path(&remote)?))?;
+    std::fs::create_dir(key_path.join("sub"))?;
+    std::fs::write(key_path.join("sub/file"), b"app")?;
+    let _restore = RestoreMode(key_path.join("sub"));
+    std::fs::set_permissions(key_path.join("sub"), std::fs::Permissions::from_mode(0o500))?;
+    let events = alix
+        .client
+        .context
+        .events()
+        .subscribe_app(EventFilter::new([EventKind::AttachmentDeleted]))?;
+
+    let result = alix.client.attachments().delete_local(&remote).await;
+    assert!(matches!(result, Err(error) if error.cause == Cause::LocalStorage));
+    assert!(key_path.join("sub/file").exists());
+    assert!(events.drain().is_empty());
+}
+
 // verifies: ATCH-047, EVENT-001, EVENT-057
 #[xmtp_common::test(unwrap_try = true)]
 async fn delete_cancels_upload() {
