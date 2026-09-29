@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **12 crates** with **416 total error codes**.
+**39 error types** across **12 crates** with **417 total error codes**.
 
 ## mobile
 
@@ -516,6 +516,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `GroupError::MinVersionDowngrade` | Caller asked to lower `MIN_SUPPORTED_PROTOCOL_VERSION` below the floor already on the group. Monotonic-only: a downgrade would silently unpause peers between the old and new floors, defeating the gate. Not retryable. |
 | `GroupError::InvalidMinVersion` | Caller passed a `min_version` string that does not parse as semver. The `update_group_min_version` path returns this error so SDK consumers can handle malformed input by code. Not retryable. |
 | `GroupError::ComponentSource` | Component source error. Failed to encode, decode, or look up a well-known component during the AppDataUpdate path. Not retryable. |
+| `GroupError::MetadataField` | A metadata field read or write is invalid for the group's committed fields: an unknown field, a wrong type, or a write the committed state rejects. Not retryable. |
 | `GroupError::AppDataCommit` | AppData commit error. Failed to build or stage a commit that bundles an inline AppDataUpdate proposal. Wraps the structured `GroupAppDataError` from `stage_app_data_propose_and_commit` so the underlying OpenMLS create/stage failure is preserved instead of being string-flattened. |
 | `GroupError::BootstrapSynthesis` | Bootstrap synthesis failure — sender-side couldn't build the complete set of initial component values for the migration commit. Includes identity-update lookup failures. Conditionally retryable: delegates to the wrapped [`super::app_data::migration::BootstrapSynthesisError`], which retries only when an inner identity-update API error is itself retryable. Decode/registry-shape failures are deterministic and not retryable. |
 | `GroupError::BootstrapCommit` | Bootstrap commit-build failure. Not retryable: every variant of [`super::app_data::migration::BootstrapCommitError`] is a deterministic OpenMLS commit failure, a TLS codec error, or a caller-side precondition violation. |

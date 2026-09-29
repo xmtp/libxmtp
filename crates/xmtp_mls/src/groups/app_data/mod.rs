@@ -23,6 +23,7 @@ use std::collections::BTreeMap;
 
 use openmls::{
     component::ComponentData,
+    extensions::AppDataDictionary,
     framing::{MlsMessageOut, ProcessedMessage, ProtocolMessage},
     group::{
         AppDataUpdates, MlsGroup as OpenMlsGroup, ProcessMessageError, ProposalError,
@@ -334,20 +335,20 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
         provider,
         signer,
         catalogue,
-        vec![(component_id, payload)],
+        vec![(component_id, AppDataUpdateOperation::Update(payload.into()))],
     )?;
     Ok((proposals.remove(0), bundle))
 }
 
-/// Stage all component updates in one commit, using the same pre-commit
-/// state. The commit also carries this client's membership upkeep for
-/// `catalogue` inline.
+/// Propose every `updates` operation and stage one commit of them, using
+/// the same pre-commit state. The commit also carries this client's
+/// membership upkeep for `catalogue` inline.
 pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,
     signer: &impl openmls_traits::signatures::Signer,
     catalogue: &[ApplicationComponentDefinition],
-    updates: Vec<(ComponentId, Vec<u8>)>,
+    updates: Vec<(ComponentId, AppDataUpdateOperation)>,
 ) -> Result<(Vec<MlsMessageOut>, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
     // Lazy-batching: we deliberately do NOT block on pre-existing
     // pending proposals. This helper queues a new `AppDataUpdate` then
@@ -365,8 +366,7 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     // folded-in proposal already accepted that outcome by leaving it
     // pending instead of issuing its own commit.
     let mut proposals = Vec::with_capacity(updates.len());
-    for (component_id, payload) in updates {
-        let operation = AppDataUpdateOperation::Update(payload.into());
+    for (component_id, operation) in updates {
         let (proposal, _) = mls_group
             .propose_app_data_update(provider, signer, component_id.as_u16(), operation)
             .map_err(GroupAppDataError::Propose)?;
@@ -470,6 +470,25 @@ pub(crate) fn pending_app_data_updates(
     mls_group: &OpenMlsGroup,
 ) -> Result<Option<AppDataUpdates>, ComponentSourceError> {
     Ok(AppDataBatch::pending(mls_group)?.updates())
+}
+
+/// The dictionary a commit built now starts from: the committed one with
+/// the pending proposals' updates applied.
+pub(crate) fn pending_dictionary(
+    mls_group: &OpenMlsGroup,
+) -> Result<AppDataDictionary, ComponentSourceError> {
+    let mut dictionary = mls_group
+        .extensions()
+        .app_data_dictionary()
+        .map(|extension| extension.dictionary().clone())
+        .unwrap_or_default();
+    for (id, value) in pending_app_data_updates(mls_group)?.into_iter().flatten() {
+        match value {
+            Some(value) => dictionary.insert(id, value),
+            None => dictionary.remove(&id),
+        };
+    }
+    Ok(dictionary)
 }
 
 /// Read the committed component registry from the dictionary.
