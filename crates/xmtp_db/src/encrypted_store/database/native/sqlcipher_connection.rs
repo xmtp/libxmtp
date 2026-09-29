@@ -684,7 +684,9 @@ mod tests {
         database.init()?;
         let connection = database.conn();
         connection.raw_query(|conn| {
-            conn.batch_execute("DROP TABLE received_proposals")?;
+            conn.batch_execute(
+                "DROP TABLE received_proposals; DROP TABLE pending_attachments; DROP TABLE local_attachments;",
+            )?;
             diesel::sql_query("DELETE FROM __diesel_schema_migrations WHERE version <> ?")
                 .bind::<Text, _>(crate::MIGRATIONS.baseline())
                 .execute(conn)

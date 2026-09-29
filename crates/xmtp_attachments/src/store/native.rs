@@ -1,10 +1,12 @@
 use std::{
+    collections::HashSet,
     io,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use cap_fs_ext::{DirExt, FollowSymlinks, OpenOptionsFollowExt};
+use cap_fs_ext::DirExt as _;
+use cap_fs_ext::{FollowSymlinks, OpenOptionsFollowExt};
 #[cfg(windows)]
 use cap_std::fs::MetadataExt;
 #[cfg(windows)]
@@ -13,8 +15,27 @@ use cap_std::fs::{Dir, OpenOptions};
 #[cfg(unix)]
 use cap_std::fs::{DirBuilderExt as _, OpenOptionsExt as _, PermissionsExt as _};
 
-use super::{LocalStore, StagedFile, StoreWriter, validate_relative, validate_temp};
-use crate::{AttachmentError, AttachmentFailureCause as Cause};
+use super::{
+    LocalStore, StagedFile, StoreFile, StoreMoveError, StoreRemoveError, StoreWriter,
+    is_reconcile_dir, validate_relative, validate_temp,
+};
+use crate::{AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, DecodedMeta};
+
+/// Create missing directory components with private permissions.
+/// Existing directories keep their permissions.
+pub async fn create_private_directory(path: &Path) -> io::Result<()> {
+    #[cfg(unix)]
+    {
+        let path = path.to_path_buf();
+        xmtp_common::task::spawn_blocking(move || create_private_directories(&path))
+            .await
+            .map_err(io::Error::other)?
+    }
+    #[cfg(not(unix))]
+    {
+        tokio::fs::create_dir_all(path).await
+    }
+}
 
 /// Files below one native attachments directory.
 #[derive(Clone, Debug)]
@@ -28,6 +49,12 @@ pub struct NativeStore {
     forced_source_unlink_error: Option<std::io::ErrorKind>,
     #[cfg(test)]
     fallback_race_bytes: Option<Vec<u8>>,
+    #[cfg(test)]
+    forced_chmod_error: bool,
+    #[cfg(test)]
+    forced_foreign_owner: bool,
+    #[cfg(test)]
+    forced_modified_error: bool,
 }
 
 impl NativeStore {
@@ -57,6 +84,12 @@ impl NativeStore {
             forced_source_unlink_error: None,
             #[cfg(test)]
             fallback_race_bytes: None,
+            #[cfg(test)]
+            forced_chmod_error: false,
+            #[cfg(test)]
+            forced_foreign_owner: false,
+            #[cfg(test)]
+            forced_modified_error: false,
         })
     }
 
@@ -76,6 +109,102 @@ impl NativeStore {
     pub(crate) fn with_fallback_destination_race(mut self, bytes: Vec<u8>) -> Self {
         self.fallback_race_bytes = Some(bytes);
         self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_forced_chmod_error(mut self) -> Self {
+        self.forced_chmod_error = true;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_forced_foreign_owner(mut self) -> Self {
+        self.forced_foreign_owner = true;
+        self
+    }
+
+    #[cfg(test)]
+    pub(crate) fn with_forced_modified_error(mut self) -> Self {
+        self.forced_modified_error = true;
+        self
+    }
+
+    fn force_foreign_owner(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.forced_foreign_owner
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
+
+    fn force_chmod_error(&self) -> bool {
+        #[cfg(test)]
+        {
+            self.forced_chmod_error
+        }
+        #[cfg(not(test))]
+        {
+            false
+        }
+    }
+
+    #[cfg(unix)]
+    fn open_managed_child(&self, parent: &Dir, name: &str, created: bool) -> io::Result<Dir> {
+        use cap_fs_ext::OsMetadataExt as _;
+        use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
+
+        let before = parent.symlink_metadata(name)?;
+        if !before.is_dir()
+            || is_link(&before)
+            || self.force_foreign_owner()
+            || before.uid() != unsafe { libc::geteuid() }
+        {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+        #[cfg(test)]
+        if created {
+            record_initial_mode(before.permissions().mode(), 0o700);
+        }
+        #[cfg(not(test))]
+        let _ = created;
+        let child = match open_child_mode_handle(parent, name) {
+            Ok(child) => child,
+            Err(error)
+                if error.kind() == io::ErrorKind::PermissionDenied
+                    && before.permissions().mode() & 0o7777 != 0o700
+                    && !self.force_chmod_error() =>
+            {
+                repair_unreadable_child_mode(parent, name, &before)?;
+                open_child_mode_handle(parent, name)?
+            }
+            Err(error) => return Err(error),
+        };
+        let metadata = child.metadata()?;
+        if !metadata.is_dir()
+            || metadata.uid() != before.uid()
+            || metadata.dev() != before.dev()
+            || metadata.ino() != before.ino()
+        {
+            return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+        }
+        if metadata.permissions().mode() & 0o7777 != 0o700 {
+            if self.force_chmod_error() {
+                if created {
+                    tracing::warn!(
+                        name,
+                        "could not set private attachment directory permissions"
+                    );
+                } else {
+                    return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+                }
+            } else {
+                set_private_child_mode(&child)?;
+            }
+        }
+        Ok(Dir::from_std_file(child))
     }
 
     fn remove_source(&self, parent: &Dir, name: &str) -> io::Result<()> {
@@ -105,8 +234,17 @@ impl NativeStore {
         let mut directory = self.root_dir.try_clone()?;
         if !parent.is_empty() {
             for part in parent.split('/') {
-                directory = match directory.open_dir_nofollow(part) {
-                    Ok(child) => child,
+                directory = match directory.symlink_metadata(part) {
+                    Ok(_) => {
+                        #[cfg(unix)]
+                        {
+                            self.open_managed_child(&directory, part, false)?
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            directory.open_dir_nofollow(part)?
+                        }
+                    }
                     Err(error) if create && error.kind() == io::ErrorKind::NotFound => {
                         #[cfg(unix)]
                         let mut builder = cap_std::fs::DirBuilder::new();
@@ -121,13 +259,16 @@ impl NativeStore {
                             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
                             Err(error) => return Err(error),
                         };
-                        #[cfg(unix)]
-                        if created {
-                            repair_created_child_mode(&directory, part)?;
-                        }
                         #[cfg(not(unix))]
                         let _ = created;
-                        directory.open_dir_nofollow(part)?
+                        #[cfg(unix)]
+                        {
+                            self.open_managed_child(&directory, part, created)?
+                        }
+                        #[cfg(not(unix))]
+                        {
+                            directory.open_dir_nofollow(part)?
+                        }
                     }
                     Err(error) => return Err(error),
                 };
@@ -138,7 +279,7 @@ impl NativeStore {
 }
 
 #[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
-fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
+fn open_child_mode_handle(parent: &Dir, name: &str) -> io::Result<std::fs::File> {
     let fd = rustix::fs::openat(
         parent,
         name,
@@ -148,14 +289,90 @@ fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
             | rustix::fs::OFlags::CLOEXEC,
         rustix::fs::Mode::empty(),
     )?;
-    #[cfg(test)]
-    {
-        // `mode_t` is `u16` on Apple platforms and `u32` on Linux.
-        #[allow(clippy::useless_conversion)]
-        let initial_mode = u32::from(rustix::fs::fstat(&fd)?.st_mode);
-        record_initial_mode(initial_mode, 0o700);
+    Ok(fd.into())
+}
+
+#[cfg(all(
+    unix,
+    not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))
+))]
+fn open_child_mode_handle(parent: &Dir, name: &str) -> io::Result<std::fs::File> {
+    let mut options = OpenOptions::new();
+    options.read(true).follow(FollowSymlinks::No);
+    let file = parent.open_with(name, &options)?;
+    if !file.metadata()?.is_dir() {
+        return Err(io::Error::from(io::ErrorKind::NotADirectory));
     }
-    rustix::fs::fchmod(&fd, rustix::fs::Mode::from_raw_mode(0o700))?;
+    Ok(file.into_std())
+}
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+fn repair_unreadable_child_mode(
+    parent: &Dir,
+    name: &str,
+    before: &cap_std::fs::Metadata,
+) -> io::Result<()> {
+    use cap_fs_ext::OsMetadataExt as _;
+    use std::os::{
+        fd::AsRawFd as _,
+        unix::fs::{MetadataExt as _, PermissionsExt as _},
+    };
+
+    // O_PATH pins the child without requiring read or search permission.
+    let pinned = rustix::fs::openat(
+        parent,
+        name,
+        rustix::fs::OFlags::PATH
+            | rustix::fs::OFlags::DIRECTORY
+            | rustix::fs::OFlags::NOFOLLOW
+            | rustix::fs::OFlags::CLOEXEC,
+        rustix::fs::Mode::empty(),
+    )?;
+    let pinned: std::fs::File = pinned.into();
+    let metadata = pinned.metadata()?;
+    if !metadata.is_dir()
+        || metadata.uid() != before.uid()
+        || metadata.dev() != before.dev()
+        || metadata.ino() != before.ino()
+        || metadata.uid() != unsafe { libc::geteuid() }
+    {
+        return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+    }
+    // Linux fchmod rejects O_PATH handles. The proc path refers to the pinned
+    // descriptor, so a replacement of the child name cannot redirect chmod.
+    let pinned_path = format!("/proc/self/fd/{}", pinned.as_raw_fd());
+    std::fs::set_permissions(pinned_path, std::fs::Permissions::from_mode(0o700))
+}
+
+#[cfg(all(unix, not(any(target_os = "linux", target_os = "android"))))]
+fn repair_unreadable_child_mode(
+    parent: &Dir,
+    name: &str,
+    before: &cap_std::fs::Metadata,
+) -> io::Result<()> {
+    use cap_fs_ext::OsMetadataExt as _;
+
+    let current = parent.symlink_metadata(name)?;
+    if !current.is_dir()
+        || is_link(&current)
+        || current.uid() != unsafe { libc::geteuid() }
+        || current.dev() != before.dev()
+        || current.ino() != before.ino()
+    {
+        return Err(io::Error::from(io::ErrorKind::PermissionDenied));
+    }
+    rustix::fs::chmodat(
+        parent,
+        name,
+        rustix::fs::Mode::from_raw_mode(0o700),
+        rustix::fs::AtFlags::SYMLINK_NOFOLLOW,
+    )?;
+    Ok(())
+}
+
+#[cfg(any(target_vendor = "apple", target_os = "linux", target_os = "android"))]
+fn set_private_child_mode(file: &std::fs::File) -> io::Result<()> {
+    rustix::fs::fchmod(file, rustix::fs::Mode::from_raw_mode(0o700))?;
     Ok(())
 }
 
@@ -163,15 +380,10 @@ fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
     unix,
     not(any(target_vendor = "apple", target_os = "linux", target_os = "android"))
 ))]
-fn repair_created_child_mode(parent: &Dir, name: &str) -> io::Result<()> {
+fn set_private_child_mode(file: &std::fs::File) -> io::Result<()> {
     use std::os::unix::fs::PermissionsExt as _;
 
-    let mut options = OpenOptions::new();
-    options.read(true).follow(FollowSymlinks::No);
-    let file = parent.open_with(name, &options)?;
-    #[cfg(test)]
-    record_initial_mode(file.metadata()?.permissions().mode(), 0o700);
-    file.set_permissions(cap_std::fs::Permissions::from_mode(0o700))
+    file.set_permissions(std::fs::Permissions::from_mode(0o700))
 }
 
 #[cfg(unix)]
@@ -248,6 +460,20 @@ fn is_link(metadata: &cap_std::fs::Metadata) -> bool {
 #[cfg(not(windows))]
 fn is_link(metadata: &cap_std::fs::Metadata) -> bool {
     metadata.file_type().is_symlink()
+}
+
+/// Add the path of every entry below `dir` to `paths`. Do not follow links.
+fn entry_paths(dir: &Dir, prefix: &Path, paths: &mut HashSet<PathBuf>) -> io::Result<()> {
+    for entry in dir.entries()? {
+        let name = entry?.file_name();
+        let path = prefix.join(&name);
+        let metadata = dir.symlink_metadata(&name)?;
+        if metadata.is_dir() && !is_link(&metadata) {
+            entry_paths(&dir.open_dir_nofollow(&name)?, &path, paths)?;
+        }
+        paths.insert(path);
+    }
+    Ok(())
 }
 
 fn exists_nofollow(parent: &Dir, name: &str) -> io::Result<bool> {
@@ -403,7 +629,32 @@ impl LocalStore for NativeStore {
         })
     }
 
-    async fn rename(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
+    async fn create_dir_if_absent(&self, path: &str) -> Result<bool, AttachmentError> {
+        validate_relative(path)?;
+        let (parent, name) = self.parent(path, true).map_err(storage_error)?;
+        #[cfg(unix)]
+        let mut builder = cap_std::fs::DirBuilder::new();
+        #[cfg(unix)]
+        builder.mode(0o700);
+        #[cfg(unix)]
+        let result = parent.create_dir_with(&name, &builder);
+        #[cfg(not(unix))]
+        let result = parent.create_dir(&name);
+        let created = match result {
+            Ok(()) => true,
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => false,
+            Err(error) => return Err(storage_error(error)),
+        };
+        #[cfg(unix)]
+        let _child = self
+            .open_managed_child(&parent, &name, created)
+            .map_err(storage_error)?;
+        #[cfg(not(unix))]
+        let _child = parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        Ok(created)
+    }
+
+    async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError> {
         validate_relative(from)?;
         validate_relative(to)?;
         let (from_parent, from_name) = self.parent(from, false).map_err(storage_error)?;
@@ -411,26 +662,28 @@ impl LocalStore for NativeStore {
             .symlink_metadata(&from_name)
             .map_err(storage_error)?;
         if !source.is_file() || is_link(&source) {
-            return Err(storage_error(()));
+            return Err(storage_error(()).into());
         }
         let (to_parent, to_name) = self.parent(to, true).map_err(storage_error)?;
         if exists_nofollow(&to_parent, &to_name).map_err(storage_error)? {
-            return Err(storage_error(()));
+            return Err(StoreMoveError::DestinationExists);
         }
         match self.hard_link(&from_parent, &from_name, &to_parent, &to_name) {
             Ok(()) => match self.remove_source(&from_parent, &from_name) {
                 Ok(()) => Ok(()),
                 Err(_) => {
                     let _ = to_parent.remove_file(&to_name);
-                    Err(storage_error(()))
+                    Err(storage_error(()).into())
                 }
             },
-            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Err(storage_error(())),
+            Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+                Err(StoreMoveError::DestinationExists)
+            }
             Err(_) => {
                 // Some file systems cannot make hard links. The fallback must
                 // reject a destination created after this check.
                 if exists_nofollow(&to_parent, &to_name).map_err(storage_error)? {
-                    return Err(storage_error(()));
+                    return Err(StoreMoveError::DestinationExists);
                 }
                 #[cfg(test)]
                 if let Some(bytes) = &self.fallback_race_bytes {
@@ -442,20 +695,109 @@ impl LocalStore for NativeStore {
                         .and_then(|mut file| file.write_all(bytes))
                         .map_err(storage_error)?;
                 }
-                rename_no_replace(&from_parent, &from_name, &to_parent, &to_name)
-                    .map_err(storage_error)
+                rename_no_replace(&from_parent, &from_name, &to_parent, &to_name).map_err(|error| {
+                    if error.kind() == io::ErrorKind::AlreadyExists {
+                        StoreMoveError::DestinationExists
+                    } else {
+                        storage_error(error).into()
+                    }
+                })
             }
         }
     }
 
-    async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError> {
+    async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError> {
+        validate_relative(from)?;
+        validate_relative(to)?;
+        let (from_parent, from_name) = self.parent(from, false).map_err(storage_error)?;
+        let source = from_parent
+            .symlink_metadata(&from_name)
+            .map_err(storage_error)?;
+        if !source.is_file() || is_link(&source) {
+            return Err(storage_error(()));
+        }
+        let (to_parent, to_name) = self.parent(to, true).map_err(storage_error)?;
+        match to_parent.symlink_metadata(&to_name) {
+            Ok(metadata) if !metadata.is_file() || is_link(&metadata) => {
+                return Err(storage_error(()));
+            }
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(storage_error(error)),
+        }
+        from_parent
+            .rename(&from_name, &to_parent, &to_name)
+            .map_err(storage_error)
+    }
+
+    async fn remove_dir_all(&self, path: &str) -> Result<(), StoreRemoveError> {
         validate_relative(path)?;
         let (parent, name) = self.parent(path, false).map_err(storage_error)?;
-        parent
-            .open_dir_nofollow(&name)
-            .map_err(storage_error)?
-            .remove_open_dir_all()
-            .map_err(storage_error)
+        let open = || -> io::Result<Dir> {
+            #[cfg(unix)]
+            {
+                self.open_managed_child(&parent, &name, false)
+            }
+            #[cfg(not(unix))]
+            {
+                parent.open_dir_nofollow(&name)
+            }
+        };
+        let child = open().map_err(storage_error)?;
+        // A removal can fail after it deleted some entries. Compare the
+        // entries before and after a failure to report that.
+        let mut before = HashSet::new();
+        entry_paths(&child, Path::new(""), &mut before).map_err(storage_error)?;
+        let Err(error) = child.remove_open_dir_all() else {
+            return Ok(());
+        };
+        let mut after = HashSet::new();
+        let removed_any = open()
+            .and_then(|child| entry_paths(&child, Path::new(""), &mut after))
+            .map_or(true, |()| !before.is_subset(&after));
+        Err(StoreRemoveError {
+            error: storage_error(error),
+            removed_any,
+        })
+    }
+
+    async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError> {
+        validate_relative(path)?;
+        let (parent, name) = match self.parent(path, false) {
+            Ok(value) => value,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(storage_error(error)),
+        };
+        if !exists_nofollow(&parent, &name).map_err(storage_error)? {
+            return Ok(false);
+        }
+        #[cfg(unix)]
+        self.open_managed_child(&parent, &name, false)
+            .map_err(storage_error)?;
+        #[cfg(not(unix))]
+        parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        Ok(true)
+    }
+
+    async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError> {
+        validate_relative(path)?;
+        let (parent, name) = self.parent(path, false).map_err(storage_error)?;
+        #[cfg(unix)]
+        self.open_managed_child(&parent, &name, false)
+            .map_err(storage_error)?;
+        #[cfg(not(unix))]
+        parent.open_dir_nofollow(&name).map_err(storage_error)?;
+        parent.remove_dir(&name).map_err(storage_error)
+    }
+
+    async fn remove_file(&self, path: &str) -> Result<(), AttachmentError> {
+        validate_relative(path)?;
+        let (parent, name) = self.parent(path, false).map_err(storage_error)?;
+        let metadata = parent.symlink_metadata(&name).map_err(storage_error)?;
+        if !metadata.is_file() || is_link(&metadata) {
+            return Err(storage_error(()));
+        }
+        parent.remove_file(&name).map_err(storage_error)
     }
 
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError> {
@@ -474,5 +816,110 @@ impl LocalStore for NativeStore {
             .sync_all()
             .await
             .map_err(|_| AttachmentError::new(Cause::LocalStorage))
+    }
+
+    async fn finish_decode(
+        &self,
+        decoder: AttachmentDecoder,
+        source: &str,
+        output: &str,
+    ) -> Result<DecodedMeta, AttachmentError> {
+        validate_temp(source)?;
+        validate_temp(output)?;
+        let (source_parent, source_name) = self.parent(source, false).map_err(storage_error)?;
+        let mut read_options = OpenOptions::new();
+        read_options.read(true).follow(FollowSymlinks::No);
+        let input = source_parent
+            .open_with(&source_name, &read_options)
+            .map_err(storage_error)?;
+        let (output_parent, output_name) = self.parent(output, true).map_err(storage_error)?;
+        let mut write_options = OpenOptions::new();
+        write_options
+            .write(true)
+            .create_new(true)
+            .follow(FollowSymlinks::No);
+        #[cfg(unix)]
+        write_options.mode(0o600);
+        let decoded = output_parent
+            .open_with(&output_name, &write_options)
+            .map_err(storage_error)?;
+        #[cfg(unix)]
+        if let Err(error) = decoded.set_permissions(cap_std::fs::Permissions::from_mode(0o600)) {
+            let _ = output_parent.remove_file(&output_name);
+            return Err(storage_error(error));
+        }
+        xmtp_common::task::spawn_blocking(move || {
+            let mut input = input.into_std();
+            let mut decoded = decoded.into_std();
+            let meta = decoder.finish(&mut input, &mut decoded)?;
+            decoded
+                .sync_all()
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+            Ok(meta)
+        })
+        .await
+        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+    }
+
+    async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError> {
+        use cap_std::time::SystemClock;
+        let root = self.root_dir.clone();
+        #[cfg(any(unix, test))]
+        let store = self.clone();
+        xmtp_common::task::spawn_blocking(move || -> Result<Vec<StoreFile>, AttachmentError> {
+            let mut files = Vec::new();
+            let mut dirs = vec![(root.try_clone().map_err(storage_error)?, String::new())];
+            while let Some((dir, prefix)) = dirs.pop() {
+                for entry in dir.entries().map_err(storage_error)? {
+                    let entry = entry.map_err(storage_error)?;
+                    let Ok(name) = entry.file_name().into_string() else {
+                        continue;
+                    };
+                    let descend = prefix.is_empty() && is_reconcile_dir(&name);
+                    let path = if prefix.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{prefix}/{name}")
+                    };
+                    let metadata = dir.symlink_metadata(&name).map_err(storage_error)?;
+                    if metadata.is_dir() && !is_link(&metadata) {
+                        if descend {
+                            #[cfg(unix)]
+                            let child = store
+                                .open_managed_child(&dir, &name, false)
+                                .map_err(storage_error)?;
+                            #[cfg(not(unix))]
+                            let child = dir.open_dir_nofollow(&name).map_err(storage_error)?;
+                            dirs.push((child, path));
+                        }
+                    } else if metadata.is_file() && !is_link(&metadata) && !prefix.is_empty() {
+                        #[cfg(test)]
+                        let modified = if store.forced_modified_error {
+                            Err(io::Error::other("forced modification time error"))
+                        } else {
+                            metadata.modified()
+                        };
+                        #[cfg(not(test))]
+                        let modified = metadata.modified();
+                        let modified_at_ns = match modified
+                            .map_err(storage_error)?
+                            .duration_since(SystemClock::UNIX_EPOCH)
+                        {
+                            Ok(age) => age.as_nanos().min(i64::MAX as u128) as i64,
+                            Err(error) => {
+                                -(error.duration().as_nanos().min(i64::MAX as u128) as i64)
+                            }
+                        };
+                        files.push(StoreFile {
+                            path,
+                            modified_at_ns,
+                        });
+                    }
+                }
+            }
+            Ok(files)
+        })
+        .await
+        .map_err(storage_error)?
     }
 }

@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use crate::{
-    AttachmentError, AttachmentFailureCause as Cause, ContentChunk,
+    AttachmentDecoder, AttachmentError, AttachmentFailureCause as Cause, ContentChunk, DecodedMeta,
     sanitize::is_reserved_device_name,
 };
 
@@ -13,7 +13,7 @@ mod native;
 mod opfs;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use native::NativeStore;
+pub use native::{NativeStore, create_private_directory};
 #[cfg(target_arch = "wasm32")]
 pub use opfs::OpfsStore;
 
@@ -33,6 +33,15 @@ pub fn staged_path(content_digest: &str) -> Result<String, AttachmentError> {
         return Err(AttachmentError::new(Cause::Malformed));
     }
     Ok(format!(".staged/{content_digest}"))
+}
+
+pub(crate) fn is_reconcile_dir(name: &str) -> bool {
+    name == ".tmp"
+        || name == ".staged"
+        || (name.len() == 64
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte)))
 }
 
 /// A path for a temporary file. Temporary files never sit under key directories.
@@ -130,6 +139,49 @@ impl StoreWriter {
     }
 }
 
+/// A file found during attachment storage reconciliation.
+pub struct StoreFile {
+    pub path: String,
+    pub modified_at_ns: i64,
+}
+
+/// The result of a move that must not replace an existing file.
+#[derive(Debug, thiserror::Error)]
+pub enum StoreMoveError {
+    #[error("attachment destination exists")]
+    DestinationExists,
+    #[error(transparent)]
+    Other(#[from] AttachmentError),
+}
+
+impl StoreMoveError {
+    pub fn cause(&self) -> Cause {
+        match self {
+            Self::DestinationExists => Cause::LocalStorage,
+            Self::Other(error) => error.cause,
+        }
+    }
+}
+
+/// A directory removal that failed.
+#[derive(Debug, thiserror::Error)]
+#[error("{error}")]
+pub struct StoreRemoveError {
+    pub error: AttachmentError,
+    /// True when the removal deleted at least one entry below the directory
+    /// before it failed.
+    pub removed_any: bool,
+}
+
+impl From<AttachmentError> for StoreRemoveError {
+    fn from(error: AttachmentError) -> Self {
+        Self {
+            error,
+            removed_any: false,
+        }
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait DownloadSink: xmtp_common::wasm::MaybeSend {
@@ -140,14 +192,207 @@ pub trait DownloadSink: xmtp_common::wasm::MaybeSend {
 #[cfg_attr(not(target_arch = "wasm32"), async_trait::async_trait)]
 pub trait LocalStore: xmtp_common::wasm::MaybeSend + xmtp_common::wasm::MaybeSync {
     async fn open_read(&self, path: &str) -> Result<StagedFile, AttachmentError>;
+    /// Check the file kind after the caller finds an existing path.
+    async fn is_regular_file(&self, path: &str) -> Result<bool, AttachmentError> {
+        self.open_read(path).await?.is_regular_file().await
+    }
     /// Create a temporary file. Callers must use unique names because OPFS
     /// cannot create a file exclusively.
     async fn create_temp(&self, path: &str) -> Result<StoreWriter, AttachmentError>;
+    /// Return true when this call created the directory.
+    async fn create_dir_if_absent(&self, path: &str) -> Result<bool, AttachmentError>;
     /// Move a file only when the destination does not exist.
-    async fn rename(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
-    async fn remove_dir_all(&self, path: &str) -> Result<(), AttachmentError>;
+    async fn rename(&self, from: &str, to: &str) -> Result<(), StoreMoveError>;
+    /// Atomically replace the destination with a completed temporary file.
+    async fn replace(&self, from: &str, to: &str) -> Result<(), AttachmentError>;
+    /// Remove a directory and every entry below it. A removal can fail after
+    /// it deleted some entries; the error then reports that it did.
+    async fn remove_dir_all(&self, path: &str) -> Result<(), StoreRemoveError>;
+    /// Check a managed directory before its related record is removed.
+    /// Return false when nothing is at the path. Fail when the entry is not a
+    /// directory.
+    async fn prepare_remove_dir(&self, path: &str) -> Result<bool, AttachmentError>;
+    /// Remove only an empty directory.
+    async fn remove_empty_dir(&self, path: &str) -> Result<(), AttachmentError>;
+    async fn remove_file(&self, path: &str) -> Result<(), AttachmentError>;
     async fn exists(&self, path: &str) -> Result<bool, AttachmentError>;
     async fn sync(&self, writer: &mut StoreWriter) -> Result<(), AttachmentError>;
+    async fn finish_decode(
+        &self,
+        decoder: AttachmentDecoder,
+        source: &str,
+        output: &str,
+    ) -> Result<DecodedMeta, AttachmentError>;
+    /// List files one level below the managed directories. Do not enter app directories.
+    async fn list_files(&self) -> Result<Vec<StoreFile>, AttachmentError>;
+}
+
+impl StagedFile {
+    async fn is_regular_file(&self) -> Result<bool, AttachmentError> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            // Check the opened file. The path can name another entry by now.
+            Ok(self
+                .opened
+                .as_ref()
+                .ok_or_else(|| AttachmentError::new(Cause::LocalStorage))?
+                .metadata()
+                .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+                .is_file())
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            // OPFS open_read obtains a file handle, which rejects directories.
+            Ok(true)
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn read_chunk(
+        &self,
+        offset: u64,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, AttachmentError> {
+        use tokio::io::{AsyncReadExt as _, AsyncSeekExt as _};
+        let mut file = tokio::fs::File::open(&self.path)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        file.seek(std::io::SeekFrom::Start(offset))
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        let mut bytes = vec![0; max_bytes];
+        let count = file
+            .read(&mut bytes)
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        bytes.truncate(count);
+        Ok(bytes)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn len(&self) -> u64 {
+        self.file.size() as u64
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Read at most one chunk from an OPFS source file.
+    #[cfg(target_arch = "wasm32")]
+    pub async fn read_chunk(
+        &self,
+        offset: u64,
+        max_bytes: usize,
+    ) -> Result<Vec<u8>, AttachmentError> {
+        use wasm_bindgen_futures::JsFuture;
+        let end = offset.saturating_add(max_bytes as u64).min(self.len());
+        if offset >= end {
+            return Ok(Vec::new());
+        }
+        let slice = self
+            .file
+            .slice_with_f64_and_f64(offset as f64, end as f64)
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        let buffer = JsFuture::from(slice.array_buffer())
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        Ok(js_sys::Uint8Array::new(&buffer).to_vec())
+    }
+
+    /// Hash the stored ciphertext in fixed-size chunks before upload.
+    ///
+    /// Read at most one byte more than `expected_len`, so a longer file is
+    /// found without a read of the rest. The returned length differs from
+    /// `expected_len` when the file is shorter or longer.
+    pub async fn sha256(&self, expected_len: u64) -> Result<([u8; 32], u64), AttachmentError> {
+        let limit = expected_len.saturating_add(1);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let file = match &self.opened {
+                Some(file) => file.clone(),
+                None => std::sync::Arc::new(
+                    tokio::fs::File::open(&self.path)
+                        .await
+                        .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+                        .into_std()
+                        .await,
+                ),
+            };
+            xmtp_common::task::spawn_blocking(move || {
+                sha256_prefix(|bytes, offset| read_at(&file, bytes, offset), limit)
+            })
+            .await
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            use sha2::{Digest as _, Sha256};
+            let mut hash = Sha256::new();
+            let mut length = 0u64;
+            let end = self.len().min(limit);
+            while length < end {
+                let bytes = self.read_chunk(length, CHUNK_SIZE).await?;
+                if bytes.is_empty() {
+                    return Err(AttachmentError::new(Cause::LocalStorage));
+                }
+                let bytes = &bytes[..bytes.len().min((end - length) as usize)];
+                hash.update(bytes);
+                length += bytes.len() as u64;
+            }
+            Ok((hash.finalize().into(), length))
+        }
+    }
+}
+
+/// Read a file at an offset without the shared file cursor.
+#[cfg(all(not(target_arch = "wasm32"), unix))]
+pub(crate) fn read_at(
+    file: &std::fs::File,
+    bytes: &mut [u8],
+    offset: u64,
+) -> std::io::Result<usize> {
+    std::os::unix::fs::FileExt::read_at(file, bytes, offset)
+}
+
+/// Read a file at an offset. Windows moves the cursor, so callers always
+/// give the offset.
+#[cfg(all(not(target_arch = "wasm32"), windows))]
+pub(crate) fn read_at(
+    file: &std::fs::File,
+    bytes: &mut [u8],
+    offset: u64,
+) -> std::io::Result<usize> {
+    std::os::windows::fs::FileExt::seek_read(file, bytes, offset)
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(any(unix, windows))))]
+pub(crate) fn read_at(_: &std::fs::File, _: &mut [u8], _: u64) -> std::io::Result<usize> {
+    Err(std::io::Error::from(std::io::ErrorKind::Unsupported))
+}
+
+/// Hash the first `limit` bytes that `read_at` gives, or fewer at the end.
+#[cfg(not(target_arch = "wasm32"))]
+fn sha256_prefix(
+    mut read_at: impl FnMut(&mut [u8], u64) -> std::io::Result<usize>,
+    limit: u64,
+) -> Result<([u8; 32], u64), AttachmentError> {
+    use sha2::{Digest as _, Sha256};
+    let mut hash = Sha256::new();
+    let mut length = 0u64;
+    let mut chunk = vec![0u8; CHUNK_SIZE];
+    while length < limit {
+        let want = (limit - length).min(CHUNK_SIZE as u64) as usize;
+        let count = read_at(&mut chunk[..want], length)
+            .map_err(|_| AttachmentError::new(Cause::LocalStorage))?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&chunk[..count]);
+        length += count as u64;
+    }
+    Ok((hash.finalize().into(), length))
 }
 
 #[cfg_attr(target_arch = "wasm32", async_trait::async_trait(?Send))]
@@ -238,6 +483,57 @@ mod tests {
         assert!(staged_path(&"A".repeat(64)).is_err());
     }
 
+    // verifies: ATCH-036
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    fn staged_hash_reads_only_the_limit() {
+        let source = vec![7u8; 16 * CHUNK_SIZE];
+        let mut read = 0u64;
+        let limit = 2 * CHUNK_SIZE as u64 + 1;
+        let (_, length) = sha256_prefix(
+            |bytes, offset| {
+                let start = offset as usize;
+                let count = bytes.len().min(source.len() - start);
+                bytes[..count].copy_from_slice(&source[start..start + count]);
+                read += count as u64;
+                Ok(count)
+            },
+            limit,
+        )?;
+        assert_eq!(length, limit);
+        assert_eq!(read, limit);
+    }
+
+    // verifies: ATCH-036
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn staged_hash_stops_after_expected_length() {
+        use sha2::{Digest as _, Sha256};
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let content: Vec<u8> = (0..4 * CHUNK_SIZE).map(|index| index as u8).collect();
+        let mut writer = store.create_temp(".tmp/long").await?;
+        writer.write(&content).await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        let full_length = content.len() as u64;
+        let prefix_digest =
+            |length: usize| -> [u8; 32] { Sha256::digest(&content[..length]).into() };
+
+        let staged = store.open_read(".tmp/long").await?;
+        assert!(staged.opened.is_some());
+        // A longer file: the hash reads one byte past the expected length.
+        assert_eq!(staged.sha256(10).await?, (prefix_digest(11), 11));
+        assert_eq!(
+            staged.sha256(full_length).await?,
+            (prefix_digest(content.len()), full_length)
+        );
+        // A shorter file: the hash ends at the end of the file.
+        assert_eq!(staged.sha256(full_length + 5).await?.1, full_length);
+        let by_path = StagedFile::from_path_for_test(directory.path().join(".tmp/long"));
+        assert_eq!(by_path.sha256(10).await?, (prefix_digest(11), 11));
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_common::test(unwrap_try = true)]
     async fn native_store_paths() {
@@ -257,6 +553,7 @@ mod tests {
         assert!(!store.exists("key/file").await?);
     }
 
+    // verifies: ATCH-077
     #[cfg(unix)]
     #[xmtp_common::test(unwrap_try = true)]
     async fn native_create_temp_rejects_symlinked_parent() {
@@ -322,7 +619,7 @@ mod tests {
                 .rename(".tmp/source", "key/file")
                 .await
                 .unwrap_err()
-                .cause,
+                .cause(),
             Cause::LocalStorage
         );
         assert!(!outside.path().join("file").exists());
@@ -343,7 +640,7 @@ mod tests {
                 .rename("key/file", "safe/file")
                 .await
                 .unwrap_err()
-                .cause,
+                .cause(),
             Cause::LocalStorage
         );
         assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
@@ -364,6 +661,22 @@ mod tests {
             Cause::LocalStorage
         );
         assert_eq!(std::fs::read(outside.path().join("file"))?, b"outside");
+    }
+
+    // verifies: ATCH-052
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_regular_file_check_uses_opened_file() {
+        let root = tempfile::tempdir()?;
+        let store = NativeStore::new(root.path()).await?;
+        std::fs::create_dir(root.path().join("key"))?;
+        std::fs::write(root.path().join("key/file"), b"plain")?;
+        let opened = store.open_read("key/file").await?;
+        // Put a directory at the path after the open.
+        std::fs::remove_file(root.path().join("key/file"))?;
+        std::fs::create_dir(root.path().join("key/file"))?;
+
+        assert!(opened.is_regular_file().await?);
     }
 
     #[cfg(unix)]
@@ -394,10 +707,425 @@ mod tests {
         std::os::unix::fs::symlink(outside.path(), root.path().join("key"))?;
 
         assert_eq!(
-            store.remove_dir_all("key/sub").await.unwrap_err().cause,
+            store
+                .remove_dir_all("key/sub")
+                .await
+                .unwrap_err()
+                .error
+                .cause,
             Cause::LocalStorage
         );
         assert_eq!(std::fs::read(outside.path().join("sub/file"))?, b"outside");
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn direct_managed_directory_removal_repairs_mode_and_checks_owner() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreModes(Vec<std::path::PathBuf>);
+        impl Drop for RestoreModes {
+            fn drop(&mut self) {
+                for path in &self.0 {
+                    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+                }
+            }
+        }
+
+        let root = tempfile::tempdir()?;
+        let store = NativeStore::new(root.path()).await?;
+        let full = "a".repeat(64);
+        let empty = "b".repeat(64);
+        let foreign = "c".repeat(64);
+        let full_path = root.path().join(&full);
+        let empty_path = root.path().join(&empty);
+        let foreign_path = root.path().join(&foreign);
+        std::fs::create_dir(&full_path)?;
+        std::fs::write(full_path.join("file"), b"plain")?;
+        std::fs::create_dir(&empty_path)?;
+        std::fs::create_dir(&foreign_path)?;
+        let _restore = RestoreModes(vec![full_path.clone(), empty_path.clone()]);
+        for path in [&full_path, &empty_path] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))?;
+        }
+
+        store.remove_dir_all(&full).await?;
+        store.remove_empty_dir(&empty).await?;
+        assert!(!full_path.exists());
+        assert!(!empty_path.exists());
+        let foreign_store = store.with_forced_foreign_owner();
+        assert_eq!(
+            foreign_store
+                .remove_dir_all(&foreign)
+                .await
+                .expect_err("foreign-owned directory must fail")
+                .error
+                .cause,
+            Cause::LocalStorage
+        );
+        assert!(foreign_path.is_dir());
+    }
+
+    // verifies: EVENT-001
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_failed_removal_reports_removed_entries() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreMode(std::path::PathBuf);
+        impl Drop for RestoreMode {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+
+        let root = tempfile::tempdir()?;
+        let store = NativeStore::new(root.path()).await?;
+        // The file can be removed, but not the directory in a read-only root.
+        std::fs::create_dir(root.path().join("partial"))?;
+        std::fs::write(root.path().join("partial/file"), b"plain")?;
+        // Nothing can be removed from a read-only child directory.
+        std::fs::create_dir_all(root.path().join("blocked/sub"))?;
+        std::fs::write(root.path().join("blocked/sub/file"), b"plain")?;
+        let _restore = [
+            RestoreMode(root.path().to_path_buf()),
+            RestoreMode(root.path().join("blocked/sub")),
+        ];
+        std::fs::set_permissions(
+            root.path().join("blocked/sub"),
+            std::fs::Permissions::from_mode(0o500),
+        )?;
+        std::fs::set_permissions(root.path(), std::fs::Permissions::from_mode(0o500))?;
+
+        let partial = store.remove_dir_all("partial").await.unwrap_err();
+        assert_eq!(partial.error.cause, Cause::LocalStorage);
+        assert!(partial.removed_any);
+        assert!(!root.path().join("partial/file").exists());
+        assert!(root.path().join("partial").is_dir());
+
+        let blocked = store.remove_dir_all("blocked").await.unwrap_err();
+        assert_eq!(blocked.error.cause, Cause::LocalStorage);
+        assert!(!blocked.removed_any);
+        assert!(root.path().join("blocked/sub/file").exists());
+    }
+
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_plaintext_files_are_owner_only() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir()?;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o755))?;
+        let store = NativeStore::new(directory.path()).await?;
+        assert_eq!(
+            std::fs::metadata(directory.path())?.permissions().mode() & 0o777,
+            0o755
+        );
+        let mut writer = store.create_temp(".tmp/plaintext").await?;
+        writer.write(b"private").await?;
+        drop(writer);
+        for path in [".tmp", ".tmp/plaintext"] {
+            let mode = std::fs::metadata(directory.path().join(path))?
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, if path == ".tmp" { 0o700 } else { 0o600 });
+        }
+        store.rename(".tmp/plaintext", "key/plaintext").await?;
+        assert_eq!(
+            std::fs::metadata(directory.path().join("key"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::metadata(directory.path().join("key/plaintext"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o600
+        );
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn existing_managed_directories_are_repaired_before_write() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let directory = tempfile::tempdir()?;
+        let key = "a".repeat(64);
+        let other_key = "b".repeat(64);
+        std::fs::create_dir(directory.path().join(".tmp"))?;
+        std::fs::create_dir(directory.path().join(&key))?;
+        std::fs::create_dir(directory.path().join(&other_key))?;
+        for name in [".tmp", key.as_str(), other_key.as_str()] {
+            std::fs::set_permissions(
+                directory.path().join(name),
+                std::fs::Permissions::from_mode(0o770),
+            )?;
+        }
+        let root_mode = std::fs::metadata(directory.path())?.permissions().mode() & 0o777;
+        let store = NativeStore::new(directory.path()).await?;
+        let mut writer = store.create_temp(".tmp/file").await?;
+        writer.write(b"private").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        assert_eq!(
+            std::fs::metadata(directory.path().join(".tmp"))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert!(!store.create_dir_if_absent(&other_key).await?);
+        assert_eq!(
+            std::fs::metadata(directory.path().join(&other_key))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        store.rename(".tmp/file", &format!("{key}/file")).await?;
+        assert_eq!(
+            std::fs::metadata(directory.path().join(&key))?
+                .permissions()
+                .mode()
+                & 0o777,
+            0o700
+        );
+        assert_eq!(
+            std::fs::read(directory.path().join(&key).join("file"))?,
+            b"private"
+        );
+        assert_eq!(
+            std::fs::metadata(directory.path())?.permissions().mode() & 0o777,
+            root_mode
+        );
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn inaccessible_managed_directory_is_repaired_before_open() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreMode(std::path::PathBuf);
+        impl Drop for RestoreMode {
+            fn drop(&mut self) {
+                let _ = std::fs::set_permissions(&self.0, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let managed = directory.path().join(".tmp");
+        std::fs::create_dir(&managed)?;
+        let _restore = RestoreMode(managed.clone());
+        std::fs::set_permissions(&managed, std::fs::Permissions::from_mode(0o000))?;
+        let mut writer = store.create_temp(".tmp/file").await?;
+        writer.write(b"private").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        assert_eq!(
+            std::fs::metadata(&managed)?.permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(std::fs::read(managed.join("file"))?, b"private");
+
+        std::fs::set_permissions(&managed, std::fs::Permissions::from_mode(0o000))?;
+        assert!(!store.create_dir_if_absent(".tmp").await?);
+        assert_eq!(
+            std::fs::metadata(&managed)?.permissions().mode() & 0o777,
+            0o700
+        );
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn reconciliation_repairs_managed_directories_before_scan() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreModes(Vec<std::path::PathBuf>);
+        impl Drop for RestoreModes {
+            fn drop(&mut self) {
+                for path in &self.0 {
+                    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700));
+                }
+            }
+        }
+
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let key = "a".repeat(64);
+        let tmp = directory.path().join(".tmp");
+        let key_dir = directory.path().join(&key);
+        std::fs::create_dir(&tmp)?;
+        std::fs::create_dir(&key_dir)?;
+        std::fs::write(key_dir.join("file"), b"plain")?;
+        let _restore = RestoreModes(vec![tmp.clone(), key_dir.clone()]);
+        for path in [&tmp, &key_dir] {
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o000))?;
+        }
+
+        let files = store.list_files().await?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, format!("{key}/file"));
+        for path in [&tmp, &key_dir] {
+            assert_eq!(std::fs::metadata(path)?.permissions().mode() & 0o777, 0o700);
+        }
+
+        let foreign = store.clone().with_forced_foreign_owner();
+        assert_eq!(
+            foreign
+                .list_files()
+                .await
+                .err()
+                .expect("foreign owner fails")
+                .cause,
+            Cause::LocalStorage
+        );
+
+        let outside = tempfile::tempdir()?;
+        std::fs::write(outside.path().join("outside"), b"other")?;
+        std::os::unix::fs::symlink(outside.path(), directory.path().join(".staged"))?;
+        let files = store.list_files().await?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, format!("{key}/file"));
+        assert_eq!(std::fs::read(outside.path().join("outside"))?, b"other");
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn new_managed_directory_is_repaired_under_restrictive_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct Restore(libc::mode_t, std::path::PathBuf);
+        impl Drop for Restore {
+            fn drop(&mut self) {
+                unsafe { libc::umask(self.0) };
+                let _ = std::fs::set_permissions(&self.1, std::fs::Permissions::from_mode(0o700));
+            }
+        }
+
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let managed = directory.path().join(".tmp");
+        let previous = unsafe { libc::umask(0o777) };
+        let _restore = Restore(previous, managed.clone());
+        let mut writer = store.create_temp(".tmp/file").await?;
+        writer.write(b"private").await?;
+        store.sync(&mut writer).await?;
+        drop(writer);
+        assert_eq!(
+            std::fs::metadata(&managed)?.permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(std::fs::read(managed.join("file"))?, b"private");
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn chmod_failure_does_not_stop_native_store() {
+        use std::os::unix::fs::PermissionsExt as _;
+        let directory = tempfile::tempdir()?;
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o755))?;
+        let store = NativeStore::new(directory.path())
+            .await?
+            .with_forced_chmod_error();
+        assert_eq!(
+            std::fs::metadata(directory.path())?.permissions().mode() & 0o777,
+            0o755
+        );
+        let mut writer = store.create_temp(".tmp/plaintext").await?;
+        writer.write(b"private").await?;
+        drop(writer);
+        store.rename(".tmp/plaintext", "key/plaintext").await?;
+        assert!(store.exists("key/plaintext").await?);
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn missing_native_root_is_private_with_zero_umask() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        struct RestoreUmask(libc::mode_t);
+        impl Drop for RestoreUmask {
+            fn drop(&mut self) {
+                unsafe { libc::umask(self.0) };
+            }
+        }
+
+        let directory = tempfile::tempdir()?;
+        let root = directory.path().join("parent/root");
+        let previous = unsafe { libc::umask(0) };
+        let _restore = RestoreUmask(previous);
+        let _store = NativeStore::new(&root).await?;
+        for path in [&root, &directory.path().join("parent")] {
+            assert_eq!(std::fs::metadata(path)?.permissions().mode() & 0o777, 0o700);
+        }
+    }
+
+    // verifies: ATCH-077
+    #[cfg(unix)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn existing_foreign_owned_directory_is_rejected() {
+        let directory = tempfile::tempdir()?;
+        tokio::fs::create_dir(directory.path().join(".tmp")).await?;
+        let store = NativeStore::new(directory.path())
+            .await?
+            .with_forced_foreign_owner();
+        let error = store
+            .create_temp(".tmp/file")
+            .await
+            .err()
+            .expect("foreign-owned directory must fail");
+        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(!directory.path().join(".tmp/file").exists());
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_reconcile_scan_stops_at_key_level() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let key = "a".repeat(64);
+        for path in [
+            format!("{key}/plain.txt"),
+            format!("{key}/nested/deep.txt"),
+            "app/file.txt".to_owned(),
+            ".DS_Store".to_owned(),
+        ] {
+            let path = directory.path().join(path);
+            tokio::fs::create_dir_all(path.parent().unwrap()).await?;
+            tokio::fs::write(path, b"file").await?;
+        }
+        let files = store.list_files().await?;
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].path, format!("{key}/plain.txt"));
+    }
+
+    // verifies: ATCH-076
+    #[cfg(not(target_arch = "wasm32"))]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn native_reconcile_scan_reports_modified_time_error() {
+        let directory = tempfile::tempdir()?;
+        let store = NativeStore::new(directory.path()).await?;
+        let key = "a".repeat(64);
+        tokio::fs::create_dir(directory.path().join(&key)).await?;
+        tokio::fs::write(directory.path().join(key).join("plain"), b"file").await?;
+        let error = store
+            .with_forced_modified_error()
+            .list_files()
+            .await
+            .err()
+            .expect("unreadable modification time must fail");
+        assert_eq!(error.cause, Cause::LocalStorage);
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -424,15 +1152,17 @@ mod tests {
         let store = NativeStore::new(directory.path()).await?;
         let mut source = store.create_temp(".tmp/source").await?;
         source.write(b"source").await?;
+        store.sync(&mut source).await?;
         drop(source);
         let mut destination = store.create_temp(".tmp/destination").await?;
         destination.write(b"destination").await?;
+        store.sync(&mut destination).await?;
         drop(destination);
         let error = store
             .rename(".tmp/source", ".tmp/destination")
             .await
             .unwrap_err();
-        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(matches!(error, StoreMoveError::DestinationExists));
         assert_eq!(
             tokio::fs::read(directory.path().join(".tmp/source")).await?,
             b"source"
@@ -452,6 +1182,7 @@ mod tests {
             .with_forced_hard_link_error(std::io::ErrorKind::PermissionDenied);
         let mut source = store.create_temp(".tmp/source").await?;
         source.write(b"source").await?;
+        store.sync(&mut source).await?;
         drop(source);
         store.rename(".tmp/source", "key/file").await?;
         assert!(!store.exists(".tmp/source").await?);
@@ -462,9 +1193,10 @@ mod tests {
 
         let mut source = store.create_temp(".tmp/second").await?;
         source.write(b"second").await?;
+        store.sync(&mut source).await?;
         drop(source);
         let error = store.rename(".tmp/second", "key/file").await.unwrap_err();
-        assert_eq!(error.cause, Cause::LocalStorage);
+        assert!(matches!(error, StoreMoveError::DestinationExists));
         assert_eq!(
             tokio::fs::read(directory.path().join("key/file")).await?,
             b"source"
@@ -484,6 +1216,7 @@ mod tests {
             .with_forced_hard_link_error(std::io::ErrorKind::Unsupported);
         let mut source = store.create_temp(".tmp/source").await?;
         source.write(b"source").await?;
+        store.sync(&mut source).await?;
         drop(source);
         store.rename(".tmp/source", "key/file").await?;
         assert!(!store.exists(".tmp/source").await?);
@@ -492,6 +1225,7 @@ mod tests {
         let racing = store.with_fallback_destination_race(b"destination".to_vec());
         let mut source = racing.create_temp(".tmp/second").await?;
         source.write(b"second").await?;
+        racing.sync(&mut source).await?;
         drop(source);
         assert_eq!(
             racing
@@ -529,7 +1263,7 @@ mod tests {
                 .rename(".tmp/source", "key/file")
                 .await
                 .unwrap_err()
-                .cause,
+                .cause(),
             Cause::LocalStorage
         );
         assert_eq!(
@@ -563,6 +1297,7 @@ mod tests {
         std::env::set_current_dir(elsewhere.path())?;
         let mut writer = store.create_temp(".tmp/file").await?;
         writer.write(b"original root").await?;
+        store.sync(&mut writer).await?;
         drop(writer);
         assert_eq!(
             tokio::fs::read(directory.path().join(".tmp/file")).await?,
@@ -602,6 +1337,7 @@ mod tests {
                 app.join(suffix).join("nested"),
                 root.clone(),
                 root.join(".tmp"),
+                root.join("key"),
             ] {
                 assert_eq!(
                     std::fs::metadata(&directory)?.permissions().mode() & 0o777,
@@ -633,6 +1369,7 @@ mod tests {
             super::native::take_initial_modes();
         }
         let store = NativeStore::new(std::path::PathBuf::from(root)).await?;
+        assert!(store.create_dir_if_absent("key").await?);
         let mut writer = store.create_temp(".tmp/file").await?;
         writer.write(b"private").await?;
         store.sync(&mut writer).await?;
@@ -643,7 +1380,7 @@ mod tests {
                     .iter()
                     .filter(|(_, expected)| *expected == 0o700)
                     .count(),
-                4
+                5
             );
             assert_eq!(
                 modes
@@ -698,7 +1435,7 @@ mod tests {
                 .rename(".tmp/source", "key/final")
                 .await
                 .unwrap_err()
-                .cause,
+                .cause(),
             Cause::LocalStorage
         );
         assert!(store.exists(".tmp/source").await?);

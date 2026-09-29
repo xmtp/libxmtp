@@ -12,7 +12,7 @@ replica_url = "env:XMTP_REPLICA_URL"
 
 [attachments]
 base_url = "env:XMTP_S3_BASE_URL"
-max_upload_bytes = 10485760
+max_upload_bytes = 104857600
 retention_seconds = 0
 [attachments.target.S3]
 endpoint = "env:XMTP_S3_URL"

@@ -41,6 +41,7 @@ pub(crate) mod test_hooks {
 
 #[derive(PartialEq, Eq, Copy, Clone, Hash, Debug)]
 pub enum WorkerKind {
+    AttachmentCleanup,
     DeviceSync,
     DisappearingMessages,
     KeyPackageCleaner,

@@ -403,6 +403,7 @@ mod tests {
         }
     }
 
+    // verifies: ATCH-027
     #[xmtp_common::test(unwrap_try = true)]
     fn request_omits_browser_credentials() {
         for method in ["GET", "PUT"] {

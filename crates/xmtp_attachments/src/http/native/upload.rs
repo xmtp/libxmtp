@@ -34,7 +34,7 @@ use super::{AbortOnDrop, Transfer};
 use crate::{
     AttachmentError, AttachmentFailureCause as Cause,
     http::{PutOutcome, UploadRequest, is_loopback_name, put_outcome, secure_upload_url},
-    store::{CHUNK_SIZE, StagedFile},
+    store::{CHUNK_SIZE, StagedFile, read_at},
 };
 
 fn network() -> AttachmentError {
@@ -116,21 +116,6 @@ struct PositionalReader {
     offset: u64,
     end: u64,
     pending: Option<tokio::task::JoinHandle<io::Result<Vec<u8>>>>,
-}
-
-#[cfg(unix)]
-fn read_at(file: &std::fs::File, bytes: &mut [u8], offset: u64) -> io::Result<usize> {
-    std::os::unix::fs::FileExt::read_at(file, bytes, offset)
-}
-
-#[cfg(windows)]
-fn read_at(file: &std::fs::File, bytes: &mut [u8], offset: u64) -> io::Result<usize> {
-    std::os::windows::fs::FileExt::seek_read(file, bytes, offset)
-}
-
-#[cfg(not(any(unix, windows)))]
-fn read_at(_: &std::fs::File, _: &mut [u8], _: u64) -> io::Result<usize> {
-    Err(io::Error::from(io::ErrorKind::Unsupported))
 }
 
 impl Stream for PositionalReader {

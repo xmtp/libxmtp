@@ -68,6 +68,8 @@ pub trait DbQuery:
     MaybeSend
     + MaybeSync
     + ReadOnly
+    + QueryLocalAttachment
+    + QueryPendingAttachment
     + QueryConsentRecord
     + QueryConversationList
     + QueryConversationState
@@ -105,6 +107,8 @@ impl<T> DbQuery for T where
     T: MaybeSend
         + MaybeSync
         + ReadOnly
+        + QueryLocalAttachment
+        + QueryPendingAttachment
         + QueryConsentRecord
         + QueryConversationList
         + QueryConversationState
