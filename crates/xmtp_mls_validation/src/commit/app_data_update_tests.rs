@@ -1276,3 +1276,39 @@ fn standalone_proposal_update_of_absent_key_over_bound_is_rejected() {
         Err(CommitRuleError::InsufficientPermissions)
     ));
 }
+
+/// A delete naming an oversized key is rejected even though the key is
+/// absent from the committed state: no stored key can be that long, so the
+/// proposal would only spend proposal storage.
+// verifies: META-068
+#[xmtp_common::test(unwrap_try = true)]
+fn standalone_proposal_delete_of_oversized_key_is_rejected() {
+    let registry = registry_with(
+        PROFILE,
+        allow(),
+        allow(),
+        allow(),
+        ComponentType::TlsMapBytesBytes,
+    );
+    let validate = |len: usize| {
+        let payload = TlsMapDelta::<VLBytes, VLBytes>::new()
+            .delete(VLBytes::new(vec![0; len]))
+            .tls_serialize_detached()
+            .unwrap();
+        validate_standalone_app_data_update(
+            PROFILE,
+            &AppDataUpdateOperation::Update(payload.into()),
+            member(),
+            "inbox_alice",
+            &registry,
+            None,
+            None,
+            None,
+        )
+    };
+    validate(8192)?;
+    assert!(matches!(
+        validate(8193),
+        Err(CommitRuleError::InsufficientPermissions)
+    ));
+}

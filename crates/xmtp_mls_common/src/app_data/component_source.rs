@@ -15,8 +15,8 @@
 //! component, `USER_DISPLAY_NAME`, or `GROUP_IMAGE` whose scalar,
 //! collection key, or collection value exceeds [`MAX_FIELD_ELEMENT_BYTES`],
 //! or whose serialized collection exceeds [`MAX_FIELD_SNAPSHOT_BYTES`].
-//! [`check_update_payload_bounds`] applies the element bound to what an
-//! update payload writes, without the state it applies to.
+//! [`check_update_payload_bounds`] applies the element bound to every
+//! element an update payload names, without the state it applies to.
 //!
 //! ## Inbox-id encoding
 //!
@@ -616,9 +616,9 @@ fn is_field_bounded(id: ComponentId) -> bool {
     id.is_app_range() || id == ComponentId::USER_DISPLAY_NAME || id == ComponentId::GROUP_IMAGE
 }
 
-/// Reject an `AppDataUpdate::Update` payload for component `id` that writes
+/// Reject an `AppDataUpdate::Update` payload for component `id` that names
 /// a scalar, collection key, or collection value longer than
-/// [`MAX_FIELD_ELEMENT_BYTES`]. Unlike [`apply_app_data_update_payload`],
+/// [`MAX_FIELD_ELEMENT_BYTES`], including the key of a removal. Unlike [`apply_app_data_update_payload`],
 /// this reads only the payload, so it holds whatever state the update is
 /// later applied to.
 // implements: META-068
@@ -631,15 +631,15 @@ pub fn check_update_payload_bounds(
         return Ok(());
     }
     let ty = component_type(id).map_or_else(|| registered_component_type(id, registry), Ok)?;
-    // Removals write nothing, so they measure as zero.
-    let longest_written = match ty {
+    // A removal by hash names no key bytes.
+    let longest = match ty {
         ComponentType::Bytes | ComponentType::String => Some(payload.len()),
         ComponentType::TlsSetBytes => TlsSetDelta::<VLBytes>::tls_deserialize_exact(payload)?
             .mutations
             .iter()
             .map(|m| match m {
-                TlsSetMutation::Insert(key) => key.as_slice().len(),
-                TlsSetMutation::Remove(_) | TlsSetMutation::RemoveByHash(_) => 0,
+                TlsSetMutation::Insert(key) | TlsSetMutation::Remove(key) => key.as_slice().len(),
+                TlsSetMutation::RemoveByHash(_) => 0,
             })
             .max(),
         ComponentType::TlsMapInboxIdBytes | ComponentType::TlsMapInboxIdString => {
@@ -658,18 +658,18 @@ pub fn check_update_payload_bounds(
             TlsMapDelta::<VLBytes, VLBytes>::tls_deserialize_exact(payload)?
                 .mutations
                 .iter()
-                .flat_map(|m| match m {
+                .map(|m| match m {
                     TlsMapMutation::Insert { key, value }
                     | TlsMapMutation::Update { key, value } => {
-                        [key.as_slice().len(), value.as_slice().len()]
+                        key.as_slice().len().max(value.as_slice().len())
                     }
-                    TlsMapMutation::Delete { .. } => [0, 0],
+                    TlsMapMutation::Delete { key } => key.as_slice().len(),
                 })
                 .max()
         }
         ComponentType::TlsSetInboxId | ComponentType::Unspecified => None,
     };
-    check_element_bound(id, longest_written.unwrap_or(0))
+    check_element_bound(id, longest.unwrap_or(0))
 }
 
 /// Reject `value`, the new bytes of component `id` of type `ty`, when a
@@ -2572,12 +2572,12 @@ mod tests {
         apply_app_data_update_payload(ComponentId::GROUP_DESCRIPTION, &over, None, &registry)?;
     }
 
-    /// A payload's element bound is measured on what it writes: set inserts,
-    /// map keys and values. Removals and deletes write nothing and pass
-    /// whatever key they name.
+    /// A payload's element bound covers every byte key and value it names,
+    /// removal keys included: an oversized key can never match a stored one,
+    /// so admitting it only spends proposal storage.
     // verifies: META-068
     #[xmtp_common::test(unwrap_try = true)]
-    fn payload_bounds_measure_only_written_elements() {
+    fn payload_bounds_measure_every_named_element() {
         let set = ComponentId::new(0xC06B);
         let map = ComponentId::new(0xC06C);
         let registries = [
@@ -2599,7 +2599,14 @@ mod tests {
             set,
             set_delta(TlsSetDelta::new().insert(bytes(over)))
         )));
-        check(set, set_delta(TlsSetDelta::new().remove(bytes(over))))?;
+        assert!(exceeded(check(
+            set,
+            set_delta(TlsSetDelta::new().remove(bytes(over)))
+        )));
+        check(
+            set,
+            set_delta(TlsSetDelta::new().remove(bytes(MAX_FIELD_ELEMENT_BYTES))),
+        )?;
 
         let map_delta =
             |delta: TlsMapDelta<VLBytes, VLBytes>| delta.tls_serialize_detached().unwrap();
@@ -2611,7 +2618,14 @@ mod tests {
             map,
             map_delta(TlsMapDelta::new().update(bytes(1), bytes(over)))
         )));
-        check(map, map_delta(TlsMapDelta::new().delete(bytes(over))))?;
+        assert!(exceeded(check(
+            map,
+            map_delta(TlsMapDelta::new().delete(bytes(over)))
+        )));
+        check(
+            map,
+            map_delta(TlsMapDelta::new().delete(bytes(MAX_FIELD_ELEMENT_BYTES))),
+        )?;
 
         check(ComponentId::GROUP_DESCRIPTION, vec![b'a'; over])?;
     }
