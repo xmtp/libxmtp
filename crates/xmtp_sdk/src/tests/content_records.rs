@@ -84,7 +84,7 @@ fn standard_content_types_decode_to_records() {
         ..Default::default()
     };
     assert!(
-        matches!(MessageContent::decode(GroupUpdatedCodec::encode(update)?.encode_to_vec())?, MessageContent::GroupUpdated(value) if value.initiated_by_inbox_id.0 == "inbox")
+        matches!(MessageContent::decode(GroupUpdatedCodec::encode(update)?.encode_to_vec())?, MessageContent::GroupUpdated(value) if value.initiated_by_inbox_id.checked().ok() == Some("inbox"))
     );
     let leave = LeaveRequest {
         authenticated_note: Some(b"note".to_vec()),

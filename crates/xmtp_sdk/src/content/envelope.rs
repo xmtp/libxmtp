@@ -117,15 +117,15 @@ impl Reaction {
 
     pub(crate) fn into_proto(
         self,
-        reference: crate::MessageId,
-        reference_inbox_id: crate::InboxId,
+        reference: String,
+        reference_inbox_id: String,
     ) -> xmtp_proto::xmtp::mls::message_contents::content_types::ReactionV2 {
         use xmtp_proto::xmtp::mls::message_contents::content_types::{
             ReactionAction as ProtoAction, ReactionSchema as ProtoSchema, ReactionV2,
         };
         ReactionV2 {
-            reference: reference.0,
-            reference_inbox_id: reference_inbox_id.0,
+            reference,
+            reference_inbox_id,
             action: match self.action {
                 ReactionAction::Unknown => 0,
                 ReactionAction::Added => ProtoAction::Added as i32,

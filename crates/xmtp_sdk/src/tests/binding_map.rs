@@ -7,12 +7,12 @@ async fn build_on_new_database_fails_identity_not_found(
 
     let signer = crate::generate_local_signer().await;
     let identity = signer::identity(signer).await?;
-    let inbox_id = InboxId(
+    let inbox_id = InboxId::try_from(
         identity
             .to_core()?
             .inbox_id(0)
             .map_err(XmtpError::unknown)?,
-    );
+    )?;
     let path = std::env::temp_dir().join(format!(
         "sdk-build-new-{}-{}-{}.db3",
         allow_offline,
@@ -37,7 +37,7 @@ async fn build_on_new_database_fails_identity_not_found(
             && !details.retryable)
     );
     assert!(!path.exists(), "build created a new database");
-    let store = crate::client::open_store(&settings.storage, &inbox_id.0).await?;
+    let store = crate::client::open_store(&settings.storage, inbox_id.checked()?).await?;
     let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::unknown)?;
     assert!(stored.is_none(), "build registered a new identity");
     drop(store);

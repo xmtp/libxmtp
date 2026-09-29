@@ -179,26 +179,26 @@ async fn conversation_reader_rereads_after_fall_behind() {
         "reader must start before new groups"
     );
     let first = client.conversations().create_group(vec![], None).await?;
-    let first_id = first.id().0;
+    let first_id = first.id();
     let delivered = xmtp_common::time::timeout(Duration::from_secs(5), pending)
         .await???
         .expect("first group");
-    assert!(matches!(delivered, crate::Conversation::Group { group } if group.id().0 == first_id));
+    assert!(matches!(delivered, crate::Conversation::Group { group } if group.id() == first_id));
 
     let mut expected = HashSet::new();
     // The core event hint queue holds ten entries. Its overflow must be read
     // after the database scan has delivered all groups.
     for _ in 0..13 {
         let group = client.conversations().create_group(vec![], None).await?;
-        expected.insert(group.id().0);
+        expected.insert(group.id().into_checked()?);
     }
     for _ in 0..expected.len() {
         let conversation = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
             .await??
             .expect("stored conversation");
         let id = match conversation {
-            crate::Conversation::Group { group } => group.id().0,
-            crate::Conversation::Dm { dm } => dm.id().0,
+            crate::Conversation::Group { group } => group.id().into_checked()?,
+            crate::Conversation::Dm { dm } => dm.id().into_checked()?,
         };
         assert!(expected.remove(&id), "duplicate or unrequested group");
     }

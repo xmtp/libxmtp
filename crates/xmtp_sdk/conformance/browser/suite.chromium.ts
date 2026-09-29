@@ -68,7 +68,8 @@ export async function runBrowserBridgeConformance(
     reopened = await Client.build(session, identity, clientOptions, inboxId);
     equal(reopened.inboxId().toString(), inboxId.toString(), "inbox changed");
     await checkError(
-      () => reopened!.conversations().getMessageById("bad"),
+      // Uppercase hex decodes, so only ID validation rejects it.
+      () => reopened!.conversations().getMessageById("AB".repeat(32)),
       (error) =>
         B.XmtpError.InvalidArgument.instanceOf(error) &&
         error.inner[0].code === "InvalidArgument" &&

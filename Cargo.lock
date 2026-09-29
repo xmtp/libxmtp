@@ -11076,6 +11076,8 @@ dependencies = [
 [[package]]
 name = "uniffi_core"
 version = "0.32.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f7530ae8efeaaa488622865966763fe0294832779fff80508c36d69c6a874a6a"
 dependencies = [
  "anyhow",
  "async-compat",

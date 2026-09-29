@@ -132,7 +132,8 @@ fun main() =
             )
         val host = SDKClient.create(signer, options)
         val client = host.raw
-        val invalidId = runCatching { client.conversations().getMessageById("bad") }.exceptionOrNull()
+        // Uppercase hex decodes, so only ID validation rejects it.
+        val invalidId = runCatching { client.conversations().getMessageById("AB".repeat(32)) }.exceptionOrNull()
         check(invalidId is XmtpException.InvalidArgument)
         check(invalidId.v1.code == "InvalidArgument")
         check(invalidId.v1.category == ErrorCategory.INPUT)

@@ -24,14 +24,17 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
             action: ReactionAction::Added,
             schema: ReactionSchema::Unicode,
         }
-        .into_proto(reference.clone(), client.inbox_id()),
+        .into_proto(
+            reference.checked()?.to_owned(),
+            client.inbox_id().into_checked()?,
+        ),
     )?
     .into();
     let reply_id = client
         .conversations()
         .reply_to_message(reference.clone(), nested, None)
         .await?;
-    let stored = client.inner.message(hex::decode(&reply_id.0)?)?;
+    let stored = client.inner.message(reply_id.to_bytes()?)?;
     let decoded = client
         .decode_content(
             ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?.into(),
@@ -69,12 +72,15 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
             action: ReactionAction::Added,
             schema: ReactionSchema::Unicode,
         }
-        .into_proto(reference.clone(), client.inbox_id()),
+        .into_proto(
+            reference.checked()?.to_owned(),
+            client.inbox_id().into_checked()?,
+        ),
     )?;
     let expected_content = nested.content.clone();
     let compressed = compress(nested, WireCompression::Gzip)?;
     let outer = ReplyCodec::encode(Reply {
-        reference: reference.0.clone(),
+        reference: reference.checked()?.to_owned(),
         reference_inbox_id: None,
         content: compressed,
     })?;
@@ -105,7 +111,7 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
     let group = client.conversations().create_group(vec![], None).await?;
     let text: EncodedContent = TextCodec::encode("plain".into())?.into();
     let plain = group.send(text, None).await?;
-    let stored = client.inner.message(hex::decode(&plain.0)?)?;
+    let stored = client.inner.message(plain.to_bytes()?)?;
     assert_eq!(
         ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?.compression,
         None
@@ -121,7 +127,7 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
             }),
         )
         .await?;
-    let stored = client.inner.message(hex::decode(&compressed_id.0)?)?;
+    let stored = client.inner.message(compressed_id.to_bytes()?)?;
     assert!(matches!(
         MessageContent::decode(stored.decrypted_message_bytes.clone())?,
         MessageContent::Text(value) if value == "compressed"
@@ -222,7 +228,7 @@ async fn unknown_message_bytes_remain_available_to_the_host() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let id = group.send_text("fallback".into(), None).await?;
-    let mut stored = client.inner.message(hex::decode(&id.0)?)?;
+    let mut stored = client.inner.message(id.to_bytes()?)?;
     let original = vec![0xff, 0x00, 0x80];
     stored.decrypted_message_bytes = original.clone();
     let message = crate::Message::from_stored(stored, client.client_key())?;
@@ -232,7 +238,7 @@ async fn unknown_message_bytes_remain_available_to_the_host() {
     assert_eq!(raw_bytes, &original);
     assert_eq!(message.0.encoded.content, original);
 
-    let mut stored = client.inner.message(hex::decode(&id.0)?)?;
+    let mut stored = client.inner.message(id.to_bytes()?)?;
     let mut proto = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
     proto.compression = Some(12_345);
     let original_content = proto.content.clone();

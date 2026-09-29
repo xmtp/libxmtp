@@ -25,7 +25,7 @@ async fn unknown_compression_stays_unknown_on_all_read_paths() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let id = group.send_text("valid".into(), None).await?;
-    let id_bytes = hex::decode(&id.0)?;
+    let id_bytes = id.to_bytes()?;
     let stored = client.inner.message(id_bytes.clone())?;
     let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
     encoded.compression = Some(99);
@@ -50,7 +50,7 @@ async fn empty_content_identifiers_stay_unknown_on_all_read_paths() {
     let group = client.conversations().create_group(vec![], None).await?;
     for empty_authority in [true, false] {
         let id = group.send_text("valid".into(), None).await?;
-        let id_bytes = hex::decode(&id.0)?;
+        let id_bytes = id.to_bytes()?;
         let stored = client.inner.message(id_bytes.clone())?;
         let mut encoded = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
         let kind = encoded.r#type.as_mut().expect("typed text");
@@ -109,12 +109,12 @@ async fn reply_with_empty_nested_identifier_stays_unknown_on_all_read_paths() {
             kind.type_id.clear();
         }
         let outer = ReplyCodec::encode(Reply {
-            reference: parent.0.clone(),
-            reference_inbox_id: Some(client.inbox_id().0.clone()),
+            reference: parent.checked()?.to_owned(),
+            reference_inbox_id: Some(client.inbox_id().into_checked()?),
             content: nested,
         })?;
         let id = group.send(outer.into(), None).await?;
-        let stored = client.inner.message(hex::decode(&id.0)?)?;
+        let stored = client.inner.message(id.to_bytes()?)?;
         let raw = stored.decrypted_message_bytes.clone();
         let direct = crate::Message::from_stored(stored, client.client_key())?;
         let by_id = client

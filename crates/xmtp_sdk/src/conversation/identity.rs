@@ -43,11 +43,10 @@ impl ConversationIdentity {
     async fn from_core(
         group: &MlsGroup<xmtp_mls::MlsContext>,
     ) -> Result<(Self, xmtp_mls::mls_common::group_metadata::GroupMetadata), XmtpError> {
-        let added_by_inbox_id =
-            InboxId::try_from(group.added_by_inbox_id().map_err(XmtpError::unknown)?)?;
+        let added_by_inbox_id = group.added_by_inbox_id().map_err(XmtpError::unknown)?;
         let metadata = group.metadata().await.map_err(XmtpError::unknown)?;
         Ok((
-            Self::from_metadata(added_by_inbox_id.0, &metadata, group.context.inbox_id())?,
+            Self::from_metadata(added_by_inbox_id, &metadata, group.context.inbox_id())?,
             metadata,
         ))
     }

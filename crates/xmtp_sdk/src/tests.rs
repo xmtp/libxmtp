@@ -441,7 +441,7 @@ async fn assert_undecodable_standard_read_paths(
 ) -> Result<(), XmtpError> {
     let stored = client
         .inner
-        .message(hex::decode(&id.0).map_err(XmtpError::unknown)?)
+        .message(id.to_bytes()?)
         .map_err(XmtpError::unknown)?;
     let direct = crate::Message::from_stored(stored, client.client_key())?;
     let by_id = client

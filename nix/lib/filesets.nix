@@ -33,7 +33,6 @@ let
     (src + /Cargo.toml)
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
-    (src + /vendor/uniffi_core)
     (src + /proto)
     # All Cargo.toml and build.rs files in the workspace
     (fileFilter (file: file.name == "Cargo.toml" || file.name == "build.rs") (src + /crates))
@@ -45,7 +44,6 @@ let
     (src + /Cargo.toml)
     (src + /Cargo.lock)
     (src + /.cargo/config.toml)
-    (src + /vendor/uniffi_core)
 
     # include folders for apps/bindings so cargo workspace globs are satisfied
     # One-off files that are needed outside of cargo sources

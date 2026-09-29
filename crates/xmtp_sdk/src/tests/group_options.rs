@@ -93,7 +93,7 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
 
     let mut inactive = None;
     for id in [first.clone(), second.clone()] {
-        let bytes = hex::decode(&id.0)?;
+        let bytes = id.to_bytes()?;
         if let Some((stored, stitched)) = a.inner.message_with_group(&bytes).await?
             && stored.group_id != stitched.group_id
         {
@@ -103,10 +103,10 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
     }
     let id = inactive.expect("one duplicate DM must be inactive");
     let owner = if id == first { &a } else { &b };
-    let stored = owner.inner.message(hex::decode(&id.0)?)?;
-    assert_eq!(stored.sender_inbox_id, owner.inbox_id().0);
+    let stored = owner.inner.message(id.to_bytes()?)?;
+    assert_eq!(stored.sender_inbox_id, owner.inbox_id().into_checked()?);
     let active_id = if id == first { &second } else { &first };
-    let active_group_id = owner.inner.message(hex::decode(&active_id.0)?)?.group_id;
+    let active_group_id = owner.inner.message(active_id.to_bytes()?)?.group_id;
     let crate::Conversation::Dm { dm: resolved_dm } = owner
         .conversations()
         .get_by_id(stored.group_id.into())
@@ -130,7 +130,7 @@ async fn duplicate_dm_message_actions_keep_typed_results() {
         .send_text("keep other duplicate active".into(), None)
         .await?;
     for message_id in [&id] {
-        let bytes = hex::decode(&message_id.0)?;
+        let bytes = message_id.to_bytes()?;
         let (stored, winner) = owner
             .inner
             .message_with_group(&bytes)

@@ -65,19 +65,25 @@ pub struct ForkRecoveryOptions {
     pub worker_interval_ns: Option<u64>,
 }
 
-impl From<ForkRecoveryOptions> for ForkRecoveryOpts {
-    fn from(value: ForkRecoveryOptions) -> Self {
+impl TryFrom<ForkRecoveryOptions> for ForkRecoveryOpts {
+    type Error = XmtpError;
+
+    fn try_from(value: ForkRecoveryOptions) -> Result<Self, Self::Error> {
         use xmtp_mls::builder::ForkRecoveryPolicy as CorePolicy;
-        Self {
+        Ok(Self {
             enable_recovery_requests: match value.policy {
                 ForkRecoveryPolicy::None => CorePolicy::None,
                 ForkRecoveryPolicy::AllowlistedGroups => CorePolicy::AllowlistedGroups,
                 ForkRecoveryPolicy::All => CorePolicy::All,
             },
-            groups_to_request_recovery: value.groups.into_iter().map(|id| id.0).collect(),
+            groups_to_request_recovery: value
+                .groups
+                .into_iter()
+                .map(crate::ConversationId::into_checked)
+                .collect::<Result<_, _>>()?,
             disable_recovery_responses: value.disable_responses,
             worker_interval_ns: value.worker_interval_ns,
-        }
+        })
     }
 }
 
@@ -202,5 +208,16 @@ impl Default for ClientOptions {
             workers: None,
             handlers: None,
         }
+    }
+}
+
+impl ClientOptions {
+    /// Returns the core fork recovery options, or `InvalidArgument` if a
+    /// conversation ID is malformed.
+    pub(super) fn fork_recovery_opts(&self) -> Result<Option<ForkRecoveryOpts>, XmtpError> {
+        self.fork_recovery
+            .clone()
+            .map(ForkRecoveryOpts::try_from)
+            .transpose()
     }
 }

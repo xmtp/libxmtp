@@ -9,7 +9,7 @@ async fn conversation_list_state_and_last_activity() {
     let older = client.conversations().create_group(vec![], None).await?;
     let newer = client.conversations().create_group(vec![], None).await?;
     let sent = older.send_text("most recent".into(), None).await?;
-    let stored_sent_at_ns = client.inner.message(hex::decode(&sent.0)?)?.sent_at_ns;
+    let stored_sent_at_ns = client.inner.message(sent.to_bytes()?)?.sent_at_ns;
     let ordered = client
         .conversations()
         .list(Some(ListConversationsOptions {

@@ -70,6 +70,10 @@ pub async fn inbox_states_with_backend(
     backend: BackendSource,
     ids: Vec<InboxId>,
 ) -> Result<Vec<InboxState>, XmtpError> {
+    let refs = ids
+        .iter()
+        .map(InboxId::checked)
+        .collect::<Result<Vec<_>, _>>()?;
     let backend = backend.resolve().await?;
     let store = crate::client::open_store(
         &crate::StorageOptions {
@@ -81,7 +85,6 @@ pub async fn inbox_states_with_backend(
     .await?;
     let api = api(&backend);
     let verifier = Box::new(api.clone()) as Box<dyn SmartContractSignatureVerifier>;
-    let refs = ids.iter().map(|id| id.0.as_str()).collect();
     let states =
         xmtp_mls::client::inbox_addresses_with_verifier(&api, &store.db(), refs, &verifier)
             .await
@@ -97,23 +100,19 @@ pub async fn key_package_statuses_with_backend(
     backend: BackendSource,
     ids: Vec<InstallationId>,
 ) -> Result<HashMap<String, KeyPackageStatus>, XmtpError> {
-    let backend = backend.resolve().await?;
     let installations = ids
         .iter()
-        .map(|id| hex::decode(&id.0).map_err(XmtpError::unknown))
-        .map(|value| {
-            value.and_then(|bytes| CoreInstallationId::try_from(bytes).map_err(XmtpError::unknown))
-        })
+        .map(|id| CoreInstallationId::try_from(id.to_bytes()?).map_err(XmtpError::unknown))
         .collect::<Result<Vec<_>, _>>()?;
+    let backend = backend.resolve().await?;
     let found = api(&backend)
         .fetch_key_packages(&installations)
         .await
         .map_err(XmtpError::from_api)?;
     let crypto = xmtp_db::XmtpOpenMlsProvider::<()>::new_crypto();
-    Ok(ids
+    Ok(installations
         .into_iter()
-        .zip(installations)
-        .map(|(installation_id, key)| {
+        .map(|key| {
             let status = match found.get(&key).and_then(Option::as_ref) {
                 Some(package) => match VerifiedKeyPackageV2::from_bytes(
                     &crypto,
@@ -136,7 +135,7 @@ pub async fn key_package_statuses_with_backend(
                     validation_error: Some("key package not found".into()),
                 },
             };
-            (installation_id.0, status)
+            (hex::encode(Vec::<u8>::from(key)), status)
         })
         .collect())
 }
@@ -146,12 +145,11 @@ pub async fn newest_message_metadata_with_backend(
     backend: BackendSource,
     ids: Vec<ConversationId>,
 ) -> Result<HashMap<String, MessageMetadataEntry>, XmtpError> {
-    let backend = backend.resolve().await?;
     let groups = ids
-        .iter()
-        .cloned()
+        .into_iter()
         .map(GroupId::try_from)
         .collect::<Result<Vec<_>, _>>()?;
+    let backend = backend.resolve().await?;
     let found = api(&backend)
         .get_newest_message_metadata(&groups)
         .await
@@ -180,11 +178,12 @@ pub async fn is_address_authorized_with_backend(
     inbox_id: InboxId,
     address: String,
 ) -> Result<bool, XmtpError> {
+    let inbox_id = inbox_id.checked()?;
     let backend = backend.resolve().await?;
     let member = MemberIdentifier::eth(address).map_err(XmtpError::unknown)?;
     xmtp_mls::identity_updates::is_member_of_association_state(
         &api(&backend),
-        &inbox_id.0,
+        inbox_id,
         &member,
         None,
     )
@@ -198,12 +197,12 @@ pub async fn is_installation_authorized_with_backend(
     inbox_id: InboxId,
     installation_id: InstallationId,
 ) -> Result<bool, XmtpError> {
+    let inbox_id = inbox_id.checked()?;
+    let member = MemberIdentifier::installation(installation_id.to_bytes()?);
     let backend = backend.resolve().await?;
-    let member =
-        MemberIdentifier::installation(hex::decode(installation_id.0).map_err(XmtpError::unknown)?);
     xmtp_mls::identity_updates::is_member_of_association_state(
         &api(&backend),
-        &inbox_id.0,
+        inbox_id,
         &member,
         None,
     )
@@ -218,15 +217,16 @@ pub async fn revoke_installations_with_backend(
     inbox_id: InboxId,
     ids: Vec<InstallationId>,
 ) -> Result<(), XmtpError> {
+    let inbox_id = inbox_id.checked()?;
+    let installations = ids
+        .iter()
+        .map(InstallationId::to_bytes)
+        .collect::<Result<Vec<_>, _>>()?;
     let backend = backend.resolve().await?;
     let identity = signer::identity(signer.clone()).await?.to_core()?;
-    let installations = ids
-        .into_iter()
-        .map(|id| hex::decode(id.0).map_err(XmtpError::unknown))
-        .collect::<Result<Vec<_>, _>>()?;
     let mut request = xmtp_mls::identity_updates::revoke_installations_with_verifier(
         &identity,
-        &inbox_id.0,
+        inbox_id,
         installations,
     )
     .map_err(XmtpError::from_client)?;
@@ -287,7 +287,7 @@ pub async fn revoke_installations_with_backend(
             location: crate::StorageLocation::InMemory,
             ..Default::default()
         },
-        &inbox_id.0,
+        inbox_id,
     )
     .await?;
     xmtp_mls::identity_updates::apply_signature_request_with_verifier(

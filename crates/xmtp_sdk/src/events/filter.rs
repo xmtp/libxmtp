@@ -13,16 +13,44 @@ pub struct EventFilter {
 }
 
 impl EventFilter {
+    /// Checks every conversation ID. Call this before any client or database
+    /// access, so a malformed ID returns `InvalidArgument`.
+    pub(crate) fn checked(self) -> Result<CheckedEventFilter, XmtpError> {
+        let group_ids = self
+            .conversation_ids
+            .map(|ids| {
+                ids.into_iter()
+                    .map(xmtp_proto::types::GroupId::try_from)
+                    .collect::<Result<Vec<_>, _>>()
+            })
+            .transpose()?;
+        Ok(CheckedEventFilter {
+            kinds: self.kinds,
+            group_ids,
+            content_types: self.content_types,
+            references_own_messages: self.references_own_messages,
+        })
+    }
+}
+
+/// An event filter whose conversation IDs are valid.
+pub(crate) struct CheckedEventFilter {
+    kinds: Vec<EventKind>,
+    group_ids: Option<Vec<xmtp_proto::types::GroupId>>,
+    content_types: Option<Vec<ContentTypeId>>,
+    references_own_messages: bool,
+}
+
+impl CheckedEventFilter {
     pub(crate) fn to_core(
         &self,
         client: &CoreClient,
     ) -> Result<xmtp_events::EventFilter<InternalEvent>, XmtpError> {
         let mut filter = xmtp_events::EventFilter::new(self.kinds.iter().copied().map(Into::into));
-        if let Some(ids) = &self.conversation_ids {
+        if let Some(ids) = &self.group_ids {
             let mut group_ids = Vec::with_capacity(ids.len());
-            for id in ids {
-                let group_id: xmtp_proto::types::GroupId = id.clone().try_into()?;
-                match client.group(&group_id) {
+            for group_id in ids {
+                match client.group(group_id) {
                     Ok(group) => {
                         if let Some(dm_id) = group.dm_id {
                             filter.dm_identifiers.push(dm_id.into_bytes());

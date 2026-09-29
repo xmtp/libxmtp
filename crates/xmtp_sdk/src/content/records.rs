@@ -411,26 +411,32 @@ impl TryFrom<xmtp_proto::xmtp::mls::message_contents::GroupUpdated> for GroupUpd
     }
 }
 
-impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
-    fn from(value: GroupUpdated) -> Self {
+impl TryFrom<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
+    type Error = crate::XmtpError;
+
+    fn try_from(value: GroupUpdated) -> Result<Self, Self::Error> {
         use xmtp_proto::xmtp::mls::message_contents::group_updated::{
             Inbox, MetadataFieldChange as ProtoChange,
         };
-        fn inboxes(values: Vec<crate::InboxId>) -> Vec<Inbox> {
+        fn inboxes(values: Vec<crate::InboxId>) -> Result<Vec<Inbox>, crate::XmtpError> {
             values
                 .into_iter()
-                .map(|value| Inbox { inbox_id: value.0 })
+                .map(|value| {
+                    Ok(Inbox {
+                        inbox_id: value.into_checked()?,
+                    })
+                })
                 .collect()
         }
-        Self {
-            initiated_by_inbox_id: value.initiated_by_inbox_id.0,
-            added_inboxes: inboxes(value.added_inboxes),
-            removed_inboxes: inboxes(value.removed_inboxes),
-            left_inboxes: inboxes(value.left_inboxes),
-            added_admin_inboxes: inboxes(value.added_admin_inboxes),
-            removed_admin_inboxes: inboxes(value.removed_admin_inboxes),
-            added_super_admin_inboxes: inboxes(value.added_super_admin_inboxes),
-            removed_super_admin_inboxes: inboxes(value.removed_super_admin_inboxes),
+        Ok(Self {
+            initiated_by_inbox_id: value.initiated_by_inbox_id.into_checked()?,
+            added_inboxes: inboxes(value.added_inboxes)?,
+            removed_inboxes: inboxes(value.removed_inboxes)?,
+            left_inboxes: inboxes(value.left_inboxes)?,
+            added_admin_inboxes: inboxes(value.added_admin_inboxes)?,
+            removed_admin_inboxes: inboxes(value.removed_admin_inboxes)?,
+            added_super_admin_inboxes: inboxes(value.added_super_admin_inboxes)?,
+            removed_super_admin_inboxes: inboxes(value.removed_super_admin_inboxes)?,
             metadata_field_changes: value
                 .metadata_field_changes
                 .into_iter()
@@ -440,6 +446,6 @@ impl From<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpdate
                     new_value: field.new_value,
                 })
                 .collect(),
-        }
+        })
     }
 }
