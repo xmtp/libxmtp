@@ -2,7 +2,7 @@
 //!
 //! [`initial_dictionary`] builds the epoch-0 dictionary, including the
 //! registry entries a new conversation takes from the backend catalogue.
-//! [`catalogue_registry_entries`] selects those entries; membership refresh
+//! [`catalogue_registry_entries`] selects those entries; a later commit
 //! reuses it to register the ones a group is missing.
 
 use tls_codec::Serialize;
@@ -518,7 +518,7 @@ pub(crate) fn decode_conversation_type(bytes: &[u8]) -> Result<i32, MigrationErr
 ///
 /// A definition with an unknown tag is skipped, not registered: this client
 /// could not write or validate its values, and leaving the ID absent lets a
-/// client that knows the tags register it during membership refresh.
+/// client that knows the tags register it in a later commit.
 // implements: META-066, META-067
 pub fn catalogue_registry_entries(
     catalogue: &[ApplicationComponentDefinition],

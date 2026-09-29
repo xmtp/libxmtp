@@ -547,11 +547,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 let keys = self.context.identity().installation_keys.clone();
                 let (bundle, staged_commit, group_epoch) =
                     generate_prepared_commit(storage, openmls_group, |group, provider| {
-                        // A key rotation registers nothing, but it still
-                        // cleans up after any pending Remove it commits.
                         let upkeep = crate::groups::app_data::membership_upkeep::membership_upkeep(
                             group,
-                            &[],
+                            &self
+                                .context
+                                .server_configuration()
+                                .configuration()
+                                .application_components,
                         )?;
                         let updates =
                             crate::groups::app_data::app_data_updates_with(group, &upkeep)?;
@@ -643,6 +645,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 })?;
 
                 let signer = self.context.identity().installation_keys.clone();
+                let catalogue = &self
+                    .context
+                    .server_configuration()
+                    .configuration()
+                    .application_components;
                 let ((proposal_msg, bundle), staged_commit, group_epoch) =
                     generate_prepared_commit(
                         storage,
@@ -652,6 +659,7 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                 group,
                                 provider,
                                 &signer,
+                                catalogue,
                                 component_id,
                                 payload,
                             )?)
@@ -684,6 +692,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         storage,
                         openmls_group,
                         admin_list_update_intent,
+                        &self
+                            .context
+                            .server_configuration()
+                            .configuration()
+                            .application_components,
                         signer,
                         intent.should_push,
                     )?;
@@ -699,6 +712,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         storage,
                         openmls_group,
                         update_permissions_intent,
+                        &self
+                            .context
+                            .server_configuration()
+                            .configuration()
+                            .application_components,
                         signer,
                         intent.should_push,
                     )?;
@@ -884,6 +902,11 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                         storage,
                         openmls_group,
                         intent_data,
+                        &self
+                            .context
+                            .server_configuration()
+                            .configuration()
+                            .application_components,
                         signer,
                         intent.should_push,
                     )?;

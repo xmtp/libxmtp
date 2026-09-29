@@ -1,12 +1,13 @@
-//! Registry reconciliation and removed-member cleanup carried by a
-//! membership commit.
+//! Registry reconciliation and removed-member cleanup carried by every
+//! commit this client builds.
 //!
-//! A membership commit registers the catalogue entries its group lacks and
-//! deletes a removed inbox's per-inbox map keys and admin-list key.
+//! A commit registers the catalogue entries its group lacks and deletes the
+//! per-inbox map keys and admin-list key of each inbox it removes, whether
+//! the removal is its own or a swept pending proposal.
 //! [`membership_upkeep`] returns those changes as inline proposals.
 //! Each one passes the receiver's own validation against the post-commit
 //! membership before it is kept; a change the committer may not make is
-//! dropped, so upkeep never blocks the membership change. Receivers require
+//! dropped, so upkeep never blocks the commit it rides on. Receivers require
 //! none of it.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
@@ -40,8 +41,8 @@ use crate::groups::GroupError;
 
 type States = HashMap<ComponentId, Option<Vec<u8>>>;
 
-/// The inline `AppDataUpdate` proposals this client adds to a membership
-/// commit, in addition to the group's pending proposals.
+/// The inline `AppDataUpdate` proposals this client adds to a commit, in
+/// addition to the group's pending proposals.
 // implements: META-067, GMOD-039
 pub(crate) fn membership_upkeep(
     group: &OpenMlsGroup,
@@ -146,7 +147,7 @@ pub(crate) fn membership_upkeep(
                 proposals.push(Proposal::AppDataUpdate(Box::new(proposal)));
             }
             Err(error) => {
-                tracing::info!(%id, %error, "membership commit omits unauthorized upkeep")
+                tracing::info!(%id, %error, "commit omits unauthorized upkeep")
             }
         }
     }

@@ -8,7 +8,7 @@
 //! its helpers transform bytes and do not change a group by themselves.
 //!
 //! `membership_upkeep` adds the registry reconciliation and removed-member
-//! cleanup that ride along with a membership commit.
+//! cleanup that ride along with every commit this client builds.
 
 #[allow(
     dead_code,
@@ -37,6 +37,7 @@ use openmls::{
 };
 use xmtp_mls_common::app_data::{component_id::ComponentId, component_registry::ComponentRegistry};
 
+use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_mls_common::app_data::component_source::{
     ComponentSourceError, apply_app_data_update_payload, read_from_app_data_dict,
 };
@@ -313,6 +314,7 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,
     signer: &impl openmls_traits::signatures::Signer,
+    catalogue: &[ApplicationComponentDefinition],
     component_id: ComponentId,
     payload: Vec<u8>,
 ) -> Result<(MlsMessageOut, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
@@ -320,16 +322,20 @@ pub(crate) fn stage_app_data_propose_and_commit<Provider: OpenMlsProvider>(
         mls_group,
         provider,
         signer,
+        catalogue,
         vec![(component_id, payload)],
     )?;
     Ok((proposals.remove(0), bundle))
 }
 
-/// Stage all component updates in one commit, using the same pre-commit state.
+/// Stage all component updates in one commit, using the same pre-commit
+/// state. The commit also carries this client's membership upkeep for
+/// `catalogue` inline.
 pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
     mls_group: &mut OpenMlsGroup,
     provider: &Provider,
     signer: &impl openmls_traits::signatures::Signer,
+    catalogue: &[ApplicationComponentDefinition],
     updates: Vec<(ComponentId, Vec<u8>)>,
 ) -> Result<(Vec<MlsMessageOut>, CommitMessageBundle), GroupAppDataError<Provider::StorageError>> {
     // Lazy-batching: we deliberately do NOT block on pre-existing
@@ -356,51 +362,32 @@ pub(crate) fn stage_app_data_proposals_and_commit<Provider: OpenMlsProvider>(
         proposals.push(proposal);
     }
 
-    // Step 2: compute the per-component dict updates by sweeping every
-    // `AppDataUpdate` proposal currently in the store. The store may
-    // contain pre-existing `AppDataUpdate` proposals queued by earlier
-    // intents (e.g. two members each issuing a `GROUP_MEMBERSHIP`
-    // update, or a queued `update_group_name` that hasn't been
-    // committed yet); the accumulator chains them via the in-batch
-    // map so the final dict bytes match what
-    // `process_message_with_app_data` produces on the receive side.
-    //
-    // Non-`AppDataUpdate` proposals (Add/Remove/Update/PSK/etc.) also
-    // get swept by `consume_proposal_store(true)` at step 3 — they
-    // ride into the commit natively via OpenMLS and don't contribute
-    // to AppData dict updates, so we don't include them in this
-    // iteration.
-    //
-    // Failure mode if OpenMLS ever changes `consume_proposal_store(true)`'s
-    // sweep behavior or `pending_proposals()` ordering: sender and
-    // receiver compute different final dict bytes for the same
-    // component, the commit's confirmation tag mismatches, and
-    // receivers reject the commit with `WrongConfirmationTag`. The E2E
-    // tests in `groups/tests/test_proposals.rs` under the AppDataUpdate
-    // section will fail loudly on any OpenMLS bump that breaks this.
-    let pending_tuples: Vec<(openmls::component::ComponentId, AppDataUpdateOperation)> = mls_group
-        .pending_proposals()
-        .filter_map(|q| match q.proposal() {
-            Proposal::AppDataUpdate(p) => Some((p.component_id(), p.operation().clone())),
-            _ => None,
-        })
-        .collect();
-    let pending_iter = pending_tuples.iter().map(|(id, op)| (*id, op));
-    let app_data_updates =
-        accumulate_app_data_updates(mls_group, pending_iter).inspect_err(|e| {
-            tracing::error!(
-                error = %e,
-                "Failed to compute AppDataUpdates for standalone propose+commit"
-            );
-        })?;
+    // Step 2: registry reconciliation, and cleanup after any swept removal.
+    let upkeep = membership_upkeep::membership_upkeep(mls_group, catalogue)
+        .map_err(|e| GroupAppDataError::Upkeep(Box::new(e)))?;
 
-    // Step 3: build a commit that consumes the proposal store (picks up
-    // the just-queued proposal). No `add_proposal` call — the proposal
-    // is encoded as a `ProposalRef` because it comes from the store, not
-    // from inline staging.
+    // Step 3: compute the dict updates from every `AppDataUpdate` in the
+    // store, including earlier intents' queued proposals, then the inline
+    // upkeep, so the final dict bytes match what
+    // `process_message_with_app_data` produces on the receive side. If
+    // OpenMLS ever changes `consume_proposal_store(true)`'s sweep or
+    // `pending_proposals()` ordering, receivers reject the commit with
+    // `WrongConfirmationTag`; the AppDataUpdate E2E tests in
+    // `groups/tests/test_proposals.rs` catch that.
+    let app_data_updates = app_data_updates_with(mls_group, &upkeep).inspect_err(|e| {
+        tracing::error!(
+            error = %e,
+            "Failed to compute AppDataUpdates for standalone propose+commit"
+        );
+    })?;
+
+    // Step 4: build a commit that consumes the proposal store. The
+    // just-queued proposals are encoded as `ProposalRef`s; only the upkeep
+    // is inline.
     let mut stage = mls_group
         .commit_builder()
         .consume_proposal_store(true)
+        .add_proposals(upkeep)
         .load_psks(provider.storage())?;
     stage.with_app_data_dictionary_updates(app_data_updates);
 
@@ -437,6 +424,9 @@ pub enum GroupAppDataError<StorageError: std::error::Error> {
     /// tag mismatch on the wire if it ever escaped.
     #[error("apply payload error: {0}")]
     ApplyPayload(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
+    /// Computing the removed-member cleanup for a swept removal failed.
+    #[error("membership upkeep error: {0}")]
+    Upkeep(Box<crate::groups::GroupError>),
 }
 
 // Specialize to the concrete SqlKeyStoreError because that's the only
@@ -457,6 +447,7 @@ impl xmtp_common::RetryableError for GroupAppDataError<xmtp_db::sql_key_store::S
             // `CommitBuilderStageError`).
             Self::Propose(e) => xmtp_common::retryable!(e),
             Self::StageCommit(e) => xmtp_common::retryable!(e),
+            Self::Upkeep(e) => xmtp_common::retryable!(e),
             // Deterministic shape / staging-precondition failures —
             // CreateCommit is upstream-`false`, and ApplyPayload is a
             // sender-side encode failure that won't get better on

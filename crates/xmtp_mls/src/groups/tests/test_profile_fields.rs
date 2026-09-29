@@ -29,8 +29,8 @@ use crate::{
     context::XmtpSharedContext,
     groups::{
         GroupError, MlsGroup, UpdateAdminListType,
-        app_data::{GroupAppDataError, accumulate_app_data_updates},
-        intents::{AppDataUpdateIntentData, QueueIntent},
+        app_data::{GroupAppDataError, app_data_updates_with},
+        intents::{AppDataUpdateIntentData, ProposeMemberUpdateIntentData, QueueIntent},
         mls_sync::generate_prepared_commit,
     },
     state_tx::state_write,
@@ -95,8 +95,72 @@ fn last_rejection<C: XmtpSharedContext>(
         .read_last_rejection(&StreamTopic::group(group.group_id))?)
 }
 
+/// Publish the proposals that remove `removed`, without committing them.
+async fn propose_removal<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    removed: &str,
+) -> Result<(), GroupError> {
+    let intent = QueueIntent::propose_member_update()
+        .data(Vec::<u8>::try_from(ProposeMemberUpdateIntentData::new(
+            vec![],
+            vec![removed.to_string()],
+        ))?)
+        .queue(group)?;
+    group.sync_until_intent_resolved(intent.id).await.map(drop)
+}
+
+/// A commit that is not a membership change but sweeps pending proposals.
+enum Sweep {
+    MetadataWrite,
+    KeyUpdate,
+    PendingProposals,
+}
+
+/// Carol, a named admin, is removed by a pending proposal that `sweep`
+/// commits. The commit must delete her display name and admin-list entry,
+/// for the committer and for a receiver.
+async fn assert_sweep_cleans_up(sweep: Sweep) -> Result<(), GroupError> {
+    tester!(alix);
+    tester!(bo);
+    tester!(carol);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.remove(0);
+    let carol_group = carol.sync_welcomes().await?.remove(0);
+    write(
+        &carol_group,
+        ComponentId::USER_DISPLAY_NAME,
+        insert_name(carol.inbox_id(), b"Carol"),
+    )
+    .await?;
+    group.sync().await?;
+    group
+        .update_admin_list(UpdateAdminListType::Add, carol.inbox_id().to_string())
+        .await?;
+    propose_removal(&group, carol.inbox_id()).await?;
+
+    match sweep {
+        Sweep::MetadataWrite => group.update_group_name("Renamed".into()).await?,
+        Sweep::KeyUpdate => group.key_update().await?,
+        Sweep::PendingProposals => {
+            let intent = QueueIntent::commit_pending_proposals().queue(&group)?;
+            group.sync_until_intent_resolved(intent.id).await?;
+        }
+    }
+    bo_group.sync().await?;
+    assert_eq!(bo_group.epoch().await?, group.epoch().await?);
+    for member in [&group, &bo_group] {
+        assert_eq!(member.members().await?.len(), 2);
+        assert!(display_names(member)?.is_empty());
+        assert!(admins(member)?.is_empty());
+    }
+    Ok(())
+}
+
 /// Stage `updates` in one commit the way a sender that skips its own
-/// checks would.
+/// checks and adds no membership upkeep would. The commit also sweeps the
+/// group's pending proposals.
 ///
 /// A payload the sender's own apply refuses goes into the dictionary
 /// verbatim: receivers refuse it before they reach the confirmation tag.
@@ -106,24 +170,15 @@ fn stage_unchecked<P: OpenMlsProvider>(
     signer: &impl Signer,
     updates: &[(ComponentId, Vec<u8>)],
 ) -> Result<(Vec<MlsMessageOut>, CommitMessageBundle), GroupAppDataError<P::StorageError>> {
-    let operations: Vec<_> = updates
-        .iter()
-        .map(|(id, payload)| (*id, AppDataUpdateOperation::Update(payload.clone().into())))
-        .collect();
     let mut proposals = Vec::new();
-    for (id, operation) in &operations {
+    for (id, payload) in updates {
+        let operation = AppDataUpdateOperation::Update(payload.clone().into());
         let (proposal, _) = group
-            .propose_app_data_update(provider, signer, id.as_u16(), operation.clone())
+            .propose_app_data_update(provider, signer, id.as_u16(), operation)
             .map_err(GroupAppDataError::Propose)?;
         proposals.push(proposal);
     }
-    let dictionary = accumulate_app_data_updates(
-        group,
-        operations
-            .iter()
-            .map(|(id, operation)| (id.as_u16(), operation)),
-    )
-    .unwrap_or_else(|_| {
+    let dictionary = app_data_updates_with(group, &[]).unwrap_or_else(|_| {
         let mut updater = group.app_data_dictionary_updater();
         for (id, payload) in updates {
             updater.set(ComponentData::from_parts(
@@ -144,16 +199,11 @@ fn stage_unchecked<P: OpenMlsProvider>(
     Ok((proposals, bundle))
 }
 
-/// Publish `updates` as one [`stage_unchecked`] commit, and
-/// require `peer` to reject it and keep its epoch.
-async fn assert_peer_rejects<C: XmtpSharedContext>(
+/// Publish `updates` as one [`stage_unchecked`] commit.
+async fn publish_unchecked<C: XmtpSharedContext>(
     author: &MlsGroup<C>,
-    peer: &MlsGroup<C>,
     updates: Vec<(ComponentId, Vec<u8>)>,
 ) -> Result<(), GroupError> {
-    peer.sync().await?;
-    let before = last_rejection(peer)?;
-    let epoch = peer.epoch().await?;
     let signer = &author.context.identity().installation_keys;
     let payloads = state_write(author.context.mls_storage(), |tx| {
         tx.with_group(author.group_id, |mls_group, storage| {
@@ -178,6 +228,20 @@ async fn assert_peer_rejects<C: XmtpSharedContext>(
             .collect(),
     )?;
     author.context.api().send_group_messages(messages).await?;
+    Ok(())
+}
+
+/// Publish `updates` as one [`stage_unchecked`] commit, and
+/// require `peer` to reject it and keep its epoch.
+async fn assert_peer_rejects<C: XmtpSharedContext>(
+    author: &MlsGroup<C>,
+    peer: &MlsGroup<C>,
+    updates: Vec<(ComponentId, Vec<u8>)>,
+) -> Result<(), GroupError> {
+    peer.sync().await?;
+    let before = last_rejection(peer)?;
+    let epoch = peer.epoch().await?;
+    publish_unchecked(author, updates).await?;
     let _ = peer.sync().await;
     assert_ne!(last_rejection(peer)?, before, "peer must reject the commit");
     assert_eq!(peer.epoch().await?, epoch);
@@ -385,6 +449,67 @@ async fn test_removal_omits_forbidden_cleanup() {
         assert!(display_names(member)?.is_empty());
         assert!(admins(member)?.contains(&inbox(carol.inbox_id())));
     }
+}
+
+/// A metadata write that commits a pending removal also cleans up after
+/// the removed member.
+// verifies: GMOD-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_metadata_write_cleans_up_a_swept_removal() {
+    assert_sweep_cleans_up(Sweep::MetadataWrite).await?;
+}
+
+/// A key update that commits a pending removal also cleans up after the
+/// removed member.
+// verifies: GMOD-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_key_update_cleans_up_a_swept_removal() {
+    assert_sweep_cleans_up(Sweep::KeyUpdate).await?;
+}
+
+/// A commit of pending proposals that removes a member also cleans up
+/// after it.
+// verifies: GMOD-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_pending_commit_cleans_up_a_swept_removal() {
+    assert_sweep_cleans_up(Sweep::PendingProposals).await?;
+}
+
+/// Cleanup is the sender's courtesy: a receiver accepts a removal that
+/// omits a delete its sender was authorized to include, as an older
+/// client's removal would.
+// verifies: GMOD-039
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_removal_without_cleanup_is_accepted() {
+    tester!(alix);
+    tester!(bo);
+    tester!(carol);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id(), carol.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let carol_group = carol.sync_welcomes().await?.pop()?;
+    write(
+        &carol_group,
+        ComponentId::USER_DISPLAY_NAME,
+        insert_name(carol.inbox_id(), b"Carol"),
+    )
+    .await?;
+    group.sync().await?;
+    propose_removal(&group, carol.inbox_id()).await?;
+    bo_group.sync().await?;
+    let before = last_rejection(&bo_group)?;
+    let epoch = bo_group.epoch().await?;
+
+    publish_unchecked(&group, vec![]).await?;
+    bo_group.sync().await?;
+    assert_eq!(last_rejection(&bo_group)?, before);
+    assert_eq!(bo_group.epoch().await?, epoch + 1);
+    assert_eq!(bo_group.members().await?.len(), 2);
+    assert_eq!(
+        display_names(&bo_group)?,
+        BTreeMap::from([(inbox(carol.inbox_id()), b"Carol".to_vec())])
+    );
 }
 
 /// An absent application immutable scalar takes one first value. Every later

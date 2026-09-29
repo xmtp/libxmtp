@@ -228,37 +228,85 @@ async fn test_creation_registers_configured_fields() {
 }
 
 /// A super admin's membership commit registers the catalogue entries the
-/// group lacks. A member whose own snapshot has no catalogue accepts it,
-/// because received commits are judged only from group state.
+/// group lacks. A member whose own snapshot has no catalogue accepts it, and
+/// so does one whose snapshot defines the same ID differently, because
+/// received commits are judged only from group state.
 // verifies: META-067
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_membership_commit_registers_missing_fields() {
     tester!(alix);
     tester!(bo, configured: |c| c.application_components = catalogue());
     tester!(carol);
+    tester!(dave, configured: |c| c.application_components = vec![definition(
+        GROUP_FIELD,
+        ComponentType::String,
+        MetadataBasePolicy::AllowIfSuperAdmin,
+        true,
+        false,
+    )]);
     let group = alix
-        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .create_group_with_members(&[bo.inbox_id(), dave.inbox_id()], None, None)
         .await?;
     assert!(application_ids(&group)?.is_empty());
     group
         .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
         .await?;
     let bo_group = bo.sync_welcomes().await?.pop()?;
+    let dave_group = dave.sync_welcomes().await?.pop()?;
     bo_group.sync().await?;
+    dave_group.sync().await?;
 
     bo_group.add_members(&[carol.inbox_id()]).await?;
     group.sync().await?;
+    dave_group.sync().await?;
     let carol_group = carol.sync_welcomes().await?.pop()?;
     let topic = StreamTopic::group(group.group_id);
     assert!(alix.context.db().read_last_rejection(&topic)?.is_none());
+    assert!(dave.context.db().read_last_rejection(&topic)?.is_none());
     assert_eq!(group.epoch().await?, bo_group.epoch().await?);
-    for member in [&group, &bo_group, &carol_group] {
+    assert_eq!(dave_group.epoch().await?, bo_group.epoch().await?);
+    for member in [&group, &bo_group, &carol_group, &dave_group] {
         assert_eq!(
             application_ids(member)?,
             BTreeSet::from([GROUP_FIELD, SHARED_FIELD])
         );
     }
-    assert_eq!(group.members().await?.len(), 3);
+    let (_, registered) = catalogue_registry_entries(&catalogue(), ConversationType::Group)
+        .find(|(id, _)| id.as_u16() == GROUP_FIELD)?;
+    assert_eq!(
+        registry(&dave_group)?.get(&ComponentId::new(GROUP_FIELD))?,
+        Some(registered)
+    );
+    assert_eq!(group.members().await?.len(), 4);
+}
+
+/// Registration rides on any commit by a client with registry authority,
+/// not only a membership change: a super admin's metadata write registers
+/// the fields the group lacks.
+// verifies: META-067
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_metadata_write_registers_missing_fields() {
+    tester!(alix);
+    tester!(bo, configured: |c| c.application_components = catalogue());
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    group
+        .update_admin_list(UpdateAdminListType::AddSuper, bo.inbox_id().to_string())
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    bo_group.sync().await?;
+    assert!(application_ids(&bo_group)?.is_empty());
+
+    bo_group.update_group_name("Renamed".into()).await?;
+    group.sync().await?;
+    assert_eq!(group.epoch().await?, bo_group.epoch().await?);
+    for member in [&group, &bo_group] {
+        assert_eq!(
+            application_ids(member)?,
+            BTreeSet::from([GROUP_FIELD, SHARED_FIELD])
+        );
+    }
 }
 
 /// Reconciliation inserts only missing IDs. An entry the group already
