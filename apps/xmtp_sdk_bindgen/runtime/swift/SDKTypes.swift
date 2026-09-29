@@ -1,19 +1,19 @@
 import Foundation
 
 public protocol SDKContentCodec: Sendable {
-    var type: ContentTypeID { get }
+    var type: ContentTypeId { get }
     func encode(_ value: any Sendable) throws -> EncodedContent
     func decode(_ encoded: EncodedContent) throws -> any Sendable
 }
 
 public struct SDKContentCodecKey: Hashable, Sendable {
-    public let authorityID: String
-    public let typeID: String
+    public let authorityId: String
+    public let typeId: String
     public let versionMajor: UInt32
 
-    public init(_ type: ContentTypeID) {
-        authorityID = type.authorityID
-        typeID = type.typeID
+    public init(_ type: ContentTypeId) {
+        authorityId = type.authorityId
+        typeId = type.typeId
         versionMajor = type.versionMajor
     }
 }
@@ -36,82 +36,8 @@ public enum SDKReplyContent: Sendable {
     case unknown(EncodedContent)
 }
 
-private func invalidID(_ message: String) -> XmtpError {
-    .InvalidArgument(ErrorDetails(code: "InvalidArgument", category: .input, retryable: false, message: message))
-}
-
 private func clientClosedError() -> XmtpError {
     .ClientClosed(ErrorDetails(code: "ClientClosed", category: .lifecycle, retryable: false, message: "client is closed"))
-}
-
-private func validHex(_ value: String, bytes: Int) -> Bool {
-    value.utf8.count == bytes * 2 && value.utf8.allSatisfy {
-        ($0 >= 48 && $0 <= 57) || ($0 >= 97 && $0 <= 102)
-    }
-}
-
-public struct InboxID: Hashable, Sendable, CustomStringConvertible {
-    public let value: String
-    static func unchecked(_ value: String) -> Self {
-        Self(value: value)
-    }
-
-    public static func fromString(_ value: String) throws -> Self {
-        guard !value.isEmpty else { throw invalidID("inbox ID is empty") }
-        return unchecked(value)
-    }
-
-    public var description: String {
-        value
-    }
-}
-
-public struct InstallationID: Hashable, Sendable, CustomStringConvertible {
-    public let value: String
-    static func unchecked(_ value: String) -> Self {
-        Self(value: value)
-    }
-
-    public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 32) else { throw invalidID("invalid lowercase hex ID") }
-        return unchecked(value)
-    }
-
-    public var description: String {
-        value
-    }
-}
-
-public struct ConversationID: Hashable, Sendable, CustomStringConvertible {
-    public let value: String
-    static func unchecked(_ value: String) -> Self {
-        Self(value: value)
-    }
-
-    public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 16) else { throw invalidID("invalid lowercase hex ID") }
-        return unchecked(value)
-    }
-
-    public var description: String {
-        value
-    }
-}
-
-public struct MessageID: Hashable, Sendable, CustomStringConvertible {
-    public let value: String
-    static func unchecked(_ value: String) -> Self {
-        Self(value: value)
-    }
-
-    public static func fromString(_ value: String) throws -> Self {
-        guard validHex(value, bytes: 32) else { throw invalidID("invalid lowercase hex ID") }
-        return unchecked(value)
-    }
-
-    public var description: String {
-        value
-    }
 }
 
 public struct Timestamp: Hashable, Sendable {
@@ -157,20 +83,20 @@ public final class Message: Identifiable, Hashable, Sendable {
         }
     }
 
-    public var id: MessageID {
+    public var id: MessageId {
         data.id
     }
 
-    public var conversationID: ConversationID {
-        data.conversationID
+    public var conversationId: ConversationId {
+        data.conversationId
     }
 
     public var topic: String {
         data.topic
     }
 
-    public var senderInboxID: InboxID {
-        data.senderInboxID
+    public var senderInboxId: InboxId {
+        data.senderInboxId
     }
 
     public var sentAt: Timestamp {
@@ -185,7 +111,7 @@ public final class Message: Identifiable, Hashable, Sendable {
         data.deliveryStatus
     }
 
-    public var contentType: ContentTypeID {
+    public var contentType: ContentTypeId {
         data.contentType
     }
 
@@ -218,10 +144,10 @@ public final class Message: Identifiable, Hashable, Sendable {
     }
 
     public func refresh() async throws -> Message? {
-        try await client().raw.conversations().getMessageByID(id: id)
+        try await client().raw.conversations().getMessageById(id: id)
     }
 
-    public func delete() async throws -> MessageID {
+    public func delete() async throws -> MessageId {
         try await client().raw.conversations().deleteMessage(id: id)
     }
 
@@ -229,29 +155,29 @@ public final class Message: Identifiable, Hashable, Sendable {
         try await client().raw.conversations().deleteMessageLocally(id: id)
     }
 
-    public func react(_ reaction: Reaction, options: SendOptions? = nil) async throws -> MessageID {
+    public func react(_ reaction: Reaction, options: SendOptions? = nil) async throws -> MessageId {
         try await client().raw.conversations().reactToMessage(id: id, reaction: reaction, options: options)
     }
 
-    public func reply(_ text: String, options: SendOptions? = nil) async throws -> MessageID {
+    public func reply(_ text: String, options: SendOptions? = nil) async throws -> MessageId {
         try await client().raw.conversations().replyToMessage(id: id, content: encodeText(text: text), options: options)
     }
 
-    public func reply(_ content: EncodedContent, options: SendOptions? = nil) async throws -> MessageID {
+    public func reply(_ content: EncodedContent, options: SendOptions? = nil) async throws -> MessageId {
         try await client().raw.conversations().replyToMessage(id: id, content: content, options: options)
     }
 
-    public func reply(_ codec: any SDKContentCodec, value: any Sendable, options: SendOptions? = nil) async throws -> MessageID {
+    public func reply(_ codec: any SDKContentCodec, value: any Sendable, options: SendOptions? = nil) async throws -> MessageId {
         try await reply(codec.encode(value), options: options)
     }
 
     public func parent() async throws -> Message? {
         guard let id = data.inReplyTo?.id else { return nil }
-        return try await client().raw.conversations().getMessageByID(id: id)
+        return try await client().raw.conversations().getMessageById(id: id)
     }
 
     public func conversation() async throws -> Conversation? {
-        try await client().raw.conversations().getByID(id: conversationID)
+        try await client().raw.conversations().getById(id: conversationId)
     }
 
     public func client() throws -> SDKClient {

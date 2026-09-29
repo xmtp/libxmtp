@@ -114,7 +114,6 @@ async fn denied_group_with_default_filter_is_delivered_when_scoped() {
     assert_eq!(item.message.id, message.id);
 }
 
-// verifies: PROC-032
 #[xmtp_common::test(unwrap_try = true)]
 async fn excluded_rows_stay_consumed_after_a_filter_change() {
     tester!(alix);
@@ -312,7 +311,6 @@ async fn stale_host_queue_token_cannot_dispatch_or_acknowledge() {
     assert!(reader.next_delivery().await.is_err());
 }
 
-// verifies: PROC-032
 #[xmtp_common::test(unwrap_try = true)]
 async fn removed_and_readded_scope_discards_old_queued_tokens_without_acknowledging() {
     tester!(alix);
@@ -714,7 +712,7 @@ async fn queued_content_decode_failure_is_terminal_and_does_not_advance_delivery
     assert_eq!(replay.message.id, message.id);
 }
 
-// verifies: PROC-032, PROC-040
+// verifies: PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn enrichment_does_not_dispatch_and_stale_selection_remains_nonterminal() {
     use prost::Message;

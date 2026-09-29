@@ -19,160 +19,11 @@ import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
-@Suppress("unused")
-private suspend fun consumeOmittedSendOptions(
-    group: Group,
-    conversations: Conversations,
-    id: MessageID,
-    reaction: Reaction,
-    encoded: EncodedContent,
-) {
-    group.send(encoded)
-    group.prepareMessage(encoded)
-    conversations.reactToMessage(id, reaction)
-    conversations.replyToMessage(id, encoded)
-}
-
-@Suppress("unused")
-private suspend fun consumeOmittedTypedSendOptions(
-    group: Group,
-    id: MessageID,
-    reaction: Reaction,
-    encoded: EncodedContent,
-    attachment: Attachment,
-    remote: RemoteAttachment,
-    multiRemote: MultiRemoteAttachment,
-    transaction: TransactionReference,
-    walletCalls: WalletSendCalls,
-    actions: Actions,
-    intent: Intent,
-) {
-    group.sendText("text")
-    group.sendMarkdown("markdown")
-    group.sendReaction(id, null, reaction)
-    group.sendReply(id, null, encoded)
-    group.sendReadReceipt()
-    group.sendAttachment(attachment)
-    group.sendRemoteAttachment(remote)
-    group.sendMultiRemoteAttachment(multiRemote)
-    group.sendTransactionReference(transaction)
-    group.sendWalletSendCalls(walletCalls)
-    group.sendActions(actions)
-    group.sendIntent(intent)
-}
-
-private fun sameEncoded(
-    actual: EncodedContent,
-    expected: EncodedContent,
-): Boolean =
-    actual.type == expected.type && actual.parameters == expected.parameters &&
-        actual.fallback == expected.fallback && actual.content.contentEquals(expected.content)
-
-private fun signCommand(
-    action: String,
-    text: String? = null,
-): String {
-    val args =
-        listOf(
-            System.getenv("SDK_NODE_BIN"),
-            System.getenv("SDK_SIGN_SCRIPT"),
-            action,
-        ) + listOfNotNull(text)
-    val process = ProcessBuilder(args).start()
-    val result =
-        process.inputStream
-            .bufferedReader()
-            .readText()
-            .trim()
-    check(process.waitFor() == 0) { process.errorStream.bufferedReader().readText() }
-    return result
-}
-
-private class TestSigner : Signer {
-    override suspend fun identity() = PublicIdentity(signCommand("identity"), PublicIdentityKind.ETHEREUM)
-
-    override suspend fun kind() = SignerKind.Eoa
-
-    override suspend fun sign(request: SigningRequest): Signature {
-        val hex = signCommand("sign", request.text).removePrefix("0x")
-        return Signature.Ecdsa(hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray())
-    }
-}
-
-private class RecordingSigner(
-    private val inner: Signer,
-    private val calls: MutableList<String>,
-) : Signer {
-    override suspend fun identity() = inner.identity()
-
-    override suspend fun kind() = inner.kind()
-
-    override suspend fun sign(request: SigningRequest): Signature {
-        calls.add("sign")
-        return inner.sign(request)
-    }
-}
-
-private class RecordingPreAuthenticate(
-    private val calls: MutableList<String>,
-    private val fail: Boolean,
-) : PreAuthenticate {
-    override suspend fun run() {
-        calls.add("pre-authenticate")
-        if (fail) throw PreAuthenticateException.Failed()
-    }
-}
-
-private class OrderedLogSink : LogSink {
-    val sequence = mutableListOf<String>()
-
-    override fun log(record: LogRecord) {
-        if (record.target == "xmtp_sdk::conformance") {
-            sequence.add(record.fields["sequence"] ?: "")
-        }
-    }
-}
-
-private class SampleCodec : SDKContentCodec {
-    override val type = ContentTypeID("example.org", "sample", 1u, 0u)
-
-    override fun encode(value: Any) = EncodedContent(type, emptyMap(), null, (value as String).toByteArray())
-
-    override fun decode(encoded: EncodedContent): Any = encoded.content.decodeToString()
-}
-
-private class FailingCodec : SDKContentCodec {
-    override val type = SampleCodec().type
-
-    override fun encode(value: Any) = SampleCodec().encode(value)
-
-    override fun decode(encoded: EncodedContent): Any = throw AssertionError("codec decode failed")
-}
-
-private suspend fun releasedMessage(
-    identity: PublicIdentity,
-    options: ClientOptions,
-    inboxID: InboxID,
-): Pair<Message, WeakReference<SDKClient>> {
-    val host = SDKClient.build(identity, options, inboxID)
-    val group = host.raw.conversations().createGroup(emptyList(), null)
-    val id = group.sendText("weak owner", null)
-    val message = group.messages(null).first { it.id == id }
-    return message to WeakReference(host)
-}
-
 fun main() =
     runBlocking {
         check(sdkVersion().startsWith("1.12.0"))
-        check(MessageID.fromString("a".repeat(64)).toString().length == 64)
-        check(runCatching { MessageID.fromString("bad") }.exceptionOrNull() is XmtpException.InvalidArgument)
-        for (id in listOf(InboxID::class, InstallationID::class, ConversationID::class, MessageID::class)) {
-            // Kotlin adds a synthetic constructor so the companion can call the private one.
-            val callable = id.java.constructors.filterNot { it.isSynthetic }
-            check(callable.isEmpty() && id.java.methods.none { it.name == "copy" }) {
-                "${id.simpleName} can be built without fromString"
-            }
-        }
+        val messageId: MessageId = "a".repeat(64)
+        check(messageId.length == 64)
         println("Kotlin scenario 1: load, checksums, version passed")
 
         val codecSamples = sdkConformanceStandardSamples()
@@ -246,7 +97,7 @@ fun main() =
             )
         check(
             runCatching {
-                failingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), 0, 0uL))
+                failingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), Timestamp(0), 0uL))
             }.exceptionOrNull() is LogSinkException.Failed,
         )
         val cancellingSink =
@@ -257,26 +108,40 @@ fun main() =
             )
         check(
             runCatching {
-                cancellingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), 0, 0uL))
+                cancellingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), Timestamp(0), 0uL))
             }.exceptionOrNull() is LogSinkException.Failed,
         )
         println("Kotlin P37 foreign trait wrappers passed")
 
         val signer = TestSigner()
-        val directory = Files.createTempDirectory("xmtp-sdk-conformance-")
+        val androidFiles = Files.createTempDirectory("xmtp-sdk-android-files-").toFile()
+        val androidContext =
+            object : android.content.Context() {
+                override val filesDir = androidFiles
+            }
+        val androidStorage = StorageOptions(androidContext, label = "phone")
+        check(androidStorage.location == StorageLocation.Directory(androidFiles.resolve("xmtp_db").absolutePath))
+        check(androidStorage.label == "phone")
         val backendOptions = BackendOptions(url = checkNotNull(System.getenv("XMTP_BACKEND_URL")))
         check(ClientOptions(storage = StorageOptions(location = StorageLocation.InMemory)).backend == null)
         val options =
             ClientOptions(
                 backend = BackendSource.Options(backendOptions),
-                storage = StorageOptions(location = StorageLocation.Directory(directory.toString())),
+                storage = androidStorage,
                 deviceSync = false,
             )
         val host = SDKClient.create(signer, options)
         val client = host.raw
-        val inboxID = client.inboxID()
+        // Uppercase hex decodes, so only ID validation rejects it.
+        val invalidId = runCatching { client.conversations().getMessageById("AB".repeat(32)) }.exceptionOrNull()
+        check(invalidId is XmtpException.InvalidArgument)
+        check(invalidId.v1.code == "InvalidArgument")
+        check(invalidId.v1.category == ErrorCategory.INPUT)
+        check(!invalidId.v1.retryable)
+        val inboxId = client.inboxId()
         val storagePath = checkNotNull(host.storage().path())
         check(Files.isRegularFile(Path.of(storagePath))) { "storage path does not name the database file" }
+        check(storagePath == androidFiles.resolve("xmtp_db/xmtp-phone-$inboxId.db3").absolutePath)
         val group = client.conversations().createGroup(emptyList(), null)
         var typedSends = 0
         for (sample in codecSamples) {
@@ -293,7 +158,7 @@ fun main() =
                     is StandardContent.Reaction -> {
                         group.sendReaction(
                             value.reference,
-                            value.referenceInboxID,
+                            value.referenceInboxId,
                             value.reaction,
                             null,
                         )
@@ -302,7 +167,7 @@ fun main() =
                     is StandardContent.Reply -> {
                         group.sendReply(
                             value.reference,
-                            value.referenceInboxID,
+                            value.referenceInboxId,
                             value.content,
                             null,
                         )
@@ -344,35 +209,44 @@ fun main() =
                         continue
                     }
                 }
-            val wire = checkNotNull(client.conversations().getMessageByID(id))
+            val wire = checkNotNull(client.conversations().getMessageById(id))
             check(sameEncoded(wire.encoded, sample.expected)) { "typed send content differs from codec" }
             typedSends++
         }
         check(typedSends == 12)
         println("Kotlin P69: typed send bytes match all 12 public codecs")
-        val sentID = group.sendText("conformance message", null)
-        val sent = group.messages(null).first { it.id == sentID }
+        val sentId = group.sendText("conformance message", null)
+        val sent = group.messages(null).first { it.id == sentId }
         check(sent.client() === host)
         host.end()
         check(runCatching { sent.client() }.exceptionOrNull() is XmtpException.ClientClosed)
         check(runCatching { sent.refresh() }.exceptionOrNull() is XmtpException.ClientClosed)
         check(Message(sent.data.copy(clientKey = sent.data.clientKey + 1uL)) != sent)
-        val reopenedHost = SDKClient.build(signer.identity(), options, inboxID)
+        val reopenedHost = SDKClient.build(signer.identity(), options, inboxId)
         val reopened = reopenedHost.raw
-        check(reopened.inboxID() == inboxID)
+        check(reopened.inboxId() == inboxId)
+        check(
+            runCatching {
+                SDKClient.build(
+                    signer.identity(),
+                    options.copy(storage = options.storage.copy(location = StorageLocation.Default)),
+                    inboxId,
+                )
+            }.exceptionOrNull() is XmtpException.StorageLocationRequired,
+        )
         val defaultDirectory = Files.createTempDirectory("xmtp-sdk-default-")
         check(
             runCatching {
                 SDKClient.build(
                     signer.identity(),
                     options.copy(storage = options.storage.copy(location = StorageLocation.Default)),
-                    inboxID,
+                    inboxId,
                     defaultDirectory = defaultDirectory.toString(),
                 )
             }.exceptionOrNull() is XmtpException.IdentityNotFound,
         )
         check(Files.list(defaultDirectory).use { paths -> paths.noneMatch { it.fileName.toString().endsWith(".db3") } })
-        val (orphan, weak) = releasedMessage(signer.identity(), options, inboxID)
+        val (orphan, weak) = releasedMessage(signer.identity(), options, inboxId)
         // The run task uses SerialGC with explicit GC enabled, so System.gc() runs a full collection.
         repeat(50) {
             if (weak.get() == null) return@repeat
@@ -387,22 +261,22 @@ fun main() =
 
         val liveGroup = reopened.conversations().createGroup(emptyList(), null)
         val reader = liveGroup.messageReader()
-        val liveID = liveGroup.sendText("durable stream", null)
-        check(reader.next()?.id == liveID)
+        val liveId = liveGroup.sendText("durable stream", null)
+        check(reader.next()?.id == liveId)
         reader.end()
         val replay = liveGroup.messageReader()
-        check(replay.next()?.id == liveID)
+        check(replay.next()?.id == liveId)
         val pending = async { replay.next() }
         delay(50)
         pending.cancel()
         replay.end()
         runCatching { pending.await() }
-        val adapterID = liveGroup.sendText("adapter stream", null)
+        val adapterId = liveGroup.sendText("adapter stream", null)
         var delivered = false
         try {
             withTimeout(10_000) {
                 reopenedHost.messages(liveGroup).collect { message ->
-                    check(message.id == adapterID)
+                    check(message.id == adapterId)
                     delivered = true
                 }
             }
@@ -410,33 +284,33 @@ fun main() =
             check(delivered)
         }
         val protocolGroup = reopened.conversations().createGroup(emptyList(), null)
-        val firstID = protocolGroup.sendText("ack on request", null)
+        val firstId = protocolGroup.sendText("ack on request", null)
         check(
             reopenedHost
                 .messages(protocolGroup)
                 .take(1)
                 .toList()
                 .single()
-                .id == firstID,
+                .id == firstId,
         )
         val reread = protocolGroup.messageReader()
-        check(withTimeout(3_000) { reread.next() }?.id == firstID) {
+        check(withTimeout(3_000) { reread.next() }?.id == firstId) {
             "adapter prefetched and acknowledged a value"
         }
         reread.end()
-        val secondID = protocolGroup.sendText("second request", null)
+        val secondId = protocolGroup.sendText("second request", null)
         check(
             reopenedHost
                 .messages(protocolGroup)
                 .take(2)
                 .toList()
-                .map { it.id } == listOf(firstID, secondID),
+                .map { it.id } == listOf(firstId, secondId),
         )
         val afterAck = protocolGroup.messageReader()
-        check(afterAck.next()?.id == secondID) { "adapter did not acknowledge on next request" }
+        check(afterAck.next()?.id == secondId) { "adapter did not acknowledge on next request" }
         afterAck.end()
         val breakGroup = reopened.conversations().createGroup(emptyList(), null)
-        val breakID = breakGroup.sendText("close after take", null)
+        val breakId = breakGroup.sendText("close after take", null)
         val breakReasons = mutableListOf<SDKStreamCloseReason>()
         val retainedFlow = reopenedHost.messages(breakGroup, onClose = { breakReasons.add(it) })
         check(
@@ -444,17 +318,17 @@ fun main() =
                 .take(1)
                 .toList()
                 .single()
-                .id == breakID,
+                .id == breakId,
         )
         check(breakReasons == listOf(SDKStreamCloseReason.Closed)) { "take did not close the stored flow" }
         val breakReplay = breakGroup.messageReader()
-        check(withTimeout(3_000) { breakReplay.next() }?.id == breakID) {
+        check(withTimeout(3_000) { breakReplay.next() }?.id == breakId) {
             "take acknowledged the last message"
         }
         breakReplay.end()
         val firstReasons = mutableListOf<SDKStreamCloseReason>()
         val retainedFirst = reopenedHost.messages(breakGroup, onClose = { firstReasons.add(it) })
-        check(retainedFirst.first().id == breakID)
+        check(retainedFirst.first().id == breakId)
         check(firstReasons == listOf(SDKStreamCloseReason.Closed)) { "first did not close the stored flow" }
         val callbackReasons = mutableListOf<SDKStreamCloseReason>()
         val closeCallbackFlow =
@@ -472,7 +346,7 @@ fun main() =
                     .toList()
                     .single()
                     .id
-            } == breakID,
+            } == breakId,
         ) {
             "close callback error escaped message collection"
         }
@@ -489,12 +363,12 @@ fun main() =
             "collector exception did not close the stored flow"
         }
         val thrownReplay = breakGroup.messageReader()
-        check(withTimeout(3_000) { thrownReplay.next() }?.id == breakID) {
+        check(withTimeout(3_000) { thrownReplay.next() }?.id == breakId) {
             "collector exception acknowledged the last message"
         }
         thrownReplay.end()
         val stateGroup = reopened.conversations().createGroup(emptyList(), null)
-        val stateID = stateGroup.sendText("throwing state callback", null)
+        val stateId = stateGroup.sendText("throwing state callback", null)
         val uncaughtStateError = AtomicReference<Throwable?>()
         val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { _, error -> uncaughtStateError.compareAndSet(null, error) }
@@ -511,7 +385,7 @@ fun main() =
                         .toList()
                         .single()
                         .id
-                } == stateID,
+                } == stateId,
             )
             delay(100)
             check(uncaughtStateError.get() == null) { "state callback crashed its coroutine" }
@@ -637,7 +511,7 @@ fun main() =
                     ),
                 storage = options.storage,
             )
-        val credentialHost = SDKClient.build(signer.identity(), credentialOptions, inboxID)
+        val credentialHost = SDKClient.build(signer.identity(), credentialOptions, inboxId)
         check(
             credentialHost.raw
                 .options()
@@ -655,11 +529,39 @@ fun main() =
         val snapshot = reopened.serverConfiguration()
         val fetched = fetchServerConfiguration(BackendSource.Options(backendOptions))
         val staticBackend = Backend.connect(backendOptions)
-        check(SDKClient.inboxIDFor(signer.identity(), BackendSource.Connected(staticBackend)) == inboxID)
+        check(SDKClient.inboxIdFor(signer.identity(), BackendSource.Connected(staticBackend)) == inboxId)
         check(
-            SDKClient.canMessage(listOf(signer.identity()), BackendSource.Connected(staticBackend)).first().canMessage,
+            SDKClient.canMessage(
+                listOf(signer.identity()),
+                BackendSource.Connected(staticBackend),
+            )["ethereum:${signer.identity().identifier}"] ==
+                true,
         )
-        check(SDKClient.canMessage(listOf(signer.identity()), BackendSource.Options(backendOptions)).first().canMessage)
+        check(
+            SDKClient.canMessage(
+                listOf(signer.identity()),
+                BackendSource.Options(backendOptions),
+            )["ethereum:${signer.identity().identifier}"] ==
+                true,
+        )
+        val sameText = "1111111111111111111111111111111111111111"
+        val mixedIdentities =
+            listOf(
+                PublicIdentity(sameText, PublicIdentityKind.ETHEREUM),
+                PublicIdentity(sameText, PublicIdentityKind.PASSKEY),
+                signer.identity(),
+            )
+        val registeredKey = "ethereum:${signer.identity().identifier}"
+
+        fun checkMixedCanMessage(result: Map<String, Boolean>) {
+            check(result.size == 3)
+            check(result["ethereum:$sameText"] == false)
+            check(result["passkey:$sameText"] == false)
+            check(result[registeredKey] == true)
+        }
+        checkMixedCanMessage(reopened.canMessage(mixedIdentities))
+        checkMixedCanMessage(SDKClient.canMessage(mixedIdentities, BackendSource.Connected(staticBackend)))
+        checkMixedCanMessage(SDKClient.canMessage(mixedIdentities, BackendSource.Options(backendOptions)))
         check(
             runCatching {
                 SDKClient.build(
@@ -668,7 +570,7 @@ fun main() =
                         backend = BackendSource.Connected(staticBackend),
                         storage = StorageOptions(location = StorageLocation.InMemory),
                     ),
-                    inboxID,
+                    inboxId,
                 )
             }.exceptionOrNull() is XmtpException.IdentityNotFound,
         )
@@ -805,35 +707,35 @@ fun main() =
 
         val family = reopened.conversations().createGroup(emptyList(), CreateGroupOptions(name = "family group"))
         check(family.state().name == "family group")
-        check(family.creatorInboxID() == inboxID)
+        check(family.creatorInboxId() == inboxId)
         check(reopened.conversations().listGroups(null).any { it.id() == family.id() })
         println("Kotlin scenario 4: group options, state, and list passed")
 
-        val parentID = family.sendText("parent", null)
-        val reactionID =
+        val parentId = family.sendText("parent", null)
+        val reactionId =
             reopened.conversations().reactToMessage(
-                parentID,
+                parentId,
                 Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE),
                 null,
             )
-        val replyID = reopened.conversations().replyToMessage(parentID, encodeText("reply"), null)
+        val replyId = reopened.conversations().replyToMessage(parentId, encodeText("reply"), null)
         check(reopened.decodeContent(encodeText("decoded")) is MessageContent.Text)
         val familyMessages = family.messages(null)
-        val parent = familyMessages.first { it.id == parentID }
-        val reply = familyMessages.first { it.id == replyID }
-        check(parent.replyCount == 1uL && parent.reactions.firstOrNull()?.id == reactionID)
-        check(reply.inReplyTo?.id == parentID)
-        val reactionMessage = checkNotNull(reopened.conversations().getMessageByID(reactionID))
+        val parent = familyMessages.first { it.id == parentId }
+        val reply = familyMessages.first { it.id == replyId }
+        check(parent.replyCount == 1uL && parent.reactions.firstOrNull()?.id == reactionId)
+        check(reply.inReplyTo?.id == parentId)
+        val reactionMessage = checkNotNull(reopened.conversations().getMessageById(reactionId))
         val reactionContent =
             (reactionMessage.content as? SDKMessageContent.Standard)?.value as? MessageContent.Reaction
         check(
-            reactionContent?.reference == parentID && reactionContent.referenceInboxID == inboxID &&
+            reactionContent?.reference == parentId && reactionContent.referenceInboxId == inboxId &&
                 reactionContent.reaction.content == "👍",
         ) { "reaction content lost its target" }
         check(
             reactionMessage !=
                 Message(
-                    reactionMessage.data.copy(content = reactionContent.copy(reference = reactionID)),
+                    reactionMessage.data.copy(content = reactionContent.copy(reference = reactionId)),
                 ),
         ) { "reaction target did not affect message equality" }
         val changedEnvelope =
@@ -842,7 +744,7 @@ fun main() =
         val copiedBytes =
             Message(parent.data.copy(encoded = parent.encoded.copy(content = parent.encoded.content.copyOf())))
         check(parent == copiedBytes && parent.hashCode() == copiedBytes.hashCode())
-        val sameParent = checkNotNull(reopened.conversations().getMessageByID(parentID))
+        val sameParent = checkNotNull(reopened.conversations().getMessageById(parentId))
         check(parent == sameParent) { "message_copies_compare_equal failed" }
         check(parent != Message(parent.data.copy(reactions = emptyList()))) {
             "reaction_change_compares_unequal failed"
@@ -874,9 +776,9 @@ fun main() =
         println("Kotlin scenario 5: message records, reaction, and reply passed")
 
         val codec = SampleCodec()
-        val withCodec = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(codec))
-        val withoutCodec = SDKClient.build(signer.identity(), options, inboxID)
-        val slashType = ContentTypeID("example.org", "a/b", 1u, 0u)
+        val withCodec = SDKClient.build(signer.identity(), options, inboxId, codecs = listOf(codec))
+        val withoutCodec = SDKClient.build(signer.identity(), options, inboxId)
+        val slashType = ContentTypeId("example.org", "a/b", 1u, 0u)
         val slashCodec =
             object : SDKContentCodec {
                 override val type = slashType
@@ -886,29 +788,29 @@ fun main() =
 
                 override fun decode(encoded: EncodedContent): Any = "wrong codec"
             }
-        val slashHost = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(slashCodec))
-        val colliding = EncodedContent(ContentTypeID("example.org/a", "b", 1u, 0u), emptyMap(), null, byteArrayOf(1))
+        val slashHost = SDKClient.build(signer.identity(), options, inboxId, codecs = listOf(slashCodec))
+        val colliding = EncodedContent(ContentTypeId("example.org/a", "b", 1u, 0u), emptyMap(), null, byteArrayOf(1))
         check(slashHost.decodeCustom(colliding) is SDKMessageContent.Unknown) {
             "codec key collision selected the wrong codec"
         }
         slashHost.end()
-        val customID = family.send(codec.encode("codec value"), null)
-        val decoded = checkNotNull(withCodec.raw.conversations().getMessageByID(customID))
-        val undecoded = checkNotNull(withoutCodec.raw.conversations().getMessageByID(customID))
+        val customId = family.send(codec.encode("codec value"), null)
+        val decoded = checkNotNull(withCodec.raw.conversations().getMessageById(customId))
+        val undecoded = checkNotNull(withoutCodec.raw.conversations().getMessageById(customId))
         check((decoded.content as? SDKMessageContent.Custom)?.value == "codec value")
         check(undecoded.content is SDKMessageContent.Unknown)
-        val customReplyID =
+        val customReplyId =
             withCodec.raw.conversations().replyToMessage(
-                customID,
+                customId,
                 codec.encode("reply codec value"),
                 null,
             )
-        val customReply = checkNotNull(withCodec.raw.conversations().getMessageByID(customReplyID))
+        val customReply = checkNotNull(withCodec.raw.conversations().getMessageById(customReplyId))
         check((customReply.replyContent as? SDKReplyContent.Custom)?.value == "reply codec value") {
             "reply body custom codec did not run"
         }
-        val failingHost = SDKClient.build(signer.identity(), options, inboxID, codecs = listOf(FailingCodec()))
-        val failed = checkNotNull(failingHost.raw.conversations().getMessageByID(customID))
+        val failingHost = SDKClient.build(signer.identity(), options, inboxId, codecs = listOf(FailingCodec()))
+        val failed = checkNotNull(failingHost.raw.conversations().getMessageById(customId))
         check((failed.content as? SDKMessageContent.Custom)?.error is AssertionError)
         failingHost.end()
         println("Kotlin codec_scoped_to_client passed")
@@ -940,17 +842,17 @@ fun main() =
         val eventFilter =
             EventFilter(
                 kinds = listOf(EventKind.CONVERSATION_JOINED),
-                conversationIDs = null,
+                conversationIds = null,
                 contentTypes = null,
                 referencesOwnMessages = false,
             )
         val eventReader = reopenedHost.events(eventFilter)
         val received = CompletableDeferred<Unit>()
-        val listenerID = reopenedHost.startListener(eventFilter) { received.complete(Unit) }
+        val listenerId = reopenedHost.startListener(eventFilter) { received.complete(Unit) }
         reopened.conversations().createGroup(emptyList(), null)
         withTimeout(10_000) { eventReader.first() }
         withTimeout(10_000) { received.await() }
-        reopenedHost.stopListener(listenerID)
+        reopenedHost.stopListener(listenerId)
         println("Kotlin scenario 8: event reader and listener passed")
 
         // verifies: EVENT-053
@@ -961,10 +863,10 @@ fun main() =
             releaseStart.await()
         }
         val lateCalls = AtomicInteger()
-        val delayedID = reopenedHost.startListener(eventFilter) { lateCalls.incrementAndGet() }
+        val delayedId = reopenedHost.startListener(eventFilter) { lateCalls.incrementAndGet() }
         reopened.conversations().createGroup(emptyList(), null)
         withTimeout(10_000) { startEntered.await() }
-        withTimeout(10_000) { reopenedHost.stopListener(delayedID) }
+        withTimeout(10_000) { reopenedHost.stopListener(delayedId) }
         releaseStart.complete(Unit)
         EventStartHookForTest.beforeCallback = null
         delay(100)
@@ -973,10 +875,10 @@ fun main() =
 
         // verifies: EVENT-052
         val stoppedFromCallback = CompletableDeferred<Unit>()
-        var reentrantID: ListenerID? = null
-        reentrantID =
+        var reentrantId: ListenerId? = null
+        reentrantId =
             reopenedHost.startListener(eventFilter) {
-                reopenedHost.stopListener(requireNotNull(reentrantID))
+                reopenedHost.stopListener(requireNotNull(reentrantId))
                 stoppedFromCallback.complete(Unit)
             }
         reopened.conversations().createGroup(emptyList(), null)

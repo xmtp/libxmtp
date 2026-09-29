@@ -16,7 +16,7 @@ private func decodePure<T: Sendable>(_ encoded: EncodedContent, take: (StandardC
 
 public struct TextCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .text)
     }
 
@@ -37,7 +37,7 @@ public struct TextCodec: SDKContentCodec {
 
 public struct MarkdownCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .markdown)
     }
 
@@ -58,7 +58,7 @@ public struct MarkdownCodec: SDKContentCodec {
 
 public struct ReadReceiptCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .readReceipt)
     }
 
@@ -80,7 +80,7 @@ public struct ReadReceiptCodec: SDKContentCodec {
 
 public struct ReactionV2Codec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .reaction)
     }
 
@@ -102,7 +102,7 @@ public struct ReactionV2Codec: SDKContentCodec {
 
 public struct AttachmentCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .attachment)
     }
 
@@ -123,7 +123,7 @@ public struct AttachmentCodec: SDKContentCodec {
 
 public struct RemoteAttachmentCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .remoteAttachment)
     }
 
@@ -144,7 +144,7 @@ public struct RemoteAttachmentCodec: SDKContentCodec {
 
 public struct MultiRemoteAttachmentCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .multiRemoteAttachment)
     }
 
@@ -165,7 +165,7 @@ public struct MultiRemoteAttachmentCodec: SDKContentCodec {
 
 public struct TransactionReferenceCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .transactionReference)
     }
 
@@ -186,7 +186,7 @@ public struct TransactionReferenceCodec: SDKContentCodec {
 
 public struct WalletSendCallsCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .walletSendCalls)
     }
 
@@ -207,7 +207,7 @@ public struct WalletSendCallsCodec: SDKContentCodec {
 
 public struct ActionsCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .actions)
     }
 
@@ -228,7 +228,7 @@ public struct ActionsCodec: SDKContentCodec {
 
 public struct IntentCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .intent)
     }
 
@@ -249,7 +249,7 @@ public struct IntentCodec: SDKContentCodec {
 
 public struct ReplyCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .reply)
     }
 
@@ -271,7 +271,7 @@ public struct ReplyCodec: SDKContentCodec {
 
 public struct GroupUpdatedCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .groupUpdated)
     }
 
@@ -292,7 +292,7 @@ public struct GroupUpdatedCodec: SDKContentCodec {
 
 public struct DeleteMessageCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .deleteMessage)
     }
 
@@ -314,7 +314,7 @@ public struct DeleteMessageCodec: SDKContentCodec {
 
 public struct LeaveRequestCodec: SDKContentCodec {
     public init() {}
-    public var type: ContentTypeID {
+    public var type: ContentTypeId {
         standardContentType(kind: .leaveRequest)
     }
 

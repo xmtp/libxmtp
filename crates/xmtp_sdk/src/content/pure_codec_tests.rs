@@ -1,0 +1,275 @@
+use super::*;
+use xmtp_content_types::ContentCodec;
+use xmtp_proto::xmtp::mls::message_contents::content_types as proto;
+
+pub(crate) fn standard_codec_samples()
+-> Result<Vec<(StandardContent, ProtoEncodedContent)>, Box<dyn std::error::Error>> {
+    let text = xmtp_content_types::text::TextCodec::encode("hello".into())?;
+    let remote = proto::RemoteAttachmentInfo {
+        url: "https://example.test/file".into(),
+        content_digest: "digest".into(),
+        secret: vec![1; 32],
+        salt: vec![2; 32],
+        nonce: vec![3; 12],
+        scheme: "https".into(),
+        content_length: Some(10),
+        filename: Some("file".into()),
+    };
+    let transaction = xmtp_content_types::transaction_reference::TransactionReference {
+        namespace: None,
+        network_id: "1".into(),
+        reference: "0x1".into(),
+        metadata: None,
+    };
+    let reaction = proto::ReactionV2 {
+        reference: "a".repeat(64),
+        reference_inbox_id: "inbox".into(),
+        action: proto::ReactionAction::Added as i32,
+        content: "👍".into(),
+        schema: proto::ReactionSchema::Unicode as i32,
+    };
+    let reply = xmtp_content_types::reply::Reply {
+        reference: "a".repeat(64),
+        reference_inbox_id: Some("inbox".into()),
+        content: text.clone(),
+    };
+    let update = xmtp_proto::xmtp::mls::message_contents::GroupUpdated {
+        initiated_by_inbox_id: "inbox".into(),
+        ..Default::default()
+    };
+    let wallet = WalletSendCalls {
+        version: "1".into(),
+        chain_id: "0x1".into(),
+        from: "0xsender".into(),
+        calls: vec![],
+        capabilities: None,
+    };
+    let actions = Actions {
+        id: "actions".into(),
+        description: "Choose".into(),
+        actions: vec![Action {
+            id: "one".into(),
+            label: "One".into(),
+            image_url: None,
+            style: None,
+            expires_at: None,
+        }],
+        expires_at: None,
+    };
+    let intent = Intent {
+        id: "actions".into(),
+        action_id: "one".into(),
+        metadata_json: None,
+    };
+    let cases = vec![
+        (StandardContent::Text("hello".into()), text),
+        (
+            StandardContent::Markdown("**hello**".into()),
+            xmtp_content_types::markdown::MarkdownCodec::encode("**hello**".into())?,
+        ),
+        (
+            StandardContent::ReadReceipt,
+            xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
+                xmtp_content_types::read_receipt::ReadReceipt {},
+            )?,
+        ),
+        (
+            StandardContent::Reaction {
+                reference: crate::MessageId::try_from(reaction.reference.clone())?,
+                reference_inbox_id: Some(crate::InboxId::try_from(
+                    reaction.reference_inbox_id.clone(),
+                )?),
+                reaction: Reaction::from_proto(reaction.clone()),
+            },
+            xmtp_content_types::reaction::ReactionCodec::encode(reaction)?,
+        ),
+        (
+            StandardContent::Attachment(Attachment {
+                filename: None,
+                mime_type: "text/plain".into(),
+                content: b"file".to_vec(),
+            }),
+            xmtp_content_types::attachment::AttachmentCodec::encode(
+                xmtp_content_types::attachment::Attachment {
+                    filename: None,
+                    mime_type: "text/plain".into(),
+                    content: b"file".to_vec(),
+                },
+            )?,
+        ),
+        (
+            StandardContent::RemoteAttachment(remote.clone().into()),
+            xmtp_content_types::remote_attachment::RemoteAttachmentCodec::encode(remote.clone())?,
+        ),
+        (
+            StandardContent::MultiRemoteAttachment(MultiRemoteAttachment {
+                attachments: vec![remote.clone().into()],
+            }),
+            xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec::encode(
+                proto::MultiRemoteAttachment {
+                    attachments: vec![remote],
+                },
+            )?,
+        ),
+        (
+            StandardContent::TransactionReference(transaction.clone().into()),
+            xmtp_content_types::transaction_reference::TransactionReferenceCodec::encode(
+                transaction,
+            )?,
+        ),
+        (
+            StandardContent::WalletSendCalls(wallet.clone()),
+            xmtp_content_types::wallet_send_calls::WalletSendCallsCodec::encode(wallet.into())?,
+        ),
+        (
+            StandardContent::Actions(actions.clone()),
+            xmtp_content_types::actions::ActionsCodec::encode(actions.into())?,
+        ),
+        (
+            StandardContent::Intent(intent.clone()),
+            xmtp_content_types::intent::IntentCodec::encode(intent.try_into()?)?,
+        ),
+        (
+            StandardContent::Reply {
+                reference: crate::MessageId::try_from(reply.reference.clone())?,
+                reference_inbox_id: reply
+                    .reference_inbox_id
+                    .clone()
+                    .map(crate::InboxId::try_from)
+                    .transpose()?,
+                content: reply.content.clone().into(),
+            },
+            xmtp_content_types::reply::ReplyCodec::encode(reply)?,
+        ),
+        (
+            StandardContent::GroupUpdated(update.clone().try_into()?),
+            xmtp_content_types::group_updated::GroupUpdatedCodec::encode(update)?,
+        ),
+        (
+            StandardContent::DeleteMessage {
+                message_id: crate::MessageId::try_from("a".repeat(64))?,
+            },
+            xmtp_content_types::delete_message::DeleteMessageCodec::encode(proto::DeleteMessage {
+                message_id: "a".repeat(64),
+            })?,
+        ),
+        (
+            StandardContent::LeaveRequest(LeaveRequest {
+                authenticated_note: None,
+            }),
+            xmtp_content_types::leave_request::LeaveRequestCodec::encode(proto::LeaveRequest {
+                authenticated_note: None,
+            })?,
+        ),
+    ];
+    Ok(cases)
+}
+
+#[cfg(test)]
+// verifies: CTYPE-026
+#[xmtp_common::test(unwrap_try = true)]
+fn standard_codec_bytes_match_the_core_send_codecs() {
+    let cases = standard_codec_samples()?;
+    assert_eq!(cases.len(), 15);
+    for (value, core) in cases {
+        let facade = encode_standard(value)?;
+        let expected: EncodedContent = core.into();
+        assert_eq!(facade.r#type.type_id, expected.r#type.type_id);
+        assert_eq!(facade.content, expected.content);
+        assert_eq!(facade.parameters, expected.parameters);
+        assert_eq!(facade.fallback, expected.fallback);
+        let round_trip = encode_standard(decode_standard(facade)?)?;
+        assert_eq!(round_trip.content, expected.content);
+    }
+}
+
+#[cfg(test)]
+// verifies: CTYPE-011
+// verifies: CTYPE-024
+#[xmtp_common::test(unwrap_try = true)]
+fn malformed_nested_reply_content_is_rejected() {
+    use prost::Message as _;
+
+    let valid = xmtp_content_types::text::TextCodec::encode("valid".into())?;
+    let reply = xmtp_content_types::reply::Reply {
+        reference: "a".repeat(64),
+        reference_inbox_id: None,
+        content: valid,
+    };
+    assert!(matches!(
+        xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
+            content: ProtoEncodedContent::default(),
+            ..reply.clone()
+        }),
+        Err(xmtp_content_types::CodecError::InvalidContentType)
+    ));
+    for nested in [
+        ProtoEncodedContent::default(),
+        ProtoEncodedContent {
+            r#type: Some(xmtp_content_types::text::TextCodec::content_type()),
+            compression: Some(99),
+            content: b"compressed text".to_vec(),
+            ..Default::default()
+        },
+    ] {
+        let mut outer = xmtp_content_types::reply::ReplyCodec::encode(reply.clone())?;
+        outer.content = nested.encode_to_vec();
+        assert!(decode_standard(outer.into()).is_err());
+    }
+}
+
+#[cfg(test)]
+// verifies: CTYPE-029
+#[xmtp_common::test(unwrap_try = true)]
+fn malformed_nested_standard_reply_content_is_rejected() {
+    let nested = ProtoEncodedContent {
+        r#type: Some(xmtp_content_types::text::TextCodec::content_type()),
+        content: vec![0xff, 0xfe],
+        ..Default::default()
+    };
+    let outer = xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: "a".repeat(64),
+        reference_inbox_id: None,
+        content: nested,
+    })?;
+    assert!(decode_standard(outer.into()).is_err());
+}
+
+#[cfg(test)]
+// verifies: CTYPE-027
+#[xmtp_common::test(unwrap_try = true)]
+fn nested_custom_reply_content_remains_available() {
+    let nested = ProtoEncodedContent {
+        r#type: Some(ProtoContentTypeId {
+            authority_id: "example.com".into(),
+            type_id: "widget".into(),
+            version_major: 1,
+            version_minor: 0,
+        }),
+        content: vec![0xff, 0xfe],
+        ..Default::default()
+    };
+    let outer = xmtp_content_types::reply::ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: "a".repeat(64),
+        reference_inbox_id: None,
+        content: nested,
+    })?;
+    assert!(matches!(
+        decode_standard(outer.into())?,
+        StandardContent::Reply { content, .. }
+            if content.r#type.authority_id == "example.com"
+                && content.r#type.type_id == "widget"
+                && content.content == [0xff, 0xfe]
+    ));
+}
+
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn text_minor_version_decodes() {
+    let mut encoded = encode_text("minor version".into())?;
+    encoded.r#type.version_minor = 1;
+    assert!(matches!(
+        decode_standard(encoded)?,
+        StandardContent::Text(value) if value == "minor version"
+    ));
+}

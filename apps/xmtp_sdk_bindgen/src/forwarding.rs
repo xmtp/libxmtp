@@ -50,35 +50,7 @@ fn same_signature(a: &MethodMetadata, b: &MethodMetadata) -> bool {
 }
 
 fn host_name(name: &str) -> String {
-    // The stock binding rename table spells an ID segment with both capitals.
-    name.split('_')
-        .enumerate()
-        .fold(String::new(), |mut result, (index, word)| {
-            if word == "id" {
-                result.push_str(if index == 0 { "id" } else { "ID" });
-            } else if word == "ids" {
-                result.push_str(if index == 0 { "ids" } else { "IDs" });
-            } else if index == 0 {
-                result.push_str(word);
-            } else {
-                result.push_str(&word.to_lower_camel_case().to_uppercase_first());
-            }
-            result
-        })
-}
-
-trait UppercaseFirst {
-    fn to_uppercase_first(&self) -> String;
-}
-
-impl UppercaseFirst for str {
-    fn to_uppercase_first(&self) -> String {
-        let mut chars = self.chars();
-        match chars.next() {
-            Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
-            None => String::new(),
-        }
-    }
+    name.to_lower_camel_case()
 }
 
 fn declarations(source: &str, start: &str, prefix: &str) -> Result<BTreeMap<String, String>> {
@@ -248,13 +220,13 @@ mod tests {
         let group = BTreeMap::from([
             (
                 "sendText".into(),
-                "func sendText(text: String) async throws -> MessageID".into(),
+                "func sendText(text: String) async throws -> MessageId".into(),
             ),
             ("addMembers".into(), "func addMembers() async throws".into()),
         ]);
         let dm = BTreeMap::from([(
             "sendText".into(),
-            "func sendText(text: String) async throws -> MessageID".into(),
+            "func sendText(text: String) async throws -> MessageId".into(),
         )]);
         let output = render(&selected, &group, &dm, Language::Swift).unwrap();
         assert!(output.contains("group.sendText(text: text)"));

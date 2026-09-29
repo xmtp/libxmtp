@@ -1,19 +1,16 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use xmtp_id::associations::verify_signed_with_public_context;
 use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
 
 use crate::CatchUpSummary;
 use crate::{
-    CanMessageEntry, Client, GroupSyncSummary, InboxCountEntry, InboxID, InboxState,
-    InstallationID, KeyPackageLifetime, KeyPackageStatus, KeyPackageStatusEntry, PublicIdentity,
-    SignatureRequest, Signer, XmtpError, signer,
+    Client, GroupSyncSummary, InboxId, InboxState, InstallationId, KeyPackageLifetime,
+    KeyPackageStatus, PublicIdentity, SignatureRequest, Signer, XmtpError, signer,
 };
 
-fn installation_bytes(ids: Vec<InstallationID>) -> Result<Vec<Vec<u8>>, XmtpError> {
-    ids.into_iter()
-        .map(|id| hex::decode(id.0).map_err(XmtpError::unknown))
-        .collect()
+fn installation_bytes(ids: &[InstallationId]) -> Result<Vec<Vec<u8>>, XmtpError> {
+    ids.iter().map(InstallationId::to_bytes).collect()
 }
 
 impl Client {
@@ -191,13 +188,14 @@ impl Client {
 
     pub async fn unsafe_revoke_installations_signature_request(
         &self,
-        ids: Vec<InstallationID>,
+        ids: Vec<InstallationId>,
     ) -> Result<Arc<SignatureRequest>, XmtpError> {
+        let bytes = installation_bytes(&ids)?;
         let _call = self.ensure_open()?;
         let request = self
             .inner
             .identity_updates()
-            .revoke_installations(installation_bytes(ids)?)
+            .revoke_installations(bytes)
             .await
             .map_err(XmtpError::from_client)?;
         Ok(self.request(request))
@@ -295,7 +293,7 @@ impl Client {
     pub async fn revoke_installations(
         &self,
         signer: Arc<dyn Signer>,
-        ids: Vec<InstallationID>,
+        ids: Vec<InstallationId>,
     ) -> Result<(), XmtpError> {
         let request = self
             .unsafe_revoke_installations_signature_request(ids)
@@ -351,11 +349,14 @@ impl Client {
 
     pub async fn inbox_states(
         &self,
-        ids: Vec<InboxID>,
+        ids: Vec<InboxId>,
         refresh_from_network: bool,
     ) -> Result<Vec<InboxState>, XmtpError> {
+        let refs = ids
+            .iter()
+            .map(InboxId::checked)
+            .collect::<Result<Vec<_>, _>>()?;
         let _call = self.ensure_open()?;
-        let refs = ids.iter().map(|id| id.0.as_str()).collect();
         let states = self
             .inner
             .inbox_addresses(refresh_from_network, refs)
@@ -376,20 +377,22 @@ impl Client {
     pub async fn inbox_id_for(
         &self,
         identity: PublicIdentity,
-    ) -> Result<Option<InboxID>, XmtpError> {
+    ) -> Result<Option<InboxId>, XmtpError> {
         let _call = self.ensure_open()?;
         self.inner
             .find_inbox_id_from_identifier(&self.inner.context.db(), identity.to_core()?)
             .await
             .map_err(XmtpError::from_client)?
-            .map(InboxID::try_from)
+            .map(InboxId::try_from)
             .transpose()
     }
 
+    /// Returns one entry per core identity. Keys use `ethereum:<core text>` or
+    /// `passkey:<lowercase core hex>`.
     pub async fn can_message(
         &self,
         identities: Vec<PublicIdentity>,
-    ) -> Result<Vec<CanMessageEntry>, XmtpError> {
+    ) -> Result<HashMap<String, bool>, XmtpError> {
         let _call = self.ensure_open()?;
         let core = identities
             .iter()
@@ -400,33 +403,34 @@ impl Client {
             .can_message(&core)
             .await
             .map_err(XmtpError::from_client)?;
-        Ok(identities
-            .into_iter()
-            .zip(core)
-            .map(|(identity, key)| CanMessageEntry {
-                identity,
-                can_message: answer.get(&key).copied().unwrap_or(false),
-            })
-            .collect())
+        Ok(crate::signer::can_message_results(core.into_iter().map(
+            |key| {
+                let available = answer.get(&key).copied().unwrap_or(false);
+                (key, available)
+            },
+        )))
     }
 
     pub async fn latest_inbox_updates_count(
         &self,
-        ids: Vec<InboxID>,
+        ids: Vec<InboxId>,
         refresh_from_network: bool,
-    ) -> Result<Vec<InboxCountEntry>, XmtpError> {
+    ) -> Result<HashMap<String, u64>, XmtpError> {
+        let refs = ids
+            .iter()
+            .map(InboxId::checked)
+            .collect::<Result<Vec<_>, _>>()?;
         let _call = self.ensure_open()?;
-        let refs = ids.iter().map(|id| id.0.as_str()).collect();
         let answer = self
             .inner
-            .fetch_inbox_updates_count(refresh_from_network, refs)
+            .fetch_inbox_updates_count(refresh_from_network, refs.clone())
             .await
             .map_err(XmtpError::from_client)?;
-        Ok(ids
+        Ok(refs
             .into_iter()
-            .map(|inbox_id| InboxCountEntry {
-                count: u64::from(answer.get(&inbox_id.0).copied().unwrap_or(0)),
-                inbox_id,
+            .map(|inbox_id| {
+                let count = u64::from(answer.get(inbox_id).copied().unwrap_or(0));
+                (inbox_id.to_owned(), count)
             })
             .collect())
     }
@@ -445,21 +449,19 @@ impl Client {
 
     pub async fn key_package_statuses(
         &self,
-        ids: Vec<InstallationID>,
-    ) -> Result<Vec<KeyPackageStatusEntry>, XmtpError> {
+        ids: Vec<InstallationId>,
+    ) -> Result<HashMap<String, KeyPackageStatus>, XmtpError> {
+        let bytes = installation_bytes(&ids)?;
         let _call = self.ensure_open()?;
         let found = self
             .inner
-            .get_key_packages_for_installation_ids(installation_bytes(ids.clone())?)
+            .get_key_packages_for_installation_ids(bytes.clone())
             .await
             .map_err(XmtpError::from_client)?;
-        Ok(ids
+        Ok(bytes
             .into_iter()
-            .map(|installation_id| {
-                let status = match hex::decode(&installation_id.0)
-                    .ok()
-                    .and_then(|id| found.get(&id))
-                {
+            .map(|bytes| {
+                let status = match found.get(&bytes) {
                     Some(Ok(package)) => KeyPackageStatus {
                         lifetime: package.life_time().map(|value| KeyPackageLifetime {
                             not_before: value.not_before,
@@ -476,10 +478,7 @@ impl Client {
                         validation_error: Some("key package not found".into()),
                     },
                 };
-                KeyPackageStatusEntry {
-                    installation_id,
-                    status,
-                }
+                (hex::encode(bytes), status)
             })
             .collect())
     }

@@ -32,7 +32,7 @@ Out of scope: the consent record and its merge (`CONS`), the join itself (`JOIN`
 | `PUSH` | PUSH-258 owns the HMAC root key's derivation into per-conversation keys; PUSH-219 owns push eligibility. This spec owns the root key's cycling and propagation. |
 | `CTYPE` | Owns `EncodedContent` and `ContentTypeId`, which a sync message is wrapped in, and CTYPE-001, which selects a codec by them. |
 | `META` | Owns `CONVERSATION_TYPE` and `CREATOR_INBOX_ID` in immutable metadata, and META-019, which rejects a Welcome that lacks them. |
-| `PROC` | Owns how a stored envelope is processed and how a message stream excludes a conversation kind (PROC-032). |
+| `PROC` | Owns how a stored envelope is processed and how a message reader applies its selected scope (PROC-046). |
 | `EVENT` | EVENT-001 reports consent and HMAC root key changes; EVENT-003 excludes sync groups from app events. |
 
 ## Terms
