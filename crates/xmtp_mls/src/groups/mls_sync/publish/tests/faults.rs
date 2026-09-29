@@ -127,6 +127,13 @@ impl XmtpBackendClient for FaultyApi {
         Err(out_of_range)
     }
 
+    async fn create_upload(
+        &self,
+        request: wire::CreateUploadRequest,
+    ) -> Result<wire::CreateUploadResponse, Self::Error> {
+        self.inner.create_upload(request).await
+    }
+
     async fn query(&self, request: wire::QueryRequest) -> Result<wire::QueryResponse, Self::Error> {
         if self.poisoned.load(Ordering::SeqCst) {
             return Err(status(tonic::Code::DataLoss));

@@ -212,6 +212,13 @@ where
                         );
                     }
                     for reference in rejected_refs {
+                        // Every member evicts the same proposals, so a later
+                        // reference to one is absent, not lost local state.
+                        db.forget_received_proposal(
+                            self.group_id,
+                            group.epoch().as_u64() as i64,
+                            reference.as_slice(),
+                        )?;
                         match group.remove_pending_proposal(storage, &reference) {
                             Ok(()) | Err(openmls::group::RemoveProposalError::ProposalNotFound) => {
                             }
@@ -373,6 +380,23 @@ where
         Some(metadata.attributes.get(field_name).cloned())
     }
 
+    /// Store a proposal the ordered prefix delivered, with durable evidence of
+    /// its delivery that survives loss of the proposal store.
+    pub(super) fn store_received_proposal(
+        &self,
+        group: &mut OpenMlsGroup,
+        storage: &impl XmtpMlsStorageProvider,
+        proposal: openmls::prelude::QueuedProposal,
+    ) -> Result<(), GroupMessageProcessingError> {
+        storage.db().record_received_proposal(
+            self.group_id,
+            group.epoch().as_u64() as i64,
+            proposal.proposal_reference_ref().as_slice(),
+        )?;
+        group.store_pending_proposal(storage, proposal)?;
+        Ok(())
+    }
+
     /// Apply one envelope with state and intent rows from the current writer.
     fn apply_prepared_proposal(
         &self,
@@ -430,7 +454,7 @@ where
                 )));
             }
             self.validate_received_proposal(group, &proposal)?;
-            group.store_pending_proposal(storage, proposal)?;
+            self.store_received_proposal(group, storage, proposal)?;
             if attempt.payload_hash == envelope.payload_hash {
                 db.set_group_intent_committed(intent.id, envelope.cursor)?;
             }

@@ -206,9 +206,11 @@ fn content_type(value: xmtp_events::ContentTypeId) -> ContentTypeId {
     }
 }
 
-impl From<core::ClientEvent> for ClientEvent {
-    fn from(value: core::ClientEvent) -> Self {
-        match value {
+impl ClientEvent {
+    /// Converts a core event to its SDK form. Returns `None` for the `attachment.*` kinds, which the SDK does
+    /// not deliver yet: their binding and SDK exposure is pending (see the ATCH waivers in docs/specs/waivers.toml).
+    pub(crate) fn from_core(value: core::ClientEvent) -> Option<Self> {
+        Some(match value {
             core::ClientEvent::ConversationJoined(v) => Self::ConversationJoined {
                 conversation_id: conversation_id(v.group_id),
                 conversation_type: v.conversation_type.into(),
@@ -309,6 +311,13 @@ impl From<core::ClientEvent> for ClientEvent {
             core::ClientEvent::Lagged(v) => Self::Lagged {
                 discarded: v.discarded,
             },
-        }
+            core::ClientEvent::AttachmentUploadStarted(_)
+            | core::ClientEvent::AttachmentUploadCompleted(_)
+            | core::ClientEvent::AttachmentUploadFailed(_)
+            | core::ClientEvent::AttachmentDownloadStarted(_)
+            | core::ClientEvent::AttachmentDownloadCompleted(_)
+            | core::ClientEvent::AttachmentDownloadFailed(_)
+            | core::ClientEvent::AttachmentDeleted(_) => return None,
+        })
     }
 }

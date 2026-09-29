@@ -39,6 +39,29 @@ fn emit_hmac(client: &Client) {
     );
 }
 
+fn emit_attachment(client: &Client) {
+    client.inner.context.events().emit(
+        Some(xmtp_events::ClientEvent::AttachmentUploadStarted(
+            xmtp_events::AttachmentRef {
+                attachment_key: "key".into(),
+                url: "https://example.com/attachment".into(),
+                content_digest: "digest".into(),
+            },
+        )),
+        None,
+    );
+}
+
+struct EventCapture(tokio::sync::mpsc::UnboundedSender<ClientEvent>);
+
+#[xmtp_common::async_trait]
+impl EventListener for EventCapture {
+    async fn on_event(&self, event: ClientEvent) -> Result<(), ListenerError> {
+        let _ = self.0.send(event);
+        Ok(())
+    }
+}
+
 struct EventProbe {
     started: tokio::sync::mpsc::UnboundedSender<usize>,
     completed: Arc<AtomicBool>,
@@ -133,6 +156,54 @@ async fn events_registered_before_return() {
         Some(ClientEvent::ArchiveRestored { complete: true })
     ));
     reader.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn reader_skips_undelivered_attachment_events() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let filter = xmtp_events::EventFilter::new([
+        xmtp_events::EventKind::AttachmentUploadStarted,
+        xmtp_events::EventKind::HmacKeysUpdated,
+    ]);
+    let subscription = client.inner.context.events().subscribe_app(filter).unwrap();
+    let reader = crate::EventReader::new(subscription);
+
+    emit_attachment(&client);
+    emit_hmac(&client);
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), reader.next()).await??,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    reader.end().await?;
+    client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn listener_skips_undelivered_attachment_events() {
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let filter = xmtp_events::EventFilter::new([
+        xmtp_events::EventKind::AttachmentUploadStarted,
+        xmtp_events::EventKind::HmacKeysUpdated,
+    ]);
+    let subscription = client.inner.context.events().subscribe_app(filter).unwrap();
+    let (sender, mut received) = tokio::sync::mpsc::unbounded_channel();
+    let id = client
+        .listeners
+        .start(subscription, Arc::new(EventCapture(sender)))?;
+
+    emit_attachment(&client);
+    emit_hmac(&client);
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), received.recv()).await?,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
+    assert!(
+        tokio::time::timeout(Duration::from_millis(50), received.recv())
+            .await
+            .is_err()
+    );
+    client.stop_listener(id).await;
     client.end().await?;
 }
 
@@ -2915,7 +2986,6 @@ async fn connection_state_across_toxiproxy_drop() {
     .await;
 }
 
-// verifies: STORE-001
 // verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn storage_path_keeps_opened_relative_file_after_chdir() {
@@ -3201,7 +3271,6 @@ async fn storage_default_requires_host_and_directory_names_are_unique() {
     std::fs::remove_dir_all(directory)?;
 }
 
-// verifies: STORE-008
 #[xmtp_common::test(unwrap_try = true)]
 fn storage_label_rejects_unsafe_characters() {
     for label in ["bad/name", "bad\\name", "bad:name", "bad\0name"] {

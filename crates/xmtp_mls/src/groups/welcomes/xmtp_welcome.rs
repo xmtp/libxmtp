@@ -409,6 +409,7 @@ where
             // Clear the old proposals in memory and storage before installing
             // it. OpenMLS stores proposal references by group ID, not epoch.
             current.clear_pending_proposals(&storage)?;
+            db.forget_received_proposals(group_id)?;
         }
 
         // The checks above allow PendingRemove only for a valid inactive rejoin.

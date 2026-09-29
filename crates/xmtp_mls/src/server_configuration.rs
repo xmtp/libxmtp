@@ -12,7 +12,9 @@ use parking_lot::RwLock;
 use prost::Message;
 use xmtp_api::{ApiClientWrapper, ApiError};
 use xmtp_configuration::{
-    ConfigProvider, ServerConfiguration, ServerConfigurationError, StoredConfigProvider,
+    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, ConfigProvider, ServerConfiguration,
+    ServerConfigurationError, StoredConfigProvider,
+    attachments::{check_base_url, check_max_upload_bytes, check_retention_seconds},
 };
 use xmtp_db::prelude::*;
 use xmtp_db::{StorageError, server_configuration::StoredServerConfiguration};
@@ -28,6 +30,8 @@ use crate::client::ClientError;
 /// backend that refused from a database that would not accept the answer.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigurationFetchError {
+    #[error("the deployment record could not be written: {0}")]
+    StorageLocation(#[from] crate::storage_location::StorageLocationError),
     /// The backend did not answer, or answered with an error. A backend with
     /// no `ConfigurationService` answers `UNIMPLEMENTED`; there is no shim.
     #[error("the backend did not serve its configuration: {0}")]
@@ -42,6 +46,7 @@ impl xmtp_common::RetryableError for ConfigurationFetchError {
         match self {
             Self::Api(e) => e.is_retryable(),
             Self::Storage(e) => e.is_retryable(),
+            Self::StorageLocation(_) => false,
         }
     }
 }
@@ -81,6 +86,7 @@ impl From<&BlockedConnection> for ClientError {
 /// refresh sets it.
 #[derive(Clone)]
 pub struct ServerConfigurationHandle {
+    deployment_recorder: Arc<RwLock<Option<crate::storage_location::DeploymentRecorder>>>,
     provider: Arc<dyn ConfigProvider>,
     blocked_connection: Arc<RwLock<Option<BlockedConnection>>>,
     event_writer: Arc<RwLock<Option<Arc<dyn EventWriter<()>>>>>,
@@ -105,25 +111,49 @@ impl Default for ServerConfigurationHandle {
 }
 
 impl ServerConfigurationHandle {
-    /// Hold one snapshot, with no zero left in its limits.
+    /// Hold one snapshot, with no zero left in its limits or attachment upload ceiling.
     ///
     /// Wire conversion replaces a zero on the wire with the compiled default, but a
     /// snapshot an app builds in Rust and hands in through a `ConfigProvider`
     /// never passes through that conversion, and a zero dimension
     /// would panic the `chunks(limit)` calls in `xmtp_api`. Every
     /// snapshot reaches a client through this constructor, so sanitizing here
-    /// is what keeps the zero out of all three readers at once: this handle,
-    /// the wrapper that chunks with it, and the transport.
+    /// keeps zero limits out of all three readers at once: this handle, the
+    /// wrapper that chunks with them, and the transport. It also removes an
+    /// unusable attachment offer from a provider snapshot.
     pub fn new(provider: Arc<dyn ConfigProvider>) -> Self {
         let sanitized = {
             let supplied = provider.server_configuration();
             let limits = supplied.limits.without_zeroes();
-            (limits != supplied.limits).then(|| ServerConfiguration {
-                limits,
-                ..supplied.clone()
+            let attachments = supplied.attachments.as_ref().and_then(|offer| {
+                let mut offer = offer.clone();
+                if offer.max_upload_bytes == 0 {
+                    offer.max_upload_bytes = BACKEND_DEFAULT_MAX_UPLOAD_BYTES;
+                }
+                let checked = check_base_url(&offer.base_url)
+                    .and_then(|_| check_max_upload_bytes(offer.max_upload_bytes))
+                    .and_then(|_| check_retention_seconds(offer.retention_seconds));
+                if let Err(reason) = checked {
+                    tracing::warn!(
+                        field = reason.field(),
+                        reason = reason.reason(),
+                        "ignoring unusable attachment storage offer"
+                    );
+                    None
+                } else {
+                    Some(offer)
+                }
+            });
+            (limits != supplied.limits || attachments != supplied.attachments).then(|| {
+                ServerConfiguration {
+                    limits,
+                    attachments,
+                    ..supplied.clone()
+                }
             })
         };
         Self {
+            deployment_recorder: Arc::default(),
             provider: match sanitized {
                 Some(configuration) => Arc::new(StoredConfigProvider::new(configuration)),
                 None => provider,
@@ -172,6 +202,25 @@ impl ServerConfigurationHandle {
 
     pub(crate) fn set_event_writer(&self, writer: Arc<dyn EventWriter<()>>) {
         *self.event_writer.write() = Some(writer);
+    }
+
+    pub(crate) fn set_deployment_recorder(
+        &self,
+        recorder: crate::storage_location::DeploymentRecorder,
+    ) {
+        *self.deployment_recorder.write() = Some(recorder);
+    }
+
+    async fn record_deployment(&self, identifier: &str) -> Result<(), ClientError> {
+        let recorder = self.deployment_recorder.read().clone();
+        if let Some(recorder) = recorder {
+            recorder.record(identifier).await.map_err(|error| {
+                ClientError::ConfigurationUnavailable(Box::new(
+                    ConfigurationFetchError::StorageLocation(error),
+                ))
+            })?;
+        }
+        Ok(())
     }
 
     /// Fail when the connection is blocked. Every call that reaches the network goes
@@ -234,7 +283,7 @@ fn snapshot_from(stored: &StoredServerConfiguration) -> ServerConfiguration {
 }
 
 /// Validate a fetched response and turn it into a snapshot.
-fn validated(
+pub(crate) fn validated(
     response: &backend_v1::GetConfigurationResponse,
 ) -> Result<ServerConfiguration, ServerConfigurationError> {
     let configuration = ServerConfiguration::from(response.clone());
@@ -293,6 +342,8 @@ where
     )
     .map_err(storage_unavailable)?;
 
+    handle.record_deployment(&configuration.identifier).await?;
+
     Ok(configuration)
 }
 
@@ -319,7 +370,7 @@ where
 /// A transport reports the URI it dialled, which for `http://host:port` carries
 /// a trailing slash the app never typed. Normalising both sides keeps a purely
 /// cosmetic difference from looking like a move to another deployment.
-fn normalized_url(url: &str) -> &str {
+pub(crate) fn normalized_url(url: &str) -> &str {
     url.trim_end_matches('/')
 }
 
