@@ -392,7 +392,7 @@ mod tests {
     /// connection, may succeed on a second attempt. A truncated or corrupt
     /// archive, a failed write, a wrong key, or a group with no state fails
     /// the same way every time, so retrying it only delays the error.
-    #[test]
+    #[xmtp_common::test]
     fn archive_errors_are_retryable_only_when_transient() {
         use crate::UnreadableGroup;
         use std::io::{Error, ErrorKind::*};
