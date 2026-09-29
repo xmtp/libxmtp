@@ -248,7 +248,9 @@ impl DecodedMessage {
                 inserted_at_ns: value.inserted_at_ns,
                 expires_at_ns: value.expire_at_ns,
             },
-            // No admin removed it; its own disappearing setting did.
+            // `DeletedBy` has no expiry variant, and adding one changes the
+            // binding types. `Sender` is the least wrong existing value: no
+            // admin removed the message, and `Admin` needs an inbox id.
             content: MessageBody::DeletedMessage {
                 deleted_by: DeletedBy::Sender,
             },

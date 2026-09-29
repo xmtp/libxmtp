@@ -218,14 +218,72 @@ mod tests {
         assert!(events.drain().is_empty());
     }
 
-    /// Expiry cleanup reports which message was deleted, not what it said.
-    /// The item is the deleted-message placeholder, so no host decodes an
-    /// empty body.
-    // verifies: META-051
-    #[xmtp_common::test(unwrap_try = true)]
-    async fn expired_message_deletion_event_carries_no_body() {
+    /// Wait until the stored expiry of `id` has passed. Confirmation replaces
+    /// the local send time with the backend's, so the stored value can be
+    /// later than the local clock.
+    async fn wait_until_expired(context: &impl XmtpSharedContext, id: &[u8]) {
+        let expire_at = context
+            .db()
+            .get_group_message(id)
+            .unwrap()
+            .and_then(|message| message.expire_at_ns)
+            .expect("an expiring message");
+        while now_ns() < expire_at {
+            let wait = (expire_at - now_ns()).max(0) as u64;
+            xmtp_common::time::sleep(Duration::from_nanos(wait) + Duration::from_millis(1)).await;
+        }
+    }
+
+    /// A deletion item for an expired message is the deleted-message
+    /// placeholder, so it carries no body and no host decodes an empty one.
+    fn assert_no_body(
+        deleted: &crate::messages::decoded_message::DecodedMessage,
+        message_id: &[u8],
+        sender_inbox_id: &str,
+    ) {
         use crate::messages::decoded_message::{DeletedBy, MessageBody};
         use crate::messages::enrichment::deleted_message_content_type;
+
+        assert_eq!(deleted.metadata.id, message_id);
+        assert_eq!(deleted.metadata.sender_inbox_id, sender_inbox_id);
+        assert_eq!(
+            deleted.metadata.content_type,
+            deleted_message_content_type(),
+            "the deletion item has no content type"
+        );
+        assert!(
+            matches!(
+                deleted.content,
+                MessageBody::DeletedMessage {
+                    deleted_by: DeletedBy::Sender
+                }
+            ),
+            "the deletion item carried a body: {:?}",
+            deleted.content
+        );
+        assert_eq!(deleted.fallback_text, None);
+    }
+
+    /// The three ways an expired message leaves the database: expiry cleanup,
+    /// a group delete, and a local client delete.
+    #[derive(Clone, Copy, Debug)]
+    enum Removal {
+        Cleanup,
+        GroupDelete,
+        ClientDelete,
+    }
+
+    /// Every deletion of an expired message reports which message was
+    /// deleted, not what it said.
+    // verifies: META-051
+    #[rstest::rstest]
+    #[case::cleanup(Removal::Cleanup)]
+    #[case::group_delete(Removal::GroupDelete)]
+    #[case::client_delete(Removal::ClientDelete)]
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn expired_message_deletion_event_carries_no_body(
+        #[case] removal: Removal,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         use crate::subscriptions::StreamMessages;
         use futures::StreamExt;
         use xmtp_content_types::{ContentCodec, encoded_content_to_bytes, text::TextCodec};
@@ -252,31 +310,26 @@ mod tests {
         let message_id = group
             .send_message(&encoded_content_to_bytes(secret), Default::default())
             .await?;
+        wait_until_expired(&alix.context, &message_id).await;
 
-        let mut worker = DisappearingMessagesWorker::new(alix.context.clone());
-        worker.delete_expired_messages().await?;
+        match removal {
+            Removal::Cleanup => {
+                DisappearingMessagesWorker::new(alix.context.clone())
+                    .delete_expired_messages()
+                    .await?;
+            }
+            Removal::GroupDelete => {
+                group.delete_message(message_id.clone())?;
+            }
+            Removal::ClientDelete => {
+                assert_eq!(alix.delete_message(message_id.clone())?, 1);
+            }
+        }
         let deleted = xmtp_common::time::timeout(Duration::from_secs(5), deletions.next())
             .await?
             .expect("a deletion item")?;
-        assert_eq!(deleted.metadata.id, message_id);
-        assert_eq!(deleted.metadata.group_id, group.group_id);
-        assert_eq!(deleted.metadata.sender_inbox_id, alix.inbox_id());
-        assert_eq!(
-            deleted.metadata.content_type,
-            deleted_message_content_type(),
-            "the deletion item has no content type"
-        );
-        assert!(
-            matches!(
-                deleted.content,
-                MessageBody::DeletedMessage {
-                    deleted_by: DeletedBy::Sender
-                }
-            ),
-            "the deletion item carried a body: {:?}",
-            deleted.content
-        );
-        assert_eq!(deleted.fallback_text, None);
+        assert_no_body(&deleted, &message_id, alix.inbox_id());
+        Ok(())
     }
 
     #[xmtp_common::test(unwrap_try = true)]
