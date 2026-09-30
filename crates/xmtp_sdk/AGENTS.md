@@ -29,9 +29,10 @@ Run commands from the repository root in the Nix shell. Run
   records and worker death in the conformance-featured panic fixture.
   The Swift and browser runs start `conformance/ts/object-store.mjs` for their
   download fixtures; `SDK_OBJECT_STORE_PORT=9067` also makes it the upload
-  target of a backend with no S3 of its own, as in CI. The browser run sets
-  `SDK_RELAY_TARGET` to the backend, so a test can refuse a relayed backend
-  URL and count the requests the refusal saw.
+  target of a backend with no S3 of its own, as in CI, where
+  `crates/xmtp_sdk/dev/deploy-fly-backend` deploys that backend to Fly for the
+  Swift run. The browser run sets `SDK_RELAY_TARGET` to the backend, so a test
+  can refuse a relayed backend URL and count the requests the refusal saw.
 - `just sdk bench` compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It

@@ -15,8 +15,6 @@
 #   FLY_API_TOKEN - Required for Fly.io authentication
 #   FLY_ORG       - Organization to deploy to (default: xmtp-labs)
 #   FLY_REGION    - Region to deploy to (default: sjc)
-#   BACKEND_CONFIG_FILE - Backend config, from the repository root
-#                         (default: dev/backend/local.toml)
 
 set -euo pipefail
 
@@ -35,7 +33,7 @@ BACKEND_IMAGE="${2:?Pass the backend image for the commit under test}"
 MACHINE_CONFIG_DIR="$(mktemp -d)"
 MACHINE_CONFIG="${MACHINE_CONFIG_DIR}/machine-config.json"
 trap 'rm -rf "$MACHINE_CONFIG_DIR"' EXIT
-BACKEND_CONFIG="$(base64 < "${SCRIPT_DIR}/../../../../${BACKEND_CONFIG_FILE:-dev/backend/local.toml}" | tr -d '\n')"
+BACKEND_CONFIG="$(base64 < "${SCRIPT_DIR}/../../../../dev/backend/local.toml" | tr -d '\n')"
 jq --arg cfg "$BACKEND_CONFIG" --arg image "$BACKEND_IMAGE" '.containers |= map(if .name == "backend" then .image = $image | .env.XMTP_REPLICA_URL = .env.XMTP_DATABASE_URL | .files = [{guest_path: "/config.toml", raw_value: $cfg}] else . end)' \
     "${SCRIPT_DIR}/machine-config.json" > "$MACHINE_CONFIG"
 

@@ -97,13 +97,10 @@ jobs:
         id: deploy
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-          # The backend presigns uploads for loopback port 9067, where the
-          # Swift job runs the conformance object store.
-          BACKEND_CONFIG_FILE: dev/backend/local-s3.toml
         run: |
           APP_NAME="libxmtp-sdk-test-${{ github.run_id }}-${{ github.run_attempt }}"
           echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
-          ./sdks/ios/dev/fly/deploy "$APP_NAME" "ghcr.io/xmtp/backend:sha-${{ github.sha }}"
+          ./crates/xmtp_sdk/dev/deploy-fly-backend "$APP_NAME" "ghcr.io/xmtp/backend:sha-${{ github.sha }}"
           echo "backend_url=https://${APP_NAME}.fly.dev" >> "$GITHUB_OUTPUT"
       - name: Wait for services
         env:
