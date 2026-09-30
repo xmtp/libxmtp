@@ -74,6 +74,7 @@ use xmtp_configuration::{
 use xmtp_content_types::{CodecError, ContentCodec, group_updated::GroupUpdatedCodec};
 use xmtp_db::TransactionOutcome::{Continue, Rollback};
 use xmtp_db::XmtpMlsStorageProvider;
+use xmtp_db::group::GroupMembershipState;
 use xmtp_db::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
 use xmtp_db::{
     Fetch, StorageError, StoreOrIgnore, TransactionOutcome,
@@ -86,7 +87,6 @@ use xmtp_db::{
 };
 use xmtp_db::{NotFound, group_intent::IntentKind::MetadataUpdate};
 use xmtp_db::{XmtpOpenMlsProviderRef, prelude::*};
-use xmtp_db::{group::GroupMembershipState, group_message::Deletable};
 use xmtp_db::{
     group_message::MsgQueryArgs,
     pending_remove::{PendingRemove, QueryPendingRemove},

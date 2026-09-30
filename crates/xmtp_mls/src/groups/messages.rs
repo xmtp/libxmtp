@@ -18,6 +18,9 @@ where
             return Err(GroupError::GroupInactive);
         }
 
+        // Refuse before any network work or pending proposal commit.
+        Self::reject_reserved_transcript_content(message)?;
+
         self.ensure_not_paused().await?;
         let update_interval_ns = Some(SEND_MESSAGE_UPDATE_INSTALLATIONS_INTERVAL_NS);
         self.maybe_update_installations(update_interval_ns).await?;
@@ -125,6 +128,7 @@ where
         idempotency_key: Option<String>,
     ) -> Result<Vec<u8>, GroupError> {
         state_write(self.context.mls_storage(), |tx| {
+            self.ensure_active_for_send(tx)?;
             let storage = tx.storage();
             let message = self.store_message_for_later_publish(
                 &storage.db(),
@@ -145,6 +149,7 @@ where
         should_push: bool,
         idempotency_key: Option<String>,
     ) -> Result<StoredGroupMessage, GroupError> {
+        Self::reject_reserved_transcript_content(message)?;
         let now = now_ns();
         // Resolve the key once. Random defaults do not depend on clock resolution.
         let idempotency_key = idempotency_key.unwrap_or_else(|| {
@@ -205,6 +210,7 @@ where
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
+                self.ensure_active_for_send(tx)?;
                 let storage = tx.storage();
                 let db = storage.db();
                 let message = db
@@ -213,11 +219,31 @@ where
                     .ok_or_else(|| {
                         GroupError::NotFound(NotFound::MessageById(message_id.to_vec()))
                     })?;
+                // An older build stored this row before the creation check.
+                // It fails here and is never queued; the transaction commits.
+                // A saved prepared attempt may already be on the backend, so
+                // its outcome stays unknown and its saved bytes may still publish.
+                // implements: GMOD-035
+                if message.delivery_status != DeliveryStatus::Published
+                    && Self::is_reserved_transcript_content(&message.decrypted_message_bytes)
+                    && !self.has_saved_attempt(&db, &message.id)?
+                {
+                    if message.delivery_status == DeliveryStatus::Unpublished {
+                        db.set_delivery_status_to_failed(&message.id)?;
+                        self.emit_message_status_changed(
+                            message.id,
+                            xmtp_events::MessageStatus::Unpublished,
+                            xmtp_events::MessageStatus::Failed,
+                            events,
+                        );
+                    }
+                    return Ok(Continue(Err(GroupError::ReservedTranscriptContentType)));
+                }
                 self.queue_stored_message(&db, events, &message)
-                    .map(Continue)
+                    .map(|queued| Continue(Ok(queued)))
             },
         )?
-        .into_continued();
+        .into_continued()?;
         if !queued {
             return Ok(());
         }
@@ -277,7 +303,7 @@ where
             return Err(DeleteMessageError::NotAuthorized.into());
         }
 
-        if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
+        if !crate::messages::enrichment::is_deletable_stored_message(&original_msg) {
             return Err(DeleteMessageError::NonDeletableMessage.into());
         }
 
@@ -334,6 +360,47 @@ where
         Ok(deletion_message_id)
     }
 
+    /// Whether a send intent for this message already has a saved attempt.
+    fn has_saved_attempt(&self, db: &impl DbQuery, message_id: &[u8]) -> Result<bool, GroupError> {
+        for intent in db.find_group_intents(
+            self.group_id,
+            Some(vec![IntentState::Published]),
+            Some(vec![xmtp_db::group_intent::IntentKind::SendMessage]),
+        )? {
+            if crate::utils::id::calculate_message_id_for_intent(&intent)?.as_deref()
+                == Some(message_id)
+                && db.prepared_envelopes(intent.id)?.is_some()
+            {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// Whether the outer content type is a reserved transcript type. Only the
+    /// `xmtp.org` authority reserves these type ids, at any version.
+    // implements: GMOD-035
+    pub(in crate::groups) fn is_reserved_transcript_content(message: &[u8]) -> bool {
+        EncodedContent::decode(message)
+            .ok()
+            .and_then(|content| content.r#type)
+            .is_some_and(|content_type| {
+                content_type.authority_id == "xmtp.org"
+                    && matches!(
+                        content_type.type_id.as_str(),
+                        "group_updated" | "group_membership_change"
+                    )
+            })
+    }
+
+    fn reject_reserved_transcript_content(message: &[u8]) -> Result<(), GroupError> {
+        if Self::is_reserved_transcript_content(message) {
+            Err(GroupError::ReservedTranscriptContentType)
+        } else {
+            Ok(())
+        }
+    }
+
     /// Helper function to extract queryable content fields from a message
     pub(in crate::groups) fn extract_queryable_content_fields(
         message: &[u8],
@@ -370,6 +437,7 @@ where
             self.context.mls_storage(),
             self.context.events(),
             |tx, events| {
+                self.ensure_active_for_send(tx)?;
                 let storage = tx.storage();
                 let db = storage.db();
                 let message = self.store_message_for_later_publish(
@@ -418,6 +486,30 @@ where
             );
         }
         Ok(true)
+    }
+
+    /// Check membership while holding the same writer as the new message or intent.
+    // implements: SEND-005
+    fn ensure_active_for_send<T: xmtp_db::TransactionalKeyStore>(
+        &self,
+        tx: &mut crate::state_tx::StateTx<'_, T>,
+    ) -> Result<(), GroupError> {
+        let stored = tx
+            .storage()
+            .db()
+            .find_group(&self.group_id)?
+            .ok_or(NotFound::GroupById(self.group_id))?;
+        if stored.membership_state == GroupMembershipState::Restored {
+            return Err(GroupError::GroupInactive);
+        }
+        let active = tx.with_group(self.group_id, |mls_group, _| {
+            Ok::<_, GroupError>(mls_group.is_active())
+        })?;
+        if active {
+            Ok(())
+        } else {
+            Err(GroupError::GroupInactive)
+        }
     }
 
     fn into_envelope(encoded_msg: &[u8], idempotency_key: &str) -> PlaintextEnvelope {

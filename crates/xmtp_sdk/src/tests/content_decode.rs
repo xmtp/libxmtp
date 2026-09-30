@@ -143,6 +143,7 @@ async fn invalid_reply_parent_body_does_not_break_reads() {
         actions::{Actions, ActionsCodec},
         group_updated::GroupUpdatedCodec,
     };
+    use xmtp_db::{Store, group_message::QueryGroupMessage};
     use xmtp_proto::xmtp::mls::message_contents::GroupUpdated;
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
@@ -150,20 +151,41 @@ async fn invalid_reply_parent_body_does_not_break_reads() {
     let actions: Actions = serde_json::from_str(
         r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One"}]}"#,
     )?;
+    // An older peer can still send a transcript type as application content.
+    // The send checks refuse it here, so that parent is stored directly.
     let parents = [
         (
             "group_updated",
             GroupUpdatedCodec::encode(GroupUpdated {
                 initiated_by_inbox_id: String::new(),
                 ..Default::default()
-            })?
-            .into(),
+            })?,
         ),
-        ("actions", ActionsCodec::encode(actions)?.into()),
+        ("actions", ActionsCodec::encode(actions)?),
     ];
     let reader = group.message_reader().await?;
     for (kind, content) in parents {
-        let parent_id = group.send(content, None).await?;
+        let parent_id = if kind == "group_updated" {
+            let template = group.inner.prepare_message_for_later_publish(
+                b"parent template",
+                false,
+                Some("template".into()),
+            )?;
+            let db = group.inner.context.db();
+            let mut stored = db.get_group_message(&template)?.unwrap();
+            let bytes = prost::Message::encode_to_vec(&content);
+            stored.id = xmtp_mls::utils::id::calculate_message_id(
+                group.inner.group_id,
+                &bytes,
+                "forged-parent",
+            );
+            stored.decrypted_message_bytes = bytes;
+            stored.idempotency_key = "forged-parent".into();
+            stored.store(&db)?;
+            MessageId::from_bytes(&stored.id)?
+        } else {
+            group.send(content.into(), None).await?
+        };
         let reply_id = client
             .conversations()
             .reply_to_message(parent_id, crate::encode_text("reply".into())?, None)
@@ -308,6 +330,52 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
         assert!(parent.encoded.parameters.is_empty(), "{path}");
         assert!(!format!("{parent:?}").contains("secret-deleted"), "{path}");
     }
+    client.end().await?;
+}
+
+/// A reply parent that expires between the relation read and the parent
+/// reload must be omitted, not returned by an unrestricted lookup.
+// verifies: META-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn reply_parent_expiring_after_relation_read_is_omitted() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
+    use xmtp_mls::messages::decoded_message::MessageBody as CoreMessageBody;
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let group = client.conversations().create_group(vec![], None).await?;
+    let parent_id = group.send_text("parent".into(), None).await?;
+    let reply_id = client
+        .conversations()
+        .reply_to_message(parent_id.clone(), crate::encode_text("reply".into())?, None)
+        .await?;
+    let reply = client.inner.message(reply_id.to_bytes()?)?;
+
+    // The relation read runs while the parent is live.
+    let decoded = xmtp_mls::messages::enrichment::enrich_messages(
+        client.inner.context.db(),
+        &reply.group_id,
+        vec![reply.clone()],
+    )?
+    .into_iter()
+    .next()
+    .expect("enriched reply");
+    assert!(matches!(
+        &decoded.content,
+        CoreMessageBody::Reply(body) if body.in_reply_to.is_some()
+    ));
+
+    // The parent expires before the reload. Cleanup has not deleted it yet.
+    let parent_bytes = parent_id.to_bytes()?;
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::update(dsl::group_messages.filter(dsl::id.eq(&parent_bytes)))
+            .set(dsl::expire_at_ns.eq(Some(1_i64)))
+            .execute(conn)
+    })?;
+
+    let parent = crate::conversation::parent_stored(&group.inner, &decoded)?;
+    assert!(parent.is_none(), "the reload returned an expired parent");
+    let message = crate::Message::from_enriched(reply, decoded, parent, client.client_key())?;
+    assert!(message.0.in_reply_to.is_none());
     client.end().await?;
 }
 

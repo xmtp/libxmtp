@@ -474,6 +474,13 @@ mock! {
         ) -> Result<Option<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
 
         #[mockall::concretize]
+        fn get_app_visible_group_message<MessageId: AsRef<[u8]>>(
+            &self,
+            id: MessageId,
+            current_time_ns: i64,
+        ) -> Result<Option<crate::group_message::StoredGroupMessage>, crate::ConnectionError>;
+
+        #[mockall::concretize]
         fn write_conn_get_group_message<MessageId: AsRef<[u8]>>(
             &self,
             id: MessageId,

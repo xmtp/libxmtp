@@ -43,23 +43,26 @@ impl ContentCodec<Reply> for ReplyCodec {
     }
 
     fn encode(data: Reply) -> Result<EncodedContent, CodecError> {
+        let inner_type = data
+            .content
+            .r#type
+            .as_ref()
+            .filter(|type_id| !type_id.authority_id.is_empty() && !type_id.type_id.is_empty())
+            .ok_or(CodecError::InvalidContentType)?;
         let fallback = Self::fallback(&data);
-        let inner_type = &data.content.r#type;
         // Set the reference and reference inbox ID as parameters.
         let mut parameters = HashMap::new();
         parameters.insert("reference".to_string(), data.reference);
-        if let Some(content_type) = inner_type {
-            parameters.insert(
-                "contentType".to_string(),
-                format!(
-                    "{}/{}:{}.{}",
-                    content_type.authority_id,
-                    content_type.type_id,
-                    content_type.version_major,
-                    content_type.version_minor
-                ),
-            );
-        }
+        parameters.insert(
+            "contentType".to_string(),
+            format!(
+                "{}/{}:{}.{}",
+                inner_type.authority_id,
+                inner_type.type_id,
+                inner_type.version_major,
+                inner_type.version_minor
+            ),
+        );
         if let Some(reference_inbox_id) = data.reference_inbox_id {
             parameters.insert("referenceInboxId".to_string(), reference_inbox_id);
         }
@@ -135,5 +138,49 @@ pub(crate) mod tests {
         assert_eq!(decoded.reference, reply.reference);
         assert_eq!(decoded.reference_inbox_id, reply.reference_inbox_id);
         assert_eq!(decoded.content, reply.content);
+    }
+
+    // verifies: CTYPE-011
+    #[xmtp_common::test(unwrap_try = true)]
+    fn reply_encoding_requires_a_complete_nested_type() {
+        let standard = TextCodec::encode("reply".into())?;
+        let make_reply = |content| Reply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content,
+        };
+        let encoded = ReplyCodec::encode(make_reply(standard.clone()))?;
+        assert_eq!(encoded.parameters["contentType"], "xmtp.org/text:1.0");
+
+        let mut unknown = standard.clone();
+        unknown.r#type = Some(ContentTypeId {
+            authority_id: "custom.example".into(),
+            type_id: "drawing".into(),
+            version_major: 9,
+            version_minor: 2,
+        });
+        let encoded = ReplyCodec::encode(make_reply(unknown))?;
+        assert_eq!(
+            encoded.parameters["contentType"],
+            "custom.example/drawing:9.2"
+        );
+
+        let mut missing = standard.clone();
+        missing.r#type = None;
+        let mut empty_authority = standard.clone();
+        empty_authority
+            .r#type
+            .as_mut()
+            .unwrap()
+            .authority_id
+            .clear();
+        let mut empty_type = standard;
+        empty_type.r#type.as_mut().unwrap().type_id.clear();
+        for content in [missing, empty_authority, empty_type] {
+            assert!(matches!(
+                ReplyCodec::encode(make_reply(content)),
+                Err(CodecError::InvalidContentType)
+            ));
+        }
     }
 }

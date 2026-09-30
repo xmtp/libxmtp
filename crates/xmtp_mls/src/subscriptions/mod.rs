@@ -140,15 +140,23 @@ impl StreamMessages for Subscription<InternalEvent> {
                         "legacy deletion stream lagged"
                     );
                 }
-                if let Some(InternalEvent::MessagesDeleted(messages)) = item.internal {
-                    return Some((futures::stream::iter(messages), subscription));
-                }
+                let decoded: Vec<Result<DecodedMessage>> = match item.internal {
+                    // let caller handle any potential decode failures
+                    // this should be rare since the message already in db
+                    Some(InternalEvent::MessagesDeleted(messages)) => messages
+                        .into_iter()
+                        .map(|m| DecodedMessage::try_from(m).map_err(Into::into))
+                        .collect(),
+                    Some(InternalEvent::MessagesExpired(messages)) => messages
+                        .into_iter()
+                        .map(|m| Ok(DecodedMessage::expired(m)))
+                        .collect(),
+                    _ => continue,
+                };
+                return Some((futures::stream::iter(decoded), subscription));
             }
         })
         .flatten()
-        // let caller handle any potential decode failures
-        // this should be rare since the message already in db
-        .map(|m| DecodedMessage::try_from(m).map_err(Into::into))
     }
 }
 
@@ -538,8 +546,7 @@ where
                 // and this stream closes with it rather than silently.
                 let cancel = watchdog::StreamCancel::new(&client.context);
                 let receiver = client.context.events().subscribe(
-                    EventFilter::default()
-                        .with_internal(|event| matches!(event, InternalEvent::MessagesDeleted(_))),
+                    EventFilter::default().with_internal(InternalEvent::is_message_deletion),
                     Some(1024),
                 );
                 let stream = receiver.stream_message_deletions();

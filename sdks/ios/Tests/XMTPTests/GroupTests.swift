@@ -695,10 +695,12 @@ class GroupTests: XCTestCase {
 
 		_ = try await alixGroup.send(content: "sup gang original")
 		let messageId = try await alixGroup.send(content: "sup gang")
-		_ = try await alixGroup.send(
+		try await assertThrowsAsyncError(await alixGroup.send(
 			content: membershipChange,
 			options: SendOptions(contentType: ContentTypeGroupUpdated)
-		)
+		)) { error in
+			XCTAssertTrue(String(describing: error).contains("GroupError::ReservedTranscriptContentType"))
+		}
 
 		try await alixGroup.sync()
 		let alixMessages = try await alixGroup.messages()
@@ -799,10 +801,12 @@ class GroupTests: XCTestCase {
 
 		do {
 			let firstID = try await group.send(content: "hi")
-			let forgedID = try await group.send(
+			try await assertThrowsAsyncError(await group.send(
 				content: GroupUpdated(),
 				options: SendOptions(contentType: ContentTypeGroupUpdated)
-			)
+			)) { error in
+				XCTAssertTrue(String(describing: error).contains("GroupError::ReservedTranscriptContentType"))
+			}
 			let lastID = try await group.send(content: afterFiltered)
 
 			await fulfillment(of: [receivedLastMessage], timeout: 3)
@@ -811,14 +815,12 @@ class GroupTests: XCTestCase {
 			let received = try await streamTask.value
 			XCTAssertEqual(received.applicationIDs, [firstID, lastID])
 			XCTAssertEqual(received.texts, ["hi", afterFiltered])
-			XCTAssertFalse(received.ids.contains(forgedID))
 			XCTAssertEqual(Set(received.ids).count, received.ids.count)
 
 			let snapshot = try group.messageHistorySnapshot()
 			let applications = snapshot.messages.filter { $0.kind == .application }
 			XCTAssertEqual(applications.count, 2)
 			XCTAssertEqual(Set(applications.map(\.id)), Set([firstID, lastID]))
-			XCTAssertFalse(snapshot.messages.contains { $0.id == forgedID })
 			let expected = [firstID: "hi", lastID: afterFiltered]
 			for message in applications {
 				let text: String = try message.content()

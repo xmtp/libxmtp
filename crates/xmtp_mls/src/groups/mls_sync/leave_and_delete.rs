@@ -180,7 +180,7 @@ where
                 return Ok(());
             }
 
-            if !original_msg.kind.is_deletable() || !original_msg.content_type.is_deletable() {
+            if !crate::messages::enrichment::is_deletable_stored_message(original_msg) {
                 tracing::warn!(
                     "Non-deletable message {} (kind: {:?}, content_type: {:?})",
                     delete_msg.message_id,

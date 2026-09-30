@@ -295,9 +295,15 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
             self.check_dispatch(false)?;
             let db = self.session.context.db();
             let message = db
-                .get_group_message(&self.message_id)
-                .map_err(StorageError::from)?
-                .ok_or(LocalDeliveryError::EnrichedMessageUnavailable)?;
+                .get_app_visible_group_message(&self.message_id, xmtp_common::time::now_ns())
+                .map_err(StorageError::from)?;
+            let message = match message {
+                Some(message) => message,
+                None => {
+                    self.check_dispatch(false)?;
+                    return Err(LocalDeliveryError::EnrichedMessageUnavailable);
+                }
+            };
             // Enrichment filters failed decodes. Validate this required item first
             // so a codec error cannot become an empty successful read.
             DecodedMessage::try_from(message.clone()).map_err(LocalDeliveryError::Enrichment)?;

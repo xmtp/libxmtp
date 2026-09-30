@@ -1044,7 +1044,9 @@ where
     /// Returns a [`StoredGroupMessage`] if the message exists, or an error if it does not
     pub fn message(&self, message_id: Vec<u8>) -> Result<StoredGroupMessage, ClientError> {
         let conn = &mut self.context.db();
-        let message = conn.get_group_message(&message_id)?;
+        // implements: META-051
+        let message =
+            conn.get_app_visible_group_message(&message_id, xmtp_common::time::now_ns())?;
         Ok(message.ok_or(NotFound::MessageById(message_id))?)
     }
 
@@ -1071,7 +1073,7 @@ where
     pub fn message_v2(&self, message_id: Vec<u8>) -> Result<DecodedMessage, ClientError> {
         let conn = self.context.db();
         let message = conn
-            .get_group_message(&message_id)?
+            .get_app_visible_group_message(&message_id, xmtp_common::time::now_ns())?
             .ok_or_else(|| NotFound::MessageById(message_id.clone()))?;
 
         let group_id = message.group_id;
@@ -1143,6 +1145,12 @@ where
             .into_iter()
             .map(|conversation_item: DbConversationListItem| {
                 let message = conversation_item.message_id.and_then(|message_id| {
+                    if conversation_item
+                        .expire_at_ns
+                        .is_some_and(|deadline| deadline <= xmtp_common::time::now_ns())
+                    {
+                        return None;
+                    }
                     // Only construct StoredGroupMessage if all fields are Some
                     let msg: Option<StoredGroupMessage> = Some(StoredGroupMessage {
                         id: message_id,
@@ -1160,11 +1168,11 @@ where
                         reference_id: None, // conversation_item does not use message reference_id
                         sequence_id: conversation_item.sequence_id?,
                         envelope_hash: None,
-                        expiry_ns: None,
-                        expire_at_ns: None, //Question: do we need to include this in conversation last message?
+                        expiry_ns: conversation_item.expiry_ns,
+                        expire_at_ns: conversation_item.expire_at_ns,
                         inserted_at_ns: 0, // Not used for conversation list display
                         should_push: true, // Not used for conversation list display
-                        // The conversation_list view does not carry the key; use
+                        // The conversation-list query does not carry the key; use
                         // the timestamp proxy (display-only, never republished).
                         idempotency_key: conversation_item.sent_at_ns.unwrap_or_default().to_string(),
                     });

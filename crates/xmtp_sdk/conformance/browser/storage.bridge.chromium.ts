@@ -13,6 +13,16 @@ import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 let worker: Worker | undefined;
 let session: MainSession | undefined;
 const clients: Client[] = [];
+// The page holds the fatal message of a failed worker while it reads the
+// worker's lock. The worker asks to close after its failure work ends.
+let holdFatal = false;
+const heldFatal: (() => void)[] = [];
+let closeRequested = false;
+let slowErrorMs = 0;
+
+function isCloseRequest(data: unknown): boolean {
+  return data !== null && typeof data === "object" && "__fatalClosing" in data;
+}
 
 async function connection(): Promise<MainSession> {
   if (session) return session;
@@ -25,8 +35,24 @@ async function connection(): Promise<MainSession> {
       current.postMessage(message, transfer);
     },
     onMessage(handler) {
-      current.addEventListener("message", (event: MessageEvent<WireMessage>) =>
-        handler(event.data),
+      current.addEventListener(
+        "message",
+        (event: MessageEvent<WireMessage>) => {
+          const message = event.data;
+          if (isCloseRequest(message)) {
+            if (worker === current) closeRequested = true;
+            return;
+          }
+          if (message.t === "error" && slowErrorMs > 0) {
+            const end = performance.now() + slowErrorMs;
+            while (performance.now() < end) {
+              // Keep the main thread busy, as a slow CI main thread does.
+            }
+          }
+          if (holdFatal && message.t === "fatal")
+            heldFatal.push(() => handler(message));
+          else handler(message);
+        },
       );
     },
     onExit(handler) {
@@ -134,14 +160,58 @@ export async function failRegistration(path: string): Promise<unknown> {
   }
 }
 
+interface PoolLock {
+  name: string;
+  clientId: string | undefined;
+}
+
+function heldPoolLocks(snapshot: LockManagerSnapshot): PoolLock[] {
+  return (snapshot.held ?? []).flatMap((lock) =>
+    lock.name?.startsWith("xmtp:")
+      ? [{ name: lock.name, clientId: lock.clientId }]
+      : [],
+  );
+}
+
 /**
- * Aborts a create while its signer kind is pending. The store is open then.
- * Returns "ended" when the worker ends while it still holds the pool lock,
- * and "released" when the lock is free while the worker still runs.
+ * Aborts a create while its signer kind is pending. The store is open then,
+ * so the worker must fail and keep the pool lock until it ends. This worker
+ * does not close itself, and the page holds its fatal message, so the worker
+ * still runs each time the page reads the lock. Returns "ended" when the
+ * worker failed with the lock held and the page then ended it, "released"
+ * when the lock was free while the worker still ran, and "held" when the
+ * worker kept the lock but did not fail. `slowMainThreadMs` blocks the page
+ * for that time when the call error arrives, so the worker ends its failure
+ * work before the page reads the lock.
  */
-export async function abortCreateWhileSigning(path: string): Promise<string> {
+export async function abortCreateWhileSigning(
+  path: string,
+  slowMainThreadMs = 0,
+): Promise<string> {
   const current = await connection();
-  const ended = () => Reflect.get(current, "dead") === true;
+  holdFatal = true;
+  closeRequested = false;
+  try {
+    const failed = await cancelCreate(current, path, slowMainThreadMs);
+    if (failed !== "failed") return failed;
+  } finally {
+    slowErrorMs = 0;
+    holdFatal = false;
+    for (const deliver of heldFatal.splice(0)) deliver();
+  }
+  // The held fatal message ends the session, and the session ends the worker.
+  if (Reflect.get(current, "dead") !== true) return "running";
+  worker = undefined;
+  session = undefined;
+  return "ended";
+}
+
+// Returns "failed" when the worker asked to close and still held the lock.
+async function cancelCreate(
+  current: MainSession,
+  path: string,
+  slowMainThreadMs: number,
+): Promise<string> {
   const bytes = crypto.getRandomValues(new Uint8Array(20));
   const identifier = `0x${Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
   const abort = new AbortController();
@@ -189,17 +259,24 @@ export async function abortCreateWhileSigning(path: string): Promise<string> {
   );
   const first = await Promise.race([started.then(() => "started"), create]);
   if (first !== "started") return String(first);
+  // The create holds the one pool lock while its signer runs.
+  const owners = heldPoolLocks(await navigator.locks.query());
+  if (owners.length !== 1)
+    throw new Error("the create does not hold exactly one pool lock");
+  const [owner] = owners;
+  slowErrorMs = slowMainThreadMs;
   abort.abort();
-  await create;
-  for (let index = 0; index < 100; index++) {
-    if (ended()) {
-      worker = undefined;
-      session = undefined;
-      return "ended";
-    }
-    const held = await navigator.locks.query();
-    if (!held.held?.some((lock) => lock.name?.startsWith("xmtp:")))
-      return "released";
+  if ((await create) === "opened")
+    throw new Error("the cancelled create returned a client");
+  for (let index = 0; index < 250; index++) {
+    // Read the close request before the lock. A lock read after the request
+    // shows the lock after all failure work of the worker.
+    const failed = closeRequested;
+    const held = heldPoolLocks(await navigator.locks.query()).some(
+      (lock) => lock.name === owner.name && lock.clientId === owner.clientId,
+    );
+    if (!held) return "released";
+    if (failed) return "failed";
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
   }
   return "held";

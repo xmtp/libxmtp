@@ -1,5 +1,6 @@
 use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
 use hex::ToHexExt;
+use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
 use xmtp_common::{ErrorCode, RetryableError};
@@ -8,7 +9,7 @@ use xmtp_db::group_message::{
     ContentType as DbContentType, Deletable, RelationCounts, RelationQuery, StoredGroupMessage,
 };
 use xmtp_db::message_deletion::StoredMessageDeletion;
-use xmtp_proto::xmtp::mls::message_contents::ContentTypeId;
+use xmtp_proto::xmtp::mls::message_contents::{ContentTypeId, EncodedContent};
 
 use xmtp_proto::types::GroupId;
 /// Content type ID for deleted message placeholders shown in enriched message lists
@@ -61,6 +62,26 @@ pub struct EnrichedStoredMessage {
     pub parent_stored: Option<StoredGroupMessage>,
 }
 
+/// Check the stored wire type before a deletion uses a cached content type.
+// implements: CTYPE-018
+pub(crate) fn is_deletable_stored_message(message: &StoredGroupMessage) -> bool {
+    if !message.kind.is_deletable() {
+        return false;
+    }
+    let Ok(content) = EncodedContent::decode(message.decrypted_message_bytes.as_slice()) else {
+        return false;
+    };
+    let Some(identifier) = content.r#type else {
+        return false;
+    };
+    DbContentType::from_identifier(
+        &identifier.authority_id,
+        &identifier.type_id,
+        identifier.version_major,
+    )
+    .is_deletable()
+}
+
 /// Validates if a deletion should be applied. Checks group membership and authorization.
 // implements: PROC-037
 pub(crate) fn is_deletion_valid(
@@ -76,7 +97,7 @@ pub(crate) fn is_deletion_valid(
         return false;
     }
 
-    if !message.kind.is_deletable() || !message.content_type.is_deletable() {
+    if !is_deletable_stored_message(message) {
         return false;
     }
 

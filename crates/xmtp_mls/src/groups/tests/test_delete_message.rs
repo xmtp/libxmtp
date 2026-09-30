@@ -4,9 +4,198 @@ use crate::groups::send_message_opts::SendMessageOpts;
 use crate::messages::decoded_message::{DeletedBy, MessageBody};
 use crate::tester;
 use xmtp_content_types::{ContentCodec, compression::compress, text::TextCodec};
-use xmtp_db::group_message::{ContentType, GroupMessageKind, MsgQueryArgs, QueryGroupMessage};
+use xmtp_db::Store;
+use xmtp_db::group_message::{
+    ContentType, DeliveryStatus, GroupMessageKind, MsgQueryArgs, QueryGroupMessage,
+    StoredGroupMessage,
+};
 use xmtp_db::message_deletion::QueryMessageDeletion;
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::mls::message_contents::Compression;
+
+fn cached_text_row(
+    group_id: GroupId,
+    id: Vec<u8>,
+    sender_inbox_id: &str,
+    raw_authority: &str,
+) -> Result<StoredGroupMessage, xmtp_content_types::CodecError> {
+    let mut encoded = TextCodec::encode("stored text".into())?;
+    encoded
+        .r#type
+        .as_mut()
+        .expect("text has a type")
+        .authority_id = raw_authority.into();
+    let idempotency_key = hex::encode(&id);
+    Ok(StoredGroupMessage {
+        id,
+        group_id,
+        decrypted_message_bytes: xmtp_content_types::encoded_content_to_bytes(encoded),
+        sent_at_ns: xmtp_common::time::now_ns(),
+        kind: GroupMessageKind::Application,
+        sender_installation_id: vec![1, 2, 3],
+        sender_inbox_id: sender_inbox_id.into(),
+        delivery_status: DeliveryStatus::Published,
+        content_type: ContentType::Text,
+        version_major: 1,
+        version_minor: 0,
+        authority_id: "xmtp.org".into(),
+        reference_id: None,
+        expire_at_ns: None,
+        sequence_id: 900_001,
+        envelope_hash: None,
+        expiry_ns: None,
+        inserted_at_ns: 0,
+        should_push: false,
+        idempotency_key,
+    })
+}
+
+// verifies: CTYPE-018, PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn old_cached_text_cannot_be_deleted_locally() {
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    let db = alix.context.db();
+    for (id, sender) in [
+        (vec![0xC7, 0x01], alix.inbox_id()),
+        (vec![0xC7, 0x02], "another-inbox"),
+    ] {
+        let target = cached_text_row(group.group_id, id, sender, "custom.example")?;
+        target.store(&db)?;
+        let loaded = db.get_group_message(&target.id)?.expect("stored target");
+        assert_eq!(loaded.content_type, ContentType::Text);
+        assert_eq!(loaded.authority_id, "xmtp.org");
+        assert!(matches!(
+            group.delete_message(target.id),
+            Err(GroupError::DeleteMessage(
+                DeleteMessageError::NonDeletableMessage
+            ))
+        ));
+    }
+
+    let standard = cached_text_row(
+        group.group_id,
+        vec![0xC7, 0x03],
+        alix.inbox_id(),
+        "xmtp.org",
+    )?;
+    standard.store(&db)?;
+    assert!(!group.delete_message(standard.id)?.is_empty());
+}
+
+// verifies: CTYPE-018, PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn received_deletion_rejects_old_cached_text_target() {
+    use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    let bo_group = bo.sync_welcomes().await?.remove(0);
+    bo_group.sync().await?;
+    let db = bo.context.db();
+
+    for (id, sender, raw_authority) in [
+        (vec![0xC7, 0x11], alix.inbox_id(), "custom.example"),
+        (vec![0xC7, 0x12], bo.inbox_id(), "custom.example"),
+        (vec![0xC7, 0x13], alix.inbox_id(), "xmtp.org"),
+    ] {
+        cached_text_row(bo_group.group_id, id.clone(), sender, raw_authority)?.store(&db)?;
+        let deletion = DeleteMessageCodec::encode(DeleteMessage {
+            message_id: hex::encode(id),
+        })?;
+        alix_group
+            .send_message(
+                &xmtp_content_types::encoded_content_to_bytes(deletion),
+                SendMessageOpts::default(),
+            )
+            .await?;
+    }
+    bo_group.sync().await?;
+    for id in [vec![0xC7, 0x11], vec![0xC7, 0x12]] {
+        assert!(db.get_deletion_by_deleted_message_id(&id)?.is_none());
+    }
+    assert!(
+        db.get_deletion_by_deleted_message_id(&[0xC7, 0x13])?
+            .is_some()
+    );
+}
+
+// verifies: CTYPE-018, PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn deferred_deletion_checks_the_later_target_raw_type() {
+    use crate::context::XmtpSharedContext;
+    use xmtp_content_types::delete_message::DeleteMessageCodec;
+    use xmtp_db::message_deletion::StoredMessageDeletion;
+    use xmtp_proto::xmtp::mls::message_contents::content_types::DeleteMessage;
+
+    tester!(alix);
+    let group = alix.create_group(None, None)?;
+    let db = alix.context.db();
+    let events = alix.context.events().subscribe(
+        xmtp_events::EventFilter::new([xmtp_events::EventKind::MessageDeleted]),
+        Some(10),
+    );
+
+    for (target_id, deletion_id, raw_authority) in [
+        (vec![0xC7, 0x21], vec![0xC7, 0x31], "custom.example"),
+        (vec![0xC7, 0x22], vec![0xC7, 0x32], "xmtp.org"),
+    ] {
+        let delete = DeleteMessageCodec::encode(DeleteMessage {
+            message_id: hex::encode(&target_id),
+        })?;
+        let mut delete_row = cached_text_row(
+            group.group_id,
+            deletion_id.clone(),
+            alix.inbox_id(),
+            "xmtp.org",
+        )?;
+        delete_row.decrypted_message_bytes = xmtp_content_types::encoded_content_to_bytes(delete);
+        delete_row.content_type = ContentType::DeleteMessage;
+        delete_row.store(&db)?;
+        StoredMessageDeletion {
+            id: deletion_id,
+            group_id: group.group_id,
+            deleted_message_id: target_id.clone(),
+            deleted_by_inbox_id: alix.inbox_id().into(),
+            is_super_admin_deletion: false,
+            deleted_at_ns: xmtp_common::time::now_ns(),
+        }
+        .store(&db)?;
+        assert!(db.get_group_message(&target_id)?.is_none());
+        let target = cached_text_row(group.group_id, target_id, alix.inbox_id(), raw_authority)?;
+        crate::state_tx::state_write_with_events(
+            alix.context.mls_storage(),
+            alix.context.events(),
+            |tx, buffer| {
+                let storage = tx.storage();
+                group.store_external_application_message(&storage, &target, buffer)?;
+                Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
+                    xmtp_db::TransactionOutcome::Continue(()),
+                )
+            },
+        )?;
+        let emitted = events.drain();
+        assert_eq!(emitted.len(), usize::from(raw_authority == "xmtp.org"));
+    }
+
+    let enriched = group.find_messages_v2(&MsgQueryArgs::default())?;
+    let old = enriched
+        .iter()
+        .find(|message| message.metadata.id == [0xC7, 0x21])
+        .expect("old target remains visible");
+    assert!(!matches!(old.content, MessageBody::DeletedMessage { .. }));
+    let standard = enriched
+        .iter()
+        .find(|message| message.metadata.id == [0xC7, 0x22])
+        .expect("standard target remains visible");
+    assert!(matches!(
+        standard.content,
+        MessageBody::DeletedMessage { .. }
+    ));
+}
 
 /// Test basic message deletion by the original sender
 #[xmtp_common::test(unwrap_try = true)]

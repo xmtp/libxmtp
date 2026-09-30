@@ -318,46 +318,56 @@ try {
 
   // A cancelled create drops its Rust future without the cleanup of a failed
   // create. Its store is open while the signer is pending, so the worker must
-  // keep the Web Lock until it ends.
+  // keep the Web Lock until it ends. The second run blocks the main thread of
+  // the page when the create error arrives, as a slow CI runner can. The
+  // worker then ends its failure work before the page reads the lock.
   await second.evaluate(async () =>
     (await import("./storage.bridge.chromium.ts")).endOne(),
   );
-  let aborted: unknown;
-  for (let index = 0; index < 50; index++) {
-    aborted = await first.evaluate(
-      async (path) =>
-        (await import("./storage.bridge.chromium.ts")).abortCreateWhileSigning(
-          path,
-        ),
-      `${base}-aborted.db`,
+  for (const [name, slowMainThreadMs] of [
+    ["aborted", 0],
+    ["aborted-slow", 250],
+  ] as const) {
+    let aborted: unknown;
+    for (let index = 0; index < 50; index++) {
+      aborted = await first.evaluate(
+        async ({ path, slow }) =>
+          (
+            await import("./storage.bridge.chromium.ts")
+          ).abortCreateWhileSigning(path, slow),
+        { path: `${base}-${name}.db`, slow: slowMainThreadMs },
+      );
+      if (aborted !== "StorageBusy") break;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(
+      aborted,
+      "ended",
+      `a cancelled create released the Web Lock while its worker still ran (main thread blocked ${slowMainThreadMs} ms)`,
     );
-    if (aborted !== "StorageBusy") break;
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    let afterAbort: unknown;
+    for (let index = 0; index < 50; index++) {
+      afterAbort = await second.evaluate(async (path) => {
+        const bridge = await import("./storage.bridge.chromium.ts");
+        try {
+          await bridge.open(path);
+          return "opened";
+        } catch (error) {
+          return bridge.codeOf(error);
+        }
+      }, `${base}-after-${name}.db`);
+      if (afterAbort !== "StorageBusy") break;
+      await new Promise<void>((resolve) => setTimeout(resolve, 50));
+    }
+    assert.equal(
+      afterAbort,
+      "opened",
+      "the ended worker of a cancelled create kept the OPFS pool",
+    );
+    await second.evaluate(async () =>
+      (await import("./storage.bridge.chromium.ts")).endOne(),
+    );
   }
-  assert.equal(
-    aborted,
-    "ended",
-    "a cancelled create released the Web Lock while its worker still ran",
-  );
-  let afterAbort: unknown;
-  for (let index = 0; index < 50; index++) {
-    afterAbort = await second.evaluate(async (path) => {
-      const bridge = await import("./storage.bridge.chromium.ts");
-      try {
-        await bridge.open(path);
-        return "opened";
-      } catch (error) {
-        return bridge.codeOf(error);
-      }
-    }, `${base}-after-abort.db`);
-    if (afterAbort !== "StorageBusy") break;
-    await new Promise<void>((resolve) => setTimeout(resolve, 50));
-  }
-  assert.equal(
-    afterAbort,
-    "opened",
-    "the ended worker of a cancelled create kept the OPFS pool",
-  );
   console.log("Chromium cancelled create kept the Web Lock until its worker ended");
 } finally {
   await first

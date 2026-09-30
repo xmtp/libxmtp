@@ -1535,13 +1535,18 @@ async fn test_conversation_list_filters_readable_messages() {
         fallback: None,
         compression: None,
     };
-    groups[6]
+    let error = groups[6]
         .send(
             encoded_content_to_bytes(group_updated_encoded_content),
             FfiSendMessageOpts::default(),
         )
         .await
-        .unwrap();
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("GroupError::ReservedTranscriptContentType")
+    );
 
     // group[7] sends GroupMembershipUpdatedCodec message
     let group_membership_updated_content_type_id = ContentTypeId {
@@ -1557,13 +1562,18 @@ async fn test_conversation_list_filters_readable_messages() {
         fallback: None,
         compression: None,
     };
-    groups[7]
+    let error = groups[7]
         .send(
             encoded_content_to_bytes(group_membership_updated_encoded_content),
             FfiSendMessageOpts::default(),
         )
         .await
-        .unwrap();
+        .unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("GroupError::ReservedTranscriptContentType")
+    );
 
     // group[8] sends ReadReceiptCodec message
     let read_receipt_content_type_id = ContentTypeId {

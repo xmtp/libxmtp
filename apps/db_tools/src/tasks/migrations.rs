@@ -53,7 +53,7 @@ mod tests {
     use xmtp_db::{NativeDb, XmtpDb, diesel::connection::SimpleConnection};
 
     #[xmtp_common::test(unwrap_try = true)]
-    async fn baseline_migration_status_and_rollback() {
+    async fn latest_migration_status_and_rollback() {
         let database = NativeDb::builder().ephemeral().build_unencrypted()?;
         database.init()?;
         let conn = database.conn();
@@ -66,17 +66,31 @@ mod tests {
                 "2026-09-08-000000_baseline",
                 "2026-09-24-000000_attachments",
                 "2026-09-28-000000-0000_received_proposals",
+                "2026-09-28-010000_conversation_list_expiry",
             ]
         );
         let applied = applied_migrations(&conn)?;
         assert_eq!(
             applied,
-            ["202609280000000000", "20260924000000", "20260908000000"]
+            [
+                "20260928010000",
+                "202609280000000000",
+                "20260924000000",
+                "20260908000000"
+            ]
         );
-        // Roll back by target version through the attachments migration.
-        rollback_confirmed(&conn, "20260924000000")?;
-        assert_eq!(applied_migrations(&conn)?, [applied[2].clone()]);
+        assert!(
+            conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))
+                .is_err()
+        );
+
+        // Each rollback names a target version and reverts it and every later one.
+        rollback_confirmed(&conn, "20260928010000")?;
+        assert_eq!(applied_migrations(&conn)?, applied[1..].to_vec());
         conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
+
+        rollback_confirmed(&conn, "20260924000000")?;
+        assert_eq!(applied_migrations(&conn)?, applied[3..].to_vec());
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM local_attachments"))
                 .is_err()
@@ -86,15 +100,15 @@ mod tests {
                 .is_err()
         );
 
-        rollback_confirmed(&conn, &applied[2])?;
+        rollback_confirmed(&conn, &applied[3])?;
         assert!(applied_migrations(&conn)?.is_empty());
+
+        db.run_pending_migrations()?;
+        assert_eq!(applied_migrations(&conn)?, applied);
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))
                 .is_err()
         );
-        db.run_pending_migrations()?;
-        assert_eq!(applied_migrations(&conn)?, applied);
-        conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
         conn.raw_query(|c| c.batch_execute("SELECT mime_type, filename FROM local_attachments"))?;
         conn.raw_query(|c| c.batch_execute("SELECT * FROM pending_attachments"))?;
     }
