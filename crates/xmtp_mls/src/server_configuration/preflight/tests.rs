@@ -304,3 +304,5 @@ mod admission;
 mod native_wire;
 
 mod controls;
+
+mod sync_barrier;

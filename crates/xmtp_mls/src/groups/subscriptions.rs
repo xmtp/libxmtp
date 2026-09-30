@@ -34,7 +34,11 @@ where
         }
         crate::subscriptions::barrier::wait_through(&self.context, [(topic, cursor)].into(), None)
             .await
-            .map_err(super::GroupError::from)?;
+            .map_err(|error| {
+                self.context
+                    .server_configuration()
+                    .blocked_or(super::GroupError::from(error))
+            })?;
         let message = self
             .context
             .db()

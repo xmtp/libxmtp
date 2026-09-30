@@ -8,6 +8,12 @@ where
 {
     #[xmtp_common::mls_span]
     pub async fn sync(&self) -> Result<SyncSummary, GroupError> {
+        self.sync_once()
+            .await
+            .map_err(|error| self.context.server_configuration().blocked_or(error))
+    }
+
+    async fn sync_once(&self) -> Result<SyncSummary, GroupError> {
         let conn = self.context.db();
         if conn
             .find_group(&self.group_id)?
