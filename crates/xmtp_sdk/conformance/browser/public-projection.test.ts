@@ -180,4 +180,38 @@ describe("shared public value projection", () => {
       ).toEqual(location);
     }
   });
+
+  // verifies: ATCH-082
+  it("rejects an incomplete storage location with a storage-location error", () => {
+    // Plain JavaScript callers can pass any value, so these skip the type.
+    const malformed: unknown[] = [
+      { dbPath: "db.sqlite3" },
+      { attachmentsDir: "attachments" },
+      { dbPath: "", attachmentsDir: "attachments" },
+      { dbPath: "db.sqlite3", attachmentsDir: "" },
+      { dbPath: "db.sqlite3", attachmentsDir: 7 },
+      { directory: "" },
+      { directory: undefined },
+      { directory: "folder", dbPath: "db.sqlite3" },
+      {},
+      null,
+      "folder",
+    ];
+    for (const location of malformed) {
+      let failure: unknown;
+      try {
+        P.lowerStorageLocation(location as P.StorageLocation, projection);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure, JSON.stringify(location)).toBeInstanceOf(
+        P.XmtpError.StorageLocation,
+      );
+      expect((failure as P.XmtpError).details).toMatchObject({
+        code: "StorageLocation",
+        category: "storage",
+        retryable: false,
+      });
+    }
+  });
 });

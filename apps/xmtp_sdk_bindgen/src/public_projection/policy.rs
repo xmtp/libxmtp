@@ -40,15 +40,32 @@ export function liftBackendSource(value: B.BackendSource, projection: ObjectProj
 }
 "#;
 
+/// A plain JavaScript caller can pass any value as a storage location. A
+/// value that names no complete location fails with the public
+/// `StorageLocation` error before the binding sees it (ATCH-082).
 pub(super) const STORAGE_LOCATION: &str = r#"
 export type StorageLocation = 'default' | 'inMemory' | { readonly directory: string } | { readonly dbPath: string; readonly attachmentsDir: string };
+function storageLocationFailure(message: string): XmtpError {
+  return new XmtpError.StorageLocation({ code: "StorageLocation", category: "storage", retryable: false, message });
+}
+function storageLocationPath(field: string, path: unknown): string {
+  if (typeof path !== 'string') throw storageLocationFailure(`storage ${field} is missing`);
+  if (path === '') throw storageLocationFailure(`storage ${field} is empty`);
+  return path;
+}
 export function lowerStorageLocation(value: StorageLocation, _projection: ObjectProjection): B.StorageLocation {
-  if (value === 'default') return B.StorageLocation.Default.new();
-  if (value === 'inMemory') return B.StorageLocation.InMemory.new();
-  if ('directory' in value && ('dbPath' in value || 'attachmentsDir' in value)) throw new TypeError('multiple storage locations');
-  return 'directory' in value
-    ? B.StorageLocation.Directory.new({ directory: value.directory })
-    : B.StorageLocation.Explicit.new({ dbPath: value.dbPath, attachmentsDir: value.attachmentsDir });
+  const input: unknown = value;
+  if (input === 'default') return B.StorageLocation.Default.new();
+  if (input === 'inMemory') return B.StorageLocation.InMemory.new();
+  if (typeof input !== 'object' || input === null) throw storageLocationFailure('storage location is not default, inMemory, a directory, or explicit paths');
+  if ('directory' in input) {
+    if ('dbPath' in input || 'attachmentsDir' in input) throw storageLocationFailure('storage location names both a directory and explicit paths');
+    return B.StorageLocation.Directory.new({ directory: storageLocationPath('directory', input.directory) });
+  }
+  return B.StorageLocation.Explicit.new({
+    dbPath: storageLocationPath('dbPath', 'dbPath' in input ? input.dbPath : undefined),
+    attachmentsDir: storageLocationPath('attachmentsDir', 'attachmentsDir' in input ? input.attachmentsDir : undefined),
+  });
 }
 export function liftStorageLocation(value: B.StorageLocation, _projection: ObjectProjection): StorageLocation {
   switch (value.tag) {
