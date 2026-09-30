@@ -140,6 +140,8 @@ let
       sleep 5
     done
 
+    bash ${./android-sync-clock.sh} "$ADB" "$ANDROID_SERIAL"
+
     echo "Emulator ready (emulator-$port)" >&2
   '';
 

@@ -32,7 +32,6 @@ jobs:
       android: ${{ steps.filter.outputs.android }}
       android_direct: ${{ steps.filter.outputs.android_direct }}
       bindings-check: ${{ steps.filter.outputs.bindings-check }}
-      devcontainer: ${{ steps.filter.outputs.devcontainer }}
       keepalive-probe: ${{ steps.filter.outputs.keepalive-probe }}
       validation: ${{ steps.filter.outputs.validation }}
       backend: ${{ steps.filter.outputs.backend }}
@@ -199,6 +198,8 @@ jobs:
             android_direct:
               - 'sdks/android/**'
               - 'bindings/mobile/**'
+              - 'nix/lib/android-env.nix'
+              - 'nix/lib/android-sync-clock.sh'
               - '.github/workflows/test-android*'
             android:
               - 'apps/backend/**'
@@ -222,9 +223,6 @@ jobs:
               - '.cargo/**'
               - 'flake.lock'
               - '.github/workflows/test-bindings*'
-            devcontainer:
-              - '.devcontainer/**'
-              - '.github/workflows/test-devcontainer*'
             keepalive-probe:
               - 'apps/keepalive-probe/**'
               - 'proto/**'
@@ -397,21 +395,6 @@ jobs:
     uses: ./.github/workflows/test-bindings-check.yml
     secrets: inherit
 
-  test-devcontainer:
-    needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.devcontainer == 'true' &&
-      (
-        github.event_name != 'pull_request' ||
-        github.event.pull_request.head.repo.full_name == github.repository
-      )
-    permissions:
-      contents: read
-      packages: write
-      pull-requests: write
-    uses: ./.github/workflows/test-devcontainer.yml
-    secrets: inherit
-
   test:
     name: Test
     runs-on: ubuntu-latest
@@ -430,7 +413,6 @@ jobs:
       # - test-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - test-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       - test-bindings-check
-      - test-devcontainer
     steps:
       - run: |
           if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" || \
