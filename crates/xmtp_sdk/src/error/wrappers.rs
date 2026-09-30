@@ -44,7 +44,8 @@ transparent_wrappers! {
         StreamBarrier, ProcessIntent, Db, MlsStore, Diesel, DeviceSync(boxed),
     ],
     xmtp_mls::builder::ClientBuilderError => [
-        ClientError, Identity, WrappedApiError, GroupError(boxed), DeviceSync(boxed),
+        StorageLocation, ClientError, Identity, WrappedApiError, GroupError(boxed),
+        DeviceSync(boxed),
     ],
     xmtp_mls::identity::IdentityError => [StorageError, ApiClient, IdentityUpdate, Db],
     xmtp_mls::identity_updates::IdentityUpdateError => [Api, Load(boxed)],
@@ -64,5 +65,9 @@ transparent_wrappers! {
     xmtp_mls::subscriptions::local_delivery::LocalDeliveryError => [
         SessionFailure(boxed), Configuration(boxed), Storage,
     ],
-    xmtp_mls::worker::device_sync::DeviceSyncError => [Db, MlsStore],
+    xmtp_mls::worker::device_sync::DeviceSyncError => [Db, MlsStore, Subscribe, Archive],
+    xmtp_mls::subscriptions::SubscribeError => [
+        LocalDelivery, Group(boxed), Storage, ApiClient, Db, Configuration(boxed),
+    ],
+    xmtp_archive::ArchiveError => [Storage],
 }

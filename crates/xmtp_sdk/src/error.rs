@@ -342,6 +342,18 @@ impl XmtpError {
         if let Some(storage) = error.downcast_ref::<xmtp_db::StorageError>() {
             return Some(Self::storage_cause(storage));
         }
+        // A data directory bound to another deployment has the same action
+        // as a backend mismatch: select the bound deployment.
+        if let Some(xmtp_mls::storage_location::StorageLocationError::DeploymentMismatch) =
+            error.downcast_ref::<xmtp_mls::storage_location::StorageLocationError>()
+        {
+            return Some(Self::BackendMismatch(Self::details(
+                "BackendMismatch",
+                ErrorCategory::Configuration,
+                false,
+                error.to_string(),
+            )));
+        }
         if let Some(query) = error.downcast_ref::<xmtp_db::diesel::result::Error>() {
             use xmtp_common::RetryableError;
             return Some(Self::Storage(Self::details(

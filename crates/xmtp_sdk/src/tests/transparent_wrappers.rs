@@ -1,195 +1,288 @@
-//! Guard: every `#[error(transparent)]` variant of the core error enums that
-//! reach the SDK is opened by the error walk (`error/wrappers.rs`) or allowed
-//! here with a reason. A transparent variant forwards `source()` past its inner
-//! error, so a new one that nobody opens would silently turn a typed cause into
-//! `Unknown`.
+//! Guard: every `#[error(transparent)]` core error variant that the SDK can
+//! reach, and that hides a type the error walk classifies, is opened by the
+//! walk (`error/wrappers.rs`). A transparent variant forwards `source()` past
+//! its inner error, so a new one that nobody opens would silently turn a typed
+//! cause into `Unknown`. The test scans every error enum in the core crates.
 
 use crate::error::OPENED_WRAPPERS;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::path::Path;
 
-/// (source file under `crates/`, enum name) for every scanned enum.
-const SCANNED: &[(&str, &str)] = &[
-    ("xmtp_mls/src/client.rs", "ClientError"),
-    ("xmtp_mls/src/groups/error.rs", "GroupError"),
-    ("xmtp_mls/src/builder.rs", "ClientBuilderError"),
-    ("xmtp_mls/src/identity.rs", "IdentityError"),
-    ("xmtp_mls/src/identity_updates.rs", "IdentityUpdateError"),
-    ("xmtp_mls/src/identity_updates.rs", "InstallationDiffError"),
-    (
-        "xmtp_mls/src/identity_updates/dependencies.rs",
-        "IdentityDependencyError",
-    ),
-    (
-        "xmtp_mls/src/groups/validated_commit.rs",
-        "CommitValidationError",
-    ),
-    ("xmtp_mls/src/mls_store.rs", "MlsStoreError"),
-    ("xmtp_mls/src/groups/intents.rs", "IntentError"),
-    (
-        "xmtp_mls/src/groups/mls_sync.rs",
-        "GroupMessageProcessingError",
-    ),
-    (
-        "xmtp_mls/src/subscriptions/incoming/status.rs",
-        "IncomingError",
-    ),
-    (
-        "xmtp_mls/src/subscriptions/local_delivery/types.rs",
-        "LocalDeliveryError",
-    ),
-    ("xmtp_mls/src/worker/device_sync/mod.rs", "DeviceSyncError"),
+/// The core crates whose error enums can reach `XmtpError::from_core`.
+const CRATES: &[&str] = &[
+    "xmtp_mls",
+    "xmtp_db",
+    "xmtp_api",
+    "xmtp_api_backend",
+    "xmtp_archive",
+    "xmtp_id",
+    "xmtp_proto",
+    "xmtp_content_types",
+    "xmtp_mls_validation",
+    "xmtp_cryptography",
+    "xmtp_common",
 ];
 
-const LEAF: &str =
-    "a leaf input, validation, crypto, or encoding error with no code in the error table";
-const PRIVATE: &str =
-    "the inner type is private to xmtp_mls; its own variants keep their inner errors as sources";
-const NO_ACTION: &str = "the inner error has no recovery action in the error table";
-
-/// (enum, variant, reason) for transparent variants that the walk does not open.
-const ALLOWED: &[(&str, &str, &str)] = &[
-    ("ClientError", "AddressValidation", LEAF),
-    ("ClientError", "SignatureRequest", LEAF),
-    ("ClientError", "LocalEvent", NO_ACTION),
-    ("ClientError", "EnrichMessage", NO_ACTION),
-    ("ClientError", "Conversion", LEAF),
-    ("GroupError", "OutgoingPreparation", PRIVATE),
-    ("GroupError", "NotFound", NO_ACTION),
-    ("GroupError", "LeaveCantProcessed", LEAF),
-    ("GroupError", "AddressValidation", LEAF),
-    ("GroupError", "LocalEvent", NO_ACTION),
-    ("GroupError", "MetadataPermissionsError", LEAF),
-    ("GroupError", "WrapWelcome", LEAF),
-    ("GroupError", "UnwrapWelcome", LEAF),
-    ("GroupError", "UninitializedField", LEAF),
-    ("GroupError", "DeleteMessage", LEAF),
-    ("ClientBuilderError", "StorageLocation", NO_ACTION),
-    ("ClientBuilderError", "Attachment", NO_ACTION),
-    ("ClientBuilderError", "AddressValidation", LEAF),
-    ("IdentityError", "CredentialSerialization", LEAF),
-    ("IdentityError", "Decode", LEAF),
-    ("IdentityError", "SignatureRequestBuilder", LEAF),
-    ("IdentityError", "Signature", LEAF),
-    ("IdentityError", "BasicCredential", LEAF),
-    ("IdentityError", "Crypto", LEAF),
-    ("IdentityError", "OpenMls", LEAF),
-    ("IdentityError", "OpenMlsStorageError", NO_ACTION),
-    ("IdentityError", "KeyPackageGenerationError", LEAF),
-    ("IdentityError", "KeyPackageVerificationError", LEAF),
-    ("IdentityError", "Association", LEAF),
-    ("IdentityError", "Signer", LEAF),
-    ("IdentityError", "AddressValidation", LEAF),
-    ("IdentityError", "GeneratePostQuantumKey", LEAF),
-    ("IdentityError", "InvalidExtension", LEAF),
-    ("IdentityError", "UninitializedField", LEAF),
-    ("IdentityUpdateError", "InvalidSignatureRequest", LEAF),
-    ("IdentityUpdateError", "Validation", LEAF),
-    ("CommitValidationError", "Bootstrap", LEAF),
-    ("CommitValidationError", "Rule", LEAF),
-    ("MlsStoreError", "NotFound", NO_ACTION),
-    ("GroupMessageProcessingError", "Envelope", LEAF),
-    ("GroupMessageProcessingError", "Codec", LEAF),
-    (
-        "GroupMessageProcessingError",
-        "AssociationDeserialization",
-        LEAF,
-    ),
-    ("GroupMessageProcessingError", "Builder", LEAF),
-    ("GroupMessageProcessingError", "EnrichMessage", NO_ACTION),
-    ("GroupMessageProcessingError", "Conversion", LEAF),
-    ("DeviceSyncError", "ProtoConversion", LEAF),
-    ("DeviceSyncError", "Subscribe", NO_ACTION),
-    ("DeviceSyncError", "Bincode", LEAF),
-    ("DeviceSyncError", "Archive", NO_ACTION),
-    ("DeviceSyncError", "Decode", LEAF),
-    ("DeviceSyncError", "Deserialization", LEAF),
-    ("DeviceSyncError", "Recv", NO_ACTION),
+/// The error types that the SDK maps. The guard follows every transparent
+/// variant reachable from these.
+const ROOTS: &[&str] = &[
+    "GroupError",
+    "ClientError",
+    "ClientBuilderError",
+    "IdentityError",
+    "ApiError",
+    "StorageError",
+    "ConnectionError",
+    "LocalDeliveryError",
+    "NotificationError",
+    "ArchiveError",
+    "SubscribeError",
+    "DeviceSyncError",
+    "EnrichMessageError",
+    "IncomingError",
 ];
 
-/// The transparent variants of `name` in `source`.
-fn transparent_variants(source: &str, name: &str) -> Vec<String> {
-    let start = source
-        .find(&format!("pub enum {name} "))
-        .or_else(|| source.find(&format!("pub enum {name}<")))
-        .unwrap_or_else(|| panic!("enum {name} not found"));
-    let open = start + source[start..].find('{').expect("enum body");
-    let mut depth = 0;
-    let mut end = open;
-    for (offset, character) in source[open..].char_indices() {
-        match character {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    end = open + offset;
-                    break;
-                }
-            }
-            _ => {}
+/// Types that the walk classifies at their own level: every value of one
+/// maps to a code, so the guard does not follow their variants.
+const TERMINAL: &[&str] = &[
+    "ApiError",
+    "AuthError",
+    "StorageError",
+    "ConnectionError",
+    "diesel::result::Error",
+    "PreflightError",
+    "StorageLocationError",
+    // Mapped by `XmtpError::from_notification`, not by the walk.
+    "NotificationError",
+];
+
+/// Types that the walk classifies. A transparent variant whose inner type is
+/// one of these, or hides one, must be opened.
+const CLASSIFIED: &[&str] = &[
+    "GroupError",
+    "ClientError",
+    "ApiError",
+    "AuthError",
+    "StorageError",
+    "ConnectionError",
+    "diesel::result::Error",
+    "PreflightError",
+    "StorageLocationError",
+];
+
+/// The type name of a variant field, without wrappers, generics, or path.
+fn inner_name(field: &str) -> String {
+    let mut field = field.trim();
+    while let Some(rest) = field.strip_prefix("#[") {
+        field = rest.split_once(']').map_or("", |(_, rest)| rest).trim();
+    }
+    if field.contains("diesel::result::Error") {
+        return "diesel::result::Error".into();
+    }
+    let mut field = field.to_string();
+    for wrapper in ["Box<", "Arc<", "std::sync::Arc<"] {
+        if let Some(rest) = field.strip_prefix(wrapper) {
+            field = rest.trim_end_matches('>').to_string();
         }
     }
-    let body = &source[open..end];
-    let mut variants = Vec::new();
-    let mut rest = body;
-    while let Some(at) = rest.find("#[error(transparent)]") {
-        rest = &rest[at + "#[error(transparent)]".len()..];
-        let variant = rest
-            .lines()
-            .map(str::trim)
-            .find(|line| line.starts_with(|c: char| c.is_ascii_uppercase()))
-            .and_then(|line| {
-                line.split(|c: char| !c.is_alphanumeric() && c != '_')
-                    .next()
-            })
-            .expect("variant after #[error(transparent)]");
-        variants.push(variant.to_string());
+    let field = field.split('<').next().unwrap_or("").trim();
+    field
+        .rsplit("::")
+        .next()
+        .unwrap_or(field)
+        .trim()
+        .to_string()
+}
+
+/// One single-field variant: its name, its inner type name, and whether it
+/// is marked `#[error(transparent)]`.
+type Variant = (String, String, bool);
+
+/// Every enum's single-field variants.
+fn scan(source: &str, index: &mut BTreeMap<String, BTreeSet<Variant>>) {
+    let mut rest = source;
+    while let Some(at) = rest.find("enum ") {
+        let before = &rest[..at];
+        rest = &rest[at + "enum ".len()..];
+        if !before.ends_with("pub ") && !before.ends_with("pub(crate) ") && !before.ends_with('\n')
+        {
+            continue;
+        }
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_')
+            .collect();
+        let Some(open) = rest.find('{') else { break };
+        if rest[..open].contains(';') {
+            continue;
+        }
+        let mut depth = 0;
+        let mut end = open;
+        for (offset, character) in rest[open..].char_indices() {
+            match character {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        end = open + offset;
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let body = &rest[open + 1..end];
+        let mut attributes = String::new();
+        let mut lines = body.lines();
+        while let Some(line) = lines.next() {
+            let trimmed = line.trim();
+            if trimmed.starts_with("#[") || trimmed.starts_with("//") {
+                attributes.push_str(trimmed);
+                continue;
+            }
+            if !trimmed.starts_with(|c: char| c.is_ascii_uppercase()) {
+                continue;
+            }
+            let variant: String = trimmed
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            let after = trimmed[variant.len()..].trim_start();
+            if let Some(field) = after.strip_prefix('(') {
+                // Join the field across lines until its closing parenthesis.
+                let mut field = field.to_string();
+                while field.matches('(').count() >= field.matches(')').count() {
+                    let Some(next) = lines.next() else { break };
+                    field.push_str(next.trim());
+                }
+                let mut depth = 1;
+                let mut close = field.len();
+                for (offset, character) in field.char_indices() {
+                    match character {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                close = offset;
+                                break;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                let field = &field[..close];
+                if !field.contains(',') {
+                    let transparent = attributes.contains("#[error(transparent)]");
+                    index.entry(name.clone()).or_default().insert((
+                        variant,
+                        inner_name(field),
+                        transparent,
+                    ));
+                }
+            }
+            attributes.clear();
+        }
+        rest = &rest[end..];
     }
-    variants
+}
+
+fn sources(dir: &Path, found: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if path.is_dir() {
+            if name != "tests" && name != "test" {
+                sources(&path, found);
+            }
+        } else if name.ends_with(".rs") && name != "tests.rs" && !name.ends_with("_tests.rs") {
+            found.push(path);
+        }
+    }
 }
 
 fn short(path: &str) -> &str {
     path.rsplit("::").next().unwrap_or(path).trim()
 }
 
+/// Whether `name` hides a classified type behind its own transparent
+/// variants, directly or further down.
+fn hides(
+    name: &str,
+    index: &BTreeMap<String, BTreeSet<Variant>>,
+    seen: &mut BTreeSet<String>,
+) -> bool {
+    if !seen.insert(name.to_string()) {
+        return false;
+    }
+    index
+        .get(name)
+        .into_iter()
+        .flatten()
+        .filter(|(_, _, transparent)| *transparent)
+        .any(|(_, inner, _)| CLASSIFIED.contains(&inner.as_str()) || hides(inner, index, seen))
+}
+
+/// From the SDK's root error types, the walk reaches every variant's inner
+/// error: a non-transparent one through `source()`, a transparent one only if
+/// the table opens it. Every reachable transparent variant whose inner type
+/// is, or hides, a type that the walk classifies must be opened. A skipped
+/// transparent variant that hides no classified type loses nothing, because
+/// the walk continues from its inner error's source.
 #[cfg(not(target_arch = "wasm32"))]
 #[xmtp_common::test(unwrap_try = true)]
-fn every_transparent_core_wrapper_is_opened_or_allowed() {
-    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+fn every_transparent_core_wrapper_that_hides_a_classified_type_is_opened() {
+    let crates = Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut index = BTreeMap::new();
+    for krate in CRATES {
+        let mut files = Vec::new();
+        sources(&crates.join(krate).join("src"), &mut files);
+        for file in files {
+            scan(&std::fs::read_to_string(file)?, &mut index);
+        }
+    }
     let opened: BTreeSet<(String, String)> = OPENED_WRAPPERS
         .iter()
         .map(|(ty, variant)| (short(ty).to_string(), variant.to_string()))
         .collect();
-    let allowed: BTreeSet<(String, String)> = ALLOWED
-        .iter()
-        .map(|(ty, variant, _)| (ty.to_string(), variant.to_string()))
-        .collect();
-    let mut found = BTreeSet::new();
-    let mut missing = Vec::new();
-    for (file, name) in SCANNED {
-        let source = std::fs::read_to_string(crates.join(file))?;
-        for variant in transparent_variants(&source, name) {
-            let key = (name.to_string(), variant.clone());
-            if !opened.contains(&key) && !allowed.contains(&key) {
-                missing.push(format!("{name}::{variant}"));
+
+    let mut queue: VecDeque<String> = ROOTS.iter().map(|root| root.to_string()).collect();
+    let mut visited = BTreeSet::new();
+    let mut reached = BTreeSet::new();
+    let mut problems = Vec::new();
+    while let Some(name) = queue.pop_front() {
+        if TERMINAL.contains(&name.as_str()) || !visited.insert(name.clone()) {
+            continue;
+        }
+        for (variant, inner, transparent) in index.get(&name).into_iter().flatten() {
+            if !transparent {
+                // The walk visits a non-transparent variant's inner error
+                // through source(), so it is reachable too.
+                queue.push_back(inner.clone());
+                continue;
             }
-            found.insert(key);
+            let key = (name.clone(), variant.clone());
+            reached.insert(key.clone());
+            if opened.contains(&key) {
+                queue.push_back(inner.clone());
+            } else if CLASSIFIED.contains(&inner.as_str())
+                || hides(inner, &index, &mut BTreeSet::new())
+            {
+                problems.push(format!(
+                    "{name}::{variant} ({inner}) is or hides a classified type; open it"
+                ));
+            }
         }
     }
     assert!(
-        missing.is_empty(),
-        "transparent core wrappers that the error walk neither opens nor allows: {missing:?}"
+        problems.is_empty(),
+        "transparent core wrappers: {problems:#?}"
     );
-    // Every entry names a real transparent variant, so the lists stay current.
     let stale: Vec<_> = opened
-        .union(&allowed)
-        .filter(|key| !found.contains(*key))
+        .iter()
+        .filter(|key| !reached.contains(*key))
         .collect();
-    assert!(
-        stale.is_empty(),
-        "entries that are not transparent variants: {stale:?}"
-    );
-    assert!(
-        opened.is_disjoint(&allowed),
-        "a variant is both opened and allowed"
-    );
+    assert!(stale.is_empty(), "entries that no root reaches: {stale:?}");
 }

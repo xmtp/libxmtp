@@ -346,3 +346,58 @@ fn push_processing_keeps_a_configuration_code() {
         false,
     );
 }
+
+// Archive export and import, and device sync, keep a storage cause behind
+// their transparent wrappers.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_storage_cause_in_an_archive_error_keeps_its_retry_policy() {
+    use xmtp_mls::worker::device_sync::DeviceSyncError;
+    expect(
+        XmtpError::from_core(xmtp_archive::ArchiveError::Storage(head_changed())),
+        "Storage",
+        ErrorCategory::Storage,
+        true,
+    );
+    expect(
+        XmtpError::from_group(GroupError::DeviceSync(Box::new(DeviceSyncError::Archive(
+            xmtp_archive::ArchiveError::Storage(head_changed()),
+        )))),
+        "Storage",
+        ErrorCategory::Storage,
+        true,
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn a_storage_cause_in_a_subscribe_error_keeps_its_retry_policy() {
+    use xmtp_mls::{subscriptions::SubscribeError, worker::device_sync::DeviceSyncError};
+    expect(
+        XmtpError::from_core(SubscribeError::Storage(head_changed())),
+        "Storage",
+        ErrorCategory::Storage,
+        true,
+    );
+    expect(
+        XmtpError::from_group(GroupError::DeviceSync(Box::new(
+            DeviceSyncError::Subscribe(SubscribeError::Storage(head_changed())),
+        ))),
+        "Storage",
+        ErrorCategory::Storage,
+        true,
+    );
+}
+
+// A data directory bound to another deployment has the backend mismatch
+// action: select the bound deployment.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_data_directory_of_another_deployment_is_backend_mismatch() {
+    use xmtp_mls::{builder::ClientBuilderError, storage_location::StorageLocationError};
+    expect(
+        XmtpError::from_builder(ClientBuilderError::StorageLocation(
+            StorageLocationError::DeploymentMismatch,
+        )),
+        "BackendMismatch",
+        ErrorCategory::Configuration,
+        false,
+    );
+}
