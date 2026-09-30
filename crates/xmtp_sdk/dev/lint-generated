@@ -32,6 +32,9 @@ node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-wasm/"*.
 node_modules/.bin/oxfmt --config apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json --check "$generated/typescript-wasm/"*.gen.ts "$generated/typescript-wasm/"*.gen.test.ts
 sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions --typeRoots sdks/node/node_modules/@types --types node "$generated/typescript-wasm/"*.gen.ts
 node crates/xmtp_sdk/dev/check-bridge-casts.mjs
+# The pure module's public entry: lint and strict types.
+node_modules/.bin/oxlint --config .oxlintrc.json "$generated/typescript-pure/"*.gen.ts
+sdks/node/node_modules/.bin/tsc --noEmit --strict --skipLibCheck --module preserve --moduleResolution bundler --target es2022 --allowImportingTsExtensions "$generated/typescript-pure/public-api.gen.ts"
 node_modules/.bin/tsc --noEmit --skipLibCheck --target es2022 --module esnext --moduleResolution bundler \
   crates/xmtp_sdk/conformance/ts/logging.typecheck.ts
 node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module preserve --moduleResolution bundler \

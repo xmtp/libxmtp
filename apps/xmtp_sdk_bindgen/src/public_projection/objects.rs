@@ -47,6 +47,15 @@ function identityMember<I, P>(value: I | P): value is P {
 }
 "#;
 
+/// The pure module has no objects, so its projection is fixed and needs no
+/// host runtime.
+pub(super) const PURE_PROJECTION: &str = r#"
+/** The pure module has no objects; its projection carries no state. */
+export class ObjectProjection {}
+const projection = new ObjectProjection();
+export function currentProjection(): ObjectProjection { return projection; }
+"#;
+
 pub(super) const PROJECTION_INSTALL: &str = r#"
 let installed: ObjectProjection | undefined;
 /** The host runtime installs its projection once, when its entry loads. */
@@ -60,7 +69,7 @@ export function currentProjection(): ObjectProjection {
 /// The browser public layer calls functions in the package worker, so it has
 /// only the asynchronous ones; the synchronous ones belong to the pure module.
 fn exported_function(function: &FnMetadata, target: Target) -> bool {
-    target == Target::Node || function.is_async
+    target != Target::Browser || function.is_async
 }
 
 /// Objects that the browser public layer takes from its package templates.
@@ -295,7 +304,7 @@ pub(super) fn object(
             )?;
             // Browser constructors run in the package worker.
             let callee = |args: &str| match target {
-                Target::Node => format!("B.{name}.{method_name}({args})"),
+                Target::Node | Target::Pure => format!("B.{name}.{method_name}({args})"),
                 Target::Browser => {
                     format!("createInWorker((session) => P.{name}.{method_name}(session, {args}))")
                 }
@@ -352,7 +361,7 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
         call.result_type
     )?;
     let callee = |args: &str| match target {
-        Target::Node => format!("B.{name}({args})"),
+        Target::Node | Target::Pure => format!("B.{name}({args})"),
         Target::Browser => format!("createInWorker((session) => P.{name}(session, {args}))"),
     };
     render_body(code, &call, &callee, asynchronous)?;
@@ -377,6 +386,9 @@ pub(super) fn projection(code: &mut String, items: &[&Metadata], target: Target)
 /// The private public entry and the names it re-exports. Internal conversion
 /// functions, the projection, and the generated Client members stay out.
 pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
+    if target == Target::Pure {
+        return pure_api(items);
+    }
     let mut values = BTreeSet::new();
     let mut types = BTreeSet::new();
     for item in items {
@@ -432,9 +444,44 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
             "export { setLogSink, type LogSink } from \"./runtime/public/logging.js\";\nexport { ActionsCodec, AttachmentCodec, DeleteMessageCodec, GroupUpdatedCodec, IntentCodec, LeaveRequestCodec, MarkdownCodec, MultiRemoteAttachmentCodec, ReactionV2Codec, ReadReceiptCodec, RemoteAttachmentCodec, ReplyCodec, TextCodec, TransactionReferenceCodec, WalletSendCallsCodec } from \"./runtime/public/codecs.js\";\n"
         }
         Target::Browser => "export type { StorageAdmin } from \"./storage-admin.gen.js\";\n",
+        Target::Pure => unreachable!("the pure module has its own entry"),
     };
     format!(
         "// The private public entry, generated from the public projection. The\n// package roots re-export it once every target uses it. Do not edit this output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ ConversationStream, MessageStream, type StreamCloseReason, type StreamOptions }} from \"./runtime/public/streams.js\";\nexport {{ EventStream }} from \"./runtime/public/events.js\";\n{target_exports}export {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
+        join(values),
+        join(types)
+    )
+}
+
+/// The pure module's public entry: the public values and functions of its
+/// binding, the standalone codecs, and the WASM loader. Every shared name has
+/// the Node public declaration.
+fn pure_api(items: &[&Metadata]) -> String {
+    let mut values = BTreeSet::new();
+    let mut types = BTreeSet::new();
+    for item in items {
+        match item {
+            Metadata::Record(value) => {
+                types.insert(value.name.clone());
+            }
+            Metadata::Enum(value) if super::errors::is_details_error(value) => {
+                values.insert(value.name.clone());
+            }
+            Metadata::Enum(value) if !value.shape.is_error() => {
+                types.insert(value.name.clone());
+            }
+            Metadata::CustomType(value) if value.name != "Timestamp" => {
+                types.insert(value.name.clone());
+            }
+            Metadata::Func(value) => {
+                values.insert(camel(&value.name));
+            }
+            _ => {}
+        }
+    }
+    let join = |names: BTreeSet<String>| names.into_iter().collect::<Vec<_>>().join(", ");
+    format!(
+        "// The pure module's public entry, generated from the public projection. Do not\n// edit this output.\nexport {{ initPureWasm }} from \"./index.js\";\nexport type {{ ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ ActionsCodec, AttachmentCodec, DeleteMessageCodec, GroupUpdatedCodec, IntentCodec, LeaveRequestCodec, MarkdownCodec, MultiRemoteAttachmentCodec, ReactionV2Codec, ReadReceiptCodec, RemoteAttachmentCodec, ReplyCodec, TextCodec, TransactionReferenceCodec, WalletSendCallsCodec }} from \"./runtime/public/codecs.js\";\nexport {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
         join(values),
         join(types)
     )

@@ -119,7 +119,7 @@ pub(super) fn bridge_error(code: &mut String, value: &EnumMetadata) -> Result<()
 /// unchanged.
 pub(super) fn public_error(target: Target) -> &'static str {
     match target {
-        Target::Node => {
+        Target::Node | Target::Pure => {
             r#"
 /** The public form of a thrown value. A binding error becomes an `XmtpError`. */
 export function publicError(error: unknown): unknown {

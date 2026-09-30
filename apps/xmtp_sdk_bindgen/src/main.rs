@@ -278,6 +278,12 @@ fn generate(
             fs::copy(runtime.join(name), pure_runtime.join(name))?;
         }
         fs::copy(runtime.join("pure-index.ts"), pure_runtime.join("index.ts"))?;
+        // The public codecs wrap the pure codecs over public values.
+        let pure_public = pure_runtime.join("public");
+        fs::create_dir_all(&pure_public)?;
+        for name in ["codecs.ts", "codec.ts"] {
+            fs::copy(runtime.join("public").join(name), pure_public.join(name))?;
+        }
     } else {
         copy_tree(runtime.as_std_path(), out.join("runtime").as_std_path())?;
         if matches!(language, Language::Kotlin) {
@@ -323,6 +329,9 @@ fn generate(
             public_projection::Target::Browser
         };
         public_projection::generate(&metadata, out, target)?;
+    }
+    if pure_only {
+        public_projection::generate(&metadata, out, public_projection::Target::Pure)?;
     }
     if matches!(language, Language::Swift | Language::Kotlin) {
         forwarding::generate(&metadata, language, out)?;

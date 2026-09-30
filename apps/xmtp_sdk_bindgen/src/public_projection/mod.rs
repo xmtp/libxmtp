@@ -21,6 +21,9 @@ pub(crate) enum Target {
     /// Browser: the binding runs in the package worker, so constructors and
     /// functions go through the worker proxies.
     Browser,
+    /// The browser package's main-thread pure module: public values, codecs,
+    /// and synchronous functions over its own binding. It has no objects.
+    Pure,
 }
 
 pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target) -> Result<()> {
@@ -28,20 +31,30 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
         .values()
         .flat_map(|group| &group.items)
         .collect::<Vec<_>>();
-    let mut code = String::from(
-        "import * as B from '#xmtp/binding';\nimport type { Message as BoundMessage } from './runtime/message.js';\nimport { Timestamp } from './runtime/ids.js';\nexport { Timestamp };\nexport const objectBrand: unique symbol = Symbol(\"xmtp.object\");\nfunction checkedVariant(value: unknown, expected: string | number): void { if (value !== expected) throw new TypeError(\"invalid public enum\"); }\n",
-    );
-    // The host Message class is the public message on both targets.
+    let mut code = String::from("import * as B from '#xmtp/binding';\n");
+    if target != Target::Pure {
+        code.push_str("import type { Message as BoundMessage } from './runtime/message.js';\n");
+    }
     code.push_str(
-        "import type { Message } from './runtime/public/message.js';\nexport type { Message };\n",
+        "import { Timestamp } from './runtime/ids.js';\nexport { Timestamp };\nexport const objectBrand: unique symbol = Symbol(\"xmtp.object\");\n",
     );
+    // The host Message class is the public message on both object targets.
+    if target != Target::Pure {
+        code.push_str(
+            "import type { Message } from './runtime/public/message.js';\nexport type { Message };\n",
+        );
+    }
     if target == Target::Browser {
         // The binding runs in the package worker: constructors and functions
         // go through its proxies, and storage admin through its template.
         code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
     }
-    code.push_str(objects::MEMBERSHIP_GUARDS);
-    code.push_str(objects::PROJECTION_INSTALL);
+    if target == Target::Pure {
+        code.push_str(objects::PURE_PROJECTION);
+    } else {
+        code.push_str(objects::MEMBERSHIP_GUARDS);
+        code.push_str(objects::PROJECTION_INSTALL);
+    }
     code.push_str(errors::public_error(target));
     for item in &items {
         match item {
@@ -89,7 +102,13 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
             _ => {}
         }
     }
-    objects::projection(&mut code, &items, target)?;
+    if target != Target::Pure {
+        objects::projection(&mut code, &items, target)?;
+    }
+    // A hoisted helper, emitted only when a lift uses it.
+    if code.contains("checkedVariant(") {
+        code.push_str("function checkedVariant(value: unknown, expected: string | number): void { if (value !== expected) throw new TypeError(\"invalid public enum\"); }\n");
+    }
     let path = out.join("public-values.gen.ts");
     fs::write(
         &path,
@@ -102,9 +121,18 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
     )?;
     // Keep the projection's target import private. Package staging supplies the
     // final browser/node conditions when the public adapters are installed.
+    // The pure module is ES modules only: its root re-exports the binding with
+    // a star export, which a CommonJS load would drop.
+    let module_type = if target == Target::Pure {
+        "\"type\":\"module\","
+    } else {
+        ""
+    };
     fs::write(
         out.join("package.json"),
-        "{\"private\":true,\"imports\":{\"#xmtp/binding\":\"./xmtp_sdk.ts\"}}\n",
+        format!(
+            "{{\"private\":true,{module_type}\"imports\":{{\"#xmtp/binding\":\"./xmtp_sdk.ts\"}}}}\n"
+        ),
     )?;
     Ok(())
 }

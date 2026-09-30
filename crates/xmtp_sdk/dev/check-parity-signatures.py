@@ -747,11 +747,48 @@ def compare_public(out: Path) -> list[str]:
     return errors
 
 
+# The pure module's own export: it loads the main-thread pure WASM file.
+PURE_PUBLIC_ONLY = {"initPureWasm": "loads the main-thread pure module"}
+
+
+def compare_pure(out: Path) -> list[str]:
+    """Compare the pure module's public entry with the Node public entry.
+    Every pure export except its WASM loader is a Node public name, and each
+    one must have the Node declaration."""
+    node_root = emit(NODE, out, "public-api.gen.ts")
+    node = Surface(node_root)
+    node_exports = node.exports(node.module(node_root / "public-api.gen.d.ts"))
+    pure_root = emit(PURE, out, "public-api.gen.ts")
+    pure = Surface(pure_root)
+    pure_exports = pure.exports(pure.module(pure_root / "public-api.gen.d.ts"))
+    errors = []
+    for name in sorted(PURE_PUBLIC_ONLY.keys() - pure_exports.keys()):
+        errors.append(f"{name}: the pure public entry does not export it")
+    shared = pure_exports.keys() - PURE_PUBLIC_ONLY.keys()
+    for name in sorted(shared - node_exports.keys()):
+        errors.append(
+            f"{name}: the pure public entry exports it and Node does not"
+        )
+    for name in sorted(PURE_ONLY - pure_exports.keys()):
+        errors.append(f"{name}: a pure-module name is missing from the pure entry")
+    for name in sorted(shared & node_exports.keys()):
+        native = node.declaration(*node_exports[name])
+        browser = pure.declaration(*pure_exports[name])
+        if native != browser:
+            errors.append(
+                f"{name}: Node and pure public declarations differ\n"
+                f" Node:\n{describe(native)}\n pure:\n{describe(browser)}"
+            )
+    return errors
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as out:
         errors = compare(Path(out))
     with tempfile.TemporaryDirectory() as out:
         errors += compare_public(Path(out))
+    with tempfile.TemporaryDirectory() as out:
+        errors += compare_pure(Path(out))
     if errors:
         print("\n".join(errors), file=sys.stderr)
         raise SystemExit(1)
