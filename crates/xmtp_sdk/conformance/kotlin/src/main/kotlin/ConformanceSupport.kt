@@ -133,20 +133,20 @@ internal class OrderedLogSink : LogSink {
     }
 }
 
-internal class SampleCodec : SDKContentCodec {
+internal class SampleCodec : ContentCodec<String> {
     override val type = ContentTypeId("example.org", "sample", 1u, 0u)
 
-    override fun encode(value: Any) = EncodedContent(type, emptyMap(), null, (value as String).toByteArray())
+    override fun encode(value: String) = EncodedContent(type, emptyMap(), null, value.toByteArray())
 
-    override fun decode(encoded: EncodedContent): Any = encoded.content.decodeToString()
+    override fun decode(encoded: EncodedContent) = encoded.content.decodeToString()
 }
 
-internal class FailingCodec : SDKContentCodec {
+internal class FailingCodec : ContentCodec<String> {
     override val type = SampleCodec().type
 
-    override fun encode(value: Any) = SampleCodec().encode(value)
+    override fun encode(value: String) = SampleCodec().encode(value)
 
-    override fun decode(encoded: EncodedContent): Any = throw AssertionError("codec decode failed")
+    override fun decode(encoded: EncodedContent): String = throw AssertionError("codec decode failed")
 }
 
 internal suspend fun releasedMessage(

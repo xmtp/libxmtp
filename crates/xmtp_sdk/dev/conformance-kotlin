@@ -22,4 +22,14 @@ grep -q "ConversationId" "$log"
 grep -q "EncodedContent" "$log"
 grep -q "Group" "$log"
 grep -q "MessageId" "$log"
+cp crates/xmtp_sdk/conformance/kotlin/negative/CodecTypeNegative.kt "$negative"
+if NIX_DEVSHELL=android dev/nix-shell 'sdks/android/gradlew -p crates/xmtp_sdk/conformance/kotlin compileKotlin --no-daemon' >"$log" 2>&1; then
+  echo "Kotlin codec type negative consumer compiled" >&2
+  exit 1
+fi
+# The encode, Group and Dm send and prepareMessage, Conversation send, and
+# reply calls each reject an Int value, and the removed SDKContentCodec does
+# not resolve: eight distinct source lines.
+test "$(grep -o "^e: .*ConsumerNegative.kt:[0-9]*:" "$log" | sort -u | wc -l | tr -d ' ')" -eq 8
+grep -q "Unresolved reference 'SDKContentCodec'" "$log"
 echo "Kotlin ID, content, and Group/Dm consumer checks passed"

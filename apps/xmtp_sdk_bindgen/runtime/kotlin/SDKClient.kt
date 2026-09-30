@@ -2,13 +2,17 @@ package uniffi.xmtp_sdk
 
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * The receive registry. A star-projected codec decodes to `Any`, the one place
+ * where the value type is erased (Decision 3).
+ */
 private class CodecRegistry(
-    codecs: List<SDKContentCodec>,
+    codecs: List<ContentCodec<*>>,
 ) {
-    private val codecs = codecs.associateBy { it.key }
+    private val codecs = codecs.associateBy { ContentCodecKey(it.type) }
 
     fun decode(encoded: EncodedContent): SDKMessageContent {
-        val codec = codecs[SDKContentCodecKey(encoded.type)] ?: return SDKMessageContent.Unknown(encoded)
+        val codec = codecs[ContentCodecKey(encoded.type)] ?: return SDKMessageContent.Unknown(encoded)
         return try {
             SDKMessageContent.Custom(encoded, codec.decode(encoded), null)
         } catch (error: Throwable) {
@@ -24,7 +28,7 @@ private class CodecRegistry(
  */
 class SDKClient private constructor(
     internal val raw: Client,
-    codecs: List<SDKContentCodec>,
+    codecs: List<ContentCodec<*>>,
 ) {
     private val codecs = CodecRegistry(codecs)
     internal val listenerGates = ListenerGates()
@@ -63,7 +67,7 @@ class SDKClient private constructor(
             signer: Signer,
             options: ClientOptions,
             defaultDirectory: String? = null,
-            codecs: List<SDKContentCodec> = emptyList(),
+            codecs: List<ContentCodec<*>> = emptyList(),
         ): SDKClient =
             SDKClient(Client.create(SDKForeign.signer(signer), resolved(options, defaultDirectory)), codecs).also {
                 ClientRegistry.register(it)
@@ -74,7 +78,7 @@ class SDKClient private constructor(
             options: ClientOptions,
             inboxId: InboxId? = null,
             defaultDirectory: String? = null,
-            codecs: List<SDKContentCodec> = emptyList(),
+            codecs: List<ContentCodec<*>> = emptyList(),
         ): SDKClient =
             SDKClient(
                 Client.build(identity, resolved(options, defaultDirectory), inboxId),

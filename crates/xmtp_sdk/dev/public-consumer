@@ -147,8 +147,16 @@ grep -q "Cannot access 'val raw: Client': it is internal" "$log"
 grep -q "Cannot access 'suspend fun create(" "$log"
 grep -q "Cannot access 'suspend fun createGroupWithIdentities" "$log"
 grep -q "Cannot access 'suspend fun addMembersByIdentity" "$log"
+cp "$fixtures/kotlin/negative/CodecValues.kt" "$kotlin_negative"
+if kotlin_build >"$log" 2>&1; then
+  echo "Kotlin typed codec probe compiled" >&2
+  exit 1
+fi
+# A typed codec rejects a value of another type in encode, send, and reply:
+# three distinct source lines.
+test "$(grep -o "^e: .*RawAccess.kt:[0-9]*:" "$log" | sort -u | wc -l | tr -d ' ')" -eq 3
 rm -f "$kotlin_negative"
-echo "Kotlin public consumer cannot reach the generated Client"
+echo "Kotlin public consumer cannot reach the generated Client or send a wrong codec value"
 
 node_build() {
   node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext \

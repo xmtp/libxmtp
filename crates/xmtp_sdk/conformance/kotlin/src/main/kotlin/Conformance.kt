@@ -29,30 +29,83 @@ fun main() =
         val codecSamples = sdkConformanceStandardSamples()
         check(codecSamples.size == 15) { "missing standard codec samples" }
         for (sample in codecSamples) {
-            val (codec, value) =
+            val expected = sample.expected
+            val matches =
                 when (val content = sample.value) {
-                    is StandardContent.Text -> TextCodec() to content.v1
-                    is StandardContent.Markdown -> MarkdownCodec() to content.v1
-                    StandardContent.ReadReceipt -> ReadReceiptCodec() to Unit
-                    is StandardContent.Reaction -> ReactionV2Codec() to content
-                    is StandardContent.Attachment -> AttachmentCodec() to content.v1
-                    is StandardContent.RemoteAttachment -> RemoteAttachmentCodec() to content.v1
-                    is StandardContent.MultiRemoteAttachment -> MultiRemoteAttachmentCodec() to content.v1
-                    is StandardContent.TransactionReference -> TransactionReferenceCodec() to content.v1
-                    is StandardContent.WalletSendCalls -> WalletSendCallsCodec() to content.v1
-                    is StandardContent.Actions -> ActionsCodec() to content.v1
-                    is StandardContent.Intent -> IntentCodec() to content.v1
-                    is StandardContent.Reply -> ReplyCodec() to content
-                    is StandardContent.GroupUpdated -> GroupUpdatedCodec() to content.v1
-                    is StandardContent.DeleteMessage -> DeleteMessageCodec() to content
-                    is StandardContent.LeaveRequest -> LeaveRequestCodec() to content.v1
+                    is StandardContent.Text -> {
+                        matchesRust(TextCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.Markdown -> {
+                        matchesRust(MarkdownCodec(), content.v1, expected)
+                    }
+
+                    StandardContent.ReadReceipt -> {
+                        matchesRust(ReadReceiptCodec(), Unit, expected)
+                    }
+
+                    is StandardContent.Reaction -> {
+                        matchesRust(ReactionV2Codec(), content, expected)
+                    }
+
+                    is StandardContent.Attachment -> {
+                        matchesRust(AttachmentCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.RemoteAttachment -> {
+                        matchesRust(RemoteAttachmentCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.MultiRemoteAttachment -> {
+                        matchesRust(MultiRemoteAttachmentCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.TransactionReference -> {
+                        matchesRust(TransactionReferenceCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.WalletSendCalls -> {
+                        matchesRust(WalletSendCallsCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.Actions -> {
+                        matchesRust(ActionsCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.Intent -> {
+                        matchesRust(IntentCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.Reply -> {
+                        matchesRust(ReplyCodec(), content, expected)
+                    }
+
+                    is StandardContent.GroupUpdated -> {
+                        matchesRust(GroupUpdatedCodec(), content.v1, expected)
+                    }
+
+                    is StandardContent.DeleteMessage -> {
+                        matchesRust(DeleteMessageCodec(), content, expected)
+                    }
+
+                    is StandardContent.LeaveRequest -> {
+                        matchesRust(LeaveRequestCodec(), content.v1, expected)
+                    }
                 }
-            val encoded = codec.encode(value)
-            check(runCatching { codec.encode(Any()) }.exceptionOrNull() is XmtpException.InvalidArgument) {
-                "${codec.javaClass.simpleName} did not reject a wrong value with InvalidArgument"
+            check(matches) { "standard codec content differs from Rust" }
+        }
+        // The variant codecs take the whole StandardContent and reject another
+        // variant at run time (a known P9 gap).
+        for (codec in listOf(ReactionV2Codec(), ReplyCodec(), DeleteMessageCodec())) {
+            check(
+                runCatching {
+                    codec.encode(
+                        StandardContent.Text("x"),
+                    )
+                }.exceptionOrNull() is XmtpException.InvalidArgument,
+            ) {
+                "${codec.javaClass.simpleName} did not reject another variant with InvalidArgument"
             }
-            check(sameEncoded(encoded, sample.expected)) { "standard codec content differs from Rust" }
-            check(sameEncoded(codec.encode(codec.decode(encoded)), sample.expected))
         }
         println("Kotlin P69: all 15 standard codecs match Rust bytes")
 
@@ -787,13 +840,12 @@ fun main() =
         val withoutCodec = SDKClient.build(signer.identity(), options, inboxId)
         val slashType = ContentTypeId("example.org", "a/b", 1u, 0u)
         val slashCodec =
-            object : SDKContentCodec {
+            object : ContentCodec<String> {
                 override val type = slashType
 
-                override fun encode(value: Any) =
-                    EncodedContent(type, emptyMap(), null, (value as String).toByteArray())
+                override fun encode(value: String) = EncodedContent(type, emptyMap(), null, value.toByteArray())
 
-                override fun decode(encoded: EncodedContent): Any = "wrong codec"
+                override fun decode(encoded: EncodedContent) = "wrong codec"
             }
         val slashHost = SDKClient.build(signer.identity(), options, inboxId, codecs = listOf(slashCodec))
         val colliding = EncodedContent(ContentTypeId("example.org/a", "b", 1u, 0u), emptyMap(), null, byteArrayOf(1))
@@ -821,6 +873,8 @@ fun main() =
         check((failed.content as? SDKMessageContent.Custom)?.error is AssertionError)
         failingHost.end()
         println("Kotlin codec_scoped_to_client passed")
+        checkCodecPolicy(family, withoutCodec)
+        println("Kotlin typed codec send policy passed")
         withCodec.end()
         withoutCodec.end()
         println("Kotlin scenario 6: custom codec stayed with its client")
