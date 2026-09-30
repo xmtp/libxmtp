@@ -126,15 +126,32 @@ fn bo_catalogue() -> Vec<ApplicationComponentDefinition> {
 }
 
 /// Held from setting a catalogue until it is reset, because tests on other
-/// threads share the process-wide catalogue.
+/// threads share the process-wide catalogue. Only these tests take it. A
+/// client that another test builds on a shared process while a catalogue is
+/// set gets that catalogue; nextest runs each test in its own process.
 static CATALOGUE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// Resets the catalogue before releasing the lock, also when the build
+/// panics.
+struct CatalogueSet {
+    _lock: tokio::sync::MutexGuard<'static, ()>,
+}
+
+impl Drop for CatalogueSet {
+    fn drop(&mut self) {
+        // Clearing converts nothing, so it cannot fail.
+        let _ = use_application_components(None);
+    }
+}
+
 async fn client_with(catalogue: Vec<ApplicationComponentDefinition>) -> Client {
-    let _catalogue = CATALOGUE.lock().await;
+    let _catalogue = CatalogueSet {
+        _lock: CATALOGUE.lock().await,
+    };
     use_application_components(Some(catalogue)).unwrap();
-    let client = Client::create(crate::generate_local_signer().await, options()).await;
-    use_application_components(None).unwrap();
-    client.unwrap()
+    Client::create(crate::generate_local_signer().await, options())
+        .await
+        .unwrap()
 }
 
 /// Alix's group with Bo, and Bo's handle on it.
