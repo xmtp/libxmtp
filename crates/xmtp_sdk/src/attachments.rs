@@ -119,8 +119,9 @@ fn path_string(path: PathBuf) -> Result<String, XmtpError> {
 /// or thumbnail: an app that shows an image makes its own from the local file.
 /// The SDK retries no failed upload or download. A thrown
 /// `XmtpError.Attachment` says in its `retryable` detail whether the same call
-/// can succeed later. A `Failed` status has no such detail: its failure's
-/// `cause` and `httpStatus` decide it by the ATCH cause table.
+/// can succeed later. A `Failed` status has no such detail: its failure
+/// decides it by the ATCH cause table, from `cause`, from `httpStatus` for the
+/// `HttpStatus` cause, and from `retryable` for the `Credential` cause.
 #[derive(uniffi::Object)]
 pub struct Attachments {
     pub(crate) client: Arc<CoreClient>,

@@ -15,7 +15,10 @@ impl Client {
     }
 
     /// Build requires a stored identity. It fetches server configuration by default.
-    /// Set `allowOffline` to true with a known inbox ID to use stored state offline.
+    /// Set `allowOffline` to true to use stored state offline; it needs a known
+    /// inbox ID unless the storage location is `Explicit`.
+    /// With an `inboxId`, build skips the `Explicit` identity check and trusts
+    /// the caller, as `Directory` storage does.
     #[uniffi::constructor]
     pub async fn build(
         identity: PublicIdentity,
