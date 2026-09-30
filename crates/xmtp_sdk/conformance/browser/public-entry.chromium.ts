@@ -69,6 +69,7 @@ const MESSAGE_FIELDS = new Set([
   "expiresAt",
   "kind",
   "deliveryStatus",
+  "rawBytes",
   "contentType",
   "fallback",
   "encoded",
@@ -276,7 +277,9 @@ export async function exercise(): Promise<string[]> {
       { ...noteCodec, shouldPush: () => false },
       "browser send",
     );
-    const sentNote = (await group.messages()).find((item) => item.id === sentId);
+    const sentNote = (await group.messages()).find(
+      (item) => item.id === sentId,
+    );
     check(
       sentNote?.content.kind === "unknown" &&
         sentNote.content.encoded.fallback === "a note: browser send",
@@ -388,9 +391,8 @@ export async function exercise(): Promise<string[]> {
 
     // P7 over every public object kind.
     const messageReader = await conversations.messageReader();
-    const conversationReader = await conversations.conversationReader(
-      undefined,
-    );
+    const conversationReader =
+      await conversations.conversationReader(undefined);
     const openStream = sdk.MessageStream.openGroup(alice, group);
     const openJoined = sdk.ConversationStream.open(alice);
     const openEvents = await alice.events({
@@ -418,6 +420,10 @@ export async function exercise(): Promise<string[]> {
     ];
     for (const [name, value] of kinds) checkOpaque(name, value);
     checkOpaque("Message", message, MESSAGE_FIELDS);
+    check(
+      message.rawBytes instanceof Uint8Array && message.rawBytes.length > 0,
+      "public message bytes missing",
+    );
     await messageReader.end();
     await conversationReader.end();
     await openStream.end();
@@ -487,7 +493,10 @@ export async function exercise(): Promise<string[]> {
       "a SQLite URI path did not fail with the public InvalidInput",
     );
     const badBytes = await rejection(
-      admin.importDb(`bad-${crypto.randomUUID()}.db3`, new Uint8Array([1, 2, 3])),
+      admin.importDb(
+        `bad-${crypto.randomUUID()}.db3`,
+        new Uint8Array([1, 2, 3]),
+      ),
     );
     // The typed storage cause names the code and its retry policy.
     check(

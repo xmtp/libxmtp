@@ -12,7 +12,7 @@ fn decode_standard_rejects_out_of_range_actions_expiry() {
         r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One","expiresAt":"9999-12-31T23:59:59.999Z"}]}"#,
     )?;
     let encoded = ActionsCodec::encode(actions)?;
-    assert!(crate::decode_standard(encoded.into()).is_err());
+    assert!(crate::decode_standard(encoded.try_into()?).is_err());
 }
 
 // verifies: CTYPE-008, CTYPE-024
@@ -110,7 +110,7 @@ async fn reply_with_empty_nested_identifier_stays_unknown_on_all_read_paths() {
             reference_inbox_id: Some(client.inbox_id().into_checked()?),
             content: TextCodec::encode("nested".into())?,
         })?;
-        let id = group.send(outer.into(), None).await?;
+        let id = group.send(outer.try_into()?, None).await?;
         let id_bytes = id.to_bytes()?;
         let stored = client.inner.message(id_bytes.clone())?;
         let mut outer = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;

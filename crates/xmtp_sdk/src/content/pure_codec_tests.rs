@@ -137,7 +137,7 @@ pub(crate) fn standard_codec_samples()
                     .clone()
                     .map(crate::InboxId::try_from)
                     .transpose()?,
-                content: reply.content.clone().into(),
+                content: reply.content.clone().try_into()?,
             },
             xmtp_content_types::reply::ReplyCodec::encode(reply)?,
         ),
@@ -173,7 +173,7 @@ fn standard_codec_bytes_match_the_core_send_codecs() {
     assert_eq!(cases.len(), 15);
     for (value, core) in cases {
         let facade = encode_standard(value)?;
-        let expected: EncodedContent = core.into();
+        let expected: EncodedContent = core.try_into()?;
         assert_eq!(facade.r#type.type_id, expected.r#type.type_id);
         assert_eq!(facade.content, expected.content);
         assert_eq!(facade.parameters, expected.parameters);
@@ -214,7 +214,7 @@ fn malformed_nested_reply_content_is_rejected() {
     ] {
         let mut outer = xmtp_content_types::reply::ReplyCodec::encode(reply.clone())?;
         outer.content = nested.encode_to_vec();
-        assert!(decode_standard(outer.into()).is_err());
+        assert!(decode_standard(outer.try_into()?).is_err());
     }
 }
 
@@ -232,7 +232,7 @@ fn malformed_nested_standard_reply_content_is_rejected() {
         reference_inbox_id: None,
         content: nested,
     })?;
-    assert!(decode_standard(outer.into()).is_err());
+    assert!(decode_standard(outer.try_into()?).is_err());
 }
 
 #[cfg(test)]
@@ -255,7 +255,7 @@ fn nested_custom_reply_content_remains_available() {
         content: nested,
     })?;
     assert!(matches!(
-        decode_standard(outer.into())?,
+        decode_standard(outer.try_into()?)?,
         StandardContent::Reply { content, .. }
             if content.r#type.authority_id == "example.com"
                 && content.r#type.type_id == "widget"

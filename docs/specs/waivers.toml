@@ -272,7 +272,7 @@ id = "PROC-045"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The legacy SDK readers in sdks/ do not expose a failed custom codec as a custom item with its error while keeping the stream open, until they are removed at cutover. The new SDK has evidence for core local delivery and Node; Swift and Kotlin have no linked test yet."
+reason = "Legacy Swift and Kotlin V1 readers keep failed rows without a decoded custom value or typed failure details. The new SDK returns a failed custom item with ErrorDetails and keeps the stream open; linked Node, browser, Swift, Kotlin, and Rust tests cover that path."
 
 [[waiver]]
 id = "SEND-019"
@@ -328,7 +328,7 @@ id = "CTYPE-009"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The Kotlin and Swift registries return the text codec when no codec matches, so unknown content can decode as apparently successful text."
+reason = "Legacy Swift and Kotlin registries can select the text codec when no codec matches. The new SDK uses CodecNotFound for a missing codec, CodecDecodeFailed for codec or decompression failure, and MalformedEnvelope for an incomplete or invalid envelope."
 
 [[waiver]]
 id = "CTYPE-010"
@@ -363,14 +363,14 @@ id = "CTYPE-024"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
+reason = "Legacy SDKs still compress and decompress on the host with other formats. The new SDK uses the bounded Rust decoder before host codecs, including nested reply content, and retains failure bytes when the compression algorithm is unknown."
 
 [[waiver]]
 id = "CTYPE-025"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDKs compress and decompress on the host with other formats; the Rust path replaces them in the SDK migration."
+reason = "Legacy SDK host decompression does not enforce the shared 16,777,216-byte bound on all paths. The new SDK uses the bounded Rust decoder for received and standalone content; a linked test covers output one byte above the bound."
 
 [[waiver]]
 id = "CTYPE-026"
@@ -384,14 +384,14 @@ id = "CTYPE-027"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The core reply decoder returns Custom for an unrecognized nested type instead of an unknown body that keeps the nested EncodedContent."
+reason = "The core reply decoder represents an unrecognized nested type as Custom. The new SDK converts a missing host codec to an Unknown reply body with the decompressed EncodedContent and original nested bytes. Legacy SDK reply paths remain outside this new SDK proof."
 
 [[waiver]]
 id = "CTYPE-029"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The current SDK does not report the required decode failure while preserving the outer bytes and fallback on every invalid nested content path."
+reason = "Legacy SDK reply paths do not preserve outer bytes and fallback on every nested decode failure. The new SDK retains the outer reply as Unknown for a nested core or host codec failure. Linked Rust and four-host receive tests cover typed failure details and retained bytes."
 
 [[waiver]]
 id = "STORE-002"

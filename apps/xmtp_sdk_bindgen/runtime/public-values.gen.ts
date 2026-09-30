@@ -26,10 +26,16 @@ export type MessageBody =
   | {
       readonly kind: "custom";
       readonly encoded: EncodedContent;
+      readonly rawBytes: Uint8Array;
       readonly value?: unknown;
-      readonly error?: string;
+      readonly error?: ErrorDetails;
     }
-  | { readonly kind: "unknown"; readonly encoded: EncodedContent };
+  | {
+      readonly kind: "unknown";
+      readonly encoded?: EncodedContent;
+      readonly rawBytes: Uint8Array;
+      readonly error: ErrorDetails;
+    };
 export type MessageContent =
   | { readonly kind: "text"; readonly value: string }
   | {
@@ -42,12 +48,13 @@ export type MessageContent =
       readonly encoded: EncodedContent;
       readonly rawBytes: Uint8Array;
       readonly value?: unknown;
-      readonly error?: string;
+      readonly error?: ErrorDetails;
     }
   | {
       readonly kind: "unknown";
-      readonly encoded: EncodedContent;
+      readonly encoded?: EncodedContent;
       readonly rawBytes: Uint8Array;
+      readonly error: ErrorDetails;
     };
 export type Reaction = { readonly content: string };
 export type ReactionMessage = { readonly id: MessageId };
@@ -121,6 +128,7 @@ type Lower<Public, Binding> = (
 export declare const liftContentTypeId: Lift<object, ContentTypeId>;
 export declare const lowerContentTypeId: Lower<ContentTypeId, B.ContentTypeId>;
 export declare const liftEncodedContent: Lift<B.EncodedContent, EncodedContent>;
+export declare const liftErrorDetails: Lift<B.ErrorDetails, ErrorDetails>;
 export declare const lowerEncodedContent: Lower<
   EncodedContent,
   B.EncodedContent

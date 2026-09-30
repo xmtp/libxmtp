@@ -1,3 +1,4 @@
+import Foundation
 import XmtpSdk
 
 func consumeInfallibleListenerStop(_ host: SDKClient, _ raw: Client, _ id: ListenerId) async {
@@ -60,5 +61,16 @@ func consumeStandardIds(_ content: StandardContent) -> MessageId? {
         return id
     default:
         return nil
+    }
+}
+
+func receivedDetails(_ message: Message) -> String? {
+    let _: Data = message.rawBytes
+    let _: EncodedContent? = message.encoded
+    let _: ContentTypeId? = message.contentType
+    switch message.content {
+    case let .unknown(_, _, error): return error.code
+    case let .custom(_, _, _, error): return error?.code
+    case .standard: return nil
     }
 }

@@ -62,10 +62,11 @@ internal suspend fun consumeOmittedTypedSendOptions(
 }
 
 internal fun sameEncoded(
-    actual: EncodedContent,
-    expected: EncodedContent,
+    actual: EncodedContent?,
+    expected: EncodedContent?,
 ): Boolean =
-    actual.type == expected.type && actual.parameters == expected.parameters &&
+    if (actual == null || expected == null) actual == null && expected == null
+    else actual.type == expected.type && actual.parameters == expected.parameters &&
         actual.fallback == expected.fallback && actual.content.contentEquals(expected.content)
 
 internal fun signCommand(

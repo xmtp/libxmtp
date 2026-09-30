@@ -30,7 +30,12 @@ import {
   type ServerConfiguration,
   type Signer,
 } from "../xmtp_sdk";
-import { codecKey, decodeCustom, type AnyCodec } from "./custom-codec";
+import {
+  codecKey,
+  decodeCustom,
+  type AnyCodec,
+  type DecodedCustom,
+} from "./custom-codec";
 import { EventStream } from "./events/reader";
 export type { ContentCodec } from "./codec-type";
 
@@ -47,9 +52,7 @@ class CodecRegistry {
     this.codecs = new Map(codecs.map((codec) => [codecKey(codec.type), codec]));
   }
 
-  decode(
-    encoded: EncodedContent,
-  ): { value?: unknown; error?: string } | undefined {
+  decode(encoded: EncodedContent): DecodedCustom | undefined {
     return decodeCustom(this.codecs, encoded);
   }
 }
@@ -258,9 +261,7 @@ export class Client extends ClientForwarders {
     return this.binding().storage();
   }
 
-  decodeCustom(
-    encoded: EncodedContent,
-  ): { value?: unknown; error?: string } | undefined {
+  decodeCustom(encoded: EncodedContent): DecodedCustom | undefined {
     return this.codecs.decode(encoded);
   }
 

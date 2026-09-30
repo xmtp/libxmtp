@@ -801,10 +801,10 @@ fun main() =
                 ),
         ) { "reaction target did not affect message equality" }
         val changedEnvelope =
-            Message(parent.data.copy(encoded = parent.encoded.copy(parameters = mapOf("key" to "different"))))
+            Message(parent.data.copy(encoded = checkNotNull(parent.encoded).copy(parameters = mapOf("key" to "different"))))
         check(parent != changedEnvelope) { "EncodedContent parameters must affect message equality" }
         val copiedBytes =
-            Message(parent.data.copy(encoded = parent.encoded.copy(content = parent.encoded.content.copyOf())))
+            Message(parent.data.copy(encoded = checkNotNull(parent.encoded).copy(content = checkNotNull(parent.encoded).content.copyOf())))
         check(parent == copiedBytes && parent.hashCode() == copiedBytes.hashCode())
         val sameParent = checkNotNull(reopened.conversations().getMessageById(parentId))
         check(parent == sameParent) { "message_copies_compare_equal failed" }
@@ -851,7 +851,7 @@ fun main() =
             }
         val slashHost = SDKClient.build(signer.identity(), options, inboxId, codecs = listOf(slashCodec))
         val colliding = EncodedContent(ContentTypeId("example.org/a", "b", 1u, 0u), emptyMap(), null, byteArrayOf(1))
-        check(slashHost.decodeCustom(colliding) is SDKMessageContent.Unknown) {
+        check(slashHost.decodeCustom(colliding, byteArrayOf()) is SDKMessageContent.Unknown) {
             "codec key collision selected the wrong codec"
         }
         slashHost.end()
@@ -872,7 +872,20 @@ fun main() =
         }
         val failingHost = SDKClient.build(signer.identity(), options, inboxId, codecs = listOf(FailingCodec()))
         val failed = checkNotNull(failingHost.conversations().getMessageById(customId))
-        check((failed.content as? SDKMessageContent.Custom)?.error is AssertionError)
+        check((failed.content as? SDKMessageContent.Custom)?.error?.let { it.code == "CodecDecodeFailed" && it.category == ErrorCategory.CALLBACK && !it.retryable && it.message.contains("codec decode failed") } == true)
+        val failedReply = checkNotNull(failingHost.conversations().getMessageById(customReplyId))
+        checkRetainedContent(failed, failedReply)
+        println("Kotlin retained_content_details passed")
+        // verifies: PROC-045
+        val failedStreamGroup = failingHost.conversations().createGroup(emptyList(), null)
+        val badStreamId = failedStreamGroup.send(codec.encode("stream codec error"), null)
+        val nextStreamId = failedStreamGroup.sendText("after codec error", null)
+        val codecItems = withTimeout(10_000) { failingHost.messages(failedStreamGroup).take(2).toList() }
+        check(codecItems.map { it.id } == listOf(badStreamId, nextStreamId))
+        val badItem = codecItems[0].content as? SDKMessageContent.Custom ?: error("failed custom stream content missing")
+        check(badItem.rawBytes.isNotEmpty() && badItem.error?.code == "CodecDecodeFailed" && badItem.error.category == ErrorCategory.CALLBACK)
+        check((codecItems[1].content as? SDKMessageContent.Standard)?.value == MessageContent.Text("after codec error"))
+        println("Kotlin codec_failure_keeps_stream_open passed")
         failingHost.end()
         println("Kotlin codec_scoped_to_client passed")
         val typedParent = customCodecPolicyAndIsolation(family, withoutCodec)

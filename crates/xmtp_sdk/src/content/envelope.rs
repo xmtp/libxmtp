@@ -15,31 +15,35 @@ impl From<EncodedContent> for ProtoEncodedContent {
     }
 }
 
-impl From<ProtoEncodedContent> for EncodedContent {
-    fn from(value: ProtoEncodedContent) -> Self {
-        let value = if value.compression.is_some() {
-            xmtp_content_types::compression::decompress(value.clone()).unwrap_or_else(|_| {
-                ProtoEncodedContent {
-                    content: Vec::new(),
-                    compression: None,
-                    ..value
-                }
-            })
-        } else {
-            value
+impl TryFrom<ProtoEncodedContent> for EncodedContent {
+    type Error = crate::XmtpError;
+
+    fn try_from(value: ProtoEncodedContent) -> Result<Self, Self::Error> {
+        let kind = value
+            .r#type
+            .as_ref()
+            .filter(|kind| !kind.authority_id.is_empty() && !kind.type_id.is_empty())
+            .ok_or_else(|| {
+                crate::XmtpError::malformed_envelope(
+                    "content type identifier is absent or incomplete",
+                )
+            })?;
+        let kind = ContentTypeId {
+            authority_id: kind.authority_id.clone(),
+            type_id: kind.type_id.clone(),
+            version_major: kind.version_major,
+            version_minor: kind.version_minor,
         };
-        let kind = value.r#type.unwrap_or_default();
-        Self {
-            r#type: ContentTypeId {
-                authority_id: kind.authority_id,
-                type_id: kind.type_id,
-                version_major: kind.version_major,
-                version_minor: kind.version_minor,
-            },
+        // Codec input must be uncompressed. Never replace failed decompression with empty content.
+        // implements: CTYPE-024, CTYPE-025
+        let value = xmtp_content_types::compression::decompress(value)
+            .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
+        Ok(Self {
+            r#type: kind,
             parameters: value.parameters,
             fallback: value.fallback,
             content: value.content,
-        }
+        })
     }
 }
 

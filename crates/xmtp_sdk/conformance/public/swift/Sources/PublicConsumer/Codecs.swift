@@ -44,3 +44,14 @@ public func consumeTypedCodecs(
     let client = try await SDKClient.create(signer: signer, options: options, codecs: [PointCodec(), TextCodec()])
     try await client.end()
 }
+
+func receivedDetails(_ message: Message) -> String? {
+    let _: Data = message.rawBytes
+    let _: EncodedContent? = message.encoded
+    let _: ContentTypeId? = message.contentType
+    switch message.content {
+    case let .unknown(_, _, error): return error.code
+    case let .custom(_, _, _, error): return error?.code
+    case .standard: return nil
+    }
+}

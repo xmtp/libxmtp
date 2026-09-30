@@ -213,8 +213,8 @@ private func checkTypeReadsAndCancellation() async throws {
 
 private func envelope(_ message: Message?) -> EncodedContent? {
     switch message?.content {
-    case let .custom(encoded, _, _): encoded
-    case let .unknown(encoded): encoded
+    case let .custom(encoded, _, _, _): encoded
+    case let .unknown(encoded, _, _): encoded
     default: nil
     }
 }
@@ -257,15 +257,15 @@ func customCodecPolicyAndIsolation(group: Group, receiver: SDKClient) async thro
 
     // A typed reply fills the nested fallback and keeps the reply's push.
     let replyId = try await parent.reply(NoteCodec(failPush: true), value: "typed reply")
-    guard case let .unknown(nested)? = try await stored(group, replyId)?.replyContent,
-          nested.fallback == "a note: typed reply"
+    guard case let .unknown(nested, _, _)? = try await stored(group, replyId)?.replyContent,
+          nested?.fallback == "a note: typed reply"
     else { throw ConformanceFailure("a typed reply did not fill the nested fallback") }
 
     // A receiver without the codec keeps the envelope and its fallback.
     _ = try await receiver.conversations().syncAll(consentStates: nil)
     let received = try await receiver.conversations().getMessageById(id: sentId)
-    guard case let .unknown(receivedEnvelope)? = received?.content,
-          receivedEnvelope.fallback == "a note: typed send"
+    guard case let .unknown(receivedEnvelope, _, _)? = received?.content,
+          receivedEnvelope?.fallback == "a note: typed send"
     else { throw ConformanceFailure("a receiver without the codec lost the envelope") }
     return parent
 }

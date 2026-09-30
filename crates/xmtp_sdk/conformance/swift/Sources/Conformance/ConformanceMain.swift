@@ -759,7 +759,7 @@ struct Conformance {
             type: ContentTypeId(authorityId: "example.org/a", typeId: "b", versionMajor: 1, versionMinor: 0),
             content: Data([1])
         )
-        guard case .unknown = slashHost.decodeCustom(colliding) else {
+        guard case .unknown = slashHost.decodeCustom(colliding, rawBytes: Data()) else {
             throw ConformanceFailure("codec key collision selected the wrong codec")
         }
         try await slashHost.end()
@@ -767,22 +767,41 @@ struct Conformance {
         guard let decoded = try await withCodec.conversations().getMessageById(id: customId),
               let undecoded = try await withoutCodec.conversations().getMessageById(id: customId)
         else { throw ConformanceFailure("custom message was not found") }
-        guard case let .custom(_, value, nil) = decoded.content, value as? String == "codec value",
+        guard case let .custom(_, _, value, nil) = decoded.content, value as? String == "codec value",
               case .unknown = undecoded.content
         else { throw ConformanceFailure("custom codec leaked between clients") }
         let customReplyId = try await withCodec.conversations().replyToMessage(
             id: customId, content: codec.encode("reply codec value"), options: nil
         )
         guard let customReply = try await withCodec.conversations().getMessageById(id: customReplyId),
-              case let .some(.custom(_, value, nil)) = customReply.replyContent,
+              case let .some(.custom(_, _, value, nil)) = customReply.replyContent,
               value as? String == "reply codec value"
         else { throw ConformanceFailure("reply body custom codec did not run") }
         let failingHost = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxId: inboxId, codecs: [FailingCodec()]
         )
         guard let failed = try await failingHost.conversations().getMessageById(id: customId),
-              case let .custom(_, nil, error) = failed.content, error != nil
+              case let .custom(_, _, nil, error) = failed.content, error != nil
         else { throw ConformanceFailure("throwing custom codec was not recorded") }
+        guard let failedReply = try await failingHost.conversations().getMessageById(id: customReplyId)
+        else { throw ConformanceFailure("failed custom reply missing") }
+        try checkRetainedContent(failed, nestedFailure: failedReply)
+        print("Swift retained_content_details passed")
+        // verifies: PROC-045
+        let failedStreamGroup = try await failingHost.conversations().createGroup(members: [InboxId](), options: nil)
+        let badStreamId = try await failedStreamGroup.send(encoded: codec.encode("stream codec error"), options: nil)
+        let nextStreamId = try await failedStreamGroup.sendText(text: "after codec error", options: nil)
+        do {
+            let stream = try await failingHost.messages(in: failedStreamGroup)
+            let iterator = stream.makeAsyncIterator()
+            guard let bad = try await iterator.next(), bad.id == badStreamId,
+                  case let .custom(_, raw, nil, error?) = bad.content,
+                  !raw.isEmpty, error.code == "CodecDecodeFailed", error.category == .callback,
+                  let next = try await iterator.next(), next.id == nextStreamId,
+                  case .standard(.text("after codec error")) = next.content
+            else { throw ConformanceFailure("codec failure stopped the Swift stream") }
+        }
+        print("Swift codec_failure_keeps_stream_open passed")
         try await failingHost.end()
         print("Swift codec_scoped_to_client passed")
         let typedParent = try await customCodecPolicyAndIsolation(group: family, receiver: withoutCodec)

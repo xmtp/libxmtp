@@ -303,7 +303,7 @@ internal suspend fun customCodecPolicyAndIsolation(
     // A receiver without the codec keeps the envelope and its fallback.
     receiver.conversations().syncAll(null)
     val received = receiver.conversations().getMessageById(sentId)?.content
-    check(received is SDKMessageContent.Unknown && received.encoded.fallback == "a note: typed send") {
+    check(received is SDKMessageContent.Unknown && received.encoded?.fallback == "a note: typed send") {
         "a receiver without the codec lost the envelope"
     }
     return parent

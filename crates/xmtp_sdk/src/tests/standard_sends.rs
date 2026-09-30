@@ -58,14 +58,43 @@ async fn standard_codec_bytes_match_typed_send_wire_bytes() {
             .await?
             .expect("sent message");
         let expected_type = expected.r#type.expect("content type");
-        let actual_type = &stored.0.encoded.r#type;
+        let actual_type = &stored
+            .0
+            .encoded
+            .as_ref()
+            .expect("usable encoded content")
+            .r#type;
         assert_eq!(actual_type.authority_id, expected_type.authority_id);
         assert_eq!(actual_type.type_id, expected_type.type_id);
         assert_eq!(actual_type.version_major, expected_type.version_major);
         assert_eq!(actual_type.version_minor, expected_type.version_minor);
-        assert_eq!(stored.0.encoded.parameters, expected.parameters);
-        assert_eq!(stored.0.encoded.fallback, expected.fallback);
-        assert_eq!(stored.0.encoded.content, expected.content);
+        assert_eq!(
+            stored
+                .0
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .parameters,
+            expected.parameters
+        );
+        assert_eq!(
+            stored
+                .0
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .fallback,
+            expected.fallback
+        );
+        assert_eq!(
+            stored
+                .0
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .content,
+            expected.content
+        );
         sent += 1;
     }
     assert_eq!(sent, 12);

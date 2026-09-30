@@ -486,10 +486,9 @@ async fn assert_undecodable_standard_read_paths(
         .into_iter()
         .map(|(path, message)| {
             let preserved = matches!(message.0.content,
-                MessageContent::Unknown { encoded, raw_bytes }
+                MessageContent::Unknown { encoded, raw_bytes, .. }
                     if raw_bytes.as_slice() == expected_raw
-                        && encoded.r#type.authority_id == "xmtp.org"
-                        && encoded.r#type.type_id == "text");
+                        && encoded.as_ref().is_none_or(|value| value.r#type.authority_id == "xmtp.org" && value.r#type.type_id == "text"));
             (path, preserved)
         })
         .collect::<Vec<_>>();
@@ -524,6 +523,7 @@ mod query_costs;
 mod reader_delivery;
 mod reader_recovery;
 mod reserved_transcript_sends;
+mod retained_content;
 mod signers;
 mod standard_sends;
 mod storage;

@@ -17,10 +17,10 @@ private struct CodecRegistry {
         { try codec.decode($0) }
     }
 
-    func decode(_ encoded: EncodedContent) -> SDKMessageContent {
-        guard let decode = decoders[ContentCodecKey(encoded.type)] else { return .unknown(encoded) }
-        do { return try .custom(encoded: encoded, value: decode(encoded), error: nil) }
-        catch { return .custom(encoded: encoded, value: nil, error: error) }
+    func decode(_ encoded: EncodedContent, rawBytes: Data) -> SDKMessageContent {
+        guard let decode = decoders[ContentCodecKey(encoded.type)] else { return .unknown(encoded: encoded, rawBytes: rawBytes, error: ErrorDetails(code: "CodecNotFound", category: .input, retryable: false, message: "content type has no registered host codec")) }
+        do { return try .custom(encoded: encoded, rawBytes: rawBytes, value: decode(encoded), error: nil) }
+        catch { return .custom(encoded: encoded, rawBytes: rawBytes, value: nil, error: ErrorDetails(code: "CodecDecodeFailed", category: .callback, retryable: false, message: String(describing: error))) }
     }
 }
 
@@ -42,8 +42,8 @@ public final class SDKClient: @unchecked Sendable {
         raw.storage()
     }
 
-    func decodeCustom(_ encoded: EncodedContent) -> SDKMessageContent {
-        codecs.decode(encoded)
+    func decodeCustom(_ encoded: EncodedContent, rawBytes: Data) -> SDKMessageContent {
+        codecs.decode(encoded, rawBytes: rawBytes)
     }
 
     private static func resolved(_ options: ClientOptions) throws -> ClientOptions {

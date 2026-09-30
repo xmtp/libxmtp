@@ -22,9 +22,10 @@ export type MessageData = {
   expiresAt?: Timestamp;
   kind: string;
   deliveryStatus: string;
-  contentType: object;
+  rawBytes: ArrayBuffer;
+  contentType?: ContentTypeId;
   fallback?: string;
-  encoded: EncodedContent;
+  encoded?: EncodedContent;
   content: MessageContent;
   replyCount: bigint;
   reactions: object[];
@@ -187,13 +188,23 @@ export enum MessageBody_Tags {
   Custom = "Custom",
   Unknown = "Unknown",
 }
-export type MessageBody = {
-  tag: MessageBody_Tags;
-  inner: { encoded: EncodedContent };
+type UnknownContent = {
+  encoded?: EncodedContent;
+  rawBytes: ArrayBuffer;
+  error: ErrorDetails;
 };
+export type MessageBody =
+  | { tag: MessageBody_Tags.Text; inner: [string] }
+  | {
+      tag: MessageBody_Tags.Custom;
+      inner: { encoded: EncodedContent; rawBytes: ArrayBuffer };
+    }
+  | { tag: MessageBody_Tags.Unknown; inner: UnknownContent };
 export const MessageBody = {
   Unknown: {
-    new(inner: { encoded: EncodedContent }): MessageBody {
+    new(
+      inner: UnknownContent,
+    ): Extract<MessageBody, { tag: MessageBody_Tags.Unknown }> {
       return { tag: MessageBody_Tags.Unknown, inner };
     },
   },
@@ -213,14 +224,13 @@ export type MessageContent =
     }
   | {
       tag: MessageContent_Tags.Unknown;
-      inner: { encoded: EncodedContent; rawBytes: ArrayBuffer };
+      inner: UnknownContent;
     };
 export const MessageContent = {
   Unknown: {
-    new(inner: {
-      encoded: EncodedContent;
-      rawBytes: ArrayBuffer;
-    }): MessageContent {
+    new(
+      inner: UnknownContent,
+    ): Extract<MessageContent, { tag: MessageContent_Tags.Unknown }> {
       return { tag: MessageContent_Tags.Unknown, inner };
     },
   },
@@ -430,5 +440,9 @@ export enum ConnectionState {
   Closed,
 }
 
-export type MessageReaderOptions = { conversationKind?: ConversationKind; consentStates?: ConsentState[]; from?: string };
+export type MessageReaderOptions = {
+  conversationKind?: ConversationKind;
+  consentStates?: ConsentState[];
+  from?: string;
+};
 export type ConversationMessageReaderOptions = { from?: string };

@@ -42,14 +42,14 @@ struct ContentCodecKey: Hashable {
 
 public enum SDKMessageContent: Sendable {
     case standard(MessageContent)
-    case custom(encoded: EncodedContent, value: (any Sendable)?, error: Error?)
-    case unknown(EncodedContent)
+    case custom(encoded: EncodedContent, rawBytes: Data, value: (any Sendable)?, error: ErrorDetails?)
+    case unknown(encoded: EncodedContent?, rawBytes: Data, error: ErrorDetails)
 }
 
 public enum SDKReplyContent: Sendable {
     case standard(MessageBody)
-    case custom(encoded: EncodedContent, value: (any Sendable)?, error: Error?)
-    case unknown(EncodedContent)
+    case custom(encoded: EncodedContent, rawBytes: Data, value: (any Sendable)?, error: ErrorDetails?)
+    case unknown(encoded: EncodedContent?, rawBytes: Data, error: ErrorDetails)
 }
 
 private func clientClosedError() -> XmtpError {
@@ -65,17 +65,21 @@ public struct Timestamp: Hashable, Sendable {
 
 private func decodeReplyBody(_ body: MessageBody, clientKey: UInt64) -> SDKReplyContent {
     switch body {
-    case let .custom(encoded):
-        let decoded = ClientRegistry.get(clientKey)?.decodeCustom(encoded)
-            ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
+    case let .custom(encoded, rawBytes):
+        let decoded = ClientRegistry.get(clientKey)?.decodeCustom(encoded, rawBytes: rawBytes)
+            ?? .custom(encoded: encoded, rawBytes: rawBytes, value: nil, error: closedContentDetails())
         switch decoded {
-        case let .custom(_, value, error): return .custom(encoded: encoded, value: value, error: error)
-        case .unknown: return .unknown(encoded)
+        case let .custom(_, _, value, error): return .custom(encoded: encoded, rawBytes: rawBytes, value: value, error: error)
+        case let .unknown(encoded, rawBytes, error): return .unknown(encoded: encoded, rawBytes: rawBytes, error: error)
         case .standard: return .standard(body)
         }
-    case let .unknown(encoded): return .unknown(encoded)
+    case let .unknown(encoded, rawBytes, error): return .unknown(encoded: encoded, rawBytes: rawBytes, error: error)
     default: return .standard(body)
     }
+}
+
+private func closedContentDetails() -> ErrorDetails {
+    ErrorDetails(code: "ClientClosed", category: .lifecycle, retryable: false, message: "client is closed")
 }
 
 public final class Message: Identifiable, Hashable, Sendable {
@@ -85,17 +89,21 @@ public final class Message: Identifiable, Hashable, Sendable {
     public let replyContent: SDKReplyContent?
     public init(data: MessageData) {
         self.data = data
-        if case let .custom(encoded, _) = data.content {
-            content = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded)
-                ?? .custom(encoded: encoded, value: nil, error: clientClosedError())
-        } else {
-            content = .standard(data.content)
-        }
         inReplyToContent = data.inReplyTo.map { decodeReplyBody($0.content, clientKey: data.clientKey) }
         if case let .reply(_, body) = data.content {
             replyContent = decodeReplyBody(body, clientKey: data.clientKey)
         } else {
             replyContent = nil
+        }
+        if case let .custom(_, _, _, error?)? = replyContent, error.code == "CodecDecodeFailed" {
+            content = .unknown(encoded: data.encoded, rawBytes: data.rawBytes, error: error)
+        } else if case let .custom(encoded, rawBytes) = data.content {
+            content = ClientRegistry.get(data.clientKey)?.decodeCustom(encoded, rawBytes: rawBytes)
+                ?? .custom(encoded: encoded, rawBytes: rawBytes, value: nil, error: closedContentDetails())
+        } else if case let .unknown(encoded, rawBytes, error) = data.content {
+            content = .unknown(encoded: encoded, rawBytes: rawBytes, error: error)
+        } else {
+            content = .standard(data.content)
         }
     }
 
@@ -131,7 +139,9 @@ public final class Message: Identifiable, Hashable, Sendable {
         data.deliveryStatus
     }
 
-    public var contentType: ContentTypeId {
+    public var rawBytes: Data { data.rawBytes }
+
+    public var contentType: ContentTypeId? {
         data.contentType
     }
 
@@ -139,7 +149,7 @@ public final class Message: Identifiable, Hashable, Sendable {
         data.fallback
     }
 
-    public var encoded: EncodedContent {
+    public var encoded: EncodedContent? {
         data.encoded
     }
 

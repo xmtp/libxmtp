@@ -249,10 +249,10 @@ export async function runBrowserBridgeConformance(
     );
     const custom = await customOwner.conversations.getMessageById(customId);
     expect(custom instanceof sdk.Message, "custom message was not public");
-    equal(custom.encoded.fallback, "custom", "custom fallback was lost");
-    equal(custom.encoded.parameters?.get("source"), "browser", "map was lost");
+    equal(custom.encoded!.fallback, "custom", "custom fallback was lost");
+    equal(custom.encoded!.parameters?.get("source"), "browser", "map was lost");
     equal(
-      new TextDecoder().decode(custom.encoded.content),
+      new TextDecoder().decode(custom.encoded!.content),
       "custom browser value",
       "custom bytes changed",
     );
@@ -327,7 +327,7 @@ export async function runBrowserBridgeConformance(
     // same bytes that a decoded custom item keeps.
     expect(unknown.content.rawBytes.byteLength > 0, "unknown raw bytes empty");
     expect(
-      unknown.content.rawBytes.byteLength > unknown.encoded.content.byteLength,
+      unknown.content.rawBytes.byteLength > unknown.encoded!.content.byteLength,
       "unknown raw bytes are not the serialized envelope",
     );
     const unknownReplyId = await unknown.reply(
@@ -347,7 +347,7 @@ export async function runBrowserBridgeConformance(
     if (failed.content.kind !== "custom")
       throw new Error("failed custom content changed kind");
     expect(
-      failed.content.error?.includes("bad custom payload"),
+      failed.content.error?.message.includes("bad custom payload"),
       "codec error was lost",
     );
     const collisionId = await customGroup.send(
@@ -362,6 +362,31 @@ export async function runBrowserBridgeConformance(
       collision.content.rawBytes.byteLength > 0,
       "colliding raw bytes were empty",
     );
+    // verifies: PROC-045, CTYPE-009
+    const codecStream = sdk.MessageStream.openGroup(customOwner, customGroup);
+    const streamFailureId = await customGroup.send(failingCodec.encode("stream failure"));
+    const streamGoodId = await customGroup.send(customCodec.encode("after codec failure"));
+    let sawCodecFailure = false;
+    for (;;) {
+      const item = (await codecStream.next()).value;
+      expect(item instanceof sdk.Message, "codec stream ended before a valid item");
+      if (item.id === streamFailureId) {
+        expect(item.content.kind === "custom", "failed codec stream item lost custom content");
+        if (item.content.kind !== "custom") throw new Error("custom stream failure missing");
+        equal(item.content.error?.code, "CodecDecodeFailed", "codec stream error code");
+        equal(item.content.error?.category, "callback", "codec stream error category");
+        expect(item.content.rawBytes.byteLength > 0, "codec stream lost failed bytes");
+        sawCodecFailure = true;
+      }
+      if (item.id === streamGoodId) {
+        expect(item.content.kind === "custom", "next custom stream item changed kind");
+        if (item.content.kind !== "custom") throw new Error("next custom stream item missing");
+        equal(item.content.value, "after codec failure", "stream stopped after codec failure");
+        break;
+      }
+    }
+    expect(sawCodecFailure, "codec stream hid the failed content item");
+    await codecStream.return();
     await customOwner.end();
     // A Message of an ended client keeps its fields; its actions fail.
     equal(custom.content.value, "custom browser value", "content changed");
@@ -376,8 +401,8 @@ export async function runBrowserBridgeConformance(
     );
     if (closedMessage.content.tag === B.MessageContent_Tags.Custom) {
       equal(
-        closedMessage.content.inner.error,
-        "clientClosed",
+        closedMessage.content.inner.error?.code,
+        "ClientClosed",
         "closed client error was lost",
       );
       expect(

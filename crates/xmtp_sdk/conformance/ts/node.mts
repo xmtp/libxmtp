@@ -11,8 +11,8 @@ import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.t
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
 import { EventStream as HostEventStream } from "../../../../target/sdk-conformance/typescript-napi/runtime/events/reader.ts";
 import { checkConfigurationMismatch } from "./config-mismatch.mts";
-import { checkOnValueFailure } from "./node-callback-failure.mts";
 import { checkIdentityRoutes } from "./identity-routes.mts";
+import { checkOnValueFailure } from "./node-callback-failure.mts";
 import {
   assertEncodedEqual,
   checkStandardCodecs,
@@ -123,7 +123,9 @@ await checkReaderCursor(signer, backendOptions);
 await checkRestoredPeer(backendOptions);
 await checkIdentityRoutes(backendOptions);
 await checkConfigurationMismatch(signer, backendOptions);
-console.log("Node offline build on another deployment fails with BackendMismatch");
+console.log(
+  "Node offline build on another deployment fails with BackendMismatch",
+);
 await checkOnValueFailure(signer, backendOptions);
 console.log("Node on_value_failure_is_failed_and_unacked passed");
 const client = await sdk.Client.create(signer, options);
@@ -622,7 +624,7 @@ if (undecoded?.content.kind !== "unknown")
 if (decoded?.content.kind !== "custom")
   throw new Error("custom message was not decoded");
 assert.ok(
-  undecoded.content.rawBytes.byteLength > undecoded.encoded.content.byteLength,
+  undecoded.content.rawBytes.byteLength > undecoded.encoded!.content.byteLength,
 );
 assert.deepEqual(undecoded.content.rawBytes, decoded.content.rawBytes);
 assert.equal(decoded.content.value, "codec value");
@@ -645,7 +647,10 @@ const failedDecode =
   await ownerWithFailingCodec.conversations.getMessageById(customId);
 if (failedDecode?.content.kind !== "custom")
   throw new Error("failed custom decode did not keep its content");
-assert.match(String(failedDecode.content.error), /codec decode failed/);
+assert.match(failedDecode.content.error?.message ?? "", /codec decode failed/);
+assert.equal(failedDecode.content.error?.code, "CodecDecodeFailed");
+assert.equal(failedDecode.content.error?.category, "callback");
+assert.equal(failedDecode.content.error?.retryable, false);
 await ownerWithFailingCodec.end();
 const throwingCodec: sdk.ContentCodec<string> = {
   ...customCodec,
@@ -671,7 +676,10 @@ const broken = (await codecStream.next()).value;
 assert.equal(broken?.id, brokenId);
 if (broken?.content.kind !== "custom")
   throw new Error("a failed decode did not keep its custom content");
-assert.match(broken.content.error ?? "", /codec exploded/);
+assert.match(broken.content.error?.message ?? "", /codec exploded/);
+assert.equal(broken.content.error?.code, "CodecDecodeFailed");
+assert.equal(broken.content.error?.category, "callback");
+assert.ok(broken.content.rawBytes.byteLength > 0);
 const continuedId = await throwingGroup.sendText("after codec error");
 assert.equal((await codecStream.next()).value?.id, continuedId);
 await codecStream.end();

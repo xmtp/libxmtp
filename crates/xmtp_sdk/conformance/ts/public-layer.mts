@@ -160,8 +160,8 @@ assert.deepEqual(text.content, { kind: "text", value: "hello public layer" });
 assert.equal(text.kind, "application");
 assert.equal(text.deliveryStatus, "published");
 assert.ok(text.sentAt instanceof sdk.Timestamp);
-assert.ok(text.encoded.content instanceof Uint8Array);
-assert.equal(typeof text.contentType.versionMajor, "number");
+assert.ok(text.encoded?.content instanceof Uint8Array);
+assert.equal(typeof text.contentType?.versionMajor, "number");
 assert.ok(text.deliveryCursor?.startsWith("dc1_"));
 for (const message of messages) assertPublic(message, `message ${message.id}`);
 assert.equal(
