@@ -549,7 +549,7 @@ id = "EVENT-024"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "Installed-package proof pending for the attachment payload members, which the generated SDK now sets on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. Issue 4207 tracks the rest of the event contract."
+reason = "Installed-package proof pending for the attachment payload members, which the generated SDK is expected to set on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. Issue 4207 tracks the rest of the event contract."
 
 [[waiver]]
 id = "EVENT-026"
@@ -664,45 +664,39 @@ reason = "Current sink paths do not capture one pending-drop snapshot when selec
 
 [[waiver]]
 id = "STORE-019"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "core_location in xmtp_sdk opens a Directory location as a data_dir storage location, whose database file xmtp_mls names {data_dir}/{deployment}/{inbox_id}/xmtp.db3. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "STORE-020"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "core_location in xmtp_sdk maps a Directory location, under its label when one is set, to a data_dir storage location and an Explicit location to an explicit one with both paths unchanged; each host runtime's resolved first maps the Default location to a Directory under the platform root. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "STORE-021"
-kind = "gap"
+kind = "untested"
 owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "core_location in xmtp_sdk rejects such a label with a StorageLocation error before it opens or creates a path. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "EVENT-015"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending for the seven attachment.* kinds, which the generated SDK delivers on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "ClientEvent::from_core in xmtp_sdk converts the seven attachment.* kinds, and EventReader and the event listeners hand them off in the order the client emitted them. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "EVENT-020"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending for the seven attachment.* kinds, which the generated SDK delivers on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "EventKind and EventFilter in xmtp_sdk include the seven attachment.* kinds, so a subscription selects them before queueing. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-009"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Attachments::offered in xmtp_sdk reads the offer from the client's snapshot without a request. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-072"
@@ -713,79 +707,69 @@ reason = "Installed-package proof pending, and a TypeScript gap. Swift and Kotli
 
 [[waiver]]
 id = "ATCH-038"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Attachments::pending in xmtp_sdk returns the pending attachment the client holds for the remote attachment's content digest, with its current status, or a staged_unusable failure. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-067"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Attachments::list_pending in xmtp_sdk lists the pending attachments that are not complete, each with its remote attachment and status. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-040"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "core_location in xmtp_sdk passes a Directory location to xmtp_mls as a data_dir storage location, which lays out the inbox's files under {data_dir}/{deployment}/{inbox_id}/. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-069"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Client::create and Client::build in xmtp_sdk resolve the deployment directory through xmtp_mls, which reads the data directory's record before any request and fails an offline first start with a storage-location error. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-044"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Attachments::local_path in xmtp_sdk derives the plaintext path from the client and the remote attachment without a request or a file read. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-062"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Attachments::list_local in xmtp_sdk lists the client's local attachments as LocalAttachment values. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-060"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "XmtpError::Attachment in xmtp_sdk carries one AttachmentFailure, with one AttachmentFailureCause, for a failed creation, upload, download, or path derivation. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-061"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "AttachmentFailure in xmtp_sdk keeps the credential cause with its credential_kind and retryable. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-079"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "AttachmentFailure in xmtp_sdk keeps the final HTTP status in http_status. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "CONF-061"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending for the attachments field, which the generated SDK exposes on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. No SDK exposes application_components yet."
+reason = "Installed-package proof pending for the attachments field, which the generated SDK is expected to expose on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. No SDK exposes application_components yet."
 [[waiver]]
 id = "CONF-062"
-kind = "gap"
+kind = "untested"
 owner = "attachments"
-issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending for the attachments field, which the generated SDK exposes on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "fetch_server_configuration in xmtp_sdk reads a deployment's configuration, with its attachments field, from a backend source alone through xmtp_mls, which applies CONF-071. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-039"
