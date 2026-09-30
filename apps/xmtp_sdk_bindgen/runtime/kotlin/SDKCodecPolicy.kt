@@ -16,16 +16,19 @@ private fun codecEncodeFailed(
     ErrorDetails("CodecEncodeFailed", ErrorCategory.CALLBACK, false, "content codec $step failed: $reason"),
 )
 
-// A codec step is not a suspend function, so any exception from it comes from
-// the codec, including a CancellationException. Each one is CodecEncodeFailed.
-// An Error, such as OutOfMemoryError, is not caught.
+// A codec step is not a suspend function, so anything it throws comes from the
+// codec, including a CancellationException, a NotImplementedError from TODO(),
+// or an AssertionError. Each one is CodecEncodeFailed. Only a
+// VirtualMachineError, such as OutOfMemoryError, passes through.
 private inline fun <R> codecStep(
     name: String,
     run: () -> R,
 ): R =
     try {
         run()
-    } catch (error: Exception) {
+    } catch (error: VirtualMachineError) {
+        throw error
+    } catch (error: Throwable) {
         throw codecEncodeFailed(name, error.message ?: error.toString())
     }
 

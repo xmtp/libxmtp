@@ -321,7 +321,7 @@ id = "CTYPE-001"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Rust dispatch and the new SDK host registries match authority, type, and major version. The legacy Swift and Kotlin SDKs in sdks/ key their registries by an identifier that includes the minor version, until they are removed at cutover."
+reason = "Rust dispatch and the new SDK host registries match authority, type, and major version. The legacy SDKs in sdks/ key their registries by an identifier that includes the minor version until they are removed at cutover: Swift and Kotlin by authority:type:major.minor, and Node and browser by authority/type:major.minor (contentTypeToString)."
 
 [[waiver]]
 id = "CTYPE-003"

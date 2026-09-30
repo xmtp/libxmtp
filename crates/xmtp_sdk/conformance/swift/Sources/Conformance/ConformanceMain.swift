@@ -668,7 +668,7 @@ struct Conformance {
         guard preAuthLog.calls == ["pre-authenticate"] else {
             throw ConformanceFailure("failing preAuthenticate reached the signer: \(preAuthLog.calls)")
         }
-        print("Swift IDENT-073: host preAuthenticate runs before the signer")
+        print("Swift host preAuthenticate runs before the signer")
 
         guard try reopened.notificationState() == .disabled else {
             throw ConformanceFailure("new client notification state was not disabled")

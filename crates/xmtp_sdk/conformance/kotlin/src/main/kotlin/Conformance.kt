@@ -686,7 +686,7 @@ fun main() =
             }.exceptionOrNull() is XmtpException.CallbackFailed,
         )
         check(preAuthCalls == listOf("pre-authenticate")) { "$preAuthCalls" }
-        println("Kotlin IDENT-073: host preAuthenticate runs before the signer")
+        println("Kotlin host preAuthenticate runs before the signer")
 
         check(reopened.notificationState() == NotificationState.Disabled)
         check(

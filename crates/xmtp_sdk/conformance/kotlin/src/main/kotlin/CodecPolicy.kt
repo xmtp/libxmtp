@@ -1,3 +1,7 @@
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import uniffi.xmtp_sdk.*
 
 // The typed codec send policy (Ref Public surface, Host codecs; P9 and P10).
@@ -18,6 +22,7 @@ private val noteType = ContentTypeId("example.org", "note", 1u, 0u)
 private class NoteCodec(
     val failEncode: Boolean = false,
     val cancelEncode: Boolean = false,
+    val todoEncode: Boolean = false,
     val failFallback: Boolean = false,
     val failPush: Boolean = false,
     val ownFallback: String? = null,
@@ -31,6 +36,7 @@ private class NoteCodec(
         // A codec's own CancellationException is a codec failure, not a
         // cancellation of the caller.
         if (cancelEncode) throw java.util.concurrent.CancellationException("encode cancelled")
+        if (todoEncode) TODO("encode")
         return EncodedContent(envelopeType, emptyMap(), ownFallback, value.toByteArray())
     }
 
@@ -86,6 +92,46 @@ private suspend fun checkPushOptions() {
     val pushes = group.sent.map { it?.shouldPush }
     check(pushes == listOf(false, true, false, null)) { "the send options have the wrong push values: $pushes" }
     check(group.sent[2]?.optimistic == true) { "an explicit option lost its other fields" }
+}
+
+/** A codec that records whether any step ran. */
+private class RecordingCodec : ContentCodec<String> {
+    @Volatile var called = false
+    override val type = noteType
+
+    override fun encode(value: String): EncodedContent {
+        called = true
+        return EncodedContent(noteType, emptyMap(), null, value.toByteArray())
+    }
+
+    override fun decode(encoded: EncodedContent) = encoded.content.decodeToString()
+
+    override fun fallback(value: String): String? {
+        called = true
+        return null
+    }
+
+    override fun shouldPush(value: String): Boolean {
+        called = true
+        return true
+    }
+}
+
+/** A cancelled caller stops before any codec step runs, with no send. */
+private suspend fun checkCallerCancellation() {
+    val group = RecordingGroup()
+    val codec = RecordingCodec()
+    var error: Throwable? = null
+    coroutineScope {
+        launch {
+            // The job is cancelled but still runs until it next checks.
+            currentCoroutineContext().job.cancel()
+            error = runCatching { group.send(codec, "cancelled") }.exceptionOrNull()
+        }
+    }
+    check(error is kotlinx.coroutines.CancellationException) { "a cancelled send did not stop: $error" }
+    check(!codec.called) { "a codec step ran for a cancelled caller" }
+    check(group.sent.isEmpty()) { "a cancelled caller sent" }
 }
 
 private fun envelope(message: Message?): EncodedContent? =
@@ -160,6 +206,7 @@ internal suspend fun codecPolicyFailureNeverPublishes(
     group: Group,
     parent: Message,
 ) {
+    checkCallerCancellation()
     // An envelope's own fallback is kept, and its fallback hook is not called.
     val keptId = group.send(NoteCodec(failFallback = true, ownFallback = "own"), "kept")
     check(envelope(group.stored(keptId))?.fallback == "own") { "an envelope fallback was replaced" }
@@ -172,6 +219,7 @@ internal suspend fun codecPolicyFailureNeverPublishes(
     for (codec in listOf(
         NoteCodec(failEncode = true),
         NoteCodec(cancelEncode = true),
+        NoteCodec(todoEncode = true),
         NoteCodec(failFallback = true),
         NoteCodec(failPush = true),
         NoteCodec(envelopeType = TextCodec().type),
