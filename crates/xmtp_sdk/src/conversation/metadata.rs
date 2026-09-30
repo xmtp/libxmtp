@@ -138,7 +138,7 @@ macro_rules! metadata_conversation {
                         group
                             .update_user_data(&values)
                             .await
-                            .map_err(XmtpError::from_group)
+                            .map_err(XmtpError::from_group_write)
                     }),
                 )
                 .await
@@ -161,7 +161,7 @@ macro_rules! metadata_conversation {
                         group
                             .update_metadata_field(&field, &operation)
                             .await
-                            .map_err(XmtpError::from_group)
+                            .map_err(XmtpError::from_group_write)
                     }),
                 )
                 .await

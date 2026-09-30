@@ -528,6 +528,7 @@ mod reserved_transcript_sends;
 mod signers;
 mod standard_sends;
 mod storage;
+mod storage_retry;
 mod transparent_wrappers;
 
 mod reader_cursor;
