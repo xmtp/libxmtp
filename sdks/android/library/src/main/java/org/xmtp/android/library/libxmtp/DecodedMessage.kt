@@ -1,5 +1,6 @@
 package org.xmtp.android.library.libxmtp
 
+import kotlinx.coroutines.CancellationException
 import org.xmtp.android.library.InboxId
 import org.xmtp.android.library.Topic
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
@@ -82,7 +83,7 @@ class DecodedMessage private constructor(
     fun <T> content(): T? = decodedContent as? T
 
     val fallback: String
-        get() = encodedContent.fallback
+        get() = parsedContent?.fallback.orEmpty()
 
     val body: String
         get() {
@@ -100,9 +101,9 @@ class DecodedMessage private constructor(
         private inline fun <T> decodeOrNull(decode: () -> T): T? =
             try {
                 decode()
-            } catch (error: VirtualMachineError) {
+            } catch (error: CancellationException) {
                 throw error
-            } catch (error: Throwable) {
+            } catch (error: Exception) {
                 null
             }
 

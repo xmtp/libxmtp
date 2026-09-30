@@ -113,6 +113,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 			try EncodedContent.with {
 				$0.type = ContentTypeText
 				$0.parameters = ["encoding": "UTF-16"]
+				$0.fallback = "unreadable content"
 			}.serializedData()
 		}
 		return QueuedMessageDelivery(
@@ -326,8 +327,12 @@ final class MessageDeliveryStreamTests: XCTestCase {
 			XCTAssertEqual(first.ffiMessage.content, failed.message.content)
 			XCTAssertThrowsError(try first.content() as String)
 			if case .malformed = content {
+				XCTAssertEqual(try first.body, "")
+				XCTAssertEqual(try first.fallback, "")
 				XCTAssertThrowsError(try first.encodedContent)
 			} else {
+				XCTAssertEqual(try first.body, "unreadable content")
+				XCTAssertEqual(try first.fallback, "unreadable content")
 				XCTAssertEqual(try first.encodedContent.serializedData(), failed.message.content)
 			}
 			XCTAssertEqual(token.counts().acknowledgements, 0)

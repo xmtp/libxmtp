@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
@@ -12,6 +13,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.xmtp.android.library.codecs.ContentCodec
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.TextCodec
@@ -260,6 +262,74 @@ class MessageReaderTest {
             assertEquals(validCursor.deliverySequence, deliveredCursor.deliverySequence)
             assertArrayEquals(snapshotCursor.databaseId, snapshot.cursor.databaseId)
             assertEquals(snapshotCursor.deliverySequence, snapshot.cursor.deliverySequence)
+        }
+
+    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
+    fun codecCancellationStopsDeliveryWithoutAcknowledgement() =
+        assertCodecFailureStopsDelivery(CancellationException("codec cancelled"))
+
+    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
+    fun codecLinkageErrorStopsDeliveryWithoutAcknowledgement() =
+        assertCodecFailureStopsDelivery(LinkageError("codec dependency missing"))
+
+    private fun assertCodecFailureStopsDelivery(error: Throwable) =
+        runBlocking {
+            val previousRegistry = Client.codecRegistry
+            try {
+                val codec =
+                    object : ContentCodec<String> by TextCodec() {
+                        override val contentType =
+                            TextCodec()
+                                .contentType
+                                .toBuilder()
+                                .setTypeId(
+                                    "control-failure-test",
+                                ).build()
+
+                        override fun decode(content: EncodedContent): String = throw error
+                    }
+                Client.codecRegistry = CodecRegistry()
+                Client.register(codec)
+                val message =
+                    deliveryTestMessage(
+                        TextCodec()
+                            .encode("fail")
+                            .toBuilder()
+                            .setType(codec.contentType)
+                            .build()
+                            .toByteArray(),
+                    )
+                val failed =
+                    Delivery(decodeValue = {
+                        DecodedMessage.createForDelivery(message, null)
+                        1
+                    })
+                val later = Delivery(2)
+                val queued = mutableListOf(failed.queued(), later.queued())
+                var reads = 0
+                var ended = 0
+                val reader =
+                    AcknowledgedMessageReader(
+                        read = {
+                            reads++
+                            queued.removeFirstOrNull()
+                        },
+                        end = { ended++ },
+                    )
+                try {
+                    assertSame(error, runCatching { reader.next() }.exceptionOrNull())
+                    assertEquals(1, reads)
+                    assertEquals(0, failed.acknowledgements)
+                    assertEquals(1, failed.rejections)
+                    assertEquals(0, later.acknowledgements)
+                    assertEquals(1, ended)
+                    assertNull(reader.next())
+                } finally {
+                    reader.close()
+                }
+            } finally {
+                Client.codecRegistry = previousRegistry
+            }
         }
 
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)

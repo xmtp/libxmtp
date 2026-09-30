@@ -237,13 +237,19 @@ class MessageDeliveryFlowTest {
                     .encode("hi")
                     .toBuilder()
                     .putParameters("encoding", "UTF-16")
+                    .setFallback("unreadable content")
                     .build()
-            for (content in listOf(byteArrayOf(0x80.toByte()), invalidEncoding.toByteArray())) {
+            for ((content, expectedFallback) in listOf(
+                byteArrayOf(0x80.toByte()) to "",
+                invalidEncoding.toByteArray() to "unreadable content",
+            )) {
+                lateinit var failedMessage: DecodedMessage
                 val delivery =
                     Delivery(decodeValue = {
                         val decoded = DecodedMessage.createForDelivery(deliveryTestMessage(content), null)
                         assertNotNull(decoded)
                         assertNull(decoded!!.content<String>())
+                        failedMessage = decoded
                         1
                     })
                 val later =
@@ -268,6 +274,8 @@ class MessageDeliveryFlowTest {
                     return@acknowledgedMessageFlow {}
                 }.collect {
                     if (it == 1) {
+                        assertEquals(expectedFallback, failedMessage.body)
+                        assertEquals(expectedFallback, failedMessage.fallback)
                         assertEquals(0, delivery.acknowledgements)
                     } else {
                         assertEquals(1, delivery.acknowledgements)

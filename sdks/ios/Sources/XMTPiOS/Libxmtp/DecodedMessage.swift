@@ -159,7 +159,7 @@ public struct DecodedMessage: Identifiable {
 
 	public var fallback: String {
 		get throws {
-			try encodedContent.fallback
+			(try? encodedContent.fallback) ?? ""
 		}
 	}
 
