@@ -3531,3 +3531,24 @@ async fn a_failed_restored_notice_check_keeps_the_topic_closed_until_it_succeeds
     assert!(controller.interested().contains(&topic));
     assert!(controller.unverified.is_empty() && controller.restored.is_empty());
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_command_burst_applies_at_most_the_cap_per_step() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    *alix.context.incoming_runtime().coordinator.lock() = Some(coordinator);
+    let queued = MAX_COMMANDS_PER_PASS + 44;
+    for _ in 0..queued {
+        IncomingCoordinator::groups_restored(&alix.context, &[GroupId::generate()]);
+    }
+
+    let first = controller.commands.try_recv()?;
+    controller.command_burst(first);
+    assert_eq!(controller.restored.len(), MAX_COMMANDS_PER_PASS);
+
+    // The remainder applies on the next step.
+    let first = controller.commands.try_recv()?;
+    controller.command_burst(first);
+    assert_eq!(controller.restored.len(), queued);
+    assert!(controller.commands.try_recv().is_err());
+}

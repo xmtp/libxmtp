@@ -28,6 +28,9 @@ mod tests;
 use dependencies::{DependencyKey, DependencyParent, DependencyRegistry};
 use processing::DependencyResult;
 
+/// Commands applied in one run-loop step before the next pass.
+const MAX_COMMANDS_PER_PASS: usize = 256;
+
 struct Scope {
     generation: u64,
     scope: ScopeKind,
@@ -346,11 +349,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
-    /// Apply every queued command before the next pass, so a burst, such as one
-    /// Restored notice per imported group, costs one pass.
+    /// Apply queued commands before the next pass, so a burst, such as one
+    /// Restored notice per imported group, costs one pass. At most
+    /// `MAX_COMMANDS_PER_PASS` apply in one step; the rest wait for the next one,
+    /// so a steady stream of commands cannot starve transport and processing.
     fn command_burst(&mut self, first: Command) {
         self.command(first);
-        while let Ok(command) = self.commands.try_recv() {
+        for _ in 1..MAX_COMMANDS_PER_PASS {
+            let Ok(command) = self.commands.try_recv() else {
+                break;
+            };
             self.command(command);
         }
     }
