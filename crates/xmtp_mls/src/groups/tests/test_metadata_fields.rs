@@ -879,6 +879,46 @@ async fn test_map_updates_of_pending_entries_are_authorized() {
     assert_eq!(bo_group.epoch().await?, epoch);
 }
 
+/// A write that only another member's pending proposal carries out is
+/// checked even when another write of the same call adds an operation to
+/// the commit.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_writes_carried_out_by_pending_proposals_are_authorized_beside_other_writes() {
+    tester!(alix, configured: |c| c.application_components = catalogue());
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let update = |id: u16, value: &[u8]| FieldWrite {
+        component_id: ComponentId::new(id),
+        component_type: ComponentType::String,
+        operation: WriteOperation::Update(value.to_vec()),
+    };
+    publish_proposals(&group, inbox(&alix), vec![update(TOPIC, b"x")]).await?;
+    bo_group.sync().await?;
+    assert!(pending_proposals(&bo_group)? > 0);
+    let epoch = bo_group.epoch().await?;
+
+    let writes = vec![update(TOPIC, b"x"), update(STATUS, b"y")];
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(
+            writes.clone(),
+        )))
+        .queue(&bo_group)?;
+    let error = bo_group
+        .publish_field_writes(intent.id, inbox(&bo), &writes)
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        field_error(error),
+        FieldError::Denied(id) if id.as_u16() == TOPIC
+    ));
+    assert_eq!(bo_group.epoch().await?, epoch);
+    assert_eq!(bo_group.metadata_value(&status())?, None);
+}
+
 /// The number of proposals `group` holds pending.
 fn pending_proposals<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<usize, GroupError> {
     group.with_group_snapshot(|group| Ok(group.pending_proposals().count()))

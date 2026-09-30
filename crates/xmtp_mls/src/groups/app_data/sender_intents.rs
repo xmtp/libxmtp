@@ -285,7 +285,8 @@ pub(crate) fn apply_app_data_update_intent(
 /// writes but the committed values do not: the value is then pending, not
 /// committed, and the commit of the pending proposals commits it. A write
 /// the committed values already carry out needs no commit, whatever other
-/// entries pending proposals change.
+/// entries pending proposals change. A write that pending proposals carry
+/// out is authorized here even when another write adds an operation.
 // implements: META-071, META-073
 pub(crate) fn field_writes_commit(
     openmls_group: &OpenMlsGroup,
@@ -300,31 +301,39 @@ pub(crate) fn field_writes_commit(
     let values = pending_dictionary(openmls_group)?;
     let updates = snapshot.resolve_writes(Some(&values), own, writes)?;
     authorize_updates(openmls_group, snapshot.registry(), &values, &updates)?;
-    if !updates.is_empty() {
-        return Ok(Some(updates));
+    let empty = AppDataDictionary::default();
+    let mut carried = false;
+    for write in writes.iter().map(std::slice::from_ref) {
+        if !snapshot
+            .resolve_writes(Some(&values), own, write)?
+            .is_empty()
+        {
+            continue;
+        }
+        // No operation of ours carries this write, so no receiver checks
+        // it: it is checked here as the change it makes to the committed
+        // values. When the committed values cannot take it (such as a map
+        // update of a key only a pending proposal inserted), it is checked
+        // as the operation that would carry it out after the pending
+        // proposals.
+        match snapshot.resolve_writes(committed, own, write) {
+            Ok(changes) if changes.is_empty() => continue,
+            Ok(changes) => authorize_updates(
+                openmls_group,
+                snapshot.registry(),
+                committed.unwrap_or(&empty),
+                &changes,
+            )?,
+            Err(_) => authorize_updates(
+                openmls_group,
+                snapshot.registry(),
+                &values,
+                &snapshot.write_operations(Some(&values), own, write)?,
+            )?,
+        }
+        carried = true;
     }
-    // No operation of ours is in the commit, so no receiver checks the
-    // writes: they are checked here as the change they make to the
-    // committed values. When the committed values cannot take them (such as
-    // a map update of a key only a pending proposal inserted), they are
-    // checked as the operations that would carry them out after the pending
-    // proposals.
-    match snapshot.resolve_writes(committed, own, writes) {
-        Ok(changes) if changes.is_empty() => return Ok(None),
-        Ok(changes) => authorize_updates(
-            openmls_group,
-            snapshot.registry(),
-            committed.unwrap_or(&AppDataDictionary::default()),
-            &changes,
-        )?,
-        Err(_) => authorize_updates(
-            openmls_group,
-            snapshot.registry(),
-            &values,
-            &snapshot.write_operations(Some(&values), own, writes)?,
-        )?,
-    }
-    Ok(Some(updates))
+    Ok((carried || !updates.is_empty()).then_some(updates))
 }
 
 /// Check `updates` by this client, in order, against `registry`'s policies
