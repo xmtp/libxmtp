@@ -3,13 +3,28 @@ import XmtpSdk
 
 // The typed codec send policy (Ref Public surface, Host codecs; P9 and P10).
 
-/// A standard codec's bytes equal Rust's, and a decode round trip keeps them.
-func matchesRust<C: ContentCodec>(_ codec: C, _ value: C.Value, _ expected: EncodedContent) throws -> Bool {
+/// A standard codec's bytes equal Rust's, decoding them gives back an equal
+/// value (the generated records compare every field), and re-encoding that
+/// value gives the same bytes.
+func matchesRust<C: ContentCodec>(
+    _ codec: C, _ value: C.Value, _ expected: EncodedContent
+) throws -> Bool where C.Value: Equatable {
     let encoded = try codec.encode(value)
-    return try sameEncoded(encoded, expected) && sameEncoded(codec.encode(codec.decode(encoded)), expected)
+    let decoded = try codec.decode(encoded)
+    return try sameEncoded(encoded, expected) && decoded == value && sameEncoded(codec.encode(decoded), expected)
+}
+
+/// A codec with no value, such as the read receipt: only the bytes compare.
+func matchesRust<C: ContentCodec>(
+    _ codec: C, _ value: C.Value, _ expected: EncodedContent
+) throws -> Bool where C.Value == Void {
+    let encoded = try codec.encode(value)
+    try codec.decode(encoded)
+    return try sameEncoded(encoded, expected) && sameEncoded(codec.encode(()), expected)
 }
 
 private let noteType = ContentTypeId(authorityId: "example.org", typeId: "note", versionMajor: 1, versionMinor: 0)
+private let emptyType = ContentTypeId(authorityId: "", typeId: "note", versionMajor: 1, versionMinor: 0)
 
 private struct StepNotAllowed: Error {
     let step: String
@@ -23,7 +38,7 @@ private struct NoteCodec: ContentCodec {
     var ownFallback: String?
     var envelopeType = noteType
     var push = true
-    let type = noteType
+    var type = noteType
 
     func encode(_ value: String) throws -> EncodedContent {
         if failEncode {
@@ -122,7 +137,7 @@ private func isCodecEncodeFailed(_ error: Error) -> Bool {
     return details.code == "CodecEncodeFailed" && details.category == .callback && !details.retryable
 }
 
-// verifies: CTYPE-017, CTYPE-021
+// verifies: CTYPE-003, CTYPE-017, CTYPE-021
 func checkCodecPolicy(group: Group, receiver: SDKClient) async throws {
     try await checkPushOptions()
     @Sendable func stored(_ id: MessageId) async throws -> Message? {
@@ -172,6 +187,8 @@ func checkCodecPolicy(group: Group, receiver: SDKClient) async throws {
         NoteCodec(failFallback: true),
         NoteCodec(failPush: true),
         NoteCodec(envelopeType: TextCodec().type),
+        // The codec and its envelope agree; only the empty identifier fails.
+        NoteCodec(envelopeType: emptyType, type: emptyType),
     ]
     for codec in failing {
         do {
