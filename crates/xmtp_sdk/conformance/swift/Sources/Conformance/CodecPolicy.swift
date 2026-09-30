@@ -70,6 +70,45 @@ private struct CatalogueTextCodec: ContentCodec {
     }
 }
 
+/// A Group with no Rust object that records the options each send receives.
+private final class RecordingGroup: Group, @unchecked Sendable {
+    private(set) var sent: [SendOptions?] = []
+
+    init() {
+        super.init(noHandle: Group.NoHandle())
+    }
+
+    required init(unsafeFromHandle handle: UInt64) {
+        super.init(unsafeFromHandle: handle)
+    }
+
+    override func send(encoded _: EncodedContent, options: SendOptions? = nil) async throws -> MessageId {
+        sent.append(options)
+        return "recorded"
+    }
+
+    override func prepareMessage(encoded: EncodedContent, options: SendOptions? = nil) async throws -> MessageId {
+        try await send(encoded: encoded, options: options)
+    }
+}
+
+/// The push hook result reaches the send options, unless an option or the
+/// catalogue decides.
+private func checkPushOptions() async throws {
+    let group = RecordingGroup()
+    _ = try await group.send(NoteCodec(push: false), value: "quiet")
+    _ = try await group.prepareMessage(NoteCodec(push: true), value: "loud")
+    _ = try await group.send(
+        NoteCodec(failPush: true), value: "explicit", options: SendOptions(shouldPush: false, optimistic: true)
+    )
+    _ = try await group.send(CatalogueTextCodec(), value: "catalogue")
+    let pushes = group.sent.map { $0?.shouldPush }
+    guard pushes == [false, true, false, nil]
+    else { throw ConformanceFailure("the send options have the wrong push values: \(pushes)") }
+    guard group.sent[2]?.optimistic == true
+    else { throw ConformanceFailure("an explicit option lost its other fields") }
+}
+
 private func envelope(_ message: Message?) -> EncodedContent? {
     switch message?.content {
     case let .custom(encoded, _, _): encoded
@@ -85,6 +124,7 @@ private func isCodecEncodeFailed(_ error: Error) -> Bool {
 
 // verifies: CTYPE-017, CTYPE-021
 func checkCodecPolicy(group: Group, receiver: SDKClient) async throws {
+    try await checkPushOptions()
     @Sendable func stored(_ id: MessageId) async throws -> Message? {
         try await group.messages(options: nil).first { $0.id == id }
     }
@@ -113,7 +153,10 @@ func checkCodecPolicy(group: Group, receiver: SDKClient) async throws {
     guard let parent = sent else {
         throw ConformanceFailure("the typed send was not stored")
     }
-    _ = try await parent.reply(NoteCodec(failPush: true), value: "typed reply")
+    let replyId = try await parent.reply(NoteCodec(failPush: true), value: "typed reply")
+    guard case let .unknown(nested)? = try await stored(replyId)?.replyContent,
+          nested.fallback == "a note: typed reply"
+    else { throw ConformanceFailure("a typed reply did not fill the nested fallback") }
 
     // A receiver without the codec keeps the envelope and its fallback.
     _ = try await receiver.conversations().syncAll(consentStates: nil)
