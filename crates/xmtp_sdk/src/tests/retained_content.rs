@@ -107,7 +107,7 @@ fn assert_retained(message: &crate::Message, raw: &[u8], code: &str, has_encoded
     assert!(!error.message.is_empty());
 }
 
-// verifies: CTYPE-008, CTYPE-009, CTYPE-024, CTYPE-025, CTYPE-027, PROC-045
+// verifies: CTYPE-008, CTYPE-009, CTYPE-024, CTYPE-025, CTYPE-027
 #[xmtp_common::test(unwrap_try = true)]
 async fn failed_content_keeps_bytes_details_and_stream_progress() {
     use xmtp_db::{ConnectionExt, diesel::prelude::*, schema::group_messages::dsl};
