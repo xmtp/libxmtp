@@ -1,9 +1,3 @@
-// @ts-ignore The browser fixture uses the published JavaScript build of viem.
-import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/generatePrivateKey.js";
-// @ts-ignore The browser fixture uses the published JavaScript build of viem.
-import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js";
-// @ts-ignore The browser fixture uses the published JavaScript build of viem.
-import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
 import * as Pure from "../../../../target/sdk-generated/typescript-pure/index";
 import {
   CONTRACT_HASH,
@@ -14,12 +8,18 @@ import {
   registerClient,
 } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen";
 import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
+import {
+  currentProjection,
+  liftEncodedContent,
+} from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
+import { create, options, signer } from "./suite-support";
 
 function expect(value: unknown, message: string): asserts value {
   if (!value) throw new Error(message);
@@ -112,7 +112,7 @@ export function checkStandardMessageLift(): void {
 
 // verifies: CTYPE-024
 // A compressed standard message, a compressed reply, and a legacy reaction
-// read through the bridge with the content that Rust decoded.
+// read through the public layer with the content that Rust decoded.
 export async function checkStandardMessages(backendURL: string): Promise<void> {
   await Pure.initPureWasm();
   const worker = new Worker(
@@ -138,113 +138,76 @@ export async function checkStandardMessages(backendURL: string): Promise<void> {
     },
   };
   const session = new MainSession(endpoint, PROTOCOL_VERSION, CONTRACT_HASH);
-  let client: Client | undefined;
+  let client: sdk.Client | undefined;
   let step = "create client";
   try {
     await session.ready();
-    const account = privateKeyToAccount(generatePrivateKey());
-    const signer = {
-      async identity() {
-        return {
-          identifier: account.address.toLowerCase(),
-          kind: B.PublicIdentityKind.Ethereum,
-        };
-      },
-      async kind() {
-        return B.SignerKind.Eoa.new();
-      },
-      async sign(request: { text: string }) {
-        const signed = await account.signMessage({ message: request.text });
-        return B.Signature.Ecdsa.new(Uint8Array.from(toBytes(signed)).buffer);
-      },
-    };
     const path = `standard-${crypto.randomUUID()}.db`;
-    client = await Client.create(session, signer, {
-      backend: B.BackendSource.Options.new({
-        options: {
-          url: backendURL,
-          appVersion: undefined,
-          credential: undefined,
-          credentials: undefined,
-        },
-      }),
-      storage: {
-        location: B.StorageLocation.Path.new(path),
-        label: path,
-        pool: undefined,
-        singleConnection: false,
-      },
-      deviceSync: false,
-      registration: { auto: true, nonce: undefined },
-      forkRecovery: undefined,
-      workers: undefined,
-    });
+    client = (await create(session, signer(session), options(path, backendURL)))
+      .client;
     step = "create group";
-    const group = await client.conversations().createGroup([], undefined);
+    const group = await client.conversations.createGroup([]);
     step = "send gzip text";
     const textId = await group.sendText("gzip text", {
       optimistic: false,
-      compression: B.Compression.Gzip,
+      compression: "gzip",
     });
     step = "send deflate reply";
-    const replyId = await client
-      .conversations()
-      .replyToMessage(textId, Pure.encodeText("deflate reply"), {
-        optimistic: false,
-        compression: B.Compression.Deflate,
-      });
-    step = "send legacy reaction";
-    const reactionId = await group.send(
-      B.EncodedContent.create({
-        type: contentType("reaction", 1),
-        content: new TextEncoder().encode(
-          JSON.stringify({
-            action: "added",
-            reference: textId.toString(),
-            schema: "unicode",
-            content: "👍",
-          }),
-        ).buffer,
-      }),
-      undefined,
+    const replyId = await client.conversations.replyToMessage(
+      textId,
+      liftEncodedContent(Pure.encodeText("deflate reply"), currentProjection()),
+      { optimistic: false, compression: "deflate" },
     );
+    step = "send legacy reaction";
+    const reactionId = await group.send({
+      type: {
+        authorityId: "xmtp.org",
+        typeId: "reaction",
+        versionMajor: 1,
+        versionMinor: 0,
+      },
+      parameters: new Map(),
+      content: new TextEncoder().encode(
+        JSON.stringify({
+          action: "added",
+          reference: textId,
+          schema: "unicode",
+          content: "👍",
+        }),
+      ),
+    });
 
     step = "list messages";
-    const messages = await group.messages(undefined);
-    const find = (id: B.MessageId): Message | undefined =>
-      messages.find((message) => message.id.toString() === id.toString());
+    const messages = await group.messages();
+    const find = (id: sdk.MessageId): sdk.Message | undefined =>
+      messages.find((message) => message.id === id);
+    const plain = find(textId)?.content;
     expect(
-      text(find(textId)?.content) === "gzip text",
+      plain?.kind === "text" && plain.value === "gzip text",
       "gzip text was not decoded",
     );
     const reply = find(replyId);
     expect(
-      reply?.replyContent?.tag === B.MessageBody_Tags.Text &&
-        reply.replyContent.inner[0] === "deflate reply",
+      reply?.replyContent?.kind === "text" &&
+        reply.replyContent.value === "deflate reply",
       "deflate reply body was not decoded",
     );
     expect(
-      reply.inReplyToContent?.tag === B.MessageBody_Tags.Text &&
-        reply.inReplyToContent.inner[0] === "gzip text",
+      reply.inReplyToContent?.kind === "text" &&
+        reply.inReplyToContent.value === "gzip text",
       "gzip reply parent was not decoded",
     );
 
     step = "read legacy reaction";
-    const reaction = await client.conversations().getMessageById(reactionId);
+    const reaction = await client.conversations.getMessageById(reactionId);
     expect(
-      reaction?.content.tag === B.MessageContent_Tags.Reaction &&
-        reaction.content.inner.reaction.content === "👍",
+      reaction?.content.kind === "reaction" &&
+        reaction.content.reaction.content === "👍",
       "legacy reaction was not decoded",
     );
   } catch (error) {
-    const inner =
-      error !== null && typeof error === "object"
-        ? Reflect.get(error, "inner")
-        : undefined;
     const detail =
-      Array.isArray(inner) && inner[0] !== null && typeof inner[0] === "object"
-        ? Reflect.get(inner[0], "message")
-        : undefined;
+      error instanceof sdk.XmtpError ? error.details.message : undefined;
     throw new Error(`${step}: ${String(error)}: ${String(detail)}`);
   } finally {
     await client?.end();

@@ -310,11 +310,15 @@ fn generate(
         let target = if matches!(language, Language::TypescriptNapi) {
             public_projection::Target::Node
         } else {
-            // The browser public layer needs worker-routed constructors and
-            // its own host Message. Until then its tree has no public entry.
+            // The browser target module uses the worker proxies. The browser
+            // has no process log sink or runtime codecs in this tree.
             let public = out.join("runtime/public");
-            if public.is_dir() {
-                fs::remove_dir_all(public)?;
+            fs::write(
+                public.join("host.ts"),
+                include_str!("../templates/bridge/public-host.ts"),
+            )?;
+            for name in ["logging.ts", "codecs.ts"] {
+                fs::remove_file(public.join(name))?;
             }
             public_projection::Target::Browser
         };

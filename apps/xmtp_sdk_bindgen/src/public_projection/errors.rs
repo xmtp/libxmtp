@@ -9,6 +9,8 @@ use std::fmt::Write as _;
 use anyhow::Result;
 use uniffi_meta::{EnumMetadata, Type};
 
+use super::Target;
+
 /// True for an error enum that the public layer throws as classes.
 pub(super) fn is_details_error(value: &EnumMetadata) -> bool {
     value.shape.is_error()
@@ -83,11 +85,60 @@ pub(super) fn error_class(code: &mut String, value: &EnumMetadata) -> Result<()>
     Ok(())
 }
 
-/// Convert a thrown binding error to its public error. Other values pass
-/// through unchanged.
-pub(super) const PUBLIC_ERROR: &str = r#"
+/// Browser only: a package worker or transport failure (`BridgeError`) has no
+/// binding error. It becomes the public error of its code when that code is a
+/// variant, and `Unknown` with the same plain details otherwise.
+pub(super) fn bridge_error(code: &mut String, value: &EnumMetadata) -> Result<()> {
+    let name = &value.name;
+    writeln!(
+        code,
+        "const bindingCategories: ReadonlySet<unknown> = new Set(Object.values(B.ErrorCategory));\nfunction isBindingCategory(value: unknown): value is B.ErrorCategory {{\n  return typeof value === \"number\" && bindingCategories.has(value);\n}}\nfunction liftBridgeError(error: BridgeError, projection: ObjectProjection): {name} {{\n  const details: ErrorDetails = {{\n    code: error.code,\n    category: isBindingCategory(error.category) ? liftErrorCategory(error.category, projection) : \"unknown\",\n    retryable: error.retryable,\n    message: error.message,\n  }};\n  switch (error.code) {{"
+    )?;
+    for variant in &value.variants {
+        writeln!(
+            code,
+            "    case \"{v}\": return new {name}.{v}(details);",
+            v = variant.name
+        )?;
+    }
+    let fallback = if value
+        .variants
+        .iter()
+        .any(|variant| variant.name == "Unknown")
+    {
+        format!("new {name}.Unknown({{ ...details, code: \"Unknown\" }})")
+    } else {
+        format!("new {name}(details)")
+    };
+    writeln!(code, "    default: return {fallback};\n  }}\n}}")?;
+    Ok(())
+}
+
+/// Convert a thrown binding error, and in the browser a package worker or
+/// transport failure, to its public error. Other values pass through
+/// unchanged.
+pub(super) fn public_error(target: Target) -> &'static str {
+    match target {
+        Target::Node => {
+            r#"
 /** The public form of a thrown value. A binding error becomes an `XmtpError`. */
 export function publicError(error: unknown): unknown {
   return isBindingXmtpError(error) ? liftXmtpError(error, currentProjection()) : error;
 }
-"#;
+"#
+        }
+        Target::Browser => {
+            r#"
+/**
+ * The public form of a thrown value. A binding error, or a package worker or
+ * transport failure, becomes an `XmtpError`.
+ */
+export function publicError(error: unknown): unknown {
+  if (isBindingXmtpError(error)) return liftXmtpError(error, currentProjection());
+  if (error instanceof BridgeError) return liftBridgeError(error, currentProjection());
+  return error;
+}
+"#
+        }
+    }
+}

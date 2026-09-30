@@ -34,8 +34,17 @@ export class RemoteObject {
     return this.session.call(key, args, this.handle, signal);
   }
 
+  /**
+   * Reads and decodes an immutable field from the snapshot that the handle
+   * holds. It makes no worker call, so it stays readable after the owner
+   * client ends, as the Node getters do (Decision 14). A nested object
+   * decodes to a proxy whose calls fail with ClientClosed.
+   */
+  protected held<T>(read: () => T): T {
+    return this.session.readHeld(read);
+  }
+
   protected snapshot(name: string): unknown {
-    this.check();
     if (
       this.handle.snap === null ||
       typeof this.handle.snap !== "object" ||

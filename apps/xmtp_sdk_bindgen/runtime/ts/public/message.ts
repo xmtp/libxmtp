@@ -28,7 +28,6 @@ import {
 import {
   MessageBody_Tags,
   MessageContent_Tags,
-  encodeText,
   type MessageBody as BoundBody,
   type MessageContent as BoundContent,
 } from "../../xmtp_sdk";
@@ -36,10 +35,15 @@ import type { LiftedCustomBody, LiftedCustomContent } from "../custom-lift";
 import type { Timestamp } from "../ids";
 import { publicClient, type Client } from "./client";
 import type { ContentCodec } from "./codec";
-import type { BoundMessage } from "./host";
+import { encodeText, type BoundMessage } from "./host";
 
+// A host reply can carry a decoded custom body (browser); only its tag is used.
 type HostContent =
-  | Exclude<BoundContent, { tag: MessageContent_Tags.Custom }>
+  | Exclude<
+      BoundContent,
+      { tag: MessageContent_Tags.Custom | MessageContent_Tags.Reply }
+    >
+  | { readonly tag: MessageContent_Tags.Reply }
   | LiftedCustomContent;
 type HostBody =
   | Exclude<BoundBody, { tag: MessageBody_Tags.Custom }>
@@ -58,9 +62,13 @@ function decoded(inner: { value?: unknown; error?: string }): {
 // The host decoded custom content with its client's codecs. Keep that value
 // or error next to the public envelope.
 function liftContent(
-  content: HostContent,
+  bound: BoundMessage,
   projection: ObjectProjection,
 ): MessageContent {
+  const content: HostContent = bound.content;
+  // A public reply keeps the envelope body; `replyContent` has the decoded one.
+  if (content.tag === MessageContent_Tags.Reply)
+    return liftMessageContent(bound.data.content, projection);
   if (content.tag !== MessageContent_Tags.Custom)
     return liftMessageContent(content, projection);
   const { encoded, rawBytes } = content.inner;
@@ -142,7 +150,7 @@ export class Message {
     this.contentType = liftContentTypeId(data.contentType, projection);
     if (data.fallback !== undefined) this.fallback = data.fallback;
     this.encoded = liftEncodedContent(data.encoded, projection);
-    this.content = liftContent(bound.content, projection);
+    this.content = liftContent(bound, projection);
     this.replyCount = data.replyCount;
     this.reactions = data.reactions.map((reaction) =>
       liftReactionMessage(reaction, projection),

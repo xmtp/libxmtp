@@ -18,8 +18,8 @@ pub(crate) enum Target {
     /// Node: the binding runs in this process, so static constructors and
     /// top-level functions can call it directly.
     Node,
-    /// Browser: the binding runs in the package worker. Worker-routed
-    /// constructors, functions, and the browser host Message come later.
+    /// Browser: the binding runs in the package worker, so constructors and
+    /// functions go through the worker proxies.
     Browser,
 }
 
@@ -31,21 +31,27 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
     let mut code = String::from(
         "import * as B from '#xmtp/binding';\nimport type { Message as BoundMessage } from './runtime/message.js';\nimport { Timestamp } from './runtime/ids.js';\nexport { Timestamp };\nexport const objectBrand: unique symbol = Symbol(\"xmtp.object\");\nfunction checkedVariant(value: unknown, expected: string | number): void { if (value !== expected) throw new TypeError(\"invalid public enum\"); }\n",
     );
-    match target {
-        // The host Message class is the public message on Node.
-        Target::Node => code.push_str("import type { Message } from './runtime/public/message.js';\nexport type { Message };\n"),
-        Target::Browser => code.push_str("export type Message = Omit<MessageData, 'clientKey'>;\n"),
+    // The host Message class is the public message on both targets.
+    code.push_str(
+        "import type { Message } from './runtime/public/message.js';\nexport type { Message };\n",
+    );
+    if target == Target::Browser {
+        // The binding runs in the package worker: constructors and functions
+        // go through its proxies, and storage admin through its template.
+        code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
     }
     code.push_str(objects::MEMBERSHIP_GUARDS);
     code.push_str(objects::PROJECTION_INSTALL);
-    code.push_str(errors::PUBLIC_ERROR);
+    code.push_str(errors::public_error(target));
     for item in &items {
         match item {
             Metadata::Object(value) if value.imp.has_struct() && value.name == "Client" => {
                 objects::client_members(&mut code, &items)?;
             }
             Metadata::Object(value) if value.imp.has_struct() => {
-                objects::object(&mut code, &items, &value.name, target)?;
+                if !objects::template_object(&value.name, target) {
+                    objects::object(&mut code, &items, &value.name, target)?;
+                }
             }
             Metadata::Object(value) if value.imp.has_callback_interface() => {
                 foreign(&mut code, &items, &value.name)?;
@@ -65,7 +71,10 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
                 code.push_str(policy::CONVERSATION)
             }
             Metadata::Enum(value) if errors::is_details_error(value) => {
-                errors::error_class(&mut code, value)?
+                errors::error_class(&mut code, value)?;
+                if target == Target::Browser && value.name == "XmtpError" {
+                    errors::bridge_error(&mut code, value)?;
+                }
             }
             Metadata::Enum(value) => values::enumeration(&mut code, value)?,
             Metadata::CustomType(value) if value.name != "Message" && value.name != "Timestamp" => {
@@ -76,23 +85,21 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
                     public_type(&value.builtin)
                 )?;
             }
-            Metadata::Func(value) if target == Target::Node => objects::function(&mut code, value)?,
+            Metadata::Func(value) => objects::function(&mut code, value, target)?,
             _ => {}
         }
     }
-    objects::projection(&mut code, &items)?;
+    objects::projection(&mut code, &items, target)?;
     let path = out.join("public-values.gen.ts");
     fs::write(
         &path,
         crate::format::typescript("public-values.gen.ts", &code)?,
     )?;
-    if target == Target::Node {
-        let api = objects::public_api(&items);
-        fs::write(
-            out.join("public-api.gen.ts"),
-            crate::format::typescript("public-api.gen.ts", &api)?,
-        )?;
-    }
+    let api = objects::public_api(&items, target);
+    fs::write(
+        out.join("public-api.gen.ts"),
+        crate::format::typescript("public-api.gen.ts", &api)?,
+    )?;
     // Keep the projection's target import private. Package staging supplies the
     // final browser/node conditions when the public adapters are installed.
     fs::write(

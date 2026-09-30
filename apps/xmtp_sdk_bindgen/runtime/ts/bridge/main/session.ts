@@ -55,6 +55,7 @@ export class MainSession {
   private readonly releases = new Set<number>();
   private releaseScheduled = false;
   private errorDecoder: (error: ErrorWire) => Error = decodeError;
+  private heldReads = 0;
 
   constructor(
     private readonly endpoint: WireEndpoint,
@@ -208,12 +209,27 @@ export class MainSession {
   }
 
   checkHandle(handle: HandleWire): void {
+    // A held read decodes a handle from a snapshot that this session already
+    // holds. It needs no worker, so an ended owner, a stopped worker, or the
+    // epoch that `terminate` advances does not refuse it. A call through the
+    // resulting proxy is not a held read, so it still fails with ClientClosed.
+    if (this.heldReads > 0) return;
     if (
       this.dead ||
       this.closedOwners.has(handle.owner) ||
       handle.epoch !== this.epoch
     ) {
       throw this.error("clientClosed");
+    }
+  }
+
+  /** Runs a synchronous read of held snapshot values. */
+  readHeld<T>(read: () => T): T {
+    this.heldReads++;
+    try {
+      return read();
+    } finally {
+      this.heldReads--;
     }
   }
 

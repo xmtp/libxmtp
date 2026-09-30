@@ -1,31 +1,18 @@
-// @ts-ignore The browser fixture uses the published JavaScript build of viem.
-import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/generatePrivateKey.js";
-// @ts-ignore The browser fixture uses the published JavaScript build of viem.
-import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js";
-// @ts-ignore The browser fixture uses the published JavaScript build of viem.
-import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
 import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
-import { MessageStream } from "../../../../target/sdk-generated/typescript-wasm/index";
-// Transport tests use the worker proxy Client with their own session.
-import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
-import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
+import { create, options, signer } from "./suite-support";
 
-function live(state: B.ConnectionState, label: string): void {
-  if (
-    state !== B.ConnectionState.Connected &&
-    state !== B.ConnectionState.Connecting
-  )
-    throw new Error(
-      `${label} connection state was ${B.ConnectionState[state]}`,
-    );
+function live(state: sdk.ConnectionState, label: string): void {
+  if (state !== "connected" && state !== "connecting")
+    throw new Error(`${label} connection state was ${state}`);
 }
 
 function withTimeout<T>(value: Promise<T>, label: string): Promise<T> {
@@ -38,50 +25,13 @@ function withTimeout<T>(value: Promise<T>, label: string): Promise<T> {
   ]).finally(() => clearTimeout(timer));
 }
 
-function createClient(
+async function createClient(
   session: MainSession,
   backendURL: string,
-): Promise<Client> {
-  const account = privateKeyToAccount(generatePrivateKey());
+): Promise<sdk.Client> {
   const path = `stream-${crypto.randomUUID()}.db`;
-  return Client.create(
-    session,
-    {
-      async identity() {
-        return {
-          identifier: account.address.toLowerCase(),
-          kind: B.PublicIdentityKind.Ethereum,
-        };
-      },
-      async kind() {
-        return B.SignerKind.Eoa.new();
-      },
-      async sign(request: { text: string }) {
-        const signed = await account.signMessage({ message: request.text });
-        return B.Signature.Ecdsa.new(Uint8Array.from(toBytes(signed)).buffer);
-      },
-    },
-    {
-      backend: B.BackendSource.Options.new({
-        options: {
-          url: backendURL,
-          appVersion: undefined,
-          credential: undefined,
-          credentials: undefined,
-        },
-      }),
-      storage: {
-        location: B.StorageLocation.Path.new(path),
-        label: path,
-        pool: undefined,
-        singleConnection: false,
-      },
-      deviceSync: false,
-      registration: { auto: true, nonce: undefined },
-      forkRecovery: undefined,
-      workers: undefined,
-    },
-  );
+  return (await create(session, signer(session), options(path, backendURL)))
+    .client;
 }
 
 // A peer message reaches a MessageReader and a MessageStream through the real
@@ -111,7 +61,7 @@ export async function checkMessageStream(backendURL: string): Promise<void> {
     },
   };
   const session = new MainSession(endpoint, PROTOCOL_VERSION, CONTRACT_HASH);
-  const clients: Client[] = [];
+  const clients: sdk.Client[] = [];
   let step = "create clients";
   try {
     await session.ready();
@@ -121,54 +71,47 @@ export async function checkMessageStream(backendURL: string): Promise<void> {
     clients.push(bob);
 
     step = "create group";
-    const group = await alice
-      .conversations()
-      .createGroup([bob.inboxId()], undefined);
+    const group = await alice.conversations.createGroup([bob.inboxId]);
     step = "open reader";
     const reader = await group.messageReader();
     live(await reader.connectionState(), "reader");
     step = "peer sync";
-    await bob.conversations().sync();
-    const peer = await bob.conversations().getById(group.id());
-    if (peer?.tag !== B.Conversation_Tags.Group)
-      throw new Error("peer has no group");
+    await bob.conversations.sync();
+    const peer = await bob.conversations.getById(group.id);
+    if (!(peer instanceof sdk.Group)) throw new Error("peer has no group");
     step = "reader delivery";
-    const firstId = await peer.inner.group.sendText(
-      "browser reader",
-      undefined,
-    );
+    const firstId = await peer.sendText("browser reader");
     // The reader first yields the group update that added the peer.
     let read = await withTimeout(reader.next(), "reader delivery");
-    if (read?.content.tag === B.MessageContent_Tags.GroupUpdated)
+    if (read?.content.kind === "groupUpdated")
       read = await withTimeout(reader.next(), "reader delivery");
-    if (read?.id.toString() !== firstId.toString())
+    if (read?.id !== firstId)
       throw new Error(
-        `reader yielded ${String(read?.content.tag)}, not the message`,
+        `reader yielded ${String(read?.content.kind)}, not the message`,
       );
     step = "reader end";
     await reader.end();
-    if ((await reader.connectionState()) !== B.ConnectionState.Closed)
+    if ((await reader.connectionState()) !== "closed")
       throw new Error("ended reader is not closed");
 
     // One reader owns a conversation at a time. The stream opens the next one
     // and gets the unacknowledged message again.
     step = "stream redelivery";
-    const states: B.ConnectionState[] = [];
-    const stream = MessageStream.openGroup(alice, group, undefined, {
+    const states: sdk.ConnectionState[] = [];
+    const stream = sdk.MessageStream.openGroup(alice, group, undefined, {
       onConnectionStateChange: (_previous, current) => states.push(current),
     });
     const replayed = await withTimeout(stream.next(), "stream redelivery");
-    if (replayed.done || replayed.value.id.toString() !== firstId.toString())
+    if (replayed.done || replayed.value.id !== firstId)
       throw new Error("stream did not redeliver the message");
     step = "stream delivery";
-    const secondId = await peer.inner.group.sendText(
-      "browser stream",
-      undefined,
-    );
+    const secondId = await peer.sendText("browser stream");
     const streamed = await withTimeout(stream.next(), "stream delivery");
-    if (streamed.done || streamed.value.id.toString() !== secondId.toString())
+    if (streamed.done || streamed.value.id !== secondId)
       throw new Error("stream missed the message");
-    if (streamed.value.senderInboxId.toString() !== bob.inboxId().toString())
+    if (!(streamed.value instanceof sdk.Message))
+      throw new Error("stream yielded no public Message");
+    if (streamed.value.senderInboxId !== bob.inboxId)
       throw new Error("stream message has the wrong sender");
     if (states.length === 0)
       throw new Error("stream reported no connection state");

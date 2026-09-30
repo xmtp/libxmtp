@@ -52,17 +52,32 @@ export function currentProjection(): ObjectProjection {
 }
 "#;
 
+/// The browser public layer calls functions in the package worker, so it has
+/// only the asynchronous ones; the synchronous ones belong to the pure module.
+fn exported_function(function: &FnMetadata, target: Target) -> bool {
+    target == Target::Node || function.is_async
+}
+
+/// Objects that the browser public layer takes from its package templates.
+pub(super) fn template_object(name: &str, target: Target) -> bool {
+    target == Target::Browser && name == "StorageAdmin"
+}
+
 fn is_identity_route(owner: &str, method: &str) -> bool {
     ROUTES
         .iter()
         .any(|route| route.owner == owner && route.identity == method)
 }
 
-fn struct_objects<'a>(items: &[&'a Metadata]) -> Vec<&'a str> {
+fn struct_objects<'a>(items: &[&'a Metadata], target: Target) -> Vec<&'a str> {
     items
         .iter()
         .filter_map(|item| match item {
-            Metadata::Object(value) if value.imp.has_struct() && value.name != "Client" => {
+            Metadata::Object(value)
+                if value.imp.has_struct()
+                    && value.name != "Client"
+                    && !template_object(&value.name, target) =>
+            {
                 Some(value.name.as_str())
             }
             _ => None,
@@ -84,8 +99,6 @@ fn methods<'a>(items: &[&'a Metadata], owner: &str) -> Vec<&'a MethodMetadata> {
 
 /// One call: its public parameters, the binding arguments, and the result.
 struct Call {
-    /// The binding call can throw a binding error, which becomes public.
-    throws: bool,
     parameters: String,
     arguments: String,
     result_type: String,
@@ -98,7 +111,6 @@ fn call(
     inputs: &[FnParamMetadata],
     output: Option<&Type>,
     asynchronous: bool,
-    throws: bool,
 ) -> Call {
     let mut defaults = optional_parameters(inputs);
     // The binding reader interfaces keep their options optional.
@@ -155,7 +167,6 @@ fn call(
         result_type
     };
     Call {
-        throws,
         parameters,
         arguments,
         result_type,
@@ -163,30 +174,34 @@ fn call(
     }
 }
 
-fn render_body(code: &mut String, call: &Call, target: &str, asynchronous: bool) -> Result<()> {
+fn render_body(
+    code: &mut String,
+    call: &Call,
+    callee: &dyn Fn(&str) -> String,
+    asynchronous: bool,
+) -> Result<()> {
     let await_ = if asynchronous { "await " } else { "" };
     let uses_projection = call.arguments.contains("projection")
         || call
             .result
             .as_deref()
             .is_some_and(|result| result.contains("projection"));
-    if call.throws {
-        code.push_str("try {\n");
-    }
+    // Every call converts a thrown value, including a call whose binding
+    // cannot fail: a browser proxy can refuse any call of an ended client,
+    // and the package worker can fail under any call (P8).
+    code.push_str("try {\n");
     if uses_projection {
         code.push_str("const projection = currentProjection();\n");
     }
     match &call.result {
         Some(result) => writeln!(
             code,
-            "const result = {await_}{target}({});\nreturn {result};",
-            call.arguments
+            "const result = {await_}{};\nreturn {result};",
+            callee(&call.arguments)
         )?,
-        None => writeln!(code, "{await_}{target}({});", call.arguments)?,
+        None => writeln!(code, "{await_}{};", callee(&call.arguments))?,
     }
-    if call.throws {
-        code.push_str("} catch (error) {\nthrow publicError(error);\n}\n");
-    }
+    code.push_str("} catch (error) {\nthrow publicError(error);\n}\n");
     Ok(())
 }
 
@@ -206,7 +221,6 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
         &method.inputs,
         method.return_type.as_ref(),
         method.is_async,
-        method.throws.is_some(),
     );
     // Decision 14: a synchronous, argument-free, infallible member is a
     // readonly getter.
@@ -219,7 +233,12 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
         call.parameters,
         call.result_type
     )?;
-    render_body(code, &call, &format!("{receiver}.{name}"), method.is_async)?;
+    render_body(
+        code,
+        &call,
+        &|args| format!("{receiver}.{name}({args})"),
+        method.is_async,
+    )?;
     code.push_str("}\n");
     Ok(())
 }
@@ -239,41 +258,45 @@ pub(super) fn object(
         code,
         "export class {name} {{\ndeclare readonly [objectBrand]: \"{name}\";\nstatic {{ new{name} = () => new {name}(); }}\nprivate constructor() {{}}"
     )?;
-    if target == Target::Node {
-        for item in items {
-            if let Metadata::Constructor(constructor) = item
-                && constructor.self_name == name
-            {
-                let method_name = camel(&constructor.name);
-                let mut call = call(
-                    name,
-                    &method_name,
-                    &constructor.inputs,
-                    None,
-                    constructor.is_async,
-                    constructor.throws.is_some(),
-                );
-                call.result = Some(format!("projection.lift{name}(result)"));
-                call.result_type = if constructor.is_async {
-                    format!("Promise<{name}>")
-                } else {
-                    name.to_owned()
-                };
-                writeln!(
-                    code,
-                    "static {}{method_name}({}): {} {{",
-                    if constructor.is_async { "async " } else { "" },
-                    call.parameters,
-                    call.result_type
-                )?;
-                render_body(
-                    code,
-                    &call,
-                    &format!("B.{name}.{method_name}"),
-                    constructor.is_async,
-                )?;
-                code.push_str("}\n");
-            }
+    // Browser: the package storage admin opens without a Client.
+    if target == Target::Browser && name == "Storage" {
+        // Every admin member, and the open, throws public errors (P8).
+        code.push_str("/** Open a lease on the package storage worker. It needs no Client. */\nstatic admin(): Promise<StorageAdmin> { return openStorageAdmin(publicError); }\n");
+    }
+    for item in items {
+        if let Metadata::Constructor(constructor) = item
+            && constructor.self_name == name
+        {
+            let method_name = camel(&constructor.name);
+            let mut call = call(
+                name,
+                &method_name,
+                &constructor.inputs,
+                None,
+                constructor.is_async,
+            );
+            call.result = Some(format!("projection.lift{name}(result)"));
+            call.result_type = if constructor.is_async {
+                format!("Promise<{name}>")
+            } else {
+                name.to_owned()
+            };
+            writeln!(
+                code,
+                "static {}{method_name}({}): {} {{",
+                if constructor.is_async { "async " } else { "" },
+                call.parameters,
+                call.result_type
+            )?;
+            // Browser constructors run in the package worker.
+            let callee = |args: &str| match target {
+                Target::Node => format!("B.{name}.{method_name}({args})"),
+                Target::Browser => {
+                    format!("createInWorker((session) => P.{name}.{method_name}(session, {args}))")
+                }
+            };
+            render_body(code, &call, &callee, constructor.is_async)?;
+            code.push_str("}\n");
         }
     }
     for method in methods(items, name) {
@@ -303,9 +326,9 @@ pub(super) fn client_members(code: &mut String, items: &[&Metadata]) -> Result<(
     Ok(())
 }
 
-pub(super) fn function(code: &mut String, function: &FnMetadata) -> Result<()> {
+pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target) -> Result<()> {
     let name = camel(&function.name);
-    if HOST_FUNCTIONS.contains(&name.as_str()) {
+    if HOST_FUNCTIONS.contains(&name.as_str()) || !exported_function(function, target) {
         return Ok(());
     }
     let call = call(
@@ -314,7 +337,6 @@ pub(super) fn function(code: &mut String, function: &FnMetadata) -> Result<()> {
         &function.inputs,
         function.return_type.as_ref(),
         function.is_async,
-        function.throws.is_some(),
     );
     writeln!(
         code,
@@ -323,16 +345,20 @@ pub(super) fn function(code: &mut String, function: &FnMetadata) -> Result<()> {
         call.parameters,
         call.result_type
     )?;
-    render_body(code, &call, &format!("B.{name}"), function.is_async)?;
+    let callee = |args: &str| match target {
+        Target::Node => format!("B.{name}({args})"),
+        Target::Browser => format!("createInWorker((session) => P.{name}(session, {args}))"),
+    };
+    render_body(code, &call, &callee, function.is_async)?;
     code.push_str("}\n");
     Ok(())
 }
 
 /// The projection that the value pass calls for objects and messages. The
 /// host runtime supplies the Message conversion.
-pub(super) fn projection(code: &mut String, items: &[&Metadata]) -> Result<()> {
+pub(super) fn projection(code: &mut String, items: &[&Metadata], target: Target) -> Result<()> {
     code.push_str("export abstract class ObjectProjection {\nabstract liftMessage(value: BoundMessage): Message;\nabstract lowerMessage(value: Message): BoundMessage;\nisBackend(value: BackendSource): value is Backend { return value instanceof Backend; }\n");
-    for name in struct_objects(items) {
+    for name in struct_objects(items, target) {
         writeln!(
             code,
             "lift{name}(value: B.{name}Like): {name} {{ return wrap{name}(value); }}\nlower{name}(value: {name}): B.{name}Like {{ return unwrap{name}(value); }}"
@@ -344,12 +370,16 @@ pub(super) fn projection(code: &mut String, items: &[&Metadata]) -> Result<()> {
 
 /// The private public entry and the names it re-exports. Internal conversion
 /// functions, the projection, and the generated Client members stay out.
-pub(super) fn public_api(items: &[&Metadata]) -> String {
+pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
     let mut values = BTreeSet::new();
     let mut types = BTreeSet::new();
     for item in items {
         match item {
-            Metadata::Object(value) if value.imp.has_struct() && value.name != "Client" => {
+            Metadata::Object(value)
+                if value.imp.has_struct()
+                    && value.name != "Client"
+                    && !template_object(&value.name, target) =>
+            {
                 values.insert(value.name.clone());
             }
             Metadata::Object(value) if value.imp.has_callback_interface() => {
@@ -378,7 +408,7 @@ pub(super) fn public_api(items: &[&Metadata]) -> String {
             }
             Metadata::Func(value) => {
                 let name = camel(&value.name);
-                if !HOST_FUNCTIONS.contains(&name.as_str()) {
+                if !HOST_FUNCTIONS.contains(&name.as_str()) && exported_function(value, target) {
                     values.insert(name);
                 }
             }
@@ -388,9 +418,17 @@ pub(super) fn public_api(items: &[&Metadata]) -> String {
     // The runtime exports its own synchronous log sink until F7.
     types.remove("LogSink");
     let join = |names: BTreeSet<String>| names.into_iter().collect::<Vec<_>>().join(", ");
-    // Explicit names: Node's CommonJS interop drops a star re-export.
+    // Explicit names: Node's CommonJS interop drops a star re-export. The
+    // browser has no process log sink or standalone codecs here: the pure
+    // module carries the codecs, and F7 adds the browser log sink.
+    let target_exports = match target {
+        Target::Node => {
+            "export { setLogSink, type LogSink } from \"./runtime/public/logging.js\";\nexport { ActionsCodec, AttachmentCodec, DeleteMessageCodec, GroupUpdatedCodec, IntentCodec, LeaveRequestCodec, MarkdownCodec, MultiRemoteAttachmentCodec, ReactionV2Codec, ReadReceiptCodec, RemoteAttachmentCodec, ReplyCodec, TextCodec, TransactionReferenceCodec, WalletSendCallsCodec } from \"./runtime/public/codecs.js\";\n"
+        }
+        Target::Browser => "export type { StorageAdmin } from \"./storage-admin.gen.js\";\n",
+    };
     format!(
-        "// The private public entry, generated from the public projection. The\n// package roots re-export it once every target uses it. Do not edit this output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ ConversationStream, MessageStream, type StreamCloseReason, type StreamOptions }} from \"./runtime/public/streams.js\";\nexport {{ EventStream }} from \"./runtime/public/events.js\";\nexport {{ setLogSink, type LogSink }} from \"./runtime/public/logging.js\";\nexport {{ ActionsCodec, AttachmentCodec, DeleteMessageCodec, GroupUpdatedCodec, IntentCodec, LeaveRequestCodec, MarkdownCodec, MultiRemoteAttachmentCodec, ReactionV2Codec, ReadReceiptCodec, RemoteAttachmentCodec, ReplyCodec, TextCodec, TransactionReferenceCodec, WalletSendCallsCodec }} from \"./runtime/public/codecs.js\";\nexport {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
+        "// The private public entry, generated from the public projection. The\n// package roots re-export it once every target uses it. Do not edit this output.\nimport \"./runtime/public/projection.js\";\n\nexport {{ Client, type ClientOptions }} from \"./runtime/public/client.js\";\nexport {{ Message }} from \"./runtime/public/message.js\";\nexport type {{ AnyContentCodec, ContentCodec }} from \"./runtime/public/codec.js\";\nexport {{ Timestamp }} from \"./runtime/ids.js\";\nexport {{ ConversationStream, MessageStream, type StreamCloseReason, type StreamOptions }} from \"./runtime/public/streams.js\";\nexport {{ EventStream }} from \"./runtime/public/events.js\";\n{target_exports}export {{ {} }} from \"./public-values.gen.js\";\nexport type {{ {} }} from \"./public-values.gen.js\";\n",
         join(values),
         join(types)
     )

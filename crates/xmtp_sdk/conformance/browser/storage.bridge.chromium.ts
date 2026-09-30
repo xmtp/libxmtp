@@ -458,9 +458,12 @@ export async function endOne(): Promise<void> {
   const client = clients.shift();
   if (!client) throw new Error("no client to close");
   await client.end();
+  // An immutable getter reads its held snapshot after end, as on Node
+  // (Decision 14). A call through the result fails with ClientClosed.
+  const conversations = client.conversations();
   let closed: unknown;
   try {
-    client.conversations();
+    await conversations.sync();
   } catch (error) {
     closed = error;
   }

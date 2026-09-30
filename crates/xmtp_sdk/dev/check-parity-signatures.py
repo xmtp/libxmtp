@@ -159,6 +159,32 @@ OWNER_PERMITTED: dict[str, set[str]] = {
     # reply body as stored and lifts it only in `replyContent`.
     "Message": {"content"},
 }
+# The private public entries (compare_public). SDK-037 and the pure module
+# split these names from the browser worker entry, each with its reason.
+PUBLIC_NODE_ONLY = {
+    **{
+        name: reason
+        for name, reason in SDK_037_NODE_ONLY.items()
+        if not name.endswith("_Tags")
+    },
+    "setLogSink": "F7 adds the asynchronous browser log sink",
+    "LogSink": "F7 adds the asynchronous browser log sink",
+    **{name: "pure module" for name in PURE_ONLY},
+}
+# Members whose form depends on the target, skipped on both sides.
+PUBLIC_PLATFORM_SPECIFIC = {
+    # Node clears the process sink at once; the browser worker call is async.
+    "clearLogSink": "the browser clears the log sink in the worker",
+}
+PUBLIC_BROWSER_ONLY = {"StorageAdmin": "SDK-037 browser storage admin"}
+PUBLIC_NODE_ONLY_MEMBERS = {
+    "Archives": {"exportToFile", "importFromFile", "metadataFromFile"},
+    "Client": {"disableNotifications", "enableNotifications", "notificationState"},
+    "Storage": {"delete_", "reconnect"},
+    "StorageOptions": {"encryptionKey"},
+}
+PUBLIC_BROWSER_ONLY_MEMBERS = {"Storage": {"admin"}}
+
 # The pinned Client declarations, as `describe` prints them without indent.
 CLIENT_NODE = """\
 class Client { ... }
@@ -343,7 +369,7 @@ class Declaration:
     members: tuple[str, ...]
 
 
-def emit(flavor: str, out: Path) -> Path:
+def emit(flavor: str, out: Path, entry: str = "index.ts") -> Path:
     source = GENERATED / flavor
     subprocess.run(
         [
@@ -366,7 +392,7 @@ def emit(flavor: str, out: Path) -> Path:
             str(GENERATED),
             "--outDir",
             str(out),
-            str(source / "index.ts"),
+            str(source / entry),
         ],
         check=True,
     )
@@ -584,7 +610,9 @@ def without(declarations: list[Declaration], names: set[str]) -> list[Declaratio
         if not item.members and item.kind in ("type", "const"):
             for name in names:
                 # The removed field, and its key in the record factory types.
-                head = re.sub(rf"\s{re.escape(name)}\??: [^;]*;", "", head)
+                head = re.sub(
+                    rf"\s(?:readonly )?{re.escape(name)}\??: [^;]*;", "", head
+                )
                 head = re.sub(
                     rf'"{re.escape(name)}" \| |\s\| "{re.escape(name)}"', "", head
                 )
@@ -680,9 +708,53 @@ def compare(out: Path) -> list[str]:
     return list(dict.fromkeys(errors))
 
 
+def compare_public(out: Path) -> list[str]:
+    """Compare the private public entries (`public-api.gen.ts`) of Node and the
+    browser worker bridge. The browser entry omits the SDK-037 and pure-module
+    exports and adds the browser storage admin; every shared declaration must
+    match, member for member."""
+    node_root = emit(NODE, out, "public-api.gen.ts")
+    node = Surface(node_root)
+    node_exports = node.exports(node.module(node_root / "public-api.gen.d.ts"))
+    web_root = emit(WORKER, out, "public-api.gen.ts")
+    web = Surface(web_root)
+    web_exports = web.exports(web.module(web_root / "public-api.gen.d.ts"))
+    errors = []
+    expected = (
+        node_exports.keys() - PUBLIC_NODE_ONLY.keys()
+    ) | PUBLIC_BROWSER_ONLY.keys()
+    for name in sorted(PUBLIC_NODE_ONLY.keys() - node_exports.keys()):
+        errors.append(
+            f"{name}: public Node-only list names it and Node does not export it"
+        )
+    for name in sorted(expected - web_exports.keys()):
+        errors.append(
+            f"{name}: the Node public entry exports it and the browser does not"
+        )
+    for name in sorted(web_exports.keys() - expected):
+        errors.append(f"{name}: the browser public entry exports it outside its list")
+    for name in sorted(expected & web_exports.keys() & node_exports.keys()):
+        if name in PUBLIC_PLATFORM_SPECIFIC:
+            continue
+        skipped = PUBLIC_NODE_ONLY_MEMBERS.get(name, set())
+        native = without(node.declaration(*node_exports[name]), skipped)
+        browser = without(
+            web.declaration(*web_exports[name]),
+            PUBLIC_BROWSER_ONLY_MEMBERS.get(name, set()),
+        )
+        if native != browser:
+            errors.append(
+                f"{name}: Node and browser public declarations differ\n"
+                f" Node:\n{describe(native)}\n browser:\n{describe(browser)}"
+            )
+    return errors
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as out:
         errors = compare(Path(out))
+    with tempfile.TemporaryDirectory() as out:
+        errors += compare_public(Path(out))
     if errors:
         print("\n".join(errors), file=sys.stderr)
         raise SystemExit(1)

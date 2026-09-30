@@ -1154,7 +1154,11 @@ fn render(
                     } else {
                         value
                     };
-                    writeln!(proxy, "  {}(): {output} {{ return {value}; }}", op.name)?;
+                    writeln!(
+                        proxy,
+                        "  {}(): {output} {{ return this.held(() => {value}); }}",
+                        op.name
+                    )?;
                 } else if object.name == "Client" && op.name == "end" {
                     writeln!(
                         proxy,
