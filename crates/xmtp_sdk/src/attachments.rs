@@ -25,6 +25,10 @@ type CoreRemote = xmtp_content_types::remote_attachment::RemoteAttachment;
 ///
 /// In the browser, `path` names a file in the SDK's OPFS storage pool, and the
 /// SDK copies `bytes` to its worker; the caller keeps its buffer.
+///
+/// Every host passes `bytes` by copy, so a source holds its size in memory at
+/// least twice until create returns. Prefer `path` for data over 1 MiB: the
+/// SDK reads a path source in small chunks.
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum AttachmentSource {
     Path {
@@ -108,7 +112,13 @@ fn path_string(path: PathBuf) -> Result<String, XmtpError> {
     })
 }
 
-/// The attachments of one client.
+/// The attachments of one client. The paths it returns name files under the
+/// client's attachments directory; in the browser they name OPFS entries.
+///
+/// The SDK stores and transfers the file an app gives it. It makes no preview
+/// or thumbnail: an app that shows an image makes its own from the local file.
+/// The SDK retries no failed upload or download; an app calls again when the
+/// error or status says the failure is retryable.
 #[derive(uniffi::Object)]
 pub struct Attachments {
     pub(crate) client: Arc<CoreClient>,
@@ -205,7 +215,8 @@ impl Attachments {
     }
 
     /// Download, verify, and decrypt the attachment into the attachments
-    /// directory, or return the file a completed download left there.
+    /// directory, or return the file a completed download left there. A
+    /// failed download is not retried.
     pub async fn download(
         &self,
         remote: RemoteAttachment,
@@ -302,7 +313,9 @@ impl PendingAttachment {
         .await
     }
 
-    /// Upload the staged ciphertext. Concurrent calls share one upload.
+    /// Upload the staged ciphertext. Concurrent calls share one upload. A
+    /// failed upload stays failed until the app calls upload again; after a
+    /// `backend_rejected` failure, upload fails again without a request.
     pub async fn upload(&self) -> Result<(), XmtpError> {
         let inner = self.inner.clone();
         on_settled_worker(
