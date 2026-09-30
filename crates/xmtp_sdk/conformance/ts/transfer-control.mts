@@ -1,5 +1,5 @@
 /** Control a real PUT response through the loopback backend relay. */
-export async function heldTransfer(store: string) {
+export async function heldTransfer(store: string, native = false) {
   const url = `${store}/transfer/${crypto.randomUUID()}`;
   const command = async (name: string) => {
     const response = await fetch(`${url}/${name}`);
@@ -8,5 +8,8 @@ export async function heldTransfer(store: string) {
     return response;
   };
   await command("arm");
-  return { backend: `${url}/backend`, command, url };
+  const backend = native
+    ? await (await command("native-backend")).text()
+    : `${url}/backend`;
+  return { backend, command, url };
 }

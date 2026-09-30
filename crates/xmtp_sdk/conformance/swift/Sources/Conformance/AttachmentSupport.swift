@@ -240,7 +240,7 @@ func checkClientClosed(_ action: @escaping @Sendable () async throws -> Void) as
 /// The loopback relay changes only the upload grant URL and holds its PUT.
 struct HeldTransfer: Sendable {
     let url: String
-    var backend: String { "\(url)/backend" }
+    private(set) var backend = ""
 
     @discardableResult
     func command(_ action: String) async throws -> Data {
@@ -259,8 +259,9 @@ struct HeldTransfer: Sendable {
     }
 
     static func open() async throws -> HeldTransfer {
-        let held = try HeldTransfer(url: "\(objectStore())/transfer/\(UUID().uuidString)")
+        var held = try HeldTransfer(url: "\(objectStore())/transfer/\(UUID().uuidString)")
         try await held.command("arm")
+        held.backend = try String(decoding: await held.command("native-backend"), as: UTF8.self)
         return held
     }
 }
@@ -278,7 +279,9 @@ actor AttachmentSignal {
     }
 
     func wait() async {
-        if complete { return }
+        if complete {
+            return
+        }
         await withCheckedContinuation { waiters.append($0) }
     }
 }

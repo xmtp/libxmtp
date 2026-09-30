@@ -35,7 +35,9 @@ Run commands from the repository root in the Nix shell. Run
   Swift run. Each run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a
   small PUT response, count upload grants and object requests, and refuse
   selected relayed backend URLs. It uses `protoc` from the Rust shell to
-  replace only the upload URL in a real backend response.
+  replace only the upload URL in a real backend response. Native clients use
+  the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
+  preserve gRPC status trailers.
 - `just sdk bench` compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It

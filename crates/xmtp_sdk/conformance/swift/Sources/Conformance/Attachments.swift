@@ -1,5 +1,5 @@
 import Foundation
-import XmtpSdk
+@testable import XmtpSdk
 
 /// A client whose files live under `root`, allowed to reach loopback storage.
 private func fileOptions(
@@ -478,10 +478,12 @@ func checkAttachmentEnd(backend: BackendOptions) async throws {
         let entered = AttachmentSignal()
         let release = AttachmentSignal()
         let finished = AttachmentSignal()
-        await EventStartHookForTest.shared.set({
+        await EventStartHookForTest.shared.set {
             await entered.mark()
             await release.wait()
-        }, finished: { await finished.mark() })
+        } finished: {
+            await finished.mark()
+        }
         do {
             try await resumed.deleteLocal(remote: small.remoteAttachment())
             try await within { await entered.wait() }
@@ -510,7 +512,7 @@ func checkAttachmentEnd(backend: BackendOptions) async throws {
         try await reopened.end()
         print("Swift attachments: end waits for an upload; calls fail closed")
     } catch {
-        try? await held.command("release")
+        _ = try? await held.command("release")
         try? await client.end()
         throw error
     }

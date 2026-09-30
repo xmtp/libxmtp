@@ -1,6 +1,3 @@
-import java.nio.file.Files
-import java.nio.file.Path
-import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -8,6 +5,9 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeout
 import uniffi.xmtp_sdk.*
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.concurrent.atomic.AtomicInteger
 
 /** A client whose files live under `root`, allowed to reach loopback storage. */
 private fun fileOptions(
@@ -259,43 +259,44 @@ suspend fun checkAttachmentFailures(backend: BackendOptions) =
     }
 
 // Every transport discriminant and optional field. Rust owns the full policy table.
-private val failureTable: List<AttachmentFailure> = listOf(
-    failure(AttachmentFailureCause.NOT_OFFERED),
-    failure(AttachmentFailureCause.TOO_LARGE),
-    failure(AttachmentFailureCause.SOURCE_UNREADABLE),
-    failure(AttachmentFailureCause.LOCAL_STORAGE),
-    failure(AttachmentFailureCause.STAGED_UNUSABLE),
-    failure(AttachmentFailureCause.CONNECTION_BLOCKED),
-    failure(
-                AttachmentFailureCause.CREDENTIAL,
-                credentialKind = CredentialFailureKind.CREDENTIAL_REJECTED,
-                missingScope = true,
-            ),
-    failure(
-                AttachmentFailureCause.CREDENTIAL,
-                credentialKind = CredentialFailureKind.CALLBACK_FAILED,
-                retryable = true,
-            ),
-    failure(AttachmentFailureCause.CREDENTIAL, credentialKind = CredentialFailureKind.EXHAUSTED),
-    failure(AttachmentFailureCause.CREDENTIAL, credentialKind = CredentialFailureKind.MISSING_CREDENTIAL),
-    failure(AttachmentFailureCause.BACKEND_REJECTED),
-    failure(AttachmentFailureCause.BACKEND_UNAVAILABLE),
-    failure(AttachmentFailureCause.TARGET_REJECTED, httpStatus = 403u),
-    failure(AttachmentFailureCause.NETWORK),
-    failure(AttachmentFailureCause.INSECURE_URL),
-    failure(AttachmentFailureCause.BLOCKED_ADDRESS),
-    failure(AttachmentFailureCause.TOO_MANY_REDIRECTS),
-    failure(AttachmentFailureCause.NOT_FOUND, httpStatus = 404u),
-    failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 408u),
-    failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 429u),
-    failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 503u),
-    failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 403u),
-    failure(AttachmentFailureCause.MALFORMED),
-    failure(AttachmentFailureCause.DIGEST_MISMATCH),
-    failure(AttachmentFailureCause.DECRYPTION_FAILED),
-    failure(AttachmentFailureCause.NOT_AN_ATTACHMENT),
-    failure(AttachmentFailureCause.DELETED),
-)
+private val failureTable: List<AttachmentFailure> =
+    listOf(
+        failure(AttachmentFailureCause.NOT_OFFERED),
+        failure(AttachmentFailureCause.TOO_LARGE),
+        failure(AttachmentFailureCause.SOURCE_UNREADABLE),
+        failure(AttachmentFailureCause.LOCAL_STORAGE),
+        failure(AttachmentFailureCause.STAGED_UNUSABLE),
+        failure(AttachmentFailureCause.CONNECTION_BLOCKED),
+        failure(
+            AttachmentFailureCause.CREDENTIAL,
+            credentialKind = CredentialFailureKind.CREDENTIAL_REJECTED,
+            missingScope = true,
+        ),
+        failure(
+            AttachmentFailureCause.CREDENTIAL,
+            credentialKind = CredentialFailureKind.CALLBACK_FAILED,
+            retryable = true,
+        ),
+        failure(AttachmentFailureCause.CREDENTIAL, credentialKind = CredentialFailureKind.EXHAUSTED),
+        failure(AttachmentFailureCause.CREDENTIAL, credentialKind = CredentialFailureKind.MISSING_CREDENTIAL),
+        failure(AttachmentFailureCause.BACKEND_REJECTED),
+        failure(AttachmentFailureCause.BACKEND_UNAVAILABLE),
+        failure(AttachmentFailureCause.TARGET_REJECTED, httpStatus = 403u),
+        failure(AttachmentFailureCause.NETWORK),
+        failure(AttachmentFailureCause.INSECURE_URL),
+        failure(AttachmentFailureCause.BLOCKED_ADDRESS),
+        failure(AttachmentFailureCause.TOO_MANY_REDIRECTS),
+        failure(AttachmentFailureCause.NOT_FOUND, httpStatus = 404u),
+        failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 408u),
+        failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 429u),
+        failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 503u),
+        failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 403u),
+        failure(AttachmentFailureCause.MALFORMED),
+        failure(AttachmentFailureCause.DIGEST_MISMATCH),
+        failure(AttachmentFailureCause.DECRYPTION_FAILED),
+        failure(AttachmentFailureCause.NOT_AN_ATTACHMENT),
+        failure(AttachmentFailureCause.DELETED),
+    )
 
 /** Every cause and credential kind, thrown and recorded, and no resend. */
 suspend fun checkAttachmentRecords(backend: BackendOptions) =
@@ -387,7 +388,10 @@ suspend fun checkAttachmentEnd(backend: BackendOptions) =
             val listener =
                 reopened.startListener(
                     EventFilter(listOf(EventKind.ATTACHMENT_DELETED), null, null, false),
-                ) { deletions.incrementAndGet(); first.complete(Unit) }
+                ) {
+                    deletions.incrementAndGet()
+                    first.complete(Unit)
+                }
             val deleted = EventQueue.open(this, reopened, attachmentFilter(listOf(EventKind.ATTACHMENT_DELETED)))
             resumed.deleteLocal(remote)
             withTimeout(10_000) { first.await() }
@@ -395,7 +399,10 @@ suspend fun checkAttachmentEnd(backend: BackendOptions) =
             val entered = CompletableDeferred<Unit>()
             val release = CompletableDeferred<Unit>()
             val finished = CompletableDeferred<Unit>()
-            EventStartHookForTest.beforeCallback = { entered.complete(Unit); release.await() }
+            EventStartHookForTest.beforeCallback = {
+                entered.complete(Unit)
+                release.await()
+            }
             EventStartHookForTest.afterCallback = { finished.complete(Unit) }
             try {
                 resumed.deleteLocal(small.remoteAttachment())

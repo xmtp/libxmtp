@@ -512,7 +512,7 @@ export async function attachmentRecords(
   backend: sdk.BackendOptions,
 ): Promise<void> {
   const root = realpathSync(await mkdtemp(join(tmpdir(), "xmtp-sdk-atch-")));
-  const held = await heldTransfer(process.env.SDK_FIXTURE_URL!);
+  const held = await heldTransfer(process.env.SDK_FIXTURE_URL!, true);
   const client = await sdk.Client.create(
     await sdk.generateLocalSigner(),
     fileOptions({ ...backend, url: held.backend }, root),
@@ -574,7 +574,7 @@ export async function attachmentEnd(
 ): Promise<void> {
   const root = realpathSync(await mkdtemp(join(tmpdir(), "xmtp-sdk-atch-")));
   const signer = await sdk.generateLocalSigner();
-  const held = await heldTransfer(process.env.SDK_FIXTURE_URL!);
+  const held = await heldTransfer(process.env.SDK_FIXTURE_URL!, true);
   const options = fileOptions({ ...backend, url: held.backend }, root);
   const client = await sdk.Client.create(signer, options);
   let reopened: sdk.Client | undefined;

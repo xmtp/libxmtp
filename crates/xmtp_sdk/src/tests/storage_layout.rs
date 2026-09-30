@@ -2,6 +2,14 @@ use super::*;
 
 use std::sync::atomic::AtomicUsize;
 
+// Identity fixtures need no pool tasks. Synchronous connection setup keeps
+// fixture removal separate from r2d2's background connection replenishment.
+fn layout_options() -> ClientOptions {
+    let mut settings = options();
+    settings.storage.single_connection = true;
+    settings
+}
+
 /// A TCP relay to the test backend that counts the connections it accepts.
 /// While it refuses, it closes every connection it accepts.
 struct CountingRelay {
@@ -88,6 +96,7 @@ fn directory(root: &std::path::Path, label: Option<&str>) -> StorageOptions {
             directory: root.to_string_lossy().into_owned(),
         },
         label: label.map(str::to_owned),
+        single_connection: true,
         ..Default::default()
     }
 }
@@ -102,7 +111,7 @@ fn is_storage_location(result: &Result<Client, XmtpError>) -> bool {
 #[xmtp_common::test(unwrap_try = true)]
 async fn default_storage_requires_a_host_location() {
     let signer = crate::generate_local_signer().await;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.storage = StorageOptions::default();
     assert!(matches!(
         Client::create(signer.clone(), settings.clone()).await,
@@ -120,7 +129,7 @@ async fn labelled_directory_opens_the_deployment_layout_offline_from_its_record(
     let relay = CountingRelay::start().await?;
     let root = temp_root("layout");
     let signer = crate::generate_local_signer().await;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage = directory(&root, Some("phone"));
     let online = Client::create(signer.clone(), settings.clone()).await?;
@@ -185,7 +194,7 @@ async fn unsafe_storage_label_fails_before_any_path_or_request() {
     let root = temp_root("label");
     let signer = crate::generate_local_signer().await;
     for label in [".", "..", "bad/name", "bad\\name", "bad:name", "bad\0name"] {
-        let mut settings = options();
+        let mut settings = layout_options();
         settings.backend = relay.backend();
         settings.storage = directory(&root, Some(label));
         let created = Client::create(signer.clone(), settings).await;
@@ -203,7 +212,7 @@ async fn explicit_storage_reopens_offline_without_inbox_id() {
     let db_path = root.join("chosen.sqlite");
     let attachments_dir = root.join("files");
     let signer = crate::generate_local_signer().await;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = StorageLocation::Explicit {
         db_path: db_path.to_string_lossy().into_owned(),
@@ -250,7 +259,7 @@ async fn explicit_storage_opens_only_for_an_identity_of_its_inbox() {
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-identity");
     std::fs::create_dir_all(&root)?;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root);
     let owner = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
@@ -311,7 +320,7 @@ async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers(
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-identity-workers");
     std::fs::create_dir_all(&root)?;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root);
     settings.attachments = Some(crate::AttachmentOptions {
@@ -337,9 +346,11 @@ async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers(
         let (store, _) = crate::client::open_store_if_present(&settings.storage, &db_path)
             .await?
             .expect("the database stays");
-        Ok(store
+        let count = store
             .db()
-            .raw_query(|conn| xmtp_db::schema::tasks::table.count().get_result(conn))?)
+            .raw_query(|conn| xmtp_db::schema::tasks::table.count().get_result(conn))?;
+        store.db().disconnect()?;
+        Ok(count)
     };
     {
         let (store, _) = crate::client::open_store_if_present(&settings.storage, &db_path)
@@ -348,6 +359,7 @@ async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers(
         store.db().raw_query(|conn| {
             xmtp_db::diesel::delete(xmtp_db::schema::tasks::table).execute(conn)
         })?;
+        store.db().disconnect()?;
     }
     assert_eq!(tasks().await?, 0);
 
@@ -372,6 +384,7 @@ async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers(
             .is_some(),
         "the rejected build swept the pending upload"
     );
+    store.db().disconnect()?;
     drop(store);
     assert!(
         staged.is_file(),
@@ -386,7 +399,7 @@ async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers(
 #[xmtp_common::test(unwrap_try = true)]
 async fn directory_storage_rejects_its_removed_creator() {
     let root = temp_root("directory-removed");
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.storage = directory(&root, None);
     let creator_signer = crate::generate_local_signer().await;
     let creator = signer::identity(creator_signer.clone()).await?;
@@ -426,7 +439,7 @@ async fn explicit_storage_fetches_a_removal_made_on_another_installation() {
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-removed-elsewhere");
     std::fs::create_dir_all(&root)?;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root.join("creator"));
     let creator_signer = crate::generate_local_signer().await;
@@ -492,7 +505,7 @@ async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses()
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-refused-deployment");
     std::fs::create_dir_all(&root)?;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root);
     let creator_signer = crate::generate_local_signer().await;
@@ -539,6 +552,7 @@ async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses()
             .get_result(conn)
     })?;
     assert_eq!(updates, 0, "the refused deployment got an identity request");
+    store.db().disconnect()?;
     std::fs::remove_dir_all(root)?;
 }
 
@@ -550,7 +564,7 @@ async fn explicit_storage_without_identity_sends_no_request_after_a_recorded_con
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-recorded-conflict");
     std::fs::create_dir_all(&root)?;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root);
     // The database holds no identity, so create does not know the inbox.
@@ -582,7 +596,7 @@ async fn explicit_storage_without_identity_updates_opens_offline_only_for_its_cr
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-no-updates");
     std::fs::create_dir_all(&root)?;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root);
     let creator_signer = crate::generate_local_signer().await;
@@ -632,7 +646,7 @@ async fn explicit_storage_refuses_its_creator_offline_when_membership_needs_a_wa
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-wallet-check");
     std::fs::create_dir_all(&root)?;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root);
     let creator_signer = crate::generate_local_signer().await;
@@ -699,7 +713,7 @@ async fn explicit_storage_reports_an_unreadable_identity_update_offline() {
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-unreadable-update");
     std::fs::create_dir_all(&root)?;
-    let mut settings = options();
+    let mut settings = layout_options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root);
     let creator_signer = crate::generate_local_signer().await;
