@@ -1337,8 +1337,99 @@ def covered_open_export(sdk: str, name: str) -> Decision | None:
     return None
 
 
+# Old Node and browser binding re-exports that the facade package roots do not
+# export under the same name. Each is a rename to the listed public name or a
+# removal with its replacement. check-manifest-roots.py checks that every
+# other re-export row names a real root export.
+BINDING_REEXPORT_RENAMES: dict[str, tuple[str, str]] = {
+    "BackupElementSelectionOption": ("ArchiveElement", ""),
+    "Consent": ("ConsentRecord", ""),
+    "ConsentEntityType": ("ConsentEntityKind", ""),
+    "ConversationType": ("ConversationKind", ""),
+    "GroupMember": ("Member", ""),
+    "GroupMembershipState": ("MembershipState", ""),
+    "GroupMessageKind": ("MessageKind", ""),
+    "GroupPermissionsOptions": ("GroupPermissionMode", ""),
+    "Lifetime": ("KeyPackageLifetime", ""),
+    "ListConversationsOrderBy": ("ConversationOrder", ""),
+    "LogOptions": ("LoggingOptions", ""),
+    "MessageDisappearingSettings": ("DisappearingSettings", ""),
+    "MetadataField": ("MetadataFieldKind", ""),
+    "PermissionUpdateType": ("PermissionUpdateKind", ""),
+    "SignatureRequestHandle": ("SignatureRequest", ""),
+    "SortDirection": ("MessageOrder", ""),
+    "WorkerConfigOptions": ("WorkerOptions", ""),
+    "WorkerIntervalOverride": ("WorkerInterval", ""),
+    "WorkerJitterOverride": (
+        "WorkerInterval",
+        "The jitter is `WorkerInterval.jitterNs`.",
+    ),
+    **{
+        f"contentType{kind}": (
+            "standardContentType",
+            f"Pass the standard content kind (`{kind[0].lower() + kind[1:]}`).",
+        )
+        for kind in (
+            "Actions Attachment GroupUpdated Intent LeaveRequest Markdown "
+            "MultiRemoteAttachment Reaction ReadReceipt RemoteAttachment Reply "
+            "Text TransactionReference WalletSendCalls"
+        ).split()
+    },
+    **{
+        f"encode{kind}": (
+            "encodeStandard",
+            f"Pass a `{kind[0].lower() + kind[1:]}` StandardContent value, or use `{kind}Codec`.",
+        )
+        for kind in (
+            "Actions Attachment Intent Markdown MultiRemoteAttachment Reaction "
+            "ReadReceipt RemoteAttachment TransactionReference WalletSendCalls"
+        ).split()
+    },
+}
+BINDING_REEXPORT_REMOVALS: dict[str, str] = {
+    "AppDataChange": "`ClientEvent` `conversationMetadataChanged` carries a `MetadataFieldChange` with field `appData`.",
+    "BackendBuilder": "The `BackendOptions` record replaces the builder; `Backend.connect(options)` opens a shared backend.",
+    "ContentType": "Message filters take `ContentTypeId` lists (`ListMessagesOptions.contentTypes`); `StandardContentKind` names the standard kinds.",
+    "ConversationListItem": "`Conversations.list` returns `Conversation` values (`Group | Dm`).",
+    "Cursor": "The debug cursor is `ConversationDebugInfo.cursor`; delivery positions are delivery cursor strings (`Message.deliveryCursor`).",
+    "DeliveryCursor": "A delivery cursor is an opaque string: `Message.deliveryCursor` and the reader option `from`.",
+    "EncryptedAttachment": "`encryptBytes` returns `EncryptedEncodedContent` (ciphertext and `EncryptionKeys`); `RemoteAttachmentCodec` encodes the reference.",
+    "GroupMetadata": "`Group.creatorInboxId` and `Conversation.kind` replace the metadata object.",
+    "Inbox": "`GroupUpdated` lists members as `InboxId` strings.",
+    "MessageCatchUp": "Retired delivery diagnostics: streams report `ConnectionState` and `Client.catchUpToLive` returns `CatchUpSummary`.",
+    "MessageCatchUpGeneration": "Retired delivery diagnostics: streams report `ConnectionState` and `Client.catchUpToLive` returns `CatchUpSummary`.",
+    "MessageTopicStatus": "Retired delivery diagnostics: streams report `ConnectionState` and `Client.catchUpToLive` returns `CatchUpSummary`.",
+    "MessageHistorySnapshot": "Each history `Message` carries its `deliveryCursor`; a reader opened `from` a cursor replays after it.",
+    "ReadReceipt": "Read receipt content is `StandardContent` of kind `readReceipt`; `ReadReceiptCodec` encodes it.",
+    "Reply": "Reply content is `StandardContent` of kind `reply`, and `Message.replyContent`; `ReplyCodec` encodes it.",
+    "UserPreferenceUpdate": "`Client.events` delivers `consentChanged` and `hmacKeysUpdated` `ClientEvent` values.",
+}
+
+
+def binding_reexport_outcome(sdk: str, name: str) -> Decision | None:
+    """The public outcome of an old binding re-export that has no same-name
+    root export."""
+    ref = (
+        "11.4 Node, Messages, codecs, preferences, values"
+        if sdk == "Node"
+        else "11.4 Browser; 11.4 Node, Messages, codecs, preferences, values"
+    )
+    if name in BINDING_REEXPORT_RENAMES:
+        final, note = BINDING_REEXPORT_RENAMES[name]
+        return decision("generated", final, ref, f"Renamed in the facade package root. {note}".strip())
+    if name in BINDING_REEXPORT_REMOVALS:
+        return decision(
+            "approved removal", "—", ref, f"Removed. Replacement: {BINDING_REEXPORT_REMOVALS[name]}"
+        )
+    return None
+
+
 def _classify(entry: object) -> Decision:
     sdk, name, kind, source = entry.sdk, entry.name, entry.kind, entry.source
+    if sdk in {"Node", "Browser"} and kind == "binding re-export":
+        outcome = binding_reexport_outcome(sdk, name.removeprefix("func "))
+        if outcome is not None:
+            return outcome
     if sdk == "Swift" and not source.endswith("/xmtpv3.swift"):
         if re.search(r"\.(?:toFfi|fromFfi)$", name):
             return decision(
@@ -2451,7 +2542,7 @@ def _classify(entry: object) -> Decision:
             "generated",
             spelling(name),
             ref,
-            "The facade package root exports this name from its public projection.",
+            "The facade package root exports this name.",
         )
     if (name.endswith(".sentAt") or name.endswith(".sentAtNs")) and name.split(".", 1)[
         0

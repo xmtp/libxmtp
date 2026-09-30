@@ -60,6 +60,11 @@ Run commands from the repository root in the Nix shell. Run
   `docs/self-hosted/sdk-api-manifest.md` is public in each installed product,
   in the static or instance placement that the manifest names.
   Run `just sdk generate` first.
+- `just sdk manifest-check` compares `docs/self-hosted/sdk-api-manifest.md`
+  with the old SDK sources, then checks that each Node and browser binding
+  re-export row names a real export of the generated package roots. A rename
+  names the new export; a removal names its replacement. Run
+  `just sdk generate` first.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
