@@ -580,3 +580,77 @@ async fn explicit_storage_without_identity_updates_opens_offline_only_for_its_cr
     assert_eq!(relay.connections(), 0, "offline check sent a request");
     std::fs::remove_dir_all(root)?;
 }
+
+// Offline, the state of a history with a smart contract wallet signature
+// that the database has not cached cannot be computed. Membership is then
+// unknown, so not even the creator opens the database.
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_refuses_its_creator_offline_when_membership_needs_a_wallet_check() {
+    use xmtp_db::{identity_update::StoredIdentityUpdate, prelude::QueryIdentityUpdates};
+    use xmtp_id::associations::{
+        AccountId, MemberIdentifier,
+        builder::SignatureRequestBuilder,
+        test_utils::MockSmartContractSignatureVerifier,
+        unverified::{NewUnverifiedSmartContractWalletSignature, UnverifiedSignature},
+    };
+
+    let relay = CountingRelay::start().await?;
+    let root = temp_root("explicit-wallet-check");
+    std::fs::create_dir_all(&root)?;
+    let mut settings = options();
+    settings.backend = relay.backend();
+    settings.storage.location = explicit(&root);
+    let creator_signer = crate::generate_local_signer().await;
+    let creator = signer::identity(creator_signer.clone()).await?;
+    let client = Client::create(creator_signer.clone(), settings.clone()).await?;
+    let inbox_id = client.inner.inbox_id().to_owned();
+
+    // The database alone holds an update in which the creator adds a smart
+    // contract wallet. The mock verifier accepts the wallet's signature here;
+    // offline, nothing can check it.
+    let wallet = signer::identity(crate::generate_local_signer().await).await?;
+    let wallet_member = MemberIdentifier::from(wallet.to_core()?);
+    let mut request = SignatureRequestBuilder::new(&inbox_id)
+        .add_association(wallet_member, creator.to_core()?.into())
+        .build();
+    let text = request.signature_text();
+    let Signature::Ecdsa(bytes) = signer::sign(creator_signer, SigningRequest { text }).await?
+    else {
+        panic!("the local signer signs with ECDSA");
+    };
+    let verifier = MockSmartContractSignatureVerifier::new(true);
+    request
+        .add_signature(UnverifiedSignature::new_recoverable_ecdsa(bytes), &verifier)
+        .await?;
+    request
+        .add_new_unverified_smart_contract_signature(
+            NewUnverifiedSmartContractWalletSignature::new(
+                vec![1; 65],
+                AccountId::new_evm(1, wallet.identifier.clone()),
+                Some(1),
+            ),
+            &verifier,
+        )
+        .await?;
+    let db = client.inner.context.db();
+    let last = db.get_identity_updates(&inbox_id, None, None)?;
+    let sequence_id = last.last().expect("the creator's updates").sequence_id + 1;
+    db.insert_or_ignore_identity_updates(&[StoredIdentityUpdate::new(
+        inbox_id,
+        sequence_id,
+        0,
+        request.build_identity_update()?.into(),
+    )])?;
+    client.end().await?;
+
+    relay.refuse();
+    settings.allow_offline = true;
+    let offline = Client::build(creator, settings, None).await;
+    assert!(
+        is_identity_mismatch(&offline),
+        "offline build: {:?}",
+        offline.err()
+    );
+    assert_eq!(relay.connections(), 0, "offline check sent a request");
+    std::fs::remove_dir_all(root)?;
+}
