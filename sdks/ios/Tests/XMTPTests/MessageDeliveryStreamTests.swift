@@ -329,7 +329,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 			if case .malformed = content {
 				XCTAssertEqual(try first.body, "")
 				XCTAssertEqual(try first.fallback, "")
-				XCTAssertThrowsError(try first.encodedContent)
+				XCTAssertEqual(try first.encodedContent.serializedData(), Data())
 			} else {
 				XCTAssertEqual(try first.body, "unreadable content")
 				XCTAssertEqual(try first.fallback, "unreadable content")

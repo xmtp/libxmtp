@@ -197,7 +197,7 @@ class MessageReaderTest {
                         if (content === invalidEncoding) {
                             assertArrayEquals(content, decoded.encodedContent.toByteArray())
                         } else {
-                            assertTrue(runCatching { decoded.encodedContent }.isFailure)
+                            assertEquals(EncodedContent.getDefaultInstance(), decoded.encodedContent)
                         }
                         1
                     })

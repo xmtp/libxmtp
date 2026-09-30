@@ -22,7 +22,7 @@ class DecodedMessage private constructor(
     val deliveryCursor: FfiDeliveryCursor? = null,
 ) {
     val encodedContent: Content.EncodedContent
-        get() = parsedContent ?: EncodedContent.parseFrom(libXMTPMessage.content)
+        get() = parsedContent ?: EncodedContent.getDefaultInstance()
 
     enum class MessageDeliveryStatus {
         ALL,

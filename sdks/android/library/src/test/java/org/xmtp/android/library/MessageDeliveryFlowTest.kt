@@ -276,6 +276,10 @@ class MessageDeliveryFlowTest {
                     if (it == 1) {
                         assertEquals(expectedFallback, failedMessage.body)
                         assertEquals(expectedFallback, failedMessage.fallback)
+                        assertEquals(
+                            if (expectedFallback.isEmpty()) EncodedContent.getDefaultInstance() else invalidEncoding,
+                            failedMessage.encodedContent,
+                        )
                         assertEquals(0, delivery.acknowledgements)
                     } else {
                         assertEquals(1, delivery.acknowledgements)

@@ -175,7 +175,7 @@ public struct DecodedMessage: Identifiable {
 
 	public var encodedContent: EncodedContent {
 		get throws {
-			try EncodedContent(serializedBytes: ffiMessage.content)
+			(try? EncodedContent(serializedBytes: ffiMessage.content)) ?? EncodedContent()
 		}
 	}
 
