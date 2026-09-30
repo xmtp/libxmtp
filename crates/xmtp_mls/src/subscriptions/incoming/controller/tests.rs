@@ -3552,3 +3552,87 @@ async fn a_command_burst_applies_at_most_the_cap_per_step() {
     assert_eq!(controller.restored.len(), queued);
     assert!(controller.commands.try_recv().is_err());
 }
+
+fn run_raw_sql<C: XmtpSharedContext>(context: &C, sql: &str) {
+    use xmtp_db::{ConnectionExt, diesel::RunQueryDsl};
+    context
+        .db()
+        .raw_query(|conn| xmtp_db::diesel::sql_query(sql).execute(conn))
+        .unwrap();
+}
+
+/// One run-loop pass up to opening network interest.
+fn pass<C: XmtpSharedContext + 'static>(controller: &mut Controller<C>) {
+    controller.storage_error = controller.reconcile().err().map(Arc::new);
+    controller.start_open();
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_failed_discovery_still_retires_a_queued_restored_notice() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let broken = alix.create_group(None, None)?;
+    let topic = Topic::new_group_message(group.group_id);
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::AllGroups,
+    });
+    pass(&mut controller);
+    assert!(controller.storage_error.is_none());
+    assert!(controller.transport.requested.contains(&topic));
+
+    // Discovery fails on another group while a Restored notice is queued.
+    set_membership_value(&alix.context, &broken.group_id, UNDECODABLE);
+    set_membership_value(
+        &alix.context,
+        &group.group_id,
+        GroupMembershipState::Restored as i32,
+    );
+    controller.command(Command::Restored(vec![group.group_id]));
+    pass(&mut controller);
+    assert!(controller.storage_error.is_some());
+    assert!(controller.is_retired(&topic));
+    assert!(!controller.interested().contains(&topic));
+    assert!(!controller.transport.requested.contains(&topic));
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_failed_reconcile_opens_no_new_network_interest() {
+    tester!(alix, disable_workers);
+    let group = alix.create_group(None, None)?;
+    let kept = Topic::new_group_message(group.group_id);
+    let added = Topic::new_group_message(GroupId::generate());
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Topics(vec![kept.clone()]),
+    });
+    pass(&mut controller);
+    assert!(controller.transport.requested.contains(&kept));
+
+    // The pending-capacity step at the end of reconcile fails after the new
+    // scope's topics are already selected.
+    run_raw_sql(
+        &alix.context,
+        "ALTER TABLE incoming_envelopes RENAME TO incoming_envelopes_hidden",
+    );
+    controller.command(Command::Acquire {
+        id: 2,
+        scope: IncomingScope::Topics(vec![added.clone()]),
+    });
+    pass(&mut controller);
+    assert!(controller.storage_error.is_some());
+    assert!(controller.transport.requested.contains(&kept));
+    assert!(!controller.transport.requested.contains(&added));
+
+    run_raw_sql(
+        &alix.context,
+        "ALTER TABLE incoming_envelopes_hidden RENAME TO incoming_envelopes",
+    );
+    pass(&mut controller);
+    assert!(controller.storage_error.is_none());
+    assert!(controller.transport.requested.contains(&added));
+}
