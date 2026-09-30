@@ -1,3 +1,5 @@
+import { runInNewContext } from "node:vm";
+
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { initPureWasm } from "../../../../target/sdk-generated/typescript-pure/index";
@@ -145,6 +147,45 @@ describe("typed codec send policy", () => {
       const [sent] = contentForSend(content as never, undefined, undefined);
       expect(sent).toBe(content);
     }
+  });
+
+  it("accepts envelope bytes and parameters from another realm", () => {
+    const foreign = runInNewContext(
+      "({ bytes: new Uint8Array([1, 2]), parameters: new Map([['k', 'v']]) })",
+    ) as { bytes: Uint8Array; parameters: Map<string, string> };
+    expect(foreign.bytes instanceof Uint8Array).toBe(false);
+    const sent = encodeForSend(
+      codec({
+        encode: () =>
+          ({
+            type: noteType,
+            content: foreign.bytes,
+            parameters: foreign.parameters,
+          }) as P.EncodedContent,
+      }),
+      "x",
+    );
+    expect(sent.content).toBe(foreign.bytes);
+    expect([...(sent.parameters ?? new Map())]).toEqual([["k", "v"]]);
+    // A value that only claims to be bytes or a map is rejected.
+    codecEncodeFailed(() =>
+      encodeForSend(
+        codec({
+          encode: () =>
+            envelope({ content: { [Symbol.toStringTag]: "Uint8Array" } }),
+        }),
+        "x",
+      ),
+    );
+    codecEncodeFailed(() =>
+      encodeForSend(
+        codec({
+          encode: () =>
+            envelope({ parameters: { [Symbol.toStringTag]: "Map" } }),
+        }),
+        "x",
+      ),
+    );
   });
 
   it("keeps a throwing codec check inside the failure boundary", () => {

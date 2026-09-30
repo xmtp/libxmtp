@@ -178,6 +178,19 @@ async function replyFailures(
     before,
     "a failed codec step made a publish attempt",
   );
+  // A codec check that throws (a Proxy trap) is a codec failure on reply too.
+  await assert.rejects(
+    parent.reply(
+      new Proxy(noteCodec(), {
+        has() {
+          throw new Error("has trap");
+        },
+      }),
+      { text: "trap" },
+    ),
+    isCodecEncodeFailed,
+    "a throwing codec check on reply did not fail with CodecEncodeFailed",
+  );
   // A rejected async step is handled, not left to end the process.
   await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(unhandled, [], "an async codec step rejection was unhandled");
