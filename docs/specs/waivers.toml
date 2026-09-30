@@ -617,13 +617,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Rust core implements this as MlsGroup::update_user_data in xmtp_mls, with tests. No binding or SDK exposes it yet, so an app cannot call it; the owner deferred binding and SDK exposure while the bindings absorb other changes."
 
 [[waiver]]
-id = "CTYPE-031"
-kind = "untested"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/4273"
-reason = "SendOptions defaults compression to None, and conversation::send_encoded calls compress_if_requested with that option. message_actions_use_ids_and_compression_is_opt_in checks that an omitted compression option leaves the stored envelope uncompressed. Public-package coverage of all send paths remains due in follow-up Task 6."
-
-[[waiver]]
 id = "LOG-001"
 kind = "untested"
 owner = "protocol"

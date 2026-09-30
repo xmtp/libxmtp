@@ -11,6 +11,7 @@ const expected = [
   "decodeStandard",
   "encodeStandard",
   "encodeText",
+  "isCatalogueContentType",
   "sdkVersion",
   "standardContentType",
 ];
@@ -27,4 +28,4 @@ assert.deepEqual(
   readdirSync(`${root}/typescript-pure/runtime/public`).sort(),
   ["codec.ts", "codecs.ts"],
 );
-console.log("pure WASM exports only the five approved functions");
+console.log("pure WASM exports only the six approved functions");

@@ -97,7 +97,7 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
     client.end().await?;
 }
 
-// verifies: CTYPE-023
+// verifies: CTYPE-023, CTYPE-031
 #[xmtp_common::test(unwrap_try = true)]
 async fn message_actions_use_ids_and_compression_is_opt_in() {
     use crate::{

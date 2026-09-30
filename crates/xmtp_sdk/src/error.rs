@@ -98,6 +98,10 @@ pub enum XmtpError {
     InvalidCursor(ErrorDetails),
     #[error("foreign cursor: {0:?}")]
     ForeignCursor(ErrorDetails),
+    /// A host content codec, or its fallback or push hook, failed before the
+    /// send. The SDK made no publish attempt. The host runtime returns it.
+    #[error("codec encode failed: {0:?}")]
+    CodecEncodeFailed(ErrorDetails),
     #[error("unknown failure: {0:?}")]
     Unknown(ErrorDetails),
 }

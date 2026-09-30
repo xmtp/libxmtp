@@ -161,6 +161,14 @@ grep -q "TS2307: Cannot find module 'xmtp-sdk/xmtp_sdk'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
 grep -q "Property 'createGroupWithIdentities' does not exist on type 'Conversations'" "$log"
 echo "Node public consumer cannot reach the binding Client"
+if node_build "$node_consumer/negative/codecs.ts" >"$log" 2>&1; then
+  echo "Node typed codec probe compiled" >&2
+  exit 1
+fi
+# A typed codec rejects a value of another type in encode, Group and Dm send
+# and prepareMessage, reply, and a standard variant codec: seven distinct lines.
+test "$(grep -E "codecs\.ts\([0-9]+,[0-9]+\): error TS(2345|2769)" "$log" | grep -oE "codecs\.ts\([0-9]+," | sort -u | wc -l | tr -d ' ')" -eq 7
+echo "Node codec_typed_consumers passed (positive src/codecs.ts, negative negative/codecs.ts)"
 
 # The package root exports the public names, whether an app imports it or
 # requires it. This runs, so the package needs its native library.
@@ -187,3 +195,11 @@ grep -q "TS2307: Cannot find module 'xmtp-sdk-browser/typescript-wasm/runtime/br
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
 grep -q "Property 'createGroupWithIdentities' does not exist on type 'Conversations'" "$log"
 echo "Browser public consumer cannot reach the worker proxy or its session"
+if browser_build "$browser_consumer/negative/codecs.ts" >"$log" 2>&1; then
+  echo "Browser typed codec probe compiled" >&2
+  exit 1
+fi
+# A typed codec rejects a value of another type in encode, Group and Dm send
+# and prepareMessage, reply, and a standard variant codec: seven distinct lines.
+test "$(grep -E "codecs\.ts\([0-9]+,[0-9]+\): error TS(2345|2769)" "$log" | grep -oE "codecs\.ts\([0-9]+," | sort -u | wc -l | tr -d ' ')" -eq 7
+echo "Browser codec_typed_consumers passed (positive src/codecs.ts, negative negative/codecs.ts)"

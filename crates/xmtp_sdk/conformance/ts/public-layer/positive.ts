@@ -6,6 +6,7 @@ import {
   Dm,
   Group,
   MessageStream,
+  ReactionV2Codec,
   TextCodec,
   XmtpError,
   type Attachment,
@@ -18,12 +19,15 @@ import {
   type EncodedContent,
   type Message,
   type Signer,
+  type StandardContent,
 } from "../../../../../target/sdk-generated/typescript-napi/index.ts";
 
 type Point = { readonly x: number; readonly y: number };
 
 declare const pointCodec: ContentCodec<Point>;
 declare const textCodec: ContentCodec<string>;
+declare const literalCodec: ContentCodec<"a" | "b">;
+declare const anyText: string;
 declare const signer: Signer;
 
 export async function registerTypedCodecs(): Promise<Client> {
@@ -37,6 +41,67 @@ export async function registerTypedCodecs(): Promise<Client> {
 
 export async function replyWithCodec(message: Message): Promise<string> {
   return message.reply(pointCodec, { x: 1, y: 2 });
+}
+
+// A standard codec for one StandardContent variant takes only that variant.
+export async function standardVariantCodecs(
+  group: Group,
+  dm: Dm,
+  reaction: Extract<StandardContent, { kind: "reaction" }>,
+) {
+  const reactions = new ReactionV2Codec();
+  await group.send(reactions, reaction);
+  // @ts-expect-error A reaction codec does not take text content.
+  await group.send(reactions, { kind: "text", value: "x" });
+  // @ts-expect-error A reaction codec does not take text content.
+  await dm.send(reactions, { kind: "text", value: "x" });
+  // @ts-expect-error A reaction codec does not encode text content.
+  reactions.encode({ kind: "text", value: "x" });
+}
+
+// verifies: CTYPE-017
+export async function typedCodecSends(group: Group, encoded: EncodedContent) {
+  await group.send(pointCodec, { x: 1, y: 2 });
+  await group.send(pointCodec, { x: 1, y: 2 }, { shouldPush: false });
+  await group.prepareMessage(textCodec, "prepared");
+  // The envelope form keeps working next to the codec form.
+  await group.send(encoded);
+  await group.send(encoded, { shouldPush: true });
+  // @ts-expect-error The send value must be the codec's value type.
+  await group.send(pointCodec, { x: "1", y: 2 });
+  // @ts-expect-error The send value must be the codec's value type.
+  await group.prepareMessage(literalCodec, anyText);
+  // @ts-expect-error A codec send needs a value.
+  await group.send(pointCodec);
+}
+
+// verifies: CTYPE-017
+export async function typedCodecHooks(message: Message): Promise<Client> {
+  // Optional send hooks keep the codec's value type.
+  const noted: ContentCodec<Point> = {
+    ...pointCodec,
+    fallback: (point) => `point ${point.x},${point.y}`,
+    shouldPush: (point) => point.x !== 0,
+  };
+  await message.reply(noted, { x: 1, y: 2 });
+  // @ts-expect-error The reply value must be the codec's value type.
+  await message.reply(pointCodec, { x: "1", y: 2 });
+  // @ts-expect-error The reply value must be the codec's value type.
+  await message.reply(textCodec, 1);
+  // @ts-expect-error A wider value must not widen the codec's value type.
+  await message.reply(literalCodec, anyText);
+  // @ts-expect-error A codec's value type does not widen.
+  const widened: ContentCodec<string | number> = textCodec;
+  void widened;
+  // @ts-expect-error A fallback hook takes the codec's value type.
+  const wrongHook: ContentCodec<Point> = { ...pointCodec, fallback: (text: string) => text };
+  void wrongHook;
+  // A codec with hooks still registers with others of any value type.
+  return Client.create(signer, {
+    backend: { url: "http://localhost:5050" },
+    storage: { location: "inMemory" },
+    codecs: [noted, textCodec],
+  });
 }
 
 export function readGetters(client: Client, conversation: Conversation) {

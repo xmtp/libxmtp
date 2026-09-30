@@ -36,6 +36,7 @@ import type { LiftedCustomBody, LiftedCustomContent } from "../custom-lift";
 import type { Timestamp } from "../ids";
 import { publicClient, type Client } from "./client";
 import type { ContentCodec } from "./codec";
+import { encodeForSend } from "./codec-policy";
 import { encodeText, type BoundMessage } from "./host";
 
 // A host reply can carry a decoded custom body (browser); only its tag is used.
@@ -189,9 +190,15 @@ export class Message {
     content: string | EncodedContent,
     options?: SendOptions,
   ): Promise<MessageId>;
+  /**
+   * Reply with a value of a typed codec. The codec's fallback applies to the
+   * nested envelope; the reply keeps the reply type's push default unless
+   * `options.shouldPush` is set. A failed codec step is `CodecEncodeFailed`,
+   * with no publish attempt.
+   */
   async reply<T>(
     codec: ContentCodec<T>,
-    value: T,
+    value: NoInfer<T>,
     options?: SendOptions,
   ): Promise<MessageId>;
   async reply<T>(
@@ -204,7 +211,7 @@ export class Message {
       typeof content === "string"
         ? encodedText(content)
         : isCodec
-          ? content.encode(valueOrOptions as T)
+          ? encodeForSend(content, valueOrOptions as T)
           : content;
     const sendOptions = isCodec
       ? options

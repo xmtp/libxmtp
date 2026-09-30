@@ -11,6 +11,9 @@ export type {
 } from "../../host-message.gen.js";
 // The main thread encodes text with the pure module, as the host Message does.
 export { encodeText } from "../../../typescript-pure/xmtp_sdk.js";
+// The one catalogue predicate for the send push default (Decision 24). It is
+// a pure function, so the main thread calls the pure module.
+export { isCatalogueContentType } from "../../../typescript-pure/public-values.gen.js";
 import { Message as BoundMessage } from "../../host-message.gen.js";
 import { XmtpError } from "../../public-values.gen.js";
 import type { Message as RuntimeMessage } from "../message.js";
