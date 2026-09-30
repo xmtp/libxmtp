@@ -253,6 +253,155 @@ async fn removal_supersedes_pending_intents_and_a_readd_can_publish() {
         .await?;
 }
 
+// verifies: SEND-018
+#[xmtp_common::test(unwrap_try = true)]
+async fn removal_fails_unconfirmed_message_intents_and_preserves_confirmed_message() {
+    use crate::utils::id::calculate_message_id_for_intent;
+    use xmtp_db::group_intent::{IntentKind, IntentState};
+    use xmtp_db::group_message::DeliveryStatus;
+    use xmtp_db::prelude::QueryGroupIntent;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+
+    let confirmed_id = bo_group
+        .send_message(b"confirmed before removal", SendMessageOpts::default())
+        .await?;
+    let queued_id =
+        bo_group.send_message_optimistic(b"queued before removal", SendMessageOpts::default())?;
+    let unconfirmed_id =
+        bo_group.send_message_optimistic(b"published without echo", SendMessageOpts::default())?;
+    let db = bo.context.db();
+    let pending = db.find_group_intents(
+        bo_group.group_id,
+        Some(vec![IntentState::ToPublish]),
+        Some(vec![IntentKind::SendMessage]),
+    )?;
+    assert_eq!(pending.len(), 2);
+    let unconfirmed = pending
+        .iter()
+        .find(|intent| {
+            calculate_message_id_for_intent(intent).ok().flatten() == Some(unconfirmed_id.clone())
+        })
+        .expect("unconfirmed message intent");
+    db.set_group_intent_published(unconfirmed.id, &[0xA5; 32], None, None, 0)?;
+    for id in [&queued_id, &unconfirmed_id] {
+        assert_eq!(
+            db.get_group_message(id)?
+                .expect("stored pending message")
+                .delivery_status,
+            DeliveryStatus::Unpublished
+        );
+    }
+
+    alix_group.remove_members(&[bo.inbox_id()]).await?;
+    let _ = bo_group.sync().await;
+    assert!(!bo_group.is_active()?);
+    let abandoned = db.find_group_intents(
+        bo_group.group_id,
+        Some(vec![IntentState::Error]),
+        Some(vec![IntentKind::SendMessage]),
+    )?;
+    assert_eq!(abandoned.len(), 2);
+    for id in [&queued_id, &unconfirmed_id] {
+        assert!(abandoned.iter().any(|intent| {
+            calculate_message_id_for_intent(intent).ok().flatten() == Some(id.clone())
+        }));
+        assert_eq!(
+            db.get_group_message(id)?
+                .expect("failed message retained")
+                .delivery_status,
+            DeliveryStatus::Failed
+        );
+    }
+    assert_eq!(
+        db.get_group_message(&confirmed_id)?
+            .expect("confirmed message retained")
+            .delivery_status,
+        DeliveryStatus::Published
+    );
+
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+    bo_group.publish_messages().await?;
+    alix_group.sync().await?;
+    let alix_db = alix.context.db();
+    for id in [&queued_id, &unconfirmed_id] {
+        assert!(alix_db.get_group_message(id)?.is_none());
+    }
+}
+
+// verifies: SEND-005
+#[xmtp_common::test(unwrap_try = true)]
+async fn inactive_group_rejects_optimistic_and_prepared_messages_before_storage() {
+    use crate::groups::GroupError;
+    use crate::utils::id::calculate_message_id;
+    use xmtp_db::group_intent::{IntentKind, IntentState};
+    use xmtp_db::prelude::QueryGroupIntent;
+
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+    alix_group.remove_members(&[bo.inbox_id()]).await?;
+    let _ = bo_group.sync().await;
+    assert!(!bo_group.is_active()?);
+
+    let optimistic_bytes = b"optimistic after removal";
+    let optimistic_key = "inactive-optimistic";
+    let prepared_bytes = b"prepared after removal";
+    let prepared_key = "inactive-prepared";
+    let optimistic = bo_group.send_message_optimistic(
+        optimistic_bytes,
+        SendMessageOpts {
+            idempotency_key: Some(optimistic_key.into()),
+            ..Default::default()
+        },
+    );
+    let prepared = bo_group.prepare_message_for_later_publish(
+        prepared_bytes,
+        false,
+        Some(prepared_key.into()),
+    );
+    assert!(matches!(optimistic, Err(GroupError::GroupInactive)));
+    assert!(matches!(prepared, Err(GroupError::GroupInactive)));
+
+    let db = bo.context.db();
+    for (bytes, key) in [
+        (optimistic_bytes.as_slice(), optimistic_key),
+        (prepared_bytes.as_slice(), prepared_key),
+    ] {
+        let id = calculate_message_id(bo_group.group_id, bytes, key);
+        assert!(db.get_group_message(&id)?.is_none());
+    }
+    assert!(
+        db.find_group_intents(
+            bo_group.group_id,
+            Some(vec![IntentState::ToPublish, IntentState::Published]),
+            Some(vec![IntentKind::SendMessage]),
+        )?
+        .is_empty()
+    );
+
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+    bo.sync_welcomes().await?;
+    let bo_group = bo.group(&alix_group.group_id)?;
+    bo_group.sync().await?;
+    assert!(bo_group.is_active()?);
+    bo_group.send_message_optimistic(b"active optimistic", SendMessageOpts::default())?;
+    bo_group.prepare_message_for_later_publish(b"active prepared", false, None)?;
+}
+
 /// A snapshot-built client must still be able to store and deliver messages.
 /// The delivery-sequence allocator shares `refresh_state` with network
 /// progress, so a reset that clears the whole table leaves the client unable

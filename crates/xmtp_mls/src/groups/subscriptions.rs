@@ -35,10 +35,17 @@ where
         crate::subscriptions::barrier::wait_through(&self.context, [(topic, cursor)].into(), None)
             .await
             .map_err(super::GroupError::from)?;
-        Ok(self
+        let message = self
             .context
             .db()
-            .get_group_message_by_cursor(self.group_id, cursor)?
+            .get_group_message_by_cursor(self.group_id, cursor)?;
+        // implements: META-051
+        let current_time_ns = xmtp_common::time::now_ns();
+        Ok(message
+            .filter(|row| {
+                row.expire_at_ns
+                    .is_none_or(|deadline| deadline > current_time_ns)
+            })
             .into_iter()
             .collect())
     }
@@ -82,7 +89,10 @@ pub(crate) mod tests {
     use prost::Message as ProstMessage;
     use std::time::Duration;
     use xmtp_cryptography::utils::generate_local_wallet;
-    use xmtp_db::group_message::GroupMessageKind;
+    use xmtp_db::{
+        ConnectionExt,
+        group_message::{GroupMessageKind, QueryGroupMessage},
+    };
 
     #[xmtp_common::timeout(Duration::from_secs(10))]
     #[rstest::rstest]
@@ -184,10 +194,14 @@ pub(crate) mod tests {
         assert_eq!(second_val.decrypted_message_bytes, "hello".as_bytes());
     }
 
+    // verifies: META-051
     #[xmtp_common::test(unwrap_try = true)]
     async fn test_process_streamed_group_message() {
-        crate::tester!(alix);
-        crate::tester!(bo);
+        use diesel::prelude::*;
+        use xmtp_db::schema::group_messages::dsl as message_dsl;
+
+        crate::tester!(alix, disable_workers);
+        crate::tester!(bo, disable_workers);
         let group = alix.create_group(None, None)?;
         group.add_members(&[bo.inbox_id()]).await?;
         let bo_groups = bo.sync_welcomes().await?;
@@ -218,5 +232,45 @@ pub(crate) mod tests {
         assert!(!messages.is_empty());
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].decrypted_message_bytes, b"test message");
+
+        let message_id = messages[0].id.clone();
+        let cursor = xmtp_proto::types::Cursor(
+            envelope
+                .meta
+                .as_ref()
+                .unwrap()
+                .cursor
+                .as_ref()
+                .unwrap()
+                .sequence_id,
+        );
+        bo.context.db().raw_query(|conn| {
+            diesel::update(message_dsl::group_messages.find(&message_id))
+                .set(message_dsl::expire_at_ns.eq(Some(xmtp_common::time::now_ns() - 1)))
+                .execute(conn)
+        })?;
+        assert!(
+            bo.context
+                .db()
+                .get_group_message_by_cursor(bo_group.group_id, cursor)?
+                .is_some()
+        );
+        assert!(
+            bo_group
+                .process_streamed_group_message(envelope.encode_to_vec())
+                .await?
+                .is_empty()
+        );
+
+        bo.context.db().raw_query(|conn| {
+            diesel::update(message_dsl::group_messages.find(&message_id))
+                .set(message_dsl::expire_at_ns.eq(Some(i64::MAX)))
+                .execute(conn)
+        })?;
+        let visible = bo_group
+            .process_streamed_group_message(envelope.encode_to_vec())
+            .await?;
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0].id, message_id);
     }
 }

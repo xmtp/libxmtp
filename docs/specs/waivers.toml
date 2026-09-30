@@ -117,13 +117,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The re-add reset is stored with each device's own clock rather than the Welcome's backend timestamp, and is skipped when the creator branch matched."
 
 [[waiver]]
-id = "CONS-030"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "An explicit empty consent filter is treated as an absent filter and returns allowed and unknown conversations."
-
-[[waiver]]
 id = "SYNC-021"
 kind = "gap"
 owner = "protocol"
@@ -224,13 +217,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "Final membership authorization evaluates the retained proposer for each inbox rather than the proposer of every corresponding Add or Remove."
 
 [[waiver]]
-id = "META-051"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "A direct lookup by message id returns an expired message until cleanup deletes it."
-
-[[waiver]]
 id = "DMS-010"
 kind = "gap"
 owner = "protocol"
@@ -294,25 +280,11 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current reader does not expose a failed custom codec as a custom item with its error while keeping the stream open."
 
 [[waiver]]
-id = "SEND-005"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Optimistic sending does not check active membership before storing work, so it queues into a group the client has been removed from."
-
-[[waiver]]
 id = "SEND-016"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A rejected echo marks the intent as errored without setting its message row to failed."
-
-[[waiver]]
-id = "SEND-018"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Removal from a group rejects pending intents without failing their message rows."
 
 [[waiver]]
 id = "ARCH-008"
@@ -364,13 +336,6 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "A raw-envelope send uses a fixed default for the push flag instead of the value the catalogue gives for the content type."
 
 [[waiver]]
-id = "CTYPE-011"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The reply encoder accepts an inner envelope that carries no type."
-
-[[waiver]]
 id = "CTYPE-022"
 kind = "gap"
 owner = "protocol"
@@ -383,13 +348,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Two gaps. The remote attachment decoder accepts a missing required parameter as an empty value. The Android and iOS SDK remote attachment codecs of the existing bindings, which the SDK façade replaces, reject an http:// URL to localhost or a loopback address that the parameters table admits."
-
-[[waiver]]
-id = "CTYPE-018"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Deletion eligibility is read from the stored type enum without validating the target's authority and major version."
 
 [[waiver]]
 id = "CTYPE-023"

@@ -76,7 +76,10 @@ pub(super) fn require_content_type(content: &EncodedContent) -> Result<(), XmtpE
     Ok(())
 }
 
-pub(super) fn parent_stored(
+/// Reload the reply parent that enrichment found, with the same expiry bound.
+/// A parent that expired after the relation read is omitted.
+// implements: META-051
+pub(crate) fn parent_stored(
     group: &MlsGroup<xmtp_mls::MlsContext>,
     message: &DecodedMessage,
 ) -> Result<Option<StoredGroupMessage>, XmtpError> {
@@ -89,7 +92,7 @@ pub(super) fn parent_stored(
     group
         .context
         .db()
-        .get_group_message(&parent.metadata.id)
+        .get_app_visible_group_message(&parent.metadata.id, xmtp_common::time::now_ns())
         .map_err(XmtpError::unknown)
 }
 
