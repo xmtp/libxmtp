@@ -499,6 +499,62 @@ async fn offline_build_on_another_deployment_fails_its_first_request_with_backen
     }
 }
 
+/// After a blocked connection, a sync and later calls keep the typed
+/// configuration code; only end() makes the client `ClientClosed`.
+// verifies: CONF-064, CONF-077
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_blocked_connection_keeps_its_code_on_sync_and_later_calls() {
+    use xmtp_db::prelude::QueryServerConfiguration;
+
+    let path = std::env::temp_dir().join(format!(
+        "sdk-blocked-sync-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
+    let signer = crate::generate_local_signer().await;
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let online = Client::create(signer.clone(), settings.clone()).await?;
+    let inbox_id = online.inbox_id();
+    {
+        let db = online.inner.context.db();
+        let stored = db.server_configuration()?.expect("stored configuration");
+        db.store_server_configuration(
+            "org.example.other-deployment",
+            "http://moved.example",
+            &stored.response,
+            stored.fetched_at_ns,
+        )?;
+    }
+    online.end().await?;
+
+    settings.allow_offline = true;
+    let identity = signer::identity(signer).await?;
+    let offline = Client::build(identity, settings, Some(inbox_id)).await?;
+    let first = offline.conversations().sync_all(None).await.unwrap_err();
+    assert!(
+        matches!(first, XmtpError::BackendMismatch(_)),
+        "sync_all: {first:?}"
+    );
+    let later = offline
+        .conversations()
+        .list(None)
+        .await
+        .err()
+        .expect("a later call failed");
+    assert!(
+        matches!(later, XmtpError::BackendMismatch(_)),
+        "a later call: {later:?}"
+    );
+    offline.end().await?;
+    let ended = offline.conversations().sync_all(None).await.unwrap_err();
+    assert!(
+        matches!(ended, XmtpError::ClientClosed(_)),
+        "after end: {ended:?}"
+    );
+    std::fs::remove_file(path)?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_create_keeps_one_inbox_id() {
     let signer = crate::generate_local_signer().await;

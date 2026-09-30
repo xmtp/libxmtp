@@ -315,3 +315,34 @@ fn a_connection_cause_in_a_group_error_is_storage() {
     let error = XmtpError::from_group(GroupError::Db(connection()));
     assert!(matches!(error, XmtpError::Storage(_)), "{error:?}");
 }
+
+// A sync that meets a blocked connection fails with the client's
+// configuration error inside the group error.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_configuration_cause_in_a_group_error_keeps_its_code() {
+    expect(
+        XmtpError::from_group(GroupError::Client(mismatch())),
+        "BackendMismatch",
+        ErrorCategory::Configuration,
+        false,
+    );
+}
+
+// Push processing keeps a configuration code before its notification codes.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+fn push_processing_keeps_a_configuration_code() {
+    use xmtp_mls::client::notifications::NotificationError;
+    expect(
+        XmtpError::from_notification(NotificationError::Group(GroupError::Client(mismatch()))),
+        "BackendMismatch",
+        ErrorCategory::Configuration,
+        false,
+    );
+    expect(
+        XmtpError::from_notification(NotificationError::Api(preflight(mismatch()))),
+        "BackendMismatch",
+        ErrorCategory::Configuration,
+        false,
+    );
+}

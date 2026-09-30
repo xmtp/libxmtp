@@ -396,6 +396,24 @@ impl XmtpError {
         }
     }
 
+    /// The configuration or lifecycle code of a typed cause in `error`'s
+    /// chain, if it has one.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn configuration_cause(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        Self::classify(error).filter(|found| {
+            matches!(
+                found,
+                Self::BackendMismatch(_)
+                    | Self::ClientVersionTooOld(_)
+                    | Self::ConfigurationUnavailable(_)
+                    | Self::ConfigurationInvalid(_)
+                    | Self::AuthRequired(_)
+                    | Self::ChainNotAccepted(_)
+                    | Self::ClientClosed(_)
+            )
+        })
+    }
+
     /// Classify only the causes below `error`, not `error` itself.
     fn classify_sources(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
         error.source().and_then(Self::classify)
@@ -542,6 +560,16 @@ impl XmtpError {
     ) -> Self {
         use xmtp_common::RetryableError;
         use xmtp_mls::client::notifications::NotificationError;
+        // A failed configuration check or a blocked connection keeps its
+        // configuration code, as on every other path.
+        let configuration = match &error {
+            NotificationError::Api(source) => Self::configuration_cause(source),
+            NotificationError::Group(source) => Self::configuration_cause(source),
+            _ => None,
+        };
+        if let Some(found) = configuration {
+            return found;
+        }
         match error {
             NotificationError::PermissionDenied => Self::PermissionDenied(Self::details(
                 "PermissionDenied",
