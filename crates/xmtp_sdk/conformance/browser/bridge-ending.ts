@@ -1,5 +1,6 @@
 import { expect, it } from "vitest";
 
+import { RemoteObject } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object.js";
 import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
 import {
   PoolLocks,
@@ -69,7 +70,86 @@ async function endWithReadInTransit(endFails: boolean) {
   return { end: await end, read: await read };
 }
 
+class EventReaderProxy extends RemoteObject {
+  next(): Promise<unknown> {
+    return this.call("EventReader.next", []);
+  }
+}
+
 export function registerEndingTests(): void {
+  it("ends in-flight, queued, and later event reads after a successful close", async () => {
+    const entered = latch();
+    const release = latch();
+    let reads = 0;
+    const { engine, session } = host(async (key, _args, context) => {
+      if (key === "EventReader.next") {
+        reads++;
+        context.started?.();
+        context.settled?.();
+        entered.resolve();
+        await release.promise;
+        return { kind: "conversationJoined" };
+      }
+      return undefined;
+    });
+    await session.ready();
+    const owner = engine.registry.add({}, "Client");
+    const reader = new EventReaderProxy(
+      session,
+      engine.registry.add({}, "EventReader", owner.owner),
+    );
+    const first = reader.next();
+    const queued = reader.next();
+    await entered.promise;
+    session.fenceOwner(owner.owner);
+    session.closeOwner(owner.owner, []);
+    await expect(first).resolves.toBeUndefined();
+    await expect(queued).resolves.toBeUndefined();
+    await expect(reader.next()).resolves.toBeUndefined();
+    expect(reads).toBe(1);
+    release.resolve();
+    session.terminate();
+  });
+
+  for (const outcome of ["rollback", "death"] as const) {
+    it(`settles an event read started during close on ${outcome}`, async () => {
+      let reads = 0;
+      const { engine, session } = host(async (key) => {
+        if (key === "EventReader.next") {
+          reads++;
+          return { kind: "conversationJoined" };
+        }
+        return undefined;
+      });
+      await session.ready();
+      const owner = engine.registry.add({}, "Client");
+      const reader = new EventReaderProxy(
+        session,
+        engine.registry.add({}, "EventReader", owner.owner),
+      );
+      session.fenceOwner(owner.owner);
+      const read = reader.next().then(
+        (value) => ({ value }),
+        (error: unknown) => ({ error }),
+      );
+      // This round trip runs after the queued read reaches the close fence.
+      await session.call("barrier", []);
+      expect(reads).toBe(0);
+      if (outcome === "rollback") {
+        session.unfenceOwner(owner.owner);
+        expect(await read).toEqual({ value: { kind: "conversationJoined" } });
+        expect(reads).toBe(1);
+      } else {
+        session.terminate();
+        expect(await read).toMatchObject({
+          error: { code: "WorkerTerminated" },
+        });
+        expect(reads).toBe(0);
+      }
+      session.terminate();
+    });
+  }
+
   // A signer callback may end its own client. The end must not wait for the
   // call that is parked on that callback, but the storage lock stays held
   // until that call finishes.

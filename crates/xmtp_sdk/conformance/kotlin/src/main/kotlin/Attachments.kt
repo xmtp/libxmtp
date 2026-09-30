@@ -1,12 +1,13 @@
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.withTimeout
-import uniffi.xmtp_sdk.*
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeout
+import uniffi.xmtp_sdk.*
 
 /** A client whose files live under `root`, allowed to reach loopback storage. */
 private fun fileOptions(
@@ -257,80 +258,65 @@ suspend fun checkAttachmentFailures(backend: BackendOptions) =
         println("Kotlin attachments: real failures carry one record")
     }
 
-// Each cause with the error category and retry the ATCH table gives it.
-private val failureTable: List<Triple<AttachmentFailure, ErrorCategory, Boolean>> =
-    listOf(
-        Triple(failure(AttachmentFailureCause.NOT_OFFERED), ErrorCategory.CONFIGURATION, false),
-        Triple(failure(AttachmentFailureCause.TOO_LARGE), ErrorCategory.INPUT, false),
-        Triple(failure(AttachmentFailureCause.SOURCE_UNREADABLE), ErrorCategory.INPUT, false),
-        Triple(failure(AttachmentFailureCause.LOCAL_STORAGE), ErrorCategory.STORAGE, true),
-        Triple(failure(AttachmentFailureCause.STAGED_UNUSABLE), ErrorCategory.STORAGE, false),
-        Triple(failure(AttachmentFailureCause.CONNECTION_BLOCKED), ErrorCategory.CONFIGURATION, false),
-        Triple(
-            failure(
+// Every transport discriminant and optional field. Rust owns the full policy table.
+private val failureTable: List<AttachmentFailure> = listOf(
+    failure(AttachmentFailureCause.NOT_OFFERED),
+    failure(AttachmentFailureCause.TOO_LARGE),
+    failure(AttachmentFailureCause.SOURCE_UNREADABLE),
+    failure(AttachmentFailureCause.LOCAL_STORAGE),
+    failure(AttachmentFailureCause.STAGED_UNUSABLE),
+    failure(AttachmentFailureCause.CONNECTION_BLOCKED),
+    failure(
                 AttachmentFailureCause.CREDENTIAL,
                 credentialKind = CredentialFailureKind.CREDENTIAL_REJECTED,
                 missingScope = true,
             ),
-            ErrorCategory.CALLBACK,
-            false,
-        ),
-        Triple(
-            failure(
+    failure(
                 AttachmentFailureCause.CREDENTIAL,
                 credentialKind = CredentialFailureKind.CALLBACK_FAILED,
                 retryable = true,
             ),
-            ErrorCategory.CALLBACK,
-            true,
-        ),
-        Triple(
-            failure(AttachmentFailureCause.CREDENTIAL, credentialKind = CredentialFailureKind.EXHAUSTED),
-            ErrorCategory.CALLBACK,
-            false,
-        ),
-        Triple(
-            failure(AttachmentFailureCause.CREDENTIAL, credentialKind = CredentialFailureKind.MISSING_CREDENTIAL),
-            ErrorCategory.CALLBACK,
-            false,
-        ),
-        Triple(failure(AttachmentFailureCause.BACKEND_REJECTED), ErrorCategory.NETWORK, false),
-        Triple(failure(AttachmentFailureCause.BACKEND_UNAVAILABLE), ErrorCategory.NETWORK, true),
-        Triple(failure(AttachmentFailureCause.TARGET_REJECTED, httpStatus = 403u), ErrorCategory.NETWORK, true),
-        Triple(failure(AttachmentFailureCause.NETWORK), ErrorCategory.NETWORK, true),
-        Triple(failure(AttachmentFailureCause.INSECURE_URL), ErrorCategory.INPUT, false),
-        Triple(failure(AttachmentFailureCause.BLOCKED_ADDRESS), ErrorCategory.NETWORK, false),
-        Triple(failure(AttachmentFailureCause.TOO_MANY_REDIRECTS), ErrorCategory.NETWORK, false),
-        Triple(failure(AttachmentFailureCause.NOT_FOUND, httpStatus = 404u), ErrorCategory.NETWORK, true),
-        Triple(failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 408u), ErrorCategory.NETWORK, true),
-        Triple(failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 429u), ErrorCategory.NETWORK, true),
-        Triple(failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 503u), ErrorCategory.NETWORK, true),
-        Triple(failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 403u), ErrorCategory.NETWORK, false),
-        Triple(failure(AttachmentFailureCause.MALFORMED), ErrorCategory.INPUT, false),
-        Triple(failure(AttachmentFailureCause.DIGEST_MISMATCH), ErrorCategory.INPUT, false),
-        Triple(failure(AttachmentFailureCause.DECRYPTION_FAILED), ErrorCategory.INPUT, false),
-        Triple(failure(AttachmentFailureCause.NOT_AN_ATTACHMENT), ErrorCategory.INPUT, false),
-        Triple(failure(AttachmentFailureCause.DELETED), ErrorCategory.STORAGE, true),
-    )
+    failure(AttachmentFailureCause.CREDENTIAL, credentialKind = CredentialFailureKind.EXHAUSTED),
+    failure(AttachmentFailureCause.CREDENTIAL, credentialKind = CredentialFailureKind.MISSING_CREDENTIAL),
+    failure(AttachmentFailureCause.BACKEND_REJECTED),
+    failure(AttachmentFailureCause.BACKEND_UNAVAILABLE),
+    failure(AttachmentFailureCause.TARGET_REJECTED, httpStatus = 403u),
+    failure(AttachmentFailureCause.NETWORK),
+    failure(AttachmentFailureCause.INSECURE_URL),
+    failure(AttachmentFailureCause.BLOCKED_ADDRESS),
+    failure(AttachmentFailureCause.TOO_MANY_REDIRECTS),
+    failure(AttachmentFailureCause.NOT_FOUND, httpStatus = 404u),
+    failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 408u),
+    failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 429u),
+    failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 503u),
+    failure(AttachmentFailureCause.HTTP_STATUS, httpStatus = 403u),
+    failure(AttachmentFailureCause.MALFORMED),
+    failure(AttachmentFailureCause.DIGEST_MISMATCH),
+    failure(AttachmentFailureCause.DECRYPTION_FAILED),
+    failure(AttachmentFailureCause.NOT_AN_ATTACHMENT),
+    failure(AttachmentFailureCause.DELETED),
+)
 
 /** Every cause and credential kind, thrown and recorded, and no resend. */
 suspend fun checkAttachmentRecords(backend: BackendOptions) =
     coroutineScope {
         val root = Files.createTempDirectory("xmtp-sdk-atch-").toRealPath()
-        val client = SDKClient.create(generateLocalSigner(), fileOptions(backend, root))
+        val held = HeldTransfer.open()
+        val client = SDKClient.create(generateLocalSigner(), fileOptions(backend.copy(url = held.backend), root))
         val attachments = client.attachments()
-        for ((index, row) in failureTable.withIndex()) {
-            val (recorded, category, retryable) = row
+        for ((index, recorded) in failureTable.withIndex()) {
             val error = thrownAttachment { sdkConformanceAttachmentError(recorded) }
             check(error.v2 == recorded) { "thrown ${error.v2}" }
-            check(error.v1.category == category) { "${recorded.cause} category ${error.v1.category}" }
-            check(error.v1.retryable == retryable) { "${recorded.cause} retryable ${error.v1.retryable}" }
+            if (recorded.cause == AttachmentFailureCause.CREDENTIAL) {
+                check(error.v1.category == ErrorCategory.CALLBACK)
+                check(error.v1.retryable == recorded.retryable)
+            }
             val pending = attachments.create(bytesSource("record $index"))
             pending.sdkConformanceFail(recorded)
             check(pending.status() == PendingAttachmentStatus.Failed(recorded)) { "status ${pending.status()}" }
         }
-        check(failureTable.map { it.first.cause }.toSet() == AttachmentFailureCause.entries.toSet())
-        check(failureTable.mapNotNull { it.first.credentialKind }.toSet() == CredentialFailureKind.entries.toSet())
+        check(failureTable.map { it.cause }.toSet() == AttachmentFailureCause.entries.toSet())
+        check(failureTable.mapNotNull { it.credentialKind }.toSet() == CredentialFailureKind.entries.toSet())
 
         // A terminal backend rejection is not sent again.
         val events = EventQueue.open(this, client)
@@ -341,6 +327,7 @@ suspend fun checkAttachmentRecords(backend: BackendOptions) =
         }
         check(rejected.status() == PendingAttachmentStatus.Failed(failure(AttachmentFailureCause.BACKEND_REJECTED)))
         check(events.drain(client).isEmpty())
+        held.checkCounts(0, 0)
         events.end()
         client.end()
         root.toFile().deleteRecursively()
@@ -352,60 +339,96 @@ suspend fun checkAttachmentEnd(backend: BackendOptions) =
     coroutineScope {
         val root = Files.createTempDirectory("xmtp-sdk-atch-").toRealPath()
         val signer = generateLocalSigner()
-        val options = fileOptions(backend, root)
+        val held = HeldTransfer.open()
+        val options = fileOptions(backend.copy(url = held.backend), root)
         val client = SDKClient.create(signer, options)
-        val attachments = client.attachments()
-        val small = attachments.create(bytesSource("small"))
-        val events = EventQueue.open(this, client, attachmentFilter(listOf(EventKind.ATTACHMENT_UPLOAD_STARTED)))
-        val large =
-            attachments.create(
-                AttachmentSource.Bytes(ByteArray(32 * 1024 * 1024) { 1 }, null, "application/octet-stream"),
-            )
-        val upload = async { large.upload() }
-        check(events.next() is ClientEvent.AttachmentUploadStarted)
-        client.end()
-        // The upload held the client, so end let it finish.
-        withTimeout(10_000) { upload.await() }
-        check(events.ended()) { "the event reader outlived end" }
-        // Held values stay readable; calls fail closed.
-        check(attachments.offered())
-        val remote = large.remoteAttachment()
-        checkClientClosed { attachments.create(bytesSource("late")) }
-        checkClientClosed { attachments.localPath(remote) }
-        checkClientClosed { attachments.listLocal() }
-        checkClientClosed { attachments.download(remote) }
-        checkClientClosed { large.localPath() }
-        checkClientClosed { large.status() }
-        checkClientClosed { large.upload() }
+        var reopenedForCleanup: SDKClient? = null
+        try {
+            val attachments = client.attachments()
+            val small = attachments.create(bytesSource("small"))
+            val events = EventQueue.open(this, client, attachmentFilter(listOf(EventKind.ATTACHMENT_UPLOAD_STARTED)))
+            val large = attachments.create(bytesSource("held upload"))
+            val upload = async { large.upload() }
+            held.command("entered")
+            check(events.next() is ClientEvent.AttachmentUploadStarted)
+            // Cancel the real coroutine waiting on the generated binding call.
+            // The detached SDK task must retain storage until the PUT settles.
+            upload.cancelAndJoin()
+            check(upload.isCancelled)
+            val ending = async { client.end() }
+            check(events.ended()) { "the event reader outlived end" }
+            check(!ending.isCompleted) { "end released storage while PUT was held" }
+            held.checkCounts(1, 1)
+            held.command("release")
+            withTimeout(10_000) { ending.await() }
+            // Held values stay readable; calls fail closed.
+            check(attachments.offered())
+            val remote = large.remoteAttachment()
+            checkClientClosed { attachments.create(bytesSource("late")) }
+            checkClientClosed { attachments.localPath(remote) }
+            checkClientClosed { attachments.listLocal() }
+            checkClientClosed { attachments.download(remote) }
+            checkClientClosed { attachments.pending(remote) }
+            checkClientClosed { attachments.listPending() }
+            checkClientClosed { attachments.deleteLocal(remote) }
+            checkClientClosed { large.localPath() }
+            checkClientClosed { large.status() }
+            checkClientClosed { large.upload() }
 
-        // The held wrappers do not keep the ended database open.
-        val reopened = SDKClient.build(signer.identity(), options)
-        val resumed = reopened.attachments()
-        check(resumed.pending(remote).status() == PendingAttachmentStatus.Complete)
-        // A listener sees a deletion until it stops.
-        val deletions = AtomicInteger()
-        val listener =
-            reopened.startListener(
-                EventFilter(listOf(EventKind.ATTACHMENT_DELETED), null, null, false),
-            ) { deletions.incrementAndGet() }
-        val deleted = EventQueue.open(this, reopened, attachmentFilter(listOf(EventKind.ATTACHMENT_DELETED)))
-        resumed.deleteLocal(remote)
-        repeat(100) { if (deletions.get() == 0) delay(10) }
-        check(deletions.get() == 1)
-        reopened.stopListener(listener)
-        resumed.deleteLocal(small.remoteAttachment())
-        check(!Files.exists(Path.of(resumed.localPath(remote))))
-        // The reader has both deletions, so a live listener had its turn.
-        for (expected in listOf(remote, small.remoteAttachment())) {
-            val next = deleted.next()
-            check(
-                next is ClientEvent.AttachmentDeleted && next.attachment.url == expected.url,
-            ) { "not a deletion: $next" }
+            // The held wrappers do not keep the ended database open.
+            val reopened = SDKClient.build(signer.identity(), options)
+            reopenedForCleanup = reopened
+            val resumed = reopened.attachments()
+            check(resumed.pending(remote).status() == PendingAttachmentStatus.Complete)
+            held.checkCounts(1, 1)
+            // A listener sees a deletion until it stops.
+            val first = CompletableDeferred<Unit>()
+            val deletions = AtomicInteger()
+            val listener =
+                reopened.startListener(
+                    EventFilter(listOf(EventKind.ATTACHMENT_DELETED), null, null, false),
+                ) { deletions.incrementAndGet(); first.complete(Unit) }
+            val deleted = EventQueue.open(this, reopened, attachmentFilter(listOf(EventKind.ATTACHMENT_DELETED)))
+            resumed.deleteLocal(remote)
+            withTimeout(10_000) { first.await() }
+            check(deletions.get() == 1)
+            val entered = CompletableDeferred<Unit>()
+            val release = CompletableDeferred<Unit>()
+            val finished = CompletableDeferred<Unit>()
+            EventStartHookForTest.beforeCallback = { entered.complete(Unit); release.await() }
+            EventStartHookForTest.afterCallback = { finished.complete(Unit) }
+            try {
+                resumed.deleteLocal(small.remoteAttachment())
+                withTimeout(10_000) { entered.await() }
+                reopened.stopListener(listener)
+                release.complete(Unit)
+                withTimeout(10_000) { finished.await() }
+                check(deletions.get() == 1) { "a stopped listener saw a deletion" }
+            } finally {
+                release.complete(Unit)
+                EventStartHookForTest.beforeCallback = null
+                EventStartHookForTest.afterCallback = null
+            }
+            check(!Files.exists(Path.of(resumed.localPath(remote))))
+            // The reader has both deletions, so a live listener had its turn.
+            for (expected in listOf(remote, small.remoteAttachment())) {
+                val next = deleted.next()
+                check(
+                    next is ClientEvent.AttachmentDeleted && next.attachment.url == expected.url,
+                ) { "not a deletion: $next" }
+            }
+            check(deletions.get() == 1) { "a stopped listener saw a deletion" }
+            deleted.end()
+            reopened.end()
+            root.toFile().deleteRecursively()
+            println("Kotlin attachments: end waits for an upload; calls fail closed")
+        } finally {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                held.command("release")
+                withTimeout(10_000) {
+                    reopenedForCleanup?.end()
+                    client.end()
+                }
+            }
         }
-        delay(200)
-        check(deletions.get() == 1) { "a stopped listener saw a deletion" }
-        deleted.end()
-        reopened.end()
-        root.toFile().deleteRecursively()
-        println("Kotlin attachments: end waits for an upload; calls fail closed")
     }

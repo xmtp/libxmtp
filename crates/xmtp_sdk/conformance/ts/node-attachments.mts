@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
 import { serve } from "./node-support.mts";
+import { heldTransfer } from "./transfer-control.mts";
 
 const ATTACHMENT_KINDS: sdk.EventKind[] = [
   "attachmentUploadStarted",
@@ -468,53 +470,41 @@ export async function attachmentFailures(
   console.log("Node attachments: real failures carry one record");
 }
 
-// Each cause with the error category and retry the ATCH table gives it.
-const FAILURE_TABLE: [sdk.AttachmentFailure, sdk.ErrorCategory, boolean][] = [
-  [failure("notOffered"), "configuration", false],
-  [failure("tooLarge"), "input", false],
-  [failure("sourceUnreadable"), "input", false],
-  [failure("localStorage"), "storage", true],
-  [failure("stagedUnusable"), "storage", false],
-  [failure("connectionBlocked"), "configuration", false],
-  [
-    failure("credential", {
-      credentialKind: "credentialRejected",
-      missingScope: true,
-    }),
-    "callback",
-    false,
-  ],
-  [
-    failure("credential", {
-      credentialKind: "callbackFailed",
-      retryable: true,
-    }),
-    "callback",
-    true,
-  ],
-  [failure("credential", { credentialKind: "exhausted" }), "callback", false],
-  [
-    failure("credential", { credentialKind: "missingCredential" }),
-    "callback",
-    false,
-  ],
-  [failure("backendRejected"), "network", false],
-  [failure("backendUnavailable"), "network", true],
-  [failure("targetRejected", { httpStatus: 403 }), "network", true],
-  [failure("network"), "network", true],
-  [failure("insecureUrl"), "input", false],
-  [failure("blockedAddress"), "network", false],
-  [failure("tooManyRedirects"), "network", false],
-  [failure("notFound", { httpStatus: 404 }), "network", true],
-  [failure("httpStatus", { httpStatus: 408 }), "network", true],
-  [failure("httpStatus", { httpStatus: 429 }), "network", true],
-  [failure("httpStatus", { httpStatus: 503 }), "network", true],
-  [failure("httpStatus", { httpStatus: 403 }), "network", false],
-  [failure("malformed"), "input", false],
-  [failure("digestMismatch"), "input", false],
-  [failure("decryptionFailed"), "input", false],
-  [failure("notAnAttachment"), "input", false],
-  [failure("deleted"), "storage", true],
+// Every transport discriminant and optional field. Rust owns the full policy table.
+const FAILURE_TABLE: sdk.AttachmentFailure[] = [
+  failure("notOffered"),
+  failure("tooLarge"),
+  failure("sourceUnreadable"),
+  failure("localStorage"),
+  failure("stagedUnusable"),
+  failure("connectionBlocked"),
+  failure("credential", {
+    credentialKind: "credentialRejected",
+    missingScope: true,
+  }),
+  failure("credential", {
+    credentialKind: "callbackFailed",
+    retryable: true,
+  }),
+  failure("credential", { credentialKind: "exhausted" }),
+  failure("credential", { credentialKind: "missingCredential" }),
+  failure("backendRejected"),
+  failure("backendUnavailable"),
+  failure("targetRejected", { httpStatus: 403 }),
+  failure("network"),
+  failure("insecureUrl"),
+  failure("blockedAddress"),
+  failure("tooManyRedirects"),
+  failure("notFound", { httpStatus: 404 }),
+  failure("httpStatus", { httpStatus: 408 }),
+  failure("httpStatus", { httpStatus: 429 }),
+  failure("httpStatus", { httpStatus: 503 }),
+  failure("httpStatus", { httpStatus: 403 }),
+  failure("malformed"),
+  failure("digestMismatch"),
+  failure("decryptionFailed"),
+  failure("notAnAttachment"),
+  failure("deleted"),
 ];
 
 /** Every cause and credential kind, thrown and recorded, and no resend. */
@@ -522,21 +512,21 @@ export async function attachmentRecords(
   backend: sdk.BackendOptions,
 ): Promise<void> {
   const root = realpathSync(await mkdtemp(join(tmpdir(), "xmtp-sdk-atch-")));
+  const held = await heldTransfer(process.env.SDK_FIXTURE_URL!);
   const client = await sdk.Client.create(
     await sdk.generateLocalSigner(),
-    fileOptions(backend, root),
+    fileOptions({ ...backend, url: held.backend }, root),
   );
   const attachments = client.attachments;
-  for (const [
-    index,
-    [recorded, category, retryable],
-  ] of FAILURE_TABLE.entries()) {
+  for (const [index, recorded] of FAILURE_TABLE.entries()) {
     const error = await thrownError(
       sdk.sdkConformanceAttachmentError(recorded),
     );
     assert.deepEqual(error.attachmentFailure, recorded);
-    assert.equal(error.details.category, category, recorded.cause);
-    assert.equal(error.details.retryable, retryable, recorded.cause);
+    if (recorded.cause === "credential") {
+      assert.equal(error.details.category, "callback", recorded.cause);
+      assert.equal(error.details.retryable, recorded.retryable, recorded.cause);
+    }
     const pending = await attachments.create(bytesSource(`record ${index}`));
     await pending.sdkConformanceFail(recorded);
     assert.deepEqual(await pending.status(), {
@@ -544,10 +534,10 @@ export async function attachmentRecords(
       value: recorded,
     });
   }
-  const causes = new Set(FAILURE_TABLE.map(([recorded]) => recorded.cause));
+  const causes = new Set(FAILURE_TABLE.map((recorded) => recorded.cause));
   assert.equal(causes.size, 21);
   const kinds = new Set(
-    FAILURE_TABLE.flatMap(([recorded]) => recorded.credentialKind ?? []),
+    FAILURE_TABLE.flatMap((recorded) => recorded.credentialKind ?? []),
   );
   assert.equal(kinds.size, 4);
 
@@ -566,6 +556,11 @@ export async function attachmentRecords(
   });
   assert.deepEqual(await drain(client, events), []);
   await events.return();
+  assert.deepEqual(
+    await (await held.command("counts")).json(),
+    { puts: 0, grants: 0, gets: 0 },
+    "terminal rejection sent a request",
+  );
   await client.end();
   await rm(root, { recursive: true, force: true });
   console.log(
@@ -579,75 +574,120 @@ export async function attachmentEnd(
 ): Promise<void> {
   const root = realpathSync(await mkdtemp(join(tmpdir(), "xmtp-sdk-atch-")));
   const signer = await sdk.generateLocalSigner();
-  const options = fileOptions(backend, root);
+  const held = await heldTransfer(process.env.SDK_FIXTURE_URL!);
+  const options = fileOptions({ ...backend, url: held.backend }, root);
   const client = await sdk.Client.create(signer, options);
-  const attachments = client.attachments;
-  const small = await attachments.create(bytesSource("small"));
-  const events = await client.events(
-    attachmentFilter(["attachmentUploadStarted"]),
-  );
-  const large = await attachments.create({
-    kind: "bytes",
-    bytes: new Uint8Array(32 * 1024 * 1024).fill(1),
-    filename: undefined,
-    mimeType: "application/octet-stream",
-  });
-  const upload = large.upload();
-  const started = await within(events.next(), "upload start");
-  assert.equal(started.value?.kind, "attachmentUploadStarted");
-  await client.end();
-  // The upload held the client, so end let it finish.
-  await within(upload, "upload across end");
-  assert.equal((await within(events.next(), "event end")).done, true);
-  // Held values stay readable; calls fail closed.
-  assert.equal(attachments.offered, true);
-  const remote = large.remoteAttachment;
-  const closedCalls: Array<() => Promise<unknown>> = [
-    () => attachments.create(bytesSource("late")),
-    () => attachments.localPath(remote),
-    () => attachments.listLocal(),
-    () => attachments.download(remote),
-    () => large.localPath(),
-    () => large.status(),
-    () => large.upload(),
-  ];
-  for (const call of closedCalls)
-    await assert.rejects(within(call(), "closed call"), isClientClosed);
+  let reopened: sdk.Client | undefined;
+  try {
+    const attachments = client.attachments;
+    const small = await attachments.create(bytesSource("small"));
+    const events = await client.events(
+      attachmentFilter(["attachmentUploadStarted"]),
+    );
+    const large = await attachments.create(bytesSource("held upload"));
+    const upload = large.upload();
+    await within(held.command("entered"), "held PUT");
+    const started = await within(events.next(), "upload start");
+    assert.equal(started.value?.kind, "attachmentUploadStarted");
+    let ended = false;
+    const ending = client.end().then(() => {
+      ended = true;
+    });
+    // The ended subscription proves Rust has entered client shutdown.
+    assert.equal((await within(events.next(), "event end")).done, true);
+    assert.equal(ended, false, "end released storage while PUT was held");
+    assert.deepEqual(await (await held.command("counts")).json(), {
+      puts: 1,
+      grants: 1,
+      gets: 0,
+    });
+    await held.command("release");
+    await within(ending, "end after release");
+    await within(upload, "upload across end");
+    // Held values stay readable; calls fail closed.
+    assert.equal(attachments.offered, true);
+    const remote = large.remoteAttachment;
+    const closedCalls: Array<() => Promise<unknown>> = [
+      () => attachments.create(bytesSource("late")),
+      () => attachments.localPath(remote),
+      () => attachments.listLocal(),
+      () => attachments.download(remote),
+      () => attachments.pending(remote),
+      () => attachments.listPending(),
+      () => attachments.deleteLocal(remote),
+      () => large.localPath(),
+      () => large.status(),
+      () => large.upload(),
+    ];
+    for (const call of closedCalls)
+      await assert.rejects(within(call(), "closed call"), isClientClosed);
 
-  // The held wrappers do not keep the ended database open.
-  const reopened = await sdk.Client.build(await signer.identity(), options);
-  const resumed = reopened.attachments;
-  assert.deepEqual(await (await resumed.pending(remote)).status(), {
-    kind: "complete",
-  });
-  // A listener sees a deletion until it stops.
-  let deletions = 0;
-  const listener = await reopened.startListener(
-    { kinds: ["attachmentDeleted"], referencesOwnMessages: false },
-    () => {
-      deletions += 1;
-    },
-  );
-  const deleted = await reopened.events(
-    attachmentFilter(["attachmentDeleted"]),
-  );
-  await resumed.deleteLocal(remote);
-  for (let attempt = 0; attempt < 100 && deletions === 0; attempt += 1)
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(deletions, 1);
-  await reopened.stopListener(listener);
-  await resumed.deleteLocal(small.remoteAttachment);
-  assert.equal(existsSync(await resumed.localPath(remote)), false);
-  // The reader has both deletions, so a live listener had its turn.
-  for (const expected of [remote, small.remoteAttachment]) {
-    const next = (await within(deleted.next(), "deletion")).value;
-    if (next?.kind !== "attachmentDeleted") throw new Error("not a deletion");
-    assert.equal(next.attachment.url, expected.url);
+    // The held wrappers do not keep the ended database open.
+    reopened = await sdk.Client.build(await signer.identity(), options);
+    const resumed = reopened.attachments;
+    assert.deepEqual(await (await resumed.pending(remote)).status(), {
+      kind: "complete",
+    });
+    assert.deepEqual(await (await held.command("counts")).json(), {
+      puts: 1,
+      grants: 1,
+      gets: 0,
+    });
+    // A listener sees a deletion until it stops.
+    const first = Promise.withResolvers<void>();
+    let deletions = 0;
+    const listener = await reopened.startListener(
+      { kinds: ["attachmentDeleted"], referencesOwnMessages: false },
+      () => {
+        deletions += 1;
+        first.resolve();
+      },
+    );
+    const deleted = await reopened.events(
+      attachmentFilter(["attachmentDeleted"]),
+    );
+    await resumed.deleteLocal(remote);
+    await within(first.promise, "first deletion callback");
+    assert.equal(deletions, 1);
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const finished = Promise.withResolvers<void>();
+    setEventStartHookForTest(
+      async () => {
+        entered.resolve();
+        await release.promise;
+      },
+      async () => {
+        finished.resolve();
+      },
+    );
+    try {
+      await resumed.deleteLocal(small.remoteAttachment);
+      await within(entered.promise, "held deletion callback");
+      await reopened.stopListener(listener);
+      release.resolve();
+      await within(finished.promise, "stopped callback dispatch");
+      assert.equal(deletions, 1, "a stopped listener saw a deletion");
+    } finally {
+      release.resolve();
+      setEventStartHookForTest();
+    }
+    assert.equal(existsSync(await resumed.localPath(remote)), false);
+    // The reader has both deletions, so a live listener had its turn.
+    for (const expected of [remote, small.remoteAttachment]) {
+      const next = (await within(deleted.next(), "deletion")).value;
+      if (next?.kind !== "attachmentDeleted") throw new Error("not a deletion");
+      assert.equal(next.attachment.url, expected.url);
+    }
+    assert.equal(deletions, 1, "a stopped listener saw a deletion");
+    await deleted.return();
+    await reopened.end();
+    await rm(root, { recursive: true, force: true });
+    console.log("Node attachments: end waits for an upload; calls fail closed");
+  } finally {
+    await held.command("release");
+    await reopened?.end();
+    await client.end();
+    await rm(root, { recursive: true, force: true });
   }
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  assert.equal(deletions, 1, "a stopped listener saw a deletion");
-  await deleted.return();
-  await reopened.end();
-  await rm(root, { recursive: true, force: true });
-  console.log("Node attachments: end waits for an upload; calls fail closed");
 }

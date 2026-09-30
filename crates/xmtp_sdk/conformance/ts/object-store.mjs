@@ -10,10 +10,12 @@
 import { createServer, request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 
+import { transferRoute } from "./object-store-transfer.mjs";
+
 const objects = new Map();
 const refused = new Map();
 
-function relay(request, response, path, body) {
+function relay(request, response, path, body, transform) {
   const target = new URL(path, process.env.SDK_RELAY_TARGET);
   const forward = target.protocol === "https:" ? httpsRequest : httpRequest;
   const upstream = forward(
@@ -23,8 +25,24 @@ function relay(request, response, path, body) {
       headers: { ...request.headers, host: target.host },
     },
     (reply) => {
-      response.writeHead(reply.statusCode ?? 502, reply.headers);
-      reply.pipe(response);
+      if (!transform || reply.statusCode !== 200) {
+        response.writeHead(reply.statusCode ?? 502, reply.headers);
+        reply.pipe(response);
+        return;
+      }
+      const chunks = [];
+      reply.on("data", (chunk) => chunks.push(chunk));
+      reply.on("end", () => {
+        try {
+          const body = transform(Buffer.concat(chunks));
+          const headers = { ...reply.headers };
+          delete headers["content-length"];
+          response.writeHead(200, headers).end(body);
+        } catch (error) {
+          console.error(error);
+          response.writeHead(502).end();
+        }
+      });
     },
   );
   upstream.on("error", () => {
@@ -58,6 +76,10 @@ const server = createServer(async (request, response) => {
         "access-control-allow-headers": "*",
       })
       .end();
+  } else if (
+    transferRoute(request, response, pathname, Buffer.concat(chunks), relay)
+  ) {
+    // The lifetime fixture holds PUT responses until its release request.
   } else if (relayed) {
     refused.set(relayed[1], refused.get(relayed[1]) + 1);
     response.writeHead(503).end();

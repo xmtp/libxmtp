@@ -220,9 +220,38 @@ async fn storage_delete_can_retry_after_file_removal_fails() {
 async fn explicit_storage_creates_its_database_directory_private() {
     use std::os::unix::fs::PermissionsExt;
 
+    const CHILD: &str = "XMTP_TEST_PRIVATE_DIRECTORY_CHILD";
+    if std::env::var_os(CHILD).is_none() {
+        // Set umask only in the child. Other tests keep their process settings.
+        let marker = temp_root("storage-private-child-complete");
+        let status = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("umask 000; exec \"$@\"")
+            .arg("storage-private")
+            .arg(std::env::current_exe()?)
+            .args([
+                "tests::storage::explicit_storage_creates_its_database_directory_private",
+                "--exact",
+                "--nocapture",
+            ])
+            .env(CHILD, &marker)
+            .status()?;
+        assert!(status.success(), "private directory child failed");
+        assert!(marker.is_file(), "private directory child did not run");
+        std::fs::remove_file(marker)?;
+        return;
+    }
+
     // The attachments directory lies apart, so only the database creates its
-    // parent.
+    // parent. A normal directory proves that the child has a permissive umask.
     let root = temp_root("storage-private");
+    std::fs::create_dir_all(&root)?;
+    let control = root.join("control");
+    std::fs::create_dir(&control)?;
+    assert_eq!(
+        std::fs::metadata(&control)?.permissions().mode() & 0o777,
+        0o777
+    );
     let parent = root.join("database");
     let mut settings = options();
     settings.storage.location = StorageLocation::Explicit {
@@ -236,4 +265,5 @@ async fn explicit_storage_creates_its_database_directory_private() {
     );
     client.end().await?;
     std::fs::remove_dir_all(root)?;
+    std::fs::write(std::env::var_os(CHILD).expect("child marker"), b"passed")?;
 }

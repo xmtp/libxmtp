@@ -297,35 +297,35 @@ func checkAttachmentFailures(backend: BackendOptions) async throws {
     print("Swift attachments: real failures carry one record")
 }
 
-/// Each cause with the error category and retry the ATCH table gives it.
-private let failureTable: [(AttachmentFailure, ErrorCategory, Bool)] = [
-    (failure(.notOffered), .configuration, false),
-    (failure(.tooLarge), .input, false),
-    (failure(.sourceUnreadable), .input, false),
-    (failure(.localStorage), .storage, true),
-    (failure(.stagedUnusable), .storage, false),
-    (failure(.connectionBlocked), .configuration, false),
-    (failure(.credential, credentialKind: .credentialRejected, missingScope: true), .callback, false),
-    (failure(.credential, credentialKind: .callbackFailed, retryable: true), .callback, true),
-    (failure(.credential, credentialKind: .exhausted), .callback, false),
-    (failure(.credential, credentialKind: .missingCredential), .callback, false),
-    (failure(.backendRejected), .network, false),
-    (failure(.backendUnavailable), .network, true),
-    (failure(.targetRejected, httpStatus: 403), .network, true),
-    (failure(.network), .network, true),
-    (failure(.insecureUrl), .input, false),
-    (failure(.blockedAddress), .network, false),
-    (failure(.tooManyRedirects), .network, false),
-    (failure(.notFound, httpStatus: 404), .network, true),
-    (failure(.httpStatus, httpStatus: 408), .network, true),
-    (failure(.httpStatus, httpStatus: 429), .network, true),
-    (failure(.httpStatus, httpStatus: 503), .network, true),
-    (failure(.httpStatus, httpStatus: 403), .network, false),
-    (failure(.malformed), .input, false),
-    (failure(.digestMismatch), .input, false),
-    (failure(.decryptionFailed), .input, false),
-    (failure(.notAnAttachment), .input, false),
-    (failure(.deleted), .storage, true),
+/// Every transport discriminant and optional field. Rust owns the full policy table.
+private let failureTable: [AttachmentFailure] = [
+    failure(.notOffered),
+    failure(.tooLarge),
+    failure(.sourceUnreadable),
+    failure(.localStorage),
+    failure(.stagedUnusable),
+    failure(.connectionBlocked),
+    failure(.credential, credentialKind: .credentialRejected, missingScope: true),
+    failure(.credential, credentialKind: .callbackFailed, retryable: true),
+    failure(.credential, credentialKind: .exhausted),
+    failure(.credential, credentialKind: .missingCredential),
+    failure(.backendRejected),
+    failure(.backendUnavailable),
+    failure(.targetRejected, httpStatus: 403),
+    failure(.network),
+    failure(.insecureUrl),
+    failure(.blockedAddress),
+    failure(.tooManyRedirects),
+    failure(.notFound, httpStatus: 404),
+    failure(.httpStatus, httpStatus: 408),
+    failure(.httpStatus, httpStatus: 429),
+    failure(.httpStatus, httpStatus: 503),
+    failure(.httpStatus, httpStatus: 403),
+    failure(.malformed),
+    failure(.digestMismatch),
+    failure(.decryptionFailed),
+    failure(.notAnAttachment),
+    failure(.deleted),
 ]
 
 /// A distinct number for each cause and kind. The switches have no default, so
@@ -369,23 +369,30 @@ private func kindNumber(_ kind: CredentialFailureKind) -> Int {
 func checkAttachmentRecords(backend: BackendOptions) async throws {
     let root = try temporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }
-    let client = try await SDKClient.create(signer: generateLocalSigner(), options: fileOptions(backend, root))
+    let held = try await HeldTransfer.open()
+    var relayedBackend = backend
+    relayedBackend.url = held.backend
+    let client = try await SDKClient.create(signer: generateLocalSigner(), options: fileOptions(relayedBackend, root))
     let attachments = client.attachments()
-    for (index, row) in failureTable.enumerated() {
-        let (recorded, category, retryable) = row
+    for (index, recorded) in failureTable.enumerated() {
         let (details, thrown) = try await thrownAttachment {
             try await sdkConformanceAttachmentError(failure: recorded)
         }
-        guard thrown == recorded, details.category == category, details.retryable == retryable else {
+        guard thrown == recorded else {
             throw ConformanceFailure("\(recorded.cause): thrown \(thrown), \(details)")
+        }
+        if recorded.cause == .credential {
+            guard details.category == .callback, details.retryable == recorded.retryable else {
+                throw ConformanceFailure("credential error details changed")
+            }
         }
         let pending = try await attachments.create(source: bytesSource("record \(index)"))
         try await pending.sdkConformanceFail(failure: recorded)
         let status = try await pending.status()
         guard status == .failed(recorded) else { throw ConformanceFailure("status \(status)") }
     }
-    let causes = Set(failureTable.map { causeNumber($0.0.cause) })
-    let kinds = Set(failureTable.compactMap { $0.0.credentialKind.map(kindNumber) })
+    let causes = Set(failureTable.map { causeNumber($0.cause) })
+    let kinds = Set(failureTable.compactMap { $0.credentialKind.map(kindNumber) })
     guard causes == Set(0 ..< 21), kinds == Set(0 ..< 4) else {
         throw ConformanceFailure("the table misses a cause or credential kind")
     }
@@ -402,6 +409,7 @@ func checkAttachmentRecords(backend: BackendOptions) async throws {
     guard try await rejected.status() == .failed(failure(.backendRejected)),
           try await events.drain(client).isEmpty
     else { throw ConformanceFailure("a rejected upload was sent again") }
+    try await held.checkCounts(puts: 0, grants: 0)
     try await client.end()
     print("Swift attachments: every cause and credential kind in both forms")
 }
@@ -411,65 +419,99 @@ func checkAttachmentEnd(backend: BackendOptions) async throws {
     let root = try temporaryRoot()
     defer { try? FileManager.default.removeItem(at: root) }
     let signer = await generateLocalSigner()
-    let options = fileOptions(backend, root)
+    let held = try await HeldTransfer.open()
+    var relayedBackend = backend
+    relayedBackend.url = held.backend
+    let options = fileOptions(relayedBackend, root)
     let client = try await SDKClient.create(signer: signer, options: options)
-    let attachments = client.attachments()
-    let small = try await attachments.create(source: bytesSource("small"))
-    let events = try await EventQueue(client, attachmentFilter([.attachmentUploadStarted]))
-    let large = try await attachments.create(
-        source: .bytes(bytes: Data(repeating: 1, count: 32 * 1024 * 1024), filename: nil, mimeType: "application/octet-stream")
-    )
-    let upload = Task { try await large.upload() }
-    guard case .attachmentUploadStarted = try await events.next() else {
-        throw ConformanceFailure("the upload did not start")
-    }
-    try await client.end()
-    // The upload held the client, so end let it finish.
-    try await within(seconds: 30) { try await upload.value }
-    guard try await events.ended() else { throw ConformanceFailure("the event reader outlived end") }
-    // Held values stay readable; calls fail closed.
-    guard attachments.offered() else { throw ConformanceFailure("a held value changed after end") }
-    let remote = large.remoteAttachment()
-    try await checkClientClosed { _ = try await attachments.create(source: bytesSource("late")) }
-    try await checkClientClosed { _ = try await attachments.localPath(remote: remote) }
-    try await checkClientClosed { _ = try await attachments.listLocal() }
-    try await checkClientClosed { _ = try await attachments.download(remote: remote) }
-    try await checkClientClosed { _ = try await large.localPath() }
-    try await checkClientClosed { _ = try await large.status() }
-    try await checkClientClosed { try await large.upload() }
-
-    // The held wrappers do not keep the ended database open.
-    let reopened = try await SDKClient.build(identity: signer.identity(), options: options)
-    let resumed = reopened.attachments()
-    guard try await resumed.pending(remote: remote).status() == .complete else {
-        throw ConformanceFailure("the upload did not finish before end")
-    }
-    // A listener sees a deletion until it stops.
-    let deletions = TestCounter()
-    let listener = try await reopened.startListener(
-        EventFilter(kinds: [.attachmentDeleted], conversationIds: nil, contentTypes: nil, referencesOwnMessages: false)
-    ) { _ in deletions.increment() }
-    let deleted = try await EventQueue(reopened, attachmentFilter([.attachmentDeleted]))
-    try await resumed.deleteLocal(remote: remote)
-    for _ in 0 ..< 100 where deletions.value == 0 {
-        try await Task.sleep(for: .milliseconds(10))
-    }
-    guard deletions.value == 1 else { throw ConformanceFailure("the listener saw \(deletions.value) deletions") }
-    await reopened.stopListener(listener)
-    try await resumed.deleteLocal(remote: small.remoteAttachment())
-    let removedPath = try await resumed.localPath(remote: remote)
-    guard !FileManager.default.fileExists(atPath: removedPath) else {
-        throw ConformanceFailure("delete left the attachment")
-    }
-    // The reader has both deletions, so a live listener had its turn.
-    for expected in [remote, small.remoteAttachment()] {
-        let next = try await deleted.next()
-        guard case let .attachmentDeleted(attachment) = next, attachment.url == expected.url else {
-            throw ConformanceFailure("not a deletion: \(next)")
+    do {
+        let attachments = client.attachments()
+        let small = try await attachments.create(source: bytesSource("small"))
+        let events = try await EventQueue(client, attachmentFilter([.attachmentUploadStarted]))
+        let large = try await attachments.create(source: bytesSource("held upload"))
+        let upload = Task { try await large.upload() }
+        try await held.command("entered")
+        guard case .attachmentUploadStarted = try await events.next() else {
+            throw ConformanceFailure("the upload did not start")
         }
+        // Swift's binding does not expose caller cancellation. Exercise end with
+        // the actual transfer held at the server response instead.
+        let ended = TestCounter()
+        let ending = Task { try await client.end(); ended.increment() }
+        guard try await events.ended() else { throw ConformanceFailure("the event reader outlived end") }
+        guard ended.value == 0 else { throw ConformanceFailure("end released storage while PUT was held") }
+        try await held.checkCounts(puts: 1, grants: 1)
+        try await held.command("release")
+        try await within(seconds: 30) { try await ending.value }
+        try await within(seconds: 30) { try await upload.value }
+        // Held values stay readable; calls fail closed.
+        guard attachments.offered() else { throw ConformanceFailure("a held value changed after end") }
+        let remote = large.remoteAttachment()
+        try await checkClientClosed { _ = try await attachments.create(source: bytesSource("late")) }
+        try await checkClientClosed { _ = try await attachments.localPath(remote: remote) }
+        try await checkClientClosed { _ = try await attachments.listLocal() }
+        try await checkClientClosed { _ = try await attachments.download(remote: remote) }
+        try await checkClientClosed { _ = try await attachments.pending(remote: remote) }
+        try await checkClientClosed { _ = try await attachments.listPending() }
+        try await checkClientClosed { try await attachments.deleteLocal(remote: remote) }
+        try await checkClientClosed { _ = try await large.localPath() }
+        try await checkClientClosed { _ = try await large.status() }
+        try await checkClientClosed { try await large.upload() }
+
+        // The held wrappers do not keep the ended database open.
+        let reopened = try await SDKClient.build(identity: signer.identity(), options: options)
+        let resumed = reopened.attachments()
+        guard try await resumed.pending(remote: remote).status() == .complete else {
+            throw ConformanceFailure("the upload did not finish before end")
+        }
+        try await held.checkCounts(puts: 1, grants: 1)
+        // A listener sees a deletion until it stops.
+        let first = AttachmentSignal()
+        let deletions = TestCounter()
+        let listener = try await reopened.startListener(
+            EventFilter(kinds: [.attachmentDeleted], conversationIds: nil, contentTypes: nil, referencesOwnMessages: false)
+        ) { _ in deletions.increment(); await first.mark() }
+        let deleted = try await EventQueue(reopened, attachmentFilter([.attachmentDeleted]))
+        try await resumed.deleteLocal(remote: remote)
+        try await within { await first.wait() }
+        guard deletions.value == 1 else { throw ConformanceFailure("the listener saw \(deletions.value) deletions") }
+        let entered = AttachmentSignal()
+        let release = AttachmentSignal()
+        let finished = AttachmentSignal()
+        await EventStartHookForTest.shared.set({
+            await entered.mark()
+            await release.wait()
+        }, finished: { await finished.mark() })
+        do {
+            try await resumed.deleteLocal(remote: small.remoteAttachment())
+            try await within { await entered.wait() }
+            await reopened.stopListener(listener)
+            await release.mark()
+            try await within { await finished.wait() }
+            guard deletions.value == 1 else { throw ConformanceFailure("a stopped listener saw a deletion") }
+        } catch {
+            await release.mark()
+            await EventStartHookForTest.shared.set(nil)
+            throw error
+        }
+        await EventStartHookForTest.shared.set(nil)
+        let removedPath = try await resumed.localPath(remote: remote)
+        guard !FileManager.default.fileExists(atPath: removedPath) else {
+            throw ConformanceFailure("delete left the attachment")
+        }
+        // The reader has both deletions, so a live listener had its turn.
+        for expected in [remote, small.remoteAttachment()] {
+            let next = try await deleted.next()
+            guard case let .attachmentDeleted(attachment) = next, attachment.url == expected.url else {
+                throw ConformanceFailure("not a deletion: \(next)")
+            }
+        }
+        guard deletions.value == 1 else { throw ConformanceFailure("a stopped listener saw a deletion") }
+        try await reopened.end()
+        print("Swift attachments: end waits for an upload; calls fail closed")
+    } catch {
+        try? await held.command("release")
+        try? await client.end()
+        throw error
     }
-    try await Task.sleep(for: .milliseconds(200))
-    guard deletions.value == 1 else { throw ConformanceFailure("a stopped listener saw a deletion") }
-    try await reopened.end()
-    print("Swift attachments: end waits for an upload; calls fail closed")
 }

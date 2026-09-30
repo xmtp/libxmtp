@@ -17,6 +17,7 @@ interface Pending {
   reject(error: Error): void;
   // The owner of a read that is abandoned when that owner ends.
   abandonedOwner?: number;
+  eventRead?: boolean;
 }
 
 export class MainSession {
@@ -39,6 +40,7 @@ export class MainSession {
   });
   private epoch = 0;
   private readonly closedOwners = new Set<number>();
+  private readonly endedOwners = new Set<number>();
   // The last read on each reader handle. The next read waits for it.
   private readonly readTails = new Map<number, Promise<void>>();
   // Reads that wait for an earlier read. Worker termination fails them.
@@ -208,6 +210,14 @@ export class MainSession {
     return undefined;
   }
 
+  eventReaderEnding(handle: HandleWire): boolean {
+    return this.endingOwners.has(handle.owner);
+  }
+
+  eventReaderEnded(handle: HandleWire): boolean {
+    return this.endedOwners.has(handle.owner);
+  }
+
   checkHandle(handle: HandleWire): void {
     // A held read decodes a handle from a snapshot that this session already
     // holds. It needs no worker, so an ended owner, a stopped worker, or the
@@ -246,6 +256,8 @@ export class MainSession {
   ): Promise<unknown> {
     this.localCalls++;
     try {
+      if (key === "EventReader.next" && target && this.eventReaderEnded(target))
+        return undefined;
       if (target && abandonedAtEnd(key))
         return await this.sendRead(key, args, target, signal);
       return await this.sendCall(key, args, target, signal);
@@ -260,7 +272,8 @@ export class MainSession {
    * on this thread. The worker acknowledges a delivered value when the next
    * read starts, so a later read must not reach the worker while an earlier
    * value could still be abandoned at Client.end. After an abandoned read the
-   * owner is closed, and the later read fails without being posted.
+   * owner is closed. Later event reads end normally; other reads fail
+   * without being posted.
    */
   private sendRead(
     key: string,
@@ -326,6 +339,29 @@ export class MainSession {
     target?: HandleWire,
     signal?: AbortSignal,
   ): Promise<unknown> {
+    if (key === "EventReader.next" && target) {
+      if (this.eventReaderEnded(target)) return undefined;
+      const ending = this.endingOwners.get(target.owner);
+      if (ending) {
+        // A read queued before the fence still ends normally. If end fails,
+        // issue that read against the open owner instead.
+        return new Promise((resolve, reject) => {
+          ending.push({
+            pending: {
+              eventRead: true,
+              resolve: () =>
+                resolve(
+                  this.eventReaderEnded(target)
+                    ? undefined
+                    : this.sendCall(key, args, target, signal),
+                ),
+              reject,
+            },
+            value: undefined,
+          });
+        });
+      }
+    }
     if (target) this.checkHandle(target);
     const { value, registered } =
       typeof args === "function"
@@ -344,6 +380,7 @@ export class MainSession {
       const abort = () => this.endpoint.postMessage({ t: "cancel", id });
       this.pending.set(id, {
         abandonedOwner: abandonedAtEnd(key) ? target?.owner : undefined,
+        eventRead: key === "EventReader.next",
         resolve: (value) => {
           signal?.removeEventListener("abort", abort);
           resolve(value);
@@ -398,11 +435,25 @@ export class MainSession {
 
   closeOwner(owner: number, handles: number[]): void {
     this.closedOwners.add(owner);
+    this.endedOwners.add(owner);
+    // Event subscriptions end before Client.end returns, even if their reply
+    // is still in transit. A late event reply has no handles to release.
+    for (const [id, pending] of this.pending) {
+      if (pending.eventRead && pending.abandonedOwner === owner) {
+        this.pending.delete(id);
+        pending.resolve(undefined);
+      }
+    }
     // The end succeeded, so reads held for it are abandoned and unacknowledged.
     const held = this.endingOwners.get(owner) ?? [];
     this.endingOwners.delete(owner);
-    for (const { pending } of held) pending.reject(this.error("clientClosed"));
+    for (const { pending } of held) this.endRead(pending);
     if (!this.dead) this.postWork({ t: "release", handles, owners: [owner] });
+  }
+
+  private endRead(pending: Pending): void {
+    if (pending.eventRead) pending.resolve(undefined);
+    else pending.reject(this.error("clientClosed"));
   }
 
   fenceOwner(owner: number): void {
@@ -484,7 +535,7 @@ export class MainSession {
         ) {
           // The owner ended while this read's value was in transit. The value
           // is not handed to the app, so it stays unacknowledged.
-          pending.reject(this.error("clientClosed"));
+          this.endRead(pending);
         } else pending?.resolve(message.value);
         break;
       }

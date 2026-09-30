@@ -5,6 +5,8 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
+# The transfer relay uses the repository schema to change a grant URL.
+export SDK_PROTOC="${SDK_PROTOC:-$(NIX_DEVSHELL=rust dev/nix-shell 'command -v protoc')}"
 output="$(mktemp)"
 node "$root/crates/xmtp_sdk/conformance/ts/object-store.mjs" "${SDK_OBJECT_STORE_PORT:-0}" >"$output" &
 store=$!

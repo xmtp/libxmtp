@@ -8,11 +8,11 @@ import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import {
   Backend,
   Client as ProxyClient,
 } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { wrapClient } from "../../../../target/sdk-generated/typescript-wasm/public-client.gen";
 import {
   currentProjection,
@@ -108,7 +108,7 @@ export async function build(
 }
 
 export function signer(
-  session: MainSession,
+  session?: MainSession,
   reenter = false,
   backendURL?: string,
 ): sdk.Signer & { didReenter: () => boolean } {
@@ -123,7 +123,8 @@ export function signer(
     },
     async sign(request) {
       if (reenter) {
-        if (!backendURL) throw new Error("missing backend for reentry");
+        if (!backendURL || !session)
+          throw new Error("missing backend or session for reentry");
         const backend = await Backend.connect(session, {
           url: backendURL,
           appVersion: undefined,

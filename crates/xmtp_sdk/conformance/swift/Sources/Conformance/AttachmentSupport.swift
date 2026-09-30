@@ -236,3 +236,49 @@ func checkClientClosed(_ action: @escaping @Sendable () async throws -> Void) as
     }
     throw ConformanceFailure("expected ClientClosed, got success")
 }
+
+/// The loopback relay changes only the upload grant URL and holds its PUT.
+struct HeldTransfer: Sendable {
+    let url: String
+    var backend: String { "\(url)/backend" }
+
+    @discardableResult
+    func command(_ action: String) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(from: URL(string: "\(url)/\(action)")!)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw ConformanceFailure("transfer control \(action) failed")
+        }
+        return data
+    }
+
+    func checkCounts(puts: Int, grants: Int) async throws {
+        let data = try await command("counts")
+        guard String(data: data, encoding: .utf8) == "{\"puts\":\(puts),\"grants\":\(grants),\"gets\":0}" else {
+            throw ConformanceFailure("unexpected transfer request count")
+        }
+    }
+
+    static func open() async throws -> HeldTransfer {
+        let held = try HeldTransfer(url: "\(objectStore())/transfer/\(UUID().uuidString)")
+        try await held.command("arm")
+        return held
+    }
+}
+
+/// A callback barrier. The test supplies its timeout through `within`.
+actor AttachmentSignal {
+    private var complete = false
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+
+    func mark() {
+        complete = true
+        let pending = waiters
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
+    }
+
+    func wait() async {
+        if complete { return }
+        await withCheckedContinuation { waiters.append($0) }
+    }
+}

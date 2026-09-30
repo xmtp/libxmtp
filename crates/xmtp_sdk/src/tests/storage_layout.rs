@@ -381,63 +381,6 @@ async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers(
     std::fs::remove_dir_all(root)?;
 }
 
-#[xmtp_common::test(unwrap_try = true)]
-async fn explicit_storage_rejects_its_removed_creator() {
-    let relay = CountingRelay::start().await?;
-    let root = temp_root("explicit-removed");
-    std::fs::create_dir_all(&root)?;
-    let mut settings = options();
-    settings.backend = relay.backend();
-    settings.storage.location = explicit(&root);
-    let creator_signer = crate::generate_local_signer().await;
-    let creator = signer::identity(creator_signer.clone()).await?;
-    let client = Client::create(creator_signer.clone(), settings.clone()).await?;
-    // The recovery account removes the creator, whose identifier then belongs
-    // to no inbox but still computes the inbox ID.
-    let recovery_signer = crate::generate_local_signer().await;
-    let recovery = signer::identity(recovery_signer.clone()).await?;
-    client
-        .unsafe_add_account(recovery_signer.clone(), false)
-        .await?;
-    client
-        .change_recovery_identifier(creator_signer, recovery)
-        .await?;
-    client
-        .remove_account(recovery_signer, creator.clone())
-        .await?;
-    let state = client.inbox_state(true).await?;
-    assert!(
-        state
-            .identities
-            .iter()
-            .all(|identity| identity.identifier != creator.identifier),
-        "the creator is still a member"
-    );
-    assert_eq!(
-        creator.to_core()?.inbox_id(0)?,
-        client.inbox_id().checked()?
-    );
-    client.end().await?;
-
-    let online = Client::build(creator.clone(), settings.clone(), None).await;
-    assert!(
-        is_identity_mismatch(&online),
-        "online build: {:?}",
-        online.err()
-    );
-
-    relay.refuse();
-    settings.allow_offline = true;
-    let offline = Client::build(creator, settings, None).await;
-    assert!(
-        is_identity_mismatch(&offline),
-        "offline build: {:?}",
-        offline.err()
-    );
-    assert_eq!(relay.connections(), 0, "offline check sent a request");
-    std::fs::remove_dir_all(root)?;
-}
-
 // With no live inbox for the identifier, the build falls back to the inbox the
 // identifier created, whose directory holds the stored identity.
 #[xmtp_common::test(unwrap_try = true)]
@@ -497,6 +440,10 @@ async fn explicit_storage_fetches_a_removal_made_on_another_installation() {
     client
         .change_recovery_identifier(creator_signer, recovery)
         .await?;
+    assert_eq!(
+        creator.to_core()?.inbox_id(0)?,
+        client.inbox_id().checked()?
+    );
     client.end().await?;
 
     // Another installation removes the creator, so only the network holds
@@ -507,6 +454,14 @@ async fn explicit_storage_fetches_a_removal_made_on_another_installation() {
     other
         .remove_account(recovery_signer, creator.clone())
         .await?;
+    let state = other.inbox_state(true).await?;
+    assert!(
+        state
+            .identities
+            .iter()
+            .all(|identity| identity.identifier != creator.identifier),
+        "the creator is still a member"
+    );
     other.end().await?;
 
     let online = Client::build(creator.clone(), settings.clone(), None).await;

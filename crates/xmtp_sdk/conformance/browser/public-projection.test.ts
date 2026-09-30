@@ -214,4 +214,62 @@ describe("shared public value projection", () => {
       });
     }
   });
+  it("rejects malformed attachment sources before field conversion", () => {
+    for (const source of [
+      null,
+      undefined,
+      {},
+      { kind: "unknown" },
+      { kind: "path" },
+      { kind: "path", path: undefined },
+      { kind: "path", path: 7 },
+      { kind: "path", path: "source", bytes: undefined },
+      { kind: "bytes" },
+      { kind: "bytes", bytes: undefined },
+      { kind: "bytes", bytes: [1, 2] },
+      { kind: "bytes", bytes: new Uint8Array([1]), path: undefined },
+    ]) {
+      let failure: unknown;
+      try {
+        P.lowerAttachmentSource(source as P.AttachmentSource, projection);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(P.XmtpError.Attachment);
+      const error = failure as InstanceType<typeof P.XmtpError.Attachment>;
+      expect(error.details).toMatchObject({
+        code: "Attachment",
+        category: "input",
+        retryable: false,
+      });
+      expect(error.attachmentFailure).toEqual({
+        cause: "malformed",
+        credentialKind: undefined,
+        retryable: false,
+        missingScope: false,
+        httpStatus: undefined,
+      });
+    }
+    for (const source of [
+      {
+        kind: "bytes",
+        bytes: new Uint8Array(),
+        filename: undefined,
+        mimeType: "text/plain",
+      },
+      {
+        kind: "path",
+        path: "source",
+        filename: "name",
+        mimeType: "text/plain",
+      },
+    ] satisfies P.AttachmentSource[]) {
+      expect(
+        P.liftAttachmentSource(
+          P.lowerAttachmentSource(source, projection),
+          projection,
+        ),
+      ).toEqual(source);
+    }
+  });
 });

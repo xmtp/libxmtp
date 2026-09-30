@@ -130,3 +130,17 @@ pub(super) fn cursor_type(owner: &str, member: &str, public: String) -> String {
         public
     }
 }
+
+/// Check source selection before ordinary generated field conversion.
+// implements: ATCH-072
+pub(super) const ATTACHMENT_SOURCE_GUARD: &str = r#"
+const input: unknown = value;
+if (typeof input !== 'object' || input === null || !('kind' in input) ||
+    !(input.kind === 'path' && 'path' in input && typeof input.path === 'string' && !('bytes' in input) ||
+      input.kind === 'bytes' && 'bytes' in input && input.bytes instanceof Uint8Array && !('path' in input))) {
+  throw new XmtpError.Attachment(
+    { code: 'Attachment', category: 'input', retryable: false, message: 'attachment source must select exactly one path or byte buffer' },
+    { cause: 'malformed', credentialKind: undefined, retryable: false, missingScope: false, httpStatus: undefined },
+  );
+}
+"#;

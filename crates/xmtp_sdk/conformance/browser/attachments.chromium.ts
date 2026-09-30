@@ -19,7 +19,6 @@ import {
   sha256Hex,
   thrownError,
   thrownFailure,
-  within,
   writeOpfs,
 } from "./attachments-support";
 import {
@@ -186,7 +185,9 @@ export async function checkAttachmentFlow(
     await receiver.conversations.syncAll(undefined);
     const message = await receiver.conversations.getMessageById(sent);
     if (message?.content.kind !== "remoteAttachment")
-      throw new Error("the sent attachment did not arrive as a remote attachment");
+      throw new Error(
+        "the sent attachment did not arrive as a remote attachment",
+      );
     const received = message.content.value;
     const receiving = receiver.attachments;
     const directory = attachmentsDir(await receiver.storage.path());
@@ -252,11 +253,7 @@ export async function checkAttachmentFlow(
       "two downloads share a key",
     );
     same(downloads[4]!.attachment, downloads[0]!.attachment, "deleted ref");
-    same(
-      await drain(receiver, deletedOnly),
-      [downloads[4]],
-      "filtered reader",
-    );
+    same(await drain(receiver, deletedOnly), [downloads[4]], "filtered reader");
     await deletedOnly.return();
     await receiverEvents.return();
     await reopened.end();
@@ -409,7 +406,9 @@ export async function checkAttachmentFailures(
     const downloadFailures = await drain(downloader, downloadEvents);
     same(
       downloadFailures.flatMap((event) =>
-        event.kind === "attachmentDownloadFailed" ? [event.attachment.cause] : [],
+        event.kind === "attachmentDownloadFailed"
+          ? [event.attachment.cause]
+          : [],
       ),
       ["httpStatus", "tooManyRedirects", "digestMismatch", "decryptionFailed"],
       "download failure events",
@@ -417,94 +416,6 @@ export async function checkAttachmentFailures(
     await downloadEvents.return();
     await downloader.end();
     await client.end();
-  } finally {
-    worker.terminate();
-  }
-}
-
-/** End waits for an operation in flight; later calls fail closed. */
-export async function checkAttachmentEnd(backendURL: string): Promise<void> {
-  const { session, worker } = connection();
-  try {
-    const owner = signer(session);
-    const options = fileOptions(backendURL, `atch-${crypto.randomUUID()}`);
-    const { client } = await create(session, owner, options);
-    const attachments = client.attachments;
-    const small = await attachments.create(bytesSource("small"));
-    const events = await client.events(
-      attachmentFilter(["attachmentUploadStarted"]),
-    );
-    const large = await attachments.create({
-      kind: "bytes",
-      bytes: new Uint8Array(32 * 1024 * 1024).fill(1),
-      filename: undefined,
-      mimeType: "application/octet-stream",
-    });
-    const upload = large.upload();
-    const started = await within(events.next(), "upload start");
-    equal(started.value?.kind, "attachmentUploadStarted", "upload start");
-    await events.return();
-    await client.end();
-    // The upload held the client, so end let it finish.
-    await within(upload, "upload across end", 60_000);
-    // Held values stay readable; calls fail closed.
-    equal(attachments.offered, true, "offered after end");
-    const remote = large.remoteAttachment;
-    const closedCalls: Array<[string, () => Promise<unknown>]> = [
-      ["create", () => attachments.create(bytesSource("late"))],
-      ["localPath", () => attachments.localPath(remote)],
-      ["listLocal", () => attachments.listLocal()],
-      ["download", () => attachments.download(remote)],
-      ["pending localPath", () => large.localPath()],
-      ["status", () => large.status()],
-      ["upload", () => large.upload()],
-    ];
-    for (const [label, call] of closedCalls)
-      await rejectsClosed(call(), `${label} after end`);
-
-    // The held wrappers do not keep the ended database open.
-    const { client: reopened } = await build(
-      session,
-      await owner.identity(),
-      options,
-    );
-    const resumed = reopened.attachments;
-    same(
-      await (await resumed.pending(remote)).status(),
-      { kind: "complete" },
-      "upload finished across end",
-    );
-    // A listener sees a deletion until it stops.
-    let deletions = 0;
-    const listener = await reopened.startListener(
-      { kinds: ["attachmentDeleted"], referencesOwnMessages: false },
-      () => {
-        deletions += 1;
-      },
-    );
-    const deleted = await reopened.events(
-      attachmentFilter(["attachmentDeleted"]),
-    );
-    await resumed.deleteLocal(remote);
-    for (let attempt = 0; attempt < 100 && deletions === 0; attempt += 1)
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    equal(deletions, 1, "listener deletions");
-    await reopened.stopListener(listener);
-    await resumed.deleteLocal(small.remoteAttachment);
-    expect(
-      !(await existsOpfs(await resumed.localPath(remote))),
-      "deleted file remains",
-    );
-    // The reader has both deletions, so a live listener had its turn.
-    for (const expected of [remote, small.remoteAttachment]) {
-      const next = (await within(deleted.next(), "deletion")).value;
-      if (next?.kind !== "attachmentDeleted") throw new Error("not a deletion");
-      equal(next.attachment.url, expected.url, "deletion order");
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
-    equal(deletions, 1, "a stopped listener saw a deletion");
-    await deleted.return();
-    await reopened.end();
   } finally {
     worker.terminate();
   }

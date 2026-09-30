@@ -231,3 +231,31 @@ internal suspend fun checkClientClosed(action: suspend () -> Unit) {
     val error = runCatching { withTimeout(10_000) { action() } }.exceptionOrNull()
     check(error is XmtpException.ClientClosed) { "expected ClientClosed, got $error" }
 }
+
+/** The loopback relay changes only the upload grant URL and holds its PUT. */
+internal class HeldTransfer private constructor(val url: String) {
+    val backend: String get() = "$url/backend"
+
+    suspend fun command(action: String): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val connection = java.net.URI("$url/$action").toURL().openConnection() as java.net.HttpURLConnection
+        connection.connectTimeout = 10_000
+        connection.readTimeout = 10_000
+        try {
+            check(connection.responseCode == 200) { "transfer control $action: ${connection.responseCode}" }
+            connection.inputStream.bufferedReader().use { it.readText() }
+        } finally { connection.disconnect() }
+    }
+
+    suspend fun checkCounts(puts: Int, grants: Int) {
+        check(command("counts") == "{\"puts\":$puts,\"grants\":$grants,\"gets\":0}") { "unexpected transfer request count" }
+    }
+
+    companion object {
+        suspend fun open(): HeldTransfer {
+            val store = checkNotNull(System.getenv("SDK_FIXTURE_URL"))
+            val held = HeldTransfer("$store/transfer/${java.util.UUID.randomUUID()}")
+            held.command("arm")
+            return held
+        }
+    }
+}

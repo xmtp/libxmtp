@@ -1,4 +1,4 @@
-// Attachment failure records and worker death, in the conformance-featured
+// Attachment failure records in the conformance-featured
 // panic fixture. Its hooks fail an operation with any record.
 // @ts-ignore The browser fixture uses the published JavaScript build of viem.
 import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/generatePrivateKey.js";
@@ -12,7 +12,6 @@ import {
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen";
 import * as fx from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
 import {
-  bridgeTestPanic,
   Client as ProxyClient,
   sdkConformanceAttachmentError,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/proxy.gen";
@@ -32,13 +31,13 @@ import {
   hostOptions,
   publicClient,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/public/client";
+import { heldTransfer } from "../ts/transfer-control.mts";
 import {
   attachmentFilter,
   bytesSource,
   drain,
   failure,
   same,
-  within,
 } from "./attachments-support";
 import { equal, expect } from "./suite-support";
 
@@ -113,102 +112,50 @@ async function thrownError(
   throw new Error("expected an attachment error, got success");
 }
 
-/** A call on a client whose worker died fails closed. */
-async function rejectsClosed(
-  action: Promise<unknown>,
-  label: string,
-): Promise<void> {
-  try {
-    await within(action, label);
-  } catch (error) {
-    expect(
-      error instanceof fx.XmtpError.ClientClosed &&
-        error.details.category === "lifecycle",
-      `${label}: expected ClientClosed, got ${String(error)}`,
-    );
-    return;
-  }
-  throw new Error(`${label} succeeded after the worker died`);
-}
-
-/** The public form of a call in flight when the worker died. */
-async function rejectsWorkerDeath(
-  action: Promise<unknown>,
-  label: string,
-): Promise<void> {
-  try {
-    await within(action, label);
-  } catch (error) {
-    expect(
-      error instanceof fx.XmtpError.Unknown &&
-        error.details.category === "lifecycle" &&
-        !error.details.retryable &&
-        error.details.message === "workerTerminated",
-      `${label}: expected the worker failure, got ${String(error)}`,
-    );
-    return;
-  }
-  throw new Error(`${label} succeeded after the worker died`);
-}
-
-// Each cause with the error category and retry the ATCH table gives it.
-const FAILURE_TABLE: [fx.AttachmentFailure, fx.ErrorCategory, boolean][] = [
-  [failure("notOffered"), "configuration", false],
-  [failure("tooLarge"), "input", false],
-  [failure("sourceUnreadable"), "input", false],
-  [failure("localStorage"), "storage", true],
-  [failure("stagedUnusable"), "storage", false],
-  [failure("connectionBlocked"), "configuration", false],
-  [
-    failure("credential", {
-      credentialKind: "credentialRejected",
-      missingScope: true,
-    }),
-    "callback",
-    false,
-  ],
-  [
-    failure("credential", { credentialKind: "callbackFailed", retryable: true }),
-    "callback",
-    true,
-  ],
-  [failure("credential", { credentialKind: "exhausted" }), "callback", false],
-  [
-    failure("credential", { credentialKind: "missingCredential" }),
-    "callback",
-    false,
-  ],
-  [failure("backendRejected"), "network", false],
-  [failure("backendUnavailable"), "network", true],
-  [failure("targetRejected", { httpStatus: 403 }), "network", true],
-  [failure("network"), "network", true],
-  [failure("insecureUrl"), "input", false],
-  [failure("blockedAddress"), "network", false],
-  [failure("tooManyRedirects"), "network", false],
-  [failure("notFound", { httpStatus: 404 }), "network", true],
-  [failure("httpStatus", { httpStatus: 408 }), "network", true],
-  [failure("httpStatus", { httpStatus: 429 }), "network", true],
-  [failure("httpStatus", { httpStatus: 503 }), "network", true],
-  [failure("httpStatus", { httpStatus: 403 }), "network", false],
-  [failure("malformed"), "input", false],
-  [failure("digestMismatch"), "input", false],
-  [failure("decryptionFailed"), "input", false],
-  [failure("notAnAttachment"), "input", false],
-  [failure("deleted"), "storage", true],
+// Every transport discriminant and optional field. Rust owns the full policy table.
+const FAILURE_TABLE: fx.AttachmentFailure[] = [
+  failure("notOffered"),
+  failure("tooLarge"),
+  failure("sourceUnreadable"),
+  failure("localStorage"),
+  failure("stagedUnusable"),
+  failure("connectionBlocked"),
+  failure("credential", {
+    credentialKind: "credentialRejected",
+    missingScope: true,
+  }),
+  failure("credential", { credentialKind: "callbackFailed", retryable: true }),
+  failure("credential", { credentialKind: "exhausted" }),
+  failure("credential", { credentialKind: "missingCredential" }),
+  failure("backendRejected"),
+  failure("backendUnavailable"),
+  failure("targetRejected", { httpStatus: 403 }),
+  failure("network"),
+  failure("insecureUrl"),
+  failure("blockedAddress"),
+  failure("tooManyRedirects"),
+  failure("notFound", { httpStatus: 404 }),
+  failure("httpStatus", { httpStatus: 408 }),
+  failure("httpStatus", { httpStatus: 429 }),
+  failure("httpStatus", { httpStatus: 503 }),
+  failure("httpStatus", { httpStatus: 403 }),
+  failure("malformed"),
+  failure("digestMismatch"),
+  failure("decryptionFailed"),
+  failure("notAnAttachment"),
+  failure("deleted"),
 ];
 
 /**
  * Every cause and credential kind, thrown and recorded; no resend of a
- * terminal rejection; and the calls a worker's death settles.
+ * terminal rejection.
  */
-export async function checkAttachmentRecords(
-  backendURL: string,
-  store: string,
-): Promise<void> {
+export async function checkAttachmentRecords(store: string): Promise<void> {
   const { session, worker } = connection();
+  const held = await heldTransfer(store);
   try {
     const client = await create(session, {
-      backend: { url: backendURL },
+      backend: { url: held.backend },
       storage: {
         location: { directory: `atch-records-${crypto.randomUUID()}` },
         singleConnection: false,
@@ -220,10 +167,7 @@ export async function checkAttachmentRecords(
     });
     const attachments = client.attachments;
     const projection = currentProjection();
-    for (const [
-      index,
-      [recorded, category, retryable],
-    ] of FAILURE_TABLE.entries()) {
+    for (const [index, recorded] of FAILURE_TABLE.entries()) {
       const error = await thrownError(
         sdkConformanceAttachmentError(
           session,
@@ -233,8 +177,10 @@ export async function checkAttachmentRecords(
         }),
       );
       same(error.attachmentFailure, recorded, `thrown ${recorded.cause}`);
-      equal(error.details.category, category, recorded.cause);
-      equal(error.details.retryable, retryable, recorded.cause);
+      if (recorded.cause === "credential") {
+        equal(error.details.category, "callback", recorded.cause);
+        equal(error.details.retryable, recorded.retryable, recorded.cause);
+      }
       const pending = await attachments.create(bytesSource(`record ${index}`));
       await pending.sdkConformanceFail(recorded);
       same(
@@ -243,10 +189,10 @@ export async function checkAttachmentRecords(
         `status ${recorded.cause}`,
       );
     }
-    const causes = new Set(FAILURE_TABLE.map(([recorded]) => recorded.cause));
+    const causes = new Set(FAILURE_TABLE.map((recorded) => recorded.cause));
     equal(causes.size, 21, "causes");
     const kinds = new Set(
-      FAILURE_TABLE.flatMap(([recorded]) => recorded.credentialKind ?? []),
+      FAILURE_TABLE.flatMap((recorded) => recorded.credentialKind ?? []),
     );
     equal(kinds.size, 4, "credential kinds");
 
@@ -267,35 +213,13 @@ export async function checkAttachmentRecords(
     );
     same(await drain(client, events), [], "a terminal rejection was resent");
 
-    // The worker's death fails a call in flight and a waiting reader with
-    // the worker failure. Later calls fail closed; held values stay readable.
-    const held = await attachments.create(bytesSource("held"));
-    const remote = held.remoteAttachment;
-    const inFlight = attachments.download({
-      ...remote,
-      url: `${store}/hang`,
-      contentDigest: "11".repeat(32),
-    });
-    void inFlight.catch(() => {});
-    const started = await within(events.next(), "download start");
-    equal(started.value?.kind, "attachmentDownloadStarted", "download start");
-    const waiting = events.next();
-    void waiting.catch(() => {});
-    await bridgeTestPanic(session).catch(() => {});
-    await rejectsWorkerDeath(inFlight, "download in flight");
-    await rejectsWorkerDeath(waiting, "waiting event reader");
-    const laterCalls: Array<[string, () => Promise<unknown>]> = [
-      ["create", () => attachments.create(bytesSource("late"))],
-      ["localPath", () => attachments.localPath(remote)],
-      ["listPending", () => attachments.listPending()],
-      ["status", () => held.status()],
-      ["upload", () => held.upload()],
-    ];
-    for (const [label, call] of laterCalls)
-      await rejectsClosed(call(), `${label} after the worker died`);
-    equal(attachments.offered, true, "offered after the worker died");
-    equal(client.attachments.offered, true, "attachments after the worker died");
-    same(held.remoteAttachment, remote, "record after the worker died");
+    same(
+      await (await held.command("counts")).json(),
+      { puts: 0, grants: 0, gets: 0 },
+      "terminal rejection sent a request",
+    );
+    await events.return();
+    await client.end();
   } finally {
     worker.terminate();
   }
