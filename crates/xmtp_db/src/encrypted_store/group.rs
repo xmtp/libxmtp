@@ -331,10 +331,6 @@ pub trait QueryGroup {
 
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError>;
 
-    /// Increases each time a group enters the Restored state, through any client
-    /// that shares this database.
-    fn restored_group_generation(&self) -> Result<i64, crate::ConnectionError>;
-
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError>;
 
     /// Return a single group that matches the given ID
@@ -473,10 +469,6 @@ where
 
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         (**self).all_sync_groups()
-    }
-
-    fn restored_group_generation(&self) -> Result<i64, crate::ConnectionError> {
-        (**self).restored_group_generation()
     }
 
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
@@ -851,16 +843,6 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     /// Newest local join time first; on an equal time, the greatest id first.
     // implements: SYNC-002
     #[xmtp_common::db_span]
-    #[xmtp_common::db_span]
-    fn restored_group_generation(&self) -> Result<i64, crate::ConnectionError> {
-        use crate::schema::restored_group_generation::dsl as generation;
-        self.raw_query(|conn| {
-            generation::restored_group_generation
-                .select(generation::generation)
-                .first(conn)
-        })
-    }
-
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
@@ -1482,35 +1464,6 @@ pub(crate) mod tests {
                     .unwrap(),
                 test_group
             );
-        })
-    }
-
-    // verifies: PROC-051
-    #[xmtp_common::test]
-    fn restored_generation_counts_each_change_into_restored() {
-        use crate::StoreOrIgnore;
-        with_connection(|conn| {
-            let generation = || conn.restored_group_generation().unwrap();
-            assert_eq!(generation(), 0);
-            generate_group(None).store(conn).unwrap();
-            assert_eq!(generation(), 0);
-
-            let restored = generate_group(Some(GroupMembershipState::Restored));
-            restored.store(conn).unwrap();
-            assert_eq!(generation(), 1);
-            // An ignored duplicate insert is not a change.
-            restored.store_or_ignore(conn).unwrap();
-            assert_eq!(generation(), 1);
-
-            conn.update_group_membership(restored.id, GroupMembershipState::Allowed)
-                .unwrap();
-            assert_eq!(generation(), 1);
-            conn.update_group_membership(restored.id, GroupMembershipState::Restored)
-                .unwrap();
-            assert_eq!(generation(), 2);
-            conn.update_group_membership(restored.id, GroupMembershipState::Restored)
-                .unwrap();
-            assert_eq!(generation(), 2);
         })
     }
 

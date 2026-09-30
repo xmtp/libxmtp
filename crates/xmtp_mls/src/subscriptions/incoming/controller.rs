@@ -174,6 +174,8 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     restored_generation: Option<i64>,
     #[cfg(test)]
     restored_lookups: usize,
+    #[cfg(test)]
+    restored_scans: usize,
     topics: HashMap<Topic, TopicSchedule>,
     storage_error: Option<Arc<IncomingError>>,
     callbacks: HashMap<
@@ -217,6 +219,8 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             restored_generation: None,
             #[cfg(test)]
             restored_lookups: 0,
+            #[cfg(test)]
+            restored_scans: 0,
             topics: HashMap::new(),
             storage_error: None,
             callbacks: HashMap::new(),
@@ -413,15 +417,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     /// Another client that shares the database sends no notice. When the
-    /// database's Restored generation changes, check every selected group once.
-    /// An unchanged generation costs one single-row read.
+    /// database's Restored generation changes, one query finds which selected
+    /// groups are Restored. An unchanged generation costs one single-row read.
+    /// The check runs at the next pass, so the cross-client window is bounded
+    /// to one poll interval, and a batch received before that pass can still
+    /// be admitted.
     // implements: PROC-051
     fn check_restored_generation(&mut self) -> Result<(), IncomingError> {
-        let generation = self
-            .context
-            .db()
-            .restored_group_generation()
-            .map_err(|error| IncomingError::Storage(error.into()))?;
+        let storage = |error: xmtp_db::ConnectionError| IncomingError::Storage(error.into());
+        let db = self.context.db();
+        let generation = db.restored_group_generation().map_err(storage)?;
         if self.restored_generation == Some(generation) {
             return Ok(());
         }
@@ -431,10 +436,23 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .flat_map(|scope| scope.topics.iter())
             .filter(|topic| topic.kind() == TopicKind::GroupMessagesV1)
             .filter_map(|topic| GroupId::try_from(topic.identifier()).ok())
+            .collect::<HashSet<_>>()
+            .into_iter()
             .collect();
-        self.restored.extend(selected);
+        #[cfg(test)]
+        {
+            self.restored_scans += 1;
+        }
+        // A failed query fails the pass and keeps the old generation, so the
+        // next pass repeats it.
+        for group_id in db.restored_among(&selected).map_err(storage)? {
+            self.topics
+                .entry(Topic::new_group_message(group_id))
+                .or_default()
+                .processing
+                .retired = true;
+        }
         self.restored_generation = Some(generation);
-        self.check_restored_notices();
         Ok(())
     }
 

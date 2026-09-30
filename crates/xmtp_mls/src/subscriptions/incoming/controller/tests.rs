@@ -3676,7 +3676,7 @@ async fn a_restored_group_stored_by_another_client_is_retired() {
 
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
-async fn an_unchanged_restored_generation_does_no_group_lookups() {
+async fn a_restored_generation_change_costs_one_query() {
     tester!(alix, disable_workers);
     let topics: Vec<_> = (0..20)
         .map(|_| Topic::new_group_message(GroupId::generate()))
@@ -3687,16 +3687,16 @@ async fn an_unchanged_restored_generation_does_no_group_lookups() {
         scope: IncomingScope::Topics(topics.clone()),
     });
     controller.reconcile()?;
-    let lookups = controller.restored_lookups;
+    let (scans, lookups) = (controller.restored_scans, controller.restored_lookups);
     for _ in 0..3 {
         controller.reconcile()?;
     }
-    assert_eq!(controller.restored_lookups, lookups);
+    assert_eq!(controller.restored_scans, scans);
 
-    // A change checks each selected group once.
+    // A change costs one query for all selected groups, not one per group.
     insert_restored_placeholder(&alix.context, &GroupId::generate(), ConversationType::Group);
     controller.reconcile()?;
-    assert_eq!(controller.restored_lookups, lookups + topics.len());
     controller.reconcile()?;
-    assert_eq!(controller.restored_lookups, lookups + topics.len());
+    assert_eq!(controller.restored_scans, scans + 1);
+    assert_eq!(controller.restored_lookups, lookups);
 }
