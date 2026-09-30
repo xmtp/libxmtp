@@ -106,6 +106,7 @@ describe("typed codec send policy", () => {
     );
   });
 
+  // verifies: CTYPE-007
   it("rejects an envelope of another type than the codec", () => {
     // A custom codec cannot send a catalogue type, so its push hook cannot
     // steer catalogue dispatch.
@@ -155,6 +156,7 @@ describe("typed codec send policy", () => {
     });
   });
 
+  // verifies: SEND-021
   it("chooses push: explicit option, then catalogue, then the hook", () => {
     const hook = codec({ shouldPush: (value) => value === "loud" });
     expect(optionsForSend(hook, "loud", undefined, custom)).toEqual({
@@ -255,6 +257,7 @@ describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
     }
   });
 
+  // verifies: SEND-021
   it("keeps an explicit push, a catalogue default, and an envelope send", async () => {
     const calls: [string, unknown, unknown][] = [];
     const group = recordingGroup(calls);

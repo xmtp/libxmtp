@@ -26,6 +26,8 @@ fun main() =
         check(messageId.length == 64)
         println("Kotlin scenario 1: load, checksums, version passed")
 
+        // Client-free standard codecs encode the client's bytes and round trip.
+        // verifies: CTYPE-007, CTYPE-026
         val codecSamples = sdkConformanceStandardSamples()
         check(codecSamples.size == 15) { "missing standard codec samples" }
         for (sample in codecSamples) {
@@ -94,8 +96,8 @@ fun main() =
                 }
             check(matches) { "standard codec content differs from Rust" }
         }
-        // The variant codecs take the whole StandardContent and reject another
-        // variant at run time (a known P9 gap).
+        // Known gap, waiting for an owner decision: the variant codecs take the
+        // whole StandardContent and reject another variant only at run time.
         for (codec in listOf(ReactionV2Codec(), ReplyCodec(), DeleteMessageCodec())) {
             check(
                 runCatching {
@@ -873,8 +875,10 @@ fun main() =
         check((failed.content as? SDKMessageContent.Custom)?.error is AssertionError)
         failingHost.end()
         println("Kotlin codec_scoped_to_client passed")
-        checkCodecPolicy(family, withoutCodec)
-        println("Kotlin typed codec send policy passed")
+        val typedParent = customCodecPolicyAndIsolation(family, withoutCodec)
+        println("Kotlin custom_codec_policy_and_isolation passed")
+        codecPolicyFailureNeverPublishes(family, typedParent)
+        println("Kotlin codec_policy_failure_never_publishes passed")
         withCodec.end()
         withoutCodec.end()
         println("Kotlin scenario 6: custom codec stayed with its client")

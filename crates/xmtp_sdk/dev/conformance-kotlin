@@ -28,8 +28,10 @@ if NIX_DEVSHELL=android dev/nix-shell 'sdks/android/gradlew -p crates/xmtp_sdk/c
   exit 1
 fi
 # The encode, Group and Dm send and prepareMessage, Conversation send, and
-# reply calls each reject an Int value, and the removed SDKContentCodec does
-# not resolve: eight distinct source lines.
-test "$(grep -o "^e: .*ConsumerNegative.kt:[0-9]*:" "$log" | sort -u | wc -l | tr -d ' ')" -eq 8
+# reply calls each reject an Int value with a type mismatch: seven distinct
+# source lines. The compiler reports a send against the envelope overload, and
+# the reply as no applicable candidate.
+test "$(grep -E "^e: .*ConsumerNegative.kt:[0-9]+:[0-9]+ (Argument type mismatch: actual type is 'kotlin.Int'|None of the following candidates is applicable)" "$log" | grep -o "ConsumerNegative.kt:[0-9]*:" | sort -u | wc -l | tr -d ' ')" -eq 7
+grep -q "Argument type mismatch: actual type is 'kotlin.Int', but 'kotlin.String' was expected." "$log"
 grep -q "Unresolved reference 'SDKContentCodec'" "$log"
 echo "Kotlin ID, content, and Group/Dm consumer checks passed"

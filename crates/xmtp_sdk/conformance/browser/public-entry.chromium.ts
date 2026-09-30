@@ -239,8 +239,9 @@ export async function exercise(): Promise<string[]> {
     check((await reply.parent())?.id === id, "parent action failed");
     results.push("host Message fields and actions");
 
-    // The typed codec policy through the worker: the fallback hook fills the
-    // nested envelope, and a failed codec step makes no publish attempt.
+    // custom_codec_policy_and_isolation through the worker: the fallback hook
+    // fills the nested envelope, and a typed send and prepare store the
+    // codec's envelope. suite.chromium.ts checks per-client isolation.
     const noteType: sdk.ContentTypeId = {
       authorityId: "example.org",
       typeId: "note",
@@ -269,28 +270,6 @@ export async function exercise(): Promise<string[]> {
         note.content.body.encoded.fallback === "a note: browser note",
       "the fallback hook did not fill the nested envelope",
     );
-    const beforeFailure = (await group.messages()).length;
-    const failedEncode = await rejection(
-      message.reply(
-        {
-          ...noteCodec,
-          encode: () => {
-            throw new Error("encode failed");
-          },
-        },
-        "never sent",
-      ),
-    );
-    check(
-      failedEncode instanceof sdk.XmtpError.CodecEncodeFailed &&
-        isPublicError(failedEncode) &&
-        failedEncode.details.category === "callback",
-      `a failed encode is not CodecEncodeFailed: ${String(failedEncode)}`,
-    );
-    check(
-      (await group.messages()).length === beforeFailure,
-      "a failed codec step made a publish attempt",
-    );
     // A typed send through the worker: the catalogue predicate runs on the
     // main thread in the pure module, and the hook's push reaches the send.
     const sentId = await group.send(
@@ -315,7 +294,66 @@ export async function exercise(): Promise<string[]> {
       "a typed prepareMessage did not store an unpublished item",
     );
     await group.publishMessage(preparedNote);
-    results.push("typed codec reply and send policy");
+    results.push("custom_codec_policy_and_isolation");
+
+    // codec_policy_failure_never_publishes: a failed encode, fallback, or
+    // shouldPush step makes no publish attempt, and a skipped hook is not
+    // called.
+    await group.send(
+      {
+        ...noteCodec,
+        shouldPush: () => {
+          throw new Error("an explicit shouldPush skips the hook");
+        },
+      },
+      "explicit push",
+      { shouldPush: false },
+    );
+    const beforeFailure = (await group.messages()).length;
+    const failingEncode: sdk.ContentCodec<string> = {
+      ...noteCodec,
+      encode: () => {
+        throw new Error("encode failed");
+      },
+    };
+    const failedSteps: sdk.ContentCodec<string>[] = [
+      failingEncode,
+      {
+        ...noteCodec,
+        fallback: () => {
+          throw new Error("fallback failed");
+        },
+      },
+      {
+        ...noteCodec,
+        shouldPush: () => {
+          throw new Error("shouldPush failed");
+        },
+      },
+    ];
+    for (const failing of failedSteps) {
+      const failed = await rejection(group.send(failing, "never sent"));
+      check(
+        failed instanceof sdk.XmtpError.CodecEncodeFailed &&
+          isPublicError(failed) &&
+          failed.details.category === "callback",
+        `a failed codec step is not CodecEncodeFailed: ${String(failed)}`,
+      );
+    }
+    const failedEncode = await rejection(
+      message.reply(failingEncode, "never sent"),
+    );
+    check(
+      failedEncode instanceof sdk.XmtpError.CodecEncodeFailed &&
+        isPublicError(failedEncode) &&
+        failedEncode.details.category === "callback",
+      `a failed encode is not CodecEncodeFailed: ${String(failedEncode)}`,
+    );
+    check(
+      (await group.messages()).length === beforeFailure,
+      "a failed codec step made a publish attempt",
+    );
+    results.push("codec_policy_failure_never_publishes");
 
     // Streams and events yield public values.
     const stream = sdk.MessageStream.openGroup(alice, group);

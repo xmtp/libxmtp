@@ -182,7 +182,7 @@ class Message(
         codec: ContentCodec<T>,
         value: T,
         options: SendOptions? = null,
-    ): MessageId = reply(encodeForSend(codec, value), options)
+    ): MessageId = reply(replyEnvelope(codec, value), options)
 
     suspend fun parent(): Message? = inReplyTo?.id?.let { client().raw.conversations().getMessageById(it) }
 

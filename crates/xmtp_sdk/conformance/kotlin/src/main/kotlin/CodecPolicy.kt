@@ -17,6 +17,7 @@ private val noteType = ContentTypeId("example.org", "note", 1u, 0u)
 /** A note codec. Each step can fail, return its own fallback, or change type. */
 private class NoteCodec(
     val failEncode: Boolean = false,
+    val cancelEncode: Boolean = false,
     val failFallback: Boolean = false,
     val failPush: Boolean = false,
     val ownFallback: String? = null,
@@ -27,6 +28,9 @@ private class NoteCodec(
 
     override fun encode(value: String): EncodedContent {
         if (failEncode) throw IllegalStateException("encode must not run")
+        // A codec's own CancellationException is a codec failure, not a
+        // cancellation of the caller.
+        if (cancelEncode) throw java.util.concurrent.CancellationException("encode cancelled")
         return EncodedContent(envelopeType, emptyMap(), ownFallback, value.toByteArray())
     }
 
@@ -102,29 +106,30 @@ private suspend fun expectCodecEncodeFailed(
     }
 }
 
-// verifies: CTYPE-017, CTYPE-021
-internal suspend fun checkCodecPolicy(
+private suspend fun Group.stored(id: MessageId): Message? = messages(null).firstOrNull { it.id == id }
+
+// verifies: CTYPE-017, CTYPE-021, SEND-021
+
+/**
+ * custom_codec_policy_and_isolation: a typed send, prepare, and reply apply
+ * the codec's fallback and push hooks, an explicit push value wins, and a
+ * client without the codec keeps the envelope. Returns the typed send, a
+ * parent for the failure checks.
+ */
+internal suspend fun customCodecPolicyAndIsolation(
     group: Group,
     receiver: SDKClient,
-) {
+): Message {
     checkPushOptions()
 
-    suspend fun stored(id: MessageId): Message? = group.messages(null).firstOrNull { it.id == id }
-
-    // A typed send fills the fallback; an envelope's own fallback is kept.
+    // A typed send fills the fallback.
     val sentId = group.send(NoteCodec(), "typed send")
-    val sent = stored(sentId)
+    val sent = group.stored(sentId)
     check(envelope(sent)?.fallback == "a note: typed send") { "a typed send did not fill the fallback" }
-    val keptId = group.send(NoteCodec(failFallback = true, ownFallback = "own"), "kept")
-    check(envelope(stored(keptId))?.fallback == "own") { "an envelope fallback was replaced" }
-
-    // An explicit shouldPush and a catalogue type skip the push hook.
-    group.send(NoteCodec(failPush = true), "explicit", SendOptions(shouldPush = false))
-    group.send(CatalogueTextCodec(), "catalogue text")
 
     // prepareMessage takes the codec form and stores an unpublished item.
     val preparedId = group.prepareMessage(NoteCodec(), "prepared")
-    check(stored(preparedId)?.data?.deliveryStatus == DeliveryStatus.UNPUBLISHED) {
+    check(group.stored(preparedId)?.data?.deliveryStatus == DeliveryStatus.UNPUBLISHED) {
         "a typed prepareMessage did not store an unpublished item"
     }
     group.publishMessage(preparedId)
@@ -132,7 +137,7 @@ internal suspend fun checkCodecPolicy(
     // A typed reply fills the nested fallback and keeps the reply's push.
     val parent = checkNotNull(sent) { "the typed send was not stored" }
     val replyId = parent.reply(NoteCodec(failPush = true), "typed reply")
-    val nested = (stored(replyId)?.replyContent as? SDKReplyContent.Unknown)?.encoded
+    val nested = (group.stored(replyId)?.replyContent as? SDKReplyContent.Unknown)?.encoded
     check(nested?.fallback == "a note: typed reply") { "a typed reply did not fill the nested fallback" }
 
     // A receiver without the codec keeps the envelope and its fallback.
@@ -141,11 +146,32 @@ internal suspend fun checkCodecPolicy(
     check(received is SDKMessageContent.Unknown && received.encoded.fallback == "a note: typed send") {
         "a receiver without the codec lost the envelope"
     }
+    return parent
+}
+
+// verifies: CTYPE-007
+
+/**
+ * codec_policy_failure_never_publishes: a skipped hook is not called, and a
+ * failed encode, fallback, or shouldPush step, or an envelope of another type,
+ * is CodecEncodeFailed with no publish attempt.
+ */
+internal suspend fun codecPolicyFailureNeverPublishes(
+    group: Group,
+    parent: Message,
+) {
+    // An envelope's own fallback is kept, and its fallback hook is not called.
+    val keptId = group.send(NoteCodec(failFallback = true, ownFallback = "own"), "kept")
+    check(envelope(group.stored(keptId))?.fallback == "own") { "an envelope fallback was replaced" }
+    // An explicit shouldPush and a catalogue type skip the push hook.
+    group.send(NoteCodec(failPush = true), "explicit", SendOptions(shouldPush = false))
+    group.send(CatalogueTextCodec(), "catalogue text")
 
     // A failed step makes no publish attempt, on send, prepare, and reply.
     val before = group.messages(null).size
     for (codec in listOf(
         NoteCodec(failEncode = true),
+        NoteCodec(cancelEncode = true),
         NoteCodec(failFallback = true),
         NoteCodec(failPush = true),
         NoteCodec(envelopeType = TextCodec().type),
@@ -154,5 +180,13 @@ internal suspend fun checkCodecPolicy(
         expectCodecEncodeFailed("prepareMessage") { group.prepareMessage(codec, "x") }
     }
     expectCodecEncodeFailed("reply") { parent.reply(NoteCodec(failEncode = true), "x") }
+    // Known gap, waiting for an owner decision: the reaction, reply, and
+    // delete-message codecs take the whole StandardContent, so the compiler
+    // accepts another variant. The send fails at run time instead.
+    for (codec in listOf(ReactionV2Codec(), ReplyCodec(), DeleteMessageCodec())) {
+        expectCodecEncodeFailed("${codec.javaClass.simpleName} send") {
+            group.send(codec, StandardContent.Text("x"))
+        }
+    }
     check(group.messages(null).size == before) { "a failed codec step made a publish attempt" }
 }

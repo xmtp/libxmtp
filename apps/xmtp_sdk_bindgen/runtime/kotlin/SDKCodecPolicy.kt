@@ -1,6 +1,9 @@
+@file:JvmName("ContentCodecSends")
+
 package uniffi.xmtp_sdk
 
-import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 
 // The host send policy for typed codecs (Ref Public surface, Host codecs;
 // Decisions 23 and 24). Every codec step runs before the send starts, so a
@@ -13,15 +16,16 @@ private fun codecEncodeFailed(
     ErrorDetails("CodecEncodeFailed", ErrorCategory.CALLBACK, false, "content codec $step failed: $reason"),
 )
 
+// A codec step is not a suspend function, so any exception from it comes from
+// the codec, including a CancellationException. Each one is CodecEncodeFailed.
+// An Error, such as OutOfMemoryError, is not caught.
 private inline fun <R> codecStep(
     name: String,
     run: () -> R,
 ): R =
     try {
         run()
-    } catch (error: CancellationException) {
-        throw error
-    } catch (error: Throwable) {
+    } catch (error: Exception) {
         throw codecEncodeFailed(name, error.message ?: error.toString())
     }
 
@@ -62,6 +66,31 @@ internal fun <T : Any> optionsForSend(
     return (options ?: SendOptions()).copy(shouldPush = push)
 }
 
+/**
+ * The envelope of [value] for a reply. The caller's cancellation is checked
+ * before the codec steps run.
+ */
+internal suspend fun <T : Any> replyEnvelope(
+    codec: ContentCodec<T>,
+    value: T,
+): EncodedContent {
+    currentCoroutineContext().ensureActive()
+    return encodeForSend(codec, value)
+}
+
+/**
+ * The envelope and options of [value] for a send or prepare. The caller's
+ * cancellation is checked before the codec steps run.
+ */
+private suspend fun <T : Any> sendParts(
+    codec: ContentCodec<T>,
+    value: T,
+    options: SendOptions?,
+): Pair<EncodedContent, SendOptions?> {
+    currentCoroutineContext().ensureActive()
+    return encodeForSend(codec, value) to optionsForSend(codec, value, options)
+}
+
 // Decision 23: a typed codec form of send and prepareMessage next to the
 // envelope form.
 
@@ -70,8 +99,8 @@ suspend fun <T : Any> Group.send(
     value: T,
     options: SendOptions? = null,
 ): MessageId {
-    val encoded = encodeForSend(codec, value)
-    return send(encoded, optionsForSend(codec, value, options))
+    val (encoded, sendOptions) = sendParts(codec, value, options)
+    return send(encoded, sendOptions)
 }
 
 suspend fun <T : Any> Group.prepareMessage(
@@ -79,8 +108,8 @@ suspend fun <T : Any> Group.prepareMessage(
     value: T,
     options: SendOptions? = null,
 ): MessageId {
-    val encoded = encodeForSend(codec, value)
-    return prepareMessage(encoded, optionsForSend(codec, value, options))
+    val (encoded, sendOptions) = sendParts(codec, value, options)
+    return prepareMessage(encoded, sendOptions)
 }
 
 suspend fun <T : Any> Dm.send(
@@ -88,8 +117,8 @@ suspend fun <T : Any> Dm.send(
     value: T,
     options: SendOptions? = null,
 ): MessageId {
-    val encoded = encodeForSend(codec, value)
-    return send(encoded, optionsForSend(codec, value, options))
+    val (encoded, sendOptions) = sendParts(codec, value, options)
+    return send(encoded, sendOptions)
 }
 
 suspend fun <T : Any> Dm.prepareMessage(
@@ -97,8 +126,8 @@ suspend fun <T : Any> Dm.prepareMessage(
     value: T,
     options: SendOptions? = null,
 ): MessageId {
-    val encoded = encodeForSend(codec, value)
-    return prepareMessage(encoded, optionsForSend(codec, value, options))
+    val (encoded, sendOptions) = sendParts(codec, value, options)
+    return prepareMessage(encoded, sendOptions)
 }
 
 suspend fun <T : Any> Conversation.send(
@@ -106,8 +135,8 @@ suspend fun <T : Any> Conversation.send(
     value: T,
     options: SendOptions? = null,
 ): MessageId {
-    val encoded = encodeForSend(codec, value)
-    return send(encoded, optionsForSend(codec, value, options))
+    val (encoded, sendOptions) = sendParts(codec, value, options)
+    return send(encoded, sendOptions)
 }
 
 suspend fun <T : Any> Conversation.prepareMessage(
@@ -115,6 +144,6 @@ suspend fun <T : Any> Conversation.prepareMessage(
     value: T,
     options: SendOptions? = null,
 ): MessageId {
-    val encoded = encodeForSend(codec, value)
-    return prepareMessage(encoded, optionsForSend(codec, value, options))
+    val (encoded, sendOptions) = sendParts(codec, value, options)
+    return prepareMessage(encoded, sendOptions)
 }

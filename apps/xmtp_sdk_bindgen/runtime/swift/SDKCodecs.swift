@@ -1,7 +1,9 @@
 import Foundation
 
 // The standard codecs. Each has the value type of its standard content, and
-// Rust encodes and decodes the bytes.
+// Rust encodes and decodes the bytes. The reaction, reply, and delete-message
+// codecs take the whole StandardContent and reject another variant at run time
+// (a known P9 gap; see the Ref).
 
 private func codecValueError() -> XmtpError {
     .InvalidArgument(ErrorDetails(code: "InvalidArgument", category: .input, retryable: false, message: "wrong standard codec value"))
