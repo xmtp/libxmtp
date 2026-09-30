@@ -11,7 +11,7 @@ async fn foreign_restored_dm_has_no_local_peer() {
     ));
     let signer = crate::generate_local_signer().await;
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let charlie = Client::create(signer.clone(), settings.clone()).await?;
     let dm = alix.conversations().create_dm(bo.inbox_id(), None).await?;
     let other = bo.conversations().create_dm(alix.inbox_id(), None).await?;

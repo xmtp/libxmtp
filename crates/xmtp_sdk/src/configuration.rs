@@ -53,6 +53,14 @@ pub struct MlsConfiguration {
     pub commit_log_enabled: Option<bool>,
 }
 
+/// The attachment service a deployment offers.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct AttachmentsConfiguration {
+    pub base_url: String,
+    pub max_upload_bytes: u64,
+    pub retention_seconds: u64,
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ServerConfiguration {
     pub identifier: String,
@@ -63,6 +71,8 @@ pub struct ServerConfiguration {
     pub limits: LimitsConfiguration,
     pub mls: MlsConfiguration,
     pub smart_contract_wallet_chains: Vec<String>,
+    /// Omitted when the deployment offers no attachment service.
+    pub attachments: Option<AttachmentsConfiguration>,
     /// The fields a new conversation registers, in published order.
     pub application_components: Vec<crate::ApplicationComponentDefinition>,
 }
@@ -122,6 +132,14 @@ impl From<&config::ServerConfiguration> for ServerConfiguration {
                 commit_log_enabled: value.mls.commit_log_enabled,
             },
             smart_contract_wallet_chains: value.smart_contract_wallet_chains.clone(),
+            attachments: value
+                .attachments
+                .as_ref()
+                .map(|attachments| AttachmentsConfiguration {
+                    base_url: attachments.base_url.clone(),
+                    max_upload_bytes: attachments.max_upload_bytes,
+                    retention_seconds: attachments.retention_seconds,
+                }),
             application_components: value
                 .application_components
                 .iter()
@@ -204,9 +222,27 @@ mod tests {
                 commit_log_enabled: Some(false),
             },
             smart_contract_wallet_chains: vec!["eip155:1".into()],
+            attachments: Some(config::AttachmentsConfiguration {
+                base_url: "https://files.example/v1/".into(),
+                max_upload_bytes: (1 << 53) + 1,
+                retention_seconds: 604_800,
+            }),
             ..Default::default()
         };
         let public = ServerConfiguration::from(&core);
+        let attachments = public.attachments.as_ref().expect("attachments offered");
+        assert_eq!(attachments.base_url, "https://files.example/v1/");
+        assert_eq!(attachments.max_upload_bytes, 9_007_199_254_740_993);
+        assert_eq!(attachments.retention_seconds, 604_800);
+        let not_offered = config::ServerConfiguration {
+            attachments: None,
+            ..core.clone()
+        };
+        assert!(
+            ServerConfiguration::from(&not_offered)
+                .attachments
+                .is_none()
+        );
         assert_eq!(public.identifier, core.identifier);
         assert_eq!(public.server_version, core.server_version);
         assert_eq!(public.min_libxmtp_version, core.min_libxmtp_version);

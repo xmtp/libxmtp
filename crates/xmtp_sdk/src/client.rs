@@ -13,8 +13,9 @@ use xmtp_mls::{
 };
 
 use crate::{
-    Archives, BackendSource, Conversations, Diagnostics, InboxId, InstallationId, Preferences,
-    PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError, signer,
+    Archives, Attachments, BackendSource, Conversations, Diagnostics, InboxId, InstallationId,
+    Preferences, PublicIdentity, Signature, Signer, SignerKind, SigningRequest, Storage, XmtpError,
+    signer,
 };
 use xmtp_common::{MaybeSend, MaybeSync};
 
@@ -43,30 +44,69 @@ pub(crate) static FAIL_DISCARD_DISCONNECT: std::sync::atomic::AtomicBool =
 /// its own error path closes the store or reports it open.
 #[derive(Default)]
 struct OpenStoreGuard {
-    armed: bool,
+    armed: Arc<std::sync::atomic::AtomicBool>,
 }
 
 impl OpenStoreGuard {
+    /// A guard with the same state, for the task that runs the call. The
+    /// call's own guard then reports the store open when the call is dropped
+    /// while its task still runs.
+    fn share(&self) -> Self {
+        Self {
+            armed: self.armed.clone(),
+        }
+    }
+
     /// Call before a step that can open the store. An in-memory store holds
     /// no OPFS access handles and no storage lock.
     fn arm(&mut self, storage: &StorageOptions) {
-        self.armed |= !matches!(storage.location, StorageLocation::InMemory);
+        if !matches!(storage.location, StorageLocation::InMemory) {
+            self.armed.store(true, Ordering::Relaxed);
+        }
     }
 
-    fn disarm(mut self) {
-        self.armed = false;
+    fn disarm(self) {
+        self.armed.store(false, Ordering::Relaxed);
     }
 }
 
 impl Drop for OpenStoreGuard {
     fn drop(&mut self) {
-        if !self.armed {
+        if !self.armed.swap(false, Ordering::Relaxed) {
             return;
         }
         tracing::error!("a cancelled client create or build can leave its store open");
         #[cfg(any(test, target_arch = "wasm32"))]
         STORE_LEFT_OPEN.store(true, Ordering::Relaxed);
     }
+}
+
+/// Run a create or build on a runtime task. Swift polls a call on a
+/// cooperative thread whose small stack a debug core build overflows.
+/// Dropping the call aborts the task, as it would drop the work inline. On
+/// wasm32 the work runs inline.
+#[cfg(not(target_arch = "wasm32"))]
+async fn on_build_task(
+    work: xmtp_common::BoxDynFuture<'static, Result<Client, XmtpError>>,
+) -> Result<Client, XmtpError> {
+    struct AbortOnDrop(tokio::task::AbortHandle);
+
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+
+    let task = tokio::task::spawn(work);
+    let _abort = AbortOnDrop(task.abort_handle());
+    task.await.map_err(XmtpError::unknown)?
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn on_build_task(
+    work: xmtp_common::BoxDynFuture<'static, Result<Client, XmtpError>>,
+) -> Result<Client, XmtpError> {
+    work.await
 }
 
 /// @xmtp-worker Reports whether storage requires worker termination. A failed
@@ -113,41 +153,42 @@ pub struct Client {
 }
 
 mod creation;
+mod location;
 
-async fn open_existing_store(
+/// Open the database at `path` if its file exists, with the inbox ID of its
+/// stored identity. A missing file stays missing.
+pub(crate) async fn open_store_if_present(
     options: &StorageOptions,
-    inbox_id: &str,
-) -> Result<xmtp_db::DefaultStore, XmtpError> {
+    path: &std::path::Path,
+) -> Result<Option<(xmtp_db::DefaultStore, Option<String>)>, XmtpError> {
     use xmtp_db::{Fetch, identity::StoredIdentity};
 
-    if matches!(options.location, StorageLocation::InMemory) {
-        return Err(XmtpError::identity_not_found());
-    }
+    let path = location::path_string(path)?;
     #[cfg(not(target_arch = "wasm32"))]
-    if let Some(path) = native_storage_path(options, inbox_id)?
-        && !std::path::Path::new(&path)
-            .try_exists()
-            .map_err(XmtpError::storage)?
-    {
-        return Err(XmtpError::identity_not_found());
-    }
+    let exists = std::path::Path::new(&path).try_exists().map_err(|error| {
+        XmtpError::storage_location(format!("database path is unusable: {error}"))
+    })?;
     #[cfg(target_arch = "wasm32")]
-    {
-        let path =
-            wasm_storage_path(options, inbox_id)?.ok_or_else(XmtpError::identity_not_found)?;
-        if !xmtp_db::opfs_database_exists(&path)
-            .await
-            .map_err(map_wasm_storage_error)?
-        {
-            return Err(XmtpError::identity_not_found());
-        }
+    let exists = xmtp_db::opfs_database_exists(&path)
+        .await
+        .map_err(map_wasm_storage_error)?;
+    if !exists {
+        return Ok(None);
     }
-    let store = open_store(options, inbox_id).await?;
+    let store = open_store(options, Some(&path)).await?;
     let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::from_core)?;
-    if stored.is_none() {
-        return Err(XmtpError::identity_not_found());
+    Ok(Some((store, stored.map(|identity| identity.inbox_id))))
+}
+
+/// Open a database that holds a stored identity. Build never creates one.
+pub(crate) async fn open_existing_store(
+    options: &StorageOptions,
+    path: &std::path::Path,
+) -> Result<(xmtp_db::DefaultStore, String), XmtpError> {
+    match open_store_if_present(options, path).await? {
+        Some((store, Some(inbox_id))) => Ok((store, inbox_id)),
+        _ => Err(XmtpError::identity_not_found()),
     }
-    Ok(store)
 }
 
 include!("client/api.rs");
@@ -175,13 +216,12 @@ pub(crate) async fn end_client(
 #[cfg(not(target_arch = "wasm32"))]
 pub(crate) async fn open_store(
     options: &StorageOptions,
-    inbox_id: &str,
+    path: Option<&str>,
 ) -> Result<xmtp_db::DefaultStore, XmtpError> {
     use xmtp_db::{EncryptedMessageStore, EncryptionKey, NativeDb};
 
-    let path = native_storage_path(options, inbox_id)?;
     let builder = match path {
-        Some(path) => NativeDb::builder().persistent(path),
+        Some(path) => NativeDb::builder().persistent(path.to_owned()),
         None => NativeDb::builder().ephemeral(),
     };
     let min = options
@@ -218,63 +258,18 @@ pub(crate) async fn open_store(
     EncryptedMessageStore::new(db).map_err(XmtpError::from_core)
 }
 
-pub(crate) fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
-    let label = options.label.as_deref().unwrap_or("");
-    if [label, inbox_id].iter().any(|part| {
-        part.contains('/')
-            || part.contains('\\')
-            || part.contains(':')
-            || part.chars().any(char::is_control)
-    }) {
-        return Err(XmtpError::invalid(
-            "storage label or inbox ID contains an unsafe character",
-        ));
-    }
-    let label = if label.is_empty() {
-        String::new()
-    } else {
-        format!("{label}-")
-    };
-    Ok(format!("xmtp-{label}{inbox_id}.db3"))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub(crate) fn native_storage_path(
-    options: &StorageOptions,
-    inbox_id: &str,
-) -> Result<Option<String>, XmtpError> {
-    let path = match &options.location {
-        StorageLocation::InMemory => None,
-        StorageLocation::Path(path) => Some(path.clone()),
-        StorageLocation::Directory(directory) => {
-            let mut builder = std::fs::DirBuilder::new();
-            builder.recursive(true);
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::DirBuilderExt;
-                builder.mode(0o700);
-            }
-            builder.create(directory).map_err(XmtpError::from_core)?;
-            Some(
-                std::path::Path::new(directory)
-                    .join(database_name(options, inbox_id)?)
-                    .to_string_lossy()
-                    .into_owned(),
-            )
-        }
-        StorageLocation::Default => return Err(XmtpError::storage_location_required()),
-    };
-    Ok(path)
-}
-
 #[cfg(target_arch = "wasm32")]
 pub(crate) async fn open_store(
     options: &StorageOptions,
-    inbox_id: &str,
+    path: Option<&str>,
 ) -> Result<xmtp_db::DefaultStore, XmtpError> {
-    use xmtp_db::{EncryptedMessageStore, WasmDb};
+    use xmtp_db::{EncryptedMessageStore, StorageOption, WasmDb};
 
-    let location = wasm_store_location(options, inbox_id)?;
+    let _ = options;
+    let location = match path {
+        Some(path) => StorageOption::Persistent(path.to_owned()),
+        None => StorageOption::Ephemeral,
+    };
     let db = WasmDb::new_strict(&location)
         .await
         .map_err(map_wasm_storage_error)?;
@@ -305,10 +300,9 @@ pub(crate) fn map_wasm_storage_error(error: impl crate::error::CoreError) -> Xmt
                 PlatformStorageError::DatabaseInUse
                 | PlatformStorageError::SAH(OpfsSAHError::CreateSyncAccessHandle(_)),
             ) => return XmtpError::storage_busy(error.to_string()),
-            // An environment without OPFS support, such as a page that is not
-            // a dedicated worker, cannot become usable by retrying.
+            // A browser location needs OPFS, which a Node worker lacks.
             Some(PlatformStorageError::SAH(OpfsSAHError::NotSupported)) => {
-                return XmtpError::storage(error.to_string());
+                return XmtpError::storage_location(error.to_string());
             }
             _ => cause = current.source(),
         }
@@ -325,45 +319,28 @@ mod wasm_storage_error_tests {
     use super::*;
 
     #[xmtp_common::test(unwrap_try = true)]
-    fn unsupported_opfs_is_not_storage_busy() {
+    fn unsupported_opfs_is_a_storage_location_failure() {
         let error = map_wasm_storage_error(xmtp_db::PlatformStorageError::SAH(
             xmtp_db::OpfsSAHError::NotSupported,
         ));
+        let XmtpError::StorageLocation(details) = error else {
+            panic!("unsupported OPFS must report StorageLocation: {error:?}");
+        };
+        assert_eq!(details.code, "StorageLocation");
+        assert!(matches!(details.category, crate::ErrorCategory::Storage));
+        assert!(!details.retryable);
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn unsupported_opfs_is_not_storage_busy() {
+        let error = XmtpError::from_core(xmtp_db::PlatformStorageError::SAH(
+            xmtp_db::OpfsSAHError::NotSupported,
+        ));
         let XmtpError::Storage(details) = error else {
-            panic!("unsupported OPFS must report Storage: {error:?}");
+            panic!("a generic OPFS failure must report Storage: {error:?}");
         };
         assert_eq!(details.code, "Storage");
         assert!(matches!(details.category, crate::ErrorCategory::Storage));
         assert!(!details.retryable);
     }
-}
-
-#[cfg(any(test, target_arch = "wasm32"))]
-pub(crate) fn wasm_storage_path(
-    options: &StorageOptions,
-    inbox_id: &str,
-) -> Result<Option<String>, XmtpError> {
-    match &options.location {
-        StorageLocation::InMemory => Ok(None),
-        StorageLocation::Default => Err(XmtpError::storage_location_required()),
-        StorageLocation::Directory(directory) => {
-            let name = database_name(options, inbox_id)?;
-            Ok(Some(format!("{}/{name}", directory.trim_end_matches('/'))))
-        }
-        StorageLocation::Path(path) => Ok(Some(path.clone())),
-    }
-}
-
-#[cfg(any(test, target_arch = "wasm32"))]
-pub(crate) fn wasm_store_location(
-    options: &StorageOptions,
-    inbox_id: &str,
-) -> Result<xmtp_db::StorageOption, XmtpError> {
-    use xmtp_db::StorageOption;
-
-    let location = match wasm_storage_path(options, inbox_id)? {
-        None => StorageOption::Ephemeral,
-        Some(path) => StorageOption::Persistent(path),
-    };
-    Ok(location)
 }

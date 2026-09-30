@@ -20,7 +20,7 @@ async fn storage_path_keeps_opened_relative_file_after_chdir() {
     std::fs::create_dir_all(relative.parent().expect("database directory"))?;
     let expected = std::path::absolute(&relative)?;
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(relative.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&relative);
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     assert!(expected.is_file());
     {
@@ -45,7 +45,7 @@ async fn storage_delete_ends_event_reader_and_listener() {
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("client.sqlite");
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let reader = client
         .events(event_filter(vec![EventKind::HmacKeysUpdated]))
@@ -79,7 +79,7 @@ async fn storage_delete_waits_for_running_call() {
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("client.sqlite");
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let reader = group.message_reader(None).await?;
@@ -187,7 +187,7 @@ async fn storage_delete_can_retry_after_file_removal_fails() {
     std::fs::create_dir_all(&directory)?;
     let path = directory.join("client.sqlite");
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let original_mode = std::fs::metadata(&directory)?.permissions().mode();
     let restore = RestorePermissions {
@@ -213,116 +213,4 @@ async fn storage_delete_can_retry_after_file_removal_fails() {
     assert!(matches!(details.category, crate::ErrorCategory::Storage));
     assert!(!details.retryable);
     assert!(!details.message.is_empty());
-}
-
-// verifies: STORE-009
-#[xmtp_common::test(unwrap_try = true)]
-async fn storage_default_requires_host_and_directory_names_are_unique() {
-    let default = StorageOptions::default();
-    assert!(matches!(
-        native_storage_path(&default, "inbox-a"),
-        Err(XmtpError::StorageLocationRequired(_))
-    ));
-    let built = Client::build(
-        PublicIdentity {
-            identifier: "invalid".into(),
-            kind: PublicIdentityKind::Ethereum,
-        },
-        ClientOptions::default(),
-        None,
-    )
-    .await;
-    assert!(matches!(built, Err(XmtpError::StorageLocationRequired(_))));
-
-    let directory = std::env::temp_dir().join(format!(
-        "xmtp-sdk-storage-{}-{}",
-        std::process::id(),
-        xmtp_common::time::now_ns()
-    ));
-    let options = StorageOptions {
-        location: StorageLocation::Directory(directory.to_string_lossy().into_owned()),
-        label: None,
-        encryption_key: None,
-        pool: None,
-        single_connection: false,
-    };
-    let first_path = native_storage_path(&options, "inbox-a")?.expect("directory path");
-    let second_path = native_storage_path(&options, "inbox-b")?.expect("directory path");
-    assert_ne!(first_path, second_path);
-    assert!(first_path.ends_with("xmtp-inbox-a.db3"));
-    assert!(second_path.ends_with("xmtp-inbox-b.db3"));
-    let first_store = crate::client::open_store(&options, "inbox-a").await?;
-    let second_store = crate::client::open_store(&options, "inbox-b").await?;
-    assert!(std::path::Path::new(&first_path).exists());
-    assert!(std::path::Path::new(&second_path).exists());
-    let labeled = StorageOptions {
-        label: Some("phone".into()),
-        ..options.clone()
-    };
-    let labeled_path = native_storage_path(&labeled, "inbox-a")?.expect("directory path");
-    assert!(labeled_path.ends_with("xmtp-phone-inbox-a.db3"));
-    assert_ne!(first_path, labeled_path);
-    let exact_path = directory
-        .join("chosen.sqlite")
-        .to_string_lossy()
-        .into_owned();
-    let path_options = StorageOptions {
-        location: StorageLocation::Path(exact_path.clone()),
-        ..options.clone()
-    };
-    assert_eq!(
-        native_storage_path(&path_options, "inbox-a")?.expect("exact path"),
-        exact_path
-    );
-    let mut file_options = self::options();
-    file_options.storage = path_options;
-    let file_client = Client::create(crate::generate_local_signer().await, file_options).await?;
-    assert_eq!(
-        file_client.storage().path().await?,
-        Some(exact_path.clone())
-    );
-    assert!(std::path::Path::new(&exact_path).is_file());
-    file_client.end().await?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        assert_eq!(
-            std::fs::metadata(&directory)?.permissions().mode() & 0o777,
-            0o700
-        );
-    }
-    drop(first_store);
-    drop(second_store);
-    std::fs::remove_dir_all(directory)?;
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-fn storage_label_rejects_unsafe_characters() {
-    for label in ["bad/name", "bad\\name", "bad:name", "bad\0name"] {
-        let options = StorageOptions {
-            location: StorageLocation::Directory(std::env::temp_dir().to_string_lossy().into()),
-            label: Some(label.into()),
-            ..Default::default()
-        };
-        assert!(matches!(
-            native_storage_path(&options, "inbox-a"),
-            Err(XmtpError::InvalidInput(_))
-        ));
-    }
-}
-
-#[xmtp_common::test(unwrap_try = true)]
-fn wasm_directory_reports_the_store_path() {
-    let options = StorageOptions {
-        location: StorageLocation::Directory("sdk-files".into()),
-        label: Some("phone".into()),
-        ..Default::default()
-    };
-    let reported = crate::client::wasm_storage_path(&options, "inbox-a")?.expect("file path");
-    let location = crate::client::wasm_store_location(&options, "inbox-a")?;
-    let xmtp_db::StorageOption::Persistent(opened) = &location else {
-        panic!("Directory storage must be persistent");
-    };
-    assert_eq!(reported, opened.as_str());
-    assert_eq!(reported, "sdk-files/xmtp-phone-inbox-a.db3");
 }

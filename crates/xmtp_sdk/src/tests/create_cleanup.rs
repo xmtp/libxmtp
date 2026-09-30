@@ -13,7 +13,7 @@ async fn discard_disconnects_store_when_close_fails() {
         std::process::id(),
         xmtp_common::time::now_ns()
     ));
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     // The reader holds the delivery lease that close must release.
@@ -94,7 +94,7 @@ async fn cancelled_create_reports_store_left_open() {
         std::process::id(),
         xmtp_common::time::now_ns()
     ));
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let mut create = Box::pin(Client::create(signer, settings));
     tokio::select! {
         _ = &mut create => panic!("create finished while its signer was pending"),

@@ -70,6 +70,12 @@ impl Client {
         })
     }
 
+    pub fn attachments(&self) -> Arc<Attachments> {
+        Arc::new(Attachments {
+            client: self.inner.clone(),
+        })
+    }
+
     pub fn archives(&self) -> Arc<Archives> {
         Arc::new(Archives {
             client: self.inner.clone(),

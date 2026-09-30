@@ -80,7 +80,7 @@ pub async fn inbox_states_with_backend(
             location: crate::StorageLocation::InMemory,
             ..Default::default()
         },
-        "static-inbox-states",
+        None,
     )
     .await?;
     let api = api(&backend);
@@ -287,7 +287,7 @@ pub async fn revoke_installations_with_backend(
             location: crate::StorageLocation::InMemory,
             ..Default::default()
         },
-        inbox_id,
+        None,
     )
     .await?;
     xmtp_mls::identity_updates::apply_signature_request_with_verifier(

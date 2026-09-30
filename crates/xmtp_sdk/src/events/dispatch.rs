@@ -205,7 +205,7 @@ fn spawn_dispatch(
                 _ = stopped.changed() => break,
             };
             let Some(lease) = lease else { break };
-            let Some(event) = lease.event.client.clone().and_then(ClientEvent::from_core) else {
+            let Some(event) = lease.event.client.clone().map(ClientEvent::from_core) else {
                 continue;
             };
             if *stopped.borrow() || subscription.is_closed() {
@@ -253,7 +253,7 @@ fn spawn_dispatch(
                 _ = stopped.changed().fuse() => break,
             };
             let Some(lease) = lease else { break };
-            let Some(event) = lease.event.client.clone().and_then(ClientEvent::from_core) else {
+            let Some(event) = lease.event.client.clone().map(ClientEvent::from_core) else {
                 continue;
             };
             if *stopped.borrow() || subscription.is_closed() {

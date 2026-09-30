@@ -26,7 +26,7 @@ async fn build_with_inaccessible_database_path_returns_storage_error() {
     let path = parent.join("client.sqlite");
     assert!(path.try_exists().is_err());
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let signer = crate::generate_local_signer().await;
     let identity = signer::identity(signer).await?;
     let inbox_id = InboxId::try_from(
@@ -39,10 +39,11 @@ async fn build_with_inaccessible_database_path_returns_storage_error() {
     std::fs::remove_file(parent)?;
 
     match result {
-        Err(XmtpError::Storage(details))
-            if details.code == "Storage"
-                && matches!(details.category, crate::ErrorCategory::Storage) => {}
-        Err(error) => panic!("expected storage error, got {error}"),
+        Err(XmtpError::StorageLocation(details))
+            if details.code == "StorageLocation"
+                && matches!(details.category, crate::ErrorCategory::Storage)
+                && !details.retryable => {}
+        Err(error) => panic!("expected storage location error, got {error}"),
         Ok(_) => panic!("build opened an inaccessible database"),
     }
 }
@@ -315,7 +316,7 @@ async fn backend_url_is_required_and_offline_choice_is_explicit() {
     let signer = crate::generate_local_signer().await;
     let mut settings = options();
     settings.storage = StorageOptions {
-        location: StorageLocation::Path(path.to_string_lossy().into_owned()),
+        location: explicit_location(&path),
         ..Default::default()
     };
     let online = Client::create(signer.clone(), settings.clone()).await?;
@@ -384,8 +385,12 @@ async fn backend_url_is_required_and_offline_choice_is_explicit() {
     client.end().await?;
     settings.backend = Some(BackendSource::Connected { backend });
     settings.allow_offline = true;
+    let mut directory = settings.clone();
+    directory.storage.location = StorageLocation::Directory {
+        directory: path.with_extension("root").to_string_lossy().into_owned(),
+    };
     assert!(matches!(
-        Client::build(identity.clone(), settings.clone(), None).await,
+        Client::build(identity.clone(), directory, None).await,
         Err(XmtpError::InvalidInput(_))
     ));
     let explicit = Client::build(identity, settings, Some(inbox_id.clone())).await?;
@@ -413,7 +418,7 @@ async fn offline_build_with_moved_url_uses_stored_copy() {
     ));
     let signer = crate::generate_local_signer().await;
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let online = Client::create(signer.clone(), settings.clone()).await?;
     let inbox_id = online.inbox_id();
     let stored = online

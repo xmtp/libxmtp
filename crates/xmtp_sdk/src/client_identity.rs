@@ -56,26 +56,7 @@ impl Client {
     }
 
     pub fn storage_path(&self) -> Option<String> {
-        match &self.options.storage.location {
-            crate::StorageLocation::Path(path) => Some(path.clone()),
-            crate::StorageLocation::Directory(directory) => {
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    crate::client::native_storage_path(&self.options.storage, self.inner.inbox_id())
-                        .ok()
-                        .flatten()
-                        .or_else(|| Some(directory.clone()))
-                }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    let _ = directory;
-                    crate::client::wasm_storage_path(&self.options.storage, self.inner.inbox_id())
-                        .ok()
-                        .flatten()
-                }
-            }
-            _ => None,
-        }
+        self.storage_path.clone()
     }
 
     pub fn libxmtp_version(&self) -> String {
