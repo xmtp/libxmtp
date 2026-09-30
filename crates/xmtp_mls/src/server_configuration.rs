@@ -255,6 +255,18 @@ impl ServerConfigurationHandle {
         }
     }
 
+    /// Replace a failure with the blocked connection's error when a block is
+    /// recorded. A block during an operation, such as the deferred first
+    /// request check, cancels the client's streams, so the stopped work
+    /// would otherwise report a close or an incomplete barrier instead of why.
+    // implements: CONF-075, CONF-077
+    pub(crate) fn blocked_or<E: From<ClientError>>(&self, error: E) -> E {
+        match self.check() {
+            Err(blocked) => blocked.into(),
+            Ok(()) => error,
+        }
+    }
+
     /// Block the connection on the first failure. A later one does not displace it: the
     /// first cause is the one worth reporting.
     pub(crate) fn block_connection(&self, reason: BlockedConnection) -> ClientError {

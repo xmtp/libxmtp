@@ -265,6 +265,9 @@ impl XmtpError {
             client::ClientError, groups::GroupError, identity::IdentityError,
             mls_store::MlsStoreError, subscriptions::catch_up::CatchUpError,
         };
+        if let Some(error) = error.downcast_ref::<xmtp_archive::ArchiveError>() {
+            return Some(error.is_retryable());
+        }
         if let Some(error) = error.downcast_ref::<CatchUpError>() {
             return Some(error.is_retryable());
         }

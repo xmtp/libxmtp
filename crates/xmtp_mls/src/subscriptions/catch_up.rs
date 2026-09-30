@@ -52,9 +52,24 @@ impl RetryableError for CatchUpError {
     }
 }
 
+impl From<crate::client::ClientError> for CatchUpError {
+    fn from(error: crate::client::ClientError) -> Self {
+        Self::Group(error.into())
+    }
+}
+
 impl<C: XmtpSharedContext + 'static> Client<C> {
     /// Process fixed starting targets and only the discoveries from the enrolled Welcomes.
     pub async fn catch_up_to_live(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Result<CatchUpSummary, CatchUpError> {
+        self.catch_up_once(timeout)
+            .await
+            .map_err(|error| self.context.server_configuration().blocked_or(error))
+    }
+
+    async fn catch_up_once(
         &self,
         timeout: Option<Duration>,
     ) -> Result<CatchUpSummary, CatchUpError> {

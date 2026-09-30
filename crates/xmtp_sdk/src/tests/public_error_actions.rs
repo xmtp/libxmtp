@@ -461,3 +461,23 @@ fn an_incomplete_catch_up_keeps_its_typed_retry_policy() {
         );
     }
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn archive_io_keeps_its_typed_retry_policy() {
+    use std::io::ErrorKind;
+
+    for (kind, retryable) in [
+        (ErrorKind::Interrupted, true),
+        (ErrorKind::WouldBlock, true),
+        (ErrorKind::TimedOut, true),
+        (ErrorKind::UnexpectedEof, false),
+        (ErrorKind::InvalidData, false),
+        (ErrorKind::PermissionDenied, false),
+    ] {
+        let cause = xmtp_archive::ArchiveError::IO(kind.into());
+        let message = cause.to_string();
+        let error = XmtpError::from_core(cause);
+        assert_eq!(details(&error).message, message);
+        expect(error, "Unknown", ErrorCategory::Unknown, retryable);
+    }
+}
