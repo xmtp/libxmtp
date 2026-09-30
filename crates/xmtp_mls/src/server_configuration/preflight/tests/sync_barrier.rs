@@ -1,6 +1,5 @@
 //! Barrier-based syncs when the connection is blocked while they run.
 use super::*;
-use crate::builder::ClientBuilder;
 use crate::groups::GroupError;
 use crate::server_configuration::BlockedConnection;
 use crate::subscriptions::barrier::{BarrierError, BarrierFailure};
@@ -8,33 +7,62 @@ use crate::tester;
 use crate::utils::test::register_client;
 use xmtp_cryptography::utils::generate_local_wallet;
 
-fn backend_mismatch_in_chain(error: &(dyn std::error::Error + 'static)) -> bool {
-    let mut next = Some(error);
-    while let Some(error) = next {
-        if matches!(
-            error.downcast_ref::<ClientError>(),
-            Some(ClientError::BackendMismatch { .. })
-        ) {
-            return true;
-        }
-        next = error.source();
-    }
-    false
+/// An offline client on another deployment, and push envelopes for work it
+/// has not processed: a Welcome and a message in a group it joined.
+struct Mismatched {
+    client: TestClient2,
+    group_id: xmtp_proto::types::GroupId,
+    welcome: Vec<u8>,
+    group_message: Vec<u8>,
 }
 
 /// A client created online, whose stored configuration then names another
 /// deployment, built again offline. Its first request fails the deferred
 /// deployment check, which blocks the connection and cancels the client.
-async fn offline_client_on_another_deployment() -> Result<TestClient2, Box<dyn std::error::Error>> {
+async fn offline_client_on_another_deployment() -> Result<Mismatched, Box<dyn std::error::Error>> {
+    use crate::groups::send_message_opts::SendMessageOpts;
+    use xmtp_proto::types::{Cursor, Topic};
+
     let owner = generate_local_wallet();
     let path = xmtp_common::tmp_path();
-    let first = ClientBuilder::new_test_builder(&owner)
-        .await
+    let first = Client::builder(crate::utils::test::identity_setup(&owner))
         .store(TestDb::create_persistent_store(Some(path.clone())).await)
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .enable_sqlite_triggers()
+        .default_mls_store()?
+        .local()
+        .device_sync_worker_mode(crate::builder::DeviceSyncMode::Disabled)
         .with_disable_workers(true)
         .build()
         .await?;
     register_client(&first, &owner).await;
+    tester!(bo, disable_workers);
+    let joined = bo
+        .create_group_with_members(&[first.inbox_id()], None, None)
+        .await?;
+    first.sync_welcomes().await?;
+    // Work after the last sync, so the offline client must fetch it.
+    bo.create_group_with_members(&[first.inbox_id()], None, None)
+        .await?;
+    joined
+        .send_message(b"after the last sync", SendMessageOpts::default())
+        .await?;
+    let newest = |topic: Topic| {
+        let api = first.context.api();
+        async move {
+            let envelopes = api
+                .query_all(
+                    [(topic, Cursor(0))].into(),
+                    api.limits().max_query_limit as u32,
+                )
+                .await?;
+            Ok::<_, Box<dyn std::error::Error>>(
+                envelopes.last().expect("an envelope").encode_to_vec(),
+            )
+        }
+    };
+    let welcome = newest(Topic::new_welcome_message(first.context.installation_id())).await?;
+    let group_message = newest(Topic::new_group_message(joined.group_id)).await?;
     let stored = first.context.db().server_configuration()?.unwrap();
     first.context.db().store_server_configuration(
         "org.example.other-deployment",
@@ -45,7 +73,7 @@ async fn offline_client_on_another_deployment() -> Result<TestClient2, Box<dyn s
     first.close().await?;
     drop(first);
 
-    Ok(Client::builder(IdentityStrategy::CachedOnly)
+    let client = Client::builder(IdentityStrategy::CachedOnly)
         .store(TestDb::create_persistent_store(Some(path)).await)
         .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
         .default_mls_store()?
@@ -53,43 +81,101 @@ async fn offline_client_on_another_deployment() -> Result<TestClient2, Box<dyn s
         .with_allow_offline(Some(true))
         .with_disable_workers(true)
         .build()
-        .await?)
+        .await?;
+    Ok(Mismatched {
+        client,
+        group_id: joined.group_id,
+        welcome,
+        group_message,
+    })
 }
 
 type TestClient2 = crate::utils::FullXmtpClient;
 
-/// A sync that waits on the processing barrier reports the failed deployment
-/// check, as a direct request does, not the barrier it cut off.
-// verifies: CONF-077
-#[xmtp_common::test(unwrap_try = true)]
-async fn first_sync_all_on_another_deployment_reports_the_backend_mismatch() {
-    let client = offline_client_on_another_deployment().await?;
-    let error = client
-        .sync_all_welcomes_and_groups(None)
-        .await
-        .expect_err("the first request must fail its deployment check");
-    assert!(
-        matches!(
-            error,
-            GroupError::Client(ClientError::BackendMismatch { .. })
-        ),
-        "the sync did not report the deployment check: {error:?}"
-    );
+/// Each entry point that waits on the processing barrier, called first.
+#[derive(Clone, Copy, Debug)]
+enum EntryPoint {
+    SyncWelcomes,
+    SyncAllGroups,
+    SyncAllWelcomesAndGroups,
+    GroupSync,
+    CatchUp,
+    PushWelcome,
+    PushGroupMessage,
 }
 
-/// Catch-up waits on the same barriers and reports the same failure.
+fn backend_mismatch(error: &GroupError) -> bool {
+    matches!(
+        error,
+        GroupError::Client(ClientError::BackendMismatch { .. })
+    )
+}
+
+/// The first request of each barrier-based entry point fails the deferred
+/// deployment check. The call reports that check's error, as a direct
+/// request does, not the barrier or the close it caused.
 // verifies: CONF-077
+#[rstest::rstest]
+#[case::sync_welcomes(EntryPoint::SyncWelcomes)]
+#[case::sync_all_groups(EntryPoint::SyncAllGroups)]
+#[case::sync_all_welcomes_and_groups(EntryPoint::SyncAllWelcomesAndGroups)]
+#[case::group_sync(EntryPoint::GroupSync)]
+#[case::catch_up(EntryPoint::CatchUp)]
+#[case::push_welcome(EntryPoint::PushWelcome)]
+#[case::push_group_message(EntryPoint::PushGroupMessage)]
 #[xmtp_common::test(unwrap_try = true)]
-async fn first_catch_up_on_another_deployment_reports_the_backend_mismatch() {
-    let client = offline_client_on_another_deployment().await?;
-    let error = client
-        .catch_up_to_live(None)
-        .await
-        .expect_err("the first request must fail its deployment check");
+async fn first_barrier_call_on_another_deployment_reports_the_backend_mismatch(
+    #[case] entry: EntryPoint,
+) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::subscriptions::SubscribeError;
+    use crate::subscriptions::catch_up::CatchUpError;
+
+    let Mismatched {
+        client,
+        group_id,
+        welcome,
+        group_message,
+    } = offline_client_on_another_deployment().await?;
+    let group = client.group(&group_id)?;
+    let reported = match entry {
+        EntryPoint::SyncWelcomes => client
+            .sync_welcomes()
+            .await
+            .err()
+            .is_some_and(|error| backend_mismatch(&error)),
+        EntryPoint::SyncAllGroups => client
+            .sync_all_groups(vec![group])
+            .await
+            .err()
+            .is_some_and(|error| backend_mismatch(&error)),
+        EntryPoint::SyncAllWelcomesAndGroups => client
+            .sync_all_welcomes_and_groups(None)
+            .await
+            .err()
+            .is_some_and(|error| backend_mismatch(&error)),
+        EntryPoint::GroupSync => group
+            .sync()
+            .await
+            .err()
+            .is_some_and(|error| backend_mismatch(&error)),
+        EntryPoint::CatchUp => matches!(
+            client.catch_up_to_live(None).await,
+            Err(CatchUpError::Group(error)) if backend_mismatch(&error)
+        ),
+        EntryPoint::PushWelcome => matches!(
+            client.process_streamed_welcome_message(welcome).await,
+            Err(SubscribeError::Group(error)) if backend_mismatch(&error)
+        ),
+        EntryPoint::PushGroupMessage => matches!(
+            group.process_streamed_group_message(group_message).await,
+            Err(SubscribeError::Group(error)) if backend_mismatch(&error)
+        ),
+    };
     assert!(
-        backend_mismatch_in_chain(&error),
-        "catch-up did not report the deployment check: {error:?}"
+        reported,
+        "{entry:?} did not report the deployment check's BackendMismatch"
     );
+    Ok(())
 }
 
 /// Start a sync on an online client and stop it after it passed its

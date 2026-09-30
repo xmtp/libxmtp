@@ -363,7 +363,11 @@ where
         }
         barrier::wait_through(&self.context, [(topic, cursor)].into(), None)
             .await
-            .map_err(GroupError::from)?;
+            .map_err(|error| {
+                self.context
+                    .server_configuration()
+                    .blocked_or(GroupError::from(error))
+            })?;
         let Some(group) = self.context.db().find_group_by_sequence_id(cursor)? else {
             return Ok(Vec::new());
         };
