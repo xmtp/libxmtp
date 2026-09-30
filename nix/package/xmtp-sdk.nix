@@ -83,16 +83,19 @@ let
       wasm-bindgen-cli
     ];
     buildPhase = ''
-      cd "$src"
+      # Use the unpacked source: generation rewrites copied TypeScript files,
+      # while the source files in the Nix store are read-only.
       mkdir -p $out
+      # The Nix build has no JavaScript workspace dependencies. Formatting
+      # changes layout only, so use the generator's supported no-format mode.
       for language in swift kotlin typescript-napi; do
         xmtp-sdk-bindgen generate \
           --lib ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
-          --language "$language" --out "$out/$language" \
+          --language "$language" --no-format --out "$out/$language" \
           --config apps/xmtp_sdk_bindgen/uniffi-global.toml
       done
       xmtp-sdk-bindgen generate --lib ${wasm}/lib/xmtp_sdk.wasm \
-        --language typescript-wasm --out "$out/typescript-wasm" \
+        --language typescript-wasm --no-format --out "$out/typescript-wasm" \
         --config apps/xmtp_sdk_bindgen/uniffi-global.toml
       xmtp-sdk-bindgen stage-wasm --lib ${wasm}/lib/xmtp_sdk.wasm \
         --out "$out/typescript-wasm"
