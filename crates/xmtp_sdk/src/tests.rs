@@ -517,6 +517,7 @@ mod permissions;
 mod query_costs;
 mod reader_delivery;
 mod reader_recovery;
+mod reserved_transcript_sends;
 mod signers;
 mod standard_sends;
 mod storage;

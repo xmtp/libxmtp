@@ -776,16 +776,20 @@ class GroupTest : BaseInstrumentedTest() {
                 messages.awaitHistory(retained)
                 val firstId = alixGroup.send("hi")
                 messages.awaitApplications(listOf(firstId to "hi"))
-                val invalidMembershipId =
-                    alixGroup.send(
-                        content = membershipChange,
-                        options = SendOptions(contentType = ContentTypeGroupUpdated),
-                    )
+                val error =
+                    assertThrows(FfiException.Exception::class.java) {
+                        runBlocking {
+                            alixGroup.send(
+                                content = membershipChange,
+                                options = SendOptions(contentType = ContentTypeGroupUpdated),
+                            )
+                        }
+                    }
+                assertTrue(error.message.orEmpty().contains("GroupError::ReservedTranscriptContentType"))
                 val secondId = alixGroup.send("hi again")
                 messages.awaitApplications(listOf(firstId to "hi", secondId to "hi again"))
                 val history = group.messages().asReversed()
                 assertEquals(3, history.size)
-                assertEquals(false, messages.snapshot().any { it.id == invalidMembershipId })
                 messages.awaitHistory(history)
             } finally {
                 withContext(NonCancellable) { job.cancelAndJoin() }
