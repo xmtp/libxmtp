@@ -844,7 +844,7 @@ id = "ARCH-024"
 kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "Restored conversations report the placeholder creator, including when archived metadata was absent or its creator was empty. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+reason = "Legacy core metadata for Restored conversations reports the placeholder creator. The new SDK reports an unknown creator until validated activation, including when the archive supplied a creator. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
 id = "CTYPE-008"

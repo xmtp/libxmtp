@@ -93,6 +93,7 @@ pub(crate) async fn list_local(
             item.added_by_inbox_id,
             &metadata,
             client.inbox_id(),
+            item.membership_state,
         );
         if let Some(conversation) =
             Conversation::from_preloaded(item.group, client_key, identity, metadata)?
