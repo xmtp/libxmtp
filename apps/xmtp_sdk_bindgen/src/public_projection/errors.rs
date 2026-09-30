@@ -166,7 +166,7 @@ fn conversions(code: &mut String, value: &EnumMetadata) -> Result<()> {
             .collect::<String>();
         writeln!(
             code,
-            "  if (value instanceof {name}{v} && value.constructor === {name}.{v}) return B.{name}.{v}.new(details{arguments});"
+            "  if (value instanceof {name}.{v} && value.constructor === {name}.{v}) return B.{name}.{v}.new(details{arguments});"
         )?;
     }
     writeln!(
