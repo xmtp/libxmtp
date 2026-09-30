@@ -197,9 +197,12 @@ macro_rules! common_conversation {
                 let group = self.inner.clone();
                 on_sdk_worker(
                     self.inner.context.clone(),
-                    Box::pin(
-                        async move { group.publish_messages().await.map_err(XmtpError::unknown) },
-                    ),
+                    Box::pin(async move {
+                        group
+                            .publish_messages()
+                            .await
+                            .map_err(XmtpError::from_group)
+                    }),
                 )
                 .await
             }
@@ -213,7 +216,7 @@ macro_rules! common_conversation {
                         group
                             .publish_stored_message(&bytes)
                             .await
-                            .map_err(XmtpError::unknown)
+                            .map_err(XmtpError::from_group)
                     }),
                 )
                 .await

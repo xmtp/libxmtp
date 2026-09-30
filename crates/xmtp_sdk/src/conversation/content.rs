@@ -55,12 +55,12 @@ pub(super) async fn send_encoded(
             let id = if options.optimistic {
                 group
                     .send_message_optimistic(&bytes, opts)
-                    .map_err(XmtpError::unknown)?
+                    .map_err(XmtpError::from_group)?
             } else {
                 group
                     .send_message(&bytes, opts)
                     .await
-                    .map_err(XmtpError::unknown)?
+                    .map_err(XmtpError::from_group)?
             };
             MessageId::from_bytes(&id)
         })

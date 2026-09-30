@@ -33,8 +33,10 @@ const endpoint: WireEndpoint = {
   },
   onExit() {},
   close() {
-    // Hold the worker alive so the page can inspect the lock at the fatal
-    // boundary. MainSession must terminate the actual Worker endpoint.
+    // Do not close the worker here. A worker that closes itself can release
+    // its Web Lock before the page reads the fatal message, so the page could
+    // not tell that release from an early release by the host. The page reads
+    // the lock at this point and then terminates the worker.
     self.postMessage({ __fatalClosing: true });
   },
 };

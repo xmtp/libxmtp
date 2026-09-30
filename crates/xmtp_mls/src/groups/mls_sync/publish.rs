@@ -143,6 +143,8 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                                     | GroupError::ComponentSource(
                                         ComponentSourceError::InvalidInboxId(_)
                                     )
+                                    // Earlier builds queued reserved transcript sends.
+                                    | GroupError::ReservedTranscriptContentType
                             ) =>
                         {
                             if self.reject_unprepared_request(&requirements)? {
@@ -527,6 +529,15 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
             IntentKind::SendMessage => {
                 // We can safely assume all SendMessage intents have data
                 let intent_data = SendMessageIntentData::from_bytes(intent.data.as_slice())?;
+                // An older build queued this intent before the creation check.
+                // implements: GMOD-035
+                if let Ok(PlaintextEnvelope {
+                    content: Some(Content::V1(V1 { content, .. })),
+                }) = PlaintextEnvelope::decode(intent_data.message.as_slice())
+                    && Self::is_reserved_transcript_content(&content)
+                {
+                    return Err(GroupError::ReservedTranscriptContentType);
+                }
                 // Pending proposals are handled at the API level (in send_message)
                 // by committing them before creating the SendMessage intent
                 let group_epoch = openmls_group.epoch().as_u64();
