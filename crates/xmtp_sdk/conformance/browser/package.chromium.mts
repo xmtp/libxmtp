@@ -186,6 +186,14 @@ try {
   console.log(
     `Chromium public errors from a failing package worker: ${failed.join(", ")}`,
   );
+  const retired = await page.evaluate(async () => {
+    const pkg = await import("./package.chromium.ts");
+    return (await import("./public-entry.chromium.ts")).retiredWorker(
+      () => pkg.counts().terminated,
+      pkg.waitForTermination,
+    );
+  });
+  console.log(`Chromium public entry: ${retired.join("; ")}`);
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );

@@ -209,12 +209,14 @@ export class MainSession {
   }
 
   checkHandle(handle: HandleWire): void {
-    // A held read decodes a handle from a snapshot that the main thread
-    // already has. It needs no worker, so an ended owner or a stopped worker
-    // does not refuse it; a call through the resulting proxy still does.
-    const held = this.heldReads > 0;
+    // A held read decodes a handle from a snapshot that this session already
+    // holds. It needs no worker, so an ended owner, a stopped worker, or the
+    // epoch that `terminate` advances does not refuse it. A call through the
+    // resulting proxy is not a held read, so it still fails with ClientClosed.
+    if (this.heldReads > 0) return;
     if (
-      (!held && (this.dead || this.closedOwners.has(handle.owner))) ||
+      this.dead ||
+      this.closedOwners.has(handle.owner) ||
       handle.epoch !== this.epoch
     ) {
       throw this.error("clientClosed");

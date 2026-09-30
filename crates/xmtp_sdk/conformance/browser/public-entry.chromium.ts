@@ -422,3 +422,64 @@ export async function failures(
   }
   return results;
 }
+
+/**
+ * Getters after the package worker retired: the only Client ends, nothing
+ * else keeps the worker, and the worker terminates. Every getter still reads
+ * its held value, as on Node (Decision 14). The nested objects are read for
+ * the first time here, and a call through one fails with ClientClosed.
+ */
+export async function retiredWorker(
+  terminated: () => number,
+  waitForTermination: (count: number) => Promise<void>,
+): Promise<string[]> {
+  const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
+  const before = terminated();
+  const client = await sdk.Client.create(signerFor(), {
+    backend,
+    storage: { location: "inMemory" },
+    deviceSync: false,
+  });
+  const inboxId = client.inboxId;
+  const installationId = client.installationId;
+  const group = await client.conversations.createGroup([]);
+  const groupId = group.id;
+  const groupTopic = group.topic;
+  await client.end();
+  await waitForTermination(before + 1);
+  check(client.inboxId === inboxId, "inboxId failed after the worker retired");
+  check(
+    client.installationId === installationId,
+    "installationId failed after the worker retired",
+  );
+  check(
+    client.options.deviceSync === false,
+    "options failed after the worker retired",
+  );
+  check(isPublic(client.identity), "identity failed after the worker retired");
+  const objects: [string, () => object, unknown][] = [
+    ["conversations", () => client.conversations, sdk.Conversations],
+    ["preferences", () => client.preferences, sdk.Preferences],
+    ["diagnostics", () => client.diagnostics, sdk.Diagnostics],
+    ["archives", () => client.archives, sdk.Archives],
+    ["storage", () => client.storage, sdk.Storage],
+  ];
+  for (const [name, read, type] of objects) {
+    const value = read();
+    check(
+      typeof type === "function" && value instanceof type,
+      `${name} failed after the worker retired`,
+    );
+  }
+  check(group.id === groupId, "Group id failed after the worker retired");
+  check(
+    group.topic === groupTopic,
+    "Group topic failed after the worker retired",
+  );
+  const call = await rejection(client.conversations.sync());
+  check(
+    call instanceof sdk.XmtpError.ClientClosed && isPublicError(call),
+    "a call after the worker retired did not fail with ClientClosed",
+  );
+  return ["getters after the worker retired", "ClientClosed calls"];
+}
