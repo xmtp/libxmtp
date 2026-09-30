@@ -1,6 +1,5 @@
 import { expect, it } from "vitest";
 
-import { UniffiInternalError } from "../../../../apps/xmtp_sdk_bindgen/runtime/node_modules/@ubjs/core/dist/esm/index.js";
 import {
   ValueCodec,
   type Layouts,
@@ -18,6 +17,7 @@ import {
   Message,
   registerClient,
 } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen.js";
+import { UniffiInternalError } from "../../../../target/sdk-generated/typescript-wasm/node_modules/@ubjs/core/dist/esm/index.js";
 import type { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
 import { encodeError as encodeGeneratedError } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
 import {
@@ -132,14 +132,16 @@ export function registerTransportTests(): void {
     } catch (error) {
       failure = error;
     }
-    expect(failure).toBeInstanceOf(Error);
-    expect(encodeGeneratedError(failure)).toMatchObject({
+    expect(failure).toBeInstanceOf(UniffiInternalError.AbortError);
+    const expected = {
       variant: "Cancelled",
       code: "Cancelled",
       category: 6,
       retryable: false,
       message: "A Rust future was aborted",
-    });
+    };
+    expect(encodeGeneratedError(failure)).toMatchObject(expected);
+    expect(encodeError(failure)).toMatchObject(expected);
   });
 
   it("uses the numeric Lifecycle category for transport errors", () => {

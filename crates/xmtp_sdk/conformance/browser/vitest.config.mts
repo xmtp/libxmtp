@@ -1,5 +1,14 @@
 export default {
-  resolve: { preserveSymlinks: true },
+  resolve: {
+    preserveSymlinks: true,
+    // Both runtimes use one player entry under --preserve-symlinks.
+    alias: [
+      {
+        find: /^@ubjs\/core$/,
+        replacement: `${process.cwd()}/target/sdk-generated/typescript-wasm/node_modules/@ubjs/core/dist/esm/index.js`,
+      },
+    ],
+  },
   test: {
     include: [
       "crates/xmtp_sdk/conformance/browser/bridge.test.ts",
