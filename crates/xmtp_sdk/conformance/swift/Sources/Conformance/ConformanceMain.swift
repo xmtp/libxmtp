@@ -65,6 +65,12 @@ struct Conformance {
         try await checkReaderCursor(signer: signer, backend: backendOptions)
         try await checkRestoredPeer(backend: backendOptions)
         try await checkIdentityRoutes(backend: backendOptions)
+        try await checkStorageLayout(backend: backendOptions)
+        try await checkAttachmentSettings(backend: backendOptions)
+        try await checkAttachmentFlow(backend: backendOptions)
+        try await checkAttachmentFailures(backend: backendOptions)
+        try await checkAttachmentRecords(backend: backendOptions)
+        try await checkAttachmentEnd(backend: backendOptions)
         let host = try await SDKClient.create(signer: signer, options: options)
         let client = host
         do {
@@ -142,7 +148,7 @@ struct Conformance {
             throw ConformanceFailure("build opened a database with no identity")
         } catch XmtpError.IdentityNotFound {}
         let defaultFolder = appFolder.appendingPathComponent("xmtp")
-        let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
+        let defaultFiles = FileManager.default.enumerator(atPath: defaultFolder.path)?.allObjects as? [String] ?? []
         guard !defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
             throw ConformanceFailure("build created a new database")
         }
@@ -154,8 +160,10 @@ struct Conformance {
                 deviceSync: false
             )
         )
-        let expectedDefaultPath = defaultFolder
-            .appendingPathComponent("xmtp-\(defaultHost.inboxId()).db3").path
+        let expectedDefaultPath = try defaultFolder
+            .appendingPathComponent(deploymentComponent(defaultHost.serverConfiguration().identifier))
+            .appendingPathComponent(defaultHost.inboxId())
+            .appendingPathComponent("xmtp.db3").path
         guard try await defaultHost.storage().path() == expectedDefaultPath,
               FileManager.default.fileExists(atPath: expectedDefaultPath)
         else { throw ConformanceFailure("default storage path is incorrect") }
