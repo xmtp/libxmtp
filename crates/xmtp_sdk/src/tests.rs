@@ -518,6 +518,7 @@ mod history_errors;
 mod identity_routes;
 mod lifecycle;
 mod message_actions;
+mod metadata_fields;
 mod permissions;
 mod public_error_actions;
 mod query_costs;
