@@ -249,8 +249,21 @@ enum ConfigurationFailure {
 impl ConfigurationFailure {
     // implements: CONF-064
     fn of(error: &GenericError) -> Option<Self> {
-        let GenericError::Client(client) = error else {
-            return None;
+        use xmtp_mls::{
+            groups::GroupError,
+            subscriptions::{SubscribeError, catch_up::CatchUpError},
+        };
+        let client = match error {
+            GenericError::Client(client)
+            | GenericError::GroupError(GroupError::Client(client))
+            | GenericError::CatchUp(CatchUpError::Group(GroupError::Client(client))) => client,
+            GenericError::Subscription(SubscribeError::Group(group)) => {
+                let GroupError::Client(client) = group.as_ref() else {
+                    return None;
+                };
+                client
+            }
+            _ => return None,
         };
         Some(match client {
             ClientError::ConfigurationUnavailable(_) => Self::Unavailable,
@@ -514,5 +527,128 @@ mod auth_error_tests {
             let error = super::FfiError::from(api);
             assert_eq!(error.to_string(), message);
         }
+    }
+}
+
+#[cfg(test)]
+mod configuration_error_tests {
+    use super::*;
+    use xmtp_mls::{
+        groups::GroupError,
+        subscriptions::{SubscribeError, catch_up::CatchUpError},
+    };
+
+    fn wrap(client: ClientError, path: usize) -> GenericError {
+        match path {
+            0 => client.into(),
+            1 => GroupError::Client(client).into(),
+            2 => CatchUpError::Group(GroupError::Client(client)).into(),
+            3 => SubscribeError::Group(Box::new(GroupError::Client(client))).into(),
+            _ => unreachable!(),
+        }
+    }
+
+    fn check_configuration_failure(path: usize) {
+        let core = wrap(
+            ClientError::BackendMismatch {
+                stored: "stored-deployment".into(),
+                received: "other-deployment".into(),
+            },
+            path,
+        );
+        let expected_code = core.error_code();
+        let expected_source = core.source().map(ToString::to_string);
+        let expected_display = format!("[{}] {}", expected_code, core);
+        let mismatch = FfiError::from(core);
+        assert!(
+            matches!(&mismatch, FfiError::BackendMismatch { stored, received, .. }
+                if stored == "stored-deployment" && received == "other-deployment"),
+            "path {path}: {mismatch:?}"
+        );
+        assert_eq!(mismatch.inner().error_code(), expected_code);
+        assert_eq!(mismatch.source().map(ToString::to_string), expected_source);
+        assert_eq!(mismatch.to_string(), expected_display);
+
+        let version = FfiError::from(wrap(
+            ClientError::ClientVersionTooOld {
+                client: "1.0.0".into(),
+                minimum: "2.0.0".into(),
+            },
+            path,
+        ));
+        assert!(
+            matches!(version, FfiError::ClientVersionTooOld { client, minimum, .. }
+                if client == "1.0.0" && minimum == "2.0.0")
+        );
+
+        let auth = FfiError::from(wrap(
+            ClientError::AuthRequired {
+                required_scopes: vec!["identity".into()],
+            },
+            path,
+        ));
+        assert!(
+            matches!(auth, FfiError::AuthRequired { required_scopes, .. }
+                if required_scopes == ["identity"])
+        );
+
+        let chain = FfiError::from(wrap(
+            ClientError::ChainNotAccepted {
+                chain: "eip155:1".into(),
+                accepted: vec!["eip155:8453".into()],
+            },
+            path,
+        ));
+        assert!(
+            matches!(chain, FfiError::ChainNotAccepted { chain, accepted, .. }
+                if chain == "eip155:1" && accepted == ["eip155:8453"])
+        );
+
+        let invalid = FfiError::from(wrap(
+            ClientError::ConfigurationInvalid(
+                xmtp_configuration::ServerConfigurationError::Identifier,
+            ),
+            path,
+        ));
+        assert!(matches!(invalid, FfiError::ConfigurationInvalid(_)));
+
+        let unavailable = FfiError::from(wrap(
+            ClientError::ConfigurationUnavailable(Box::new(
+                xmtp_mls::server_configuration::ConfigurationFetchError::Storage(
+                    xmtp_db::StorageError::NotFound(xmtp_db::NotFound::InboxIdForAddress(
+                        "test".into(),
+                    )),
+                ),
+            )),
+            path,
+        ));
+        assert!(matches!(unavailable, FfiError::ConfigurationUnavailable(_)));
+
+        let closed = FfiError::from(wrap(ClientError::AlreadyClosed, path));
+        assert!(matches!(closed, FfiError::Error(_)));
+    }
+
+    // verifies: CONF-064
+    #[xmtp_common::test(unwrap_try = true)]
+    fn direct_configuration_failures_keep_their_mobile_kind_and_fields() {
+        check_configuration_failure(0);
+    }
+
+    // verifies: CONF-064
+    #[xmtp_common::test(unwrap_try = true)]
+    fn group_configuration_failures_keep_their_mobile_kind_and_fields() {
+        check_configuration_failure(1);
+    }
+
+    // verifies: CONF-064
+    #[xmtp_common::test(unwrap_try = true)]
+    fn catch_up_configuration_failures_keep_their_mobile_kind_and_fields() {
+        check_configuration_failure(2);
+    }
+
+    // verifies: CONF-064
+    #[xmtp_common::test(unwrap_try = true)]
+    fn subscription_configuration_failures_keep_their_mobile_kind_and_fields() {
+        check_configuration_failure(3);
     }
 }
