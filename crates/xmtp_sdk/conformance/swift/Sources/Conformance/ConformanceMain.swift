@@ -59,7 +59,7 @@ struct Conformance {
         precondition(ClientOptions(storage: StorageOptions(location: .inMemory)).backend == nil)
         let options = ClientOptions(
             backend: .options(options: backendOptions),
-            storage: StorageOptions(location: .directory(directory.path)),
+            storage: StorageOptions(location: .directory(directory: directory.path)),
             deviceSync: false
         )
         try await checkReaderCursor(signer: signer, backend: backendOptions)

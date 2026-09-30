@@ -170,7 +170,7 @@ describe("shared public value projection", () => {
       "default",
       "inMemory",
       { directory: "folder" },
-      { path: "db.sqlite3" },
+      { dbPath: "db.sqlite3", attachmentsDir: "attachments" },
     ] satisfies P.StorageLocation[]) {
       expect(
         P.liftStorageLocation(

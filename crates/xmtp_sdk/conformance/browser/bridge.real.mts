@@ -35,8 +35,12 @@ const { privateKeyToAccount } = await import(
 /** The retry flag of a binding error's details. */
 function retryableOf(error: unknown): unknown {
   const inner: unknown =
-    error !== null && typeof error === "object" ? Reflect.get(error, "inner") : undefined;
-  return Array.isArray(inner) && inner[0] !== null && typeof inner[0] === "object"
+    error !== null && typeof error === "object"
+      ? Reflect.get(error, "inner")
+      : undefined;
+  return Array.isArray(inner) &&
+    inner[0] !== null &&
+    typeof inner[0] === "object"
     ? Reflect.get(inner[0], "retryable")
     : undefined;
 }
@@ -180,11 +184,9 @@ try {
     ),
     (error: unknown) => {
       assert.ok(error instanceof Error);
-      // The platform storage failure keeps its typed Storage code.
-      assert.ok(B.XmtpError.Storage.instanceOf(error), String(error));
-      // No OPFS support cannot become usable by retrying.
+      assert.ok(B.XmtpError.StorageLocation.instanceOf(error));
       assert.equal(retryableOf(error), false, String(error));
-      assert.ok(!B.XmtpError.StorageLocationRequired.instanceOf(error));
+      assert.ok(!B.XmtpError.StorageBusy.instanceOf(error));
       return true;
     },
   );
@@ -194,10 +196,9 @@ try {
     "real WASM must decode numeric PublicIdentityKind",
   );
   assert.equal(kinds, 0, "unsupported OPFS fails before signer kind");
-  assert.equal(first.session.isTerminated, true);
-  await first.worker.terminate();
-  first = start();
-  await first.session.ready();
+  // A directory without OPFS fails at its deployment record, before the
+  // database pool opens, so the worker lives and runs the next create.
+  assert.equal(first.session.isTerminated, false);
 
   await assert.rejects(
     Client.create(
@@ -226,7 +227,10 @@ try {
           },
         }),
         storage: {
-          location: B.StorageLocation.Path.new("unsupported-opfs.db"),
+          location: B.StorageLocation.Explicit.new({
+            dbPath: "unsupported-opfs.db",
+            attachmentsDir: "unsupported-opfs-attachments",
+          }),
           label: undefined,
           encryptionKey: undefined,
           pool: undefined,
@@ -239,13 +243,14 @@ try {
       },
     ),
     (error: unknown) => {
-      // An OPFS failure keeps its typed Storage code; it is not StorageBusy.
-      assert.ok(B.XmtpError.Storage.instanceOf(error), String(error));
+      assert.ok(B.XmtpError.StorageLocation.instanceOf(error));
       assert.equal(retryableOf(error), false, String(error));
       assert.ok(!B.XmtpError.StorageBusy.instanceOf(error));
       return true;
     },
   );
+  // An explicit database opens the pool first, and its failed transition
+  // ends the worker.
   assert.equal(first.session.isTerminated, true);
   await first.worker.terminate();
   first = start();
@@ -335,19 +340,16 @@ try {
   // An immutable getter reads its held snapshot while the client ends, as on
   // Node (Decision 14). A call through the result fails with ClientClosed.
   const endingConversations = live.conversations();
-  await assert.rejects(
-    endingConversations.sync(),
-    (error: unknown) => {
-      assert.ok(B.XmtpError.ClientClosed.instanceOf(error));
-      assert.deepEqual(error.inner[0], {
-        code: "ClientClosed",
-        category: B.ErrorCategory.Lifecycle,
-        retryable: false,
-        message: "client is closed",
-      });
-      return true;
-    },
-  );
+  await assert.rejects(endingConversations.sync(), (error: unknown) => {
+    assert.ok(B.XmtpError.ClientClosed.instanceOf(error));
+    assert.deepEqual(error.inner[0], {
+      code: "ClientClosed",
+      category: B.ErrorCategory.Lifecycle,
+      retryable: false,
+      message: "client is closed",
+    });
+    return true;
+  });
   await ending;
 
   // The Client snapshot includes options(). Its pre-authentication handler

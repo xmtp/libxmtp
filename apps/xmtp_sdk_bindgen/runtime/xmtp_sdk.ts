@@ -262,7 +262,7 @@ export enum StorageLocation_Tags {
 
 export type StorageLocation = { tag: StorageLocation_Tags };
 export declare const StorageLocation: {
-  Directory: new (directory: string) => StorageLocation;
+  Directory: new (inner: { directory: string }) => StorageLocation;
 };
 
 export type ClientOptions = {
@@ -430,5 +430,9 @@ export enum ConnectionState {
   Closed,
 }
 
-export type MessageReaderOptions = { conversationKind?: ConversationKind; consentStates?: ConsentState[]; from?: string };
+export type MessageReaderOptions = {
+  conversationKind?: ConversationKind;
+  consentStates?: ConsentState[];
+  from?: string;
+};
 export type ConversationMessageReaderOptions = { from?: string };

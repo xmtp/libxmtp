@@ -57,7 +57,7 @@ public final class SDKClient: @unchecked Sendable {
                     message: "Default storage needs an application bundle identifier and Application Support directory"
                 ))
             }
-            result.storage.location = .directory(base.appendingPathComponent(name)
+            result.storage.location = .directory(directory: base.appendingPathComponent(name)
                 .appendingPathComponent("xmtp").path)
         }
         return result

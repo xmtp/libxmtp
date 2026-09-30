@@ -100,7 +100,7 @@ const options = (directory: string) => ({
     },
   }),
   storage: {
-    location: new sdk.StorageLocation.Directory(directory),
+    location: new sdk.StorageLocation.Directory({ directory }),
     label: undefined,
     encryptionKey: undefined,
     pool: undefined,

@@ -83,8 +83,10 @@ fn contract_hash(groups: &MetadataGroupMap) -> String {
 // UniFFI metadata cannot show that a value never changes, so each entry is
 // reviewed by hand. Any other synchronous method stops generation.
 const IMMUTABLE_PROPERTIES: &[&str] = &[
+    "Attachments.offered",
     "Client.app_version",
     "Client.archives",
+    "Client.attachments",
     "Client.client_key",
     "Client.conversations",
     "Client.diagnostics",
@@ -114,6 +116,7 @@ const IMMUTABLE_PROPERTIES: &[&str] = &[
     "Group.is_creator",
     "Group.kind",
     "Group.topic",
+    "PendingAttachment.remote_attachment",
 ];
 
 fn validate_bridge(items: &[Metadata]) -> Result<()> {

@@ -41,19 +41,21 @@ export function liftBackendSource(value: B.BackendSource, projection: ObjectProj
 "#;
 
 pub(super) const STORAGE_LOCATION: &str = r#"
-export type StorageLocation = 'default' | 'inMemory' | { readonly directory: string } | { readonly path: string };
+export type StorageLocation = 'default' | 'inMemory' | { readonly directory: string } | { readonly dbPath: string; readonly attachmentsDir: string };
 export function lowerStorageLocation(value: StorageLocation, _projection: ObjectProjection): B.StorageLocation {
   if (value === 'default') return B.StorageLocation.Default.new();
   if (value === 'inMemory') return B.StorageLocation.InMemory.new();
-  if ('directory' in value && 'path' in value) throw new TypeError('multiple storage locations');
-  return 'directory' in value ? B.StorageLocation.Directory.new(value.directory) : B.StorageLocation.Path.new(value.path);
+  if ('directory' in value && ('dbPath' in value || 'attachmentsDir' in value)) throw new TypeError('multiple storage locations');
+  return 'directory' in value
+    ? B.StorageLocation.Directory.new({ directory: value.directory })
+    : B.StorageLocation.Explicit.new({ dbPath: value.dbPath, attachmentsDir: value.attachmentsDir });
 }
 export function liftStorageLocation(value: B.StorageLocation, _projection: ObjectProjection): StorageLocation {
   switch (value.tag) {
     case B.StorageLocation_Tags.Default: return 'default';
     case B.StorageLocation_Tags.InMemory: return 'inMemory';
-    case B.StorageLocation_Tags.Directory: return { directory: value.inner[0] };
-    case B.StorageLocation_Tags.Path: return { path: value.inner[0] };
+    case B.StorageLocation_Tags.Directory: return { directory: value.inner.directory };
+    case B.StorageLocation_Tags.Explicit: return { dbPath: value.inner.dbPath, attachmentsDir: value.inner.attachmentsDir };
   }
 }
 "#;

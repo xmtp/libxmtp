@@ -151,7 +151,11 @@ export function options(
 ): sdk.ClientOptions {
   return {
     backend: { url: backendURL },
-    storage: { location: { path }, label: path, singleConnection: false },
+    storage: {
+      location: { dbPath: path, attachmentsDir: `${path}-attachments` },
+      label: path,
+      singleConnection: false,
+    },
     deviceSync: false,
     allowOffline: false,
     registration: { auto },

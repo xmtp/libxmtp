@@ -140,7 +140,10 @@ export async function openClient(path: string): Promise<void> {
           },
         }),
         storage: {
-          location: B.StorageLocation.Path.new(path),
+          location: B.StorageLocation.Explicit.new({
+            dbPath: path,
+            attachmentsDir: `${path}-attachments`,
+          }),
           label: path,
           encryptionKey: undefined,
           pool: undefined,
