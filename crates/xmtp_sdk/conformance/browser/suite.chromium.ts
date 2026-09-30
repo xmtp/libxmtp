@@ -264,6 +264,15 @@ export async function runBrowserBridgeConformance(
       throw new Error("custom content changed kind");
     equal(custom.content.value, "custom browser value", "custom decode failed");
     expect(custom.content.rawBytes.byteLength > 0, "custom raw bytes empty");
+    // The public raw bytes are the stored bytes of the binding message.
+    const storedContent = boundMessage(custom).data.content;
+    if (storedContent.tag !== B.MessageContent_Tags.Custom)
+      throw new Error("stored custom content changed kind");
+    equal(
+      custom.content.rawBytes.toString(),
+      new Uint8Array(storedContent.inner.rawBytes).toString(),
+      "custom raw bytes changed",
+    );
     const customReplyId = await custom.reply(customCodec, "custom reply");
     const customReply =
       await customOwner.conversations.getMessageById(customReplyId);

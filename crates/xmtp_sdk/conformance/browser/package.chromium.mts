@@ -175,10 +175,17 @@ try {
   await waitForTermination(beforeEntry.terminated + 1, true);
   assert.equal(
     entry.length,
-    6,
+    8,
     `public entry stopped after: ${entry.join(", ")}`,
   );
   console.log(`Chromium public entry: ${entry.join("; ")}`);
+  const failed = await page.evaluate(async () => {
+    const { failWorkers } = await import("./package.chromium.ts");
+    return (await import("./public-entry.chromium.ts")).failures(failWorkers);
+  });
+  console.log(
+    `Chromium public errors from a failing package worker: ${failed.join(", ")}`,
+  );
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );

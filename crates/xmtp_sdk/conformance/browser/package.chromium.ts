@@ -12,11 +12,14 @@ const terminationWaiters = new Set<() => void>();
 let holdTermination = false;
 let finishTermination: (() => void) | undefined;
 let onTermination: (() => void) | undefined;
+let failing = false;
 const OriginalWorker = globalThis.Worker;
 globalThis.Worker = class extends OriginalWorker {
   constructor(url: string | URL, options?: WorkerOptions) {
     super(url, options);
     created++;
+    // A failing worker reports an error before its handshake.
+    if (failing) queueMicrotask(() => this.dispatchEvent(new Event("error")));
   }
   override terminate(): void {
     terminated++;
@@ -33,6 +36,10 @@ let client: Client | undefined;
 let pending: Promise<StorageAdmin> | undefined;
 let allowCreate: (() => void) | undefined;
 
+/** New package workers fail at once while this is on. */
+export function failWorkers(on: boolean): void {
+  failing = on;
+}
 export function counts() {
   return { created, terminated };
 }
