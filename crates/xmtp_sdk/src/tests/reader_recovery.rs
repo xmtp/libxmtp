@@ -29,7 +29,7 @@ async fn streamed_reply_has_the_same_context_as_message_by_id() {
         .reply_to_message(reply_id.clone(), crate::encode_text("child".into())?, None)
         .await?;
 
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     assert_eq!(
         reader.next().await?.expect("parent handoff").0.id,
         parent_id
@@ -70,14 +70,14 @@ async fn streamed_reply_has_the_same_context_as_message_by_id() {
 async fn late_reader_released() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let control = reader.control_for_test();
     drop(reader);
     assert_eq!(
         crate::ConnectionState::from(control.catch_up_snapshot().connection),
         crate::ConnectionState::Closed
     );
-    let replacement = group.message_reader().await?;
+    let replacement = group.message_reader(None).await?;
     replacement.end().await?;
     client.end().await?;
 }
@@ -96,7 +96,7 @@ async fn raw_message_bytes_are_delivered_and_replayed_until_acknowledged() {
             .send_message(raw, SendMessageOpts::default())
             .await?,
     )?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let delivered = xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
         .await??
         .expect("raw message handoff");
@@ -105,7 +105,7 @@ async fn raw_message_bytes_are_delivered_and_replayed_until_acknowledged() {
         MessageContent::Unknown { raw_bytes, .. } if raw_bytes == raw));
     reader.end().await?;
 
-    let replacement = group.message_reader().await?;
+    let replacement = group.message_reader(None).await?;
     let replayed = xmtp_common::time::timeout(Duration::from_secs(5), replacement.next())
         .await??
         .expect("unacknowledged raw message replay");
@@ -124,7 +124,7 @@ async fn message_decode_error_closes_reader_and_releases_lease() {
     group
         .send_text("invalid stored message".into(), None)
         .await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     reader.corrupt_next_message_for_test();
     assert!(
         xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
@@ -134,7 +134,7 @@ async fn message_decode_error_closes_reader_and_releases_lease() {
         "invalid ID must fail conversion"
     );
     assert!(reader.is_ended_for_test(), "decode error left reader open");
-    let replacement = group.message_reader().await?;
+    let replacement = group.message_reader(None).await?;
     replacement.end().await?;
     client.end().await?;
 }

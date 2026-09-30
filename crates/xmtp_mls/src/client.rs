@@ -1107,6 +1107,8 @@ where
                         events,
                         vec![message],
                         DeletionCause::DeletedLocally,
+                        // A local removal of the row: no inbox sent a delete.
+                        None,
                         &db,
                     )?;
                 }

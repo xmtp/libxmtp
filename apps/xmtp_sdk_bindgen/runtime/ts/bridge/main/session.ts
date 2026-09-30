@@ -1,4 +1,5 @@
 import {
+  abandonedAtEnd,
   bridgeError,
   decodeError,
   encodeError,
@@ -14,30 +15,55 @@ import type { RemoteObject } from "./remote-object.js";
 interface Pending {
   resolve(value: unknown): void;
   reject(error: Error): void;
+  // The owner of a read that is abandoned when that owner ends.
+  abandonedOwner?: number;
 }
 
 export class MainSession {
   readonly callbacks: MainCallbacks;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;
+  private revision = 0;
+  private idleRevision = -1;
+  private localCalls = 0;
   private readyResolve: (() => void) | undefined;
   private readyReject: ((error: Error) => void) | undefined;
   private readonly readyPromise: Promise<void>;
   private dead = false;
+  private stopped = false;
+  private stopResolve!: () => void;
+  private stopReject!: (error: unknown) => void;
+  private readonly stoppedPromise = new Promise<void>((resolve, reject) => {
+    this.stopResolve = resolve;
+    this.stopReject = reject;
+  });
   private epoch = 0;
   private readonly closedOwners = new Set<number>();
+  // The last read on each reader handle. The next read waits for it.
+  private readonly readTails = new Map<number, Promise<void>>();
+  // Reads that wait for an earlier read. Worker termination fails them.
+  private readonly queuedReads = new Set<(error: Error) => void>();
+  // Owners whose end is in progress. Reads that arrive for them wait here
+  // until the end settles.
+  private readonly endingOwners = new Map<
+    number,
+    { pending: Pending; value: unknown }[]
+  >();
   private readonly proxies = new Map<number, Set<WeakRef<RemoteObject>>>();
   private readonly snapshots = new Map<number, Set<number>>();
   private readonly parents = new Map<number, Set<number>>();
   private readonly releases = new Set<number>();
   private releaseScheduled = false;
   private errorDecoder: (error: ErrorWire) => Error = decodeError;
+  private heldReads = 0;
 
   constructor(
     private readonly endpoint: WireEndpoint,
     version: number,
     hash: string,
+    private readonly onIdle?: () => void,
   ) {
+    void this.stoppedPromise.catch(() => {});
     this.callbacks = new MainCallbacks(endpoint);
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
@@ -58,6 +84,40 @@ export class MainSession {
 
   get currentEpoch(): number {
     return this.epoch;
+  }
+
+  get isTerminated(): boolean {
+    return this.dead;
+  }
+
+  get terminationComplete(): boolean {
+    return this.stopped;
+  }
+
+  whenTerminated(): Promise<void> {
+    return this.stoppedPromise;
+  }
+
+  get isIdle(): boolean {
+    return (
+      !this.dead &&
+      this.localCalls === 0 &&
+      !this.releaseScheduled &&
+      this.releases.size === 0 &&
+      this.idleRevision === this.revision
+    );
+  }
+
+  private notifyIdle(): void {
+    if (this.isIdle) this.onIdle?.();
+  }
+
+  private postWork(
+    message: Extract<WireMessage, { t: "call" | "release" }>,
+  ): void {
+    const revision = this.revision + 1;
+    this.endpoint.postMessage({ ...message, revision });
+    this.revision = revision;
   }
 
   setErrorDecoder(decode: (error: ErrorWire) => Error): void {
@@ -149,6 +209,11 @@ export class MainSession {
   }
 
   checkHandle(handle: HandleWire): void {
+    // A held read decodes a handle from a snapshot that this session already
+    // holds. It needs no worker, so an ended owner, a stopped worker, or the
+    // epoch that `terminate` advances does not refuse it. A call through the
+    // resulting proxy is not a held read, so it still fails with ClientClosed.
+    if (this.heldReads > 0) return;
     if (
       this.dead ||
       this.closedOwners.has(handle.owner) ||
@@ -158,12 +223,104 @@ export class MainSession {
     }
   }
 
+  /** Runs a synchronous read of held snapshot values. */
+  readHeld<T>(read: () => T): T {
+    this.heldReads++;
+    try {
+      return read();
+    } finally {
+      this.heldReads--;
+    }
+  }
+
   /**
    * Sends one call. Generated code passes `args` as a function that encodes
    * the arguments. The callbacks that the encoding registers belong to this
    * call until it is posted, so a call that is not posted drops them.
    */
   async call(
+    key: string,
+    args: unknown[] | (() => unknown[]),
+    target?: HandleWire,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    this.localCalls++;
+    try {
+      if (target && abandonedAtEnd(key))
+        return await this.sendRead(key, args, target, signal);
+      return await this.sendCall(key, args, target, signal);
+    } finally {
+      this.localCalls--;
+      this.notifyIdle();
+    }
+  }
+
+  /**
+   * Posts a reader read only after the previous read on that reader settled
+   * on this thread. The worker acknowledges a delivered value when the next
+   * read starts, so a later read must not reach the worker while an earlier
+   * value could still be abandoned at Client.end. After an abandoned read the
+   * owner is closed, and the later read fails without being posted.
+   */
+  private sendRead(
+    key: string,
+    args: unknown[] | (() => unknown[]),
+    target: HandleWire,
+    signal?: AbortSignal,
+  ): Promise<unknown> {
+    const previous = this.readTails.get(target.h) ?? Promise.resolve();
+    const read = (async () => {
+      await this.readTurn(previous, signal);
+      return this.sendCall(key, args, target, signal);
+    })();
+    // A later read waits for this one and for the earlier read, even when
+    // this one was aborted while queued and never posted.
+    const tail = Promise.all([
+      previous,
+      read.then(
+        () => undefined,
+        () => undefined,
+      ),
+    ]).then(() => undefined);
+    this.readTails.set(target.h, tail);
+    void tail.then(() => {
+      if (this.readTails.get(target.h) === tail)
+        this.readTails.delete(target.h);
+    });
+    return read;
+  }
+
+  /**
+   * Waits for the previous read on a reader. A queued read that is aborted,
+   * or whose worker ends, fails at once and is never posted.
+   */
+  private readTurn(
+    previous: Promise<void>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    if (this.dead) return Promise.reject(bridgeError("workerTerminated"));
+    if (signal?.aborted)
+      return Promise.reject(bridgeError("cancelled", signal.reason));
+    return new Promise<void>((resolve, reject) => {
+      const stop = () => {
+        signal?.removeEventListener("abort", abort);
+        this.queuedReads.delete(fail);
+      };
+      const fail = (error: Error) => {
+        stop();
+        reject(error);
+      };
+      const abort = () => fail(bridgeError("cancelled", signal?.reason));
+      signal?.addEventListener("abort", abort, { once: true });
+      this.queuedReads.add(fail);
+      void previous.then(() => {
+        stop();
+        resolve();
+      });
+    });
+  }
+
+  private async sendCall(
     key: string,
     args: unknown[] | (() => unknown[]),
     target?: HandleWire,
@@ -186,6 +343,7 @@ export class MainSession {
     return new Promise<unknown>((resolve, reject) => {
       const abort = () => this.endpoint.postMessage({ t: "cancel", id });
       this.pending.set(id, {
+        abandonedOwner: abandonedAtEnd(key) ? target?.owner : undefined,
         resolve: (value) => {
           signal?.removeEventListener("abort", abort);
           resolve(value);
@@ -197,7 +355,7 @@ export class MainSession {
       });
       signal?.addEventListener("abort", abort, { once: true });
       try {
-        this.endpoint.postMessage({ t: "call", id, key, target, args: value });
+        this.postWork({ t: "call", id, key, target, args: value });
       } catch (error) {
         this.callbacks.dropAll(registered);
         this.pending.delete(id);
@@ -234,22 +392,32 @@ export class MainSession {
       if (this.dead || this.releases.size === 0) return;
       const batch = [...this.releases];
       this.releases.clear();
-      this.endpoint.postMessage({ t: "release", handles: batch });
+      this.postWork({ t: "release", handles: batch });
     });
   }
 
   closeOwner(owner: number, handles: number[]): void {
     this.closedOwners.add(owner);
-    if (!this.dead)
-      this.endpoint.postMessage({ t: "release", handles, owners: [owner] });
+    // The end succeeded, so reads held for it are abandoned and unacknowledged.
+    const held = this.endingOwners.get(owner) ?? [];
+    this.endingOwners.delete(owner);
+    for (const { pending } of held) pending.reject(this.error("clientClosed"));
+    if (!this.dead) this.postWork({ t: "release", handles, owners: [owner] });
   }
 
   fenceOwner(owner: number): void {
     this.closedOwners.add(owner);
+    if (!this.endingOwners.has(owner)) this.endingOwners.set(owner, []);
   }
 
   unfenceOwner(owner: number): void {
-    if (!this.dead) this.closedOwners.delete(owner);
+    if (this.dead) return;
+    this.closedOwners.delete(owner);
+    // The end failed, so the client stays open. A held read reaches the app:
+    // the reader acknowledges it on its next read, as for any delivered value.
+    const held = this.endingOwners.get(owner) ?? [];
+    this.endingOwners.delete(owner);
+    for (const { pending, value } of held) pending.resolve(value);
   }
 
   terminate(cause: unknown = bridgeError("workerTerminated")): void {
@@ -261,30 +429,74 @@ export class MainSession {
     this.readyReject?.(error);
     for (const pending of this.pending.values()) pending.reject(error);
     this.pending.clear();
+    for (const fail of this.queuedReads) fail(error);
+    for (const held of this.endingOwners.values())
+      for (const { pending } of held) pending.reject(error);
+    this.endingOwners.clear();
     this.proxies.clear();
     this.snapshots.clear();
     this.parents.clear();
     this.releases.clear();
     this.callbacks.close();
+    const complete = () => {
+      this.stopped = true;
+      this.stopResolve();
+    };
+    try {
+      const stopping = this.endpoint.terminate?.();
+      if (stopping) void stopping.then(complete, this.stopReject);
+      else complete();
+    } catch (error) {
+      this.stopReject(error);
+    }
   }
 
   private receive(message: WireMessage): void {
+    if (this.dead) return;
     switch (message.t) {
       case "ready":
         this.epoch = message.epoch;
         this.readyResolve?.();
         break;
+      case "idle":
+        this.idleRevision = message.revision;
+        this.notifyIdle();
+        break;
       case "refused":
         this.terminate(this.errorDecoder(message.error));
         break;
-      case "return":
-        this.pending.get(message.id)?.resolve(message.value);
+      case "return": {
+        const pending = this.pending.get(message.id);
         this.pending.delete(message.id);
+        const owner = pending?.abandonedOwner;
+        const value = message.value !== undefined && message.value !== null;
+        const ending =
+          owner === undefined ? undefined : this.endingOwners.get(owner);
+        if (pending && value && ending) {
+          // The owner's end is in progress. Hold the value until the end
+          // settles: an ended owner abandons it, and a failed end delivers it.
+          ending.push({ pending, value: message.value });
+        } else if (
+          pending &&
+          value &&
+          owner !== undefined &&
+          this.closedOwners.has(owner)
+        ) {
+          // The owner ended while this read's value was in transit. The value
+          // is not handed to the app, so it stays unacknowledged.
+          pending.reject(this.error("clientClosed"));
+        } else pending?.resolve(message.value);
         break;
-      case "error":
-        this.pending.get(message.id)?.reject(this.errorDecoder(message.error));
+      }
+      case "error": {
+        const pending = this.pending.get(message.id);
         this.pending.delete(message.id);
+        // Fence and terminate before exposing the call error. An immediate
+        // retry must use a fresh worker even if the fatal message is delayed.
+        if (message.fatal) this.terminate();
+        pending?.reject(this.errorDecoder(message.error));
         break;
+      }
       case "callback":
         void this.callbacks.receive(message);
         break;
@@ -293,7 +505,6 @@ export class MainSession {
         break;
       case "fatal":
         this.terminate(bridgeError("workerTerminated", message.error));
-        this.endpoint.terminate?.();
         break;
       default:
         console.error("unknown bridge message", message);

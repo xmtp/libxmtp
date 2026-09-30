@@ -6,15 +6,16 @@ impl<Context> MlsGroup<Context>
 where
     Context: XmtpSharedContext,
 {
-    fn has_valid_deletion_for_message(
+    /// The first stored deletion of `message` that is valid.
+    fn valid_deletion_for_message(
         &self,
         storage: &impl XmtpMlsStorageProvider,
         message: &StoredGroupMessage,
-    ) -> Result<bool, GroupMessageProcessingError> {
+    ) -> Result<Option<StoredMessageDeletion>, GroupMessageProcessingError> {
         let deletions = storage
             .db()
             .get_deletions_for_messages(vec![message.id.clone()])?;
-        Ok(deletions.iter().any(|deletion| {
+        Ok(deletions.into_iter().find(|deletion| {
             crate::messages::enrichment::is_deletion_valid(deletion, message, &self.group_id)
         }))
     }
@@ -26,11 +27,12 @@ where
         message: &StoredGroupMessage,
         event_writer: &impl xmtp_events::EventWriter<crate::subscriptions::internal::InternalEvent>,
     ) -> Result<(), GroupMessageProcessingError> {
-        if self.has_valid_deletion_for_message(storage, message)? {
+        if let Some(deletion) = self.valid_deletion_for_message(storage, message)? {
             crate::subscriptions::internal::emit_deleted_messages(
                 event_writer,
                 vec![message.clone()],
                 xmtp_events::DeletionCause::Deleted,
+                Some(deletion.deleted_by_inbox_id),
                 &storage.db(),
             )?;
         }
@@ -165,7 +167,8 @@ where
 
         let original_msg_opt = storage.db().get_group_message(&target_message_id)?;
         let had_valid_deletion = if let Some(original) = &original_msg_opt {
-            self.has_valid_deletion_for_message(storage, original)?
+            self.valid_deletion_for_message(storage, original)?
+                .is_some()
         } else {
             false
         };
@@ -235,6 +238,7 @@ where
                 event_writer,
                 vec![original_msg],
                 xmtp_events::DeletionCause::Deleted,
+                Some(deletion.deleted_by_inbox_id.clone()),
                 &storage.db(),
             )?;
         }

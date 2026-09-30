@@ -63,8 +63,11 @@ struct Conformance {
             storage: StorageOptions(location: .directory(directory.path)),
             deviceSync: false
         )
+        try await checkReaderCursor(signer: signer, backend: backendOptions)
+        try await checkRestoredPeer(backend: backendOptions)
+        try await checkIdentityRoutes(backend: backendOptions)
         let host = try await SDKClient.create(signer: signer, options: options)
-        let client = host.raw
+        let client = host
         do {
             // Uppercase hex decodes, so only ID validation rejects it.
             _ = try await client.conversations().getMessageById(id: String(repeating: "AB", count: 32))
@@ -78,7 +81,7 @@ struct Conformance {
         guard let storagePath = try await host.storage().path(),
               FileManager.default.fileExists(atPath: storagePath)
         else { throw ConformanceFailure("storage path does not name the database file") }
-        let group = try await client.conversations().createGroup(members: [], options: nil)
+        let group = try await client.conversations().createGroup(members: [InboxId](), options: nil)
         var typedSends = 0
         for sample in codecSamples {
             let id: MessageId
@@ -121,7 +124,7 @@ struct Conformance {
         let reopenedHost = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxId: inboxId
         )
-        let reopened = reopenedHost.raw
+        let reopened = reopenedHost
         precondition(reopened.inboxId() == inboxId)
         let bundleIdentifier = Bundle.main.bundleIdentifier!
         let appFolder = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -153,7 +156,7 @@ struct Conformance {
             )
         )
         let expectedDefaultPath = defaultFolder
-            .appendingPathComponent("xmtp-\(defaultHost.raw.inboxId()).db3").path
+            .appendingPathComponent("xmtp-\(defaultHost.inboxId()).db3").path
         guard try await defaultHost.storage().path() == expectedDefaultPath,
               FileManager.default.fileExists(atPath: expectedDefaultPath)
         else { throw ConformanceFailure("default storage path is incorrect") }
@@ -166,7 +169,7 @@ struct Conformance {
                 identity: await signer.identity(), options: options, inboxId: inboxId
             )
             weakHost = shortLived
-            let shortGroup = try await shortLived.raw.conversations().createGroup(members: [], options: nil)
+            let shortGroup = try await shortLived.conversations().createGroup(members: [InboxId](), options: nil)
             let orphanId = try await shortGroup.sendText(text: "weak owner", options: nil)
             orphan = try await shortGroup.messages(options: nil).first { $0.id == orphanId }
         }
@@ -182,7 +185,7 @@ struct Conformance {
         print("Swift client_closed_after_end_and_release passed")
         print("Swift scenario 2: create, reopen, end passed")
 
-        let reopenedGroup = try await reopened.conversations().createGroup(members: [], options: nil)
+        let reopenedGroup = try await reopened.conversations().createGroup(members: [InboxId](), options: nil)
         let reader = try await reopenedGroup.messageReader()
         let liveId = try await reopenedGroup.sendText(text: "durable stream", options: nil)
         let first = try await reader.next()
@@ -205,7 +208,7 @@ struct Conformance {
         try await Task.sleep(for: .milliseconds(50))
         idle.cancel()
         _ = try? await idle.value
-        let protocolGroup = try await reopened.conversations().createGroup(members: [], options: nil)
+        let protocolGroup = try await reopened.conversations().createGroup(members: [InboxId](), options: nil)
         let firstId = try await protocolGroup.sendText(text: "ack on request", options: nil)
         do {
             let protocolStream = try await reopenedHost.messages(in: protocolGroup)
@@ -239,7 +242,7 @@ struct Conformance {
         let remaining = try await afterAck.next()
         precondition(remaining?.id == secondId, "adapter did not acknowledge on next request")
         try await afterAck.end()
-        let breakGroup = try await reopened.conversations().createGroup(members: [], options: nil)
+        let breakGroup = try await reopened.conversations().createGroup(members: [InboxId](), options: nil)
         let breakId = try await breakGroup.sendText(text: "close after break", options: nil)
         let (breakClose, breakCloseSignal) = AsyncStream<SDKStreamCloseReason>.makeStream()
         let retainedStream = try await reopenedHost.messages(
@@ -348,7 +351,7 @@ struct Conformance {
         // When iteration ends, the reader is already released: a replacement
         // reader on the same group opens at once. A slow end makes a
         // detached teardown lose this race every time.
-        let reopenScope = try await reopened.conversations().createGroup(members: [], options: nil)
+        let reopenScope = try await reopened.conversations().createGroup(members: [InboxId](), options: nil)
         func slowEndStream(
             next: @escaping @Sendable () async throws -> Message?
         ) -> SDKMessageStream {
@@ -426,7 +429,7 @@ struct Conformance {
                 conversationPending.cancel()
                 throw ConformanceFailure("conversation reader was not open before group creation")
             }
-            _ = try await reopened.conversations().createGroup(members: [], options: nil)
+            _ = try await reopened.conversations().createGroup(members: [InboxId](), options: nil)
             do {
                 guard try await conversationPending.value != nil else {
                     throw ConformanceFailure("conversation stream missed a stored group")
@@ -530,17 +533,25 @@ struct Conformance {
                 credential: Credential(name: nil, value: "Bearer initial", expiresAtSeconds: largeExpiry)
             )),
             storage: options.storage,
-            deviceSync: false
+            deviceSync: false,
+            workers: WorkerOptions(defaultIntervalNs: UInt64(largeExpiry))
         )
         let credentialHost = try await SDKClient.build(
             identity: await signer.identity(), options: credentialOptions, inboxId: inboxId
         )
-        guard case let .some(.options(options: savedBackend)) = credentialHost.raw.options().backend,
-              savedBackend.credential?.expiresAtSeconds == largeExpiry
-        else {
-            throw ConformanceFailure("credential expiry lost 64-bit precision")
+        let savedOptions = credentialHost.options()
+        guard savedOptions.workers?.defaultIntervalNs == UInt64(largeExpiry) else {
+            throw ConformanceFailure("worker interval lost 64-bit precision")
         }
-        try await credentialHost.raw.setCredential(credential: Credential(
+        // The options never return the backend token or the database key.
+        guard case let .some(.options(options: savedBackend)) = savedOptions.backend,
+              savedBackend.credential == nil,
+              savedBackend.credentials == nil,
+              savedOptions.storage.encryptionKey == nil
+        else {
+            throw ConformanceFailure("client options exposed a secret")
+        }
+        try await credentialHost.setCredential(credential: Credential(
             name: nil, value: "Bearer renewed", expiresAtSeconds: largeExpiry
         ))
         try await credentialHost.end()
@@ -606,7 +617,7 @@ struct Conformance {
             registration: RegistrationOptions(auto: false)
         )
         let unsignedHost = try await SDKClient.create(signer: local, options: unsignedOptions)
-        let unsigned = unsignedHost.raw
+        let unsigned = unsignedHost
         guard try await !unsigned.isRegistered() else {
             throw ConformanceFailure("auto registration was not disabled")
         }
@@ -635,12 +646,12 @@ struct Conformance {
         guard preAuthLog.calls.isEmpty else {
             throw ConformanceFailure("preAuthenticate ran before registration: \(preAuthLog.calls)")
         }
-        try await preAuthenticated.raw.register()
+        try await preAuthenticated.register()
         guard preAuthLog.calls == ["pre-authenticate", "sign"] else {
             throw ConformanceFailure("preAuthenticate did not run before the signer: \(preAuthLog.calls)")
         }
         preAuthLog.removeAll()
-        try await preAuthenticated.raw.register()
+        try await preAuthenticated.register()
         guard preAuthLog.calls.isEmpty else {
             throw ConformanceFailure("registered client ran preAuthenticate again: \(preAuthLog.calls)")
         }
@@ -682,7 +693,7 @@ struct Conformance {
         print("Swift logging: inline records stayed in order")
 
         let family = try await reopened.conversations().createGroup(
-            members: [], options: CreateGroupOptions(name: "family group")
+            members: [InboxId](), options: CreateGroupOptions(name: "family group")
         )
         guard try await family.state().name == "family group",
               family.creatorInboxId() == inboxId,
@@ -754,23 +765,23 @@ struct Conformance {
         }
         try await slashHost.end()
         let customId = try await family.send(encoded: codec.encode("codec value"), options: nil)
-        guard let decoded = try await withCodec.raw.conversations().getMessageById(id: customId),
-              let undecoded = try await withoutCodec.raw.conversations().getMessageById(id: customId)
+        guard let decoded = try await withCodec.conversations().getMessageById(id: customId),
+              let undecoded = try await withoutCodec.conversations().getMessageById(id: customId)
         else { throw ConformanceFailure("custom message was not found") }
         guard case let .custom(_, value, nil) = decoded.content, value as? String == "codec value",
               case .unknown = undecoded.content
         else { throw ConformanceFailure("custom codec leaked between clients") }
-        let customReplyId = try await withCodec.raw.conversations().replyToMessage(
+        let customReplyId = try await withCodec.conversations().replyToMessage(
             id: customId, content: codec.encode("reply codec value"), options: nil
         )
-        guard let customReply = try await withCodec.raw.conversations().getMessageById(id: customReplyId),
+        guard let customReply = try await withCodec.conversations().getMessageById(id: customReplyId),
               case let .some(.custom(_, value, nil)) = customReply.replyContent,
               value as? String == "reply codec value"
         else { throw ConformanceFailure("reply body custom codec did not run") }
         let failingHost = try await SDKClient.build(
             identity: await signer.identity(), options: options, inboxId: inboxId, codecs: [FailingCodec()]
         )
-        guard let failed = try await failingHost.raw.conversations().getMessageById(id: customId),
+        guard let failed = try await failingHost.conversations().getMessageById(id: customId),
               case let .custom(_, nil, error) = failed.content, error != nil
         else { throw ConformanceFailure("throwing custom codec was not recorded") }
         try await failingHost.end()
@@ -799,18 +810,18 @@ struct Conformance {
             kinds: [.conversationJoined], conversationIds: nil,
             contentTypes: nil, referencesOwnMessages: false
         )
-        let eventReader = try await reopened.events(filter: eventFilter)
+        var eventReader: SDKEventStream.Iterator? = try await reopened.events(eventFilter).makeAsyncIterator()
         let eventSignal = EventSignal()
         let listenerId = try await reopenedHost.startListener(eventFilter) { _ in
             await eventSignal.mark()
         }
-        _ = try await reopened.conversations().createGroup(members: [], options: nil)
-        guard try await eventReader.next() != nil else {
+        _ = try await reopened.conversations().createGroup(members: [InboxId](), options: nil)
+        guard try await eventReader?.next() != nil else {
             throw ConformanceFailure("event reader ended before event")
         }
         try await eventSignal.wait()
         await reopenedHost.stopListener(listenerId)
-        try await eventReader.end()
+        eventReader = nil
         print("Swift scenario 8: event reader and listener passed")
 
         // verifies: EVENT-053
@@ -822,7 +833,7 @@ struct Conformance {
         let delayedId = try await reopenedHost.startListener(eventFilter) { _ in
             await lateCalls.mark()
         }
-        _ = try await reopened.conversations().createGroup(members: [], options: nil)
+        _ = try await reopened.conversations().createGroup(members: [InboxId](), options: nil)
         try await startPause.waitUntilEntered()
         await reopenedHost.stopListener(delayedId)
         await startPause.release()

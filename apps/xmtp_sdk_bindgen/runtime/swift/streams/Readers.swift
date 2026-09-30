@@ -265,14 +265,14 @@ public final class SDKReaderIterator<Value>: AsyncIteratorProtocol, @unchecked S
 }
 
 func makeSDKMessageStream(
-    group: Group,
+    open: @escaping @Sendable () async throws -> MessageReader,
     owner: SDKClient,
     onClose: (@Sendable (SDKStreamCloseReason) throws -> Void)?,
     onConnectionStateChange: (@Sendable (ConnectionState?, ConnectionState) -> Void)?
 ) -> SDKMessageStream {
     SDKReaderStream(open: { [weak owner] in
         guard let owner else { throw CancellationError() }
-        let reader = try await group.messageReader()
+        let reader = try await open()
         return StreamHandle(
             owner: owner,
             next: { try await reader.next() },

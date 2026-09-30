@@ -141,6 +141,237 @@ fn render(
     Ok(methods)
 }
 
+/// Client methods that the host Client implements itself, or that stay private
+/// because they identify a transport handle.
+const HOST_CLIENT_METHODS: &[&str] = &[
+    "clientKey",
+    "end",
+    "events",
+    "startListener",
+    "stopListener",
+    "storage",
+];
+
+/// Select the host names of every exported Client instance method that the host
+/// Client must forward.
+fn client_methods<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Vec<String> {
+    let mut names = items
+        .into_iter()
+        .filter_map(|item| match item {
+            Metadata::Method(method) if method.self_name == "Client" => {
+                Some(host_name(&method.name))
+            }
+            _ => None,
+        })
+        .filter(|name| !HOST_CLIENT_METHODS.contains(&name.as_str()))
+        .collect::<Vec<_>>();
+    names.sort();
+    names
+}
+
+/// Swift class methods carry their default arguments; the protocol does not.
+fn swift_client_declarations(source: &str) -> Result<BTreeMap<String, String>> {
+    let body = source
+        .split_once("open class Client:")
+        .context("generated Swift binding has no Client class")?
+        .1
+        .split_once("public struct FfiConverterTypeClient")
+        .context("generated Swift binding has no end for the Client class")?
+        .0;
+    Ok(body
+        .lines()
+        .filter_map(|line| {
+            let declaration = line.strip_prefix("open func ")?;
+            let name = declaration.split_once('(')?.0.trim_matches('`');
+            Some((name.to_string(), line.to_string()))
+        })
+        .collect())
+}
+
+fn render_client(
+    selected: &[String],
+    declarations: &BTreeMap<String, String>,
+    language: Language,
+) -> Result<String> {
+    let swift = matches!(language, Language::Swift);
+    let mut methods = String::new();
+    for name in selected {
+        let Some(declaration) = declarations.get(name) else {
+            bail!("Client.{name}: exported method is missing from generated bindings");
+        };
+        let args = arguments(declaration, swift).join(", ");
+        if swift {
+            let signature = declaration
+                .trim_start_matches("open func ")
+                .trim_end()
+                .trim_end_matches('{')
+                .replace(")async", ") async")
+                .replace(")throws", ") throws")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ");
+            let effect = if signature.contains(" async throws") {
+                "try await "
+            } else if signature.contains(" async") {
+                "await "
+            } else if signature.contains(" throws") {
+                "try "
+            } else {
+                ""
+            };
+            methods.push_str(&format!(
+                "    func {signature} {{\n        {effect}raw.{name}({args})\n    }}\n\n"
+            ));
+        } else {
+            let signature = declaration.replace("fun `", "fun SDKClient.`");
+            methods.push_str(&format!("{signature} = raw.`{name}`({args})\n\n"));
+        }
+    }
+    Ok(methods)
+}
+
+fn generate_client(
+    groups: &MetadataGroupMap,
+    language: Language,
+    source: &str,
+    out: &Utf8Path,
+) -> Result<()> {
+    let selected = client_methods(groups.values().flat_map(|group| &group.items));
+    let (found, header, footer, filename) = match language {
+        Language::Swift => (
+            swift_client_declarations(source)?,
+            "/// Generated from exported Client methods. Do not edit this output.\nimport Foundation\n\npublic extension SDKClient {\n",
+            "}\n",
+            "ClientForwarding.swift",
+        ),
+        Language::Kotlin => (
+            declarations(source, "public interface ClientInterface {", "fun ")?,
+            "// Generated from exported Client methods. Do not edit this output.\npackage uniffi.xmtp_sdk\n\n",
+            "",
+            "ClientForwarding.kt",
+        ),
+        _ => bail!("Client forwarding needs Swift or Kotlin"),
+    };
+    let rendered = render_client(&selected, &found, language)?;
+    fs::write(
+        out.join("runtime").join(filename),
+        format!(
+            "{header}{}{footer}",
+            rendered.trim_end_matches('\n').to_owned() + "\n"
+        ),
+    )?;
+    Ok(())
+}
+
+/// Apps construct the host Client. Keep the generated Client factories visible
+/// only to the runtime module, so they cannot bypass its registry and codecs.
+fn hide_client_factories(source: &str, language: Language) -> Result<String> {
+    let replacements: &[(&str, &str)] = match language {
+        Language::Swift => &[
+            (
+                "\npublic static func build(identity: PublicIdentity,",
+                "\nstatic func build(identity: PublicIdentity,",
+            ),
+            (
+                "\npublic static func create(signer: Signer,",
+                "\nstatic func create(signer: Signer,",
+            ),
+        ],
+        Language::Kotlin => &[
+            (
+                "     suspend fun `build`(`identity`: PublicIdentity,",
+                "     internal suspend fun `build`(`identity`: PublicIdentity,",
+            ),
+            (
+                "     suspend fun `create`(`signer`: Signer,",
+                "     internal suspend fun `create`(`signer`: Signer,",
+            ),
+        ],
+        _ => bail!("Client factories are hidden only in Swift and Kotlin"),
+    };
+    let mut output = source.to_owned();
+    for (from, to) in replacements {
+        if output.matches(from).count() != 1 {
+            bail!("generated Client factory changed shape: {}", from.trim());
+        }
+        output = output.replacen(from, to, 1);
+    }
+    Ok(output)
+}
+
+/// Account-identity membership methods. The public API is the same-name
+/// overload in the host runtime, so the generated method is internal to it.
+const IDENTITY_ROUTES: &[&str] = &[
+    "createGroupWithIdentities",
+    "createDmWithIdentity",
+    "addMembersByIdentity",
+    "removeMembersByIdentity",
+];
+
+/// Remove each identity route from its generated protocol or interface, and
+/// make the generated class method internal.
+fn hide_identity_routes(source: &str, language: Language) -> Result<String> {
+    // Each template names the method with `NAME`.
+    let (declaration, method, internal) = match language {
+        Language::Swift => ("    func NAME(", "open func NAME(", "func NAME("),
+        Language::Kotlin => (
+            "    suspend fun `NAME`(",
+            "    override suspend fun `NAME`(",
+            "    internal suspend fun `NAME`(",
+        ),
+        _ => bail!("identity routes are hidden only in Swift and Kotlin"),
+    };
+    let internal = |name: &str| internal.replace("NAME", name);
+    let (declaration, method) = (
+        |name: &str| declaration.replace("NAME", name),
+        |name: &str| method.replace("NAME", name),
+    );
+    let mut output = source.to_owned();
+    for name in IDENTITY_ROUTES {
+        let (declaration, method) = (declaration(name), method(name));
+        let declared = output
+            .lines()
+            .filter(|line| line.starts_with(&declaration))
+            .count();
+        if declared != 1 || output.matches(&method).count() != 1 {
+            bail!("generated identity route changed shape: {name}");
+        }
+        output = output
+            .lines()
+            .filter(|line| !line.starts_with(&declaration))
+            .map(|line| format!("{line}\n"))
+            .collect::<String>()
+            .replacen(&method, &internal(name), 1);
+    }
+    Ok(output)
+}
+
+/// Write the TypeScript host Client's forwarders as a base class. Each method
+/// takes and returns the binding method's own types, so a method that the
+/// binding lacks fails the TypeScript compile.
+pub(crate) fn generate_typescript(groups: &MetadataGroupMap, out: &Utf8Path) -> Result<()> {
+    let selected = client_methods(groups.values().flat_map(|group| &group.items));
+    let name = "client-forwarding.gen.ts";
+    fs::write(
+        out.join(name),
+        crate::format::typescript(name, &render_typescript(&selected))?,
+    )?;
+    Ok(())
+}
+
+fn render_typescript(selected: &[String]) -> String {
+    let mut code = String::from(
+        "// Generated from exported Client methods. Do not edit this output.\nimport type { ClientLike } from \"./xmtp_sdk\";\n\n/** The host Client forwards these methods to its private binding Client. */\nexport abstract class ClientForwarders {\n  protected abstract binding(): ClientLike;\n",
+    );
+    for name in selected {
+        code.push_str(&format!(
+            "\n  {name}(\n    ...args: Parameters<ClientLike[\"{name}\"]>\n  ): ReturnType<ClientLike[\"{name}\"]> {{\n    return this.binding().{name}(...args);\n  }}\n"
+        ));
+    }
+    code.push_str("}\n");
+    code
+}
+
 pub(crate) fn generate(
     groups: &MetadataGroupMap,
     language: Language,
@@ -166,7 +397,15 @@ pub(crate) fn generate(
         ),
         _ => bail!("conversation forwarding needs Swift or Kotlin"),
     };
-    let source = fs::read_to_string(&binding).with_context(|| format!("read {binding}"))?;
+    let source = hide_identity_routes(
+        &hide_client_factories(
+            &fs::read_to_string(&binding).with_context(|| format!("read {binding}"))?,
+            language,
+        )?,
+        language,
+    )?;
+    fs::write(&binding, &source)?;
+    generate_client(groups, language, &source, out)?;
     let group = declarations(&source, group_start, prefix)?;
     let dm = declarations(&source, dm_start, prefix)?;
     let rendered = render(&selected, &group, &dm, language)?;
@@ -232,6 +471,74 @@ mod tests {
         assert!(output.contains("group.sendText(text: text)"));
         assert!(output.contains("dm.sendText(text: text)"));
         assert!(!output.contains("addMembers"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn every_exported_client_method_is_forwarded_except_host_methods() {
+        let items = vec![
+            Metadata::Method(method("Client", "catch_up_to_live", None)),
+            Metadata::Method(method("Client", "client_key", None)),
+            Metadata::Method(method("Client", "end", None)),
+            Metadata::Method(method("Group", "sync", None)),
+        ];
+        let selected = client_methods(&items);
+        assert_eq!(selected, vec!["catchUpToLive".to_string()]);
+        let swift = swift_client_declarations(
+            "open class Client: ClientProtocol {\nopen func catchUpToLive(timeoutMs: UInt64? = nil)async throws  -> CatchUpSummary  {\n}\npublic struct FfiConverterTypeClient {}",
+        )?;
+        let output = render_client(&selected, &swift, Language::Swift)?;
+        assert!(output.contains(
+            "func catchUpToLive(timeoutMs: UInt64? = nil) async throws -> CatchUpSummary {\n        try await raw.catchUpToLive(timeoutMs: timeoutMs)"
+        ));
+        let kotlin = BTreeMap::from([(
+            "catchUpToLive".into(),
+            "suspend fun `catchUpToLive`(`timeoutMs`: kotlin.ULong? = null): CatchUpSummary".into(),
+        )]);
+        let output = render_client(&selected, &kotlin, Language::Kotlin)?;
+        assert!(output.contains(
+            "suspend fun SDKClient.`catchUpToLive`(`timeoutMs`: kotlin.ULong? = null): CatchUpSummary = raw.`catchUpToLive`(timeoutMs)"
+        ));
+        let missing = render_client(&selected, &BTreeMap::new(), Language::Kotlin).unwrap_err();
+        assert!(missing.to_string().contains("Client.catchUpToLive"));
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn client_factories_are_private_to_the_runtime() {
+        let swift = "open class Client {\npublic static func build(identity: PublicIdentity, options: ClientOptions)\npublic static func create(signer: Signer, options: ClientOptions)\n}";
+        let hidden = hide_client_factories(swift, Language::Swift)?;
+        assert!(!hidden.contains("public static func"));
+        assert!(hidden.contains("\nstatic func create(signer: Signer,"));
+        let kotlin = "     suspend fun `build`(`identity`: PublicIdentity, x)\n     suspend fun `create`(`signer`: Signer, x)";
+        let hidden = hide_client_factories(kotlin, Language::Kotlin)?;
+        assert_eq!(hidden.matches("internal suspend fun").count(), 2);
+        assert!(hide_client_factories("changed", Language::Kotlin).is_err());
+    }
+
+    // The generated identity route leaves the public protocol and class API.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn identity_routes_are_private_to_the_runtime() {
+        let mut swift = String::new();
+        let mut kotlin = String::new();
+        for name in IDENTITY_ROUTES {
+            swift.push_str(&format!(
+                "protocol P {{\n    func {name}(members: [PublicIdentity]) async throws\n}}\nopen func {name}(members: [PublicIdentity])async throws {{\n}}\n"
+            ));
+            kotlin.push_str(&format!(
+                "interface I {{\n    suspend fun `{name}`(`members`: List<PublicIdentity>)\n}}\n    override suspend fun `{name}`(`members`: List<PublicIdentity>) {{\n}}\n"
+            ));
+        }
+        let hidden = hide_identity_routes(&swift, Language::Swift)?;
+        assert_eq!(hidden.matches("\n    func ").count(), 0);
+        assert_eq!(hidden.matches("open func").count(), 0);
+        assert_eq!(hidden.matches("\nfunc ").count(), IDENTITY_ROUTES.len());
+        let hidden = hide_identity_routes(&kotlin, Language::Kotlin)?;
+        assert_eq!(hidden.matches("\n    suspend fun").count(), 0);
+        assert_eq!(hidden.matches("override").count(), 0);
+        assert_eq!(
+            hidden.matches("internal suspend fun").count(),
+            IDENTITY_ROUTES.len()
+        );
+        assert!(hide_identity_routes("changed", Language::Swift).is_err());
     }
 
     #[xmtp_common::test(unwrap_try = true)]

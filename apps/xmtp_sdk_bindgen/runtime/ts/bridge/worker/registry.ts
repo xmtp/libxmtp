@@ -9,7 +9,7 @@ interface Entry {
 export class WorkerRegistry {
   private readonly entries = new Map<number, Entry>();
   private readonly ownerCounts = new Map<number, number>();
-  private readonly ownerClients = new Map<number, object>();
+  private readonly ownerRoots = new Map<number, object>();
   private nextHandle = 1;
   private nextOwner = 1;
   // Handles that the current snapshot allocated. A snapshot can add nested
@@ -27,7 +27,8 @@ export class WorkerRegistry {
     const h = this.nextHandle++;
     const actualOwner = owner ?? this.nextOwner++;
     this.entries.set(h, { value, owner: actualOwner, type });
-    if (type === "Client") this.ownerClients.set(actualOwner, value);
+    if (type === "Client" || type === "StorageAdmin")
+      this.ownerRoots.set(actualOwner, value);
     this.ownerCounts.set(
       actualOwner,
       (this.ownerCounts.get(actualOwner) ?? 0) + 1,
@@ -74,10 +75,10 @@ export class WorkerRegistry {
       this.entries.delete(h);
       this.decrementOwner(entry.owner);
       if (
-        entry.type === "Client" &&
-        this.ownerClients.get(entry.owner) === entry.value
+        (entry.type === "Client" || entry.type === "StorageAdmin") &&
+        this.ownerRoots.get(entry.owner) === entry.value
       )
-        this.ownerClients.delete(entry.owner);
+        this.ownerRoots.delete(entry.owner);
     }
   }
 
@@ -110,16 +111,16 @@ export class WorkerRegistry {
       if (entry.owner === owner) this.entries.delete(h);
     }
     this.ownerCounts.delete(owner);
-    this.ownerClients.delete(owner);
+    this.ownerRoots.delete(owner);
   }
 
-  client(owner: number): object | undefined {
-    return this.ownerClients.get(owner);
+  root(owner: number): object | undefined {
+    return this.ownerRoots.get(owner);
   }
 
-  takeClient(owner: number): object | undefined {
-    const client = this.ownerClients.get(owner);
-    this.ownerClients.delete(owner);
+  takeRoot(owner: number): object | undefined {
+    const client = this.ownerRoots.get(owner);
+    this.ownerRoots.delete(owner);
     return client;
   }
 

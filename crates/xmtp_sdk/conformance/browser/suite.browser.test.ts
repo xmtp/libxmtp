@@ -23,3 +23,25 @@ test("browser bridge scenarios 1 to 11: readers in 7, events in 8, catchUpToLive
 }, 180_000);
 
 test("real WASM trap settles pending bridge calls", checkRealWasmTrap, 30_000);
+
+import {
+  checkWorkerAdmission,
+  type AdmissionCase,
+} from "./reader.admission.chromium";
+for (const mode of [
+  "large-cursor",
+  "restored-peer",
+  "admitted",
+  "cancel",
+  "owner-end",
+  "overlap-end",
+  "end-fails",
+  "callback-throw",
+  "callback-reject",
+] satisfies AdmissionCase[]) {
+  test(
+    `real WASM reader admission: ${mode}`,
+    () => checkWorkerAdmission(__XMTP_BACKEND_URL__, mode),
+    90_000,
+  );
+}

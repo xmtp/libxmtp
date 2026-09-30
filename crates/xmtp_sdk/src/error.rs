@@ -94,6 +94,8 @@ pub enum XmtpError {
     Lagged(ErrorDetails),
     #[error("stream consumer owned: {0:?}")]
     ConsumerOwned(ErrorDetails),
+    #[error("invalid cursor: {0:?}")]
+    InvalidCursor(ErrorDetails),
     #[error("foreign cursor: {0:?}")]
     ForeignCursor(ErrorDetails),
     #[error("unknown failure: {0:?}")]

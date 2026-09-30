@@ -58,16 +58,21 @@ SDK_037_NODE_ONLY_MEMBERS = {
     "Storage": {"delete_", "reconnect"},
     "StorageOptions": {"encryptionKey"},
 }
-# SDK-037 adds `Storage.admin()` to the browser target. It is not generated
-# yet, so the list is empty; add the members when it is.
+# SDK-037 adds the browser-only admin handle. Its public factory is added
+# by the browser adapter. The stock interface alias follows the generated type.
+SDK_037_BROWSER_ONLY = {"StorageAdmin", "StorageAdminLike", "StorageAdminInterface"}
+
+# SDK-037 adds `Storage.admin()` to the browser target. The whole Storage
+# declaration is pinned below, so no member is listed here.
 SDK_037_BROWSER_ONLY_MEMBERS: dict[str, set[str]] = {}
 
 # Exports that are not app API, each with the one browser entrypoint that
 # exports it and the reason it differs.
 INTERNAL_BROWSER_ONLY = {
-    # The worker runtime reads it after a failed create. Native builds have
+    # The worker runtime reads it after a failed storage call. Native builds have
     # no storage lock.
-    "storeLeftOpen": (WORKER, "worker runtime only"),
+    "storageRequiresWorkerRestart": (WORKER, "worker runtime only"),
+    "prepareStorageForShutdown": (WORKER, "final worker cleanup only"),
     # The main-thread pure module loads its own WASM file.
     "initPureWasm": (PURE, "loads the main-thread pure module"),
 }
@@ -154,16 +159,68 @@ OWNER_PERMITTED: dict[str, set[str]] = {
     # reply body as stored and lifts it only in `replyContent`.
     "Message": {"content"},
 }
+# The private public entries (compare_public). SDK-037 and the pure module
+# split these names from the browser worker entry, each with its reason.
+PUBLIC_NODE_ONLY = {
+    **{
+        name: reason
+        for name, reason in SDK_037_NODE_ONLY.items()
+        if not name.endswith("_Tags")
+    },
+    "setLogSink": "F7 adds the asynchronous browser log sink",
+    "LogSink": "F7 adds the asynchronous browser log sink",
+    **{name: "pure module" for name in PURE_ONLY},
+}
+# Members whose form depends on the target, skipped on both sides.
+PUBLIC_PLATFORM_SPECIFIC = {
+    # Node clears the process sink at once; the browser worker call is async.
+    "clearLogSink": "the browser clears the log sink in the worker",
+}
+PUBLIC_BROWSER_ONLY = {"StorageAdmin": "SDK-037 browser storage admin"}
+PUBLIC_NODE_ONLY_MEMBERS = {
+    "Archives": {"exportToFile", "importFromFile", "metadataFromFile"},
+    "Client": {"disableNotifications", "enableNotifications", "notificationState"},
+    "Storage": {"delete_", "reconnect"},
+    "StorageOptions": {"encryptionKey"},
+}
+PUBLIC_BROWSER_ONLY_MEMBERS = {"Storage": {"admin"}}
+
 # The pinned Client declarations, as `describe` prints them without indent.
 CLIENT_NODE = """\
 class Client { ... }
-conversations(): ConversationsLike;
+appVersion(...args: Parameters<ClientLike["appVersion"]>): ReturnType<ClientLike["appVersion"]>;
+archives(...args: Parameters<ClientLike["archives"]>): ReturnType<ClientLike["archives"]>;
+catchUpToLive(...args: Parameters<ClientLike["catchUpToLive"]>): ReturnType<ClientLike["catchUpToLive"]>;
+changeRecoveryIdentifier(...args: Parameters<ClientLike["changeRecoveryIdentifier"]>): ReturnType<ClientLike["changeRecoveryIdentifier"]>;
+conversations(...args: Parameters<ClientLike["conversations"]>): ReturnType<ClientLike["conversations"]>;
+decodeContent(...args: Parameters<ClientLike["decodeContent"]>): ReturnType<ClientLike["decodeContent"]>;
 decodeCustom(encoded: EncodedContent): { value?: unknown; error?: string; } | undefined;
+diagnostics(...args: Parameters<ClientLike["diagnostics"]>): ReturnType<ClientLike["diagnostics"]>;
+disableNotifications(...args: Parameters<ClientLike["disableNotifications"]>): ReturnType<ClientLike["disableNotifications"]>;
+enableNotifications(...args: Parameters<ClientLike["enableNotifications"]>): ReturnType<ClientLike["enableNotifications"]>;
 end(): Promise<void>;
 events(filter: EventFilter): Promise<EventStream>;
-inboxId(): InboxId;
-installationId(): InstallationId;
-readonly raw: ClientLike;
+identity(...args: Parameters<ClientLike["identity"]>): ReturnType<ClientLike["identity"]>;
+inboxId(...args: Parameters<ClientLike["inboxId"]>): ReturnType<ClientLike["inboxId"]>;
+inboxState(...args: Parameters<ClientLike["inboxState"]>): ReturnType<ClientLike["inboxState"]>;
+installationId(...args: Parameters<ClientLike["installationId"]>): ReturnType<ClientLike["installationId"]>;
+installationIdBytes(...args: Parameters<ClientLike["installationIdBytes"]>): ReturnType<ClientLike["installationIdBytes"]>;
+isInMemory(...args: Parameters<ClientLike["isInMemory"]>): ReturnType<ClientLike["isInMemory"]>;
+isRegistered(...args: Parameters<ClientLike["isRegistered"]>): ReturnType<ClientLike["isRegistered"]>;
+latestInboxUpdatesCount(...args: Parameters<ClientLike["latestInboxUpdatesCount"]>): ReturnType<ClientLike["latestInboxUpdatesCount"]>;
+libxmtpVersion(...args: Parameters<ClientLike["libxmtpVersion"]>): ReturnType<ClientLike["libxmtpVersion"]>;
+notificationState(...args: Parameters<ClientLike["notificationState"]>): ReturnType<ClientLike["notificationState"]>;
+options(...args: Parameters<ClientLike["options"]>): ReturnType<ClientLike["options"]>;
+ownInboxUpdatesCount(...args: Parameters<ClientLike["ownInboxUpdatesCount"]>): ReturnType<ClientLike["ownInboxUpdatesCount"]>;
+preferences(...args: Parameters<ClientLike["preferences"]>): ReturnType<ClientLike["preferences"]>;
+protected binding(): ClientLike;
+refreshServerConfiguration(...args: Parameters<ClientLike["refreshServerConfiguration"]>): ReturnType<ClientLike["refreshServerConfiguration"]>;
+register(...args: Parameters<ClientLike["register"]>): ReturnType<ClientLike["register"]>;
+removeAccount(...args: Parameters<ClientLike["removeAccount"]>): ReturnType<ClientLike["removeAccount"]>;
+revokeAllOtherInstallations(...args: Parameters<ClientLike["revokeAllOtherInstallations"]>): ReturnType<ClientLike["revokeAllOtherInstallations"]>;
+serverConfiguration(...args: Parameters<ClientLike["serverConfiguration"]>): ReturnType<ClientLike["serverConfiguration"]>;
+setCredential(...args: Parameters<ClientLike["setCredential"]>): ReturnType<ClientLike["setCredential"]>;
+signWithInstallationKey(...args: Parameters<ClientLike["signWithInstallationKey"]>): ReturnType<ClientLike["signWithInstallationKey"]>;
 startListener(filter: EventFilter, callback: (event: ClientEvent) => void | Promise<void>): Promise<bigint>;
 static build(identity: PublicIdentity, options: SDKClientOptions, inboxId?: InboxId): Promise<Client>;
 static canMessage(identities: PublicIdentity[], backend: BackendSource): Promise<Map<string, boolean>>;
@@ -179,69 +236,75 @@ static revokeInstallations(signer: Signer, inboxId: InboxId, ids: InstallationId
 static verifySignedWithPublicKey(text: string, signature: ArrayBuffer, publicKey: ArrayBuffer): Promise<boolean>;
 stopListener(id: bigint): Promise<void>;
 storage(): StorageLike;
+storagePath(...args: Parameters<ClientLike["storagePath"]>): ReturnType<ClientLike["storagePath"]>;
+syncAllDeviceSyncGroups(...args: Parameters<ClientLike["syncAllDeviceSyncGroups"]>): ReturnType<ClientLike["syncAllDeviceSyncGroups"]>;
+unsafeAddAccount(...args: Parameters<ClientLike["unsafeAddAccount"]>): ReturnType<ClientLike["unsafeAddAccount"]>;
+unsafeAddAccountSignatureRequest(...args: Parameters<ClientLike["unsafeAddAccountSignatureRequest"]>): ReturnType<ClientLike["unsafeAddAccountSignatureRequest"]>;
+unsafeApplySignatureRequest(...args: Parameters<ClientLike["unsafeApplySignatureRequest"]>): ReturnType<ClientLike["unsafeApplySignatureRequest"]>;
+unsafeChangeRecoveryIdentifierSignatureRequest(...args: Parameters<ClientLike["unsafeChangeRecoveryIdentifierSignatureRequest"]>): ReturnType<ClientLike["unsafeChangeRecoveryIdentifierSignatureRequest"]>;
+unsafeCreateInboxSignatureRequest(...args: Parameters<ClientLike["unsafeCreateInboxSignatureRequest"]>): ReturnType<ClientLike["unsafeCreateInboxSignatureRequest"]>;
+unsafeRemoveAccountSignatureRequest(...args: Parameters<ClientLike["unsafeRemoveAccountSignatureRequest"]>): ReturnType<ClientLike["unsafeRemoveAccountSignatureRequest"]>;
+unsafeRevokeAllOtherInstallationsSignatureRequest(...args: Parameters<ClientLike["unsafeRevokeAllOtherInstallationsSignatureRequest"]>): ReturnType<ClientLike["unsafeRevokeAllOtherInstallationsSignatureRequest"]>;
+unsafeRevokeInstallationsSignatureRequest(...args: Parameters<ClientLike["unsafeRevokeInstallationsSignatureRequest"]>): ReturnType<ClientLike["unsafeRevokeInstallationsSignatureRequest"]>;
+verifySignedWithInstallationKey(...args: Parameters<ClientLike["verifySignedWithInstallationKey"]>): ReturnType<ClientLike["verifySignedWithInstallationKey"]>;
 """
 CLIENT_WORKER = """\
-class Client implements ClientLike { ... }
-appVersion(): string | undefined;
-archives(): ArchivesLike;
-canMessage(identities: Array<PublicIdentity>, asyncOpts_?: { signal: AbortSignal; }): Promise<Map<string, boolean>>;
-catchUpToLive(timeoutMs: bigint | undefined, asyncOpts_?: { signal: AbortSignal; }): Promise<CatchUpSummary>;
-changeRecoveryIdentifier(signer: Signer, identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-checkLive(name: string, session?: MainSession): void;
-clientKey(): bigint;
-constructor(session: MainSession, handle: HandleWire);
-conversations(): ConversationsLike;
-decodeContent(encoded: EncodedContent, asyncOpts_?: { signal: AbortSignal; }): Promise<MessageContent>;
-diagnostics(): DiagnosticsLike;
-end(asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-events(filter: EventFilter, asyncOpts_?: { signal: AbortSignal; }): Promise<EventReaderLike>;
-identity(): PublicIdentity;
-inboxId(): string;
-inboxIdFor(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<string | undefined>;
-inboxState(refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<InboxState>;
-inboxStates(ids: Array<string>, refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<Array<InboxState>>;
-installationId(): string;
-installationIdBytes(): ArrayBuffer;
-isInMemory(): boolean;
-isRegistered(asyncOpts_?: { signal: AbortSignal; }): Promise<boolean>;
-keyPackageStatuses(ids: Array<string>, asyncOpts_?: { signal: AbortSignal; }): Promise<Map<string, KeyPackageStatus>>;
-latestInboxUpdatesCount(ids: Array<string>, refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<Map<string, bigint>>;
-libxmtpVersion(): string;
-options(): ClientOptions;
-ownInboxUpdatesCount(refreshFromNetwork: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<bigint>;
-preferences(): PreferencesLike;
-protected call(key: string, args: unknown[] | (() => unknown[]), signal?: AbortSignal): Promise<unknown>;
-protected check(): void;
-protected fence(): void;
-protected readonly session: MainSession;
-protected snapshot(name: string): unknown;
-protected unfence(): void;
-readonly handle: HandleWire;
-refreshServerConfiguration(asyncOpts_?: { signal: AbortSignal; }): Promise<ServerConfiguration>;
-register(asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-release(): void;
-removeAccount(recoverySigner: Signer, identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-revokeAllOtherInstallations(signer: Signer, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-revokeInstallations(signer: Signer, ids: Array<string>, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-serverConfiguration(): ServerConfiguration;
-setCredential(credential: Credential, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-signWithInstallationKey(text: string, asyncOpts_?: { signal: AbortSignal; }): Promise<ArrayBuffer>;
-startListener(filter: EventFilter, listener: EventListener, asyncOpts_?: { signal: AbortSignal; }): Promise<ListenerId>;
-static build(session: MainSession, identity: PublicIdentity, options: HostClientOptions, inboxId: string | undefined, asyncOpts_?: { signal: AbortSignal; }): Promise<Client>;
-static create(session: MainSession, signer: Signer, options: HostClientOptions, asyncOpts_?: { signal: AbortSignal; }): Promise<Client>;
-stopListener(id: ListenerId, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+class Client { ... }
+appVersion(...args: Parameters<ClientLike["appVersion"]>): ReturnType<ClientLike["appVersion"]>;
+archives(...args: Parameters<ClientLike["archives"]>): ReturnType<ClientLike["archives"]>;
+catchUpToLive(...args: Parameters<ClientLike["catchUpToLive"]>): ReturnType<ClientLike["catchUpToLive"]>;
+changeRecoveryIdentifier(...args: Parameters<ClientLike["changeRecoveryIdentifier"]>): ReturnType<ClientLike["changeRecoveryIdentifier"]>;
+conversations(...args: Parameters<ClientLike["conversations"]>): ReturnType<ClientLike["conversations"]>;
+decodeContent(...args: Parameters<ClientLike["decodeContent"]>): ReturnType<ClientLike["decodeContent"]>;
+diagnostics(...args: Parameters<ClientLike["diagnostics"]>): ReturnType<ClientLike["diagnostics"]>;
+end(): Promise<void>;
+events(filter: EventFilter): Promise<EventStream>;
+identity(...args: Parameters<ClientLike["identity"]>): ReturnType<ClientLike["identity"]>;
+inboxId(...args: Parameters<ClientLike["inboxId"]>): ReturnType<ClientLike["inboxId"]>;
+inboxState(...args: Parameters<ClientLike["inboxState"]>): ReturnType<ClientLike["inboxState"]>;
+installationId(...args: Parameters<ClientLike["installationId"]>): ReturnType<ClientLike["installationId"]>;
+installationIdBytes(...args: Parameters<ClientLike["installationIdBytes"]>): ReturnType<ClientLike["installationIdBytes"]>;
+isInMemory(...args: Parameters<ClientLike["isInMemory"]>): ReturnType<ClientLike["isInMemory"]>;
+isRegistered(...args: Parameters<ClientLike["isRegistered"]>): ReturnType<ClientLike["isRegistered"]>;
+latestInboxUpdatesCount(...args: Parameters<ClientLike["latestInboxUpdatesCount"]>): ReturnType<ClientLike["latestInboxUpdatesCount"]>;
+libxmtpVersion(...args: Parameters<ClientLike["libxmtpVersion"]>): ReturnType<ClientLike["libxmtpVersion"]>;
+options(...args: Parameters<ClientLike["options"]>): ReturnType<ClientLike["options"]>;
+ownInboxUpdatesCount(...args: Parameters<ClientLike["ownInboxUpdatesCount"]>): ReturnType<ClientLike["ownInboxUpdatesCount"]>;
+preferences(...args: Parameters<ClientLike["preferences"]>): ReturnType<ClientLike["preferences"]>;
+protected binding(): ClientLike;
+refreshServerConfiguration(...args: Parameters<ClientLike["refreshServerConfiguration"]>): ReturnType<ClientLike["refreshServerConfiguration"]>;
+register(...args: Parameters<ClientLike["register"]>): ReturnType<ClientLike["register"]>;
+removeAccount(...args: Parameters<ClientLike["removeAccount"]>): ReturnType<ClientLike["removeAccount"]>;
+revokeAllOtherInstallations(...args: Parameters<ClientLike["revokeAllOtherInstallations"]>): ReturnType<ClientLike["revokeAllOtherInstallations"]>;
+serverConfiguration(...args: Parameters<ClientLike["serverConfiguration"]>): ReturnType<ClientLike["serverConfiguration"]>;
+setCredential(...args: Parameters<ClientLike["setCredential"]>): ReturnType<ClientLike["setCredential"]>;
+signWithInstallationKey(...args: Parameters<ClientLike["signWithInstallationKey"]>): ReturnType<ClientLike["signWithInstallationKey"]>;
+startListener(filter: EventFilter, callback: (event: ClientEvent) => void | Promise<void>): Promise<bigint>;
+static build(identity: PublicIdentity, options: HostClientOptions, inboxId?: InboxId): Promise<Client>;
+static canMessage(identities: PublicIdentity[], backend: BackendSource): Promise<Map<string, boolean>>;
+static create(signer: Signer, options: HostClientOptions): Promise<Client>;
+static fetchServerConfiguration(backend: BackendSource): Promise<ServerConfiguration>;
+static inboxIdFor(identity: PublicIdentity, backend: BackendSource): Promise<InboxId>;
+static inboxStates(ids: InboxId[], backend: BackendSource): Promise<InboxState[]>;
+static isAddressAuthorized(inboxId: InboxId, address: string, backend: BackendSource): Promise<boolean>;
+static isInstallationAuthorized(inboxId: InboxId, installationId: InstallationId, backend: BackendSource): Promise<boolean>;
+static keyPackageStatuses(ids: InstallationId[], backend: BackendSource): Promise<Map<string, KeyPackageStatus>>;
+static newestMessageMetadata(ids: ConversationId[], backend: BackendSource): Promise<Map<string, MessageMetadataEntry>>;
+static revokeInstallations(signer: Signer, inboxId: InboxId, ids: InstallationId[], backend: BackendSource): Promise<void>;
+static verifySignedWithPublicKey(text: string, signature: ArrayBuffer, publicKey: ArrayBuffer): Promise<boolean>;
+stopListener(id: bigint): Promise<void>;
 storage(): StorageLike;
-storagePath(): string | undefined;
-syncAllDeviceSyncGroups(asyncOpts_?: { signal: AbortSignal; }): Promise<GroupSyncSummary>;
-unsafeAddAccount(signer: Signer, allowInboxReassign: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-unsafeAddAccountSignatureRequest(identity: PublicIdentity, allowInboxReassign: boolean, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
-unsafeApplySignatureRequest(request: SignatureRequestLike, asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
-unsafeChangeRecoveryIdentifierSignatureRequest(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
-unsafeCreateInboxSignatureRequest(asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike | undefined>;
-unsafeRemoveAccountSignatureRequest(identity: PublicIdentity, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
-unsafeRevokeAllOtherInstallationsSignatureRequest(asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike | undefined>;
-unsafeRevokeInstallationsSignatureRequest(ids: Array<string>, asyncOpts_?: { signal: AbortSignal; }): Promise<SignatureRequestLike>;
-verifySignedWithInstallationKey(text: string, signature: ArrayBuffer, asyncOpts_?: { signal: AbortSignal; }): Promise<boolean>;
+storagePath(...args: Parameters<ClientLike["storagePath"]>): ReturnType<ClientLike["storagePath"]>;
+syncAllDeviceSyncGroups(...args: Parameters<ClientLike["syncAllDeviceSyncGroups"]>): ReturnType<ClientLike["syncAllDeviceSyncGroups"]>;
+unsafeAddAccount(...args: Parameters<ClientLike["unsafeAddAccount"]>): ReturnType<ClientLike["unsafeAddAccount"]>;
+unsafeAddAccountSignatureRequest(...args: Parameters<ClientLike["unsafeAddAccountSignatureRequest"]>): ReturnType<ClientLike["unsafeAddAccountSignatureRequest"]>;
+unsafeApplySignatureRequest(...args: Parameters<ClientLike["unsafeApplySignatureRequest"]>): ReturnType<ClientLike["unsafeApplySignatureRequest"]>;
+unsafeChangeRecoveryIdentifierSignatureRequest(...args: Parameters<ClientLike["unsafeChangeRecoveryIdentifierSignatureRequest"]>): ReturnType<ClientLike["unsafeChangeRecoveryIdentifierSignatureRequest"]>;
+unsafeCreateInboxSignatureRequest(...args: Parameters<ClientLike["unsafeCreateInboxSignatureRequest"]>): ReturnType<ClientLike["unsafeCreateInboxSignatureRequest"]>;
+unsafeRemoveAccountSignatureRequest(...args: Parameters<ClientLike["unsafeRemoveAccountSignatureRequest"]>): ReturnType<ClientLike["unsafeRemoveAccountSignatureRequest"]>;
+unsafeRevokeAllOtherInstallationsSignatureRequest(...args: Parameters<ClientLike["unsafeRevokeAllOtherInstallationsSignatureRequest"]>): ReturnType<ClientLike["unsafeRevokeAllOtherInstallationsSignatureRequest"]>;
+unsafeRevokeInstallationsSignatureRequest(...args: Parameters<ClientLike["unsafeRevokeInstallationsSignatureRequest"]>): ReturnType<ClientLike["unsafeRevokeInstallationsSignatureRequest"]>;
+verifySignedWithInstallationKey(...args: Parameters<ClientLike["verifySignedWithInstallationKey"]>): ReturnType<ClientLike["verifySignedWithInstallationKey"]>;
 """
 # Declarations that differ as a whole. Each target must match its pinned text,
 # as `describe` prints it, so any drift on either target fails. When a pinned
@@ -267,15 +330,34 @@ PINNED: dict[str, dict[str, str]] = {
         WORKER: "function clearLogSink(asyncOpts_?: { signal: AbortSignal; }): "
         "Promise<void>;",
     },
-    # Owner decision O13 (2026-09-28). Node's Client is the runtime wrapper
-    # over ClientLike, with static helpers, codecs, and callback listeners.
-    # The browser's Client is the generated worker proxy: it implements
-    # ClientLike, `create` and `build` take a MainSession, and every async
-    # method takes AbortSignal options. The parity type test compares
-    # ClientLike.
+    # Owner decision O13 (2026-09-28). Both Clients forward the exported
+    # instance methods to a private binding and add static helpers and
+    # callback listeners. Node's also owns codecs; the browser's uses the
+    # package worker session, so apps pass no session.
     "Client": {
         NODE: CLIENT_NODE,
         WORKER: CLIENT_WORKER,
+    },
+    # SDK-037 adds `Storage.admin()` to the browser. The browser exports a
+    # public Storage type with that factory; a Client's storage is a worker
+    # proxy. Node exports the generated binding class.
+    "Storage": {
+        NODE: """\
+class Storage extends UniffiAbstractObject implements StorageLike { ... }
+delete_(asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+path(asyncOpts_?: { signal: AbortSignal; }): Promise<string | undefined>;
+readonly [destructorGuardSymbol]: UniffiGcObject;
+readonly [pointerLiteralSymbol]: UniffiHandle;
+readonly [uniffiTypeNameSymbol] = "Storage";
+reconnect(asyncOpts_?: { signal: AbortSignal; }): Promise<void>;
+static instanceOf(obj_: any): obj_ is Storage;
+uniffiDestroy(): void;
+""",
+        WORKER: """\
+abstract class Storage implements StorageLike { ... }
+abstract path(asyncOpts_?: { signal: AbortSignal; }): Promise<string | undefined>;
+static admin(): Promise<StorageAdmin>;
+""",
     },
 }
 
@@ -287,7 +369,7 @@ class Declaration:
     members: tuple[str, ...]
 
 
-def emit(flavor: str, out: Path) -> Path:
+def emit(flavor: str, out: Path, entry: str = "index.ts") -> Path:
     source = GENERATED / flavor
     subprocess.run(
         [
@@ -310,7 +392,7 @@ def emit(flavor: str, out: Path) -> Path:
             str(GENERATED),
             "--outDir",
             str(out),
-            str(source / "index.ts"),
+            str(source / entry),
         ],
         check=True,
     )
@@ -528,7 +610,9 @@ def without(declarations: list[Declaration], names: set[str]) -> list[Declaratio
         if not item.members and item.kind in ("type", "const"):
             for name in names:
                 # The removed field, and its key in the record factory types.
-                head = re.sub(rf"\s{re.escape(name)}\??: [^;]*;", "", head)
+                head = re.sub(
+                    rf"\s(?:readonly )?{re.escape(name)}\??: [^;]*;", "", head
+                )
                 head = re.sub(
                     rf'"{re.escape(name)}" \| |\s\| "{re.escape(name)}"', "", head
                 )
@@ -551,7 +635,7 @@ def pinned_text(text: str) -> str:
 def expected_exports(flavor: str, node_exports: set[str]) -> set[str]:
     if flavor == PURE:
         return PURE_ONLY | PURE_SHARED
-    return node_exports - SDK_037_NODE_ONLY.keys() - PURE_ONLY
+    return (node_exports - SDK_037_NODE_ONLY.keys() - PURE_ONLY) | SDK_037_BROWSER_ONLY
 
 
 def compare(out: Path) -> list[str]:
@@ -559,6 +643,8 @@ def compare(out: Path) -> list[str]:
     node = Surface(node_root)
     node_exports = node.exports(node.module(node_root / "index.d.ts"))
     errors = []
+    for name in sorted(SDK_037_BROWSER_ONLY & node_exports.keys()):
+        errors.append(f"{name}: SDK-037 permits it only in the browser")
     for name in sorted((PURE_ONLY | PURE_SHARED) - node_exports.keys()):
         errors.append(f"{name}: the pure list names it and Node does not export it")
     for flavor in BROWSER:
@@ -583,6 +669,8 @@ def compare(out: Path) -> list[str]:
         for name in sorted(internal - exports.keys()):
             errors.append(f"{name}: the internal export is missing from {flavor}")
         for name in sorted(expected & exports.keys()):
+            if name in SDK_037_BROWSER_ONLY:
+                continue
             web_module, web_local = exports[name]
             if name in PINNED:
                 for target, surface_of, module, local in (
@@ -620,9 +708,53 @@ def compare(out: Path) -> list[str]:
     return list(dict.fromkeys(errors))
 
 
+def compare_public(out: Path) -> list[str]:
+    """Compare the private public entries (`public-api.gen.ts`) of Node and the
+    browser worker bridge. The browser entry omits the SDK-037 and pure-module
+    exports and adds the browser storage admin; every shared declaration must
+    match, member for member."""
+    node_root = emit(NODE, out, "public-api.gen.ts")
+    node = Surface(node_root)
+    node_exports = node.exports(node.module(node_root / "public-api.gen.d.ts"))
+    web_root = emit(WORKER, out, "public-api.gen.ts")
+    web = Surface(web_root)
+    web_exports = web.exports(web.module(web_root / "public-api.gen.d.ts"))
+    errors = []
+    expected = (
+        node_exports.keys() - PUBLIC_NODE_ONLY.keys()
+    ) | PUBLIC_BROWSER_ONLY.keys()
+    for name in sorted(PUBLIC_NODE_ONLY.keys() - node_exports.keys()):
+        errors.append(
+            f"{name}: public Node-only list names it and Node does not export it"
+        )
+    for name in sorted(expected - web_exports.keys()):
+        errors.append(
+            f"{name}: the Node public entry exports it and the browser does not"
+        )
+    for name in sorted(web_exports.keys() - expected):
+        errors.append(f"{name}: the browser public entry exports it outside its list")
+    for name in sorted(expected & web_exports.keys() & node_exports.keys()):
+        if name in PUBLIC_PLATFORM_SPECIFIC:
+            continue
+        skipped = PUBLIC_NODE_ONLY_MEMBERS.get(name, set())
+        native = without(node.declaration(*node_exports[name]), skipped)
+        browser = without(
+            web.declaration(*web_exports[name]),
+            PUBLIC_BROWSER_ONLY_MEMBERS.get(name, set()),
+        )
+        if native != browser:
+            errors.append(
+                f"{name}: Node and browser public declarations differ\n"
+                f" Node:\n{describe(native)}\n browser:\n{describe(browser)}"
+            )
+    return errors
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as out:
         errors = compare(Path(out))
+    with tempfile.TemporaryDirectory() as out:
+        errors += compare_public(Path(out))
     if errors:
         print("\n".join(errors), file=sys.stderr)
         raise SystemExit(1)

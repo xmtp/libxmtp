@@ -17,7 +17,7 @@ async fn discard_disconnects_store_when_close_fails() {
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     // The reader holds the delivery lease that close must release.
-    let _reader = group.message_reader().await?;
+    let _reader = group.message_reader(None).await?;
     client.inner.context.db().raw_query(|conn| {
         sql_query(
             "CREATE TRIGGER fail_delivery_release BEFORE UPDATE OF delivery_owner \
@@ -50,7 +50,7 @@ async fn discard_reports_store_left_open_when_disconnect_fails() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     // The reader holds the delivery lease that close must release.
-    let _reader = group.message_reader().await?;
+    let _reader = group.message_reader(None).await?;
     client.inner.context.db().raw_query(|conn| {
         sql_query(
             "CREATE TRIGGER fail_delivery_release BEFORE UPDATE OF delivery_owner \

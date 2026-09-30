@@ -1,31 +1,43 @@
 import * as Pure from "../../../../target/sdk-generated/typescript-pure/index";
 import { CONTRACT_HASH } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
+import { Message as HostMessage } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen";
+// These scenarios run clients in their own worker session, so they can check
+// the transport. Each client is used through the public layer over the
+// session's worker proxy; `Client` here is the proxy, only for the stale-handle
+// check at the end.
+import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
 import {
-  Client,
-  ConversationStream,
-  EventStream,
-  Message,
-  MessageStream,
-} from "../../../../target/sdk-generated/typescript-wasm/index";
-import { Backend } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+  currentProjection,
+  liftEncodedContent,
+} from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
+import { boundMessage } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/message";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 import {
-  expect,
-  equal,
-  connection,
-  signer,
-  options,
+  build,
   checkError,
   checkRejectedPromise,
+  connection,
+  create,
+  equal,
+  expect,
+  isPublicError,
+  options,
+  signer,
 } from "./suite-support";
+
+// Text encoded on the main thread by the pure module, as a public value.
+function text(value: string): sdk.EncodedContent {
+  return liftEncodedContent(Pure.encodeText(value), currentProjection());
+}
 
 export async function runBrowserBridgeConformance(
   backendURL: string,
 ): Promise<string[]> {
   const results: string[] = [];
   const { worker, session } = connection();
-  let client: Client | undefined;
-  let reopened: Client | undefined;
+  let client: sdk.Client | undefined;
+  let reopened: sdk.Client | undefined;
   try {
     await Pure.initPureWasm();
     expect(Pure.sdkVersion().startsWith("1.12.0"), "wrong SDK version");
@@ -45,46 +57,40 @@ export async function runBrowserBridgeConformance(
     const identity = await mainSigner.identity();
     const databasePath = `conformance-${crypto.randomUUID()}.db`;
     const clientOptions = options(databasePath, backendURL);
-    client = await Client.create(session, mainSigner, clientOptions);
+    client = (await create(session, mainSigner, clientOptions)).client;
     expect(mainSigner.didReenter(), "signer did not reenter the SDK");
-    const inboxId = client.inboxId();
+    const inboxId = client.inboxId;
     equal(
       await client.isRegistered(),
       true,
       "created client was not registered",
     );
-    equal(await client.storage().path(), databasePath, "OPFS path changed");
-    expect(client.libxmtpVersion().length > 0, "missing SDK version");
+    equal(await client.storage.path(), databasePath, "OPFS path changed");
+    expect(client.libxmtpVersion.length > 0, "missing SDK version");
     await client.end();
     await checkError(
-      async () => client?.conversations(),
+      async () => client?.conversations.listGroups(undefined),
       (error) =>
-        B.XmtpError.ClientClosed.instanceOf(error) &&
-        error.inner[0].code === "ClientClosed" &&
-        error.inner[0].category === B.ErrorCategory.Lifecycle &&
-        error.inner[0].retryable === false,
+        isPublicError(error, sdk.XmtpError.ClientClosed, "lifecycle") &&
+        (error as sdk.XmtpError).details.code === "ClientClosed" &&
+        (error as sdk.XmtpError).details.retryable === false,
       "ended client accepted a call",
     );
-    reopened = await Client.build(session, identity, clientOptions, inboxId);
-    equal(reopened.inboxId().toString(), inboxId.toString(), "inbox changed");
+    reopened = (await build(session, identity, clientOptions, inboxId)).client;
+    equal(reopened.inboxId, inboxId, "inbox changed");
     await checkError(
       // Uppercase hex decodes, so only ID validation rejects it.
-      () => reopened!.conversations().getMessageById("AB".repeat(32)),
+      () => reopened!.conversations.getMessageById("AB".repeat(32)),
       (error) =>
-        B.XmtpError.InvalidArgument.instanceOf(error) &&
-        error.inner[0].code === "InvalidArgument" &&
-        error.inner[0].category === B.ErrorCategory.Input &&
-        error.inner[0].retryable === false,
+        isPublicError(error, sdk.XmtpError.InvalidArgument, "input") &&
+        (error as sdk.XmtpError).details.code === "InvalidArgument" &&
+        (error as sdk.XmtpError).details.retryable === false,
       "browser worker accepted a malformed message ID",
     );
-    const firstGroup = await reopened
-      .conversations()
-      .createGroup([], undefined);
-    const sentId = await firstGroup.sendText("bridge browser", undefined);
+    const firstGroup = await reopened.conversations.createGroup([]);
+    const sentId = await firstGroup.sendText("bridge browser");
     expect(
-      (await firstGroup.messages(undefined)).some(
-        (message) => message.id.toString() === sentId.toString(),
-      ),
+      (await firstGroup.messages()).some((message) => message.id === sentId),
       "sent message was not read from SQLite",
     );
     results.push("scenario 2: create, OPFS, reopen, end");
@@ -94,35 +100,26 @@ export async function runBrowserBridgeConformance(
 
     const largeExpiry = 9_007_199_254_740_993n;
     let credentialCalls = 0;
-    const credentialOptions: B.ClientOptions = {
+    const credentialOptions: sdk.ClientOptions = {
       ...clientOptions,
-      backend: B.BackendSource.Options.new({
-        options: {
-          url: backendURL,
-          appVersion: undefined,
-          credential: undefined,
-          credentials: {
-            async credential() {
-              credentialCalls++;
-              return {
-                name: undefined,
-                value: "Bearer test",
-                expiresAtSeconds: largeExpiry,
-              };
-            },
+      backend: {
+        url: backendURL,
+        credentials: {
+          async credential() {
+            credentialCalls++;
+            return {
+              name: undefined,
+              value: "Bearer test",
+              expiresAtSeconds: largeExpiry,
+            };
           },
         },
-      }),
-      storage: {
-        ...clientOptions.storage,
-        location: B.StorageLocation.InMemory.new(),
       },
+      storage: { ...clientOptions.storage, location: "inMemory" },
     };
-    const credentialClient = await Client.create(
-      session,
-      signer(session),
-      credentialOptions,
-    );
+    const credentialClient = (
+      await create(session, signer(session), credentialOptions)
+    ).client;
     expect(credentialCalls > 0, "credential callback was not called");
     await credentialClient.setCredential({
       name: undefined,
@@ -132,98 +129,64 @@ export async function runBrowserBridgeConformance(
     await credentialClient.end();
     results.push("scenario 3: credential callback and 64-bit expiry");
 
-    const group = await reopened.conversations().createGroup([], {
-      permissions: undefined,
+    const group = await reopened.conversations.createGroup([], {
       name: "browser family",
-      imageUrl: undefined,
-      description: undefined,
-      disappearing: undefined,
-      appData: undefined,
     });
     equal((await group.state()).name, "browser family", "group name changed");
     expect(
-      (await reopened.conversations().listGroups(undefined)).some(
-        (candidate) => candidate.id().toString() === group.id().toString(),
+      (await reopened.conversations.listGroups(undefined)).some(
+        (candidate) => candidate.id === group.id,
       ),
       "created group was not listed",
     );
     results.push("scenario 4: create and list a group");
 
-    const parentId = await group.sendText("parent", undefined);
-    const reactionId = await reopened.conversations().reactToMessage(
+    const parentId = await group.sendText("parent");
+    const reactionId = await reopened.conversations.reactToMessage(parentId, {
+      content: "ok",
+      action: "added",
+      schema: "unicode",
+    });
+    const replyId = await reopened.conversations.replyToMessage(
       parentId,
-      {
-        content: "ok",
-        action: B.ReactionAction.Added,
-        schema: B.ReactionSchema.Unicode,
-      },
-      undefined,
+      text("reply"),
     );
-    const replyId = await reopened
-      .conversations()
-      .replyToMessage(parentId, Pure.encodeText("reply"), undefined);
-    const markdownId = await group.sendMarkdown("**markdown**", undefined);
-    const receiptId = await group.sendReadReceipt(undefined);
-    const parent = (await group.messages(undefined)).find(
-      (message) => message.id.toString() === parentId.toString(),
+    const markdownId = await group.sendMarkdown("**markdown**");
+    const receiptId = await group.sendReadReceipt();
+    const parent = (await group.messages()).find(
+      (message) => message.id === parentId,
     );
-    const reply = await reopened.conversations().getMessageById(replyId);
+    const reply = await reopened.conversations.getMessageById(replyId);
     expect(parent, "parent message was not read");
     expect(reply, "reply message was not read");
-    expect(
-      parent instanceof Message,
-      "list message was not lifted to the host",
-    );
-    expect(
-      reply instanceof Message,
-      "optional message was not lifted to the host",
-    );
+    expect(parent instanceof sdk.Message, "list message was not public");
+    expect(reply instanceof sdk.Message, "optional message was not public");
     equal(
-      (await reopened.decodeContent(parent.encoded)).tag,
-      Pure.StandardContent_Tags.Text,
-      "pure WASM did not decode the message",
+      (await reopened.decodeContent(parent.encoded)).kind,
+      "text",
+      "the worker did not decode the message",
     );
-    equal(
-      parent.content.tag,
-      B.MessageContent_Tags.Text,
-      "host content changed",
-    );
-    if (parent.content.tag === B.MessageContent_Tags.Text)
-      equal(parent.content.inner[0], "parent", "host text was not decoded");
+    equal(parent.content.kind, "text", "host content changed");
+    if (parent.content.kind === "text")
+      equal(parent.content.value, "parent", "host text was not decoded");
     const hostReactionId = await parent.react({
       content: "host",
-      action: B.ReactionAction.Added,
-      schema: B.ReactionSchema.Unicode,
+      action: "added",
+      schema: "unicode",
     });
     expect(hostReactionId.toString().length > 0, "host action did not send");
     expect(markdownId.toString().length > 0, "markdown was not sent");
     expect(receiptId.toString().length > 0, "read receipt was not sent");
-    equal(
-      parent.reactions[0]?.id.toString(),
-      reactionId.toString(),
-      "reaction missing",
-    );
+    equal(parent.reactions[0]?.id, reactionId, "reaction missing");
     equal(parent.replyCount, 1n, "reply count changed");
-    equal(
-      reply.inReplyTo?.id.toString(),
-      parentId.toString(),
-      "reply parent changed",
-    );
-    equal(
-      reply.replyContent?.tag,
-      B.MessageBody_Tags.Text,
-      "reply body changed",
-    );
-    if (reply.replyContent?.tag === B.MessageBody_Tags.Text)
-      equal(reply.replyContent.inner[0], "reply", "reply body was not decoded");
-    equal(
-      reply.inReplyToContent?.tag,
-      B.MessageBody_Tags.Text,
-      "parent content changed",
-    );
-    if (reply.inReplyToContent?.tag === B.MessageBody_Tags.Text)
+    equal(reply.inReplyTo?.id, parentId, "reply parent changed");
+    equal(reply.replyContent?.kind, "text", "reply body changed");
+    if (reply.replyContent?.kind === "text")
+      equal(reply.replyContent.value, "reply", "reply body was not decoded");
+    equal(reply.inReplyToContent?.kind, "text", "parent content changed");
+    if (reply.inReplyToContent?.kind === "text")
       equal(
-        reply.inReplyToContent.inner[0],
+        reply.inReplyToContent.value,
         "parent",
         "parent body was not decoded",
       );
@@ -233,277 +196,183 @@ export async function runBrowserBridgeConformance(
     );
     results.push("scenario 5: text, markdown, receipt, reaction, and reply");
 
-    const customType = B.ContentTypeId.create({
-      authorityId: "example.org",
-      typeId: "bridge-conformance",
-      versionMajor: 1,
-      versionMinor: 0,
+    const typeOf = (typeId: string, authorityId = "example.org") =>
+      ({
+        authorityId,
+        typeId,
+        versionMajor: 1,
+        versionMinor: 0,
+      }) satisfies sdk.ContentTypeId;
+    const encodedOf = (
+      type: sdk.ContentTypeId,
+      content: Uint8Array,
+      extra: Partial<sdk.EncodedContent> = {},
+    ): sdk.EncodedContent => ({
+      type,
+      parameters: new Map(),
+      content,
+      ...extra,
     });
+    const customType = typeOf("bridge-conformance");
     const customBytes = new TextEncoder().encode("custom browser value");
-    const customCodec = {
+    const customCodec: sdk.ContentCodec<string> = {
       type: customType,
-      encode(value: string): B.EncodedContent {
-        return B.EncodedContent.create({
-          type: customType,
-          content: new TextEncoder().encode(value).buffer,
-        });
-      },
-      decode(value: B.EncodedContent): string {
-        return new TextDecoder().decode(value.content);
-      },
+      encode: (value) => encodedOf(customType, new TextEncoder().encode(value)),
+      decode: (value) => new TextDecoder().decode(value.content),
     };
-    const failingType = B.ContentTypeId.create({
-      authorityId: "example.org",
-      typeId: "bridge-failing",
-      versionMajor: 1,
-      versionMinor: 0,
-    });
-    const failingCodec = {
+    const failingType = typeOf("bridge-failing");
+    const failingCodec: sdk.ContentCodec<string> = {
       type: failingType,
-      encode(value: string): B.EncodedContent {
-        return B.EncodedContent.create({
-          type: failingType,
-          content: new TextEncoder().encode(value).buffer,
-        });
-      },
-      decode(): string {
+      encode: (value) =>
+        encodedOf(failingType, new TextEncoder().encode(value)),
+      decode() {
         throw new Error("bad custom payload");
       },
     };
-    const collisionRegisteredType = B.ContentTypeId.create({
-      authorityId: "example.org",
-      typeId: "a/b",
-      versionMajor: 1,
-      versionMinor: 0,
-    });
-    const collisionOtherType = B.ContentTypeId.create({
-      authorityId: "example.org/a",
-      typeId: "b",
-      versionMajor: 1,
-      versionMinor: 0,
-    });
-    const collisionCodec = {
+    const collisionRegisteredType = typeOf("a/b");
+    const collisionOtherType = typeOf("b", "example.org/a");
+    const collisionCodec: sdk.ContentCodec<string> = {
       type: collisionRegisteredType,
-      encode(value: string): B.EncodedContent {
-        return B.EncodedContent.create({
-          type: collisionRegisteredType,
-          content: new TextEncoder().encode(value).buffer,
-        });
-      },
-      decode(): string {
-        return "wrong collision codec";
-      },
+      encode: (value) =>
+        encodedOf(collisionRegisteredType, new TextEncoder().encode(value)),
+      decode: () => "wrong collision codec",
     };
-    const customOptions = {
+    const customOptions: sdk.ClientOptions = {
       ...clientOptions,
-      storage: {
-        ...clientOptions.storage,
-        location: B.StorageLocation.InMemory.new(),
-      },
+      storage: { ...clientOptions.storage, location: "inMemory" },
       codecs: [customCodec, failingCodec, collisionCodec],
     };
-    const customOwner = await Client.create(
-      session,
-      signer(session),
-      customOptions,
-    );
-    const customGroup = await customOwner
-      .conversations()
-      .createGroup([], undefined);
+    const customOwner = (await create(session, signer(session), customOptions))
+      .client;
+    const customGroup = await customOwner.conversations.createGroup([]);
     const customId = await customGroup.send(
-      B.EncodedContent.create({
-        type: customType,
+      encodedOf(customType, customBytes, {
         parameters: new Map([["source", "browser"]]),
         fallback: "custom",
-        content: customBytes.buffer,
       }),
-      undefined,
     );
-    const custom = await customOwner.conversations().getMessageById(customId);
-    expect(custom, "custom message was not read");
-    expect(
-      custom instanceof Message,
-      "custom message was not lifted to the host",
-    );
+    const custom = await customOwner.conversations.getMessageById(customId);
+    expect(custom instanceof sdk.Message, "custom message was not public");
     equal(custom.encoded.fallback, "custom", "custom fallback was lost");
-    equal(custom.encoded.parameters.get("source"), "browser", "map was lost");
+    equal(custom.encoded.parameters?.get("source"), "browser", "map was lost");
     equal(
       new TextDecoder().decode(custom.encoded.content),
       "custom browser value",
       "custom bytes changed",
     );
+    if (custom.content.kind !== "custom")
+      throw new Error("custom content changed kind");
+    equal(custom.content.value, "custom browser value", "custom decode failed");
+    expect(custom.content.rawBytes.byteLength > 0, "custom raw bytes empty");
+    // The public raw bytes are the stored bytes of the binding message.
+    const storedContent = boundMessage(custom).data.content;
+    if (storedContent.tag !== B.MessageContent_Tags.Custom)
+      throw new Error("stored custom content changed kind");
     equal(
-      custom.content.tag,
-      B.MessageContent_Tags.Custom,
-      "custom tag changed",
+      custom.content.rawBytes.toString(),
+      new Uint8Array(storedContent.inner.rawBytes).toString(),
+      "custom raw bytes changed",
     );
-    if (custom.data.content.tag !== B.MessageContent_Tags.Custom)
-      throw new Error("stored custom content changed tag");
-    if (custom.content.tag === B.MessageContent_Tags.Custom) {
-      equal(
-        custom.content.inner.value,
-        "custom browser value",
-        "host custom content failed",
-      );
-      expect(
-        custom.content.inner.rawBytes.byteLength > 0,
-        "custom raw bytes were empty",
-      );
-      equal(
-        new Uint8Array(custom.content.inner.rawBytes).toString(),
-        new Uint8Array(custom.data.content.inner.rawBytes).toString(),
-        "custom raw bytes changed",
-      );
-    }
     const customReplyId = await custom.reply(customCodec, "custom reply");
-    const customReply = await customOwner
-      .conversations()
-      .getMessageById(customReplyId);
-    expect(customReply instanceof Message, "custom reply was not lifted");
+    const customReply =
+      await customOwner.conversations.getMessageById(customReplyId);
+    expect(customReply instanceof sdk.Message, "custom reply was not public");
+    if (customReply.replyContent?.kind !== "custom")
+      throw new Error("custom reply body changed kind");
     equal(
-      customReply.replyContent?.tag,
-      B.MessageBody_Tags.Custom,
-      "custom reply tag changed",
+      customReply.replyContent.value,
+      "custom reply",
+      "custom reply decode failed",
     );
-    if (customReply.replyContent?.tag === B.MessageBody_Tags.Custom)
-      equal(
-        customReply.replyContent.inner.value,
-        "custom reply",
-        "custom reply decode failed",
-      );
-    const alternateCodec = {
+    const alternateCodec: sdk.ContentCodec<string> = {
       ...customCodec,
-      decode(): string {
-        return "other client";
-      },
+      decode: () => "other client",
     };
-    const alternateOwner = await Client.create(session, signer(session), {
-      ...customOptions,
-      codecs: [alternateCodec],
-    });
-    const alternateGroup = await alternateOwner
-      .conversations()
-      .createGroup([], undefined);
+    const alternateOwner = (
+      await create(session, signer(session), {
+        ...customOptions,
+        codecs: [alternateCodec],
+      })
+    ).client;
+    const alternateGroup = await alternateOwner.conversations.createGroup([]);
     const alternateId = await alternateGroup.send(
       customCodec.encode("same type"),
-      undefined,
     );
-    const alternate = await alternateOwner
-      .conversations()
-      .getMessageById(alternateId);
-    expect(
-      alternate instanceof Message,
-      "second client's message was not lifted",
+    const alternate =
+      await alternateOwner.conversations.getMessageById(alternateId);
+    expect(alternate instanceof sdk.Message, "second client's message");
+    if (alternate.content.kind !== "custom")
+      throw new Error("second client's custom content changed kind");
+    equal(
+      alternate.content.value,
+      "other client",
+      "codec leaked across clients",
     );
-    if (alternate.content.tag === B.MessageContent_Tags.Custom)
-      equal(
-        alternate.content.inner.value,
-        "other client",
-        "codec leaked across clients",
-      );
-    else throw new Error("second client's custom content changed tag");
-    const originalAgain = await customOwner
-      .conversations()
-      .getMessageById(customId);
-    expect(
-      originalAgain instanceof Message,
-      "first client's message was not lifted",
+    const originalAgain =
+      await customOwner.conversations.getMessageById(customId);
+    expect(originalAgain instanceof sdk.Message, "first client's message");
+    if (originalAgain.content.kind !== "custom")
+      throw new Error("first client's custom content changed kind");
+    equal(
+      originalAgain.content.value,
+      "custom browser value",
+      "first codec was replaced",
     );
-    if (originalAgain.content.tag === B.MessageContent_Tags.Custom)
-      equal(
-        originalAgain.content.inner.value,
-        "custom browser value",
-        "first codec was replaced",
-      );
-    else throw new Error("first client's custom content changed tag");
     await alternateOwner.end();
-    const unknownType = B.ContentTypeId.create({
-      authorityId: "example.org",
-      typeId: "bridge-unknown",
-      versionMajor: 1,
-      versionMinor: 0,
-    });
+    const unknownType = typeOf("bridge-unknown");
     const unknownId = await customGroup.send(
-      B.EncodedContent.create({
-        type: unknownType,
-        content: new Uint8Array([1, 2, 3]).buffer,
-      }),
-      undefined,
+      encodedOf(unknownType, new Uint8Array([1, 2, 3])),
     );
-    const unknown = await customOwner.conversations().getMessageById(unknownId);
-    expect(unknown, "unknown content was not read");
-    expect(unknown instanceof Message, "unknown content was not lifted");
-    equal(
-      unknown.content.tag,
-      B.MessageContent_Tags.Unknown,
-      "unknown content tag changed",
+    const unknown = await customOwner.conversations.getMessageById(unknownId);
+    expect(unknown instanceof sdk.Message, "unknown content was not public");
+    if (unknown.content.kind !== "unknown")
+      throw new Error("unknown content changed kind");
+    // The unknown item keeps the original serialized bytes from Rust, the
+    // same bytes that a decoded custom item keeps.
+    expect(unknown.content.rawBytes.byteLength > 0, "unknown raw bytes empty");
+    expect(
+      unknown.content.rawBytes.byteLength > unknown.encoded.content.byteLength,
+      "unknown raw bytes are not the serialized envelope",
     );
-    if (unknown.data.content.tag !== B.MessageContent_Tags.Custom)
-      throw new Error("stored unknown content changed tag");
-    if (unknown.content.tag === B.MessageContent_Tags.Unknown) {
-      expect(
-        unknown.content.inner.rawBytes.byteLength > 0,
-        "unknown raw bytes were empty",
-      );
-      equal(
-        new Uint8Array(unknown.content.inner.rawBytes).toString(),
-        new Uint8Array(unknown.data.content.inner.rawBytes).toString(),
-        "unknown raw bytes changed",
-      );
-    }
     const unknownReplyId = await unknown.reply(
-      B.EncodedContent.create({
-        type: unknownType,
-        content: new Uint8Array([4]).buffer,
-      }),
-      undefined,
+      encodedOf(unknownType, new Uint8Array([4])),
     );
-    const unknownReply = await customOwner
-      .conversations()
-      .getMessageById(unknownReplyId);
-    expect(unknownReply instanceof Message, "unknown reply was not lifted");
+    const unknownReply =
+      await customOwner.conversations.getMessageById(unknownReplyId);
+    expect(unknownReply instanceof sdk.Message, "unknown reply not public");
     equal(
-      unknownReply.replyContent?.tag,
-      B.MessageBody_Tags.Unknown,
-      "unknown reply body changed tag",
+      unknownReply.replyContent?.kind,
+      "unknown",
+      "unknown reply body changed kind",
     );
-    const failingId = await customGroup.send(
-      failingCodec.encode("bad"),
-      undefined,
+    const failingId = await customGroup.send(failingCodec.encode("bad"));
+    const failed = await customOwner.conversations.getMessageById(failingId);
+    expect(failed instanceof sdk.Message, "failed custom content not public");
+    if (failed.content.kind !== "custom")
+      throw new Error("failed custom content changed kind");
+    expect(
+      failed.content.error?.includes("bad custom payload"),
+      "codec error was lost",
     );
-    const failed = await customOwner.conversations().getMessageById(failingId);
-    expect(failed, "failed custom content was not read");
-    expect(failed instanceof Message, "failed custom content was not lifted");
-    if (failed.content.tag === B.MessageContent_Tags.Custom)
-      expect(
-        failed.content.inner.error?.includes("bad custom payload"),
-        "codec error was lost",
-      );
-    else throw new Error("failed custom content changed tag");
     const collisionId = await customGroup.send(
-      B.EncodedContent.create({
-        type: collisionOtherType,
-        content: new Uint8Array([9]).buffer,
-      }),
-      undefined,
+      encodedOf(collisionOtherType, new Uint8Array([9])),
     );
-    const collision = await customOwner
-      .conversations()
-      .getMessageById(collisionId);
-    expect(collision, "colliding content was not read");
-    expect(collision instanceof Message, "colliding content was not lifted");
-    equal(
-      collision.content.tag,
-      B.MessageContent_Tags.Unknown,
-      "colliding content changed tag",
+    const collision =
+      await customOwner.conversations.getMessageById(collisionId);
+    expect(collision instanceof sdk.Message, "colliding content not public");
+    if (collision.content.kind !== "unknown")
+      throw new Error("colliding content changed kind");
+    expect(
+      collision.content.rawBytes.byteLength > 0,
+      "colliding raw bytes were empty",
     );
-    if (collision.content.tag === B.MessageContent_Tags.Unknown)
-      expect(
-        collision.content.inner.rawBytes.byteLength > 0,
-        "colliding raw bytes were empty",
-      );
     await customOwner.end();
-    const closedMessage = new Message(custom.data, session);
+    // A Message of an ended client keeps its fields; its actions fail.
+    equal(custom.content.value, "custom browser value", "content changed");
+    await checkRejectedPromise(() => custom.refresh(), "Message.refresh");
+    // Host level: a message lifted after its client ended keeps its bytes and
+    // reports `clientClosed` for custom content.
+    const closedMessage = new HostMessage(boundMessage(custom).data, session);
     equal(
       closedMessage.content.tag,
       B.MessageContent_Tags.Custom,
@@ -522,28 +391,20 @@ export async function runBrowserBridgeConformance(
     }
     results.push("scenario 6: custom codec registry, unknown codec, and error");
 
-    const readerGroup = await reopened
-      .conversations()
-      .createGroup([], undefined);
+    const readerGroup = await reopened.conversations.createGroup([]);
     const reader = await readerGroup.messageReader();
     const next = reader.next();
-    const readerId = await readerGroup.sendText("raw reader smoke", undefined);
+    const readerId = await readerGroup.sendText("raw reader smoke");
     const nextMessage = await next;
-    expect(
-      nextMessage instanceof Message,
-      "reader message was not lifted to the host",
-    );
-    equal(
-      nextMessage?.id.toString(),
-      readerId.toString(),
-      "raw reader missed the message",
-    );
+    expect(nextMessage instanceof sdk.Message, "reader message was not public");
+    equal(nextMessage.id, readerId, "raw reader missed the message");
     await reader.end();
     const closeReasons: string[] = [];
-    const connectionStates: B.ConnectionState[] = [];
-    const messageStream = new MessageStream(
-      (signal) => readerGroup.messageReader({ signal }),
+    const connectionStates: sdk.ConnectionState[] = [];
+    const messageStream = sdk.MessageStream.openGroup(
       reopened,
+      readerGroup,
+      undefined,
       {
         onClose: (reason) => closeReasons.push(reason.kind),
         onConnectionStateChange: (_previous, current) =>
@@ -551,8 +412,8 @@ export async function runBrowserBridgeConformance(
       },
     );
     equal(
-      (await messageStream.next()).value?.id.toString(),
-      readerId.toString(),
+      (await messageStream.next()).value?.id,
+      readerId,
       "reader did not replay its unacknowledged message",
     );
     // The first state is the one read at subscription, which the
@@ -561,112 +422,97 @@ export async function runBrowserBridgeConformance(
       await new Promise((resolve) => setTimeout(resolve, 50));
     }
     expect(
-      connectionStates[0] === B.ConnectionState.Connected ||
-        connectionStates[0] === B.ConnectionState.Connecting,
-      "reader did not report its connection state",
+      connectionStates[0] === "connected" ||
+        connectionStates[0] === "connecting",
+      "reader did not report a public connection state",
     );
     await messageStream.return();
     equal(closeReasons.join(), "closed", "reader did not call onClose");
-    const replay = new MessageStream(
-      (signal) => readerGroup.messageReader({ signal }),
-      reopened,
-    );
+    const replay = sdk.MessageStream.openGroup(reopened, readerGroup);
     equal(
-      (await replay.next()).value?.id.toString(),
-      readerId.toString(),
+      (await replay.next()).value?.id,
+      readerId,
       "closing the stream acknowledged the last message",
     );
     const pendingMessage = replay.next();
-    const nextId = await readerGroup.sendText("next request", undefined);
+    const nextId = await readerGroup.sendText("next request");
     equal(
-      (await pendingMessage).value?.id.toString(),
-      nextId.toString(),
+      (await pendingMessage).value?.id,
+      nextId,
       "next request did not receive the new message",
     );
     const idleRead = replay.next();
     await replay.return();
     equal((await idleRead).done, true, "idle read did not cancel");
-    const conversationStream = ConversationStream.openBrowser(reopened, {
-      consentStates: [B.ConsentState.Unknown, B.ConsentState.Allowed],
+    const conversationStream = sdk.ConversationStream.open(reopened, {
+      consentStates: ["unknown", "allowed"],
     });
     await conversationStream.ready();
-    const denied = await reopened.conversations().createGroup([], undefined);
-    await reopened.preferences().setConsentStates([
+    const denied = await reopened.conversations.createGroup([]);
+    await reopened.preferences.setConsentStates([
       {
-        entity: B.ConsentEntity.Conversation.new({
-          conversationId: denied.id(),
-        }),
-        state: B.ConsentState.Denied,
+        entity: { kind: "conversation", conversationId: denied.id },
+        state: "denied",
       },
     ]);
-    const allowed = await reopened.conversations().createGroup([], undefined);
+    const allowed = await reopened.conversations.createGroup([]);
     const selected = (await conversationStream.next()).value;
+    expect(selected instanceof sdk.Group, "conversation reader gave no Group");
     equal(
-      selected?.tag,
-      B.Conversation_Tags.Group,
-      "conversation reader tag changed",
+      selected.id,
+      allowed.id,
+      "conversation reader did not apply consentStates",
     );
-    if (selected?.tag === B.Conversation_Tags.Group)
-      equal(
-        selected.inner.group.id().toString(),
-        allowed.id().toString(),
-        "conversation reader did not apply consentStates",
-      );
     await conversationStream.end();
     results.push(
       "scenario 7: message and conversation readers, consentStates, connection state, onClose, and idle cancellation",
     );
 
-    const eventFilter: B.EventFilter = {
-      kinds: [B.EventKind.ConversationJoined],
-      conversationIds: undefined,
-      contentTypes: undefined,
+    const eventFilter: sdk.EventFilter = {
+      kinds: ["conversationJoined"],
       referencesOwnMessages: false,
     };
     const eventReader = await reopened.events(eventFilter);
     let listenerCalls = 0;
-    const listenerId = await reopened.startListener(eventFilter, {
-      async onEvent(event) {
-        equal(
-          event.tag,
-          B.ClientEvent_Tags.ConversationJoined,
-          "listener event changed",
-        );
-        listenerCalls += 1;
-      },
+    const listenerId = await reopened.startListener(eventFilter, (event) => {
+      equal(event.kind, "conversationJoined", "listener event changed");
+      listenerCalls += 1;
     });
-    await reopened.conversations().createGroup([], undefined);
+    await reopened.conversations.createGroup([]);
     equal(
-      (await eventReader.next())?.tag,
-      B.ClientEvent_Tags.ConversationJoined,
-      "event reader missed the join",
+      (await eventReader.next()).value?.kind,
+      "conversationJoined",
+      "event stream missed the join",
     );
     for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
       await new Promise<void>((resolve) => setTimeout(resolve, 10));
     equal(listenerCalls, 1, "listener missed the join");
     await reopened.stopListener(listenerId);
-    await eventReader.end();
-    const eventStream = new EventStream(await reopened.events(eventFilter));
-    await reopened.conversations().createGroup([], undefined);
+    await eventReader.return();
+    const eventStream = await reopened.events(eventFilter);
+    await reopened.conversations.createGroup([]);
     equal(
-      (await eventStream.next()).value?.tag,
-      B.ClientEvent_Tags.ConversationJoined,
+      (await eventStream.next()).value?.kind,
+      "conversationJoined",
       "event stream missed the join",
     );
     await eventStream.return();
     results.push("scenario 8: event reader, listener, stop, and event stream");
 
-    const key = new Uint8Array(32).fill(7).buffer;
-    const archive = await reopened.archives().exportToBytes(key, undefined);
-    expect(archive.byteLength > 0, "archive bytes were empty");
+    const key = new Uint8Array(32).fill(7);
+    const archive = await reopened.archives.exportToBytes(key, undefined);
+    expect(
+      archive instanceof Uint8Array && archive.byteLength > 0,
+      "archive bytes were empty",
+    );
     equal(
-      (await reopened.archives().metadataFromBytes(archive, key)).backupVersion,
+      (await reopened.archives.metadataFromBytes(archive, key)).backupVersion,
       0,
       "archive metadata changed",
     );
     results.push("scenario 9: archive bytes");
 
-    const config = reopened.serverConfiguration();
+    const config = reopened.serverConfiguration;
     equal(
       (await reopened.refreshServerConfiguration()).identifier,
       config.identifier,
@@ -675,20 +521,17 @@ export async function runBrowserBridgeConformance(
     // A peer adds this client to a new group and sends to it. This client
     // has not synced, so the Welcome and the messages are outstanding work
     // that only catch-up can process.
-    const peer = await Client.create(session, signer(session), {
-      ...clientOptions,
-      storage: {
-        ...clientOptions.storage,
-        location: B.StorageLocation.InMemory.new(),
-      },
-    });
-    const owedGroup = await peer
-      .conversations()
-      .createGroup([reopened.inboxId()], undefined);
+    const peer = (
+      await create(session, signer(session), {
+        ...clientOptions,
+        storage: { ...clientOptions.storage, location: "inMemory" },
+      })
+    ).client;
+    const owedGroup = await peer.conversations.createGroup([reopened.inboxId]);
     const owed = ["owed 0", "owed 1", "owed 2"];
-    for (const text of owed) await owedGroup.sendText(text, undefined);
+    for (const value of owed) await owedGroup.sendText(value);
     equal(
-      await reopened.conversations().getById(owedGroup.id()),
+      await reopened.conversations.getById(owedGroup.id),
       undefined,
       "the group was known before catch-up",
     );
@@ -703,39 +546,36 @@ export async function runBrowserBridgeConformance(
       `catch-up counted ${catchUp.messages} messages`,
     );
     equal(catchUp.failed, 0n, "catch-up reported a failed group");
-    const joined = await reopened.conversations().getById(owedGroup.id());
-    if (joined?.tag !== B.Conversation_Tags.Group)
+    const joined = await reopened.conversations.getById(owedGroup.id);
+    if (!(joined instanceof sdk.Group))
       throw new Error("catch-up did not store the new group");
-    const received = (await joined.inner.group.messages(undefined)).flatMap(
-      (message) => {
-        expect(message instanceof Message, "caught-up message was not lifted");
-        return message.content.tag === B.MessageContent_Tags.Text
-          ? [message.content.inner[0]]
-          : [];
-      },
-    );
+    const received = (await joined.messages()).flatMap((message) => {
+      expect(message instanceof sdk.Message, "caught-up message not public");
+      return message.content.kind === "text" ? [message.content.value] : [];
+    });
     equal(received.join(), owed.join(), "catch-up did not store the messages");
     const again = await reopened.catchUpToLive(10_000n);
     equal(again.completed, true, "second catch-up did not complete");
     equal(again.conversations, 0n, "second catch-up counted the group again");
     equal(again.messages, 0n, "second catch-up counted the messages again");
     await peer.end();
-    const backend = await Backend.connect(session, {
-      url: backendURL,
-      appVersion: undefined,
-      credentials: undefined,
-      credential: undefined,
-    });
-    equal(backend.handle.type, "Backend", "backend handle type changed");
+    // The public constructor runs in the package worker, not this session.
+    const backend = await sdk.Backend.connect({ url: backendURL });
+    expect(backend instanceof sdk.Backend, "Backend.connect failed");
+    expect(!("handle" in backend), "the public Backend exposes a handle");
     const sameText = "1111111111111111111111111111111111111111";
-    const mixedIdentities = [
-      { identifier: sameText, kind: B.PublicIdentityKind.Ethereum },
-      { identifier: sameText, kind: B.PublicIdentityKind.Passkey },
+    const mixedIdentities: sdk.PublicIdentity[] = [
+      { identifier: sameText, kind: "ethereum" },
+      { identifier: sameText, kind: "passkey" },
       identity,
     ];
     const checkMixedCanMessage = (result: Map<string, boolean>) => {
       equal(result.size, 3, "canMessage lost an identity kind");
-      equal(result.get(`ethereum:${sameText}`), false, "Ethereum value changed");
+      equal(
+        result.get(`ethereum:${sameText}`),
+        false,
+        "Ethereum value changed",
+      );
       equal(result.get(`passkey:${sameText}`), false, "passkey value changed");
       equal(
         result.get(`ethereum:${identity.identifier}`),
@@ -747,33 +587,24 @@ export async function runBrowserBridgeConformance(
     // verifies: STORE-005
     const defaultSigner = signer(session);
     const defaultIdentity = await defaultSigner.identity();
-    const defaultOptions = {
+    const defaultOptions: sdk.ClientOptions = {
       ...clientOptions,
-      storage: {
-        ...clientOptions.storage,
-        location: B.StorageLocation.Default.new(),
-      },
+      storage: { ...clientOptions.storage, location: "default" },
     };
-    const defaultClient = await Client.create(
-      session,
-      defaultSigner,
-      defaultOptions,
-    );
-    const defaultInboxId = defaultClient.inboxId();
-    const defaultPath = await defaultClient.storage().path();
+    const defaultClient = (await create(session, defaultSigner, defaultOptions))
+      .client;
+    const defaultInboxId = defaultClient.inboxId;
+    const defaultPath = await defaultClient.storage.path();
     expect(
       defaultPath?.startsWith("xmtp-sdk/"),
       "default browser database is outside xmtp-sdk/",
     );
     await defaultClient.end();
-    const reopenedDefault = await Client.build(
-      session,
-      defaultIdentity,
-      defaultOptions,
-      defaultInboxId,
-    );
+    const reopenedDefault = (
+      await build(session, defaultIdentity, defaultOptions, defaultInboxId)
+    ).client;
     equal(
-      await reopenedDefault.storage().path(),
+      await reopenedDefault.storage.path(),
       defaultPath,
       "default browser database path changed on reopen",
     );
@@ -785,36 +616,32 @@ export async function runBrowserBridgeConformance(
     );
     await checkError(
       async () => {
-        const opened = await Client.create(session, signer(session), {
+        const opened = await create(session, signer(session), {
           ...keyOptions,
           storage: {
             ...keyOptions.storage,
-            location: B.StorageLocation.InMemory.new(),
-            encryptionKey: new Uint8Array(32).fill(7).buffer,
+            location: "inMemory",
+            encryptionKey: new Uint8Array(32).fill(7),
           },
-        } as B.ClientOptions);
-        await opened.end();
+        } as sdk.ClientOptions);
+        await opened.client.end();
       },
-      (error) =>
-        B.XmtpError.InvalidInput.instanceOf(error) &&
-        error.inner[0].code === "InvalidInput" &&
-        error.inner[0].category === B.ErrorCategory.Input,
+      (error) => isPublicError(error, sdk.XmtpError.InvalidInput, "input"),
       "browser accepted an encryption key",
     );
     results.push("scenario 10: catch-up, configuration, and default storage");
 
     const unsignedSigner = signer(session);
-    const unsigned = await Client.create(session, unsignedSigner, {
-      ...clientOptions,
-      storage: {
-        ...clientOptions.storage,
-        location: B.StorageLocation.InMemory.new(),
-      },
-      registration: { auto: false, nonce: undefined },
-    });
+    const unsigned = (
+      await create(session, unsignedSigner, {
+        ...clientOptions,
+        storage: { ...clientOptions.storage, location: "inMemory" },
+        registration: { auto: false },
+      })
+    ).client;
     equal(await unsigned.isRegistered(), false, "new client was registered");
     const request = await unsigned.unsafeCreateInboxSignatureRequest();
-    expect(request, "signature request was not created");
+    expect(request instanceof sdk.SignatureRequest, "no signature request");
     expect(
       (await request.signatureText()).length > 0,
       "signature text was empty",
@@ -825,13 +652,11 @@ export async function runBrowserBridgeConformance(
     await unsigned.end();
     results.push("scenario 11: signature request through worker");
 
-    const second = await Client.create(session, mainSigner, {
+    const second = await create(session, mainSigner, {
       ...clientOptions,
       storage: {
         ...clientOptions.storage,
-        location: B.StorageLocation.Path.new(
-          `second-${crypto.randomUUID()}.db`,
-        ),
+        location: { path: `second-${crypto.randomUUID()}.db` },
       },
     });
     // A second worker stands in for a second tab. While this worker holds
@@ -843,16 +668,16 @@ export async function runBrowserBridgeConformance(
       await other.session.ready();
       await checkError(
         async () => {
-          const opened = await Client.create(
+          const opened = await create(
             other.session,
             signer(other.session),
             options(`other-${crypto.randomUUID()}.db`, backendURL),
           );
-          await opened.end();
+          await opened.client.end();
         },
         (error) =>
-          B.XmtpError.StorageBusy.instanceOf(error) &&
-          error.inner[0].message === "storageBusy",
+          isPublicError(error, sdk.XmtpError.StorageBusy, "storage") &&
+          (error as sdk.XmtpError).details.message === "storageBusy",
         "a second worker opened OPFS storage under the origin lock",
       );
     } finally {
@@ -860,10 +685,10 @@ export async function runBrowserBridgeConformance(
     }
     await reopened.end();
     reopened = undefined;
-    const closedReaction = {
+    const closedReaction: sdk.Reaction = {
       content: "closed",
-      action: B.ReactionAction.Added,
-      schema: B.ReactionSchema.Unicode,
+      action: "added",
+      schema: "unicode",
     };
     for (const [label, action] of [
       ["Message.delete", () => parent.delete()],
@@ -874,11 +699,17 @@ export async function runBrowserBridgeConformance(
     ] as const) {
       await checkRejectedPromise(action, label);
     }
-    await second.conversations().listGroups(undefined);
-    await second.end();
-    const staleClient = new Client(session, second.handle);
+    await second.client.conversations.listGroups(undefined);
+    await second.client.end();
+    // Transport: a stale proxy handle of the ended client is refused.
+    const staleClient = new Client(session, second.proxy.handle);
     try {
-      await checkRejectedPromise(() => staleClient.end(), "Client.end");
+      // The proxy is below the public layer, so its error is the binding one.
+      await checkError(
+        () => staleClient.end(),
+        (error) => B.XmtpError.ClientClosed.instanceOf(error),
+        "a stale proxy handle was accepted",
+      );
     } finally {
       staleClient.release();
     }

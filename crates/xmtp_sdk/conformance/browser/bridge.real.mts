@@ -31,6 +31,45 @@ const { privateKeyToAccount } = await import(
   ).href
 );
 
+/** Fail when any string or byte array in `value` carries a secret. */
+function assertNoSecret(
+  value: unknown,
+  secrets: (string | Uint8Array)[],
+  path = "options",
+  seen = new Set<object>(),
+): void {
+  if (typeof value === "string") {
+    for (const secret of secrets)
+      if (typeof secret === "string" && value.includes(secret))
+        throw new Error(`${path} exposes a secret`);
+    return;
+  }
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  const bytes =
+    value instanceof ArrayBuffer
+      ? new Uint8Array(value)
+      : ArrayBuffer.isView(value)
+        ? new Uint8Array(value.buffer, value.byteOffset, value.byteLength)
+        : undefined;
+  if (bytes) {
+    for (const secret of secrets)
+      if (
+        secret instanceof Uint8Array &&
+        Buffer.from(bytes).equals(Buffer.from(secret))
+      )
+        throw new Error(`${path} exposes a secret key`);
+    return;
+  }
+  for (const key of Object.getOwnPropertyNames(value))
+    assertNoSecret(
+      (value as Record<string, unknown>)[key],
+      secrets,
+      `${path}.${key}`,
+      seen,
+    );
+}
+
 function start(): {
   worker: Worker;
   session: MainSession;
@@ -65,7 +104,7 @@ function start(): {
   };
 }
 
-const first = start();
+let first = start();
 try {
   await first.session.ready();
   const backend = await Backend.connect(first.session, {
@@ -143,6 +182,10 @@ try {
     "real WASM must decode numeric PublicIdentityKind",
   );
   assert.equal(kinds, 0, "unsupported OPFS fails before signer kind");
+  assert.equal(first.session.isTerminated, true);
+  await first.worker.terminate();
+  first = start();
+  await first.session.ready();
 
   await assert.rejects(
     Client.create(
@@ -189,6 +232,10 @@ try {
       return true;
     },
   );
+  assert.equal(first.session.isTerminated, true);
+  await first.worker.terminate();
+  first = start();
+  await first.session.ready();
 
   const account = privateKeyToAccount(`0x${randomBytes(32).toString("hex")}`);
   let liveIdentities = 0;
@@ -271,8 +318,11 @@ try {
     "connectionState must read the live reader state",
   );
   const ending = live.end();
-  assert.throws(
-    () => live.conversations(),
+  // An immutable getter reads its held snapshot while the client ends, as on
+  // Node (Decision 14). A call through the result fails with ClientClosed.
+  const endingConversations = live.conversations();
+  await assert.rejects(
+    endingConversations.sync(),
     (error: unknown) => {
       assert.ok(B.XmtpError.ClientClosed.instanceOf(error));
       assert.deepEqual(error.inner[0], {
@@ -368,6 +418,43 @@ try {
     first.session,
     await first.session.call("generateLocalSigner", []),
   );
+  // The options snapshot never returns the backend token. Scan everything
+  // the page receives, because the worker copies the options to the page.
+  const token = `Bearer bridge-${randomBytes(8).toString("hex")}`;
+  const secretClient = await Client.create(
+    first.session,
+    decodeObjectSigner(
+      first.session,
+      await first.session.call("generateLocalSigner", []),
+    ),
+    {
+      backend: new B.BackendSource.Options({
+        options: {
+          url: process.env.XMTP_BACKEND_URL ?? "http://127.0.0.1:9450",
+          appVersion: undefined,
+          credentials: undefined,
+          credential: {
+            name: undefined,
+            value: token,
+            expiresAtSeconds: 9_007_199_254_740_993n,
+          },
+        },
+      }),
+      storage: {
+        location: B.StorageLocation.InMemory.new(),
+        label: undefined,
+        pool: undefined,
+        singleConnection: false,
+      },
+      deviceSync: false,
+      registration: { auto: true, nonce: undefined },
+      forkRecovery: undefined,
+      workers: undefined,
+    },
+  );
+  assertNoSecret(secretClient.options(), [token]);
+  await secretClient.end();
+
   const localClient = await Client.create(first.session, local, {
     backend: new B.BackendSource.Options({
       options: {

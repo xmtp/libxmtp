@@ -1,10 +1,9 @@
 import assert from "node:assert/strict";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
 
-await sdk.uniffiInitAsync();
 await sdk.initLogging({
-  level: sdk.LogLevel.Error,
+  level: "error",
   structured: true,
   performance: false,
   otel: undefined,

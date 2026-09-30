@@ -17,7 +17,6 @@ use xmtp_db::prelude::QueryGroupMessage;
 use xmtp_mls::MlsContext;
 use xmtp_mls::context::{ForegroundCall, XmtpSharedContext};
 use xmtp_mls::groups::{MlsGroup, send_message_opts::SendMessageOpts};
-use xmtp_mls::messages::decoded_message::{DecodedMessage, MessageBody as CoreMessageBody};
 use xmtp_mls::messages::enrichment::EnrichedStoredMessage;
 use xmtp_mls::mls_common::group_mutable_metadata::MetadataField;
 use xmtp_mls::mls_store::MlsStore;
@@ -38,7 +37,9 @@ pub(crate) use calls::{enter_call, on_sdk_worker};
 include!("conversation/collection.rs");
 include!("conversation/identity.rs");
 mod content;
-pub(crate) use content::{lift_history_messages, parent_stored, query_content_types};
+pub(crate) use content::{lift_history_messages, query_content_types};
 use content::{require_content_type, send_encoded, send_standard};
 include!("conversation/common.rs");
 include!("conversation/group.rs");
+
+include!("conversation/conformance.rs");

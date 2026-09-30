@@ -5,8 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+// Host runtime internals that these checks drive directly: the event start
+// hook and the host EventStream over a fake reader.
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
+import { EventStream as HostEventStream } from "../../../../target/sdk-conformance/typescript-napi/runtime/events/reader.ts";
+import { checkIdentityRoutes } from "./identity-routes.mts";
 import {
   assertEncodedEqual,
   checkStandardCodecs,
@@ -16,6 +20,7 @@ import { logging } from "./node-logging.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
 import { streamFailures } from "./node-stream-failures.mts";
 import { streamLifecycle } from "./node-stream-lifecycle.mts";
+import { checkReaderCursor, checkRestoredPeer } from "./reader-cursor.mts";
 
 const viemRoot = realpathSync(
   fileURLToPath(
@@ -36,7 +41,6 @@ assert.throws(
   () => new sdk.MarkdownCodec().decode(sdk.encodeText("wrong codec")),
   sdk.XmtpError.InvalidArgument,
 );
-await sdk.uniffiInitAsync();
 assert.throws(
   () => new sdk.ReadReceiptCodec().encode("wrong value" as never),
   sdk.XmtpError.InvalidArgument,
@@ -47,127 +51,149 @@ console.log("Node scenario 1: load, checksums, version passed");
 const codecSamples = checkStandardCodecs();
 
 const account = privateKeyToAccount(generatePrivateKey());
-const identity = {
+const identity: sdk.PublicIdentity = {
   identifier: account.address.toLowerCase(),
-  kind: sdk.PublicIdentityKind.Ethereum,
+  kind: "ethereum",
 };
-const signer = {
+const signer: sdk.Signer = {
   async identity() {
     return identity;
   },
   async kind() {
-    return new sdk.SignerKind.Eoa();
+    return { kind: "eoa" };
   },
-  async sign(request: { text: string }) {
+  async sign(request) {
     const signature = await account.signMessage({ message: request.text });
-    return new sdk.Signature.Ecdsa(Uint8Array.from(toBytes(signature)).buffer);
+    return { kind: "ecdsa", value: Uint8Array.from(toBytes(signature)) };
   },
 };
-const backendOptions = {
+/** Fail when any string or byte array in `value` carries a secret. */
+function assertNoSecret(
+  value: unknown,
+  secrets: (string | Uint8Array)[],
+  path = "options",
+  seen = new Set<object>(),
+): void {
+  if (typeof value === "string") {
+    for (const secret of secrets)
+      if (typeof secret === "string" && value.includes(secret))
+        throw new Error(`${path} exposes a secret`);
+    return;
+  }
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    const bytes = Buffer.from(
+      value instanceof ArrayBuffer
+        ? new Uint8Array(value)
+        : new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
+    );
+    for (const secret of secrets)
+      if (secret instanceof Uint8Array && bytes.equals(Buffer.from(secret)))
+        throw new Error(`${path} exposes a secret key`);
+    return;
+  }
+  for (const key of Object.getOwnPropertyNames(value))
+    assertNoSecret(
+      (value as Record<string, unknown>)[key],
+      secrets,
+      `${path}.${key}`,
+      seen,
+    );
+}
+
+const backendOptions: sdk.BackendOptions = {
   url: process.env.XMTP_BACKEND_URL!,
-  appVersion: undefined,
-  credentials: undefined,
-  credential: undefined,
 };
 const options = {
-  backend: new sdk.BackendSource.Options({ options: backendOptions }),
+  backend: backendOptions,
   storage: {
-    location: new sdk.StorageLocation.Directory(
-      await mkdtemp(join(tmpdir(), "xmtp-sdk-conformance-")),
-    ),
-    label: undefined,
-    encryptionKey: undefined,
-    pool: undefined,
+    location: {
+      directory: await mkdtemp(join(tmpdir(), "xmtp-sdk-conformance-")),
+    },
     singleConnection: false,
   },
   deviceSync: false,
-  registration: { auto: true, nonce: undefined },
-  forkRecovery: undefined,
-  workers: undefined,
-};
-assert.equal(
-  sdk.ClientOptions.create({ storage: options.storage }).backend,
-  undefined,
-);
+  registration: { auto: true },
+} satisfies sdk.ClientOptions;
 
+await checkReaderCursor(signer, backendOptions);
+await checkRestoredPeer(backendOptions);
+await checkIdentityRoutes(backendOptions);
 const client = await sdk.Client.create(signer, options);
 // Uppercase hex decodes, so only ID validation rejects it.
 await assert.rejects(
-  client.conversations().getMessageById("AB".repeat(32)),
+  client.conversations.getMessageById("AB".repeat(32)),
   isInvalidId,
 );
-const inboxId = client.inboxId();
-assert.equal(typeof inboxId.toString(), "string");
-const storagePath = await client.storage().path();
+const inboxId = client.inboxId;
+assert.equal(typeof inboxId, "string");
+const storagePath = await client.storage.path();
 assert.ok(storagePath);
 assert.ok((await stat(storagePath)).isFile());
-const group = await client.conversations().createGroup([], undefined);
+const group = await client.conversations.createGroup([]);
 let typedSends = 0;
 for (const sample of codecSamples) {
   const value = sample.value;
   let id: sdk.MessageId;
-  switch (value.tag) {
-    case sdk.StandardContent_Tags.Text:
-      id = await group.sendText(value.inner[0], undefined);
+  switch (value.kind) {
+    case "text":
+      id = await group.sendText(value.value);
       break;
-    case sdk.StandardContent_Tags.Markdown:
-      id = await group.sendMarkdown(value.inner[0], undefined);
+    case "markdown":
+      id = await group.sendMarkdown(value.value);
       break;
-    case sdk.StandardContent_Tags.Reaction:
+    case "reaction":
       id = await group.sendReaction(
-        value.inner.reference,
-        value.inner.referenceInboxId,
-        value.inner.reaction,
-        undefined,
+        value.reference,
+        value.referenceInboxId,
+        value.reaction,
       );
       break;
-    case sdk.StandardContent_Tags.Reply:
+    case "reply":
       id = await group.sendReply(
-        value.inner.reference,
-        value.inner.referenceInboxId,
-        value.inner.content,
-        undefined,
+        value.reference,
+        value.referenceInboxId,
+        value.content,
       );
       break;
-    case sdk.StandardContent_Tags.ReadReceipt:
-      id = await group.sendReadReceipt(undefined);
+    case "readReceipt":
+      id = await group.sendReadReceipt();
       break;
-    case sdk.StandardContent_Tags.Attachment:
-      id = await group.sendAttachment(value.inner[0], undefined);
+    case "attachment":
+      id = await group.sendAttachment(value.value);
       break;
-    case sdk.StandardContent_Tags.RemoteAttachment:
-      id = await group.sendRemoteAttachment(value.inner[0], undefined);
+    case "remoteAttachment":
+      id = await group.sendRemoteAttachment(value.value);
       break;
-    case sdk.StandardContent_Tags.MultiRemoteAttachment:
-      id = await group.sendMultiRemoteAttachment(value.inner[0], undefined);
+    case "multiRemoteAttachment":
+      id = await group.sendMultiRemoteAttachment(value.value);
       break;
-    case sdk.StandardContent_Tags.TransactionReference:
-      id = await group.sendTransactionReference(value.inner[0], undefined);
+    case "transactionReference":
+      id = await group.sendTransactionReference(value.value);
       break;
-    case sdk.StandardContent_Tags.WalletSendCalls:
-      id = await group.sendWalletSendCalls(value.inner[0], undefined);
+    case "walletSendCalls":
+      id = await group.sendWalletSendCalls(value.value);
       break;
-    case sdk.StandardContent_Tags.Actions:
-      id = await group.sendActions(value.inner[0], undefined);
+    case "actions":
+      id = await group.sendActions(value.value);
       break;
-    case sdk.StandardContent_Tags.Intent:
-      id = await group.sendIntent(value.inner[0], undefined);
+    case "intent":
+      id = await group.sendIntent(value.value);
       break;
     default:
       continue;
   }
-  const wire = await client.conversations().getMessageById(id);
+  const wire = await client.conversations.getMessageById(id);
   assert.ok(wire);
   assertEncodedEqual(wire.encoded, sample.expected);
   typedSends++;
 }
 assert.equal(typedSends, 12);
 console.log("Node P69: typed send bytes match all 12 public codecs");
-const sentId = await group.sendText("conformance message", undefined);
-const history = await group.messages(undefined);
-const sent = history.find(
-  (message) => message.id.toString() === sentId.toString(),
-);
+const sentId = await group.sendText("conformance message");
+const history = await group.messages();
+const sent = history.find((message) => message.id === sentId);
 assert.ok(sent instanceof sdk.Message);
 assert.equal(sent.client(), client);
 await client.end();
@@ -177,7 +203,7 @@ assert.throws(
 );
 
 const reopened = await sdk.Client.build(identity, options, inboxId);
-assert.equal(reopened.inboxId().toString(), inboxId.toString());
+assert.equal(reopened.inboxId, inboxId);
 const defaultRoot = await mkdtemp(join(tmpdir(), "xmtp-sdk-default-"));
 const oldCwd = process.cwd();
 process.chdir(defaultRoot);
@@ -189,7 +215,7 @@ try {
         ...options,
         storage: {
           ...options.storage,
-          location: new sdk.StorageLocation.Default(),
+          location: "default",
         },
       },
       inboxId,
@@ -202,15 +228,15 @@ try {
     ...options,
     storage: {
       ...options.storage,
-      location: new sdk.StorageLocation.Default(),
+      location: "default",
     },
   });
   const defaultPath = join(
     defaultRoot,
     "xmtp",
-    `xmtp-${defaultClient.inboxId().toString()}.db3`,
+    `xmtp-${defaultClient.inboxId}.db3`,
   );
-  assert.equal(await defaultClient.storage().path(), realpathSync(defaultPath));
+  assert.equal(await defaultClient.storage.path(), realpathSync(defaultPath));
   assert.ok((await stat(defaultPath)).isFile());
   await defaultClient.end();
 } finally {
@@ -219,12 +245,10 @@ try {
 let releasedMessage: sdk.Message;
 const weak = await (async () => {
   const shortLived = await sdk.Client.build(identity, options, inboxId);
-  const shortGroup = await shortLived
-    .conversations()
-    .createGroup([], undefined);
-  const id = await shortGroup.sendText("weak owner", undefined);
-  releasedMessage = (await shortGroup.messages(undefined)).find(
-    (value) => value.id.toString() === id.toString(),
+  const shortGroup = await shortLived.conversations.createGroup([]);
+  const id = await shortGroup.sendText("weak owner");
+  releasedMessage = (await shortGroup.messages()).find(
+    (value) => value.id === id,
   )!;
   return new WeakRef(shortLived);
 })();
@@ -252,30 +276,33 @@ await streamFailures(reopened, delivery);
 const largeExpiry = 9_007_199_254_740_993n;
 const credentialOptions = {
   ...options,
-  backend: new sdk.BackendSource.Options({
-    options: {
-      ...backendOptions,
-      credential: {
-        name: undefined,
-        value: "Bearer initial",
-        expiresAtSeconds: largeExpiry,
-      },
+  backend: {
+    ...backendOptions,
+    credentials: {
+      name: undefined,
+      value: "Bearer initial",
+      expiresAtSeconds: largeExpiry,
     },
-  }),
+  },
   storage: options.storage,
-};
+  workers: { defaultIntervalNs: largeExpiry },
+} satisfies sdk.ClientOptions;
 const credentialClient = await sdk.Client.build(
   identity,
   credentialOptions,
   inboxId,
 );
-const savedBackend = credentialClient.raw.options().backend;
-assert.ok(savedBackend instanceof sdk.BackendSource.Options);
+// The options keep 64-bit values but never return the backend token.
 assert.equal(
-  savedBackend.inner.options.credential?.expiresAtSeconds,
+  credentialClient.options.workers?.defaultIntervalNs,
   largeExpiry,
+  "worker interval lost 64-bit precision",
 );
-await credentialClient.raw.setCredential({
+const savedBackend = credentialClient.options.backend;
+assert.ok(savedBackend !== undefined && !(savedBackend instanceof sdk.Backend));
+assert.equal(savedBackend.credentials, undefined);
+assertNoSecret(credentialClient.options, ["Bearer initial"]);
+await credentialClient.setCredential({
   name: undefined,
   value: "Bearer refreshed",
   expiresAtSeconds: largeExpiry,
@@ -286,65 +313,67 @@ const sourceClient = await sdk.Client.build(
   identity,
   {
     ...credentialOptions,
-    backend: new sdk.BackendSource.Options({
-      options: {
-        ...backendOptions,
-        credentials: {
-          async credential() {
-            sourceCalls += 1;
-            return {
-              name: undefined,
-              value: "Bearer source",
-              expiresAtSeconds: largeExpiry,
-            };
-          },
+    backend: {
+      ...backendOptions,
+      credentials: {
+        async credential() {
+          sourceCalls += 1;
+          return {
+            name: undefined,
+            value: "Bearer source",
+            expiresAtSeconds: largeExpiry,
+          };
         },
       },
-    }),
+    },
   },
   inboxId,
 );
 assert.ok(sourceCalls > 0, "credential source was not called");
+const sourceBackend = sourceClient.options.backend;
+assert.ok(
+  sourceBackend !== undefined && !(sourceBackend instanceof sdk.Backend),
+);
+assert.equal(sourceBackend.credentials, undefined);
 await sourceClient.end();
+// The native database key is a secret too.
+const databaseKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+const keyedClient = await sdk.Client.create(signer, {
+  ...options,
+  storage: {
+    location: {
+      directory: await mkdtemp(join(tmpdir(), "xmtp-sdk-conformance-key-")),
+    },
+    encryptionKey: databaseKey,
+    singleConnection: false,
+  },
+});
+assert.equal(keyedClient.options.storage.encryptionKey, undefined);
+assertNoSecret(keyedClient.options, [databaseKey]);
+await keyedClient.end();
 console.log("Node scenario 3: credential update and 64-bit value passed");
 
-const snapshot = reopened.raw.serverConfiguration();
-const fetched = await sdk.fetchServerConfiguration(
-  new sdk.BackendSource.Options({ options: backendOptions }),
-);
+const snapshot = reopened.serverConfiguration;
+const fetched = await sdk.fetchServerConfiguration(backendOptions);
 assert.equal(snapshot.identifier, fetched.identifier);
 const staticBackend = await sdk.Backend.connect(backendOptions);
+assert.equal(await sdk.Client.inboxIdFor(identity, staticBackend), inboxId);
 assert.equal(
-  (
-    await sdk.Client.inboxIdFor(
-      identity,
-      new sdk.BackendSource.Connected({ backend: staticBackend }),
-    )
-  ).toString(),
-  inboxId.toString(),
-);
-assert.equal(
-  (
-    await sdk.Client.canMessage(
-      [identity],
-      new sdk.BackendSource.Connected({ backend: staticBackend }),
-    )
-  ).get(`ethereum:${identity.identifier}`),
+  (await sdk.Client.canMessage([identity], staticBackend)).get(
+    `ethereum:${identity.identifier}`,
+  ),
   true,
 );
 assert.equal(
-  (
-    await sdk.Client.canMessage(
-      [identity],
-      new sdk.BackendSource.Options({ options: backendOptions }),
-    )
-  ).get(`ethereum:${identity.identifier}`),
+  (await sdk.Client.canMessage([identity], backendOptions)).get(
+    `ethereum:${identity.identifier}`,
+  ),
   true,
 );
 const sameText = "1111111111111111111111111111111111111111";
-const mixedIdentities = [
-  { identifier: sameText, kind: sdk.PublicIdentityKind.Ethereum },
-  { identifier: sameText, kind: sdk.PublicIdentityKind.Passkey },
+const mixedIdentities: sdk.PublicIdentity[] = [
+  { identifier: sameText, kind: "ethereum" },
+  { identifier: sameText, kind: "passkey" },
   identity,
 ];
 const checkMixedCanMessage = (result: Map<string, boolean>) => {
@@ -353,28 +382,22 @@ const checkMixedCanMessage = (result: Map<string, boolean>) => {
   assert.equal(result.get(`passkey:${sameText}`), false);
   assert.equal(result.get(`ethereum:${identity.identifier}`), true);
 };
-checkMixedCanMessage(await reopened.raw.canMessage(mixedIdentities));
+checkMixedCanMessage(await reopened.canMessage(mixedIdentities));
 checkMixedCanMessage(
-  await sdk.Client.canMessage(
-    mixedIdentities,
-    new sdk.BackendSource.Connected({ backend: staticBackend }),
-  ),
+  await sdk.Client.canMessage(mixedIdentities, staticBackend),
 );
 checkMixedCanMessage(
-  await sdk.Client.canMessage(
-    mixedIdentities,
-    new sdk.BackendSource.Options({ options: backendOptions }),
-  ),
+  await sdk.Client.canMessage(mixedIdentities, backendOptions),
 );
 await assert.rejects(
   sdk.Client.build(
     identity,
     {
       ...options,
-      backend: new sdk.BackendSource.Connected({ backend: staticBackend }),
+      backend: staticBackend,
       storage: {
         ...options.storage,
-        location: new sdk.StorageLocation.InMemory(),
+        location: "inMemory",
       },
     },
     inboxId,
@@ -382,18 +405,14 @@ await assert.rejects(
   (error) => error instanceof sdk.XmtpError.IdentityNotFound,
 );
 assert.equal(
-  (await reopened.raw.refreshServerConfiguration()).identifier,
+  (await reopened.refreshServerConfiguration()).identifier,
   snapshot.identifier,
 );
 await assert.rejects(
-  sdk.fetchServerConfiguration(
-    new sdk.BackendSource.Options({
-      options: {
-        ...backendOptions,
-        url: "http://127.0.0.1:1",
-      },
-    }),
-  ),
+  sdk.fetchServerConfiguration({
+    ...backendOptions,
+    url: "http://127.0.0.1:1",
+  }),
   (error) => error instanceof sdk.XmtpError.ConfigurationUnavailable,
 );
 console.log("Node scenario 10: configuration and typed error passed");
@@ -401,59 +420,55 @@ console.log("Node scenario 10: configuration and typed error passed");
 await logging(reopened, snapshot);
 const local = await sdk.generateLocalSigner();
 await assert.rejects(
-  sdk.localSignerFromPrivateKey(new Uint8Array(31).buffer),
+  sdk.localSignerFromPrivateKey(new Uint8Array(31)),
   (error) => error instanceof sdk.XmtpError.InvalidInput,
 );
 const unsigned = await sdk.Client.create(local, {
   ...options,
-  storage: { ...options.storage, location: new sdk.StorageLocation.InMemory() },
-  registration: { auto: false, nonce: undefined },
+  storage: { ...options.storage, location: "inMemory" },
+  registration: { auto: false },
 });
-assert.equal(await unsigned.raw.isRegistered(), false);
-const request = await unsigned.raw.unsafeCreateInboxSignatureRequest();
+assert.equal(await unsigned.isRegistered(), false);
+const request = await unsigned.unsafeCreateInboxSignatureRequest();
 assert.ok(request);
 assert.ok((await request.signatureText()).length > 0);
 await request.sign(local);
-await unsigned.raw.unsafeApplySignatureRequest(request);
-assert.equal(await unsigned.raw.isRegistered(), true);
+await unsigned.unsafeApplySignatureRequest(request);
+assert.equal(await unsigned.isRegistered(), true);
 await unsigned.end();
 console.log("Node scenario 11: local signer and signature request passed");
 
 // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
-function recordingSigner(calls: string[]) {
+function recordingSigner(calls: string[]): sdk.Signer {
   const wallet = privateKeyToAccount(generatePrivateKey());
   return {
     async identity() {
-      return {
-        identifier: wallet.address.toLowerCase(),
-        kind: sdk.PublicIdentityKind.Ethereum,
-      };
+      return { identifier: wallet.address.toLowerCase(), kind: "ethereum" };
     },
     async kind() {
-      return new sdk.SignerKind.Eoa();
+      return { kind: "eoa" };
     },
-    async sign(request: { text: string }) {
+    async sign(request) {
       calls.push("sign");
       const signature = await wallet.signMessage({ message: request.text });
-      return new sdk.Signature.Ecdsa(
-        Uint8Array.from(toBytes(signature)).buffer,
-      );
+      return { kind: "ecdsa", value: Uint8Array.from(toBytes(signature)) };
     },
   };
 }
-function preAuthenticateOptions(calls: string[], fail: boolean, auto: boolean) {
+function preAuthenticateOptions(
+  calls: string[],
+  fail: boolean,
+  auto: boolean,
+): sdk.ClientOptions {
   return {
     ...options,
-    storage: {
-      ...options.storage,
-      location: new sdk.StorageLocation.InMemory(),
-    },
-    registration: { auto, nonce: undefined },
+    storage: { ...options.storage, location: "inMemory" },
+    registration: { auto },
     handlers: {
       preAuthenticate: {
         async run() {
           calls.push("pre-authenticate");
-          if (fail) throw new sdk.PreAuthenticateError.Failed();
+          if (fail) throw new Error("pre-authentication failed");
         },
       },
     },
@@ -465,10 +480,10 @@ const preAuthenticated = await sdk.Client.create(
   preAuthenticateOptions(preAuthCalls, false, false),
 );
 assert.deepEqual(preAuthCalls, []);
-await preAuthenticated.raw.register();
+await preAuthenticated.register();
 assert.deepEqual(preAuthCalls, ["pre-authenticate", "sign"]);
 preAuthCalls.length = 0;
-await preAuthenticated.raw.register();
+await preAuthenticated.register();
 assert.deepEqual(preAuthCalls, []);
 await preAuthenticated.end();
 await assert.rejects(
@@ -481,81 +496,62 @@ await assert.rejects(
 assert.deepEqual(preAuthCalls, ["pre-authenticate"]);
 console.log("Node IDENT-073: host preAuthenticate runs before the signer");
 
-const familyGroup = await reopened.conversations().createGroup([], {
-  permissions: undefined,
+const familyGroup = await reopened.conversations.createGroup([], {
   name: "family group",
-  imageUrl: undefined,
-  description: undefined,
-  disappearing: undefined,
-  appData: undefined,
 });
 assert.equal((await familyGroup.state()).name, "family group");
-assert.equal(familyGroup.creatorInboxId().toString(), inboxId.toString());
+assert.equal(familyGroup.creatorInboxId, inboxId);
 assert.ok(
-  (await reopened.conversations().listGroups(undefined)).some(
-    (value) => value.id().toString() === familyGroup.id().toString(),
+  (await reopened.conversations.listGroups(undefined)).some(
+    (value) => value.id === familyGroup.id,
   ),
 );
 console.log("Node scenario 4: group options, state, and list passed");
 
-const parentId = await familyGroup.sendText("parent", undefined);
-const reactionId = await reopened.conversations().reactToMessage(
+const parentId = await familyGroup.sendText("parent");
+const reactionId = await reopened.conversations.reactToMessage(parentId, {
+  content: "👍",
+  action: "added",
+  schema: "unicode",
+});
+const replyId = await reopened.conversations.replyToMessage(
   parentId,
-  {
-    content: "👍",
-    action: sdk.ReactionAction.Added,
-    schema: sdk.ReactionSchema.Unicode,
-  },
-  undefined,
+  sdk.encodeText("reply"),
 );
-const replyId = await reopened
-  .conversations()
-  .replyToMessage(parentId, sdk.encodeText("reply"), undefined);
 assert.equal(
-  (await reopened.raw.decodeContent(sdk.encodeText("decoded"))).tag,
-  sdk.MessageContent_Tags.Text,
+  (await reopened.decodeContent(sdk.encodeText("decoded"))).kind,
+  "text",
 );
-const familyMessages = await familyGroup.messages(undefined);
-const parent = familyMessages.find(
-  (value) => value.id.toString() === parentId.toString(),
-);
-const reply = familyMessages.find(
-  (value) => value.id.toString() === replyId.toString(),
-);
-assert.equal(parent?.reactions[0]?.id.toString(), reactionId.toString());
+const familyMessages = await familyGroup.messages();
+const parent = familyMessages.find((value) => value.id === parentId);
+const reply = familyMessages.find((value) => value.id === replyId);
+assert.equal(parent?.reactions[0]?.id, reactionId);
 assert.equal(parent?.replyCount, 1n);
-assert.equal(reply?.inReplyTo?.id.toString(), parentId.toString());
-const reactionMessage = await reopened
-  .conversations()
-  .getMessageById(reactionId);
-if (reactionMessage?.content.tag !== sdk.MessageContent_Tags.Reaction)
+assert.equal(reply?.inReplyTo?.id, parentId);
+const reactionMessage = await reopened.conversations.getMessageById(reactionId);
+if (reactionMessage?.content.kind !== "reaction")
   throw new Error("reaction message did not lift as a reaction");
-assert.equal(
-  reactionMessage.content.inner.reference.toString(),
-  parentId.toString(),
-);
-assert.equal(
-  reactionMessage.content.inner.referenceInboxId?.toString(),
-  inboxId.toString(),
-);
-assert.equal(reactionMessage.content.inner.reaction.content, "👍");
+assert.equal(reactionMessage.content.reference, parentId);
+assert.equal(reactionMessage.content.referenceInboxId, inboxId);
+assert.equal(reactionMessage.content.reaction.content, "👍");
 console.log("Node scenario 5: message records, reaction, and reply passed");
 
-const customType = sdk.ContentTypeId.create({
+const customType: sdk.ContentTypeId = {
   authorityId: "example.org",
   typeId: "sample",
   versionMajor: 1,
   versionMinor: 0,
-});
-const customCodec = {
+};
+const customCodec: sdk.ContentCodec<string> = {
   type: customType,
-  encode(value: string) {
-    return sdk.EncodedContent.create({
+  encode(value) {
+    return {
       type: customType,
-      content: new TextEncoder().encode(value).buffer,
-    });
+      parameters: new Map(),
+      content: new TextEncoder().encode(value),
+    };
   },
-  decode(value: sdk.EncodedContent) {
+  decode(value) {
     return new TextDecoder().decode(value.content);
   },
 };
@@ -565,114 +561,72 @@ const ownerWithCodec = await sdk.Client.build(
   inboxId,
 );
 const ownerWithoutCodec = await sdk.Client.build(identity, options, inboxId);
-const slashType = sdk.ContentTypeId.create({
+// A codec for "example.org" / "a/b" must not decode "example.org/a" / "b".
+const slashType: sdk.ContentTypeId = {
   authorityId: "example.org",
   typeId: "a/b",
   versionMajor: 1,
   versionMinor: 0,
-});
-const slashCodec = {
-  ...customCodec,
+};
+const slashCodec: sdk.ContentCodec<string> = {
   type: slashType,
-  encode(value: string) {
-    return sdk.EncodedContent.create({
-      type: slashType,
-      content: new TextEncoder().encode(value).buffer,
-    });
-  },
-  decode() {
-    return "wrong codec";
-  },
+  encode: (value) => ({ ...customCodec.encode(value), type: slashType }),
+  decode: () => "wrong codec",
 };
 const slashHost = await sdk.Client.build(
   identity,
   { ...options, codecs: [slashCodec] },
   inboxId,
 );
-const colliding = sdk.EncodedContent.create({
-  type: sdk.ContentTypeId.create({
+const colliding: sdk.EncodedContent = {
+  type: {
     authorityId: "example.org/a",
     typeId: "b",
     versionMajor: 1,
     versionMinor: 0,
-  }),
-  content: new Uint8Array([1]).buffer,
-});
+  },
+  parameters: new Map(),
+  content: new Uint8Array([1]),
+};
+const collidingId = await familyGroup.send(colliding);
+const collidingMessage =
+  await slashHost.conversations.getMessageById(collidingId);
 assert.equal(
-  slashHost.decodeCustom(colliding),
-  undefined,
+  collidingMessage?.content.kind,
+  "unknown",
   "codec key collision selected the wrong codec",
 );
-const collidingMessage = new sdk.Message({
-  clientKey: slashHost.raw.clientKey(),
-  content: {
-    tag: sdk.MessageContent_Tags.Custom,
-    inner: { encoded: colliding, rawBytes: new ArrayBuffer(0) },
-  },
-  inReplyTo: undefined,
-} as sdk.MessageData);
-assert.equal(collidingMessage.content.tag, sdk.MessageContent_Tags.Unknown);
 await slashHost.end();
-const customId = await familyGroup.send(
-  customCodec.encode("codec value"),
-  undefined,
+const customId = await familyGroup.send(customCodec.encode("codec value"));
+const decoded = await ownerWithCodec.conversations.getMessageById(customId);
+const undecoded =
+  await ownerWithoutCodec.conversations.getMessageById(customId);
+const customReplyId = await ownerWithCodec.conversations.replyToMessage(
+  customId,
+  customCodec.encode("reply codec value"),
 );
-const decoded = await ownerWithCodec.conversations().getMessageById(customId);
-const undecoded = await ownerWithoutCodec
-  .conversations()
-  .getMessageById(customId);
-const customReplyId = await ownerWithCodec
-  .conversations()
-  .replyToMessage(customId, customCodec.encode("reply codec value"), undefined);
-const customReply = await ownerWithCodec
-  .conversations()
-  .getMessageById(customReplyId);
-const undecodedReply = await ownerWithoutCodec
-  .conversations()
-  .getMessageById(customReplyId);
-assert.equal(undecoded?.content.tag, sdk.MessageContent_Tags.Unknown);
-const serializedCustom = new Uint8Array([10, 3, 1, 2, 3]).buffer;
-const syntheticUnknown = new sdk.Message({
-  clientKey: ownerWithoutCodec.raw.clientKey(),
-  content: {
-    tag: sdk.MessageContent_Tags.Custom,
-    inner: {
-      encoded: customCodec.encode("codec value"),
-      rawBytes: serializedCustom,
-    },
-  },
-  inReplyTo: undefined,
-} as sdk.MessageData);
-if (syntheticUnknown.content.tag !== sdk.MessageContent_Tags.Unknown)
-  throw new Error("synthetic content was not unknown");
-assert.deepEqual(
-  new Uint8Array(syntheticUnknown.content.inner.rawBytes),
-  new Uint8Array(serializedCustom),
-);
-if (
-  undecoded?.data.content.tag !== sdk.MessageContent_Tags.Custom ||
-  undecoded.content.tag !== sdk.MessageContent_Tags.Unknown
-)
+const customReply =
+  await ownerWithCodec.conversations.getMessageById(customReplyId);
+const undecodedReply =
+  await ownerWithoutCodec.conversations.getMessageById(customReplyId);
+// Without a client codec, custom content is unknown and keeps the original
+// serialized bytes from Rust, the same bytes the decoded custom item keeps.
+if (undecoded?.content.kind !== "unknown")
   throw new Error("stored custom content was not unknown");
-const rustRawBytes = undecoded.data.content.inner.rawBytes;
-assert.ok(
-  new Uint8Array(rustRawBytes).byteLength >
-    new Uint8Array(undecoded!.encoded.content).byteLength,
-);
-assert.deepEqual(
-  new Uint8Array(undecoded.content.inner.rawBytes),
-  new Uint8Array(rustRawBytes),
-);
-assert.equal(undecodedReply?.replyContent?.tag, sdk.MessageBody_Tags.Unknown);
-if (customReply?.replyContent?.tag !== sdk.MessageBody_Tags.Custom)
-  throw new Error("custom reply was not decoded");
-assert.equal(customReply.replyContent.inner.value, "reply codec value");
-if (decoded?.content.tag !== sdk.MessageContent_Tags.Custom)
+if (decoded?.content.kind !== "custom")
   throw new Error("custom message was not decoded");
-assert.equal(decoded.content.inner.value, "codec value");
-const failingCodec = {
+assert.ok(
+  undecoded.content.rawBytes.byteLength > undecoded.encoded.content.byteLength,
+);
+assert.deepEqual(undecoded.content.rawBytes, decoded.content.rawBytes);
+assert.equal(decoded.content.value, "codec value");
+assert.equal(undecodedReply?.replyContent?.kind, "unknown");
+if (customReply?.replyContent?.kind !== "custom")
+  throw new Error("custom reply was not decoded");
+assert.equal(customReply.replyContent.value, "reply codec value");
+const failingCodec: sdk.ContentCodec<string> = {
   ...customCodec,
-  decode(_value: sdk.EncodedContent): string {
+  decode() {
     throw new Error("codec decode failed");
   },
 };
@@ -681,16 +635,15 @@ const ownerWithFailingCodec = await sdk.Client.build(
   { ...options, codecs: [failingCodec] },
   inboxId,
 );
-const failedDecode = await ownerWithFailingCodec
-  .conversations()
-  .getMessageById(customId);
-if (failedDecode?.content.tag !== sdk.MessageContent_Tags.Custom)
+const failedDecode =
+  await ownerWithFailingCodec.conversations.getMessageById(customId);
+if (failedDecode?.content.kind !== "custom")
   throw new Error("failed custom decode did not keep its content");
-assert.match(String(failedDecode.content.inner.error), /codec decode failed/);
+assert.match(String(failedDecode.content.error), /codec decode failed/);
 await ownerWithFailingCodec.end();
-const throwingCodec = {
+const throwingCodec: sdk.ContentCodec<string> = {
   ...customCodec,
-  decode(_value: sdk.EncodedContent): string {
+  decode() {
     throw new Error("codec exploded");
   },
 };
@@ -699,60 +652,43 @@ const ownerWithThrowingCodec = await sdk.Client.build(
   { ...options, codecs: [throwingCodec] },
   inboxId,
 );
-const throwingGroup = await ownerWithThrowingCodec
-  .conversations()
-  .createGroup([], undefined);
+const throwingGroup = await ownerWithThrowingCodec.conversations.createGroup(
+  [],
+);
 // verifies: PROC-045
-const codecStream = new sdk.MessageStream(
-  (signal) => throwingGroup.messageReader({ signal }),
+const codecStream = sdk.MessageStream.openGroup(
   ownerWithThrowingCodec,
+  throwingGroup,
 );
-const brokenId = await throwingGroup.send(
-  customCodec.encode("bad decode"),
-  undefined,
-);
+const brokenId = await throwingGroup.send(customCodec.encode("bad decode"));
 const broken = (await codecStream.next()).value;
-assert.equal(broken?.id.toString(), brokenId.toString());
-assert.equal(broken?.content.tag, sdk.MessageContent_Tags.Custom);
-assert.match(
-  (broken?.content as { inner?: { error?: string } }).inner?.error ?? "",
-  /codec exploded/,
-);
+assert.equal(broken?.id, brokenId);
+if (broken?.content.kind !== "custom")
+  throw new Error("a failed decode did not keep its custom content");
+assert.match(broken.content.error ?? "", /codec exploded/);
 const continuedId = await throwingGroup.sendText("after codec error");
-assert.equal(
-  (await codecStream.next()).value?.id.toString(),
-  continuedId.toString(),
-);
+assert.equal((await codecStream.next()).value?.id, continuedId);
 await codecStream.end();
 await ownerWithThrowingCodec.end();
 await ownerWithCodec.end();
 await ownerWithoutCodec.end();
 console.log("Node scenario 6: custom codec stayed with its client");
 
-const archive = await reopened.raw
-  .archives()
-  .exportToBytes(new Uint8Array(32).fill(7).buffer, undefined);
-assert.ok(archive.byteLength > 0);
+const archiveKey = new Uint8Array(32).fill(7);
+const archive = await reopened.archives.exportToBytes(archiveKey, undefined);
+assert.ok(archive instanceof Uint8Array && archive.byteLength > 0);
 assert.equal(
-  (
-    await reopened.raw
-      .archives()
-      .metadataFromBytes(archive, new Uint8Array(32).fill(7).buffer)
-  ).backupVersion,
+  (await reopened.archives.metadataFromBytes(archive, archiveKey))
+    .backupVersion,
   0,
 );
 const archiveDir = await mkdtemp(join(tmpdir(), "xmtp-sdk-archive-"));
 try {
   const archivePath = join(archiveDir, "snapshot.xmtp");
-  await reopened.raw
-    .archives()
-    .exportToFile(archivePath, new Uint8Array(32).fill(7).buffer, undefined);
+  await reopened.archives.exportToFile(archivePath, archiveKey, undefined);
   assert.equal(
-    (
-      await reopened.raw
-        .archives()
-        .metadataFromFile(archivePath, new Uint8Array(32).fill(7).buffer)
-    ).backupVersion,
+    (await reopened.archives.metadataFromFile(archivePath, archiveKey))
+      .backupVersion,
     0,
   );
 } finally {
@@ -763,32 +699,30 @@ console.log("Node scenario 9: archive bytes and file passed");
 // verifies: EVENT-014
 // verifies: EVENT-050
 // verifies: EVENT-053
-const eventFilter = {
-  kinds: [sdk.EventKind.ConversationJoined],
-  conversationIds: undefined,
-  contentTypes: undefined,
+const eventFilter: sdk.EventFilter = {
+  kinds: ["conversationJoined"],
   referencesOwnMessages: false,
 };
-const eventReader = await reopened.raw.events(eventFilter);
+const eventReader = await reopened.events(eventFilter);
 let listenerCalls = 0;
 const listenerId = await reopened.startListener(eventFilter, async () => {
   listenerCalls += 1;
 });
-await reopened.raw.conversations().createGroup([]);
-const sampleEvent = await eventReader.next();
-assert.ok(sampleEvent);
+await reopened.conversations.createGroup([]);
+const sampleEvent = (await eventReader.next()).value;
+assert.equal(sampleEvent?.kind, "conversationJoined");
 for (let attempt = 0; attempt < 100 && listenerCalls === 0; attempt += 1)
   await new Promise((resolve) => setTimeout(resolve, 10));
 assert.equal(listenerCalls, 1);
 await reopened.stopListener(listenerId);
-await eventReader.end();
+await eventReader.return();
 console.log("Node scenario 8: event reader and listener passed");
 
 // verifies: EVENT-014
 // verifies: EVENT-053
 const eventStream = await reopened.events(eventFilter);
 assert.ok(eventStream instanceof sdk.EventStream);
-await reopened.raw.conversations().createGroup([]);
+await reopened.conversations.createGroup([]);
 let publicEvents = 0;
 for await (const event of eventStream) {
   assert.ok(event);
@@ -798,7 +732,7 @@ for await (const event of eventStream) {
 assert.equal(publicEvents, 1, "public EventStream missed the event");
 assert.deepEqual(await eventStream.next(), { done: true, value: undefined });
 let endedReaders = 0;
-const returnProbe = new sdk.EventStream({
+const returnProbe = new HostEventStream({
   next: async () => sampleEvent,
   end: async () => {
     endedReaders += 1;
@@ -825,7 +759,7 @@ let lateCalls = 0;
 const delayedId = await reopened.startListener(eventFilter, () => {
   lateCalls += 1;
 });
-await reopened.raw.conversations().createGroup([]);
+await reopened.conversations.createGroup([]);
 await startEntered;
 await reopened.stopListener(delayedId);
 releaseStart();
@@ -844,7 +778,7 @@ reentrantId = await reopened.startListener(eventFilter, async () => {
   await reopened.stopListener(reentrantId);
   resolveStopped();
 });
-await reopened.raw.conversations().createGroup([]);
+await reopened.conversations.createGroup([]);
 await Promise.race([
   stoppedInside,
   new Promise<never>((_, reject) =>
@@ -865,7 +799,7 @@ await reopened.startListener(eventFilter, async () => {
   resolveEnded();
 });
 try {
-  await reopened.raw.conversations().createGroup([]);
+  await reopened.conversations.createGroup([]);
 } catch {
   /* end may close this call */
 }

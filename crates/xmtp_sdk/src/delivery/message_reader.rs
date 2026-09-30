@@ -12,6 +12,7 @@ use xmtp_mls::subscriptions::{
     },
     message_reader::{MessageReader as CoreMessageReader, MessageReaderControl},
 };
+#[cfg(test)]
 use xmtp_proto::types::GroupId;
 
 use crate::{ConnectionState, Message, XmtpError, conversation::on_sdk_worker};
@@ -26,6 +27,8 @@ pub struct MessageReader {
     client_key: u64,
     #[cfg(test)]
     pub(crate) handoff_gate: Arc<Mutex<Option<Arc<HandoffGate>>>>,
+    #[cfg(test)]
+    pub(crate) worker_reply_gate: Mutex<Option<Arc<HandoffGate>>>,
     #[cfg(test)]
     corrupt_next_message: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -52,16 +55,31 @@ pub(crate) struct HandoffGate {
 impl MessageReader {
     pub(crate) fn open(
         context: xmtp_mls::MlsContext,
-        group_id: GroupId,
+        scope: DeliveryScope,
+        filter: LocalDeliveryFilter,
+        from: Option<String>,
         client_key: u64,
     ) -> Result<Arc<Self>, XmtpError> {
-        let reader = CoreMessageReader::new(
-            context.clone(),
-            DeliveryScope::Groups(vec![group_id]),
-            LocalDeliveryFilter::default(),
-            None,
-        )
-        .map_err(super::delivery_error)?;
+        use xmtp_db::delivery::QueryDelivery;
+        let from = from.as_deref().map(super::cursor::parse).transpose()?;
+        if let Some(cursor) = from {
+            let current = context
+                .db()
+                .current_delivery_cursor()
+                .map_err(|error| super::delivery_error(LocalDeliveryError::Storage(error)))?;
+            if cursor.database_id != current.database_id {
+                return Err(super::delivery_error(LocalDeliveryError::Storage(
+                    xmtp_db::StorageError::Stream(
+                        xmtp_db::stream_storage::StreamStorageError::ForeignCursor,
+                    ),
+                )));
+            }
+            if cursor.delivery_sequence > current.delivery_sequence {
+                return Err(super::cursor::invalid());
+            }
+        }
+        let reader = CoreMessageReader::new(context.clone(), scope, filter, from)
+            .map_err(super::delivery_error)?;
         let control = reader.control();
         Ok(Arc::new(Self {
             reader: Arc::new(AsyncMutex::new(reader)),
@@ -76,6 +94,8 @@ impl MessageReader {
             client_key,
             #[cfg(test)]
             handoff_gate: Arc::new(Mutex::new(None)),
+            #[cfg(test)]
+            worker_reply_gate: Mutex::new(None),
             #[cfg(test)]
             corrupt_next_message: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -141,138 +161,161 @@ impl MessageReader {
         let mut corrupt_next_message = self
             .corrupt_next_message
             .swap(false, std::sync::atomic::Ordering::AcqRel);
-        on_sdk_worker(self.context.clone(), async move {
-            let mut reader = reader.lock().await;
-            if request_cancel.is_cancelled() {
-                return Ok(false);
-            }
-            {
-                let mut state = state.lock();
-                if state.ended {
+        let ready = on_sdk_worker(
+            self.context.clone(),
+            Box::pin(async move {
+                let mut reader = reader.lock().await;
+                if request_cancel.is_cancelled() {
                     return Ok(false);
                 }
-                if let Some(previous) = state.previous.take()
-                    && let Err(error) = previous.acknowledge()
-                    && !selection_changed(&error)
                 {
-                    state.ended = true;
-                    control.close();
-                    return Err(super::delivery_error(error));
-                }
-                if let Some(pending) = state.pending.take() {
-                    match pending.acknowledgement.check_owner() {
-                        Ok(()) => {
-                            state.pending = Some(pending);
-                            return Ok(true);
+                    let mut state = state.lock();
+                    if state.ended {
+                        return Ok(false);
+                    }
+                    if let Some(previous) = state.previous.take()
+                        && let Err(error) = previous.acknowledge()
+                        && !selection_changed(&error)
+                    {
+                        state.ended = true;
+                        control.close();
+                        return Err(super::delivery_error(error));
+                    }
+                    if let Some(pending) = state.pending.take() {
+                        match pending.acknowledgement.check_owner() {
+                            Ok(()) => {
+                                state.pending = Some(pending);
+                                return Ok(true);
+                            }
+                            Err(error) if selection_changed(&error) => {
+                                pending.acknowledgement.reject();
+                            }
+                            Err(error) => {
+                                state.ended = true;
+                                control.close();
+                                return Err(super::delivery_error(error));
+                            }
                         }
+                    }
+                }
+                loop {
+                    #[cfg(test)]
+                    idle_read.notify_one();
+                    let item = match tokio::select! {
+                        biased;
+                        _ = request_cancel.cancelled() => return Ok(false),
+                        result = reader.next_delivery() => result,
+                    } {
+                        Ok(item) => item,
+                        Err(_) if state.lock().ended => return Ok(false),
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            return Err(super::delivery_error(error));
+                        }
+                    };
+                    let Some(item) = item else { return Ok(false) };
+                    #[cfg(test)]
+                    let mut item = item;
+                    #[cfg(test)]
+                    if corrupt_next_message {
+                        item.message.id.clear();
+                        corrupt_next_message = false;
+                    }
+                    if state.lock().ended {
+                        item.acknowledgement.reject();
+                        return Ok(false);
+                    }
+                    let enriched = match enrich_messages_with_stored(
+                        context.db(),
+                        &item.message.group_id,
+                        vec![item.message.clone()],
+                    ) {
+                        Ok(enriched) => enriched,
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            item.acknowledgement.reject();
+                            return Err(super::enrichment_error(error));
+                        }
+                    };
+                    let message = match enriched.into_iter().next() {
+                        Some(value) => Message::from_enriched(
+                            value.stored,
+                            value.decoded,
+                            value.parent_stored,
+                            client_key,
+                        )
+                        .or_else(|_| Message::from_stored(item.message.clone(), client_key)),
+                        None => Message::from_stored(item.message.clone(), client_key),
+                    };
+                    let message = match message {
+                        Ok(message) => message.with_delivery_cursor(Some(item.cursor)),
+                        Err(error) => {
+                            state.lock().ended = true;
+                            control.close();
+                            item.acknowledgement.reject();
+                            return Err(error);
+                        }
+                    };
+                    #[cfg(test)]
+                    let gate = handoff_gate.lock().take();
+                    #[cfg(test)]
+                    if let Some(gate) = gate {
+                        gate.arrived.notify_one();
+                        gate.release.notified().await;
+                    }
+                    if request_cancel.is_cancelled() {
+                        let mut state = state.lock();
+                        if state.ended {
+                            item.acknowledgement.reject();
+                        } else {
+                            state.pending = Some(PendingMessage {
+                                message,
+                                acknowledgement: item.acknowledgement,
+                            });
+                        }
+                        return Ok(false);
+                    }
+                    // Preparation does not admit the item. This check is the handoff.
+                    match item.acknowledgement.check_owner() {
+                        Ok(()) => {}
                         Err(error) if selection_changed(&error) => {
-                            pending.acknowledgement.reject();
+                            item.acknowledgement.reject();
+                            continue;
+                        }
+                        Err(_) if state.lock().ended => {
+                            item.acknowledgement.reject();
+                            return Ok(false);
                         }
                         Err(error) => {
-                            state.ended = true;
+                            state.lock().ended = true;
                             control.close();
                             return Err(super::delivery_error(error));
                         }
                     }
-                }
-            }
-            loop {
-                #[cfg(test)]
-                idle_read.notify_one();
-                let item = match tokio::select! {
-                    biased;
-                    _ = request_cancel.cancelled() => return Ok(false),
-                    result = reader.next_delivery() => result,
-                } {
-                    Ok(item) => item,
-                    Err(_) if state.lock().ended => return Ok(false),
-                    Err(error) => {
-                        state.lock().ended = true;
-                        control.close();
-                        return Err(super::delivery_error(error));
-                    }
-                };
-                let Some(item) = item else { return Ok(false) };
-                #[cfg(test)]
-                let mut item = item;
-                #[cfg(test)]
-                if corrupt_next_message {
-                    item.message.id.clear();
-                    corrupt_next_message = false;
-                }
-                #[cfg(test)]
-                let gate = handoff_gate.lock().take();
-                #[cfg(test)]
-                if let Some(gate) = gate {
-                    gate.arrived.notify_one();
-                    gate.release.notified().await;
-                }
-                if state.lock().ended {
-                    item.acknowledgement.reject();
-                    return Ok(false);
-                }
-                match item.acknowledgement.check_owner() {
-                    Ok(()) => {}
-                    Err(error) if selection_changed(&error) => {
-                        item.acknowledgement.reject();
-                        continue;
-                    }
-                    Err(_) if state.lock().ended => {
+                    let mut state = state.lock();
+                    if state.ended {
                         item.acknowledgement.reject();
                         return Ok(false);
                     }
-                    Err(error) => {
-                        state.lock().ended = true;
-                        control.close();
-                        return Err(super::delivery_error(error));
-                    }
+                    state.pending = Some(PendingMessage {
+                        message,
+                        acknowledgement: item.acknowledgement,
+                    });
+                    return Ok(true);
                 }
-                let enriched = match enrich_messages_with_stored(
-                    context.db(),
-                    &item.message.group_id,
-                    vec![item.message.clone()],
-                ) {
-                    Ok(enriched) => enriched,
-                    Err(error) => {
-                        state.lock().ended = true;
-                        control.close();
-                        item.acknowledgement.reject();
-                        return Err(super::enrichment_error(error));
-                    }
-                };
-                let message = match enriched.into_iter().next() {
-                    Some(value) => Message::from_enriched(
-                        value.stored,
-                        value.decoded,
-                        value.parent_stored,
-                        client_key,
-                    )
-                    .or_else(|_| Message::from_stored(item.message.clone(), client_key)),
-                    None => Message::from_stored(item.message.clone(), client_key),
-                };
-                let message = match message {
-                    Ok(message) => message,
-                    Err(error) => {
-                        state.lock().ended = true;
-                        control.close();
-                        item.acknowledgement.reject();
-                        return Err(error);
-                    }
-                };
-                let mut state = state.lock();
-                if state.ended {
-                    item.acknowledgement.reject();
-                    return Ok(false);
-                }
-                state.pending = Some(PendingMessage {
-                    message,
-                    acknowledgement: item.acknowledgement,
-                });
-                return Ok(true);
-            }
-        })
-        .await
-        .and_then(|ready| {
+            }),
+        )
+        .await;
+        #[cfg(test)]
+        let gate = self.worker_reply_gate.lock().take();
+        #[cfg(test)]
+        if let Some(gate) = gate {
+            gate.arrived.notify_one();
+            gate.release.notified().await;
+        }
+        ready.and_then(|ready| {
             if !ready {
                 return Ok(None);
             }

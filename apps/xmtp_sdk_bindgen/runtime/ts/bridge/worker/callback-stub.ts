@@ -13,10 +13,13 @@ interface Pending {
 export class WorkerCallbacks {
   private nextId = 1;
   private readonly pending = new Map<number, Pending>();
+  // Called when a host callback starts, with its handle.
+  onInvoke?: (cb: number) => void;
 
   constructor(private readonly endpoint: WireEndpoint) {}
 
   invoke(cb: number, method: string, args: unknown[]): Promise<unknown> {
+    this.onInvoke?.(cb);
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject });

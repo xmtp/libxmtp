@@ -130,8 +130,11 @@ fun main() =
                 storage = androidStorage,
                 deviceSync = false,
             )
+        checkReaderCursor(signer, backendOptions)
+        checkRestoredPeer(backendOptions)
+        checkIdentityRoutes(backendOptions)
         val host = SDKClient.create(signer, options)
-        val client = host.raw
+        val client = host
         // Uppercase hex decodes, so only ID validation rejects it.
         val invalidId = runCatching { client.conversations().getMessageById("AB".repeat(32)) }.exceptionOrNull()
         check(invalidId is XmtpException.InvalidArgument)
@@ -223,7 +226,7 @@ fun main() =
         check(runCatching { sent.refresh() }.exceptionOrNull() is XmtpException.ClientClosed)
         check(Message(sent.data.copy(clientKey = sent.data.clientKey + 1uL)) != sent)
         val reopenedHost = SDKClient.build(signer.identity(), options, inboxId)
-        val reopened = reopenedHost.raw
+        val reopened = reopenedHost
         check(reopened.inboxId() == inboxId)
         check(
             runCatching {
@@ -423,7 +426,7 @@ fun main() =
         val conversationValues =
             async {
                 reopenedHost
-                    .conversations(onClose = { conversationClose = it })
+                    .conversationStream(onClose = { conversationClose = it })
                     .take(1)
                     .toList()
             }
@@ -435,7 +438,7 @@ fun main() =
         val throwingConversationValues =
             async {
                 reopenedHost
-                    .conversations(
+                    .conversationStream(
                         onClose = {
                             throwingConversationReasons.add(it)
                             throw IllegalStateException("conversation close callback failed")
@@ -510,19 +513,23 @@ fun main() =
                         ),
                     ),
                 storage = options.storage,
+                workers = WorkerOptions(defaultIntervalNs = largeExpiry.toULong()),
             )
         val credentialHost = SDKClient.build(signer.identity(), credentialOptions, inboxId)
-        check(
-            credentialHost.raw
-                .options()
-                .backend
-                .let { it as BackendSource.Options }
-                .options.credential
-                ?.expiresAtSeconds == largeExpiry,
-        ) {
-            "credential expiry lost 64-bit precision"
+        val savedOptions = credentialHost.options()
+        check(savedOptions.workers?.defaultIntervalNs == largeExpiry.toULong()) {
+            "worker interval lost 64-bit precision"
         }
-        credentialHost.raw.setCredential(Credential(null, "Bearer renewed", largeExpiry))
+        // The options never return the backend token or the database key.
+        val savedBackend = (savedOptions.backend as BackendSource.Options).options
+        check(
+            savedBackend.credential == null &&
+                savedBackend.credentials == null &&
+                savedOptions.storage.encryptionKey == null,
+        ) {
+            "client options exposed a secret"
+        }
+        credentialHost.setCredential(Credential(null, "Bearer renewed", largeExpiry))
         credentialHost.end()
         println("Kotlin scenario 3: credential update and 64-bit value passed")
 
@@ -589,12 +596,12 @@ fun main() =
                 registration = RegistrationOptions(auto = false),
             )
         val unsignedHost = SDKClient.create(local, unsignedOptions)
-        check(!unsignedHost.raw.isRegistered())
-        val request = checkNotNull(unsignedHost.raw.unsafeCreateInboxSignatureRequest())
+        check(!unsignedHost.isRegistered())
+        val request = checkNotNull(unsignedHost.unsafeCreateInboxSignatureRequest())
         check(request.signatureText().isNotEmpty())
         request.sign(local)
-        unsignedHost.raw.unsafeApplySignatureRequest(request)
-        check(unsignedHost.raw.isRegistered())
+        unsignedHost.unsafeApplySignatureRequest(request)
+        check(unsignedHost.isRegistered())
         unsignedHost.end()
         println("Kotlin scenario 11: local signer and signature request passed")
 
@@ -606,10 +613,10 @@ fun main() =
                 unsignedOptions.copy(handlers = ClientHandlers(RecordingPreAuthenticate(preAuthCalls, fail = false))),
             )
         check(preAuthCalls.isEmpty())
-        preAuthenticated.raw.register()
+        preAuthenticated.register()
         check(preAuthCalls == listOf("pre-authenticate", "sign")) { "$preAuthCalls" }
         preAuthCalls.clear()
-        preAuthenticated.raw.register()
+        preAuthenticated.register()
         check(preAuthCalls.isEmpty()) { "$preAuthCalls" }
         preAuthenticated.end()
         check(
@@ -671,11 +678,11 @@ fun main() =
             }
         val errorHost = SDKClient.create(errorSigner, unsignedOptions)
         check(
-            withTimeout(10_000) { runCatching { errorHost.raw.register() }.exceptionOrNull() } is XmtpException.Signer,
+            withTimeout(10_000) { runCatching { errorHost.register() }.exceptionOrNull() } is XmtpException.Signer,
         )
         errorHost.end()
         val unsignedErrorHost = SDKClient.create(generateLocalSigner(), unsignedOptions)
-        val errorRequest = checkNotNull(unsignedErrorHost.raw.unsafeCreateInboxSignatureRequest())
+        val errorRequest = checkNotNull(unsignedErrorHost.unsafeCreateInboxSignatureRequest())
         check(
             withTimeout(10_000) { runCatching { errorRequest.sign(errorSigner) }.exceptionOrNull() }
                 is XmtpException.Signer,
@@ -795,22 +802,22 @@ fun main() =
         }
         slashHost.end()
         val customId = family.send(codec.encode("codec value"), null)
-        val decoded = checkNotNull(withCodec.raw.conversations().getMessageById(customId))
-        val undecoded = checkNotNull(withoutCodec.raw.conversations().getMessageById(customId))
+        val decoded = checkNotNull(withCodec.conversations().getMessageById(customId))
+        val undecoded = checkNotNull(withoutCodec.conversations().getMessageById(customId))
         check((decoded.content as? SDKMessageContent.Custom)?.value == "codec value")
         check(undecoded.content is SDKMessageContent.Unknown)
         val customReplyId =
-            withCodec.raw.conversations().replyToMessage(
+            withCodec.conversations().replyToMessage(
                 customId,
                 codec.encode("reply codec value"),
                 null,
             )
-        val customReply = checkNotNull(withCodec.raw.conversations().getMessageById(customReplyId))
+        val customReply = checkNotNull(withCodec.conversations().getMessageById(customReplyId))
         check((customReply.replyContent as? SDKReplyContent.Custom)?.value == "reply codec value") {
             "reply body custom codec did not run"
         }
         val failingHost = SDKClient.build(signer.identity(), options, inboxId, codecs = listOf(FailingCodec()))
-        val failed = checkNotNull(failingHost.raw.conversations().getMessageById(customId))
+        val failed = checkNotNull(failingHost.conversations().getMessageById(customId))
         check((failed.content as? SDKMessageContent.Custom)?.error is AssertionError)
         failingHost.end()
         println("Kotlin codec_scoped_to_client passed")

@@ -1,8 +1,13 @@
 mod bridge;
 mod callback_cursor;
+mod format;
 mod forwarding;
+mod identity_unions;
 mod kotlin_callbacks;
 mod kotlin_records;
+mod nullable_identity;
+mod public_projection;
+mod reader_defaults;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -37,6 +42,10 @@ enum Command {
         config: Option<Utf8PathBuf>,
         #[arg(long)]
         pure_only: bool,
+        /// Leave generated TypeScript unformatted. For jobs that only load the
+        /// generated package and have no JavaScript toolchain.
+        #[arg(long)]
+        no_format: bool,
     },
     StageWasm {
         #[arg(long)]
@@ -63,7 +72,13 @@ fn main() -> Result<()> {
             out,
             config,
             pure_only,
-        } => generate(&lib, language, &out, config.as_deref(), pure_only),
+            no_format,
+        } => {
+            if no_format {
+                format::disable();
+            }
+            generate(&lib, language, &out, config.as_deref(), pure_only)
+        }
         Command::StageWasm { lib, out } => {
             fs::create_dir_all(&out)?;
             ubrn_common::stage_wasm(&lib, &out, "xmtp_sdk", false)?;
@@ -195,6 +210,11 @@ fn generate(
                     callback_cursor::rewrite(&fs::read_to_string(&binding)?)?,
                 )?;
             }
+            if !pure_only {
+                let source = nullable_identity::rewrite(&fs::read_to_string(&binding)?)?;
+                let source = identity_unions::rewrite(&source)?;
+                fs::write(&binding, reader_defaults::rewrite(&source)?)?;
+            }
             if is_wasm && !pure_only {
                 let mut body = fs::read_to_string(&binding)?;
                 body.push_str("\nexport { Message, Timestamp } from './runtime';\n");
@@ -206,7 +226,7 @@ fn generate(
                 source.push_str("\nlet pureLoading: Promise<void> | undefined;\nexport function initPureWasm(wasm: URL = new URL('./xmtp_sdk.wasm', import.meta.url)): Promise<void> { pureLoading ??= uniffiInitAsync(wasm); return pureLoading; }\nexport { TextCodec, MarkdownCodec, ReadReceiptCodec, ReactionV2Codec, AttachmentCodec, RemoteAttachmentCodec, MultiRemoteAttachmentCodec, TransactionReferenceCodec, WalletSendCallsCodec, ActionsCodec, IntentCodec, ReplyCodec, GroupUpdatedCodec, DeleteMessageCodec, LeaveRequestCodec } from './runtime/codecs';\n");
                 source.push_str("export { Timestamp } from './runtime';\n");
             } else if is_wasm {
-                source.push_str("\nexport { Client } from './proxy.gen';\nexport { Message } from './host-message.gen';\nexport { Timestamp, MessageStream, ConversationStream, EventStream } from './runtime';\n");
+                source.push_str("\nexport { Client, Storage } from './public-client.gen';\nexport type { StorageAdmin } from './storage-admin.gen';\nexport { Message } from './host-message.gen';\nexport { Timestamp, MessageStream, ConversationStream, EventStream } from './runtime';\n");
                 source.push_str(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );
@@ -279,6 +299,30 @@ fn generate(
                 out.join("runtime/message.ts"),
             )?;
         }
+    }
+    if !pure_only
+        && matches!(
+            language,
+            Language::TypescriptNapi | Language::TypescriptWasm
+        )
+    {
+        forwarding::generate_typescript(&metadata, out)?;
+        let target = if matches!(language, Language::TypescriptNapi) {
+            public_projection::Target::Node
+        } else {
+            // The browser target module uses the worker proxies. The browser
+            // has no process log sink or runtime codecs in this tree.
+            let public = out.join("runtime/public");
+            fs::write(
+                public.join("host.ts"),
+                include_str!("../templates/bridge/public-host.ts"),
+            )?;
+            for name in ["logging.ts", "codecs.ts"] {
+                fs::remove_file(public.join(name))?;
+            }
+            public_projection::Target::Browser
+        };
+        public_projection::generate(&metadata, out, target)?;
     }
     if matches!(language, Language::Swift | Language::Kotlin) {
         forwarding::generate(&metadata, language, out)?;

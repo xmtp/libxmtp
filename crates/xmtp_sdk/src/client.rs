@@ -69,13 +69,22 @@ impl Drop for OpenStoreGuard {
     }
 }
 
-/// @xmtp-worker Reports whether a failed create left the store of its client
-/// open. The browser worker reads this after a failed create, before it
-/// releases the storage lock. Apps do not call it.
+/// @xmtp-worker Reports whether storage requires worker termination. A failed
+/// or cancelled create can leave a store open. A failed VFS transition can
+/// leave partial access handles. Keep the storage lock until the worker ends.
+/// Apps do not call this function.
 #[cfg(all(target_arch = "wasm32", not(feature = "pure-only")))]
 #[uniffi::export]
-pub fn store_left_open() -> bool {
-    STORE_LEFT_OPEN.load(Ordering::Relaxed)
+pub fn storage_requires_worker_restart() -> bool {
+    STORE_LEFT_OPEN.load(Ordering::Relaxed) || xmtp_db::opfs_requires_worker_restart()
+}
+
+/// @xmtp-worker Finish idle storage work before the package terminates its worker.
+/// The worker calls this only after all owners and accepted calls have drained.
+#[cfg(all(target_arch = "wasm32", not(feature = "pure-only")))]
+#[uniffi::export]
+pub fn prepare_storage_for_shutdown() {
+    xmtp_db::pause_sqlite_if_idle();
 }
 
 #[derive(Default)]
@@ -126,13 +135,10 @@ async fn open_existing_store(
     {
         let path =
             wasm_storage_path(options, inbox_id)?.ok_or_else(XmtpError::identity_not_found)?;
-        xmtp_db::try_init_sqlite()
+        if !xmtp_db::opfs_database_exists(&path)
             .await
-            .map_err(map_wasm_storage_error)?;
-        let pool = xmtp_db::get_sqlite()
-            .ok_or_else(|| XmtpError::unknown("OPFS pool is unavailable"))?
-            .map_err(XmtpError::unknown)?;
-        if !pool.exists(&path).map_err(XmtpError::unknown)? {
+            .map_err(map_wasm_storage_error)?
+        {
             return Err(XmtpError::identity_not_found());
         }
     }
@@ -269,26 +275,45 @@ pub(crate) async fn open_store(
     use xmtp_db::{EncryptedMessageStore, WasmDb};
 
     let location = wasm_store_location(options, inbox_id)?;
-    if matches!(&location, xmtp_db::StorageOption::Persistent(_)) {
-        xmtp_db::try_init_sqlite()
-            .await
-            .map_err(map_wasm_storage_error)?;
-    }
-    let db = WasmDb::new(&location)
+    let db = WasmDb::new_strict(&location)
         .await
         .map_err(map_wasm_storage_error)?;
-    EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
+    EncryptedMessageStore::new(db).map_err(map_wasm_storage_error)
 }
 
 #[cfg(target_arch = "wasm32")]
-fn map_wasm_storage_error(error: xmtp_db::PlatformStorageError) -> XmtpError {
-    match error {
-        xmtp_db::PlatformStorageError::SAH(xmtp_db::OpfsSAHError::CreateSyncAccessHandle(_)) => {
-            XmtpError::storage_busy(error.to_string())
+pub(crate) fn map_wasm_storage_error(error: impl std::error::Error + 'static) -> XmtpError {
+    use xmtp_db::{ConnectionError, OpfsSAHError, PlatformStorageError, StorageError};
+
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&error);
+    while let Some(current) = cause {
+        // Transparent storage and connection errors delegate source(). Inspect
+        // their variants so a platform error with no source is not lost.
+        let platform = match current.downcast_ref::<StorageError>() {
+            Some(StorageError::Platform(platform)) => Some(platform),
+            Some(StorageError::Connection(ConnectionError::Platform(platform))) => Some(platform),
+            _ => match current.downcast_ref::<ConnectionError>() {
+                Some(ConnectionError::Platform(platform)) => Some(platform),
+                _ => current.downcast_ref::<PlatformStorageError>(),
+            },
+        };
+        match platform {
+            Some(PlatformStorageError::InvalidDatabasePath) => {
+                return XmtpError::invalid(error.to_string());
+            }
+            Some(
+                PlatformStorageError::DatabaseInUse
+                | PlatformStorageError::SAH(OpfsSAHError::CreateSyncAccessHandle(_)),
+            ) => return XmtpError::storage_busy(error.to_string()),
+            _ => cause = current.source(),
         }
-        other => XmtpError::unknown(other),
     }
+    XmtpError::unknown(error)
 }
+
+#[cfg(all(test, target_arch = "wasm32"))]
+#[path = "client/wasm_storage_tests.rs"]
+mod wasm_storage_tests;
 
 #[cfg(all(test, target_arch = "wasm32"))]
 mod wasm_storage_error_tests {

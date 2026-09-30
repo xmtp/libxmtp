@@ -1,12 +1,20 @@
 import assert from "node:assert/strict";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+// The shared host reader stream that the public streams extend. These cases
+// drive it with fake readers, so they use its binding connection states.
+import type { Client } from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import {
+  ConversationStream,
+  MessageStream,
+  type StreamCloseReason,
+} from "../../../../target/sdk-conformance/typescript-napi/runtime/streams/reader.ts";
+import { ConnectionState } from "../../../../target/sdk-conformance/typescript-napi/xmtp_sdk.ts";
 import { assertNoUnhandledRejection } from "./node-support.mts";
 
-export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
+export async function streamLifecycle(reopened: Client): Promise<void> {
   // verifies: PROC-041, PROC-042
-  for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
-    const closeReasons: sdk.StreamCloseReason[] = [];
+  for (const StreamType of [MessageStream, ConversationStream]) {
+    const closeReasons: StreamCloseReason[] = [];
     const explicitlyClosed = new StreamType(
       async () => ({ next: async () => undefined, end: async () => {} }),
       reopened,
@@ -36,8 +44,8 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
       };
     };
     const readFailure = new Error("reader failed before close");
-    let replacement: sdk.MessageStream | undefined;
-    const stream = new sdk.MessageStream(
+    let replacement: MessageStream<unknown> | undefined;
+    const stream = new MessageStream(
       async () => ({
         ...(await openScope()),
         next: async () => {
@@ -49,7 +57,7 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
       {
         onClose: (reason) => {
           assert.equal(reason.kind, closeMode === "end" ? "closed" : "failed");
-          replacement = new sdk.MessageStream(openScope, reopened);
+          replacement = new MessageStream(openScope, reopened);
         },
       },
     );
@@ -70,7 +78,7 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
       markReaderEndStarted = resolve;
     });
     const readFailure = new Error("reader failed during close");
-    const racing = new sdk.MessageStream(
+    const racing = new MessageStream(
       async () => ({
         next: async () => {
           throw readFailure;
@@ -108,7 +116,7 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
     assert.equal(readerEnds, 1, "concurrent closes ended the reader twice");
   }
   let endedAfterCloseThrow = false;
-  const throwingClose = new sdk.MessageStream(
+  const throwingClose = new MessageStream(
     async () => ({
       next: async () => undefined,
       end: async () => {
@@ -130,7 +138,7 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
     "throwing onClose skipped reader.end",
   );
   assert.equal((await throwingClose.next()).done, true);
-  const throwingEndOfStream = new sdk.MessageStream(
+  const throwingEndOfStream = new MessageStream(
     async () => ({ next: async () => undefined, end: async () => {} }),
     reopened,
     {
@@ -142,7 +150,7 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
   await throwingEndOfStream.ready();
   assert.equal((await throwingEndOfStream.next()).done, true);
   const endedSignal = new AbortController();
-  const endedWithSignal = new sdk.MessageStream(
+  const endedWithSignal = new MessageStream(
     async () => ({ next: async () => undefined, end: async () => {} }),
     reopened,
     { signal: endedSignal.signal },
@@ -167,7 +175,7 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
     let endedAfterAbort = false;
     let opened = false;
     await assertNoUnhandledRejection(async () => {
-      const aborted = new sdk.MessageStream(
+      const aborted = new MessageStream(
         async () => {
           opened = true;
           return {
@@ -202,7 +210,7 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
     });
   }
   let endedAfterFailureCloseThrow = false;
-  const throwingFailureClose = new sdk.MessageStream(
+  const throwingFailureClose = new MessageStream(
     async () => ({
       next: async () => {
         throw new Error("reader failed");
@@ -226,12 +234,12 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
     "throwing failure callback skipped reader.end",
   );
   let stateCallbackCalls = 0;
-  const throwingState = new sdk.MessageStream(
+  const throwingState = new MessageStream(
     async () => ({
       next: async () => undefined,
       end: async () => {},
-      connectionState: async () => sdk.ConnectionState.Connected,
-      connectionStateChanged: async () => sdk.ConnectionState.Closed,
+      connectionState: async () => ConnectionState.Connected,
+      connectionStateChanged: async () => ConnectionState.Closed,
     }),
     reopened,
     {
@@ -258,8 +266,8 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
     "ForeignCursor",
   ]) {
     const failure = Object.assign(new Error(code), { code });
-    const reasons: sdk.StreamCloseReason[] = [];
-    const failing = new sdk.MessageStream(
+    const reasons: StreamCloseReason[] = [];
+    const failing = new MessageStream(
       async () => ({
         next: async () => {
           throw failure;
@@ -276,44 +284,44 @@ export async function streamLifecycle(reopened: sdk.Client): Promise<void> {
       assert.equal((reasons[0].error as { code: string }).code, code);
   }
   // verifies: PROC-044
-  for (const StreamType of [sdk.MessageStream, sdk.ConversationStream]) {
-    const states: sdk.ConnectionState[] = [];
-    const changes: Array<(state: sdk.ConnectionState) => void> = [];
+  for (const StreamType of [MessageStream, ConversationStream]) {
+    const states: ConnectionState[] = [];
+    const changes: Array<(state: ConnectionState) => void> = [];
     const probe = new StreamType(
       async () => ({
         next: async () => undefined,
         end: async () => {},
-        connectionState: async () => sdk.ConnectionState.Connected,
+        connectionState: async () => ConnectionState.Connected,
         connectionStateChanged: () =>
-          new Promise<sdk.ConnectionState>((resolve) => changes.push(resolve)),
+          new Promise<ConnectionState>((resolve) => changes.push(resolve)),
       }),
       reopened,
       { onConnectionStateChange: (_previous, current) => states.push(current) },
     );
     await probe.ready();
     // A reader opened on a connected connection reports Connected first.
-    assert.deepEqual(states, [sdk.ConnectionState.Connected]);
-    changes.shift()?.(sdk.ConnectionState.Reconnecting);
+    assert.deepEqual(states, [ConnectionState.Connected]);
+    changes.shift()?.(ConnectionState.Reconnecting);
     await new Promise((resolve) => setTimeout(resolve, 0));
-    changes.shift()?.(sdk.ConnectionState.Connected);
+    changes.shift()?.(ConnectionState.Connected);
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.deepEqual(states, [
-      sdk.ConnectionState.Connected,
-      sdk.ConnectionState.Reconnecting,
-      sdk.ConnectionState.Connected,
+      ConnectionState.Connected,
+      ConnectionState.Reconnecting,
+      ConnectionState.Connected,
     ]);
     await probe.end();
   }
   let closedStatePolls = 0;
-  const closedStateProbe = new sdk.MessageStream(
+  const closedStateProbe = new MessageStream(
     async () => ({
       next: async () => undefined,
       end: async () => {},
-      connectionState: async () => sdk.ConnectionState.Closed,
+      connectionState: async () => ConnectionState.Closed,
       connectionStateChanged: async () => {
         closedStatePolls += 1;
         if (closedStatePolls > 2) throw new Error("closed state loop");
-        return sdk.ConnectionState.Closed;
+        return ConnectionState.Closed;
       },
     }),
     reopened,

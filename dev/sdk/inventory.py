@@ -696,9 +696,19 @@ def ts_class_members(path: Path, class_name: str, sdk: str) -> list[Entry]:
                     "while",
                 }:
                     name = match.group(1)
+                    # A static and an instance member can share a name. They
+                    # are separate API, so each keeps its own row.
+                    static = re.match(
+                        r"(?:(?:public|async|readonly|override|declare)\s+)*static\b",
+                        stripped,
+                    )
                     entries.append(
                         Entry(
-                            sdk, rel(path), index + 1, f"{class_name}.{name}", "member"
+                            sdk,
+                            rel(path),
+                            index + 1,
+                            f"{class_name}.{name}",
+                            "static member" if static else "member",
                         )
                     )
                     if "(" in stripped and "{" not in stripped and ";" not in stripped:
@@ -746,16 +756,17 @@ def ts_inventory(sdk: str) -> list[Entry]:
     raw = ts_exports(root / "index.ts", set())
     # Explicit and wildcard routes can reach the same symbol. The public name
     # has one slot at the package entry point.
-    by_name: dict[str, Entry] = {}
+    # A static and an instance member with one name keep separate slots.
+    by_name: dict[tuple[str, str], Entry] = {}
     for entry in raw:
-        by_name.setdefault(entry.name, entry)
+        by_name.setdefault((entry.name, entry.kind), entry)
     return list(by_name.values())
 
 
 try:
-    from dev.sdk.manifest_rules import Decision, classify, decision
+    from dev.sdk.manifest_rules import Decision, classify, client_placement, decision
 except ModuleNotFoundError:
-    from manifest_rules import Decision, classify, decision
+    from manifest_rules import Decision, classify, client_placement, decision
 
 
 def markdown_cell(value: str) -> str:
@@ -855,6 +866,27 @@ def stable_entries(
     return [(entry, key[3]) for key, entry, _ in sorted(keyed, key=sort_key)]
 
 
+def declared_static(entry: Entry, source_texts: dict[str, str] | None) -> bool:
+    """True when the current declaration is static or has no instance."""
+    if entry.display_name.startswith("func ") or ".Companion." in entry.name:
+        return True
+    if entry.kind == "static member":
+        return True
+    if entry.name.startswith("pattern:") or not entry.source.startswith("sdks/"):
+        return False
+    texts = source_texts or {}
+    text = texts.get(entry.source)
+    if text is None:
+        path = ROOT / entry.source
+        if not path.is_file():
+            return False
+        text = path.read_text()
+    lines = text.splitlines()
+    if not 0 < entry.line <= len(lines):
+        return False
+    return re.search(r"\bstatic\b|\bclass func\b", lines[entry.line - 1]) is not None
+
+
 def render_sdk_rows(
     sdk: str,
     entries: list[Entry],
@@ -879,6 +911,9 @@ def render_sdk_rows(
             "approved removal",
         }:
             raise ValueError(status)
+        if status in {"generated", "static runtime"}:
+            final, move = client_placement(final, declared_static(entry, source_texts))
+            note = f"{note} {move}".strip() if move else note
         current = f"`{entry.display_name}`"
         if entry.count > 1:
             current += f" ({entry.count} declarations)"
@@ -939,7 +974,7 @@ def build() -> str:
         "",
         "Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. "
         "A free property is `var name`, `val name`, or `let name`. "
-        "Nested owners use dots, such as `Client.Companion.create`. A computed member is `Owner[Symbol.asyncIterator]`. "
+        "Nested owners use dots, such as `Client.Companion.create`. A final Client member that is static in the new SDK has the `static` prefix, such as `static Client.create`; a note marks a member that changes placement. A computed member is `Owner[Symbol.asyncIterator]`. "
         "A named constructor parameter in a public signature uses `Owner.parameter` and Kind `constructor parameter`. "
         "A method may show a call shape in either name column, such as `Client.Companion.register(codec)`, `Group.state().name`, `Client.inboxId(for:)`, or `Conversation.lastActivityAt(contentTypes?)`; `Client.inboxId` without parentheses is the field. "
         "An enum value under a record field uses `Record.field.value`, such as `ListMessagesOptions.sortBy.sentAt`. "
@@ -1132,7 +1167,7 @@ def self_test() -> None:
             ),
             "Conversations.newGroupCustomPermissionsWithIdentities": (
                 "generated",
-                "Conversations.createGroupWithIdentities",
+                "Conversations.createGroup",
             ),
             "Group.updateImageUrlPermission": ("generated", "Group.updatePermission"),
             "Group.leaveGroup": ("generated", "Group.requestRemoval"),
@@ -1204,7 +1239,7 @@ def self_test() -> None:
             "PrivatePreferences.client": ("approved removal", "—"),
             "MessageReader.next": ("generated", "MessageReader.next"),
             "Group.updateNamePermission": ("generated", "Group.updatePermission"),
-            "Group.addMembersByIdentity": ("generated", "Group.addMembersByIdentity"),
+            "Group.addMembersByIdentity": ("generated", "Group.addMembers"),
             "IdentityKind.toFfiPublicIdentifierKind": ("approved removal", "—"),
             "EncodedContent.compress": ("approved removal", "—"),
             "ClientOptions.appContext": ("platform helper", "StorageOptions(context)"),
@@ -1300,12 +1335,10 @@ def self_test() -> None:
         "Swift": {
             "Client.inMemoryDbPath",
             "Client.setLibXMTPNativeLogLevel",
-            "Group.addMembersByIdentity",
             "Conversation.clientInboxId",
             "FfiXmtpClient.waitForRegistrationVisible",
         },
         "Kotlin": {
-            "Group.addMembersByIdentity",
             "ContentTypeIdBuilder",
             "func encodedContentFromFfi",
             "func validateInboxId",

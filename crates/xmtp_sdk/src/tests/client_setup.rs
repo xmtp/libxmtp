@@ -155,6 +155,18 @@ async fn client_configuration_and_credential_update() {
             expires_at_seconds: i64::MAX,
         })
         .await?;
+    // The backend token is a secret; the public options omit it.
+    let Some(BackendSource::Options { options: exposed }) = authenticated.options().backend else {
+        panic!("test uses backend options");
+    };
+    assert!(
+        exposed.credential.is_none(),
+        "options exposed the credential"
+    );
+    assert!(
+        exposed.credentials.is_none(),
+        "options exposed the credential source"
+    );
     assert!(matches!(
         authenticated
             .set_credential(Credential {

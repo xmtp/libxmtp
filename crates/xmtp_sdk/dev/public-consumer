@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# Stage the generated SDK as separate public products, then compile separate
+# consumer projects against them. The consumers call the retained public
+# surface from the approved plan. Negative probes must fail on visibility.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+generated=target/sdk-generated
+stage=target/sdk-public
+fixtures=crates/xmtp_sdk/conformance/public
+for language in swift kotlin typescript-napi typescript-wasm; do
+  if [ ! -d "$generated/$language/runtime" ]; then
+    echo "missing $generated/$language; run 'just sdk generate' first" >&2
+    exit 1
+  fi
+done
+rm -rf -- "$stage"
+
+# Swift: a SwiftPM package with the XmtpSdk library product.
+swift_stage="$stage/XmtpSdk"
+mkdir -p "$swift_stage/Sources/XmtpSdk" "$swift_stage/Sources/xmtp_sdkFFI"
+cp "$generated/swift/xmtp_sdk.swift" "$swift_stage/Sources/XmtpSdk/"
+cp -R "$generated/swift/runtime/." "$swift_stage/Sources/XmtpSdk/"
+cp "$generated/swift/xmtp_sdkFFI.h" "$swift_stage/Sources/xmtp_sdkFFI/"
+cp "$generated/swift/xmtp_sdkFFI.modulemap" "$swift_stage/Sources/xmtp_sdkFFI/module.modulemap"
+cat > "$swift_stage/Package.swift" <<'SWIFT'
+// swift-tools-version: 6.1
+import PackageDescription
+
+let package = Package(
+    name: "XmtpSdk",
+    platforms: [.macOS(.v15)],
+    products: [.library(name: "XmtpSdk", targets: ["XmtpSdk"])],
+    targets: [
+        .systemLibrary(name: "xmtp_sdkFFI", path: "Sources/xmtp_sdkFFI"),
+        .target(name: "XmtpSdk", dependencies: ["xmtp_sdkFFI"], path: "Sources/XmtpSdk"),
+    ],
+    swiftLanguageModes: [.v5]
+)
+SWIFT
+
+# Kotlin: the generated sources and Android helpers, compiled by the fixture
+# as a separate Android library module.
+mkdir -p "$stage/kotlin"
+for part in uniffi runtime android; do
+  cp -R "$generated/kotlin/$part" "$stage/kotlin/$part"
+done
+
+# Node: install the package into a consumer's node_modules. Its exports map
+# names the root and the private public entry (`./public`, which the root
+# re-exports later), so the binding and runtime files stay private. The
+# private-entry load check below runs, so the native library is copied there.
+node_consumer="$stage/node-consumer"
+node_package="$node_consumer/node_modules/xmtp-sdk"
+mkdir -p "$node_package/node_modules/@ubjs"
+(cd "$generated/typescript-napi" && find . -name '*.ts' -not -path './node_modules/*') |
+  while IFS= read -r file; do
+    mkdir -p "$node_package/$(dirname "$file")"
+    cp "$generated/typescript-napi/$file" "$node_package/$file"
+  done
+cat > "$node_package/package.json" <<'JSON'
+{"name":"xmtp-sdk","private":true,"type":"module","exports":{".":"./index.ts","./public":"./public-api.gen.ts"},"imports":{"#xmtp/binding":"./xmtp_sdk.ts"}}
+JSON
+nix build --no-link .#ubjs-core .#ubjs-node
+ln -sfn "$(nix path-info .#ubjs-core)/lib/node_modules/@ubjs/core" "$node_package/node_modules/@ubjs/core"
+ln -sfn "$(nix path-info .#ubjs-node)/lib/node_modules/@ubjs/node" "$node_package/node_modules/@ubjs/node"
+cp -R "$fixtures/node/src" "$fixtures/node/negative" "$fixtures/node/private-entry" "$node_consumer/"
+
+# Browser: install the worker package and its pure module side by side, as the
+# package imports the pure module from a sibling directory. The exports map
+# names only the root. The compile gate does not load WASM, so it is not copied.
+browser_consumer="$stage/browser-consumer"
+browser_package="$browser_consumer/node_modules/xmtp-sdk-browser"
+for part in typescript-wasm typescript-pure; do
+  (cd "$generated/$part" && find . \( -name '*.ts' -o -name '*.js' \) -not -path './node_modules/*') |
+    while IFS= read -r file; do
+      mkdir -p "$browser_package/$part/$(dirname "$file")"
+      cp "$generated/$part/$file" "$browser_package/$part/$file"
+    done
+done
+cat > "$browser_package/package.json" <<'JSON'
+{"name":"xmtp-sdk-browser","private":true,"type":"module","exports":{".":"./typescript-wasm/index.ts","./pure":"./typescript-pure/index.ts"}}
+JSON
+nix build --no-link .#ubjs-wasm
+mkdir -p "$browser_package/node_modules/@ubjs"
+ln -sfn "$(nix path-info .#ubjs-core)/lib/node_modules/@ubjs/core" "$browser_package/node_modules/@ubjs/core"
+ln -sfn "$(nix path-info .#ubjs-wasm)/lib/node_modules/@ubjs/wasm" "$browser_package/node_modules/@ubjs/wasm"
+cp -R "$fixtures/browser/src" "$fixtures/browser/negative" "$browser_consumer/"
+
+# The retained Client members come from the SDK API manifest, not from the
+# generator, so a forwarder that generation omits fails here.
+python3 crates/xmtp_sdk/dev/check-public-members.py
+
+log="$(mktemp)"
+swift_negative="$fixtures/swift/Sources/PublicConsumer/RawAccess.swift"
+kotlin_negative="$fixtures/kotlin/consumer/src/main/kotlin/RawAccess.kt"
+trap 'rm -f "$log" "$swift_negative" "$kotlin_negative"' EXIT
+
+swift_build() {
+  NIX_DEVSHELL=ios dev/nix-shell "swift build --package-path $fixtures/swift -Xswiftc -strict-concurrency=complete"
+}
+kotlin_build() {
+  NIX_DEVSHELL=android dev/nix-shell "sdks/android/gradlew -p $fixtures/kotlin :consumer:compileDebugKotlin --no-daemon -q"
+}
+
+# A missing retained member fails here even if the raw binding still has it.
+if ! swift_build >"$log" 2>&1; then
+  cat "$log" >&2
+  echo "Swift public consumer failed to compile" >&2
+  exit 1
+fi
+echo "Swift public consumer compiled against the staged XmtpSdk product"
+cp "$fixtures/swift/Negative/RawAccess.swift" "$swift_negative"
+if swift_build >"$log" 2>&1; then
+  echo "Swift raw-access probe compiled" >&2
+  exit 1
+fi
+grep -q "'raw' is inaccessible due to 'internal' protection level" "$log"
+grep -q "'create' is inaccessible due to 'internal' protection level" "$log"
+grep -q "'createGroupWithIdentities' is inaccessible due to 'internal' protection level" "$log"
+grep -q "'addMembersByIdentity' is inaccessible due to 'internal' protection level" "$log"
+rm -f "$swift_negative"
+echo "Swift public consumer cannot reach the generated Client"
+
+if ! kotlin_build >"$log" 2>&1; then
+  cat "$log" >&2
+  echo "Kotlin public consumer failed to compile" >&2
+  exit 1
+fi
+echo "Android public consumer compiled against the staged SDK library"
+cp "$fixtures/kotlin/negative/RawAccess.kt" "$kotlin_negative"
+if kotlin_build >"$log" 2>&1; then
+  echo "Kotlin raw-access probe compiled" >&2
+  exit 1
+fi
+grep -q "Cannot access 'val raw: Client': it is internal" "$log"
+grep -q "Cannot access 'suspend fun create(" "$log"
+grep -q "Cannot access 'suspend fun createGroupWithIdentities" "$log"
+grep -q "Cannot access 'suspend fun addMembersByIdentity" "$log"
+rm -f "$kotlin_negative"
+echo "Kotlin public consumer cannot reach the generated Client"
+
+node_build() {
+  node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext \
+    --moduleResolution bundler --allowImportingTsExtensions "$@"
+}
+if ! node_build "$node_consumer"/src/*.ts >"$log" 2>&1; then
+  cat "$log" >&2
+  echo "Node public consumer failed to compile" >&2
+  exit 1
+fi
+echo "Node public consumer compiled against the installed xmtp-sdk package"
+if node_build "$node_consumer/negative/raw.ts" >"$log" 2>&1; then
+  echo "Node raw-access probe compiled" >&2
+  exit 1
+fi
+grep -q "TS2614: Module '\"xmtp-sdk\"' has no exported member 'bindingClient'" "$log"
+grep -q "TS2307: Cannot find module 'xmtp-sdk/xmtp_sdk'" "$log"
+grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
+grep -q "Property 'createGroupWithIdentities' does not exist on type 'ConversationsLike'" "$log"
+echo "Node public consumer cannot reach the binding Client"
+
+# The private public entry (the roots switch to it later) loads once in the
+# installed package, whether an app imports it or requires it. This runs, so
+# the package needs its native library.
+cp "$generated/typescript-napi/libxmtp_sdk."* "$node_package/"
+node_build --types node --typeRoots sdks/node/node_modules/@types "$node_consumer/private-entry/load-twice.mts"
+(cd "$node_consumer" && NODE_OPTIONS=--preserve-symlinks node --import "$(realpath "$root/sdks/node/node_modules/tsx/dist/loader.mjs")" private-entry/load-twice.mts)
+
+browser_build() {
+  node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext \
+    --moduleResolution bundler --allowImportingTsExtensions --lib es2022,dom,dom.iterable "$@"
+}
+if ! browser_build "$browser_consumer"/src/*.ts >"$log" 2>&1; then
+  cat "$log" >&2
+  echo "Browser public consumer failed to compile" >&2
+  exit 1
+fi
+echo "Browser public consumer compiled against the installed xmtp-sdk-browser package"
+if browser_build "$browser_consumer/negative/raw.ts" >"$log" 2>&1; then
+  echo "Browser raw-access probe compiled" >&2
+  exit 1
+fi
+grep -q "has no exported member 'wrapClient'" "$log"
+grep -q "TS2307: Cannot find module 'xmtp-sdk-browser/typescript-wasm/runtime/bridge/main/session'" "$log"
+grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
+grep -q "Property 'createGroupWithIdentities' does not exist on type 'ConversationsLike'" "$log"
+echo "Browser public consumer cannot reach the worker proxy or its session"

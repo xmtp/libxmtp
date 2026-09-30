@@ -1,5 +1,9 @@
 #![cfg(not(target_arch = "wasm32"))]
 
+mod reader_admission;
+mod reader_restored;
+mod reader_selection;
+
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -511,6 +515,7 @@ mod event_readers;
 mod foreign_callbacks;
 mod group_options;
 mod history_errors;
+mod identity_routes;
 mod lifecycle;
 mod message_actions;
 mod permissions;
@@ -521,3 +526,5 @@ mod reserved_transcript_sends;
 mod signers;
 mod standard_sends;
 mod storage;
+
+mod reader_cursor;

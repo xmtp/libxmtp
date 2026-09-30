@@ -2,7 +2,6 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
     fs,
-    process::Command,
 };
 
 use anyhow::{Context, Result, bail};
@@ -19,6 +18,7 @@ struct Operation {
     name: String,
     key: String,
     inputs: Vec<(String, Type)>,
+    none_defaults: BTreeSet<String>,
     output: Option<Type>,
     constructor: bool,
     immutable: bool,
@@ -55,20 +55,12 @@ pub(crate) fn generate(lib: &Utf8Path, out: &Utf8Path) -> Result<()> {
     for (name, body) in &generated {
         fs::write(out.join(name), body)?;
     }
-    let formatter = Utf8Path::new("node_modules/.bin/oxfmt");
-    if !formatter.exists() {
-        bail!("browser bridge formatter missing: run `just install` before SDK generation");
-    }
-    let status = Command::new(formatter)
-        .arg("--config")
-        .arg("apps/xmtp_sdk_bindgen/templates/bridge/oxfmt.json")
-        .args(generated.keys().map(|name| out.join(name)))
-        .status()
-        .context("run browser bridge formatter")?;
-    if !status.success() {
-        bail!("browser bridge formatter failed: {status}");
-    }
-    Ok(())
+    let paths = generated
+        .keys()
+        .map(|name| out.join(name))
+        .collect::<Vec<_>>();
+    crate::format::typescript_files(paths.iter().map(|path| path.as_path()))
+        .context("format the browser bridge")
 }
 
 fn contract_hash(groups: &MetadataGroupMap) -> String {
@@ -373,6 +365,22 @@ fn ts_name(source: &str) -> String {
     source.to_lower_camel_case()
 }
 
+pub(super) fn none_defaults(inputs: &[uniffi_meta::FnParamMetadata]) -> BTreeSet<String> {
+    inputs
+        .iter()
+        .rev()
+        .take_while(|input| {
+            matches!(
+                input.default,
+                Some(uniffi_meta::DefaultValueMetadata::Literal(
+                    uniffi_meta::LiteralMetadata::None
+                ))
+            )
+        })
+        .map(|input| ts_name(&input.name))
+        .collect()
+}
+
 fn operations(items: &[Metadata]) -> Vec<Operation> {
     let remote = remote_foreign(items);
     let mut output = Vec::new();
@@ -388,6 +396,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                         .iter()
                         .map(|p| (ts_name(&p.name), p.ty.clone()))
                         .collect(),
+                    none_defaults: none_defaults(&value.inputs),
                     output: value.return_type.clone(),
                     constructor: false,
                     immutable: false,
@@ -402,6 +411,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                     .iter()
                     .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
+                none_defaults: none_defaults(&value.inputs),
                 output: value.return_type.clone(),
                 constructor: false,
                 immutable: !value.is_async,
@@ -415,6 +425,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                     .iter()
                     .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
+                none_defaults: none_defaults(&value.inputs),
                 output: Some(Type::Object {
                     module_path: value.module_path.clone(),
                     name: value.self_name.clone(),
@@ -432,6 +443,7 @@ fn operations(items: &[Metadata]) -> Vec<Operation> {
                     .iter()
                     .map(|p| (ts_name(&p.name), p.ty.clone()))
                     .collect(),
+                none_defaults: none_defaults(&value.inputs),
                 output: value.return_type.clone(),
                 constructor: false,
                 immutable: false,
@@ -815,7 +827,7 @@ fn render(
 ) -> Result<BTreeMap<&'static str, String>> {
     let mut result = BTreeMap::new();
     let mut contract = format!(
-        "export const PROTOCOL_VERSION = 1;\nexport const CONTRACT_HASH = \"{hash}\";\nexport const METHOD_KEYS = [\n"
+        "export const PROTOCOL_VERSION = 4;\nexport const CONTRACT_HASH = \"{hash}\";\nexport const METHOD_KEYS = [\n"
     );
     for op in operations {
         writeln!(contract, "  \"{}\",", op.key)?;
@@ -1010,6 +1022,16 @@ fn render(
     let mut proxy = String::from(
         "import * as B from \"./xmtp_sdk.js\";\nimport { initPureWasm } from \"../typescript-pure/index.js\";\nimport { Message as HostMessage, registerClient, resolveBrowserOptions, unregisterClient, type HostClientOptions } from \"./host-message.gen.js\";\nimport type { MainSession } from \"./runtime/bridge/main/session.js\";\nimport { decodeError, type ErrorWire, type HandleWire } from \"./runtime/bridge/wire.js\";\nimport { RemoteObject, endOwner } from \"./runtime/bridge/main/remote-object.js\";\nimport { mainEncoder } from \"./codec.main.gen.js\";\n",
     );
+    let has_storage_admin = items
+        .iter()
+        .any(|item| matches!(item, Metadata::Object(object) if object.name == "StorageAdmin"));
+    if has_storage_admin {
+        proxy.push_str("import { openStorageAdmin, type StorageAdmin as PublicStorageAdmin } from \"./storage-admin.gen.js\";\n");
+        result.insert(
+            "storage-admin.gen.ts",
+            include_str!("../../templates/bridge/storage-admin.gen.ts").into(),
+        );
+    }
     let remote = remote_foreign(items);
     for item in items {
         if let Metadata::Object(object) = item
@@ -1022,6 +1044,9 @@ fn render(
                 "export class {} extends RemoteObject implements B.{}{like} {{",
                 object.name, object.name
             )?;
+            if has_storage_admin && object.name == "Storage" {
+                proxy.push_str("  static admin(): Promise<PublicStorageAdmin> { return openStorageAdmin(); }\n");
+            }
             for op in operations
                 .iter()
                 .filter(|op| op.owner.as_deref() == Some(&object.name) && op.constructor)
@@ -1087,7 +1112,18 @@ fn render(
                 let params = op
                     .inputs
                     .iter()
-                    .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
+                    .map(|(name, ty)| {
+                        let optional = if op.none_defaults.contains(name) {
+                            "?"
+                        } else {
+                            ""
+                        };
+                        let ty = match ty {
+                            Type::Optional { inner_type } if !optional.is_empty() => inner_type,
+                            ty => ty,
+                        };
+                        format!("{name}{optional}: {}", ts_type(ty))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let args = op
@@ -1101,28 +1137,68 @@ fn render(
                     .as_ref()
                     .map(ts_type)
                     .unwrap_or_else(|| "void".into());
+                let nullable = crate::nullable_identity::is_nullable(&object.name, &op.name);
+                let output = if nullable {
+                    output.replace("undefined", "null")
+                } else {
+                    output
+                };
                 if op.immutable {
+                    let value = decode_expr(
+                        op.output.as_ref().expect("immutable result"),
+                        &format!("this.snapshot(\"{}\")", op.name),
+                        "this.session",
+                    );
+                    let value = if nullable {
+                        format!("({value}) ?? null")
+                    } else {
+                        value
+                    };
                     writeln!(
                         proxy,
-                        "  {}(): {output} {{ return {}; }}",
-                        op.name,
-                        decode_expr(
-                            op.output.as_ref().expect("immutable result"),
-                            &format!("this.snapshot(\"{}\")", op.name),
-                            "this.session"
-                        )
+                        "  {}(): {output} {{ return this.held(() => {value}); }}",
+                        op.name
                     )?;
                 } else if object.name == "Client" && op.name == "end" {
                     writeln!(
                         proxy,
                         "  private closing?: Promise<void>;\n  async end(asyncOpts_?: {{ signal: AbortSignal }}): Promise<void> {{ if (!this.closing) {{ const key = this.clientKey(); const call = this.call(\"Client.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => {{ endOwner(this); unregisterClient(this.session, key); }}, (error: unknown) => {{ this.unfence(); this.closing = undefined; throw error; }}); }} return this.closing; }}"
                     )?;
+                } else if object.name == "StorageAdmin" && op.name == "end" {
+                    proxy.push_str("  private closing?: Promise<void>;\n  async end(asyncOpts_?: { signal: AbortSignal }): Promise<void> { if (!this.closing) { const call = this.call(\"StorageAdmin.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => { endOwner(this); }, (error: unknown) => { this.unfence(); this.closing = undefined; throw error; }); } return this.closing; }\n");
                 } else {
                     let comma = if params.is_empty() { "" } else { ", " };
+                    let routes = crate::identity_unions::ROUTES;
+                    let inbox_route = routes
+                        .iter()
+                        .find(|route| route.owner == object.name && route.method == op.name);
+                    let identity_route = routes
+                        .iter()
+                        .any(|route| route.owner == object.name && route.identity == op.name);
+                    let name = if let Some(route) = inbox_route {
+                        // The public union routes here or to the identity form.
+                        let union = params
+                            .replacen(
+                                "Array<string>",
+                                "Array<string> | Array<B.PublicIdentity>",
+                                1,
+                            )
+                            .replacen("peer: string", "peer: string | B.PublicIdentity", 1);
+                        writeln!(
+                            proxy,
+                            "  async {}({union}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{\n    {}\n  }}",
+                            op.name,
+                            crate::identity_unions::union_body(route, "string", "B.PublicIdentity")
+                        )?;
+                        format!("private async {}ByInboxIds", op.name)
+                    } else if identity_route {
+                        format!("private async {}", op.name)
+                    } else {
+                        format!("async {}", op.name)
+                    };
                     writeln!(
                         proxy,
-                        "  async {}({params}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{",
-                        op.name
+                        "  {name}({params}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{",
                     )?;
                     if !op.inputs.is_empty() {
                         proxy.push_str("    const encoder = mainEncoder(this.session);\n");
@@ -1137,20 +1213,62 @@ fn render(
                         "    installErrorDecoder(this.session);\n    {binding}await this.call(\"{}\", () => [{args}], asyncOpts_?.signal);",
                         op.key
                     )?;
-                    writeln!(
-                        proxy,
-                        "    return {};",
-                        op.output
-                            .as_ref()
-                            .map(|ty| decode_expr(ty, "raw", "this.session"))
-                            .unwrap_or_else(|| "undefined".into())
-                    )?;
+                    let value = op
+                        .output
+                        .as_ref()
+                        .map(|ty| decode_expr(ty, "raw", "this.session"))
+                        .unwrap_or_else(|| "undefined".into());
+                    let value = if nullable {
+                        format!("({value}) ?? null")
+                    } else {
+                        value
+                    };
+                    writeln!(proxy, "    return {value};")?;
                     proxy.push_str("  }\n");
                 }
             }
             proxy.push_str("}\n");
         }
     }
+    // Each exported function runs in the worker. The package Client wraps these
+    // with the package session; apps do not pass a session.
+    for op in operations.iter().filter(|op| op.owner.is_none()) {
+        let parameters = op
+            .inputs
+            .iter()
+            .map(|(name, ty)| format!("{name}: {}", ts_type(ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let args = op
+            .inputs
+            .iter()
+            .map(|(name, ty)| format!("encoder.convert({}, {name})", shape(ty)))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let result = op
+            .output
+            .as_ref()
+            .map(ts_type)
+            .unwrap_or_else(|| "void".into());
+        let comma = if parameters.is_empty() { "" } else { ", " };
+        writeln!(
+            proxy,
+            "export async function {}(session: MainSession{comma}{parameters}): Promise<{result}> {{\n{}  installErrorDecoder(session);\n  const raw = await session.call(\"{}\", () => [{args}]);",
+            op.name,
+            if op.inputs.is_empty() {
+                ""
+            } else {
+                "  const encoder = mainEncoder(session);\n"
+            },
+            op.key
+        )?;
+        match &op.output {
+            Some(ty) => writeln!(proxy, "  return {};", decode_expr(ty, "raw", "session"))?,
+            None => proxy.push_str("  void raw;\n"),
+        }
+        proxy.push_str("}\n");
+    }
+    proxy.push_str(&crate::identity_unions::helper("B.XmtpError"));
     proxy.push_str("export function proxyFor(session: MainSession, handle: HandleWire): RemoteObject {\n  session.checkHandle(handle);\n  const existing = session.proxy(handle); if (existing) return existing;\n  switch (handle.type) {\n");
     for item in items {
         if let Metadata::Object(object) = item
@@ -1233,7 +1351,17 @@ fn render(
         }
     }
     dispatch.push_str("};\n\n");
-    dispatch.push_str("function snapshot(name: string, value: object, owner: number, context: WorkerContext): Record<string, unknown> {\n  const output: Record<string, unknown> = {};\n  for (const field of immutable[name] ?? []) {\n    const method: unknown = Reflect.get(value, field.name);\n    if (typeof method !== \"function\") throw new TypeError(`missing immutable method ${field.name}`);\n    const result: unknown = Reflect.apply(method, value, []);\n    output[field.name] = workerEncoder(context.registry, owner, (type, nested, nestedOwner) => snapshot(type, nested, nestedOwner, context)).convert(field.shape, result);\n  }\n  return output;\n}\n\n");
+    // The binding returns null for these absent results; the wire carries absence.
+    writeln!(
+        dispatch,
+        "const nullableResults = new Set<string>([{}]);\nfunction wireResult(key: string, result: unknown): unknown {{ return nullableResults.has(key) && result === null ? undefined : result; }}\n",
+        crate::nullable_identity::NULLABLE_RESULTS
+            .iter()
+            .map(|(owner, method)| format!("\"{owner}.{method}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+    )?;
+    dispatch.push_str("function snapshot(name: string, value: object, owner: number, context: WorkerContext): Record<string, unknown> {\n  const output: Record<string, unknown> = {};\n  for (const field of immutable[name] ?? []) {\n    const method: unknown = Reflect.get(value, field.name);\n    if (typeof method !== \"function\") throw new TypeError(`missing immutable method ${field.name}`);\n    const result: unknown = wireResult(`${name}.${field.name}`, Reflect.apply(method, value, []));\n    output[field.name] = workerEncoder(context.registry, owner, (type, nested, nestedOwner) => snapshot(type, nested, nestedOwner, context)).convert(field.shape, result);\n  }\n  return output;\n}\n\n");
     // Every persistent store opens one OPFS pool in this directory, so the
     // directory also names the storage lock of that pool.
     writeln!(
@@ -1241,21 +1369,33 @@ fn render(
         "const STORAGE_POOL = {:?};",
         xmtp_configuration::WASM_VFS_DIRECTORY
     )?;
-    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  return callWithPool(context.locks, pool, createsClient, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)), B.storeLeftOpen);\n}\n");
+    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const createsAdmin = key === \"StorageAdmin.open\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : createsAdmin ? STORAGE_POOL : context.targetHandle ? context.locks?.poolForOwner(context.targetHandle.owner) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  const value = await callWithPool(context.locks, pool, createsClient || createsAdmin, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, wireResult(key, result))), B.storageRequiresWorkerRestart, context.started, (owner) => { context.createdOwner = owner; });\n  if (context.settled) context.settled();\n  return value;\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
+    result.insert(
+        "worker-entry.gen.js",
+        "import \"./worker.gen.js\";\n".into(),
+    );
 
     for name in [
+        "package-session.gen.ts",
+        "worker.gen.ts",
         "codec.main.gen.ts",
         "codec.worker.gen.ts",
         "stubs.gen.ts",
         "reverse.gen.ts",
+        "public-client.gen.ts",
         "conformance.gen.test.ts",
     ] {
         let template = match name {
+            "package-session.gen.ts" => {
+                include_str!("../../templates/bridge/package-session.gen.ts")
+            }
+            "worker.gen.ts" => include_str!("../../templates/bridge/worker.gen.ts"),
             "codec.main.gen.ts" => include_str!("../../templates/bridge/codec.main.gen.ts"),
             "codec.worker.gen.ts" => include_str!("../../templates/bridge/codec.worker.gen.ts"),
             "stubs.gen.ts" => include_str!("../../templates/bridge/stubs.gen.ts"),
             "reverse.gen.ts" => include_str!("../../templates/bridge/reverse.gen.ts"),
+            "public-client.gen.ts" => include_str!("../../templates/bridge/public-client.gen.ts"),
             "conformance.gen.test.ts" => {
                 include_str!("../../templates/bridge/conformance.gen.test.ts")
             }
@@ -1422,7 +1562,7 @@ mod tests {
     fn worker_function_stays_out_of_bridge() {
         let item = Metadata::Func(FnMetadata {
             module_path: "test".into(),
-            name: "store_left_open".into(),
+            name: "storage_requires_worker_restart".into(),
             orig_name: None,
             is_async: false,
             inputs: vec![],
