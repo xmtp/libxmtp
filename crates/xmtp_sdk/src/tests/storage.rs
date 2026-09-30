@@ -214,3 +214,26 @@ async fn storage_delete_can_retry_after_file_removal_fails() {
     assert!(!details.retryable);
     assert!(!details.message.is_empty());
 }
+
+#[cfg(unix)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_creates_its_database_directory_private() {
+    use std::os::unix::fs::PermissionsExt;
+
+    // The attachments directory lies apart, so only the database creates its
+    // parent.
+    let root = temp_root("storage-private");
+    let parent = root.join("database");
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Explicit {
+        db_path: parent.join("client.sqlite").to_string_lossy().into_owned(),
+        attachments_dir: root.join("attachments").to_string_lossy().into_owned(),
+    };
+    let client = Client::create(crate::generate_local_signer().await, settings).await?;
+    assert_eq!(
+        std::fs::metadata(&parent)?.permissions().mode() & 0o777,
+        0o700
+    );
+    client.end().await?;
+    std::fs::remove_dir_all(root)?;
+}
