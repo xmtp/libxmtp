@@ -90,16 +90,44 @@ pub enum BarrierFailure {
     Cancelled,
 }
 
-#[derive(Debug, thiserror::Error, ErrorCode)]
+#[derive(Debug, ErrorCode)]
 pub enum BarrierError {
     /// Processing did not meet the fixed targets. Pending work remains durable. May be retryable.
-    #[error("Processing barrier did not complete: {reason:?}; {} unfinished topics", unfinished.len())]
     Incomplete {
         /// The run-level stop reason; individual causes remain below.
         reason: BarrierFailure,
         /// Every unfinished obligation, not only the first failure.
         unfinished: Vec<BarrierTopic>,
     },
+}
+
+impl std::fmt::Display for BarrierError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let Self::Incomplete { reason, unfinished } = self;
+        write!(
+            f,
+            "Processing barrier did not complete: {reason:?}; {} unfinished topics",
+            unfinished.len()
+        )
+    }
+}
+
+impl std::error::Error for BarrierError {
+    /// The first unfinished obligation whose cause is an error, so a caller
+    /// can classify why the barrier stopped, such as a failed deployment
+    /// check before the first request.
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        let Self::Incomplete { unfinished, .. } = self;
+        unfinished.iter().find_map(|topic| match &topic.cause {
+            Some(BarrierCause::Storage(error)) => {
+                Some(error.as_ref() as &(dyn std::error::Error + 'static))
+            }
+            Some(BarrierCause::Receiver(error)) => {
+                Some(error.as_ref() as &(dyn std::error::Error + 'static))
+            }
+            _ => None,
+        })
+    }
 }
 
 impl RetryableError for BarrierError {
@@ -547,7 +575,17 @@ async fn wait_for_targets_snapshot<C: XmtpSharedContext>(
             return (BarrierSnapshot { topics }, None);
         }
         let reason = if context.is_closed() {
-            Some(BarrierFailure::Cancelled)
+            // A blocked connection also cancels the client's streams. That
+            // is a failed deployment check, not a close by the app.
+            if context
+                .server_configuration()
+                .blocked_connection()
+                .is_some()
+            {
+                Some(BarrierFailure::Blocked)
+            } else {
+                Some(BarrierFailure::Cancelled)
+            }
         } else if topics.iter().all(|topic| {
             topic.complete()
                 || topic.blocked()
