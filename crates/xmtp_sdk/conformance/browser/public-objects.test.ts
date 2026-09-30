@@ -194,6 +194,30 @@ describe("public objects", () => {
     expect(await dm.peerInboxId()).toBeNull();
     expect(dm.creatorInboxId).toBeNull();
     expect(dm.addedByInboxId).toBe("adder");
+    const group = P.wrapGroup(
+      binding<B.GroupLike>({
+        creatorInboxId() {
+          return undefined;
+        },
+        addedByInboxId() {
+          return undefined;
+        },
+      }),
+    );
+    expect(group.creatorInboxId).toBeNull();
+    expect(group.addedByInboxId).toBeNull();
+    const knownDm = P.wrapDm(
+      binding<B.DmLike>({
+        creatorInboxId() {
+          return "creator";
+        },
+        addedByInboxId() {
+          return undefined;
+        },
+      }),
+    );
+    expect(knownDm.creatorInboxId).toBe("creator");
+    expect(knownDm.addedByInboxId).toBeNull();
   });
 
   it("exposes synchronous, argument-free members as readonly getters", () => {

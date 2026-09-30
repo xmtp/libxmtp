@@ -64,6 +64,23 @@ export async function logging(
   assert.match(sdk.sdkVersion(), /^1\.12\.0/);
   console.log("Node logging: sink error did not stop the process");
 
+  // clearLogSink returns a Promise on Node, as in the browser, and clears the
+  // installed sink.
+  let clearedSinkCalls = 0;
+  sdk.setLogSink({
+    log() {
+      clearedSinkCalls += 1;
+    },
+  });
+  const cleared = sdk.clearLogSink();
+  assert.ok(cleared instanceof Promise, "clearLogSink did not return a Promise");
+  await cleared;
+  const callsAtClear = clearedSinkCalls;
+  await assert.rejects(sdk.localSignerFromPrivateKey(new Uint8Array(31)));
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(clearedSinkCalls, callsAtClear, "a cleared sink was called");
+  console.log("Node logging: clearLogSink returns a Promise and clears the sink");
+
   const loggingChild = fileURLToPath(
     new URL("./logging-child.mts", import.meta.url),
   );
