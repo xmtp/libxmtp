@@ -231,6 +231,13 @@ async fn explicit_storage_reopens_offline_without_inbox_id() {
     std::fs::remove_dir_all(root)?;
 }
 
+fn explicit(root: &std::path::Path) -> StorageLocation {
+    StorageLocation::Explicit {
+        db_path: root.join("chosen.sqlite").to_string_lossy().into_owned(),
+        attachments_dir: root.join("files").to_string_lossy().into_owned(),
+    }
+}
+
 fn is_identity_mismatch(result: &Result<Client, XmtpError>) -> bool {
     matches!(result, Err(XmtpError::IdentityMismatch(details))
         if details.code == "IdentityMismatch"
@@ -243,13 +250,9 @@ async fn explicit_storage_opens_only_for_an_identity_of_its_inbox() {
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-identity");
     std::fs::create_dir_all(&root)?;
-    let db_path = root.join("chosen.sqlite");
     let mut settings = options();
     settings.backend = relay.backend();
-    settings.storage.location = StorageLocation::Explicit {
-        db_path: db_path.to_string_lossy().into_owned(),
-        attachments_dir: root.join("files").to_string_lossy().into_owned(),
-    };
+    settings.storage.location = explicit(&root);
     let owner = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
     let inbox_id = owner.inbox_id();
     // An added account belongs to the inbox, but its own inbox ID differs.
@@ -293,6 +296,104 @@ async fn explicit_storage_opens_only_for_an_identity_of_its_inbox() {
     let offline = Client::build(added, settings, None).await?;
     assert_eq!(offline.inbox_id(), inbox_id);
     offline.end().await?;
+    assert_eq!(relay.connections(), 0, "offline check sent a request");
+    std::fs::remove_dir_all(root)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_rejects_its_removed_creator() {
+    let relay = CountingRelay::start().await?;
+    let root = temp_root("explicit-removed");
+    std::fs::create_dir_all(&root)?;
+    let mut settings = options();
+    settings.backend = relay.backend();
+    settings.storage.location = explicit(&root);
+    let creator_signer = crate::generate_local_signer().await;
+    let creator = signer::identity(creator_signer.clone()).await?;
+    let client = Client::create(creator_signer.clone(), settings.clone()).await?;
+    // The recovery account removes the creator, whose identifier then belongs
+    // to no inbox but still computes the inbox ID.
+    let recovery_signer = crate::generate_local_signer().await;
+    let recovery = signer::identity(recovery_signer.clone()).await?;
+    client
+        .unsafe_add_account(recovery_signer.clone(), false)
+        .await?;
+    client
+        .change_recovery_identifier(creator_signer, recovery)
+        .await?;
+    client
+        .remove_account(recovery_signer, creator.clone())
+        .await?;
+    let state = client.inbox_state(true).await?;
+    assert!(
+        state
+            .identities
+            .iter()
+            .all(|identity| identity.identifier != creator.identifier),
+        "the creator is still a member"
+    );
+    assert_eq!(
+        creator.to_core()?.inbox_id(0)?,
+        client.inbox_id().checked()?
+    );
+    client.end().await?;
+
+    let online = Client::build(creator.clone(), settings.clone(), None).await;
+    assert!(
+        is_identity_mismatch(&online),
+        "online build: {:?}",
+        online.err()
+    );
+
+    relay.refuse();
+    settings.allow_offline = true;
+    let offline = Client::build(creator, settings, None).await;
+    assert!(
+        is_identity_mismatch(&offline),
+        "offline build: {:?}",
+        offline.err()
+    );
+    assert_eq!(relay.connections(), 0, "offline check sent a request");
+    std::fs::remove_dir_all(root)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_without_identity_updates_opens_offline_only_for_its_creator() {
+    use xmtp_db::{ConnectionExt, diesel::RunQueryDsl};
+
+    let relay = CountingRelay::start().await?;
+    let root = temp_root("explicit-no-updates");
+    std::fs::create_dir_all(&root)?;
+    let mut settings = options();
+    settings.backend = relay.backend();
+    settings.storage.location = explicit(&root);
+    let creator_signer = crate::generate_local_signer().await;
+    let client = Client::create(creator_signer.clone(), settings.clone()).await?;
+    let inbox_id = client.inbox_id();
+    client.inner.context.db().raw_query(|conn| {
+        xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table).execute(conn)
+    })?;
+    client.end().await?;
+
+    relay.refuse();
+    settings.allow_offline = true;
+    let stranger_signer = crate::generate_local_signer().await;
+    let built = Client::build(
+        signer::identity(stranger_signer.clone()).await?,
+        settings.clone(),
+        None,
+    )
+    .await;
+    assert!(is_identity_mismatch(&built), "build: {:?}", built.err());
+    let created = Client::create(stranger_signer, settings.clone()).await;
+    assert!(
+        is_identity_mismatch(&created),
+        "create: {:?}",
+        created.err()
+    );
+    let reopened = Client::build(signer::identity(creator_signer).await?, settings, None).await?;
+    assert_eq!(reopened.inbox_id(), inbox_id);
+    reopened.end().await?;
     assert_eq!(relay.connections(), 0, "offline check sent a request");
     std::fs::remove_dir_all(root)?;
 }
