@@ -141,8 +141,6 @@ impl StreamMessages for Subscription<InternalEvent> {
                     );
                 }
                 let decoded: Vec<Result<DecodedMessage>> = match item.internal {
-                    // let caller handle any potential decode failures
-                    // this should be rare since the message already in db
                     Some(InternalEvent::MessagesDeleted(messages)) => messages
                         .into_iter()
                         .map(|m| Ok(DecodedMessage::from(m)))
