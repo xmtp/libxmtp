@@ -410,21 +410,33 @@ PURE_PUBLIC_ONLY = {"initPureWasm": "loads the main-thread pure module"}
 def compare_pure(out: Path) -> list[str]:
     """Compare the pure module's root with the Node root.
     Every pure export except its WASM loader is a Node public name, and each
-    one must have the Node declaration."""
+    one must have the Node declaration. Every Node public name that the pure
+    binding defines, and every pure-module name, must be exported."""
     node_root = emit(NODE, out, "index.ts")
     node = Surface(node_root)
     node_exports = node.exports(node.module(node_root / "index.d.ts"))
     pure_root = emit(PURE, out, "index.ts")
     pure = Surface(pure_root)
     pure_exports = pure.exports(pure.module(pure_root / "index.d.ts"))
+    # The pure binding decides which Node public names belong in pure. Each
+    # one must reach the pure root, so a name the generator drops fails here.
+    binding_root = emit(PURE, out, "xmtp_sdk.ts")
+    binding = Surface(binding_root)
+    binding_exports = binding.exports(binding.module(binding_root / "xmtp_sdk.d.ts"))
+    expected = (
+        (binding_exports.keys() & node_exports.keys())
+        | PURE_ONLY
+        | PURE_PUBLIC_ONLY.keys()
+    )
     errors = []
-    for name in sorted(PURE_PUBLIC_ONLY.keys() - pure_exports.keys()):
-        errors.append(f"{name}: the pure public entry does not export it")
+    for name in sorted(expected - pure_exports.keys()):
+        errors.append(
+            f"{name}: the pure binding defines this Node public name and the "
+            "pure public entry does not export it"
+        )
     shared = pure_exports.keys() - PURE_PUBLIC_ONLY.keys()
     for name in sorted(shared - node_exports.keys()):
         errors.append(f"{name}: the pure public entry exports it and Node does not")
-    for name in sorted(PURE_ONLY - pure_exports.keys()):
-        errors.append(f"{name}: a pure-module name is missing from the pure entry")
     for name in sorted(shared & node_exports.keys()):
         native = node.declaration(*node_exports[name])
         browser = pure.declaration(*pure_exports[name])
