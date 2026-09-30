@@ -3364,3 +3364,66 @@ async fn releasing_a_scope_forgets_its_restored_groups_until_selected_again() {
     controller.reconcile()?;
     assert!(!controller.interested().contains(&topic));
 }
+
+/// A scope opened before its group is stored as Restored retires the topic
+/// when the Restored store notifies the context's controller.
+async fn scope_retires_a_group_restored_later(scope: impl Fn(&Topic) -> IncomingScope, dm: bool) {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    *alix.context.incoming_runtime().coordinator.lock() = Some(coordinator.clone());
+    let group_id = GroupId::generate();
+    let topic = Topic::new_group_message(group_id);
+    let _lease = coordinator.acquire(scope(&topic));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile().unwrap();
+    assert!(controller.interested().contains(&topic));
+
+    if dm {
+        crate::groups::MlsGroup::create_restored_dm_and_insert(
+            &alix.context,
+            xmtp_mls_common::group_metadata::DmMembers {
+                member_one_inbox_id: alix.inbox_id().to_string(),
+                member_two_inbox_id: bo.inbox_id().to_string(),
+            },
+            xmtp_mls_common::group::GroupMetadataOptions::default(),
+            group_id.as_slice(),
+        )
+        .unwrap();
+    } else {
+        insert_restored_placeholder(&alix.context, &group_id, ConversationType::Group);
+    }
+    assert_eq!(
+        membership(&alix.context, &group_id),
+        GroupMembershipState::Restored
+    );
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile().unwrap();
+    assert!(!controller.interested().contains(&topic));
+    assert!(controller.is_retired(&topic));
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_open_topics_scope_retires_a_group_restored_later() {
+    scope_retires_a_group_restored_later(|topic| IncomingScope::Topics(vec![topic.clone()]), false)
+        .await;
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_open_barrier_scope_retires_a_dm_restored_later() {
+    scope_retires_a_group_restored_later(
+        |topic| IncomingScope::Barrier {
+            targets: [(topic.clone(), Cursor(0))].into(),
+            deadline: Instant::now() + Duration::from_secs(60),
+            receive_policy: IncomingReceivePolicy::ImmediateQuery,
+        },
+        true,
+    )
+    .await;
+}

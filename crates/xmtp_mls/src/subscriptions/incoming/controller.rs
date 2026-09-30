@@ -161,6 +161,8 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     /// would never reach their retention deadline.
     welcome_blocked_rescan_at: Option<Instant>,
     extra_topics: HashSet<Topic>,
+    /// Groups stored as Restored since the last pass; see `Command::Restored`.
+    restored: HashSet<GroupId>,
     topics: HashMap<Topic, TopicSchedule>,
     storage_error: Option<Arc<IncomingError>>,
     callbacks: HashMap<
@@ -199,6 +201,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             welcome_blocked_scan: Some(Cursor(0)),
             welcome_blocked_rescan_at: None,
             extra_topics: HashSet::new(),
+            restored: HashSet::new(),
             topics: HashMap::new(),
             storage_error: None,
             callbacks: HashMap::new(),
@@ -335,6 +338,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 self.clear_read_times();
                 self.transport.wake();
             }
+            Command::Restored(groups) => self.restored.extend(groups),
         }
     }
 
@@ -480,15 +484,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     let Ok(group_id) = GroupId::try_from(topic.identifier()) else {
                         continue;
                     };
-                    let restored = self
-                        .context
-                        .db()
-                        .find_group(&group_id)
-                        .map_err(|error| IncomingError::Storage(error.into()))?
-                        .is_some_and(|group| {
-                            group.membership_state == GroupMembershipState::Restored
-                        });
-                    if restored {
+                    if is_restored(&self.context, &group_id)? {
                         self.topics
                             .entry(topic.clone())
                             .or_default()
@@ -501,6 +497,22 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             scope
                 .targets
                 .retain(|topic, _| scope.topics.contains(topic));
+        }
+        // A group stored as Restored after a scope selected its topic. The check is
+        // bounded by the changed groups, not by every selected topic.
+        // implements: PROC-051
+        let changed: Vec<_> = self.restored.iter().copied().collect();
+        for group_id in changed {
+            let topic = Topic::new_group_message(group_id);
+            if self
+                .scopes
+                .values()
+                .any(|scope| scope.topics.contains(&topic))
+                && is_restored(&self.context, &group_id)?
+            {
+                self.topics.entry(topic).or_default().processing.retired = true;
+            }
+            self.restored.remove(&group_id);
         }
         self.extra_topics = self
             .dependency_registry
@@ -1398,6 +1410,17 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
         self.topics.entry(topic).or_default().error = Some(Arc::new(error));
     }
+}
+
+fn is_restored<C: XmtpSharedContext>(
+    context: &C,
+    group_id: &GroupId,
+) -> Result<bool, IncomingError> {
+    Ok(context
+        .db()
+        .find_group(group_id)
+        .map_err(|error| IncomingError::Storage(error.into()))?
+        .is_some_and(|group| group.membership_state == GroupMembershipState::Restored))
 }
 
 pub(crate) fn topic_key(topic: &Topic) -> Result<StreamTopic, IncomingError> {

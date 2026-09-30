@@ -218,6 +218,8 @@ enum Command {
     },
     Release(u64),
     Wake,
+    /// Groups just stored as Restored placeholders. Their selected topics are checked again.
+    Restored(Vec<GroupId>),
 }
 
 impl IncomingCoordinator {
@@ -289,6 +291,18 @@ impl IncomingCoordinator {
     /// Request a fresh database check. This hint is not proof of processing.
     pub fn wake(&self) {
         let _ = self.commands.send(Command::Wake);
+    }
+
+    /// Call after the commit that stores these groups as Restored. A topic that an
+    /// open scope already selects is retired on the next pass. Without a live
+    /// controller no scope is open, so there is nothing to do.
+    // implements: PROC-051
+    pub(crate) fn groups_restored<C: XmtpSharedContext>(context: &C, groups: &[GroupId]) {
+        if let Some(coordinator) = context.incoming_runtime().coordinator.lock().as_ref() {
+            let _ = coordinator
+                .commands
+                .send(Command::Restored(groups.to_vec()));
+        }
     }
 }
 
