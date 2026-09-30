@@ -99,8 +99,6 @@ fn methods<'a>(items: &[&'a Metadata], owner: &str) -> Vec<&'a MethodMetadata> {
 
 /// One call: its public parameters, the binding arguments, and the result.
 struct Call {
-    /// The binding call can throw a binding error, which becomes public.
-    throws: bool,
     parameters: String,
     arguments: String,
     result_type: String,
@@ -113,7 +111,6 @@ fn call(
     inputs: &[FnParamMetadata],
     output: Option<&Type>,
     asynchronous: bool,
-    throws: bool,
 ) -> Call {
     let mut defaults = optional_parameters(inputs);
     // The binding reader interfaces keep their options optional.
@@ -170,7 +167,6 @@ fn call(
         result_type
     };
     Call {
-        throws,
         parameters,
         arguments,
         result_type,
@@ -190,9 +186,10 @@ fn render_body(
             .result
             .as_deref()
             .is_some_and(|result| result.contains("projection"));
-    if call.throws {
-        code.push_str("try {\n");
-    }
+    // Every call converts a thrown value, including a call whose binding
+    // cannot fail: a browser proxy can refuse any call of an ended client,
+    // and the package worker can fail under any call (P8).
+    code.push_str("try {\n");
     if uses_projection {
         code.push_str("const projection = currentProjection();\n");
     }
@@ -204,9 +201,7 @@ fn render_body(
         )?,
         None => writeln!(code, "{await_}{};", callee(&call.arguments))?,
     }
-    if call.throws {
-        code.push_str("} catch (error) {\nthrow publicError(error);\n}\n");
-    }
+    code.push_str("} catch (error) {\nthrow publicError(error);\n}\n");
     Ok(())
 }
 
@@ -226,9 +221,6 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
         &method.inputs,
         method.return_type.as_ref(),
         method.is_async,
-        // A browser proxy can refuse any call of an ended client, including
-        // an infallible getter, so every member converts a thrown error.
-        true,
     );
     // Decision 14: a synchronous, argument-free, infallible member is a
     // readonly getter.
@@ -268,7 +260,8 @@ pub(super) fn object(
     )?;
     // Browser: the package storage admin opens without a Client.
     if target == Target::Browser && name == "Storage" {
-        code.push_str("/** Open a lease on the package storage worker. It needs no Client. */\nstatic admin(): Promise<StorageAdmin> { return openStorageAdmin(); }\n");
+        // Every admin member, and the open, throws public errors (P8).
+        code.push_str("/** Open a lease on the package storage worker. It needs no Client. */\nstatic admin(): Promise<StorageAdmin> { return openStorageAdmin(publicError); }\n");
     }
     for item in items {
         if let Metadata::Constructor(constructor) = item
@@ -281,7 +274,6 @@ pub(super) fn object(
                 &constructor.inputs,
                 None,
                 constructor.is_async,
-                constructor.throws.is_some(),
             );
             call.result = Some(format!("projection.lift{name}(result)"));
             call.result_type = if constructor.is_async {
@@ -345,7 +337,6 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
         &function.inputs,
         function.return_type.as_ref(),
         function.is_async,
-        function.throws.is_some(),
     );
     writeln!(
         code,

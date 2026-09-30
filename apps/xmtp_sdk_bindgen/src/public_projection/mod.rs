@@ -38,11 +38,11 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
     if target == Target::Browser {
         // The binding runs in the package worker: constructors and functions
         // go through its proxies, and storage admin through its template.
-        code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\n");
+        code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
     }
     code.push_str(objects::MEMBERSHIP_GUARDS);
     code.push_str(objects::PROJECTION_INSTALL);
-    code.push_str(errors::PUBLIC_ERROR);
+    code.push_str(errors::public_error(target));
     for item in &items {
         match item {
             Metadata::Object(value) if value.imp.has_struct() && value.name == "Client" => {
@@ -71,7 +71,10 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
                 code.push_str(policy::CONVERSATION)
             }
             Metadata::Enum(value) if errors::is_details_error(value) => {
-                errors::error_class(&mut code, value)?
+                errors::error_class(&mut code, value)?;
+                if target == Target::Browser && value.name == "XmtpError" {
+                    errors::bridge_error(&mut code, value)?;
+                }
             }
             Metadata::Enum(value) => values::enumeration(&mut code, value)?,
             Metadata::CustomType(value) if value.name != "Message" && value.name != "Timestamp" => {
