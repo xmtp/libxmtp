@@ -257,6 +257,7 @@ impl ConfigurationFailure {
             GenericError::Client(client)
             | GenericError::GroupError(GroupError::Client(client))
             | GenericError::CatchUp(CatchUpError::Group(GroupError::Client(client))) => client,
+            GenericError::Subscription(SubscribeError::Configuration(client)) => client.as_ref(),
             GenericError::Subscription(SubscribeError::Group(group)) => {
                 let GroupError::Client(client) = group.as_ref() else {
                     return None;
@@ -544,6 +545,7 @@ mod configuration_error_tests {
             1 => GroupError::Client(client).into(),
             2 => CatchUpError::Group(GroupError::Client(client)).into(),
             3 => SubscribeError::Group(Box::new(GroupError::Client(client))).into(),
+            4 => SubscribeError::Configuration(Box::new(client)).into(),
             _ => unreachable!(),
         }
     }
@@ -650,5 +652,11 @@ mod configuration_error_tests {
     #[xmtp_common::test(unwrap_try = true)]
     fn subscription_configuration_failures_keep_their_mobile_kind_and_fields() {
         check_configuration_failure(3);
+    }
+
+    // verifies: CONF-064
+    #[xmtp_common::test(unwrap_try = true)]
+    fn conversation_stream_configuration_failures_keep_their_mobile_kind_and_fields() {
+        check_configuration_failure(4);
     }
 }
