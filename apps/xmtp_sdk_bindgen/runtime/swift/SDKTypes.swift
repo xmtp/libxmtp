@@ -1,26 +1,42 @@
 import Foundation
 
-public protocol SDKContentCodec: Sendable {
+/// A content codec with a typed value (Ref Public surface, Host codecs). The
+/// send helpers run its steps before the send: `encode`, then `fallback` when
+/// the envelope has none, then `shouldPush` when the send has no explicit
+/// `shouldPush` option and the type is not a catalogue type. A step that
+/// throws fails the send with `XmtpError.CodecEncodeFailed`, and the SDK makes
+/// no publish attempt.
+public protocol ContentCodec: Sendable {
+    associatedtype Value: Sendable
     var type: ContentTypeId { get }
-    func encode(_ value: any Sendable) throws -> EncodedContent
-    func decode(_ encoded: EncodedContent) throws -> any Sendable
+    func encode(_ value: Value) throws -> EncodedContent
+    func decode(_ encoded: EncodedContent) throws -> Value
+    /// Text for recipients without this codec. Default: no fallback.
+    func fallback(_ value: Value) throws -> String?
+    /// Whether sending this value notifies recipients. Default: it does.
+    func shouldPush(_ value: Value) throws -> Bool
 }
 
-public struct SDKContentCodecKey: Hashable, Sendable {
-    public let authorityId: String
-    public let typeId: String
-    public let versionMajor: UInt32
+public extension ContentCodec {
+    func fallback(_: Value) throws -> String? {
+        nil
+    }
 
-    public init(_ type: ContentTypeId) {
-        authorityId = type.authorityId
-        typeId = type.typeId
-        versionMajor = type.versionMajor
+    func shouldPush(_: Value) throws -> Bool {
+        true
     }
 }
 
-public extension SDKContentCodec {
-    var key: SDKContentCodecKey {
-        SDKContentCodecKey(type)
+/// The registry key of a content type: authority, type ID, and major version.
+struct ContentCodecKey: Hashable {
+    let authorityId: String
+    let typeId: String
+    let versionMajor: UInt32
+
+    init(_ type: ContentTypeId) {
+        authorityId = type.authorityId
+        typeId = type.typeId
+        versionMajor = type.versionMajor
     }
 }
 
@@ -171,8 +187,12 @@ public final class Message: Identifiable, Hashable, Sendable {
         try await client().raw.conversations().replyToMessage(id: id, content: content, options: options)
     }
 
-    public func reply(_ codec: any SDKContentCodec, value: any Sendable, options: SendOptions? = nil) async throws -> MessageId {
-        try await reply(codec.encode(value), options: options)
+    /// Reply with a value of a typed codec. The codec's fallback applies to the
+    /// nested envelope; the reply keeps the reply type's push default unless
+    /// `options.shouldPush` is set. A failed codec step is `CodecEncodeFailed`,
+    /// with no publish attempt.
+    public func reply<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions? = nil) async throws -> MessageId {
+        try await reply(encodeForSend(codec, value: value), options: options)
     }
 
     public func parent() async throws -> Message? {

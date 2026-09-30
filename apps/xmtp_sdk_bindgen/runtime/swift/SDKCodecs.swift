@@ -1,31 +1,29 @@
 import Foundation
 
+// The standard codecs. Each has the value type of its standard content, and
+// Rust encodes and decodes the bytes.
+
 private func codecValueError() -> XmtpError {
     .InvalidArgument(ErrorDetails(code: "InvalidArgument", category: .input, retryable: false, message: "wrong standard codec value"))
 }
 
-private func encodePure<T: Sendable>(_ value: any Sendable, as _: T.Type, wrap: (T) -> StandardContent) throws -> EncodedContent {
-    guard let value = value as? T else { throw codecValueError() }
-    return try encodeStandard(value: wrap(value))
-}
-
-private func decodePure<T: Sendable>(_ encoded: EncodedContent, take: (StandardContent) -> T?) throws -> any Sendable {
+private func standardValue<T>(_ encoded: EncodedContent, _ take: (StandardContent) -> T?) throws -> T {
     guard let value = try take(decodeStandard(encoded: encoded)) else { throw codecValueError() }
     return value
 }
 
-public struct TextCodec: SDKContentCodec {
+public struct TextCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .text)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: String.self, wrap: StandardContent.text)
+    public func encode(_ value: String) throws -> EncodedContent {
+        try encodeStandard(value: .text(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> String {
+        try standardValue(encoded) {
             if case let .text(value) = $0 {
                 value
             } else {
@@ -35,18 +33,18 @@ public struct TextCodec: SDKContentCodec {
     }
 }
 
-public struct MarkdownCodec: SDKContentCodec {
+public struct MarkdownCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .markdown)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: String.self, wrap: StandardContent.markdown)
+    public func encode(_ value: String) throws -> EncodedContent {
+        try encodeStandard(value: .markdown(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> String {
+        try standardValue(encoded) {
             if case let .markdown(value) = $0 {
                 value
             } else {
@@ -56,19 +54,18 @@ public struct MarkdownCodec: SDKContentCodec {
     }
 }
 
-public struct ReadReceiptCodec: SDKContentCodec {
+public struct ReadReceiptCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .readReceipt)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        guard value is Void else { throw codecValueError() }
-        return try encodeStandard(value: .readReceipt)
+    public func encode(_: Void) throws -> EncodedContent {
+        try encodeStandard(value: .readReceipt)
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws {
+        try standardValue(encoded) {
             if case .readReceipt = $0 {
                 ()
             } else {
@@ -78,19 +75,19 @@ public struct ReadReceiptCodec: SDKContentCodec {
     }
 }
 
-public struct ReactionV2Codec: SDKContentCodec {
+public struct ReactionV2Codec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .reaction)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        guard let content = value as? StandardContent, case .reaction = content else { throw codecValueError() }
-        return try encodeStandard(value: content)
+    public func encode(_ value: StandardContent) throws -> EncodedContent {
+        guard case .reaction = value else { throw codecValueError() }
+        return try encodeStandard(value: value)
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> StandardContent {
+        try standardValue(encoded) {
             if case .reaction = $0 {
                 $0
             } else {
@@ -100,18 +97,18 @@ public struct ReactionV2Codec: SDKContentCodec {
     }
 }
 
-public struct AttachmentCodec: SDKContentCodec {
+public struct AttachmentCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .attachment)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: Attachment.self, wrap: StandardContent.attachment)
+    public func encode(_ value: Attachment) throws -> EncodedContent {
+        try encodeStandard(value: .attachment(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> Attachment {
+        try standardValue(encoded) {
             if case let .attachment(value) = $0 {
                 value
             } else {
@@ -121,18 +118,18 @@ public struct AttachmentCodec: SDKContentCodec {
     }
 }
 
-public struct RemoteAttachmentCodec: SDKContentCodec {
+public struct RemoteAttachmentCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .remoteAttachment)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: RemoteAttachment.self, wrap: StandardContent.remoteAttachment)
+    public func encode(_ value: RemoteAttachment) throws -> EncodedContent {
+        try encodeStandard(value: .remoteAttachment(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> RemoteAttachment {
+        try standardValue(encoded) {
             if case let .remoteAttachment(value) = $0 {
                 value
             } else {
@@ -142,18 +139,18 @@ public struct RemoteAttachmentCodec: SDKContentCodec {
     }
 }
 
-public struct MultiRemoteAttachmentCodec: SDKContentCodec {
+public struct MultiRemoteAttachmentCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .multiRemoteAttachment)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: MultiRemoteAttachment.self, wrap: StandardContent.multiRemoteAttachment)
+    public func encode(_ value: MultiRemoteAttachment) throws -> EncodedContent {
+        try encodeStandard(value: .multiRemoteAttachment(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> MultiRemoteAttachment {
+        try standardValue(encoded) {
             if case let .multiRemoteAttachment(value) = $0 {
                 value
             } else {
@@ -163,18 +160,18 @@ public struct MultiRemoteAttachmentCodec: SDKContentCodec {
     }
 }
 
-public struct TransactionReferenceCodec: SDKContentCodec {
+public struct TransactionReferenceCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .transactionReference)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: TransactionReference.self, wrap: StandardContent.transactionReference)
+    public func encode(_ value: TransactionReference) throws -> EncodedContent {
+        try encodeStandard(value: .transactionReference(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> TransactionReference {
+        try standardValue(encoded) {
             if case let .transactionReference(value) = $0 {
                 value
             } else {
@@ -184,18 +181,18 @@ public struct TransactionReferenceCodec: SDKContentCodec {
     }
 }
 
-public struct WalletSendCallsCodec: SDKContentCodec {
+public struct WalletSendCallsCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .walletSendCalls)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: WalletSendCalls.self, wrap: StandardContent.walletSendCalls)
+    public func encode(_ value: WalletSendCalls) throws -> EncodedContent {
+        try encodeStandard(value: .walletSendCalls(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> WalletSendCalls {
+        try standardValue(encoded) {
             if case let .walletSendCalls(value) = $0 {
                 value
             } else {
@@ -205,18 +202,18 @@ public struct WalletSendCallsCodec: SDKContentCodec {
     }
 }
 
-public struct ActionsCodec: SDKContentCodec {
+public struct ActionsCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .actions)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: Actions.self, wrap: StandardContent.actions)
+    public func encode(_ value: Actions) throws -> EncodedContent {
+        try encodeStandard(value: .actions(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> Actions {
+        try standardValue(encoded) {
             if case let .actions(value) = $0 {
                 value
             } else {
@@ -226,18 +223,18 @@ public struct ActionsCodec: SDKContentCodec {
     }
 }
 
-public struct IntentCodec: SDKContentCodec {
+public struct IntentCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .intent)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: Intent.self, wrap: StandardContent.intent)
+    public func encode(_ value: Intent) throws -> EncodedContent {
+        try encodeStandard(value: .intent(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> Intent {
+        try standardValue(encoded) {
             if case let .intent(value) = $0 {
                 value
             } else {
@@ -247,19 +244,19 @@ public struct IntentCodec: SDKContentCodec {
     }
 }
 
-public struct ReplyCodec: SDKContentCodec {
+public struct ReplyCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .reply)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        guard let content = value as? StandardContent, case .reply = content else { throw codecValueError() }
-        return try encodeStandard(value: content)
+    public func encode(_ value: StandardContent) throws -> EncodedContent {
+        guard case .reply = value else { throw codecValueError() }
+        return try encodeStandard(value: value)
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> StandardContent {
+        try standardValue(encoded) {
             if case .reply = $0 {
                 $0
             } else {
@@ -269,18 +266,18 @@ public struct ReplyCodec: SDKContentCodec {
     }
 }
 
-public struct GroupUpdatedCodec: SDKContentCodec {
+public struct GroupUpdatedCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .groupUpdated)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: GroupUpdated.self, wrap: StandardContent.groupUpdated)
+    public func encode(_ value: GroupUpdated) throws -> EncodedContent {
+        try encodeStandard(value: .groupUpdated(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> GroupUpdated {
+        try standardValue(encoded) {
             if case let .groupUpdated(value) = $0 {
                 value
             } else {
@@ -290,19 +287,19 @@ public struct GroupUpdatedCodec: SDKContentCodec {
     }
 }
 
-public struct DeleteMessageCodec: SDKContentCodec {
+public struct DeleteMessageCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .deleteMessage)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        guard let content = value as? StandardContent, case .deleteMessage = content else { throw codecValueError() }
-        return try encodeStandard(value: content)
+    public func encode(_ value: StandardContent) throws -> EncodedContent {
+        guard case .deleteMessage = value else { throw codecValueError() }
+        return try encodeStandard(value: value)
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> StandardContent {
+        try standardValue(encoded) {
             if case .deleteMessage = $0 {
                 $0
             } else {
@@ -312,18 +309,18 @@ public struct DeleteMessageCodec: SDKContentCodec {
     }
 }
 
-public struct LeaveRequestCodec: SDKContentCodec {
+public struct LeaveRequestCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .leaveRequest)
     }
 
-    public func encode(_ value: any Sendable) throws -> EncodedContent {
-        try encodePure(value, as: LeaveRequest.self, wrap: StandardContent.leaveRequest)
+    public func encode(_ value: LeaveRequest) throws -> EncodedContent {
+        try encodeStandard(value: .leaveRequest(value))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> any Sendable {
-        try decodePure(encoded) {
+    public func decode(_ encoded: EncodedContent) throws -> LeaveRequest {
+        try standardValue(encoded) {
             if case let .leaveRequest(value) = $0 {
                 value
             } else {

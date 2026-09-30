@@ -5,28 +5,28 @@ final class NonSendableValue {
     var text = "value"
 }
 
-struct NonSendableCodec: SDKContentCodec {
+struct NonSendableCodec: ContentCodec {
     let type = ContentTypeId(authorityId: "example.org", typeId: "non-sendable", versionMajor: 1, versionMinor: 0)
 
-    func encode(_: Any) throws -> EncodedContent {
+    func encode(_: NonSendableValue) throws -> EncodedContent {
         EncodedContent(type: type, content: Data())
     }
 
-    func decode(_: EncodedContent) throws -> Any {
+    func decode(_: EncodedContent) throws -> NonSendableValue {
         NonSendableValue()
     }
 }
 
-final class MutableCodec: SDKContentCodec {
+final class MutableCodec: ContentCodec {
     var count = 0
     let type = ContentTypeId(authorityId: "example.org", typeId: "mutable", versionMajor: 1, versionMinor: 0)
 
-    func encode(_: any Sendable) throws -> EncodedContent {
+    func encode(_: Int) throws -> EncodedContent {
         count += 1
         return EncodedContent(type: type, content: Data())
     }
 
-    func decode(_: EncodedContent) throws -> any Sendable {
+    func decode(_: EncodedContent) throws -> Int {
         count
     }
 }

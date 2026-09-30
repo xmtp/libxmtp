@@ -220,14 +220,13 @@ actor EventStartPause {
     }
 }
 
-struct SampleCodec: SDKContentCodec {
+struct SampleCodec: ContentCodec {
     let type = ContentTypeId(authorityId: "example.org", typeId: "sample", versionMajor: 1, versionMinor: 0)
-    func encode(_ value: any Sendable) throws -> EncodedContent {
-        guard let text = value as? String else { throw ConformanceFailure("custom value was not text") }
-        return EncodedContent(type: type, content: Data(text.utf8))
+    func encode(_ value: String) throws -> EncodedContent {
+        EncodedContent(type: type, content: Data(value.utf8))
     }
 
-    func decode(_ encoded: EncodedContent) throws -> any Sendable {
+    func decode(_ encoded: EncodedContent) throws -> String {
         guard let text = String(data: encoded.content, encoding: .utf8) else {
             throw ConformanceFailure("custom content was not UTF-8")
         }
@@ -235,26 +234,25 @@ struct SampleCodec: SDKContentCodec {
     }
 }
 
-struct SlashCodec: SDKContentCodec {
+struct SlashCodec: ContentCodec {
     let type = ContentTypeId(authorityId: "example.org", typeId: "a/b", versionMajor: 1, versionMinor: 0)
 
-    func encode(_ value: any Sendable) throws -> EncodedContent {
-        guard let text = value as? String else { throw ConformanceFailure("custom value was not text") }
-        return EncodedContent(type: type, content: Data(text.utf8))
+    func encode(_ value: String) throws -> EncodedContent {
+        EncodedContent(type: type, content: Data(value.utf8))
     }
 
-    func decode(_: EncodedContent) throws -> any Sendable {
+    func decode(_: EncodedContent) throws -> String {
         "wrong codec"
     }
 }
 
-struct FailingCodec: SDKContentCodec {
+struct FailingCodec: ContentCodec {
     let type = SampleCodec().type
-    func encode(_ value: any Sendable) throws -> EncodedContent {
+    func encode(_ value: String) throws -> EncodedContent {
         try SampleCodec().encode(value)
     }
 
-    func decode(_: EncodedContent) throws -> any Sendable {
+    func decode(_: EncodedContent) throws -> String {
         throw ConformanceFailure("codec decode failed")
     }
 }

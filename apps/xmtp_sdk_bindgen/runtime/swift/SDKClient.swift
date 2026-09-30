@@ -1,15 +1,25 @@
 import Foundation
 
+/// The receive registry. It erases each codec's value type in a private decode
+/// closure, the one place where the value type is erased (Decision 3).
 private struct CodecRegistry {
-    private let codecs: [SDKContentCodecKey: any SDKContentCodec]
+    private typealias Decode = @Sendable (EncodedContent) throws -> any Sendable
+    private let decoders: [ContentCodecKey: Decode]
 
-    init(_ codecs: [any SDKContentCodec]) {
-        self.codecs = Dictionary(codecs.map { ($0.key, $0) }, uniquingKeysWith: { _, newer in newer })
+    init(_ codecs: [any ContentCodec]) {
+        decoders = Dictionary(
+            codecs.map { (ContentCodecKey($0.type), Self.decoder($0)) },
+            uniquingKeysWith: { _, newer in newer }
+        )
+    }
+
+    private static func decoder<C: ContentCodec>(_ codec: C) -> Decode {
+        { try codec.decode($0) }
     }
 
     func decode(_ encoded: EncodedContent) -> SDKMessageContent {
-        guard let codec = codecs[SDKContentCodecKey(encoded.type)] else { return .unknown(encoded) }
-        do { return try .custom(encoded: encoded, value: codec.decode(encoded), error: nil) }
+        guard let decode = decoders[ContentCodecKey(encoded.type)] else { return .unknown(encoded) }
+        do { return try .custom(encoded: encoded, value: decode(encoded), error: nil) }
         catch { return .custom(encoded: encoded, value: nil, error: error) }
     }
 }
@@ -22,7 +32,7 @@ public final class SDKClient: @unchecked Sendable {
     let listenerGates = ListenerGates()
     private let codecs: CodecRegistry
 
-    private init(_ raw: Client, codecs: [any SDKContentCodec]) {
+    private init(_ raw: Client, codecs: [any ContentCodec]) {
         self.raw = raw
         self.codecs = CodecRegistry(codecs)
         ClientRegistry.register(self)
@@ -55,14 +65,14 @@ public final class SDKClient: @unchecked Sendable {
 
     public static func create(
         signer: Signer, options: ClientOptions,
-        codecs: [any SDKContentCodec] = []
+        codecs: [any ContentCodec] = []
     ) async throws -> SDKClient {
         try await SDKClient(Client.create(signer: signer, options: resolved(options)), codecs: codecs)
     }
 
     public static func build(
         identity: PublicIdentity, options: ClientOptions, inboxId: InboxId? = nil,
-        codecs: [any SDKContentCodec] = []
+        codecs: [any ContentCodec] = []
     ) async throws -> SDKClient {
         try await SDKClient(Client.build(identity: identity, options: resolved(options), inboxId: inboxId), codecs: codecs)
     }

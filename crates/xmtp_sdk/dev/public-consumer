@@ -121,8 +121,16 @@ grep -q "'raw' is inaccessible due to 'internal' protection level" "$log"
 grep -q "'create' is inaccessible due to 'internal' protection level" "$log"
 grep -q "'createGroupWithIdentities' is inaccessible due to 'internal' protection level" "$log"
 grep -q "'addMembersByIdentity' is inaccessible due to 'internal' protection level" "$log"
+cp "$fixtures/swift/Negative/CodecValues.swift" "$swift_negative"
+if swift_build >"$log" 2>&1; then
+  echo "Swift typed codec probe compiled" >&2
+  exit 1
+fi
+# A typed codec rejects a value of another type in encode, send, and reply:
+# three distinct source lines (the compiler prints each error twice).
+test "$(grep -o "RawAccess.swift:[0-9]*:[0-9]*: .*cannot convert value of type 'Int' to expected argument type 'String'" "$log" | cut -d: -f2 | sort -u | wc -l | tr -d ' ')" -eq 3
 rm -f "$swift_negative"
-echo "Swift public consumer cannot reach the generated Client"
+echo "Swift public consumer cannot reach the generated Client or send a wrong codec value"
 
 if ! kotlin_build >"$log" 2>&1; then
   cat "$log" >&2
