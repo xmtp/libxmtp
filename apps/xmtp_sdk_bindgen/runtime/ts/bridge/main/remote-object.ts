@@ -31,12 +31,16 @@ export class RemoteObject {
     signal?: AbortSignal,
   ): Promise<unknown> {
     if (
-      key === "EventReader.next" &&
+      (key === "EventReader.next" ||
+        key === "EventReader.end" ||
+        key === "Client.stopListener") &&
       this.session.eventReaderEnded(this.handle)
     )
       return Promise.resolve(undefined);
     if (
-      key !== "EventReader.next" ||
+      (key !== "EventReader.next" &&
+        key !== "EventReader.end" &&
+        key !== "Client.stopListener") ||
       !this.session.eventReaderEnding(this.handle)
     )
       this.check();

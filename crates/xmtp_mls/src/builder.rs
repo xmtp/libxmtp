@@ -82,6 +82,28 @@ fn open_location_store(
     })
 }
 
+// Every identity request uses an admitted snapshot, including the lookup
+// needed to find a data directory's database.
+fn admit_configuration<ApiClient: XmtpBackendClient>(
+    api_client: &mut ApiClientWrapper<ApiClient>,
+    configuration: &xmtp_configuration::ServerConfiguration,
+    client_version: &semver::Version,
+) -> Result<(), ClientError> {
+    crate::server_configuration::check_minimum_version(configuration, client_version)?;
+    // implements: CONF-051
+    if configuration.auth.enabled && !api_client.has_credential_source() {
+        return Err(ClientError::AuthRequired {
+            required_scopes: configuration.auth.required_scopes.clone(),
+        });
+    }
+    let snapshot = Arc::new(configuration.clone());
+    api_client
+        .api_client
+        .set_limits(Arc::new(snapshot.limits.clone()));
+    api_client.set_configuration(snapshot);
+    Ok(())
+}
+
 #[derive(Error, Debug, ErrorCode)]
 pub enum ClientBuilderError {
     /// The deployment storage path could not be resolved or opened.
@@ -434,6 +456,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             })?;
 
         let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
+        let config_provider = config_provider.map(ServerConfigurationHandle::new);
         let mut data_dir_opened_identifier = None;
         if let Some(location) = data_location {
             use crate::storage_location::StorageLocationError;
@@ -483,7 +506,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                     })?;
                     let configuration = crate::server_configuration::validated(&response)
                         .map_err(ClientError::from)?;
-                    let identifier = configuration.identifier;
+                    let identifier = configuration.identifier.clone();
                     if let Some(recorded) = recorded
                         && recorded != identifier
                     {
@@ -492,6 +515,20 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                             received: identifier,
                         }
                         .into());
+                    }
+                    if look_up_inbox {
+                        let admission = config_provider
+                            .as_ref()
+                            .map(ServerConfigurationHandle::configuration)
+                            .unwrap_or(&configuration);
+                        if admission.identifier != identifier {
+                            return Err(StorageLocationError::DeploymentMismatch.into());
+                        }
+                        admit_configuration(
+                            &mut api_client,
+                            admission,
+                            version_info.pkg_semver().semver(),
+                        )?;
                     }
                     fetched = Some((identifier.clone(), response));
                     Some(identifier)
@@ -552,7 +589,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         // keeps `build_offline` free of a pending future.
         let has_config_provider = config_provider.is_some();
         let server_configuration = match config_provider {
-            Some(provider) => ServerConfigurationHandle::new(provider),
+            Some(provider) => provider,
             None => crate::server_configuration::resolve(&api_client, &conn, allow_offline).await?,
         };
 
@@ -592,33 +629,11 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             server_configuration.set_deployment_recorder(recorder);
         }
 
-        // A deployment that requires a newer client refuses this build,
-        // whether the snapshot came from the backend or from a provider.
-        crate::server_configuration::check_minimum_version(
+        admit_configuration(
+            &mut api_client,
             server_configuration.configuration(),
             version_info.pkg_semver().semver(),
         )?;
-
-        // A deployment that requires a credential refuses a client
-        // that has no way to produce one.
-        let configuration = server_configuration.configuration();
-        // implements: CONF-051
-        if configuration.auth.enabled && !api_client.has_credential_source() {
-            return Err(ClientBuilderError::ClientError(ClientError::AuthRequired {
-                required_scopes: configuration.auth.required_scopes.clone(),
-            }));
-        }
-
-        // Install the snapshot before any request is made,
-        // so even the identity work below chunks and pre-validates against the
-        // shapes this deployment publishes. The transport is told separately,
-        // because stream and interest-update chunking happens below the
-        // wrapper and never sees the wrapper's copy.
-        let snapshot = Arc::new(configuration.clone());
-        api_client
-            .api_client
-            .set_limits(Arc::new(snapshot.limits.clone()));
-        api_client.set_configuration(snapshot);
 
         let identifier_check = match &identity_strategy {
             IdentityStrategy::CreateIfNotFound {

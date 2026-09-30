@@ -7,6 +7,7 @@ import {
   WorkerHost,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
 import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
+import { registerEventEndingTests } from "./bridge-event-ending";
 import { heldPoolLocks, host, pair } from "./bridge-support";
 
 function latch() {
@@ -77,6 +78,7 @@ class EventReaderProxy extends RemoteObject {
 }
 
 export function registerEndingTests(): void {
+  registerEventEndingTests();
   it("ends in-flight, queued, and later event reads after a successful close", async () => {
     const entered = latch();
     const release = latch();

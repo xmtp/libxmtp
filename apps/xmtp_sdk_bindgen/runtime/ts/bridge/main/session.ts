@@ -256,7 +256,13 @@ export class MainSession {
   ): Promise<unknown> {
     this.localCalls++;
     try {
-      if (key === "EventReader.next" && target && this.eventReaderEnded(target))
+      if (
+        (key === "EventReader.next" ||
+          key === "EventReader.end" ||
+          key === "Client.stopListener") &&
+        target &&
+        this.eventReaderEnded(target)
+      )
         return undefined;
       if (target && abandonedAtEnd(key))
         return await this.sendRead(key, args, target, signal);
@@ -339,12 +345,17 @@ export class MainSession {
     target?: HandleWire,
     signal?: AbortSignal,
   ): Promise<unknown> {
-    if (key === "EventReader.next" && target) {
+    if (
+      (key === "EventReader.next" ||
+        key === "EventReader.end" ||
+        key === "Client.stopListener") &&
+      target
+    ) {
       if (this.eventReaderEnded(target)) return undefined;
       const ending = this.endingOwners.get(target.owner);
       if (ending) {
-        // A read queued before the fence still ends normally. If end fails,
-        // issue that read against the open owner instead.
+        // An event read or stop waits for the owner to close. If close fails,
+        // issue that call against the open owner instead.
         return new Promise((resolve, reject) => {
           ending.push({
             pending: {
