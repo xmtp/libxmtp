@@ -194,8 +194,21 @@ assert.equal(reachable.get(`ethereum:${bobIdentity.identifier}`), true);
 assertPublic(await sdk.Client.fetchServerConfiguration(backend), "config");
 
 // The owner is weak: an ended client closes its messages' actions.
+const aliceInboxId = alice.inboxId;
+const groupId = group.id;
+const groupTopic = group.topic;
 await bob.end();
 await alice.end();
+// Getters read held values, so they stay readable after end (Decision 14).
+// Calls fail with ClientClosed. The browser suite checks the same values.
+assert.equal(alice.inboxId, aliceInboxId);
+assert.ok(alice.conversations instanceof sdk.Conversations);
+assert.equal(group.id, groupId);
+assert.equal(group.topic, groupTopic);
+await assert.rejects(
+  group.sync(),
+  (error) => error instanceof sdk.XmtpError.ClientClosed,
+);
 assert.throws(() => text.client(), /ClientClosed|client is closed/);
 await assert.rejects(text.refresh(), /ClientClosed|client is closed/);
 

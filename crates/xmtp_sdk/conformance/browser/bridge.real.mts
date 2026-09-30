@@ -279,8 +279,11 @@ try {
     "connectionState must read the live reader state",
   );
   const ending = live.end();
-  assert.throws(
-    () => live.conversations(),
+  // An immutable getter reads its held snapshot while the client ends, as on
+  // Node (Decision 14). A call through the result fails with ClientClosed.
+  const endingConversations = live.conversations();
+  await assert.rejects(
+    endingConversations.sync(),
     (error: unknown) => {
       assert.ok(B.XmtpError.ClientClosed.instanceOf(error));
       assert.deepEqual(error.inner[0], {
