@@ -100,6 +100,17 @@ export function registerTransportTests(): void {
     ).toBe("Unknown");
   });
 
+  it("encodes an aborted binding call as Cancelled", () => {
+    const aborted = new Error("aborted");
+    aborted.name = "AbortError";
+    expect(encodeError(aborted)).toMatchObject({
+      variant: "Cancelled",
+      code: "Cancelled",
+      category: 6,
+      retryable: false,
+    });
+  });
+
   it("uses the numeric Lifecycle category for transport errors", () => {
     for (const code of [
       "contractMismatch",
