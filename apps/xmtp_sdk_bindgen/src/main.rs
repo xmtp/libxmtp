@@ -2,12 +2,9 @@ mod bridge;
 mod callback_cursor;
 mod format;
 mod forwarding;
-mod identity_unions;
 mod kotlin_callbacks;
 mod kotlin_records;
-mod nullable_identity;
 mod public_projection;
-mod reader_defaults;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -209,11 +206,6 @@ fn generate(
                     &binding,
                     callback_cursor::rewrite(&fs::read_to_string(&binding)?)?,
                 )?;
-            }
-            if !pure_only {
-                let source = nullable_identity::rewrite(&fs::read_to_string(&binding)?)?;
-                let source = identity_unions::rewrite(&source)?;
-                fs::write(&binding, reader_defaults::rewrite(&source)?)?;
             }
             if is_wasm && !pure_only {
                 let mut body = fs::read_to_string(&binding)?;

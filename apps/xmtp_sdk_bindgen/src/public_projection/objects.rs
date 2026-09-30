@@ -10,10 +10,10 @@ use anyhow::Result;
 use heck::ToLowerCamelCase;
 use uniffi_meta::{FnMetadata, FnParamMetadata, Metadata, MethodMetadata, Type};
 
+use super::identity::{ROUTES, is_nullable};
 use super::{
     Target, convert, identifier as camel, optional_parameters, parameters_with, public_type,
 };
-use crate::{identity_unions::ROUTES, nullable_identity::is_nullable};
 
 /// The host Client owns these members; the generated members exclude them.
 const HOST_CLIENT_MEMBERS: &[&str] = &[
@@ -115,8 +115,31 @@ fn methods<'a>(items: &[&'a Metadata], owner: &str) -> Vec<&'a MethodMetadata> {
 struct Call {
     parameters: String,
     arguments: String,
+    /// A membership union: the guard that selects the identity method, that
+    /// method, and its arguments. `arguments` then serve the inbox method.
+    routed: Option<Routed>,
     result_type: String,
     result: Option<String>,
+}
+
+struct Routed {
+    guard: String,
+    identity: &'static str,
+    arguments: String,
+}
+
+impl Call {
+    fn uses_projection(&self) -> bool {
+        self.arguments.contains("projection")
+            || self
+                .routed
+                .as_ref()
+                .is_some_and(|routed| routed.arguments.contains("projection"))
+            || self
+                .result
+                .as_deref()
+                .is_some_and(|result| result.contains("projection"))
+    }
 }
 
 fn call(
@@ -137,20 +160,38 @@ fn call(
     let mut parameters = parameters_with(inputs, &defaults);
     let arguments = inputs
         .iter()
-        .map(|input| {
-            let input_name = camel(&input.name);
-            match route {
-                Some(route) if route.member == input_name && route.list => format!(
-                    "identityMembers<InboxId, PublicIdentity>({input_name}) ? {input_name}.map((item) => lowerPublicIdentity(item, projection)) : {input_name}"
-                ),
-                Some(route) if route.member == input_name => format!(
-                    "identityMember<InboxId, PublicIdentity>({input_name}) ? lowerPublicIdentity({input_name}, projection) : {input_name}"
-                ),
-                _ => convert(&input.ty, &input_name, true),
-            }
-        })
+        .map(|input| convert(&input.ty, &camel(&input.name), true))
         .collect::<Vec<_>>()
         .join(", ");
+    // A membership union calls the binding identity method with lowered
+    // identities, and the inbox method otherwise.
+    let routed = route.map(|route| {
+        let member = route.member;
+        let arguments = inputs
+            .iter()
+            .map(|input| {
+                let input_name = camel(&input.name);
+                if input_name != member {
+                    convert(&input.ty, &input_name, true)
+                } else if route.list {
+                    format!("{member}.map((item) => lowerPublicIdentity(item, projection))")
+                } else {
+                    format!("lowerPublicIdentity({member}, projection)")
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let guard = if route.list {
+            format!("identityMembers<InboxId, PublicIdentity>({member})")
+        } else {
+            format!("identityMember<InboxId, PublicIdentity>({member})")
+        };
+        Routed {
+            guard,
+            identity: route.identity,
+            arguments,
+        }
+    });
     if let Some(route) = route {
         let (inbox, union) = if route.list {
             ("Array<InboxId>", "Array<InboxId> | Array<PublicIdentity>")
@@ -183,6 +224,7 @@ fn call(
     Call {
         parameters,
         arguments,
+        routed,
         result_type,
         result,
     }
@@ -195,11 +237,7 @@ fn render_body(
     asynchronous: bool,
 ) -> Result<()> {
     let await_ = if asynchronous { "await " } else { "" };
-    let uses_projection = call.arguments.contains("projection")
-        || call
-            .result
-            .as_deref()
-            .is_some_and(|result| result.contains("projection"));
+    let uses_projection = call.uses_projection();
     // Every call converts a thrown value, including a call whose binding
     // cannot fail: a browser proxy can refuse any call of an ended client,
     // and the package worker can fail under any call (P8).
@@ -247,10 +285,17 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
         call.parameters,
         call.result_type
     )?;
+    let routed = call.routed.as_ref();
     render_body(
         code,
         &call,
-        &|args| format!("{receiver}.{name}({args})"),
+        &|args| match routed {
+            Some(routed) => format!(
+                "({} ? {receiver}.{}({}) : {receiver}.{name}({args}))",
+                routed.guard, routed.identity, routed.arguments
+            ),
+            None => format!("{receiver}.{name}({args})"),
+        },
         method.is_async,
     )?;
     code.push_str("}\n");

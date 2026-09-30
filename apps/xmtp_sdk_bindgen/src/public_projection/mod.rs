@@ -1,6 +1,7 @@
 //! Shared public values and objects above the private target binding.
 
 mod errors;
+mod identity;
 mod objects;
 mod policy;
 mod values;

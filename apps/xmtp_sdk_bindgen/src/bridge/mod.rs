@@ -1137,23 +1137,12 @@ fn render(
                     .as_ref()
                     .map(ts_type)
                     .unwrap_or_else(|| "void".into());
-                let nullable = crate::nullable_identity::is_nullable(&object.name, &op.name);
-                let output = if nullable {
-                    output.replace("undefined", "null")
-                } else {
-                    output
-                };
                 if op.immutable {
                     let value = decode_expr(
                         op.output.as_ref().expect("immutable result"),
                         &format!("this.snapshot(\"{}\")", op.name),
                         "this.session",
                     );
-                    let value = if nullable {
-                        format!("({value}) ?? null")
-                    } else {
-                        value
-                    };
                     writeln!(
                         proxy,
                         "  {}(): {output} {{ return this.held(() => {value}); }}",
@@ -1168,37 +1157,10 @@ fn render(
                     proxy.push_str("  private closing?: Promise<void>;\n  async end(asyncOpts_?: { signal: AbortSignal }): Promise<void> { if (!this.closing) { const call = this.call(\"StorageAdmin.end\", [], asyncOpts_?.signal); this.fence(); this.closing = call.then(() => { endOwner(this); }, (error: unknown) => { this.unfence(); this.closing = undefined; throw error; }); } return this.closing; }\n");
                 } else {
                     let comma = if params.is_empty() { "" } else { ", " };
-                    let routes = crate::identity_unions::ROUTES;
-                    let inbox_route = routes
-                        .iter()
-                        .find(|route| route.owner == object.name && route.method == op.name);
-                    let identity_route = routes
-                        .iter()
-                        .any(|route| route.owner == object.name && route.identity == op.name);
-                    let name = if let Some(route) = inbox_route {
-                        // The public union routes here or to the identity form.
-                        let union = params
-                            .replacen(
-                                "Array<string>",
-                                "Array<string> | Array<B.PublicIdentity>",
-                                1,
-                            )
-                            .replacen("peer: string", "peer: string | B.PublicIdentity", 1);
-                        writeln!(
-                            proxy,
-                            "  async {}({union}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{\n    {}\n  }}",
-                            op.name,
-                            crate::identity_unions::union_body(route, "string", "B.PublicIdentity")
-                        )?;
-                        format!("private async {}ByInboxIds", op.name)
-                    } else if identity_route {
-                        format!("private async {}", op.name)
-                    } else {
-                        format!("async {}", op.name)
-                    };
                     writeln!(
                         proxy,
-                        "  {name}({params}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{",
+                        "  async {}({params}{comma}asyncOpts_?: {{ signal: AbortSignal }}): Promise<{output}> {{",
+                        op.name
                     )?;
                     if !op.inputs.is_empty() {
                         proxy.push_str("    const encoder = mainEncoder(this.session);\n");
@@ -1218,11 +1180,6 @@ fn render(
                         .as_ref()
                         .map(|ty| decode_expr(ty, "raw", "this.session"))
                         .unwrap_or_else(|| "undefined".into());
-                    let value = if nullable {
-                        format!("({value}) ?? null")
-                    } else {
-                        value
-                    };
                     writeln!(proxy, "    return {value};")?;
                     proxy.push_str("  }\n");
                 }
@@ -1268,7 +1225,6 @@ fn render(
         }
         proxy.push_str("}\n");
     }
-    proxy.push_str(&crate::identity_unions::helper("B.XmtpError"));
     proxy.push_str("export function proxyFor(session: MainSession, handle: HandleWire): RemoteObject {\n  session.checkHandle(handle);\n  const existing = session.proxy(handle); if (existing) return existing;\n  switch (handle.type) {\n");
     for item in items {
         if let Metadata::Object(object) = item
@@ -1351,17 +1307,7 @@ fn render(
         }
     }
     dispatch.push_str("};\n\n");
-    // The binding returns null for these absent results; the wire carries absence.
-    writeln!(
-        dispatch,
-        "const nullableResults = new Set<string>([{}]);\nfunction wireResult(key: string, result: unknown): unknown {{ return nullableResults.has(key) && result === null ? undefined : result; }}\n",
-        crate::nullable_identity::NULLABLE_RESULTS
-            .iter()
-            .map(|(owner, method)| format!("\"{owner}.{method}\""))
-            .collect::<Vec<_>>()
-            .join(", ")
-    )?;
-    dispatch.push_str("function snapshot(name: string, value: object, owner: number, context: WorkerContext): Record<string, unknown> {\n  const output: Record<string, unknown> = {};\n  for (const field of immutable[name] ?? []) {\n    const method: unknown = Reflect.get(value, field.name);\n    if (typeof method !== \"function\") throw new TypeError(`missing immutable method ${field.name}`);\n    const result: unknown = wireResult(`${name}.${field.name}`, Reflect.apply(method, value, []));\n    output[field.name] = workerEncoder(context.registry, owner, (type, nested, nestedOwner) => snapshot(type, nested, nestedOwner, context)).convert(field.shape, result);\n  }\n  return output;\n}\n\n");
+    dispatch.push_str("function snapshot(name: string, value: object, owner: number, context: WorkerContext): Record<string, unknown> {\n  const output: Record<string, unknown> = {};\n  for (const field of immutable[name] ?? []) {\n    const method: unknown = Reflect.get(value, field.name);\n    if (typeof method !== \"function\") throw new TypeError(`missing immutable method ${field.name}`);\n    const result: unknown = Reflect.apply(method, value, []);\n    output[field.name] = workerEncoder(context.registry, owner, (type, nested, nestedOwner) => snapshot(type, nested, nestedOwner, context)).convert(field.shape, result);\n  }\n  return output;\n}\n\n");
     // Every persistent store opens one OPFS pool in this directory, so the
     // directory also names the storage lock of that pool.
     writeln!(
@@ -1369,7 +1315,7 @@ fn render(
         "const STORAGE_POOL = {:?};",
         xmtp_configuration::WASM_VFS_DIRECTORY
     )?;
-    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const createsAdmin = key === \"StorageAdmin.open\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : createsAdmin ? STORAGE_POOL : context.targetHandle ? context.locks?.poolForOwner(context.targetHandle.owner) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  const value = await callWithPool(context.locks, pool, createsClient || createsAdmin, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, wireResult(key, result))), B.storageRequiresWorkerRestart, context.started, (owner) => { context.createdOwner = owner; });\n  if (context.settled) context.settled();\n  return value;\n}\n");
+    dispatch.push_str("export async function dispatchGenerated(key: string, args: unknown[], context: WorkerContext): Promise<unknown> {\n  const operation = methods[key];\n  if (!operation) throw new TypeError(`unknown bridge method ${key}`);\n  checkTarget(key, operation.owner !== null && !operation.constructor ? operation.owner : undefined, context);\n  const receiver: unknown = operation.constructor && operation.owner ? Reflect.get(B, operation.owner) : operation.owner ? context.target : B;\n  if (receiver === null || (typeof receiver !== \"object\" && typeof receiver !== \"function\")) throw new TypeError(`missing receiver for ${key}`);\n  const method: unknown = Reflect.get(receiver, operation.name);\n  if (typeof method !== \"function\") throw new TypeError(`missing binding method ${key}`);\n  const decoder = workerDecoder(context.registry, context.callbacks, enumFactory(B));\n  const decoded = operation.inputs.map((shape, index) => decoder.convert(shape, args[index]));\n  const createsClient = key === \"Client.create\" || key === \"Client.build\";\n  const createsAdmin = key === \"StorageAdmin.open\";\n  const pool = createsClient ? poolName(decoded[1], STORAGE_POOL) : createsAdmin ? STORAGE_POOL : context.targetHandle ? context.locks?.poolForOwner(context.targetHandle.owner) : undefined;\n  const callArgs = operation.immutable ? decoded : [...decoded, { signal: context.signal }];\n  const value = await callWithPool(context.locks, pool, createsClient || createsAdmin, () => Reflect.apply(method, receiver, callArgs), (result) => context.registry.scope(() => workerEncoder(context.registry, context.targetHandle?.owner, (type, value, owner) => snapshot(type, value, owner, context)).convert(operation.output, result)), B.storageRequiresWorkerRestart, context.started, (owner) => { context.createdOwner = owner; });\n  if (context.settled) context.settled();\n  return value;\n}\n");
     result.insert("dispatch.gen.ts", dispatch);
     result.insert(
         "worker-entry.gen.js",

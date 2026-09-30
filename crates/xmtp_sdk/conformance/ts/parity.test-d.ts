@@ -1,10 +1,9 @@
-import type * as NodeHost from "../../../../target/sdk-generated/typescript-napi/binding";
-// Compare public method parameters and returns, and record fields (plan P62).
-// check-parity-signatures.py compares every public declaration. SDK-037 is
-// the only removal list.
-import type * as Node from "../../../../target/sdk-generated/typescript-napi/xmtp_sdk";
-import type * as BrowserHost from "../../../../target/sdk-generated/typescript-wasm/binding";
-import type * as Browser from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
+// Compare public method parameters and returns, and record fields, of the
+// Node and browser package roots structurally (plan P62).
+// check-parity-signatures.py compares every root declaration as text. SDK-037
+// is the only removal list.
+import type * as Node from "../../../../target/sdk-generated/typescript-napi/index";
+import type * as Browser from "../../../../target/sdk-generated/typescript-wasm/index";
 
 type Equal<Left, Right> =
   (<Value>() => Value extends Left ? 1 : 2) extends <
@@ -13,97 +12,44 @@ type Equal<Left, Right> =
     ? true
     : false;
 type Assert<Value extends true> = Value;
-type Opaque<Value> = Value extends
-  | NodeHost.Message
-  | BrowserHost.Message
-  | Browser.Message
+// Public objects and classes become their name, which ends the recursion;
+// each one is compared where it is declared.
+type Opaque<Value> = Value extends Node.Message | Browser.Message
   ? "Message"
-  : Value extends NodeHost.Client | BrowserHost.Client
+  : Value extends Node.Client | Browser.Client
     ? "Client"
-    : Value extends Node.Conversation | Browser.Conversation
-      ? "Conversation"
-      : Value extends Node.ReplyParent | Browser.ReplyParent
-        ? "ReplyParent"
-        : Value extends Node.StorageLocation | Browser.StorageLocation
-          ? "StorageLocation"
-          : Value extends Node.ClientOptions | Browser.ClientOptions
-            ? "ClientOptions"
-            : Value extends Node.StorageLike | Browser.StorageLike
-              ? "StorageLike"
-              : Value extends Node.ArchivesLike | Browser.ArchivesLike
-                ? "ArchivesLike"
-                : Value extends Node.MessageContent | Browser.MessageContent
-                  ? "MessageContent"
-                  : Value extends Node.PublicIdentity | Browser.PublicIdentity
-                    ? "PublicIdentity"
-                    : Value extends
-                          | Node.CreateGroupOptions
-                          | Browser.CreateGroupOptions
-                      ? "CreateGroupOptions"
-                      : Value extends
-                            | Node.CreateDmOptions
-                            | Browser.CreateDmOptions
-                        ? "CreateDmOptions"
-                        : Value extends
-                              | Node.ListConversationsOptions
-                              | Browser.ListConversationsOptions
-                          ? "ListConversationsOptions"
-                          : Value extends
-                                | Node.ConsentEntity
-                                | Browser.ConsentEntity
-                            ? "ConsentEntity"
-                            : Value extends Node.Signature | Browser.Signature
-                              ? "Signature"
-                              : Value extends
-                                    | NodeHost.ConversationId
-                                    | BrowserHost.ConversationId
-                                ? "ConversationId"
-                                : Value extends
-                                      | NodeHost.InboxId
-                                      | BrowserHost.InboxId
-                                  ? "InboxId"
-                                  : Value extends
-                                        | NodeHost.InstallationId
-                                        | BrowserHost.InstallationId
-                                    ? "InstallationId"
-                                    : Value extends
-                                          | NodeHost.MessageId
-                                          | BrowserHost.MessageId
-                                      ? "MessageId"
-                                      : Value extends
-                                            | NodeHost.Timestamp
-                                            | BrowserHost.Timestamp
-                                        ? "Timestamp"
-                                        : Value extends
-                                              | Node.GroupLike
-                                              | Browser.GroupLike
-                                          ? "GroupLike"
-                                          : Value extends
-                                                | Node.DmLike
-                                                | Browser.DmLike
-                                            ? "DmLike"
-                                            : Value extends
-                                                  | Node.ConversationsLike
-                                                  | Browser.ConversationsLike
-                                              ? "ConversationsLike"
-                                              : Value extends
-                                                    | Node.MessageReaderLike
-                                                    | Browser.MessageReaderLike
-                                                ? "MessageReaderLike"
-                                                : Value extends
-                                                      | Node.Signer
-                                                      | Browser.Signer
-                                                  ? "Signer"
-                                                  : Value extends
-                                                        | Node.SignatureRequestLike
-                                                        | Browser.SignatureRequestLike
-                                                    ? "SignatureRequestLike"
-                                                    : never;
-// Canonical keeps every literal, enum value, union member, optional marker,
-// and nested field. It maps each member of a union on its own, so `undefined`
-// and other members stay beside an opaque type. Opaque SDK types become their
-// name, which also ends the recursion; check-parity-signatures.py compares each
-// of them where it is declared.
+    : Value extends Node.Group | Browser.Group
+      ? "Group"
+      : Value extends Node.Dm | Browser.Dm
+        ? "Dm"
+        : Value extends Node.Conversations | Browser.Conversations
+          ? "Conversations"
+          : Value extends Node.MessageReader | Browser.MessageReader
+            ? "MessageReader"
+            : Value extends Node.ConversationReader | Browser.ConversationReader
+              ? "ConversationReader"
+              : Value extends Node.SignatureRequest | Browser.SignatureRequest
+                ? "SignatureRequest"
+                : Value extends Node.Backend | Browser.Backend
+                  ? "Backend"
+                  : Value extends Node.Storage | Browser.Storage
+                    ? "Storage"
+                    : Value extends Node.Archives | Browser.Archives
+                      ? "Archives"
+                      : Value extends Node.Preferences | Browser.Preferences
+                        ? "Preferences"
+                        : Value extends Node.Diagnostics | Browser.Diagnostics
+                          ? "Diagnostics"
+                          : Value extends Node.Timestamp | Browser.Timestamp
+                            ? "Timestamp"
+                            : Value extends Node.XmtpError | Browser.XmtpError
+                              ? "XmtpError"
+                              : Value extends Uint8Array
+                                ? "Uint8Array"
+                                : never;
+// Canonical keeps every literal, union member, optional marker, and nested
+// field. It maps each member of a union on its own, so `undefined` and other
+// members stay beside an opaque type.
 type Canonical<Value> = 0 extends 1 & Value
   ? "any"
   : Value extends unknown
@@ -135,16 +81,18 @@ type Structure<Value> =
                   : Value extends bigint
                     ? ["bigint", `${Value}`]
                     : Value;
+// Symbol keys are module-private brands; each target has its own.
+type Keys<Value> = Exclude<keyof Value, symbol>;
 type MismatchKeys<Native, Web, Removed extends PropertyKey = never> = {
-  [Key in Exclude<keyof Native, Removed> & keyof Web]: Equal<
+  [Key in Exclude<Keys<Native>, Removed> & Keys<Web>]: Equal<
     Canonical<Native[Key]>,
     Canonical<Web[Key]>
   > extends true
     ? never
     : Key;
-}[Exclude<keyof Native, Removed> & keyof Web];
+}[Exclude<Keys<Native>, Removed> & Keys<Web>];
 type SameMethods<Native, Web, Removed extends PropertyKey = never> =
-  Equal<Exclude<keyof Native, Removed>, keyof Web> extends true
+  Equal<Exclude<Keys<Native>, Removed>, Keys<Web>> extends true
     ? [MismatchKeys<Native, Web, Removed>] extends [never]
       ? true
       : false
@@ -155,86 +103,66 @@ type SameFields<Native, Web> =
     ? Equal<Structure<Native>, Structure<Web>>
     : false;
 
-// check-parity-signatures.py compares every export of both entrypoints, value
-// and type-only, and holds the SDK-037 list. This type test compares method
-// and record shapes structurally.
+
+// check-parity-signatures.py compares every export of both roots, value and
+// type-only, and holds the SDK-037 list. This type test compares object
+// methods and record shapes structurally.
 type PublicNodeExports =
-  keyof typeof import("../../../../target/sdk-generated/typescript-napi/binding");
+  keyof typeof import("../../../../target/sdk-generated/typescript-napi/index");
 export type QueuedLogSinkIsInternal = Assert<
   Equal<"setLogSinkQueued" extends PublicNodeExports ? true : false, false>
 >;
 
-export type BackendParity = Assert<
-  SameMethods<Node.BackendLike, Browser.BackendLike>
->;
+export type BackendParity = Assert<SameMethods<Node.Backend, Browser.Backend>>;
 export type MessageReaderParity = Assert<
-  SameMethods<Node.MessageReaderLike, Browser.MessageReaderLike>
+  SameMethods<Node.MessageReader, Browser.MessageReader>
 >;
-export type GroupParity = Assert<
-  SameMethods<Node.GroupLike, Browser.GroupLike>
+export type ConversationReaderParity = Assert<
+  SameMethods<Node.ConversationReader, Browser.ConversationReader>
 >;
-export type DmParity = Assert<SameMethods<Node.DmLike, Browser.DmLike>>;
+export type GroupParity = Assert<SameMethods<Node.Group, Browser.Group>>;
+export type DmParity = Assert<SameMethods<Node.Dm, Browser.Dm>>;
 export type ArchivesParity = Assert<
   SameMethods<
-    Node.ArchivesLike,
-    Browser.ArchivesLike,
+    Node.Archives,
+    Browser.Archives,
     "exportToFile" | "importFromFile" | "metadataFromFile"
   >
 >;
 export type ConversationsParity = Assert<
-  SameMethods<Node.ConversationsLike, Browser.ConversationsLike>
+  SameMethods<Node.Conversations, Browser.Conversations>
 >;
 export type DiagnosticsParity = Assert<
-  SameMethods<Node.DiagnosticsLike, Browser.DiagnosticsLike>
+  SameMethods<Node.Diagnostics, Browser.Diagnostics>
 >;
 export type PreferencesParity = Assert<
-  SameMethods<Node.PreferencesLike, Browser.PreferencesLike>
+  SameMethods<Node.Preferences, Browser.Preferences>
 >;
 export type StorageParity = Assert<
-  SameMethods<Node.StorageLike, Browser.StorageLike, "delete_" | "reconnect">
+  SameMethods<Node.Storage, Browser.Storage, "delete_" | "reconnect">
 >;
 export type BrowserStorageOmitsReconnect = Assert<
-  Equal<"reconnect" extends keyof Browser.StorageLike ? true : false, false>
->;
-export type BrowserBridgeStorageOmitsReconnect = Assert<
-  Equal<
-    "reconnect" extends keyof ReturnType<BrowserHost.Client["storage"]>
-      ? true
-      : false,
-    false
-  >
+  Equal<"reconnect" extends keyof Browser.Storage ? true : false, false>
 >;
 export type SignatureRequestParity = Assert<
-  SameMethods<Node.SignatureRequestLike, Browser.SignatureRequestLike>
+  SameMethods<Node.SignatureRequest, Browser.SignatureRequest>
 >;
+// `options` differs only by the SDK-037 storage key; ClientOptionsParity
+// compares it.
 export type ClientParity = Assert<
   SameMethods<
-    Node.ClientLike,
-    Browser.ClientLike,
+    Omit<Node.Client, "options">,
+    Omit<Browser.Client, "options">,
     "disableNotifications" | "enableNotifications" | "notificationState"
   >
 >;
-type MessageActions =
-  | "refresh"
-  | "delete"
-  | "deleteLocally"
-  | "react"
-  | "reply"
-  | "parent"
-  | "conversation"
-  | "client";
-export type MessageActionParity = Assert<
-  SameMethods<
-    Pick<NodeHost.Message, MessageActions>,
-    Pick<BrowserHost.Message, MessageActions>
-  >
->;
+export type MessageParity = Assert<SameMethods<Node.Message, Browser.Message>>;
 
-// Check records passed across the bridge as well as object method names.
+// Records passed across the bridge.
 export type ClientOptionsParity = Assert<
   SameFields<
     Omit<Node.ClientOptions, "storage"> & {
-      storage: Omit<Node.StorageOptions, "encryptionKey">;
+      readonly storage: Omit<Node.StorageOptions, "encryptionKey">;
     },
     Browser.ClientOptions
   >
@@ -242,32 +170,26 @@ export type ClientOptionsParity = Assert<
 export type EncodedContentParity = Assert<
   SameFields<Node.EncodedContent, Browser.EncodedContent>
 >;
-export type MessageDataParity = Assert<
-  SameFields<Node.MessageData, Browser.MessageData>
->;
 export type StorageOptionsParity = Assert<
   SameFields<Omit<Node.StorageOptions, "encryptionKey">, Browser.StorageOptions>
 >;
 
-// The browser factory owns its session. Its admin bytes use typed arrays.
-import type { Storage as BrowserStorage } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import type { StorageAdmin } from "../../../../target/sdk-generated/typescript-wasm/storage-admin.gen";
-
+// The browser storage admin opens without a Client. Its bytes are Uint8Array.
 export type AdminFactoryArguments = Assert<
-  Equal<Parameters<typeof BrowserStorage.admin>, []>
+  Equal<Parameters<typeof Browser.Storage.admin>, []>
 >;
 export type AdminFactoryResult = Assert<
-  Equal<ReturnType<typeof BrowserStorage.admin>, Promise<StorageAdmin>>
+  Equal<ReturnType<typeof Browser.Storage.admin>, Promise<Browser.StorageAdmin>>
 >;
 export type AdminExportBytes = Assert<
-  Equal<ReturnType<StorageAdmin["exportDb"]>, Promise<Uint8Array>>
+  Equal<ReturnType<Browser.StorageAdmin["exportDb"]>, Promise<Uint8Array>>
 >;
 export type AdminImportBytes = Assert<
-  Equal<Parameters<StorageAdmin["importDb"]>, [string, Uint8Array]>
+  Equal<Parameters<Browser.StorageAdmin["importDb"]>, [string, Uint8Array]>
 >;
 export type AdminMethods = Assert<
   Equal<
-    keyof StorageAdmin,
+    keyof Browser.StorageAdmin,
     | "listFiles"
     | "fileCount"
     | "poolCapacity"
