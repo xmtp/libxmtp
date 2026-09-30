@@ -53,8 +53,7 @@ async function nestedEnvelope(
   return body.encoded;
 }
 
-// verifies: CTYPE-021
-export async function replyPolicy(
+async function replyHooks(
   group: sdk.Group,
   parent: sdk.Message,
 ): Promise<void> {
@@ -104,7 +103,13 @@ export async function replyPolicy(
   const plain = await parent.reply(noteCodec(), { text: "plain" });
   assert.equal((await nestedEnvelope(group, plain)).fallback, undefined);
 
-  // A failed or invalid step fails the reply before any publish attempt.
+}
+
+// A failed or invalid step fails the reply before any publish attempt.
+async function replyFailures(
+  group: sdk.Group,
+  parent: sdk.Message,
+): Promise<void> {
   process.on("unhandledRejection", recordUnhandled);
   const before = (await group.messages()).length;
   for (const [step, codec] of [
@@ -193,8 +198,7 @@ async function stored(
   return message;
 }
 
-// verifies: CTYPE-017, CTYPE-021
-export async function sendPolicy(
+async function sendHooks(
   group: sdk.Group,
   receiver: sdk.Client,
 ): Promise<void> {
@@ -229,7 +233,10 @@ export async function sendPolicy(
   assert.equal(new TextDecoder().decode(gzip.content.encoded.content), "gzip");
   assert.equal(gzip.content.encoded.fallback, "a note: gzip");
 
-  // A failed codec step makes no send attempt, on send and prepareMessage.
+}
+
+// A failed codec step makes no send attempt, on send and prepareMessage.
+async function sendFailures(group: sdk.Group): Promise<void> {
   const before = (await group.messages()).length;
   const failing = noteCodec({ shouldPush: () => throwing("shouldPush") });
   await assert.rejects(group.send(failing, { text: "x" }), isCodecEncodeFailed);
@@ -240,4 +247,33 @@ export async function sendPolicy(
   assert.equal((await group.messages()).length, before);
   // An explicit shouldPush skips the hook.
   await group.send(failing, { text: "explicit" }, { shouldPush: false });
+}
+
+/**
+ * custom_codec_policy_and_isolation: typed sends, prepares, and replies apply
+ * the codec's fallback and push hooks, and a client without the codec keeps
+ * the envelope and its fallback.
+ */
+// verifies: CTYPE-017, CTYPE-021
+export async function customCodecPolicyAndIsolation(
+  group: sdk.Group,
+  parent: sdk.Message,
+  receiver: sdk.Client,
+): Promise<void> {
+  await replyHooks(group, parent);
+  await sendHooks(group, receiver);
+}
+
+/**
+ * codec_policy_failure_never_publishes: a failed or invalid encode, fallback,
+ * or shouldPush step is CodecEncodeFailed with no publish attempt, and a
+ * skipped hook is not called.
+ */
+// verifies: CTYPE-007
+export async function codecPolicyFailureNeverPublishes(
+  group: sdk.Group,
+  parent: sdk.Message,
+): Promise<void> {
+  await replyFailures(group, parent);
+  await sendFailures(group);
 }

@@ -4,17 +4,30 @@ import java.lang.ref.WeakReference
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
-interface SDKContentCodec {
+/**
+ * A content codec with a typed value (Ref Public surface, Host codecs). The
+ * send helpers run its steps before the send: `encode`, then `fallback` when
+ * the envelope has none, then `shouldPush` when the send has no explicit
+ * `shouldPush` option and the type is not a catalogue type. A step that
+ * throws fails the send with `XmtpException.CodecEncodeFailed`, and the SDK
+ * makes no publish attempt.
+ */
+interface ContentCodec<T : Any> {
     val type: ContentTypeId
 
-    fun encode(value: Any): EncodedContent
+    fun encode(value: T): EncodedContent
 
-    fun decode(encoded: EncodedContent): Any
+    fun decode(encoded: EncodedContent): T
 
-    val key: SDKContentCodecKey get() = SDKContentCodecKey(type)
+    /** Text for recipients without this codec. Default: no fallback. */
+    fun fallback(value: T): String? = null
+
+    /** Whether sending this value notifies recipients. Default: it does. */
+    fun shouldPush(value: T): Boolean = true
 }
 
-data class SDKContentCodecKey(
+/** The registry key of a content type: authority, type ID, and major version. */
+internal data class ContentCodecKey(
     val authorityId: String,
     val typeId: String,
     val versionMajor: UInt,
@@ -159,11 +172,17 @@ class Message(
         options: SendOptions? = null,
     ): MessageId = client().raw.conversations().replyToMessage(id, content, options)
 
-    suspend fun reply(
-        codec: SDKContentCodec,
-        value: Any,
+    /**
+     * Reply with a value of a typed codec. The codec's fallback applies to the
+     * nested envelope; the reply keeps the reply type's push default unless
+     * `options.shouldPush` is set. A failed codec step is `CodecEncodeFailed`,
+     * with no publish attempt.
+     */
+    suspend fun <T : Any> reply(
+        codec: ContentCodec<T>,
+        value: T,
         options: SendOptions? = null,
-    ): MessageId = reply(codec.encode(value), options)
+    ): MessageId = reply(replyEnvelope(codec, value), options)
 
     suspend fun parent(): Message? = inReplyTo?.id?.let { client().raw.conversations().getMessageById(it) }
 

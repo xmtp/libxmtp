@@ -175,7 +175,7 @@ try {
   await waitForTermination(beforeEntry.terminated + 1, true);
   assert.equal(
     entry.length,
-    10,
+    11,
     `public entry stopped after: ${entry.join(", ")}`,
   );
   console.log(`Chromium public entry: ${entry.join("; ")}`);

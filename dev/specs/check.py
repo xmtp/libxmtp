@@ -48,8 +48,11 @@ CELL_SPLIT_RE = re.compile(r"(?<!\\)\|")
 # from satisfying the evidence gate.
 COMMENT_LEAD_RE = re.compile(r"^\s*(?://+|#+|--|/\*+|\*)\s*")
 # Openers of multi-line string literals. Rust raw strings close on `"` plus
-# the same number of hashes; triple quotes close on themselves.
+# the same number of hashes; triple quotes close on themselves. Only a Rust
+# file has `r"` raw strings; in Kotlin `r"` can end a string such as
+# `"$error"`.
 RAW_OPEN_RE = re.compile(r"r(?P<hashes>#*)\"|\"\"\"|'''")
+TRIPLE_OPEN_RE = re.compile(r"\"\"\"|'''")
 LINK_RE = re.compile(
     r"(implements|verifies):\s*"
     r"([A-Z]{3,5}-[0-9]{3}(?![0-9A-Za-z_-])"
@@ -792,12 +795,13 @@ class Checker:
             # open-string state so `r#"..."#` and its friends cannot supply
             # evidence (SPEC-051).
             in_raw: str | None = None
+            open_re = RAW_OPEN_RE if path.suffix == ".rs" else TRIPLE_OPEN_RE
             for i, line in enumerate(text.splitlines(), start=1):
                 if in_raw is not None:
                     if in_raw in line:
                         in_raw = None
                     continue
-                opener = RAW_OPEN_RE.search(line)
+                opener = open_re.search(line)
                 if opener:
                     token = opener.group(0)
                     closer = (

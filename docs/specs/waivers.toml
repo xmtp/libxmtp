@@ -321,7 +321,7 @@ id = "CTYPE-001"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Rust dispatch ignores the authority when matching a content type, while the SDK registries require the minor version to match as well."
+reason = "Rust dispatch and the new SDK host registries match authority, type, and major version. The legacy SDKs in sdks/ key their registries by an identifier that includes the minor version until they are removed at cutover: Swift and Kotlin by authority:type:major.minor, and Node and browser by authority/type:major.minor (contentTypeToString)."
 
 [[waiver]]
 id = "CTYPE-003"
@@ -384,7 +384,7 @@ id = "CTYPE-026"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Node and browser expose no client-free Reply encoder, and Swift and Kotlin codecs are host-language classes whose envelopes can differ from the client's; the façade exposes Rust-backed codecs."
+reason = "The legacy SDKs in sdks/ remain until cutover: Node and browser expose no client-free Reply encoder, and Swift and Kotlin codecs are host-language classes whose envelopes can differ from the client's. The new SDK codecs are Rust-backed on every host."
 
 [[waiver]]
 id = "CTYPE-027"

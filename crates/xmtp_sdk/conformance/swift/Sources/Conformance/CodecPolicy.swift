@@ -210,39 +210,40 @@ private func isCodecEncodeFailed(_ error: Error) -> Bool {
     return details.code == "CodecEncodeFailed" && details.category == .callback && !details.retryable
 }
 
-// verifies: CTYPE-003, CTYPE-017, CTYPE-021
-func checkCodecPolicy(group: Group, receiver: SDKClient) async throws {
-    try await checkPushOptions()
-    @Sendable func stored(_ id: MessageId) async throws -> Message? {
-        try await group.messages(options: nil).first { $0.id == id }
-    }
-    // A typed send fills the fallback; an envelope's own fallback is kept.
-    let sentId = try await group.send(NoteCodec(), value: "typed send")
-    let sent = try await stored(sentId)
-    guard envelope(sent)?.fallback == "a note: typed send"
-    else { throw ConformanceFailure("a typed send did not fill the fallback") }
-    let keptId = try await group.send(NoteCodec(failFallback: true, ownFallback: "own"), value: "kept")
-    let kept = try await stored(keptId)
-    guard envelope(kept)?.fallback == "own"
-    else { throw ConformanceFailure("an envelope fallback was replaced") }
+private func stored(_ group: Group, _ id: MessageId) async throws -> Message? {
+    try await group.messages(options: nil).first { $0.id == id }
+}
 
-    // An explicit shouldPush and a catalogue type skip the push hook.
-    _ = try await group.send(NoteCodec(failPush: true), value: "explicit", options: SendOptions(shouldPush: false))
-    _ = try await group.send(CatalogueTextCodec(), value: "catalogue text")
+private func expectCodecEncodeFailed(_ what: String, _ attempt: () async throws -> MessageId) async throws {
+    do {
+        _ = try await attempt()
+    } catch where isCodecEncodeFailed(error) {
+        return
+    }
+    throw ConformanceFailure("\(what) did not fail with CodecEncodeFailed")
+}
+
+/// custom_codec_policy_and_isolation: a typed send, prepare, and reply apply
+/// the codec's fallback and push hooks, an explicit push value wins, and a
+/// client without the codec keeps the envelope. Returns the typed send, a
+/// parent for the failure checks.
+// verifies: CTYPE-017, CTYPE-021, SEND-021
+func customCodecPolicyAndIsolation(group: Group, receiver: SDKClient) async throws -> Message {
+    try await checkPushOptions()
+    // A typed send fills the fallback.
+    let sentId = try await group.send(NoteCodec(), value: "typed send")
+    guard let parent = try await stored(group, sentId), envelope(parent)?.fallback == "a note: typed send"
+    else { throw ConformanceFailure("a typed send did not fill the fallback") }
 
     // prepareMessage takes the codec form and stores an unpublished item.
     let preparedId = try await group.prepareMessage(NoteCodec(), value: "prepared")
-    let prepared = try await stored(preparedId)
-    guard prepared?.data.deliveryStatus == .unpublished
+    guard try await stored(group, preparedId)?.data.deliveryStatus == .unpublished
     else { throw ConformanceFailure("a typed prepareMessage did not store an unpublished item") }
     try await group.publishMessage(id: preparedId)
 
-    // A typed reply fills the nested fallback.
-    guard let parent = sent else {
-        throw ConformanceFailure("the typed send was not stored")
-    }
+    // A typed reply fills the nested fallback and keeps the reply's push.
     let replyId = try await parent.reply(NoteCodec(failPush: true), value: "typed reply")
-    guard case let .unknown(nested)? = try await stored(replyId)?.replyContent,
+    guard case let .unknown(nested)? = try await stored(group, replyId)?.replyContent,
           nested.fallback == "a note: typed reply"
     else { throw ConformanceFailure("a typed reply did not fill the nested fallback") }
 
@@ -252,6 +253,21 @@ func checkCodecPolicy(group: Group, receiver: SDKClient) async throws {
     guard case let .unknown(receivedEnvelope)? = received?.content,
           receivedEnvelope.fallback == "a note: typed send"
     else { throw ConformanceFailure("a receiver without the codec lost the envelope") }
+    return parent
+}
+
+/// codec_policy_failure_never_publishes: a skipped hook is not called, and a
+/// failed encode, fallback, or shouldPush step, or an envelope of another
+/// type, is CodecEncodeFailed with no publish attempt.
+// verifies: CTYPE-003, CTYPE-007
+func codecPolicyFailureNeverPublishes(group: Group, parent: Message) async throws {
+    // An envelope's own fallback is kept, and its fallback hook is not called.
+    let keptId = try await group.send(NoteCodec(failFallback: true, ownFallback: "own"), value: "kept")
+    guard try await envelope(stored(group, keptId))?.fallback == "own"
+    else { throw ConformanceFailure("an envelope fallback was replaced") }
+    // An explicit shouldPush and a catalogue type skip the push hook.
+    _ = try await group.send(NoteCodec(failPush: true), value: "explicit", options: SendOptions(shouldPush: false))
+    _ = try await group.send(CatalogueTextCodec(), value: "catalogue text")
 
     // A failed step makes no publish attempt, on send, prepare, and reply.
     let before = try await group.messages(options: nil).count
@@ -264,21 +280,21 @@ func checkCodecPolicy(group: Group, receiver: SDKClient) async throws {
         NoteCodec(envelopeType: emptyType, type: emptyType),
     ]
     for codec in failing {
-        do {
-            _ = try await group.send(codec, value: "x")
-            throw ConformanceFailure("a failed codec step sent")
-        } catch where isCodecEncodeFailed(error) {}
-        do {
-            _ = try await group.prepareMessage(codec, value: "x")
-            throw ConformanceFailure("a failed codec step prepared a message")
-        } catch where isCodecEncodeFailed(error) {}
+        try await expectCodecEncodeFailed("send") { try await group.send(codec, value: "x") }
+        try await expectCodecEncodeFailed("prepareMessage") { try await group.prepareMessage(codec, value: "x") }
     }
-    do {
-        _ = try await parent.reply(NoteCodec(failEncode: true), value: "x")
-        throw ConformanceFailure("a failed codec step replied")
-    } catch where isCodecEncodeFailed(error) {}
-    let after = try await group.messages(options: nil).count
-    guard after == before else {
+    try await expectCodecEncodeFailed("reply") { try await parent.reply(NoteCodec(failEncode: true), value: "x") }
+    // Known gap, waiting for an owner decision: the reaction, reply, and
+    // delete-message codecs take the whole StandardContent, so the compiler
+    // accepts another variant. The send fails at run time instead.
+    try await expectCodecEncodeFailed("ReactionV2Codec send") {
+        try await group.send(ReactionV2Codec(), value: .text("x"))
+    }
+    try await expectCodecEncodeFailed("ReplyCodec send") { try await group.send(ReplyCodec(), value: .text("x")) }
+    try await expectCodecEncodeFailed("DeleteMessageCodec send") {
+        try await group.send(DeleteMessageCodec(), value: .text("x"))
+    }
+    guard try await group.messages(options: nil).count == before else {
         throw ConformanceFailure("a failed codec step made a publish attempt")
     }
 }

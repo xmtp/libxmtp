@@ -24,6 +24,8 @@ struct Conformance {
         precondition(messageId.count == 64)
         print("Swift scenario 1: load, checksums, version passed")
 
+        // Client-free standard codecs encode the client's bytes and round trip.
+        // verifies: CTYPE-007, CTYPE-026
         let codecSamples = sdkConformanceStandardSamples()
         guard codecSamples.count == 15 else { throw ConformanceFailure("missing standard codec samples") }
         for sample in codecSamples {
@@ -666,7 +668,7 @@ struct Conformance {
         guard preAuthLog.calls == ["pre-authenticate"] else {
             throw ConformanceFailure("failing preAuthenticate reached the signer: \(preAuthLog.calls)")
         }
-        print("Swift IDENT-073: host preAuthenticate runs before the signer")
+        print("Swift host preAuthenticate runs before the signer")
 
         guard try reopened.notificationState() == .disabled else {
             throw ConformanceFailure("new client notification state was not disabled")
@@ -783,8 +785,10 @@ struct Conformance {
         else { throw ConformanceFailure("throwing custom codec was not recorded") }
         try await failingHost.end()
         print("Swift codec_scoped_to_client passed")
-        try await checkCodecPolicy(group: family, receiver: withoutCodec)
-        print("Swift typed codec send policy passed")
+        let typedParent = try await customCodecPolicyAndIsolation(group: family, receiver: withoutCodec)
+        print("Swift custom_codec_policy_and_isolation passed")
+        try await codecPolicyFailureNeverPublishes(group: family, parent: typedParent)
+        print("Swift codec_policy_failure_never_publishes passed")
         try await withCodec.end()
         try await withoutCodec.end()
         print("Swift scenario 6: custom codec stayed with its client")

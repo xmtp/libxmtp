@@ -1033,6 +1033,18 @@ REMOVED_TYPES = {
 }
 
 
+def codec_member(sdk: str, name: str, ref: str, note: str) -> Decision:
+    """A codec member under the typed host protocol: the content type is
+    `type`, and the Swift value type is the `Value` associated type."""
+    owner, _, member = name.partition(".")
+    renames = {"contentType": "type", "T": "Value"}
+    if member in renames:
+        renamed = f"{owner}.{renames[member]}"
+        note = f"{note} Renamed to `{renamed}` by the typed host protocol.".strip()
+        return decision("static runtime", renamed, ref, note)
+    return decision("static runtime", spelling(name), ref, note)
+
+
 def spelling(name: str) -> str:
     name = re.sub(
         r"(?:^|(?<=\.))unsafe_([a-z])",
@@ -2226,10 +2238,26 @@ def _classify(entry: object) -> Decision:
             "The old type and its members leave the API.",
         )
     if name == "ContentCodec" or name.startswith("ContentCodec."):
+        ref = f"11.4 {sdk}, Messages, codecs, preferences, values; 4"
+        member = name.split(".", 1)[1] if "." in name else ""
+        # The Host codecs protocol in the cutover plan (Ref vRG5sTDlgoKQ911m)
+        # has only type, encode, decode, fallback, and shouldPush.
+        if member in {"==", "hash", "id", "description"}:
+            return Decision(
+                "proposed removal",
+                "—",
+                ref,
+                "Proposed removal: the typed host protocol has no equality, "
+                "hash, id, or description. Replacement: compare `ContentCodec.type`.",
+                open=True,
+            )
+        if member:
+            return codec_member(sdk, name, ref, "")
         return decision(
             "static runtime",
-            spelling(name),
-            f"11.4 {sdk}, Messages, codecs, preferences, values; 4",
+            "ContentCodec",
+            ref,
+            "Typed host codec: Swift `associatedtype Value`, Kotlin `ContentCodec<T>`.",
         )
     if sdk in {"Swift", "Kotlin"} and name == "SignatureRequest.ffiSignatureRequest":
         return decision(
@@ -2805,12 +2833,23 @@ def _classify(entry: object) -> Decision:
             spelling(target),
             f"11.4 {sdk}, Messages, codecs, preferences, values; 11.1-11.2",
         )
+    if name == "ReactionCodec" or name.startswith("ReactionCodec."):
+        # CTYPE section 6 puts legacy reaction v1 outside the catalogue and
+        # publishes only v2, so the new SDK ships no v1 codec.
+        return Decision(
+            "proposed removal",
+            "—",
+            f"11.4 {sdk}, Messages, codecs, preferences, values; 4",
+            "Proposed removal: the SDK has no legacy reaction v1 codec (CTYPE section 6). "
+            "Replacement: `ReactionV2Codec`.",
+            open=True,
+        )
     if name.endswith("Codec") or (
         "Codec." in name and name.split(".")[0].endswith("Codec")
     ):
-        return decision(
-            "static runtime",
-            spelling(name),
+        return codec_member(
+            sdk,
+            name,
             f"11.4 {sdk}, Messages, codecs, preferences, values; 4",
             "Standard codec host class or codec protocol.",
         )

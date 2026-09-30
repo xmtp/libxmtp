@@ -948,6 +948,22 @@ class SecondReviewRegressions(unittest.TestCase):
             self.code(tmp, 'const DOC: &str = r#"\n// verifies: JOIN-001\n"#;\n')
             self.assertEqual(run(tmp).requirements["JOIN-001"].verifies, [])
 
+    def test_raw_string_rule_applies_to_rust_only(self):
+        """In Kotlin, `r"` can end a string such as `"$error"`; it opens nothing."""
+        with TemporaryDirectory() as d:
+            tmp = build(
+                Path(d),
+                "| JOIN-001 | Stale welcome | The client MUST discard it. | |\n",
+            )
+            self.code(
+                tmp,
+                'val text = "failed: $error"\n\n// verifies: JOIN-001\nfun check() {}\n',
+                "src/Check.kt",
+            )
+            self.assertEqual(
+                run(tmp).requirements["JOIN-001"].verifies, [("src/Check.kt", 3)]
+            )
+
     def test_should_actor_must_precede_the_keyword(self):
         with TemporaryDirectory() as d:
             tmp = build(
