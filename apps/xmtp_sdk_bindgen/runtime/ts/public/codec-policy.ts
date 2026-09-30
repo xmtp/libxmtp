@@ -123,8 +123,9 @@ export function encodeForSend<T>(
     () => codec.encode(value),
     isEncodedContent,
   );
-  // CTYPE-007: the envelope type is the codec's type. A codec cannot send
-  // another type, so its push hook cannot steer catalogue dispatch.
+  // implements: CTYPE-007
+  // The envelope type is the codec's type. A codec cannot send another type,
+  // so its push hook cannot steer catalogue dispatch.
   if (!sameType(encoded.type, codec.type))
     throw codecFailed(
       "encode",
