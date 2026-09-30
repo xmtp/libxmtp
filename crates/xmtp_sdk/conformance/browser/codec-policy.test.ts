@@ -139,6 +139,15 @@ describe("typed codec send policy", () => {
     );
   });
 
+  it("keeps a throwing codec check inside the failure boundary", () => {
+    const trap = new Proxy(codec(), {
+      has() {
+        throw new Error("has trap");
+      },
+    });
+    codecEncodeFailed(() => contentForSend(trap, "x", undefined));
+  });
+
   it("describes a failure whose message or text cannot be read", () => {
     const unreadable = Object.defineProperty(new Error(), "message", {
       get() {
@@ -163,25 +172,32 @@ describe("typed codec send policy", () => {
       );
   });
 
-  it("checks a snapshot, so a hook cannot change the checked envelope", () => {
-    const readReceipt = {
-      authorityId: "xmtp.org",
-      typeId: "readReceipt",
-      versionMajor: 1,
-      versionMinor: 0,
-    };
-    const kept = { type: { ...noteType }, content: new Uint8Array([1]) };
-    const changing = codec({
-      encode: () => kept,
-      fallback: () => {
-        // The codec changes the envelope object that it returned.
-        Object.assign(kept.type, readReceipt);
-        return "a note";
+  it("does not read a skipped hook", () => {
+    const throwing = (step: string) => ({
+      get() {
+        throw new Error(`${step} member must not be read`);
       },
     });
-    const [sent] = contentForSend(changing, "x", undefined);
-    expect(sent.type).toEqual(noteType);
-    expect(sent.fallback).toBe("a note");
+    // An envelope with its own fallback skips the fallback hook.
+    const own = Object.defineProperty(
+      codec({ encode: () => envelope({ fallback: "own" }) }),
+      "fallback",
+      throwing("fallback"),
+    );
+    expect(encodeForSend(own, "x").fallback).toBe("own");
+    const notAFunction = codec({
+      encode: () => envelope({ fallback: "own" }),
+      fallback: 7 as unknown as () => string,
+    });
+    expect(encodeForSend(notAFunction, "x").fallback).toBe("own");
+    // An explicit option and a catalogue type skip the push hook.
+    const push = Object.defineProperty(codec(), "shouldPush", throwing("shouldPush"));
+    expect(optionsForSend(push, "x", { shouldPush: false }, custom)).toEqual({
+      shouldPush: false,
+    });
+    expect(optionsForSend(push, "x", undefined, catalogue)).toBeUndefined();
+    const invalidPush = codec({ shouldPush: 7 as unknown as () => boolean });
+    expect(optionsForSend(invalidPush, "x", undefined, catalogue)).toBeUndefined();
   });
 
   it("rejects a content type version outside u32", () => {
@@ -313,6 +329,27 @@ describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
   beforeAll(async () => {
     await initPureWasm();
     P.installProjection(new TestProjection());
+  });
+
+  it("checks a snapshot, so a hook cannot change the checked envelope", () => {
+    const readReceipt = {
+      authorityId: "xmtp.org",
+      typeId: "readReceipt",
+      versionMajor: 1,
+      versionMinor: 0,
+    };
+    const kept = { type: { ...noteType }, content: new Uint8Array([1]) };
+    const changing = codec({
+      encode: () => kept,
+      fallback: () => {
+        // The codec changes the envelope object that it returned.
+        Object.assign(kept.type, readReceipt);
+        return "a note";
+      },
+    });
+    const [sent] = contentForSend(changing, "x", undefined);
+    expect(sent.type).toEqual(noteType);
+    expect(sent.fallback).toBe("a note");
   });
 
   it("reads the codec type once, inside the failure boundary", () => {

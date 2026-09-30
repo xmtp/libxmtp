@@ -181,8 +181,12 @@ export function encodeForSend<T>(
       "encode",
       "the envelope type differs from the codec type",
     );
+  // Decide first, then read the hook only when it will be called: an
+  // envelope that has a fallback skips the hook, so a throwing or invalid
+  // `fallback` member does not fail that send.
+  if (encoded.fallback !== undefined) return encoded;
   const hook = runStep("fallback", () => codec.fallback, parseHook<T>);
-  if (encoded.fallback !== undefined || hook === undefined) return encoded;
+  if (hook === undefined) return encoded;
   // Call each hook on its codec, so a class codec can use `this`.
   const fallback = runStep(
     "fallback",
@@ -214,9 +218,11 @@ export function optionsForSend<T>(
   isCatalogue: (type: ContentTypeId) => boolean,
   type: ContentTypeId = codecType(codec),
 ): SendOptions | undefined {
-  if (options?.shouldPush !== undefined) return options;
+  // Decide first, then read the hook only when it will be called: an
+  // explicit option or a catalogue type skips it.
+  if (options?.shouldPush !== undefined || isCatalogue(type)) return options;
   const hook = runStep("shouldPush", () => codec.shouldPush, parseHook<T>);
-  if (hook === undefined || isCatalogue(type)) return options;
+  if (hook === undefined) return options;
   const shouldPush = runStep(
     "shouldPush",
     () => hook.call(codec, value),
@@ -225,10 +231,16 @@ export function optionsForSend<T>(
   return { ...options, shouldPush };
 }
 
+// A codec has an `encode` member. The check does not call a getter, and a
+// check that throws (a Proxy trap) is a codec failure.
 function isCodec<T>(
   content: EncodedContent | ContentCodec<T>,
 ): content is ContentCodec<T> {
-  return typeof Reflect.get(content, "encode") === "function";
+  try {
+    return "encode" in content;
+  } catch (error) {
+    throw codecFailed("encode", error);
+  }
 }
 
 /**
