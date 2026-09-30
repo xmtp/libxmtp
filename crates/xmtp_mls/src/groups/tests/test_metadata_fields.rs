@@ -2,27 +2,36 @@
 
 use std::collections::BTreeMap;
 
+use prost::Message as _;
+use tls_codec::VLBytes;
 use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_db::TransactionOutcome::Continue;
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
+        components::tls_map_components::ComponentRegistryComponent,
         fields::{
             ComponentMutation, FieldError, FieldKey, FieldValue, FieldWrite, MapEntry,
             MetadataComponentType, MetadataFieldRef, MetadataKeyType, MetadataScalarType,
             MetadataValue, UserFieldUpdate, UserFieldValue, WriteOperation,
         },
+        typed::Component,
     },
     inbox_id::InboxId,
+    tls_map::TlsMapDelta,
 };
-use xmtp_proto::xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy};
+use xmtp_proto::xmtp::mls::message_contents::{
+    ComponentMetadata, ComponentPermissions, ComponentType, MetadataPolicy,
+    metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+};
 
 use super::test_dictionary_creation::definition;
 use crate::{
     context::XmtpSharedContext,
     groups::{
-        GroupError, MlsGroup, app_data::sender_intents::apply_app_data_update_intent,
-        intents::AppDataUpdateIntentData,
+        GroupError, MlsGroup,
+        app_data::{load_component_registry, sender_intents::apply_app_data_update_intent},
+        intents::{AppDataUpdateIntentData, QueueIntent},
     },
     state_tx::state_write,
     tester,
@@ -638,4 +647,91 @@ async fn test_denied_writes_fail_when_published() {
         field_error(error),
         FieldError::Denied(id) if id.as_u16() == TOPIC
     ));
+}
+
+/// Commit `edit` of the registry entry of `id` as `group`'s super admin.
+async fn edit_registry<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    id: u16,
+    edit: impl FnOnce(&mut ComponentMetadata),
+) -> Result<(), GroupError> {
+    let id = ComponentId::new(id);
+    let payload = group.with_group_snapshot(|mls_group| {
+        let mut metadata = load_component_registry(mls_group)?
+            .get(&id)
+            .unwrap()
+            .unwrap();
+        edit(&mut metadata);
+        let delta = TlsMapDelta::new().update(id, VLBytes::new(metadata.encode_to_vec()));
+        <ComponentRegistryComponent as Component>::encode_mutation(&delta)
+            .map_err(|error| GroupError::ComponentSource(error.into()))
+    })?;
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::new(
+            ComponentId::COMPONENT_REGISTRY.as_u16(),
+            payload,
+        )))
+        .queue(group)?;
+    group.sync_until_intent_resolved(intent.id).await.map(drop)
+}
+
+/// A queued field write is resolved again when it is published, so a
+/// commit that lands first and re-types the field or tightens its policy
+/// fails the write with that field error rather than a failed sync.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_writes_refused_at_publish_keep_their_field_error() {
+    tester!(alix, configured: |c| c.application_components = catalogue());
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let queue = |component_type, payload: &[u8]| {
+        let writes = vec![FieldWrite {
+            component_id: ComponentId::new(STATUS),
+            component_type,
+            operation: WriteOperation::Update(payload.to_vec()),
+        }];
+        QueueIntent::app_data_update()
+            .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(writes)))
+            .queue(&bo_group)
+    };
+
+    let intent = queue(ComponentType::String, b"away")?;
+    edit_registry(&group, STATUS, |metadata| {
+        metadata.component_type = ComponentType::Bytes as i32;
+    })
+    .await?;
+    let error = bo_group.publish_field_writes(intent.id).await.unwrap_err();
+    assert!(matches!(
+        field_error(error),
+        FieldError::TypeChanged {
+            component_id,
+            expected: ComponentType::String,
+            actual: MetadataComponentType::Bytes,
+        } if component_id.as_u16() == STATUS
+    ));
+
+    let intent = queue(ComponentType::Bytes, b"away")?;
+    edit_registry(&group, STATUS, |metadata| {
+        let admin = Some(MetadataPolicy {
+            kind: Some(MetadataPolicyKind::Base(
+                MetadataBasePolicy::AllowIfAdmin as i32,
+            )),
+        });
+        metadata.permissions = Some(ComponentPermissions {
+            insert_policy: admin.clone(),
+            update_policy: admin.clone(),
+            delete_policy: admin,
+        });
+    })
+    .await?;
+    let error = bo_group.publish_field_writes(intent.id).await.unwrap_err();
+    assert!(matches!(
+        field_error(error),
+        FieldError::Denied(id) if id.as_u16() == STATUS
+    ));
+    bo_group.sync().await?;
+    assert_eq!(bo_group.metadata_value(&status())?, None);
 }

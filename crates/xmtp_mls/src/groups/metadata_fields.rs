@@ -12,6 +12,7 @@
 use std::collections::BTreeMap;
 
 use openmls::group::MlsGroup as OpenMlsGroup;
+use xmtp_db::group_intent::ID;
 use xmtp_mls_common::{
     app_data::fields::{
         ComponentMutation, FieldError, FieldKey, FieldSnapshot, FieldValue, FieldWrite,
@@ -159,6 +160,28 @@ where
         let intent = QueueIntent::app_data_update()
             .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(writes)))
             .queue(self)?;
-        self.sync_until_intent_resolved(intent.id).await.map(drop)
+        self.publish_field_writes(intent.id).await
+    }
+
+    /// Publish the queued field writes `intent_id`. They are resolved again
+    /// against the group as it is then, so a commit that lands first and
+    /// re-types a field or tightens its policy fails them. The publisher's
+    /// [`FieldError`] is that failure, so it is returned in place of the
+    /// sync summary that carries it.
+    pub(super) async fn publish_field_writes(&self, intent_id: ID) -> Result<(), GroupError> {
+        match self.sync_until_intent_resolved(intent_id).await {
+            Ok(_) => Ok(()),
+            Err(GroupError::Sync(mut summary)) => {
+                let field = summary
+                    .publish_errors
+                    .iter()
+                    .position(|error| matches!(error, GroupError::MetadataField(_)));
+                Err(match field {
+                    Some(index) => summary.publish_errors.swap_remove(index),
+                    None => GroupError::Sync(summary),
+                })
+            }
+            Err(error) => Err(error),
+        }
     }
 }
