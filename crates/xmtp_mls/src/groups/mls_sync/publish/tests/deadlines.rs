@@ -218,4 +218,28 @@ async fn intent_sync_deadline_bounds_a_stalled_welcome_publish() {
         group.context.db().prepared_envelopes(intent.id)?.unwrap(),
         before
     );
+
+    // The app's action for PublishedButUnconfirmed is the conversation's
+    // sync. It finishes the pending intent from the saved attempt: the member
+    // receives its welcome, and the commit is not published again.
+    let published = alix
+        .context
+        .api()
+        .query_group_messages(group.group_id)
+        .await?
+        .len();
+    let (original, _) = MlsGroup::new_cached(alix.context.clone(), &group.group_id)?;
+    original.sync().await?;
+    let finished: StoredGroupIntent = original.context.db().fetch(&intent.id)?.unwrap();
+    assert_eq!(finished.state, IntentState::Processed);
+    assert_eq!(
+        alix.context
+            .api()
+            .query_group_messages(group.group_id)
+            .await?
+            .len(),
+        published
+    );
+    bo.sync_welcomes().await?;
+    bo.group(&group.group_id)?;
 }

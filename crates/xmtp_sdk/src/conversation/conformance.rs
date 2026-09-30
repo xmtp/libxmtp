@@ -14,7 +14,7 @@ impl Conversations {
                 .db()
                 .get_last_cursor(&group_id, EntityKind::Delivery)
                 .map(|cursor| cursor.0.to_string())
-                .map_err(XmtpError::unknown)
+                .map_err(XmtpError::from_core)
         })
         .await
     }
@@ -30,7 +30,7 @@ impl Conversations {
             let db = context.db();
             if db
                 .current_delivery_cursor()
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
                 .delivery_sequence
                 != 0
             {
@@ -45,7 +45,7 @@ impl Conversations {
                 .set(dsl::sequence_id.eq(1_i64 << 53))
                 .execute(conn)
             })
-            .map_err(XmtpError::unknown)?;
+            .map_err(XmtpError::from_core)?;
             Ok(())
         })
         .await

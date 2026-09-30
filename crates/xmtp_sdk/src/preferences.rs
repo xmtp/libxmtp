@@ -61,7 +61,7 @@ impl Preferences {
                 client
                     .sync_all_welcomes_and_groups(None)
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_core)?;
                 Ok(())
             }),
         )

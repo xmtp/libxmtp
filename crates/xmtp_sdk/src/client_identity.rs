@@ -501,7 +501,7 @@ impl Client {
         self.inner
             .context
             .sign_with_public_context(text)
-            .map_err(XmtpError::unknown)
+            .map_err(XmtpError::from_core)
     }
 
     pub async fn verify_signed_with_installation_key(
@@ -564,7 +564,7 @@ impl Client {
             .catch_up_to_live(timeout_ms.map(std::time::Duration::from_millis))
             .await
             .map(Into::into)
-            .map_err(XmtpError::unknown)
+            .map_err(XmtpError::from_core)
     }
 }
 

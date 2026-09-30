@@ -159,7 +159,7 @@ impl Backend {
             Arc::new(AuthBridge::new(source)) as Arc<dyn xmtp_api_backend::AuthCallback>
         }));
         Ok(Self {
-            api: builder.build().map_err(XmtpError::unknown)?,
+            api: builder.build().map_err(XmtpError::from_core)?,
             auth_handle,
             options: original_options,
         })

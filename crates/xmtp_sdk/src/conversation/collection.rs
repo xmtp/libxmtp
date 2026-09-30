@@ -63,7 +63,7 @@ pub(crate) async fn list_local(
 
     let items = client
         .list_conversations(args)
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_core)?;
     let ids = items
         .iter()
         .map(|item| item.group.group_id)
@@ -72,12 +72,12 @@ pub(crate) async fn list_local(
     // Read it before the contexts. Activation is one-way, so a recorded group
     // that is absent here was already activated when its context is read.
     let mut histories = xmtp_mls::groups::restored_metadata(&client.context.db(), &ids)
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_core)?;
     let contexts = client
         .context
         .mls_storage()
         .read_group_contexts(&ids)
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_core)?;
     let mut result = Vec::with_capacity(items.len());
     for item in items {
         let metadata = match histories.remove(&item.group.group_id) {
@@ -87,7 +87,7 @@ pub(crate) async fn list_local(
                     .get(&item.group.group_id)
                     .ok_or_else(|| XmtpError::unknown("conversation group context is missing"))?;
                 let seed = read_group_metadata_from_extensions(context.extensions())
-                    .map_err(XmtpError::unknown)?
+                    .map_err(XmtpError::from_core)?
                     .ok_or_else(|| XmtpError::unknown("conversation metadata is missing"))?;
                 GroupMetadata::try_from(GroupMetadataV1 {
                     conversation_type: seed.conversation_type,
@@ -96,7 +96,7 @@ pub(crate) async fn list_local(
                     dm_members: seed.dm_members,
                     oneshot_message: seed.oneshot,
                 })
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
             }
         };
         let identity = ConversationIdentity::from_metadata(
@@ -185,7 +185,7 @@ impl Conversations {
         on_sdk_worker(self.client.context.clone(), async move {
             let group = client
                 .create_group(permissions, Some(metadata))
-                .map_err(XmtpError::unknown)?;
+                .map_err(XmtpError::from_core)?;
             Ok(Arc::new(Group::from_core(group, client_key).await?))
         })
         .await
@@ -204,11 +204,11 @@ impl Conversations {
                 .context
                 .db()
                 .find_active_dm_group(&members)
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
             else {
                 return Ok(None);
             };
-            let group = client.group(&stored.id).map_err(XmtpError::unknown)?;
+            let group = client.group(&stored.id).map_err(XmtpError::from_core)?;
             Ok(Some(Arc::new(Dm::from_core(group, client_key).await?)))
         })
         .await
@@ -237,11 +237,11 @@ impl Conversations {
                 .context
                 .db()
                 .find_active_dm_group(&members)
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
             else {
                 return Ok(None);
             };
-            let group = client.group(&stored.id).map_err(XmtpError::unknown)?;
+            let group = client.group(&stored.id).map_err(XmtpError::from_core)?;
             Ok(Some(Arc::new(Dm::from_core(group, client_key).await?)))
         })
         .await
@@ -266,7 +266,7 @@ impl Conversations {
                 let group = client
                     .create_group_with_members(&members, permissions, Some(metadata))
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_core)?;
                 Ok(Arc::new(Group::from_core(group, client_key).await?))
             }),
         )
@@ -289,7 +289,7 @@ impl Conversations {
                 let group = client
                     .find_or_create_dm(peer, Some(metadata))
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_core)?;
                 Ok(Arc::new(Dm::from_core(group, client_key).await?))
             }),
         )
@@ -317,7 +317,7 @@ impl Conversations {
                 let group = client
                     .create_group_with_identifiers(&members, permissions, Some(metadata))
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_core)?;
                 Ok(Arc::new(Group::from_core(group, client_key).await?))
             }),
         )
@@ -342,7 +342,7 @@ impl Conversations {
                 let group = client
                     .find_or_create_dm_by_identity(peer, Some(metadata))
                     .await
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_core)?;
                 Ok(Arc::new(Dm::from_core(group, client_key).await?))
             }),
         )
@@ -358,12 +358,12 @@ impl Conversations {
                 .context
                 .db()
                 .find_group(&id)
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
                 .is_none()
             {
                 return Ok(None);
             }
-            let group = client.stitched_group(&id).map_err(XmtpError::unknown)?;
+            let group = client.stitched_group(&id).map_err(XmtpError::from_core)?;
             Conversation::from_core(group, client_key).await
         })
         .await
@@ -427,7 +427,7 @@ impl Conversations {
                 .context
                 .db()
                 .app_visible_message_row(&bytes, xmtp_common::time::now_ns())
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
             else {
                 return Ok(None);
             };
@@ -437,7 +437,7 @@ impl Conversations {
                 &stored.group_id,
                 vec![stored.clone()],
             )
-            .map_err(XmtpError::unknown)?;
+            .map_err(XmtpError::from_core)?;
             let message = if let Some(value) = enriched.into_iter().next() {
                 Message::from_enriched(
                     value.stored,
@@ -457,7 +457,7 @@ impl Conversations {
         let bytes = id.to_bytes()?;
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            client.delete_message(bytes).map_err(XmtpError::unknown)?;
+            client.delete_message(bytes).map_err(XmtpError::from_core)?;
             Ok(())
         })
         .await
@@ -469,7 +469,7 @@ impl Conversations {
             let group = deletion_group(group, &stored)?;
             let deletion_id = group
                 .delete_message(stored.id)
-                .map_err(XmtpError::unknown)?;
+                .map_err(XmtpError::from_core)?;
             MessageId::from_bytes(&deletion_id)
         })
         .await
@@ -490,7 +490,7 @@ impl Conversations {
                 let content = ReactionCodec::encode(
                     reaction.into_proto(id.into_checked()?, reference_inbox_id),
                 )
-                .map_err(XmtpError::unknown)?;
+                .map_err(XmtpError::from_core)?;
                 send_encoded(group, content.into(), options.unwrap_or_default()).await
             })
             .await
@@ -514,7 +514,7 @@ impl Conversations {
                     reference_inbox_id: Some(stored.sender_inbox_id),
                     content: content.into(),
                 };
-                let encoded = ReplyCodec::encode(reply).map_err(XmtpError::unknown)?;
+                let encoded = ReplyCodec::encode(reply).map_err(XmtpError::from_core)?;
                 send_encoded(group, encoded.into(), options.unwrap_or_default()).await
             })
             .await
@@ -525,7 +525,7 @@ impl Conversations {
     pub async fn sync(&self) -> Result<(), XmtpError> {
         let client = self.client.clone();
         on_sdk_worker(self.client.context.clone(), async move {
-            client.sync_welcomes().await.map_err(XmtpError::unknown)?;
+            client.sync_welcomes().await.map_err(XmtpError::from_core)?;
             Ok(())
         })
         .await
@@ -545,7 +545,7 @@ impl Conversations {
                     )
                     .await
                     .map(Into::into)
-                    .map_err(XmtpError::unknown)
+                    .map_err(XmtpError::from_core)
             }),
         )
         .await
@@ -559,14 +559,14 @@ impl Conversations {
                     include_duplicate_dms: true,
                     ..Default::default()
                 })
-                .map_err(XmtpError::unknown)?;
+                .map_err(XmtpError::from_core)?;
             let mut entries = HashMap::with_capacity(groups.len());
             for group in groups.drain(..) {
                 entries.insert(
                     hex::encode(group.group_id.as_slice()),
                     group
                         .hmac_keys(-1..=1)
-                        .map_err(XmtpError::unknown)?
+                        .map_err(XmtpError::from_core)?
                         .into_iter()
                         .map(Into::into)
                         .collect(),
@@ -595,7 +595,7 @@ impl Conversations {
             client
                 .message_with_group(&bytes)
                 .await
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
                 .ok_or_else(|| XmtpError::invalid("message not found"))
         })
         .await
@@ -611,7 +611,7 @@ impl Conversations {
         let client = self.client.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.client.context.clone(), async move {
-            let group = client.group(&group_id).map_err(XmtpError::unknown)?;
+            let group = client.group(&group_id).map_err(XmtpError::from_core)?;
             Ok(Arc::new(Group::from_core(group, client_key).await?))
         })
         .await

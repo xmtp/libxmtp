@@ -60,7 +60,7 @@ pub async fn inbox_id_for_with_backend(
         .map_err(XmtpError::from_api)?;
     let inbox = match found.into_iter().next().flatten() {
         Some(value) => value,
-        None => identifier.inbox_id(0).map_err(XmtpError::unknown)?,
+        None => identifier.inbox_id(0).map_err(XmtpError::from_core)?,
     };
     InboxId::try_from(inbox)
 }
@@ -102,7 +102,7 @@ pub async fn key_package_statuses_with_backend(
 ) -> Result<HashMap<String, KeyPackageStatus>, XmtpError> {
     let installations = ids
         .iter()
-        .map(|id| CoreInstallationId::try_from(id.to_bytes()?).map_err(XmtpError::unknown))
+        .map(|id| CoreInstallationId::try_from(id.to_bytes()?).map_err(XmtpError::from_core))
         .collect::<Result<Vec<_>, _>>()?;
     let backend = backend.resolve().await?;
     let found = api(&backend)
@@ -180,7 +180,7 @@ pub async fn is_address_authorized_with_backend(
 ) -> Result<bool, XmtpError> {
     let inbox_id = inbox_id.checked()?;
     let backend = backend.resolve().await?;
-    let member = MemberIdentifier::eth(address).map_err(XmtpError::unknown)?;
+    let member = MemberIdentifier::eth(address).map_err(XmtpError::from_core)?;
     xmtp_mls::identity_updates::is_member_of_association_state(
         &api(&backend),
         inbox_id,

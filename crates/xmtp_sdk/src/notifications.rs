@@ -118,6 +118,6 @@ impl Client {
         self.inner
             .notification_state()
             .map(Into::into)
-            .map_err(XmtpError::unknown)
+            .map_err(XmtpError::from_core)
     }
 }

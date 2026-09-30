@@ -83,7 +83,7 @@ pub(crate) fn delivery_error(error: LocalDeliveryError) -> XmtpError {
         LocalDeliveryError::AcknowledgementFailed => {
             XmtpError::Storage(details("Storage", ErrorCategory::Storage, true, message))
         }
-        _ => XmtpError::unknown(error),
+        _ => XmtpError::from_core(error),
     }
 }
 
@@ -121,7 +121,7 @@ pub(crate) fn configuration_error(error: &ClientError, message: String) -> XmtpE
             false,
             message,
         )),
-        _ => XmtpError::unknown(message),
+        other => XmtpError::client_cause(other).unwrap_or_else(|| XmtpError::unknown(message)),
     }
 }
 

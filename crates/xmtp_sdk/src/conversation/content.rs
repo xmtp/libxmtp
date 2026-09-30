@@ -31,7 +31,7 @@ pub(super) async fn send_encoded(
                 .unwrap_or_else(|| catalogue_push_default(&content.r#type));
             let content =
                 compress_if_requested(content.into(), options.compression.map(Into::into))
-                    .map_err(XmtpError::unknown)?;
+                    .map_err(XmtpError::from_core)?;
             let bytes = encoded_content_to_bytes(content);
             let opts = SendMessageOpts {
                 should_push,

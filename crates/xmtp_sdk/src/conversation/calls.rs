@@ -19,7 +19,7 @@ where
     xmtp_common::spawn(None, Box::pin(while_open(context, work)))
         .join()
         .await
-        .map_err(XmtpError::unknown)?
+        .map_err(XmtpError::from_core)?
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -78,7 +78,7 @@ pub(super) fn deletion_group(
         .context
         .db()
         .fetch_stitched(&stored.group_id)
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_core)?;
     if stitched.is_none_or(|winner| winner.id != group.group_id) {
         return Err(XmtpError::conversation_permission_denied(
             "message belongs to another conversation",
@@ -86,5 +86,5 @@ pub(super) fn deletion_group(
     }
     MlsStore::new(group.context.clone())
         .group(&stored.group_id)
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
 }

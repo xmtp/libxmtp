@@ -257,7 +257,7 @@ fn subscribe_error(error: SubscribeError) -> XmtpError {
             retryable,
             message,
         }),
-        other => XmtpError::unknown(other),
+        other => XmtpError::from_core(other),
     }
 }
 
