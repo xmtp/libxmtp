@@ -8,7 +8,8 @@ import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_
 import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js";
 // @ts-ignore The browser fixture uses the published JavaScript build of viem.
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
+import * as pure from "../../../../target/sdk-generated/typescript-pure/index";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { RemoteObject } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import { BridgeError } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
@@ -322,12 +323,40 @@ export async function exercise(): Promise<string[]> {
         !("tag" in invalid),
       "a malformed ID did not fail with the public error",
     );
+    // The pure module shares the package's error and Timestamp classes.
+    await pure.initPureWasm();
+    check(pure.XmtpError === sdk.XmtpError, "two XmtpError classes");
+    check(pure.Timestamp === sdk.Timestamp, "two Timestamp classes");
+    check(message.sentAt instanceof pure.Timestamp, "sentAt is another class");
+    const pureError = await rejection(
+      Promise.resolve().then(() =>
+        pure.decodeStandard({
+          ...message.encoded,
+          content: new Uint8Array([0xff]),
+        }),
+      ),
+    );
+    check(
+      pureError instanceof sdk.XmtpError && isPublicError(pureError),
+      "a pure module error is not the package XmtpError",
+    );
     const connected = await sdk.Backend.connect(backend);
     check(connected instanceof sdk.Backend, "Backend.connect failed");
     check(
       (await sdk.Client.inboxIdFor(alice.identity, connected)) ===
         alice.inboxId,
       "a static call with a connected Backend failed",
+    );
+    // clearLogSink returns a Promise on both targets; here it runs in the
+    // package worker. Before initLogging it rejects with the public
+    // InvalidInput, as on Node.
+    const cleared = sdk.clearLogSink();
+    check(cleared instanceof Promise, "clearLogSink did not return a Promise");
+    const clearError = await rejection(cleared);
+    check(
+      clearError instanceof sdk.XmtpError.InvalidInput &&
+        isPublicError(clearError),
+      `clearLogSink before initLogging: ${String(clearError)}`,
     );
     const configuration = await sdk.fetchServerConfiguration(backend);
     check(isPublic(configuration), "configuration is not a public value");
@@ -526,4 +555,62 @@ export async function retiredWorker(
     "a call after the worker retired did not fail with ClientClosed",
   );
   return ["getters after the worker retired", "ClientClosed calls"];
+}
+
+/**
+ * A foreign Restored DM and group through the package root. C imports A's
+ * archive and is neither DM member, so the DM has no peer for C: the public
+ * result is null, never undefined (Decision 13). A live client always knows
+ * the creator and adder, so the getters return text here; the projection unit
+ * test covers null for an unknown creator or adder.
+ */
+export async function restored(): Promise<string[]> {
+  const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
+  const options: sdk.ClientOptions = {
+    backend,
+    storage: { location: "inMemory" },
+    deviceSync: false,
+  };
+  const a = await sdk.Client.create(signerFor(), options);
+  const b = await sdk.Client.create(signerFor(), options);
+  const c = await sdk.Client.create(signerFor(), options);
+  try {
+    const dm = await a.conversations.createDm(b.inboxId);
+    check((await dm.peerInboxId()) === b.inboxId, "live DM peer");
+    await dm.sendText("foreign restored DM");
+    const group = await a.conversations.createGroup([]);
+    await group.sendText("foreign restored group");
+    const key = new Uint8Array(32).fill(9);
+    const archive = await a.archives.exportToBytes(key, {
+      elements: ["messages"],
+    });
+    await c.archives.importFromBytes(archive, key);
+    const restoredDm = await c.conversations.getById(dm.id);
+    check(restoredDm instanceof sdk.Dm, "restored DM missing");
+    const peer = await restoredDm.peerInboxId();
+    check(peer === null, `restored DM peer is ${String(peer)}, not null`);
+    const listed = await c.conversations.listDms({ includeDuplicateDms: true });
+    check(listed.length > 0, "no restored DM in the list");
+    for (const item of listed) {
+      const listedPeer = await item.peerInboxId();
+      check(listedPeer === null, `listed DM peer is ${String(listedPeer)}`);
+    }
+    const restoredGroup = await c.conversations.getById(group.id);
+    check(restoredGroup instanceof sdk.Group, "restored group missing");
+    for (const [name, value] of [
+      ["group creator", restoredGroup.creatorInboxId],
+      ["group adder", restoredGroup.addedByInboxId],
+      ["DM creator", restoredDm.creatorInboxId],
+      ["DM adder", restoredDm.addedByInboxId],
+    ] as const)
+      check(
+        typeof value === "string" && value.length > 0,
+        `${name} is ${String(value)}, not known text`,
+      );
+    return ["restored DM peer is null", "restored creator and adder are text"];
+  } finally {
+    await a.end();
+    await b.end();
+    await c.end();
+  }
 }

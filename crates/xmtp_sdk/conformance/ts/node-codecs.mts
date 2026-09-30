@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 
 export function assertEncodedEqual(
   actual: sdk.EncodedContent,

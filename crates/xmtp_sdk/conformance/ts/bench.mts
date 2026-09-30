@@ -6,7 +6,8 @@ import { join } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import * as sdk from "../../../../target/sdk-bench/typescript-napi/index.ts";
+// The benchmark measures the private binding, below the public layer.
+import * as sdk from "../../../../target/sdk-bench/typescript-napi/binding.ts";
 import { bindingClient } from "../../../../target/sdk-bench/typescript-napi/runtime/client.ts";
 
 const require = createRequire(import.meta.url);

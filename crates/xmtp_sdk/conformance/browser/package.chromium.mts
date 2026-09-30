@@ -194,6 +194,10 @@ try {
     );
   });
   console.log(`Chromium public entry: ${retired.join("; ")}`);
+  const restoredValues = await page.evaluate(async () =>
+    (await import("./public-entry.chromium.ts")).restored(),
+  );
+  console.log(`Chromium public entry: ${restoredValues.join("; ")}`);
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );

@@ -1,7 +1,7 @@
 // The Node target of the public layer: the host Client owns the native binding
-// Client, the custom codec registry, and listener gates. The package index
-// initializes the native binding when it loads.
-import "../../index";
+// Client, the custom codec registry, and listener gates. The private binding
+// root initializes the native binding when it loads.
+import "../../binding";
 import type { Message as RuntimeMessage } from "../message";
 
 export {

@@ -85,3 +85,28 @@ pub(super) fn extra_variant_fields(owner: &str, variant: &str) -> &'static str {
         _ => "",
     }
 }
+
+/// The Delivery cursor (Ref Public surface, Delivery): an opaque replay
+/// position in one database. It is a string alias, not an old-name alias.
+pub(super) const DELIVERY_CURSOR: &str =
+    "/** An opaque replay position in one database. */\nexport type DeliveryCursor = string;\n";
+
+/// Record fields and results that carry a delivery cursor.
+const DELIVERY_CURSOR_FIELDS: &[(&str, &str)] = &[
+    ("MessageReaderOptions", "from"),
+    ("ConversationMessageReaderOptions", "from"),
+    ("MessageData", "deliveryCursor"),
+];
+const DELIVERY_CURSOR_RESULTS: &[(&str, &str)] = &[("Conversations", "beginningDeliveryCursor")];
+
+/// The public type of a field or result: a delivery cursor is a
+/// `DeliveryCursor`, not a plain `string`.
+pub(super) fn cursor_type(owner: &str, member: &str, public: String) -> String {
+    if DELIVERY_CURSOR_FIELDS.contains(&(owner, member))
+        || DELIVERY_CURSOR_RESULTS.contains(&(owner, member))
+    {
+        public.replacen("string", "DeliveryCursor", 1)
+    } else {
+        public
+    }
+}

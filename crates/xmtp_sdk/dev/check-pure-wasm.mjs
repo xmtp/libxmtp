@@ -21,6 +21,10 @@ for (const name of expected) {
 }
 assert.deepEqual(
   readdirSync(`${root}/typescript-pure/runtime`).sort(),
-  ["codec-type.ts", "codecs.ts", "ids.ts", "index.ts"],
+  ["codec-type.ts", "codecs.ts", "ids.ts", "index.ts", "public"],
+);
+assert.deepEqual(
+  readdirSync(`${root}/typescript-pure/runtime/public`).sort(),
+  ["codec.ts", "codecs.ts"],
 );
 console.log("pure WASM exports only the five approved functions");
