@@ -62,12 +62,19 @@ function isUint(value: unknown): value is number {
   );
 }
 
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.length > 0;
+}
+
+// implements: CTYPE-003
+// An envelope type names a non-empty authority and type ID, so a codec with an
+// empty identifier fails before the send, not in the binding.
 function isContentTypeId(value: unknown): value is ContentTypeId {
   return (
     value !== null &&
     typeof value === "object" &&
-    typeof Reflect.get(value, "authorityId") === "string" &&
-    typeof Reflect.get(value, "typeId") === "string" &&
+    isNonEmptyString(Reflect.get(value, "authorityId")) &&
+    isNonEmptyString(Reflect.get(value, "typeId")) &&
     isUint(Reflect.get(value, "versionMajor")) &&
     isUint(Reflect.get(value, "versionMinor"))
   );
