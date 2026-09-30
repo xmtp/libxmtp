@@ -36,6 +36,12 @@ func encodeForSend<C: ContentCodec>(_ codec: C, value: C.Value) throws -> Encode
     guard sameType(encoded.type, codec.type) else {
         throw codecEncodeFailed("encode", CodecStepFailure(description: "the envelope type differs from the codec type"))
     }
+    // implements: CTYPE-003
+    // An empty authority or type ID fails here, before the send, not in the
+    // binding.
+    guard !encoded.type.authorityId.isEmpty, !encoded.type.typeId.isEmpty else {
+        throw codecEncodeFailed("encode", CodecStepFailure(description: "the envelope type has an empty authority or type ID"))
+    }
     if encoded.fallback == nil {
         encoded.fallback = try step("fallback") { try codec.fallback(value) }
     }

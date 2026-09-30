@@ -3,13 +3,28 @@ import XmtpSdk
 
 // The typed codec send policy (Ref Public surface, Host codecs; P9 and P10).
 
-/// A standard codec's bytes equal Rust's, and a decode round trip keeps them.
-func matchesRust<C: ContentCodec>(_ codec: C, _ value: C.Value, _ expected: EncodedContent) throws -> Bool {
+/// A standard codec's bytes equal Rust's, decoding them gives back an equal
+/// value (the generated records compare every field), and re-encoding that
+/// value gives the same bytes.
+func matchesRust<C: ContentCodec>(
+    _ codec: C, _ value: C.Value, _ expected: EncodedContent
+) throws -> Bool where C.Value: Equatable {
     let encoded = try codec.encode(value)
-    return try sameEncoded(encoded, expected) && sameEncoded(codec.encode(codec.decode(encoded)), expected)
+    let decoded = try codec.decode(encoded)
+    return try sameEncoded(encoded, expected) && decoded == value && sameEncoded(codec.encode(decoded), expected)
+}
+
+/// A codec with no value, such as the read receipt: only the bytes compare.
+func matchesRust<C: ContentCodec>(
+    _ codec: C, _ value: C.Value, _ expected: EncodedContent
+) throws -> Bool where C.Value == Void {
+    let encoded = try codec.encode(value)
+    try codec.decode(encoded)
+    return try sameEncoded(encoded, expected) && sameEncoded(codec.encode(()), expected)
 }
 
 private let noteType = ContentTypeId(authorityId: "example.org", typeId: "note", versionMajor: 1, versionMinor: 0)
+private let emptyType = ContentTypeId(authorityId: "", typeId: "note", versionMajor: 1, versionMinor: 0)
 
 private struct StepNotAllowed: Error {
     let step: String
@@ -23,7 +38,7 @@ private struct NoteCodec: ContentCodec {
     var ownFallback: String?
     var envelopeType = noteType
     var push = true
-    let type = noteType
+    var type = noteType
 
     func encode(_ value: String) throws -> EncodedContent {
         if failEncode {
@@ -171,7 +186,7 @@ func customCodecPolicyAndIsolation(group: Group, receiver: SDKClient) async thro
 /// codec_policy_failure_never_publishes: a skipped hook is not called, and a
 /// failed encode, fallback, or shouldPush step, or an envelope of another
 /// type, is CodecEncodeFailed with no publish attempt.
-// verifies: CTYPE-007
+// verifies: CTYPE-003, CTYPE-007
 func codecPolicyFailureNeverPublishes(group: Group, parent: Message) async throws {
     // An envelope's own fallback is kept, and its fallback hook is not called.
     let keptId = try await group.send(NoteCodec(failFallback: true, ownFallback: "own"), value: "kept")
@@ -188,6 +203,8 @@ func codecPolicyFailureNeverPublishes(group: Group, parent: Message) async throw
         NoteCodec(failFallback: true),
         NoteCodec(failPush: true),
         NoteCodec(envelopeType: TextCodec().type),
+        // The codec and its envelope agree; only the empty identifier fails.
+        NoteCodec(envelopeType: emptyType, type: emptyType),
     ]
     for codec in failing {
         try await expectCodecEncodeFailed("send") { try await group.send(codec, value: "x") }

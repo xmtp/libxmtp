@@ -95,6 +95,22 @@ describe("typed codec send policy", () => {
       );
   });
 
+  // verifies: CTYPE-003
+  it("rejects an empty authority or type ID", () => {
+    // The codec and its envelope agree, so only the empty identifier rejects
+    // it, before the binding sees the envelope.
+    for (const empty of [
+      { ...noteType, authorityId: "" },
+      { ...noteType, typeId: "" },
+    ])
+      codecEncodeFailed(() =>
+        encodeForSend(
+          codec({ type: empty, encode: () => envelope({ type: empty }) }),
+          "x",
+        ),
+      );
+  });
+
   it("rejects a content type version outside u32", () => {
     // The codec and its envelope agree, so only the u32 bound rejects it.
     const wide = { ...noteType, versionMajor: 2 ** 32 };
