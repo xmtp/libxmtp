@@ -241,9 +241,17 @@ async fn attachment_uploads_after_its_record_is_sent_and_downloads_on_another_cl
     expected.sort();
     assert_eq!(local, expected);
 
-    receiving.delete_local(received).await?;
+    let deletions = receiver.events(attachment_reader_filter()).await?;
+    receiving.delete_local(received.clone()).await?;
     assert_eq!(receiving.list_local().await?.len(), 1);
     assert!(!std::path::Path::new(&downloaded.path).exists());
+    let deleted = drain_attachment_events(&receiver, &deletions).await?;
+    let [ClientEvent::AttachmentDeleted { attachment }] = deleted.as_slice() else {
+        panic!("expected one deletion, got {deleted:?}");
+    };
+    assert_eq!(attachment.url, received.url);
+    assert_eq!(attachment.content_digest, received.content_digest);
+    deletions.end().await?;
     sender.end().await?;
     receiver.end().await?;
     std::fs::remove_dir_all(root)?;
@@ -415,6 +423,140 @@ async fn attachment_failures_carry_one_record_in_errors_and_status() {
     );
     events.end().await?;
     downloader.end().await?;
+    client.end().await?;
+    std::fs::remove_dir_all(root)?;
+}
+
+// verifies: ATCH-056
+#[xmtp_common::test(unwrap_try = true)]
+async fn app_download_limit_fails_a_longer_attachment() {
+    let root = temp_root("attachment-download-limit");
+    let creator = Client::create(
+        crate::generate_local_signer().await,
+        file_options(&root.join("creator")),
+    )
+    .await?;
+    let remote = creator
+        .attachments()
+        .create(bytes_source(b"limited"))
+        .await?
+        .remote_attachment();
+    let ciphertext = std::fs::read(
+        attachments_dir(&creator)
+            .await?
+            .join(".staged")
+            .join(&remote.content_digest),
+    )?;
+    let length = ciphertext.len() as u64;
+    let (url, _) = serve(200, ciphertext).await?;
+    let served = RemoteAttachment { url, ..remote };
+
+    // The creating client holds the plaintext, so other clients download.
+    let limited = |limit: u64| {
+        let mut settings = file_options(&root.join(format!("limit-{limit}")));
+        settings.attachments = Some(AttachmentOptions {
+            max_download_bytes: Some(limit),
+            allow_private_network: true,
+            ..Default::default()
+        });
+        settings
+    };
+    let short = Client::create(crate::generate_local_signer().await, limited(length - 1)).await?;
+    assert_eq!(
+        thrown_failure(short.attachments().download(served.clone()).await).cause,
+        AttachmentFailureCause::TooLarge
+    );
+    let exact = Client::create(crate::generate_local_signer().await, limited(length)).await?;
+    let downloaded = exact.attachments().download(served).await?;
+    assert_eq!(std::fs::read(&downloaded.path)?, b"limited");
+    short.end().await?;
+    exact.end().await?;
+    creator.end().await?;
+    std::fs::remove_dir_all(root)?;
+}
+
+/// A client whose pending uploads expire at once, with its attachment cleanup
+/// worker on a short interval or disabled.
+fn cleanup_options(root: &std::path::Path, enabled: bool) -> ClientOptions {
+    let mut settings = file_options(root);
+    settings.attachments = Some(AttachmentOptions {
+        max_pending_age_seconds: Some(0),
+        allow_private_network: true,
+        ..Default::default()
+    });
+    settings.workers = Some(crate::client::WorkerOptions {
+        default_interval_ns: None,
+        intervals: vec![crate::client::WorkerInterval {
+            kind: crate::client::WorkerKind::AttachmentCleanup,
+            interval_ns: Some(Duration::from_millis(50).as_nanos() as u64),
+            jitter_ns: Some(0),
+            enabled: Some(enabled),
+        }],
+    });
+    settings
+}
+
+/// Whether the record of a pending upload, and its staged ciphertext, remain.
+/// `list_pending` hides an expired upload, so this reads the database.
+async fn pending_remains(client: &Client, digest: &str) -> Result<(bool, bool), XmtpError> {
+    use xmtp_db::attachments::QueryPendingAttachment as _;
+
+    let record = client
+        .inner
+        .context
+        .db()
+        .get_pending_attachment(digest)
+        .map_err(XmtpError::unknown)?;
+    let staged = attachments_dir(client).await?.join(".staged").join(digest);
+    Ok((record.is_some(), staged.exists()))
+}
+
+/// Create a pending upload after client creation, whose sweep it misses.
+async fn expired_pending(client: &Client) -> Result<String, XmtpError> {
+    Ok(client
+        .attachments()
+        .create(bytes_source(b"expired"))
+        .await?
+        .remote_attachment()
+        .content_digest)
+}
+
+// verifies: ATCH-068
+#[xmtp_common::test(unwrap_try = true)]
+async fn cleanup_worker_deletes_an_expired_pending_upload() {
+    let root = temp_root("attachment-cleanup");
+    let client = Client::create(
+        crate::generate_local_signer().await,
+        cleanup_options(&root, true),
+    )
+    .await?;
+    let digest = expired_pending(&client).await?;
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    while pending_remains(&client, &digest).await? != (false, false) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the cleanup worker left the expired upload"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    client.end().await?;
+    std::fs::remove_dir_all(root)?;
+}
+
+// verifies: ATCH-068
+#[xmtp_common::test(unwrap_try = true)]
+async fn disabled_cleanup_worker_keeps_an_expired_pending_upload() {
+    let root = temp_root("attachment-no-cleanup");
+    let client = Client::create(
+        crate::generate_local_signer().await,
+        cleanup_options(&root, false),
+    )
+    .await?;
+    let digest = expired_pending(&client).await?;
+    // Forty intervals of an enabled worker.
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(pending_remains(&client, &digest).await?, (true, true));
+    assert!(client.attachments().list_pending().await?.is_empty());
     client.end().await?;
     std::fs::remove_dir_all(root)?;
 }
