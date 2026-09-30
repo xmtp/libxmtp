@@ -150,13 +150,11 @@ pub fn enrich_messages_with_stored(
                     });
 
             if let Some(deletion) = valid_deletion {
-                let is_sender = deletion.deleted_by_inbox_id == stored_message.sender_inbox_id;
                 decoded.content = MessageBody::DeletedMessage {
-                    deleted_by: if is_sender {
-                        DeletedBy::Sender
-                    } else {
-                        DeletedBy::Admin(deletion.deleted_by_inbox_id.clone())
-                    },
+                    deleted_by: DeletedBy::new(
+                        &deletion.deleted_by_inbox_id,
+                        &stored_message.sender_inbox_id,
+                    ),
                 };
                 decoded.metadata.content_type = deleted_message_content_type();
                 decoded.reactions = Vec::new();
@@ -207,14 +205,11 @@ pub fn enrich_messages_with_stored(
                                     is_deletion_valid(deletion, stored_msg, group_id)
                                 })
                             {
-                                let is_sender =
-                                    deletion.deleted_by_inbox_id == stored_msg.sender_inbox_id;
                                 msg.content = MessageBody::DeletedMessage {
-                                    deleted_by: if is_sender {
-                                        DeletedBy::Sender
-                                    } else {
-                                        DeletedBy::Admin(deletion.deleted_by_inbox_id.clone())
-                                    },
+                                    deleted_by: DeletedBy::new(
+                                        &deletion.deleted_by_inbox_id,
+                                        &stored_msg.sender_inbox_id,
+                                    ),
                                 };
                                 msg.reactions = Vec::new();
                                 msg.num_replies = 0;
