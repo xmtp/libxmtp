@@ -234,7 +234,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             tokio::select! {
                 _ = cancellation.cancelled() => break,
                 command = self.commands.recv() => match command {
-                    Some(command) => self.command(command),
+                    Some(command) => self.command_burst(command),
                     None => break,
                 },
                 event = self.transport.next() => match event {
@@ -339,6 +339,15 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 self.transport.wake();
             }
             Command::Restored(groups) => self.restored.extend(groups),
+        }
+    }
+
+    /// Apply every queued command before the next pass, so a burst, such as one
+    /// Restored notice per imported group, costs one pass.
+    fn command_burst(&mut self, first: Command) {
+        self.command(first);
+        while let Ok(command) = self.commands.try_recv() {
+            self.command(command);
         }
     }
 

@@ -654,18 +654,13 @@ where
         opts: GroupMetadataOptions,
         group_id: &[u8],
     ) -> Result<Self, GroupError> {
-        let group = Self::create_dm_with_members(
+        Self::create_dm_with_members(
             context,
             GroupMembershipState::Restored,
             dm_members,
             opts,
             Some(group_id),
-        )?;
-        crate::subscriptions::incoming::IncomingCoordinator::groups_restored(
-            context,
-            &[group.group_id],
-        );
-        Ok(group)
+        )
     }
 
     fn create_dm_with_members(
@@ -773,6 +768,12 @@ where
             .into_continued()
             .0
         };
+        if stored_group.membership_state == GroupMembershipState::Restored {
+            crate::subscriptions::incoming::IncomingCoordinator::groups_restored(
+                context,
+                &[stored_group.id],
+            );
+        }
         let new_group = Self::new_from_arc(
             context.clone(),
             stored_group.id,

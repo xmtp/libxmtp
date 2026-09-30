@@ -3427,3 +3427,21 @@ async fn an_open_barrier_scope_retires_a_dm_restored_later() {
     )
     .await;
 }
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_burst_of_restored_notices_is_applied_before_one_pass() {
+    tester!(alix, disable_workers);
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    *alix.context.incoming_runtime().coordinator.lock() = Some(coordinator);
+    let groups: Vec<_> = (0..100).map(|_| GroupId::generate()).collect();
+    // An import sends one notice for each group it stores.
+    for group in &groups {
+        IncomingCoordinator::groups_restored(&alix.context, &[*group]);
+    }
+    // The run loop receives one command, applies the burst, then runs one pass.
+    let first = controller.commands.try_recv()?;
+    controller.command_burst(first);
+    assert!(controller.commands.try_recv().is_err());
+    assert_eq!(controller.restored.len(), groups.len());
+}
