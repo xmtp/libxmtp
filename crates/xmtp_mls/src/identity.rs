@@ -54,6 +54,9 @@ use xmtp_proto::types::InstallationId;
  * [`IdentityStrategy::CreateIfNotFound`] will attempt to create a new identity if one isn't found in the store.
  * This is the default behavior.
  *
+ * [`IdentityStrategy::CreateForIdentifier`] acts as `CreateIfNotFound` for the inbox of an identifier,
+ * which the builder asks the backend for only after it has checked the backend's deployment.
+ *
  * [`IdentityStrategy::CachedOnly`] will attempt to get an identity from the store. If not found, it will
  * return an error. This is useful if you don't want to create a new identity on startup because the caller
  * does not have access to a signer.
@@ -69,6 +72,9 @@ pub enum IdentityStrategy {
         identifier: Identifier,
         nonce: u64,
     },
+    /// `CreateIfNotFound` for the inbox the backend associates with the
+    /// identifier, or else the inbox its registration at the nonce creates.
+    CreateForIdentifier { identifier: Identifier, nonce: u64 },
     /// Identity that is already in the disk store
     CachedOnly,
     /// An already-built Identity for testing purposes
@@ -94,6 +100,33 @@ impl IdentityStrategy {
             identifier,
             nonce,
         }
+    }
+
+    /// Create an [`IdentityStrategy::CreateForIdentifier`], for a caller that
+    /// does not know the identifier's inbox.
+    pub fn for_identifier(identifier: Identifier, nonce: u64) -> Self {
+        Self::CreateForIdentifier { identifier, nonce }
+    }
+
+    /// Replace [`IdentityStrategy::CreateForIdentifier`] with
+    /// [`IdentityStrategy::CreateIfNotFound`] for the identifier's inbox. Call
+    /// it only after the backend's deployment is checked: the request carries
+    /// the identifier.
+    pub(crate) async fn with_inbox<ApiClient: XmtpApi>(
+        self,
+        api_client: &ApiClientWrapper<ApiClient>,
+    ) -> Result<Self, IdentityError> {
+        let Self::CreateForIdentifier { identifier, nonce } = self else {
+            return Ok(self);
+        };
+        let found = api_client
+            .get_inbox_ids(vec![identifier.clone().into()])
+            .await?;
+        let inbox_id = match found.into_iter().next().flatten() {
+            Some(inbox_id) => inbox_id,
+            None => identifier.inbox_id(nonce)?,
+        };
+        Ok(Self::new(inbox_id, identifier, nonce))
     }
 }
 
@@ -124,6 +157,7 @@ impl IdentityStrategy {
 
         let strategy = match &self {
             CreateIfNotFound { .. } => "create_if_not_found",
+            CreateForIdentifier { .. } => "create_for_identifier",
             CachedOnly => "cached_only",
             #[cfg(any(test, feature = "test-utils"))]
             ExternalIdentity(_) => "external_identity",
@@ -133,8 +167,9 @@ impl IdentityStrategy {
             stored_identity_present = stored_identity.is_some(),
             "identity strategy"
         );
-        match self {
+        match self.with_inbox(api_client).await? {
             CachedOnly => stored_identity.ok_or(IdentityError::RequiredIdentityNotFound),
+            CreateForIdentifier { .. } => unreachable!("with_inbox replaces the strategy"),
             CreateIfNotFound {
                 inbox_id,
                 identifier,

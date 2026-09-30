@@ -390,7 +390,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut api_client,
             identity,
             mut store,
-            identity_strategy,
+            mut identity_strategy,
             mut scw_verifier,
             custom_scw_verifier,
 
@@ -431,18 +431,24 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         let mut data_dir_opened_identifier = None;
         if let Some(location) = data_location {
             use crate::storage_location::StorageLocationError;
-            let inbox_id = match location {
-                crate::storage_location::StorageLocation::DataDir(_) => identity_strategy
-                    .inbox_id()
-                    .ok_or(StorageLocationError::InboxId)?,
-                crate::storage_location::StorageLocation::Explicit { .. } => "",
-            };
-            let backend_url = api_client.backend_url().unwrap_or_default().to_owned();
-            if matches!(
+            let data_dir = matches!(
                 location,
                 crate::storage_location::StorageLocation::DataDir(_)
-            ) && backend_url.trim_end_matches('/').is_empty()
+            );
+            // A data directory's path holds the inbox. Only an online build
+            // can look up an unknown one.
+            let look_up_inbox = data_dir && identity_strategy.inbox_id().is_none();
+            if look_up_inbox
+                && (allow_offline
+                    || !matches!(
+                        identity_strategy,
+                        IdentityStrategy::CreateForIdentifier { .. }
+                    ))
             {
+                return Err(StorageLocationError::InboxId.into());
+            }
+            let backend_url = api_client.backend_url().unwrap_or_default().to_owned();
+            if data_dir && backend_url.trim_end_matches('/').is_empty() {
                 return Err(StorageLocationError::BackendUrl.into());
             }
             let recorder = location.recorder(&backend_url);
@@ -451,53 +457,69 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 None => None,
             };
             let mut fetched = None;
-            let (paths, opened_identifier) = if let Some(identifier) = recorded {
-                (
-                    location.resolve_identifier(inbox_id, &identifier)?,
-                    Some(identifier),
-                )
-            } else if matches!(
-                location,
-                crate::storage_location::StorageLocation::Explicit { .. }
-            ) {
-                (location.resolve_identifier(inbox_id, "")?, None)
-            } else {
-                if allow_offline {
-                    return Err(StorageLocationError::OfflineMissingDeployment.into());
+            // The request that looks up an inbox carries the identifier, and
+            // the database it finds may hold no configuration. So that build
+            // asks the deployment for its configuration first, even for a
+            // recorded URL.
+            let opened_identifier = match recorded {
+                Some(identifier) if !look_up_inbox => Some(identifier),
+                _ if !data_dir => None,
+                recorded => {
+                    if allow_offline {
+                        return Err(StorageLocationError::OfflineMissingDeployment.into());
+                    }
+                    let response = api_client.get_configuration().await.map_err(|error| {
+                        ClientBuilderError::ClientError(ClientError::ConfigurationUnavailable(
+                            Box::new(crate::server_configuration::ConfigurationFetchError::Api(
+                                error,
+                            )),
+                        ))
+                    })?;
+                    let configuration = crate::server_configuration::validated(&response)
+                        .map_err(ClientError::from)?;
+                    let identifier = configuration.identifier;
+                    if let Some(recorded) = recorded
+                        && recorded != identifier
+                    {
+                        return Err(ClientError::BackendMismatch {
+                            stored: recorded,
+                            received: identifier,
+                        }
+                        .into());
+                    }
+                    fetched = Some((identifier.clone(), response));
+                    Some(identifier)
                 }
-                let response = api_client.get_configuration().await.map_err(|error| {
-                    ClientBuilderError::ClientError(ClientError::ConfigurationUnavailable(
-                        Box::new(crate::server_configuration::ConfigurationFetchError::Api(
-                            error,
-                        )),
-                    ))
-                })?;
-                let configuration =
-                    crate::server_configuration::validated(&response).map_err(ClientError::from)?;
-                let paths = location.resolve_identifier(inbox_id, &configuration.identifier)?;
-                let identifier = configuration.identifier;
-                fetched = Some((identifier.clone(), response));
-                (paths, Some(identifier))
             };
+            // An explicit database is opened first, and its build looks up
+            // an unknown inbox after the configuration checks below.
+            if look_up_inbox {
+                identity_strategy = identity_strategy.with_inbox(&api_client).await?;
+            }
+            let paths = location.resolve_identifier(
+                identity_strategy.inbox_id().unwrap_or_default(),
+                opened_identifier.as_deref().unwrap_or_default(),
+            )?;
             let opener = location_store_opener.ok_or(StorageLocationError::ConflictingStore)?;
             let opened = opener(paths.clone()).await?;
             if let Some((identifier, response)) = fetched {
-                opened.db().store_server_configuration(
-                    &identifier,
-                    backend_url.trim_end_matches('/'),
-                    &response.encode_to_vec(),
-                    xmtp_common::time::now_ns(),
-                )?;
+                // A stored configuration stays, and the checks below compare
+                // it with this backend.
+                if opened.db().server_configuration()?.is_none() {
+                    opened.db().store_server_configuration(
+                        &identifier,
+                        backend_url.trim_end_matches('/'),
+                        &response.encode_to_vec(),
+                        xmtp_common::time::now_ns(),
+                    )?;
+                }
                 if let Some(recorder) = &recorder {
                     recorder.record(&identifier).await?;
                 }
             }
             store = Some(opened);
             attachments_dir = Some(paths.attachments_dir);
-            if matches!(
-                location,
-                crate::storage_location::StorageLocation::DataDir(_)
-            ) {
+            if data_dir {
                 data_dir_opened_identifier = opened_identifier.clone();
             }
             deployment_recorder = recorder.map(|recorder| match opened_identifier {

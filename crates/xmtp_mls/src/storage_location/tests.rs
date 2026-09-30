@@ -398,6 +398,172 @@ mod native {
         ));
     }
 
+    // The request that looks up an inbox carries the identifier.
+    // verifies: CONF-026
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn data_dir_looks_up_an_inbox_only_after_the_configuration() {
+        let dir = tempfile::tempdir()?;
+        let url = "http://127.0.0.1:1";
+        DeploymentRecorder::new(dir.path().to_path_buf(), url)
+            .record("recorded-deployment")
+            .await?;
+        let identifier = generate_local_wallet().get_identifier()?;
+        let api = || {
+            let mut api = xmtp_api_backend::MessageBackendBuilder::new();
+            api.host(url);
+            api.build()
+        };
+        let build = |api, allow_offline| {
+            let identifier = identifier.clone();
+            let dir = dir.path().to_path_buf();
+            async move {
+                Client::builder(crate::identity::IdentityStrategy::for_identifier(
+                    identifier, 1,
+                ))
+                .api_client_with_streams(api)
+                .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+                .with_allow_offline(Some(allow_offline))
+                .data_location(StorageLocation::DataDir(dir), [0u8; 32].into())
+                .await?
+                .default_mls_store()?
+                .build()
+                .await
+            }
+        };
+        let offline = build(api()?, true).await;
+        assert!(
+            matches!(
+                offline,
+                Err(crate::builder::ClientBuilderError::StorageLocation(
+                    StorageLocationError::InboxId
+                ))
+            ),
+            "offline: {:?}",
+            offline.err()
+        );
+        // The backend is unreachable, so the first request fails the build.
+        let online = build(api()?, false).await;
+        assert!(
+            matches!(
+                online,
+                Err(crate::builder::ClientBuilderError::ClientError(
+                    crate::client::ClientError::ConfigurationUnavailable(_)
+                ))
+            ),
+            "online: {:?}",
+            online.err()
+        );
+        assert!(
+            !dir.path()
+                .join(deployment_component("recorded-deployment"))
+                .exists()
+        );
+    }
+
+    // verifies: CONF-030
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn data_dir_inbox_lookup_refuses_a_deployment_other_than_the_record() {
+        use crate::utils::test::backend::EphemeralBackend;
+        let dir = tempfile::tempdir()?;
+        let backend = EphemeralBackend::start("").await?;
+        DeploymentRecorder::new(dir.path().to_path_buf(), backend.url())
+            .record("recorded-deployment")
+            .await?;
+        let mut api = xmtp_api_backend::MessageBackendBuilder::new();
+        api.host(backend.url());
+        let result = Client::builder(crate::identity::IdentityStrategy::for_identifier(
+            generate_local_wallet().get_identifier()?,
+            1,
+        ))
+        .api_client_with_streams(api.build()?)
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .data_location(
+            StorageLocation::DataDir(dir.path().to_path_buf()),
+            [0u8; 32].into(),
+        )
+        .await?
+        .default_mls_store()?
+        .build()
+        .await;
+        assert!(
+            matches!(
+                &result,
+                Err(crate::builder::ClientBuilderError::ClientError(
+                    crate::client::ClientError::BackendMismatch { stored, received }
+                )) if stored == "recorded-deployment" && received != stored
+            ),
+            "build: {:?}",
+            result.err()
+        );
+        let entries: Vec<_> = std::fs::read_dir(dir.path())?
+            .map(|entry| entry.map(|entry| entry.file_name()))
+            .collect::<Result<_, _>>()?;
+        assert_eq!(entries, ["deployments.json"]);
+    }
+
+    // verifies: CONF-030
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn data_dir_inbox_lookup_keeps_the_stored_configuration() {
+        use crate::utils::test::backend::EphemeralBackend;
+        let dir = tempfile::tempdir()?;
+        let backend = EphemeralBackend::start("").await?;
+        let owner = generate_local_wallet();
+        let location = StorageLocation::DataDir(dir.path().to_path_buf());
+        let mut api = xmtp_api_backend::MessageBackendBuilder::new();
+        api.host(backend.url());
+        let first = Client::builder(identity_setup(&owner))
+            .api_client_with_streams(api.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .data_location(location.clone(), [0u8; 32].into())
+            .await?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        // The inbox's database is bound to another deployment.
+        let db = first.context.store.db();
+        let row = db.server_configuration()?.unwrap();
+        let mut response =
+            xmtp_proto::backend_v1::GetConfigurationResponse::decode(row.response.as_slice())?;
+        response.identifier = "stored-deployment".to_owned();
+        db.store_server_configuration(
+            &response.identifier,
+            &row.backend_url,
+            &response.encode_to_vec(),
+            row.fetched_at_ns,
+        )?;
+        drop(first);
+
+        let mut api = xmtp_api_backend::MessageBackendBuilder::new();
+        api.host(backend.url());
+        let second = Client::builder(crate::identity::IdentityStrategy::for_identifier(
+            owner.get_identifier()?,
+            1,
+        ))
+        .api_client_with_streams(api.build()?)
+        .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+        .data_location(location, [0u8; 32].into())
+        .await?
+        .default_mls_store()?
+        .with_disable_workers(true)
+        .build()
+        .await;
+        assert!(
+            matches!(
+                second,
+                Err(crate::builder::ClientBuilderError::StorageLocation(
+                    StorageLocationError::DeploymentMismatch
+                ))
+            ),
+            "build: {:?}",
+            second.err()
+        );
+        assert_eq!(
+            db.server_configuration()?.unwrap().identifier,
+            "stored-deployment"
+        );
+    }
+
     // verifies: ATCH-080
     #[xmtp_common::test(unwrap_try = true)]
     async fn explicit_location_cached_only_empty_db_needs_identity() {
