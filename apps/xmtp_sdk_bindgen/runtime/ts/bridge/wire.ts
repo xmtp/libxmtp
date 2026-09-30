@@ -1,3 +1,5 @@
+import { UniffiInternalError } from "@ubjs/core";
+
 import { ErrorCategory } from "../../xmtp_sdk.js";
 
 function bridgeCodes<const T extends readonly string[]>(...codes: T): T {
@@ -146,7 +148,7 @@ export function encodeError(error: unknown): ErrorWire {
     }
     // An aborted binding call (UniFFI's AbortError) is a cancellation, the
     // same as an abort that the main thread sees first.
-    if (error.name === "AbortError")
+    if (error instanceof UniffiInternalError.AbortError)
       return {
         variant: "Cancelled",
         code: "Cancelled",

@@ -113,7 +113,9 @@ function sameType(left: ContentTypeId, right: ContentTypeId): boolean {
 // Node vm context, where `instanceof` fails.
 // Checked at run time: a caller outside TypeScript can pass anything.
 function isObject(value: unknown): value is object {
-  return typeof value === "object" && value !== null;
+  return (
+    value !== null && (typeof value === "object" || typeof value === "function")
+  );
 }
 
 // Brand-checking getters, read once. Each one throws for a value that lacks
@@ -266,7 +268,7 @@ export function optionsForSend<T>(
   return { ...options, shouldPush };
 }
 
-// A codec is an object with an `encode` member. The check does not call a
+// A codec is an object or function with an `encode` member. The check does not call a
 // getter, and a check that throws (a Proxy trap) is a codec failure. A value
 // that is not an object, such as `null` or a string passed by mistake, is not
 // a codec, so the binding gives it the input error it had before.
