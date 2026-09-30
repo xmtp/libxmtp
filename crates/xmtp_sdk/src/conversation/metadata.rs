@@ -87,8 +87,9 @@ macro_rules! metadata_conversation {
 
             /// User field values by inbox, read from one snapshot. Absent
             /// `fields` selects every user field, and absent `inbox_ids`
-            /// every inbox with a value. A selected inbox with no values
-            /// maps to an empty list.
+            /// the current members (the pair in a DM). Every selected
+            /// inbox has an entry, empty when it holds no selected value.
+            /// A field whose value does not decode contributes nothing.
             // implements: META-072
             pub async fn user_data(
                 &self,

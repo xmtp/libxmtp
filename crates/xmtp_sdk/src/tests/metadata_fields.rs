@@ -22,6 +22,7 @@ const LATER: u16 = 0xC005;
 const LABELS: u16 = 0xC006;
 const TAGS: u16 = 0xC007;
 const MEMBERS: u16 = 0xC008;
+const KEPT: u16 = 0xC009;
 
 const NICKNAME_TYPE: MetadataComponentType = MetadataComponentType::Map {
     key_type: MetadataKeyType::InboxId,
@@ -175,13 +176,17 @@ fn kind(error: XmtpError) -> (String, String, String, bool) {
         | XmtpError::DuplicateField(details)
         | XmtpError::TypeMismatch(details)
         | XmtpError::PermissionDenied(details)
-        | XmtpError::InvalidArgument(details) => details,
+        | XmtpError::InvalidArgument(details)
+        | XmtpError::ClientClosed(details)
+        | XmtpError::Unknown(details) => details,
         other => panic!("unexpected error {other:?}"),
     };
     let category = format!("{:?}", details.category);
     (name, details.code, category, details.retryable)
 }
 
+/// The error is the `name` variant with code `name` in `category`, and is
+/// not retryable.
 fn expect_kind(error: XmtpError, name: &str, category: ErrorCategory) {
     assert_eq!(
         kind(error),
@@ -493,6 +498,54 @@ async fn user_data_keeps_absent_and_empty_filters_apart() {
     bo.end().await?;
 }
 
+/// A removal clears the removed inbox's user values that its remover may
+/// delete and keeps the rest. Absent `inbox_ids` selects only current
+/// members, so a kept value shows only when its inbox is named. A named
+/// inbox appears once however often it is named, member or not.
+#[xmtp_common::test(unwrap_try = true)]
+async fn user_data_selects_named_inboxes_once() {
+    let kept = ApplicationComponentDefinition {
+        permissions: ComponentPermissions {
+            delete: MetadataPolicy::Base(Base::Deny),
+            ..permissions(Base::Allow)
+        },
+        ..definition(KEPT, "kept", NICKNAME_TYPE, Base::Allow, false)
+    };
+    let alix = client_with(vec![kept]).await;
+    let bo = client_with(vec![]).await;
+    let (group, bo_group) = group_pair(&alix, &bo).await;
+    let names = metadata_field_ref(WellKnown::UserDisplayName);
+    bo_group
+        .update_user_data(vec![set(names, "Bo"), set(field(KEPT, None), "B")])
+        .await?;
+    group.sync().await?;
+    group.remove_members(vec![bo.inbox_id()]).await?;
+
+    assert_eq!(
+        group.user_data(None, None).await?,
+        HashMap::from([(alix.inbox_id(), vec![])])
+    );
+    let stranger = InboxId::try_from("ab".repeat(32))?;
+    assert_eq!(
+        group
+            .user_data(
+                None,
+                Some(vec![bo.inbox_id(), stranger.clone(), bo.inbox_id()])
+            )
+            .await?,
+        HashMap::from([
+            (
+                bo.inbox_id(),
+                vec![user_value(field(KEPT, Some("kept")), "B")]
+            ),
+            (stranger, vec![]),
+        ])
+    );
+
+    alix.end().await?;
+    bo.end().await?;
+}
+
 /// One call writes several of the caller's own fields in one commit. A
 /// write that changes nothing makes no commit, a rejected batch commits
 /// nothing, and a denied write is a typed `PermissionDenied`.
@@ -615,8 +668,9 @@ async fn collection_fields_apply_whole_deltas() {
             ]),
         )
         .await?;
+    // Deleting the absent `b` fails the whole delta, so `c` is not added.
     let epoch = group.inner.epoch().await?;
-    assert!(
+    expect_kind(
         group
             .update_metadata_field(
                 labels.clone(),
@@ -626,7 +680,9 @@ async fn collection_fields_apply_whole_deltas() {
                 ]),
             )
             .await
-            .is_err()
+            .unwrap_err(),
+        "Unknown",
+        ErrorCategory::Conversation,
     );
     assert_eq!(group.inner.epoch().await?, epoch);
     assert_eq!(
@@ -693,6 +749,29 @@ async fn collection_fields_apply_whole_deltas() {
     assert_eq!(group.metadata_value(labels).await?, None);
 
     alix.end().await?;
+}
+
+/// A metadata call on an ended client fails `ClientClosed`, for a read and
+/// for a write.
+#[xmtp_common::test(unwrap_try = true)]
+async fn metadata_calls_after_end_are_closed() {
+    let alix = client_with(alix_catalogue()).await;
+    let group = alix.conversations().create_group(vec![], None).await?;
+    alix.end().await?;
+
+    expect_kind(
+        group.metadata_fields().await.unwrap_err(),
+        "ClientClosed",
+        ErrorCategory::Lifecycle,
+    );
+    expect_kind(
+        group
+            .update_user_data(vec![set(field(NICKNAME, None), "A")])
+            .await
+            .unwrap_err(),
+        "ClientClosed",
+        ErrorCategory::Lifecycle,
+    );
 }
 
 /// Clearing an entry Alix never set changes nothing.
