@@ -12,7 +12,10 @@
 use std::collections::BTreeMap;
 
 use openmls::group::MlsGroup as OpenMlsGroup;
-use xmtp_db::group_intent::ID;
+use xmtp_db::{
+    Fetch,
+    group_intent::{ID, IntentState, StoredGroupIntent},
+};
 use xmtp_mls_common::{
     app_data::fields::{
         ComponentMutation, FieldError, FieldKey, FieldSnapshot, FieldValue, FieldWrite,
@@ -158,30 +161,43 @@ where
             return Ok(());
         };
         let intent = QueueIntent::app_data_update()
-            .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(writes)))
+            .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(
+                writes.clone(),
+            )))
             .queue(self)?;
-        self.publish_field_writes(intent.id).await
+        self.publish_field_writes(intent.id, own, &writes).await
     }
 
-    /// Publish the queued field writes `intent_id`. They are resolved again
-    /// against the group as it is then, so a commit that lands first and
-    /// re-types a field or tightens its policy fails them. The publisher's
-    /// [`FieldError`] is that failure, so it is returned in place of the
-    /// sync summary that carries it.
-    pub(super) async fn publish_field_writes(&self, intent_id: ID) -> Result<(), GroupError> {
-        match self.sync_until_intent_resolved(intent_id).await {
-            Ok(_) => Ok(()),
-            Err(GroupError::Sync(mut summary)) => {
-                let field = summary
-                    .publish_errors
-                    .iter()
-                    .position(|error| matches!(error, GroupError::MetadataField(_)));
-                Err(match field {
-                    Some(index) => summary.publish_errors.swap_remove(index),
-                    None => GroupError::Sync(summary),
-                })
-            }
-            Err(error) => Err(error),
+    /// Publish `writes`, which `own` queued as `intent_id`. The publisher
+    /// resolves them again when it builds their commit, so a commit that
+    /// lands first and re-types a field or tightens its policy fails the
+    /// intent before it is published. That failure is stored without
+    /// details, and another sync or another queued write may be the one
+    /// that reports it, so a failed intent is resolved again here and its
+    /// own [`FieldError`] returned in place of the sync error. A write that
+    /// is still queued keeps the sync error: it has not failed yet.
+    pub(super) async fn publish_field_writes(
+        &self,
+        intent_id: ID,
+        own: InboxId,
+        writes: &[FieldWrite],
+    ) -> Result<(), GroupError> {
+        let Err(error) = self.sync_until_intent_resolved(intent_id).await else {
+            return Ok(());
+        };
+        let failed = matches!(
+            self.context.db().fetch(&intent_id),
+            Ok(Some(StoredGroupIntent {
+                state: IntentState::Error,
+                ..
+            }))
+        );
+        if failed
+            && let Err(field @ GroupError::MetadataField(_)) =
+                self.with_group_snapshot(|group| resolve_field_writes(group, own, writes))
+        {
+            return Err(field);
         }
+        Err(error)
     }
 }
