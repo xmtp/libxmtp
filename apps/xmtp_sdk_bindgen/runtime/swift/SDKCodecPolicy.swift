@@ -28,12 +28,16 @@ private func sameType(_ left: ContentTypeId, _ right: ContentTypeId) -> Bool {
 /// keeps it, and `fallback` is not called; otherwise `fallback(value)` supplies
 /// it. A failed step, or an envelope of another type than the codec's, is
 /// `CodecEncodeFailed`.
-func encodeForSend<C: ContentCodec>(_ codec: C, value: C.Value) throws -> EncodedContent {
+///
+/// `type` is the codec's type, read once by the caller and reused for the push
+/// choice. The envelope is a value, so a hook cannot change the checked copy.
+func encodeForSend<C: ContentCodec>(_ codec: C, value: C.Value, type: ContentTypeId? = nil) throws -> EncodedContent {
+    let type = type ?? codec.type
     var encoded = try step("encode") { try codec.encode(value) }
     // implements: CTYPE-007
     // The envelope type is the codec's type, so a codec's push hook cannot
     // steer catalogue dispatch.
-    guard sameType(encoded.type, codec.type) else {
+    guard sameType(encoded.type, type) else {
         throw codecEncodeFailed("encode", CodecStepFailure(description: "the envelope type differs from the codec type"))
     }
     // implements: CTYPE-003
@@ -51,8 +55,10 @@ func encodeForSend<C: ContentCodec>(_ codec: C, value: C.Value) throws -> Encode
 /// The send options for `value`. An explicit `shouldPush`, including `false`,
 /// wins. A catalogue type keeps its catalogue default. Otherwise the codec's
 /// `shouldPush` decides. A failed hook is `CodecEncodeFailed`.
-func optionsForSend<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions?) throws -> SendOptions? {
-    if options?.shouldPush != nil || isCatalogueContentType(contentType: codec.type) {
+func optionsForSend<C: ContentCodec>(
+    _ codec: C, value: C.Value, options: SendOptions?, type: ContentTypeId? = nil
+) throws -> SendOptions? {
+    if options?.shouldPush != nil || isCatalogueContentType(contentType: type ?? codec.type) {
         return options
     }
     var result = options ?? SendOptions()
@@ -60,40 +66,53 @@ func optionsForSend<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOp
     return result
 }
 
+/// The envelope and options of `value` for a send or prepare. The codec's type
+/// is read once. After the codec steps, a cancelled task stops here, before
+/// the send starts.
+func sendParts<C: ContentCodec>(
+    _ codec: C, value: C.Value, options: SendOptions?
+) throws -> (EncodedContent, SendOptions?) {
+    let type = codec.type
+    let encoded = try encodeForSend(codec, value: value, type: type)
+    let sendOptions = try optionsForSend(codec, value: value, options: options, type: type)
+    try Task.checkCancellation()
+    return (encoded, sendOptions)
+}
+
 /// Decision 23: a typed codec form of send and prepareMessage next to the
 /// envelope form.
 public extension Group {
     func send<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions? = nil) async throws -> MessageId {
-        let encoded = try encodeForSend(codec, value: value)
-        return try await send(encoded: encoded, options: optionsForSend(codec, value: value, options: options))
+        let (encoded, sendOptions) = try sendParts(codec, value: value, options: options)
+        return try await send(encoded: encoded, options: sendOptions)
     }
 
     func prepareMessage<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions? = nil) async throws -> MessageId {
-        let encoded = try encodeForSend(codec, value: value)
-        return try await prepareMessage(encoded: encoded, options: optionsForSend(codec, value: value, options: options))
+        let (encoded, sendOptions) = try sendParts(codec, value: value, options: options)
+        return try await prepareMessage(encoded: encoded, options: sendOptions)
     }
 }
 
 public extension Dm {
     func send<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions? = nil) async throws -> MessageId {
-        let encoded = try encodeForSend(codec, value: value)
-        return try await send(encoded: encoded, options: optionsForSend(codec, value: value, options: options))
+        let (encoded, sendOptions) = try sendParts(codec, value: value, options: options)
+        return try await send(encoded: encoded, options: sendOptions)
     }
 
     func prepareMessage<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions? = nil) async throws -> MessageId {
-        let encoded = try encodeForSend(codec, value: value)
-        return try await prepareMessage(encoded: encoded, options: optionsForSend(codec, value: value, options: options))
+        let (encoded, sendOptions) = try sendParts(codec, value: value, options: options)
+        return try await prepareMessage(encoded: encoded, options: sendOptions)
     }
 }
 
 public extension Conversation {
     func send<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions? = nil) async throws -> MessageId {
-        let encoded = try encodeForSend(codec, value: value)
-        return try await send(encoded: encoded, options: optionsForSend(codec, value: value, options: options))
+        let (encoded, sendOptions) = try sendParts(codec, value: value, options: options)
+        return try await send(encoded: encoded, options: sendOptions)
     }
 
     func prepareMessage<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions? = nil) async throws -> MessageId {
-        let encoded = try encodeForSend(codec, value: value)
-        return try await prepareMessage(encoded: encoded, options: optionsForSend(codec, value: value, options: options))
+        let (encoded, sendOptions) = try sendParts(codec, value: value, options: options)
+        return try await prepareMessage(encoded: encoded, options: sendOptions)
     }
 }
