@@ -208,8 +208,15 @@ impl TryFrom<FieldKey> for fields::FieldKey {
 }
 
 /// Parses inbox ID text as the 32-byte inbox ID the metadata fields key by.
+/// Only lowercase hex is accepted: results are keyed by it, so another
+/// spelling of the same ID would not match a returned key.
 pub(crate) fn core_inbox_id(id: &str) -> Result<CoreInboxId, XmtpError> {
-    CoreInboxId::from_hex(id).map_err(|error| XmtpError::invalid_argument(error.to_string()))
+    let inbox_id = CoreInboxId::from_hex(id)
+        .map_err(|error| XmtpError::invalid_argument(error.to_string()))?;
+    if inbox_id.to_hex() != id {
+        return Err(XmtpError::invalid_argument("inbox ID is not lowercase hex"));
+    }
+    Ok(inbox_id)
 }
 
 impl From<fields::MetadataValue> for MetadataValue {
