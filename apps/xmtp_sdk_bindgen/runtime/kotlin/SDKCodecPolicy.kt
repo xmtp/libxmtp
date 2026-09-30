@@ -29,8 +29,28 @@ private inline fun <R> codecStep(
     } catch (error: VirtualMachineError) {
         throw error
     } catch (error: Throwable) {
-        throw codecEncodeFailed(name, error.message ?: error.toString())
+        throw codecEncodeFailed(name, describe(error))
     }
+
+// A description of a codec failure. Reading `message` or `toString()` can
+// itself throw, so it has a fixed fallback.
+private fun describe(error: Throwable): String =
+    try {
+        error.message ?: error.toString()
+    } catch (_: VirtualMachineError) {
+        throw error
+    } catch (_: Throwable) {
+        "the failure has no readable description"
+    }
+
+/** The codec's content type, read once under its own step. */
+internal fun <T : Any> codecType(codec: ContentCodec<T>): ContentTypeId = codecStep("type") { codec.type }
+
+// A copy of the codec's envelope with its own type and parameters. The
+// generated record has `var` fields, so a hook that keeps and changes the
+// codec's envelope object cannot change the checked copy. The content bytes
+// are not copied: they do not decide the type or the push policy.
+private fun EncodedContent.snapshot(): EncodedContent = copy(type = type.copy(), parameters = parameters.toMap())
 
 /**
  * The envelope of [value] for a send. An envelope that already has a fallback
@@ -41,12 +61,13 @@ private inline fun <R> codecStep(
 internal fun <T : Any> encodeForSend(
     codec: ContentCodec<T>,
     value: T,
+    type: ContentTypeId = codecType(codec),
 ): EncodedContent {
-    val encoded = codecStep("encode") { codec.encode(value) }
+    val encoded = codecStep("encode") { codec.encode(value).snapshot() }
     // implements: CTYPE-007
     // The envelope type is the codec's type, so a codec's push hook cannot
     // steer catalogue dispatch.
-    if (encoded.type != codec.type) {
+    if (encoded.type != type) {
         throw codecEncodeFailed("encode", "the envelope type differs from the codec type")
     }
     // implements: CTYPE-003
@@ -69,27 +90,32 @@ internal fun <T : Any> optionsForSend(
     codec: ContentCodec<T>,
     value: T,
     options: SendOptions?,
+    type: ContentTypeId = codecType(codec),
 ): SendOptions? {
-    if (options?.shouldPush != null || isCatalogueContentType(codec.type)) return options
+    if (options?.shouldPush != null || isCatalogueContentType(type)) return options
     val push = codecStep("shouldPush") { codec.shouldPush(value) }
     return (options ?: SendOptions()).copy(shouldPush = push)
 }
 
 /**
  * The envelope of [value] for a reply. The caller's cancellation is checked
- * before the codec steps run.
+ * before the codec steps run and again after them, because a slow synchronous
+ * step cannot see a cancellation while it runs.
  */
 internal suspend fun <T : Any> replyEnvelope(
     codec: ContentCodec<T>,
     value: T,
 ): EncodedContent {
     currentCoroutineContext().ensureActive()
-    return encodeForSend(codec, value)
+    val encoded = encodeForSend(codec, value)
+    currentCoroutineContext().ensureActive()
+    return encoded
 }
 
 /**
- * The envelope and options of [value] for a send or prepare. The caller's
- * cancellation is checked before the codec steps run.
+ * The envelope and options of [value] for a send or prepare. The codec's
+ * type is read once. The caller's cancellation is checked before the codec
+ * steps run and again after them, before the send starts.
  */
 private suspend fun <T : Any> sendParts(
     codec: ContentCodec<T>,
@@ -97,7 +123,11 @@ private suspend fun <T : Any> sendParts(
     options: SendOptions?,
 ): Pair<EncodedContent, SendOptions?> {
     currentCoroutineContext().ensureActive()
-    return encodeForSend(codec, value) to optionsForSend(codec, value, options)
+    val type = codecType(codec)
+    val encoded = encodeForSend(codec, value, type)
+    val sendOptions = optionsForSend(codec, value, options, type)
+    currentCoroutineContext().ensureActive()
+    return encoded to sendOptions
 }
 
 // Decision 23: a typed codec form of send and prepareMessage next to the

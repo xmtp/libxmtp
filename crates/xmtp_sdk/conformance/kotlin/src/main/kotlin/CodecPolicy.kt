@@ -29,6 +29,7 @@ private class NoteCodec(
     val failEncode: Boolean = false,
     val cancelEncode: Boolean = false,
     val todoEncode: Boolean = false,
+    val unreadableEncode: Boolean = false,
     val failFallback: Boolean = false,
     val failPush: Boolean = false,
     val ownFallback: String? = null,
@@ -44,6 +45,7 @@ private class NoteCodec(
         // cancellation of the caller.
         if (cancelEncode) throw java.util.concurrent.CancellationException("encode cancelled")
         if (todoEncode) TODO("encode")
+        if (unreadableEncode) throw UnreadableFailure()
         return EncodedContent(envelopeType, emptyMap(), ownFallback, value.toByteArray())
     }
 
@@ -74,12 +76,14 @@ private class CatalogueTextCodec : ContentCodec<String> {
 /** A Group with no Rust object that records the options each send receives. */
 private class RecordingGroup : Group(NoHandle) {
     val sent = mutableListOf<SendOptions?>()
+    val envelopes = mutableListOf<EncodedContent>()
 
     override suspend fun send(
         encoded: EncodedContent,
         options: SendOptions?,
     ): MessageId {
         sent += options
+        envelopes += encoded
         return "recorded"
     }
 
@@ -122,6 +126,84 @@ private class RecordingCodec : ContentCodec<String> {
         called = true
         return true
     }
+}
+
+/** A failure whose message and text cannot be read. */
+private class UnreadableFailure : RuntimeException() {
+    override val message: String
+        get() = throw IllegalStateException("message")
+
+    override fun toString(): String = throw IllegalStateException("toString")
+}
+
+/**
+ * A codec that counts reads of its type, can throw from its type, can run an
+ * action inside `encode`, and can change the envelope it returned from inside
+ * its fallback hook.
+ */
+private class ProbeCodec(
+    val throwingType: Boolean = false,
+    val onEncode: () -> Unit = {},
+    val changeEnvelope: Boolean = false,
+) : ContentCodec<String> {
+    var typeReads = 0
+    var encoded = false
+    private var kept: EncodedContent? = null
+
+    override val type: ContentTypeId
+        get() {
+            typeReads += 1
+            if (throwingType) throw IllegalStateException("type getter")
+            return noteType
+        }
+
+    override fun encode(value: String): EncodedContent {
+        encoded = true
+        onEncode()
+        return EncodedContent(noteType.copy(), emptyMap(), null, value.toByteArray()).also { kept = it }
+    }
+
+    override fun decode(encoded: EncodedContent) = encoded.content.decodeToString()
+
+    override fun fallback(value: String): String {
+        // The generated record has `var` fields, so a codec can change the
+        // envelope object that it returned.
+        if (changeEnvelope) kept?.type = TextCodec().type
+        return "a note"
+    }
+}
+
+/**
+ * The codec's type is read once per send and a throwing type is
+ * CodecEncodeFailed. The policy checks its own copy of the envelope. A caller
+ * cancelled during a codec step stops before the send.
+ */
+private suspend fun checkProbes() {
+    val group = RecordingGroup()
+    val counted = ProbeCodec()
+    group.send(counted, "counted")
+    check(counted.typeReads == 1) { "a typed send read the codec type ${counted.typeReads} times" }
+    expectCodecEncodeFailed("a throwing type") { group.send(ProbeCodec(throwingType = true), "x") }
+
+    val changing = ProbeCodec(changeEnvelope = true)
+    group.send(changing, "changed")
+    check(group.envelopes.last().type == noteType) { "a hook changed the checked envelope type" }
+
+    var error: Throwable? = null
+    val cancelling = ProbeCodec()
+    val sends = group.sent.size
+    coroutineScope {
+        launch {
+            val job = currentCoroutineContext().job
+            // The caller is cancelled while a synchronous codec step runs.
+            val codec = ProbeCodec(onEncode = { job.cancel() })
+            error = runCatching { group.send(codec, "cancelled") }.exceptionOrNull()
+            cancelling.encoded = codec.encoded
+        }
+    }
+    check(cancelling.encoded) { "the cancelling codec did not run" }
+    check(error is kotlinx.coroutines.CancellationException) { "a send cancelled in a codec step did not stop: $error" }
+    check(group.sent.size == sends) { "a send cancelled in a codec step reached the send" }
 }
 
 /** A cancelled caller stops before any codec step runs, with no send. */
@@ -202,7 +284,7 @@ internal suspend fun customCodecPolicyAndIsolation(
     return parent
 }
 
-// verifies: CTYPE-003, CTYPE-007
+// verifies: CTYPE-003, CTYPE-007, GMOD-035
 
 /**
  * codec_policy_failure_never_publishes: a skipped hook is not called, and a
@@ -214,6 +296,7 @@ internal suspend fun codecPolicyFailureNeverPublishes(
     parent: Message,
 ) {
     checkCallerCancellation()
+    checkProbes()
     // An envelope's own fallback is kept, and its fallback hook is not called.
     val keptId = group.send(NoteCodec(failFallback = true, ownFallback = "own"), "kept")
     check(envelope(group.stored(keptId))?.fallback == "own") { "an envelope fallback was replaced" }
@@ -227,6 +310,7 @@ internal suspend fun codecPolicyFailureNeverPublishes(
         NoteCodec(failEncode = true),
         NoteCodec(cancelEncode = true),
         NoteCodec(todoEncode = true),
+        NoteCodec(unreadableEncode = true),
         NoteCodec(failFallback = true),
         NoteCodec(failPush = true),
         NoteCodec(envelopeType = TextCodec().type),
@@ -243,6 +327,24 @@ internal suspend fun codecPolicyFailureNeverPublishes(
     for (codec in listOf(ReactionV2Codec(), ReplyCodec(), DeleteMessageCodec())) {
         expectCodecEncodeFailed("${codec.javaClass.simpleName} send") {
             group.send(codec, StandardContent.Text("x"))
+        }
+    }
+    // A typed send of a transcript type reaches core's reserved-type guard on
+    // send and prepare, and stores nothing.
+    val groupUpdated =
+        sdkConformanceStandardSamples()
+            .map { it.value }
+            .filterIsInstance<StandardContent.GroupUpdated>()
+            .single()
+            .v1
+    for (attempt in listOf<suspend () -> Unit>(
+        { group.send(GroupUpdatedCodec(), groupUpdated) },
+        { group.prepareMessage(GroupUpdatedCodec(), groupUpdated) },
+    )) {
+        val refused = runCatching { attempt() }.exceptionOrNull()
+        val details = (refused as? XmtpException.InvalidInput)?.v1
+        check(details?.code == "ReservedTranscriptContentType" && !details.retryable) {
+            "a typed GroupUpdatedCodec send was not refused: $refused"
         }
     }
     check(group.messages(null).size == before) { "a failed codec step made a publish attempt" }
