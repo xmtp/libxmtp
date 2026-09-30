@@ -95,11 +95,12 @@ pub enum FieldValue {
     String(String),
 }
 
-/// A map or set key. An inbox ID key is the inbox ID text in lowercase hex,
-/// the form reads return; any other spelling fails `InvalidArgument`.
+/// A map or set key.
 #[derive(Clone, Debug, PartialEq, Eq, uniffi::Enum)]
 pub enum FieldKey {
     Bytes(Vec<u8>),
+    /// The inbox ID text in lowercase hex, the form reads return; any other
+    /// spelling fails `InvalidArgument`.
     InboxId(String),
 }
 
