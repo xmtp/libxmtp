@@ -110,7 +110,7 @@ impl TryFrom<ConversationId> for GroupId {
     type Error = XmtpError;
 
     fn try_from(value: ConversationId) -> Result<Self, Self::Error> {
-        GroupId::try_from(value.to_bytes()?.as_slice()).map_err(XmtpError::unknown)
+        GroupId::try_from(value.to_bytes()?.as_slice()).map_err(XmtpError::from_core)
     }
 }
 

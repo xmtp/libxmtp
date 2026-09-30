@@ -19,7 +19,7 @@ impl Group {
                 group
                     .update_group_name(value)
                     .await
-                    .map_err(XmtpError::unknown)
+                    .map_err(XmtpError::from_core)
             }),
         )
         .await
@@ -33,7 +33,7 @@ impl Group {
                 group
                     .update_group_description(value)
                     .await
-                    .map_err(XmtpError::unknown)
+                    .map_err(XmtpError::from_core)
             }),
         )
         .await
@@ -47,7 +47,7 @@ impl Group {
                 group
                     .update_group_image_url_square(value)
                     .await
-                    .map_err(XmtpError::unknown)
+                    .map_err(XmtpError::from_core)
             }),
         )
         .await
@@ -65,7 +65,7 @@ impl Group {
                 group
                     .update_app_data(value, expected)
                     .await
-                    .map_err(XmtpError::unknown)
+                    .map_err(XmtpError::from_core)
             }),
         )
         .await
@@ -105,14 +105,14 @@ impl Group {
                                     Some(field),
                                 )
                                 .await
-                                .map_err(XmtpError::unknown)?;
+                                .map_err(XmtpError::from_core)?;
                         }
                         Ok(())
                     }
                     None => group
                         .update_permission_policy(kind.into(), policy, None)
                         .await
-                        .map_err(XmtpError::unknown),
+                        .map_err(XmtpError::from_core),
                 }
             }),
         )
@@ -134,7 +134,7 @@ impl Group {
                 group
                     .add_members(&ids)
                     .await
-                    .map_err(XmtpError::unknown)?
+                    .map_err(XmtpError::from_core)?
                     .try_into()
             }),
         )
@@ -154,7 +154,7 @@ impl Group {
                 group
                     .remove_members(&refs)
                     .await
-                    .map_err(XmtpError::unknown)
+                    .map_err(XmtpError::from_core)
             }),
         )
         .await
@@ -177,7 +177,7 @@ impl Group {
                 group
                     .add_members_by_identity(&members)
                     .await
-                    .map_err(XmtpError::unknown)?
+                    .map_err(XmtpError::from_core)?
                     .try_into()
             }),
         )
@@ -201,7 +201,7 @@ impl Group {
                 group
                     .remove_members_by_identity(&members)
                     .await
-                    .map_err(XmtpError::unknown)
+                    .map_err(XmtpError::from_core)
             }),
         )
         .await
@@ -231,7 +231,7 @@ impl Group {
         let inbox_id = inbox_id.into_checked()?;
         let group = self.inner.clone();
         on_sdk_worker(self.inner.context.clone(), async move {
-            group.is_admin(inbox_id).map_err(XmtpError::unknown)
+            group.is_admin(inbox_id).map_err(XmtpError::from_core)
         })
         .await
     }
@@ -240,7 +240,7 @@ impl Group {
         let inbox_id = inbox_id.into_checked()?;
         let group = self.inner.clone();
         on_sdk_worker(self.inner.context.clone(), async move {
-            group.is_super_admin(inbox_id).map_err(XmtpError::unknown)
+            group.is_super_admin(inbox_id).map_err(XmtpError::from_core)
         })
         .await
     }
@@ -250,7 +250,7 @@ impl Group {
         on_sdk_worker(self.inner.context.clone(), async move {
             group
                 .admin_list()
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
                 .into_iter()
                 .map(InboxId::try_from)
                 .collect()
@@ -263,7 +263,7 @@ impl Group {
         on_sdk_worker(self.inner.context.clone(), async move {
             group
                 .super_admin_list()
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
                 .into_iter()
                 .map(InboxId::try_from)
                 .collect()
@@ -275,7 +275,7 @@ impl Group {
         let group = self.inner.clone();
         on_sdk_worker(
             self.inner.context.clone(),
-            Box::pin(async move { group.leave_group().await.map_err(XmtpError::unknown) }),
+            Box::pin(async move { group.leave_group().await.map_err(XmtpError::from_core) }),
         )
         .await
     }
@@ -288,7 +288,7 @@ impl Group {
             group
                 .membership_capabilities()
                 .await
-                .map_err(XmtpError::unknown)?
+                .map_err(XmtpError::from_core)?
                 .try_into()
         })
         .await
@@ -309,7 +309,7 @@ impl Group {
                 group
                     .update_admin_list(action, inbox_id)
                     .await
-                    .map_err(XmtpError::unknown)
+                    .map_err(XmtpError::from_core)
             }),
         )
         .await
@@ -327,7 +327,7 @@ impl Dm {
                 .context
                 .db()
                 .find_group(&group.group_id)
-                .map_err(XmtpError::unknown)?;
+                .map_err(XmtpError::from_core)?;
             stored
                 .and_then(|stored| stored.dm_id)
                 .and_then(|id| id.other_inbox_id(group.context.inbox_id()))
@@ -341,7 +341,7 @@ impl Dm {
         let group = self.inner.clone();
         let client_key = self.client_key;
         on_sdk_worker(self.inner.context.clone(), async move {
-            let groups = group.find_duplicate_dms().map_err(XmtpError::unknown)?;
+            let groups = group.find_duplicate_dms().map_err(XmtpError::from_core)?;
             let mut result = Vec::with_capacity(groups.len());
             for inner in groups {
                 result.push(Arc::new(Dm::from_core(inner, client_key).await?));

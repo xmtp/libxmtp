@@ -489,9 +489,10 @@ export async function exercise(): Promise<string[]> {
     const badBytes = await rejection(
       admin.importDb(`bad-${crypto.randomUUID()}.db3`, new Uint8Array([1, 2, 3])),
     );
+    // The typed storage cause names the code and its retry policy.
     check(
-      badBytes instanceof sdk.XmtpError.Unknown && isPublicError(badBytes),
-      "bad import bytes did not fail with the public Unknown",
+      badBytes instanceof sdk.XmtpError.Storage && isPublicError(badBytes),
+      `bad import bytes did not fail with the public Storage: ${String(badBytes)}`,
     );
     await admin.end();
     const endedAdmin = await rejection(admin.fileCount());

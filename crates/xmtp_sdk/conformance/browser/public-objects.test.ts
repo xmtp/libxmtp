@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 
 import * as P from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
+import { bridgeError } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 
 // Public objects keep their binding object private and convert each call.
@@ -293,6 +294,14 @@ describe("public objects", () => {
       message: "busy",
     });
     expect(P.publicError(already)).toBe(already);
+    // A cancelled call reaches the app as the public Cancelled error.
+    const cancelled = P.publicError(bridgeError("cancelled"));
+    expect(cancelled).toBeInstanceOf(P.XmtpError.Cancelled);
+    expect((cancelled as P.XmtpError).details).toMatchObject({
+      code: "Cancelled",
+      category: "lifecycle",
+      retryable: false,
+    });
     expect(P.lowerXmtpError(already, new TestProjection()).tag).toBe(
       B.XmtpError_Tags.StorageBusy,
     );

@@ -55,6 +55,9 @@ use crate::{
 pub use error::*;
 use intents::SendMessageIntentData;
 pub use intents::UpdateGroupMembershipResult;
+// An error type that other errors wrap transparently, so a caller that walks
+// an error chain can open it.
+pub use mls_sync::GroupMessageProcessingError;
 #[cfg(test)]
 use openmls::extensions::Metadata;
 use openmls::{

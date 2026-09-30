@@ -7,6 +7,12 @@ nix build --no-link .#ubjs-core .#ubjs-wasm
 core="$(nix path-info .#ubjs-core)"
 wasm="$(nix path-info .#ubjs-wasm)"
 
+# Source type checks need the player package. Vitest aliases runtime imports
+# to the generated player entry to keep one class under --preserve-symlinks.
+source_package_dir=apps/xmtp_sdk_bindgen/runtime/node_modules/@ubjs
+mkdir -p "$source_package_dir"
+ln -sfn "$core/lib/node_modules/@ubjs/core" "$source_package_dir/core"
+
 package_dir=target/sdk-generated/typescript-wasm/node_modules/@ubjs
 mkdir -p "$package_dir"
 ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"

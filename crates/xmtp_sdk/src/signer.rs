@@ -25,7 +25,7 @@ impl PublicIdentity {
             PublicIdentityKind::Ethereum => Identifier::eth(&self.identifier),
             PublicIdentityKind::Passkey => Identifier::passkey_str(&self.identifier, None),
         }
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
     }
 }
 

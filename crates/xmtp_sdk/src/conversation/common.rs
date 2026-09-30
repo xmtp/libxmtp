@@ -45,7 +45,7 @@ macro_rules! common_conversation {
                             xmtp_db::count_sql_queries(|| {
                                 xmtp_db::sql_key_store::count_kv_reads(|| {
                                     let snapshot =
-                                        group.state_snapshot().map_err(XmtpError::unknown)?;
+                                        group.state_snapshot().map_err(XmtpError::from_core)?;
                                     ($map)(snapshot)
                                 })
                             });
@@ -54,7 +54,7 @@ macro_rules! common_conversation {
                     }
                     #[cfg(any(not(test), target_arch = "wasm32"))]
                     {
-                        let snapshot = group.state_snapshot().map_err(XmtpError::unknown)?;
+                        let snapshot = group.state_snapshot().map_err(XmtpError::from_core)?;
                         ($map)(snapshot)
                     }
                 })
@@ -71,7 +71,7 @@ macro_rules! common_conversation {
                     group
                         .last_activity_ns(types.as_deref())
                         .map(Timestamp)
-                        .map_err(XmtpError::unknown)
+                        .map_err(XmtpError::from_core)
                 })
                 .await
             }
@@ -81,7 +81,7 @@ macro_rules! common_conversation {
                 on_sdk_worker(self.inner.context.clone(), async move {
                     group
                         .update_consent_state(state.into())
-                        .map_err(XmtpError::unknown)
+                        .map_err(XmtpError::from_core)
                 })
                 .await
             }
@@ -91,7 +91,7 @@ macro_rules! common_conversation {
                 on_sdk_worker(
                     self.inner.context.clone(),
                     Box::pin(async move {
-                        group.sync().await.map_err(XmtpError::unknown)?;
+                        group.sync().await.map_err(XmtpError::from_core)?;
                         Ok(())
                     }),
                 )
@@ -104,7 +104,7 @@ macro_rules! common_conversation {
                     group
                         .members()
                         .await
-                        .map_err(XmtpError::unknown)?
+                        .map_err(XmtpError::from_core)?
                         .into_iter()
                         .map(Member::try_from)
                         .collect()
@@ -119,7 +119,7 @@ macro_rules! common_conversation {
                         .debug_info()
                         .await
                         .map(Into::into)
-                        .map_err(XmtpError::unknown)
+                        .map_err(XmtpError::from_core)
                 })
                 .await
             }
@@ -129,7 +129,7 @@ macro_rules! common_conversation {
                 on_sdk_worker(self.inner.context.clone(), async move {
                     Ok(group
                         .hmac_keys(-1..=1)
-                        .map_err(XmtpError::unknown)?
+                        .map_err(XmtpError::from_core)?
                         .into_iter()
                         .map(Into::into)
                         .collect())
@@ -142,7 +142,7 @@ macro_rules! common_conversation {
                 on_sdk_worker(self.inner.context.clone(), async move {
                     group
                         .get_last_read_times()
-                        .map_err(XmtpError::unknown)?
+                        .map_err(XmtpError::from_core)?
                         .into_iter()
                         .map(|(inbox_id, ns)| {
                             Ok((InboxId::try_from(inbox_id)?.into_checked()?, Timestamp(ns)))
@@ -174,7 +174,7 @@ macro_rules! common_conversation {
                                     .await
                             }
                         }
-                        .map_err(XmtpError::unknown)
+                        .map_err(XmtpError::from_core)
                     }),
                 )
                 .await
@@ -188,7 +188,7 @@ macro_rules! common_conversation {
                 on_sdk_worker(self.inner.context.clone(), async move {
                     group
                         .set_notifications(value.into())
-                        .map_err(XmtpError::unknown)
+                        .map_err(XmtpError::from_core)
                 })
                 .await
             }
@@ -420,7 +420,7 @@ macro_rules! common_conversation {
                     let load = || -> Result<Vec<Message>, XmtpError> {
                         let enriched = group
                             .find_messages_v2_with_stored(&query)
-                            .map_err(XmtpError::unknown)?;
+                            .map_err(XmtpError::from_core)?;
                         Ok(lift_history_messages(enriched, client_key))
                     };
                     #[cfg(all(test, not(target_arch = "wasm32")))]
@@ -447,7 +447,7 @@ macro_rules! common_conversation {
                     group
                         .count_messages(&query)
                         .map(|count| count as u64)
-                        .map_err(XmtpError::unknown)
+                        .map_err(XmtpError::from_core)
                 })
                 .await
             }
@@ -472,10 +472,10 @@ macro_rules! common_conversation {
                         .context
                         .db()
                         .get_group_message(&bytes)
-                        .map_err(XmtpError::unknown)?
+                        .map_err(XmtpError::from_core)?
                         .ok_or_else(|| XmtpError::invalid("message not found"))?;
                     let group = deletion_group(group, &stored)?;
-                    let deletion_id = group.delete_message(bytes).map_err(XmtpError::unknown)?;
+                    let deletion_id = group.delete_message(bytes).map_err(XmtpError::from_core)?;
                     MessageId::from_bytes(&deletion_id)
                 })
                 .await
