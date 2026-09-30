@@ -3636,3 +3636,67 @@ async fn a_failed_reconcile_opens_no_new_network_interest() {
     assert!(controller.storage_error.is_none());
     assert!(controller.transport.requested.contains(&added));
 }
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_restored_group_stored_by_another_client_is_retired() {
+    use xmtp_proto::api_client::{ApiBuilder, XmtpTestClient};
+    tester!(alix, disable_workers);
+    // A second client on the same database has its own receive controller slot,
+    // so its Restored store sends no notice to this client's controller.
+    let other = crate::Client::builder(crate::identity::IdentityStrategy::CachedOnly)
+        .store(alix.context.store.clone())
+        .api_client(crate::utils::DefaultTestClientCreator::create().build()?)
+        .default_mls_store()?
+        .with_scw_verifier(
+            xmtp_id::associations::test_utils::MockSmartContractSignatureVerifier::new(true),
+        )
+        .with_disable_workers(true)
+        .build()
+        .await?;
+    assert_eq!(other.inbox_id(), alix.inbox_id());
+
+    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
+    *alix.context.incoming_runtime().coordinator.lock() = Some(coordinator.clone());
+    let group_id = GroupId::generate();
+    let topic = Topic::new_group_message(group_id);
+    let _lease = coordinator.acquire(IncomingScope::Topics(vec![topic.clone()]));
+    while let Ok(command) = controller.commands.try_recv() {
+        controller.command(command);
+    }
+    controller.reconcile()?;
+    assert!(controller.interested().contains(&topic));
+
+    insert_restored_placeholder(&other.context, &group_id, ConversationType::Group);
+    assert!(controller.commands.try_recv().is_err());
+    controller.reconcile()?;
+    assert!(controller.is_retired(&topic));
+    assert!(!controller.interested().contains(&topic));
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn an_unchanged_restored_generation_does_no_group_lookups() {
+    tester!(alix, disable_workers);
+    let topics: Vec<_> = (0..20)
+        .map(|_| Topic::new_group_message(GroupId::generate()))
+        .collect();
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Topics(topics.clone()),
+    });
+    controller.reconcile()?;
+    let lookups = controller.restored_lookups;
+    for _ in 0..3 {
+        controller.reconcile()?;
+    }
+    assert_eq!(controller.restored_lookups, lookups);
+
+    // A change checks each selected group once.
+    insert_restored_placeholder(&alix.context, &GroupId::generate(), ConversationType::Group);
+    controller.reconcile()?;
+    assert_eq!(controller.restored_lookups, lookups + topics.len());
+    controller.reconcile()?;
+    assert_eq!(controller.restored_lookups, lookups + topics.len());
+}

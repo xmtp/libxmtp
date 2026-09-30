@@ -703,6 +703,7 @@ mod tests {
         })?;
         connection.raw_query(|conn| {
             for table in [
+                "restored_group_generation",
                 "received_proposals",
                 "pending_attachments",
                 "local_attachments",
@@ -738,6 +739,12 @@ mod tests {
         connection.raw_query(|conn| {
             diesel::sql_query("SELECT * FROM received_proposals").execute(conn)
         })?;
+        let generation = connection.raw_query(|conn| {
+            diesel::sql_query("SELECT generation AS count FROM restored_group_generation")
+                .get_result::<Count>(conn)
+                .map(|row| row.count)
+        })?;
+        assert_eq!(generation, 0);
         assert_eq!(has_index("group_messages_sent_at_sort")?, 0);
         assert_eq!(has_index("group_messages_sent_at_id_sort")?, 1);
         let latest = connection.raw_query(|conn| {

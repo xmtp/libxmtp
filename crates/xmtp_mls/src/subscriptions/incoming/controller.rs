@@ -169,6 +169,11 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     /// Selected topics whose Restored check failed. They stay out of network
     /// interest until a later check of their group in `restored` succeeds.
     unverified: HashSet<Topic>,
+    /// The database's Restored generation at the last check. A change means
+    /// some client that shares the database stored a Restored group.
+    restored_generation: Option<i64>,
+    #[cfg(test)]
+    restored_lookups: usize,
     topics: HashMap<Topic, TopicSchedule>,
     storage_error: Option<Arc<IncomingError>>,
     callbacks: HashMap<
@@ -209,6 +214,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             extra_topics: HashSet::new(),
             restored: HashSet::new(),
             unverified: HashSet::new(),
+            restored_generation: None,
+            #[cfg(test)]
+            restored_lookups: 0,
             topics: HashMap::new(),
             storage_error: None,
             callbacks: HashMap::new(),
@@ -379,6 +387,10 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 .values()
                 .any(|scope| scope.topics.contains(&topic));
             if selected {
+                #[cfg(test)]
+                {
+                    self.restored_lookups += 1;
+                }
                 match is_restored(&self.context, &group_id) {
                     Ok(true) => {
                         self.topics
@@ -400,8 +412,36 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
+    /// Another client that shares the database sends no notice. When the
+    /// database's Restored generation changes, check every selected group once.
+    /// An unchanged generation costs one single-row read.
+    // implements: PROC-051
+    fn check_restored_generation(&mut self) -> Result<(), IncomingError> {
+        let generation = self
+            .context
+            .db()
+            .restored_group_generation()
+            .map_err(|error| IncomingError::Storage(error.into()))?;
+        if self.restored_generation == Some(generation) {
+            return Ok(());
+        }
+        let selected: Vec<GroupId> = self
+            .scopes
+            .values()
+            .flat_map(|scope| scope.topics.iter())
+            .filter(|topic| topic.kind() == TopicKind::GroupMessagesV1)
+            .filter_map(|topic| GroupId::try_from(topic.identifier()).ok())
+            .collect();
+        self.restored.extend(selected);
+        self.restored_generation = Some(generation);
+        self.check_restored_notices();
+        Ok(())
+    }
+
     fn reconcile(&mut self) -> Result<(), IncomingError> {
         self.check_restored_notices();
+        // A failed read fails the pass, so it opens no new interest.
+        self.check_restored_generation()?;
         let retired: Vec<_> = self
             .topics
             .iter()

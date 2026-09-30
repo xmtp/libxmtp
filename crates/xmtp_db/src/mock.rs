@@ -190,6 +190,8 @@ mock! {
 
         fn all_sync_groups(&self) -> Result<Vec<crate::group::StoredGroup>, crate::ConnectionError>;
 
+        fn restored_group_generation(&self) -> Result<i64, crate::ConnectionError>;
+
         fn find_sync_group(
             &self,
             id: &GroupId,

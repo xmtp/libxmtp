@@ -279,6 +279,13 @@ diesel::table! {
 }
 
 diesel::table! {
+    restored_group_generation (id) {
+        id -> Integer,
+        generation -> BigInt,
+    }
+}
+
+diesel::table! {
     server_configuration (id) {
         id -> Integer,
         identifier -> Text,
@@ -360,6 +367,7 @@ diesel::allow_tables_to_appear_in_same_query!(
     received_proposals,
     refresh_state,
     remote_commit_log,
+    restored_group_generation,
     server_configuration,
     tasks,
     user_preferences,
