@@ -43,6 +43,7 @@ const INTERNAL = new Set([
   "ObjectProjection",
   "StandardCodec",
   "encodeForSend",
+  "optionsForSend",
 ]);
 function exportedValues(source: string): string[] {
   return [
