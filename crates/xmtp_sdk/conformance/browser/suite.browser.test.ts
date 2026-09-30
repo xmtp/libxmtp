@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 
+import { checkMetadataFields } from "./metadata.chromium";
 import { runBrowserBridgeConformance } from "./suite.chromium";
 import { checkRealWasmTrap } from "./suite.panic.chromium";
 
@@ -23,6 +24,12 @@ test("browser bridge scenarios 1 to 11: readers in 7, events in 8, catchUpToLive
 }, 180_000);
 
 test("real WASM trap settles pending bridge calls", checkRealWasmTrap, 30_000);
+
+test(
+  "metadata fields and profiles",
+  () => checkMetadataFields(__XMTP_BACKEND_URL__),
+  120_000,
+);
 
 import {
   checkWorkerAdmission,

@@ -659,6 +659,8 @@ fun main() =
         check(unsignedHost.isRegistered())
         unsignedHost.end()
         println("Kotlin scenario 11: local signer and signature request passed")
+        metadataFields(options)
+        println("Kotlin metadata fields and profiles passed")
 
         // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
         val preAuthCalls = java.util.Collections.synchronizedList(mutableListOf<String>())
