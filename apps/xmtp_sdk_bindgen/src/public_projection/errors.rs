@@ -23,7 +23,23 @@ pub(super) fn is_details_error(value: &EnumMetadata) -> bool {
         })
 }
 
-pub(super) fn error_class(code: &mut String, value: &EnumMetadata) -> Result<()> {
+pub(super) fn error_class(code: &mut String, value: &EnumMetadata, target: Target) -> Result<()> {
+    let name = &value.name;
+    if target == Target::Browser {
+        // The browser package has one error class: the pure module defines it,
+        // so `instanceof` holds for errors from the worker and from the pure
+        // module alike.
+        writeln!(
+            code,
+            "import {{ {name} }} from \"../typescript-pure/public-values.gen.js\";\nexport {{ {name} }};"
+        )?;
+    } else {
+        class(code, value)?;
+    }
+    conversions(code, value)
+}
+
+fn class(code: &mut String, value: &EnumMetadata) -> Result<()> {
     let name = &value.name;
     writeln!(
         code,
@@ -47,6 +63,11 @@ pub(super) fn error_class(code: &mut String, value: &EnumMetadata) -> Result<()>
             v = variant.name
         )?;
     }
+    Ok(())
+}
+
+fn conversions(code: &mut String, value: &EnumMetadata) -> Result<()> {
+    let name = &value.name;
     // Lift: one subclass per binding variant.
     writeln!(
         code,
@@ -119,7 +140,7 @@ pub(super) fn bridge_error(code: &mut String, value: &EnumMetadata) -> Result<()
 /// unchanged.
 pub(super) fn public_error(target: Target) -> &'static str {
     match target {
-        Target::Node => {
+        Target::Node | Target::Pure => {
             r#"
 /** The public form of a thrown value. A binding error becomes an `XmtpError`. */
 export function publicError(error: unknown): unknown {

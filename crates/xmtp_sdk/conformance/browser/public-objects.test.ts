@@ -114,30 +114,66 @@ describe("public objects", () => {
     expect(lowered.tag).toBe(B.Conversation_Tags.Dm);
   });
 
-  it("routes one membership parameter to the inbox or identity form", async () => {
-    const calls: unknown[] = [];
-    const rawGroup = binding<B.GroupLike>({});
+  it("routes one membership parameter to the inbox or identity method", async () => {
+    // The binding has separate inbox and identity methods; the projection
+    // chooses one, so it does not depend on a binding union.
+    const calls: [string, unknown][] = [];
+    const membership = { added: [], removed: [], failedInstallationIds: [] };
+    const rawGroup = binding<B.GroupLike>({
+      async addMembers(members: unknown) {
+        calls.push(["addMembers", members]);
+        return membership;
+      },
+      async addMembersByIdentity(members: unknown) {
+        calls.push(["addMembersByIdentity", members]);
+        return membership;
+      },
+    });
     const conversations = P.wrapConversations(
       binding<B.ConversationsLike>({
         async createGroup(members: unknown) {
-          calls.push(members);
+          calls.push(["createGroup", members]);
           return rawGroup;
+        },
+        async createGroupWithIdentities(members: unknown) {
+          calls.push(["createGroupWithIdentities", members]);
+          return rawGroup;
+        },
+        async createDm(peer: unknown) {
+          calls.push(["createDm", peer]);
+          return binding<B.DmLike>({});
+        },
+        async createDmWithIdentity(peer: unknown) {
+          calls.push(["createDmWithIdentity", peer]);
+          return binding<B.DmLike>({});
         },
       }),
     );
+    const lowered = { kind: B.PublicIdentityKind.Ethereum, identifier: "0xabc" };
     await conversations.createGroup([]);
     await conversations.createGroup(["inbox-a", "inbox-b"]);
-    await conversations.createGroup([identity]);
+    const group = await conversations.createGroup([identity]);
+    await conversations.createDm("inbox-a");
+    await conversations.createDm(identity);
+    await group.addMembers(["inbox-a"]);
+    await group.addMembers([identity]);
     expect(calls).toEqual([
-      [],
-      ["inbox-a", "inbox-b"],
-      [{ kind: B.PublicIdentityKind.Ethereum, identifier: "0xabc" }],
+      ["createGroup", []],
+      ["createGroup", ["inbox-a", "inbox-b"]],
+      ["createGroupWithIdentities", [lowered]],
+      ["createDm", "inbox-a"],
+      ["createDmWithIdentity", lowered],
+      ["addMembers", ["inbox-a"]],
+      ["addMembersByIdentity", [lowered]],
     ]);
     const mixed = ["inbox-a", identity] as unknown as P.PublicIdentity[];
     await expect(conversations.createGroup(mixed)).rejects.toBeInstanceOf(
       P.XmtpError.InvalidArgument,
     );
-    expect(calls).toHaveLength(3);
+    expect(calls).toHaveLength(7);
+    // The identity methods are not public.
+    expect("createGroupWithIdentities" in conversations).toBe(false);
+    expect("addMembersByIdentity" in group).toBe(false);
   });
 
   it("returns null, not undefined, for an unknown DM peer or creator", async () => {
@@ -158,6 +194,30 @@ describe("public objects", () => {
     expect(await dm.peerInboxId()).toBeNull();
     expect(dm.creatorInboxId).toBeNull();
     expect(dm.addedByInboxId).toBe("adder");
+    const group = P.wrapGroup(
+      binding<B.GroupLike>({
+        creatorInboxId() {
+          return undefined;
+        },
+        addedByInboxId() {
+          return undefined;
+        },
+      }),
+    );
+    expect(group.creatorInboxId).toBeNull();
+    expect(group.addedByInboxId).toBeNull();
+    const knownDm = P.wrapDm(
+      binding<B.DmLike>({
+        creatorInboxId() {
+          return "creator";
+        },
+        addedByInboxId() {
+          return undefined;
+        },
+      }),
+    );
+    expect(knownDm.creatorInboxId).toBe("creator");
+    expect(knownDm.addedByInboxId).toBeNull();
   });
 
   it("exposes synchronous, argument-free members as readonly getters", () => {

@@ -8,11 +8,7 @@ import {
   registerClient,
 } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen";
 import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
-import {
-  currentProjection,
-  liftEncodedContent,
-} from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
@@ -155,7 +151,7 @@ export async function checkStandardMessages(backendURL: string): Promise<void> {
     step = "send deflate reply";
     const replyId = await client.conversations.replyToMessage(
       textId,
-      liftEncodedContent(Pure.encodeText("deflate reply"), currentProjection()),
+      Pure.encodeText("deflate reply"),
       { optimistic: false, compression: "deflate" },
     );
     step = "send legacy reaction";

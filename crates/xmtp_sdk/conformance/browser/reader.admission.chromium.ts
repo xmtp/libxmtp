@@ -13,7 +13,7 @@ import {
 import {
   Message,
   MessageStream,
-} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/binding";
 // Transport tests use the worker proxy Client with their own session.
 import { Client } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/proxy.gen";
 import { MainSession } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/main/session";
@@ -23,7 +23,7 @@ import type {
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/wire";
 import type { StreamCloseReason } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/streams/reader";
 import * as B from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/xmtp_sdk";
-import { encodeText } from "../../../../target/sdk-generated/typescript-pure/index";
+import { encodeText } from "../../../../target/sdk-generated/typescript-pure/binding";
 
 function latch() {
   let resolve!: () => void;
@@ -189,17 +189,20 @@ export async function checkWorkerAdmission(
         if (conversation?.tag !== B.Conversation_Tags.Dm)
           throw new Error("DM missing");
         const restored = conversation.inner.dm;
-        expect(await restored.peerInboxId()).toBe(null);
+        // The binding reports an absent peer as undefined; the public layer
+        // returns null.
+        expect(await restored.peerInboxId()).toBeUndefined();
         const listed = await c
           .conversations()
           .listDms(
             B.ListConversationsOptions.create({ includeDuplicateDms: true }),
           );
         expect(listed).toHaveLength(2);
-        for (const item of listed) expect(await item.peerInboxId()).toBe(null);
+        for (const item of listed)
+          expect(await item.peerInboxId()).toBeUndefined();
         const duplicates = await restored.duplicateDms();
         expect(duplicates).toHaveLength(1);
-        expect(await duplicates[0].peerInboxId()).toBe(null);
+        expect(await duplicates[0].peerInboxId()).toBeUndefined();
         const cursor = (await restored.messages(undefined)).find(
           (message) => message.id === id,
         )!.deliveryCursor;

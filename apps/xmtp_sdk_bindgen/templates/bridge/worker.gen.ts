@@ -1,6 +1,6 @@
 import { CONTRACT_HASH, PROTOCOL_VERSION } from "./contract.gen.js";
 import { dispatchGenerated } from "./dispatch.gen.js";
-import { uniffiInitAsync } from "./index.js";
+import { uniffiInitAsync } from "./binding.js";
 import type { WireMessage } from "./runtime/bridge/wire.js";
 import { browserPoolLocks, WorkerHost } from "./runtime/bridge/worker/host.js";
 import * as B from "./xmtp_sdk.js";

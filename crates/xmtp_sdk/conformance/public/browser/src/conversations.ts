@@ -16,24 +16,24 @@ export async function consumeIdentity(
   group: Group,
   dm: Dm,
 ): Promise<void> {
-  const conversations = client.conversations();
+  const conversations = client.conversations;
   // Each member argument is a union of inbox IDs and account identities.
-  const inbox = client.inboxId();
-  await conversations.createGroup([inbox], undefined);
-  await conversations.createGroup([identity], undefined);
-  await conversations.createGroup([], undefined);
-  await conversations.createDm(inbox, undefined);
-  await conversations.createDm(identity, undefined);
+  const inbox = client.inboxId;
+  await conversations.createGroup([inbox]);
+  await conversations.createGroup([identity]);
+  await conversations.createGroup([]);
+  await conversations.createDm(inbox);
+  await conversations.createDm(identity);
   await group.addMembers([inbox]);
   await group.addMembers([identity]);
   await group.removeMembers([inbox]);
   await group.removeMembers([identity]);
   const peer: string | null = await dm.peerInboxId();
-  const groupCreator: string | null = group.creatorInboxId();
-  const groupAdder: string | null = group.addedByInboxId();
-  const dmCreator: string | null = dm.creatorInboxId();
-  const dmAdder: string | null = dm.addedByInboxId();
-  const isCreator: boolean = group.isCreator();
+  const groupCreator: string | null = group.creatorInboxId;
+  const groupAdder: string | null = group.addedByInboxId;
+  const dmCreator: string | null = dm.creatorInboxId;
+  const dmAdder: string | null = dm.addedByInboxId;
+  const isCreator: boolean = group.isCreator;
   void [peer, groupCreator, groupAdder, dmCreator, dmAdder, isCreator];
 }
 

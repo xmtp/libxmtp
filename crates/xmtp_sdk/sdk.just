@@ -68,8 +68,10 @@ conformance-bridge-unit *args: wasm-init
 public-consumer:
     bash "{{ root }}/crates/xmtp_sdk/dev/public-consumer"
 
+# Run `just sdk generate` first: the root check reads the generated roots.
 manifest-check:
     cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
+    cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-manifest-roots.py
 
 bench:
     {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/bench"

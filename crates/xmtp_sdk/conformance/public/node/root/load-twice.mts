@@ -1,5 +1,5 @@
-// Runs in the installed consumer against the package's private public entry,
-// through ESM import and through CommonJS require.
+// Runs in the installed consumer against the package root, through ESM import
+// and through CommonJS require.
 //
 // Checked: each load exports exactly the public names, which are the object
 // and error classes and public functions of the generated values file and the
@@ -18,14 +18,14 @@ import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import * as imported from "xmtp-sdk/public";
+import * as imported from "xmtp-sdk";
 
 const require = createRequire(import.meta.url);
 const packageRoot = dirname(
-  fileURLToPath(import.meta.resolve("xmtp-sdk/public")),
+  fileURLToPath(import.meta.resolve("xmtp-sdk")),
 );
 
-// Conversion and wiring helpers that the entry must not export.
+// Conversion and wiring helpers that the root must not export.
 const INTERNAL = new Set([
   "currentProjection",
   "installProjection",
@@ -69,7 +69,7 @@ const expected = new Set([
   "Timestamp",
 ]);
 assert.ok(expected.has("Preferences") && expected.has("Client"));
-const required: typeof imported = require("xmtp-sdk/public");
+const required: typeof imported = require("xmtp-sdk");
 for (const [load, sdk] of [
   ["import", imported],
   ["require", required],
@@ -77,7 +77,7 @@ for (const [load, sdk] of [
   assert.deepEqual(
     Object.keys(sdk).sort(),
     [...expected].sort(),
-    `the public entry (${load}) does not export exactly the public names`,
+    `the package root (${load}) does not export exactly the public names`,
   );
   // A public error narrows with the classes of the load that made it.
   try {
@@ -90,5 +90,5 @@ for (const [load, sdk] of [
 }
 const shared = required.Client === imported.Client;
 console.log(
-  `Node private entry: ${expected.size} public names through import and require; one module: ${shared}`,
+  `Node package root: ${expected.size} public names through import and require; one module: ${shared}`,
 );

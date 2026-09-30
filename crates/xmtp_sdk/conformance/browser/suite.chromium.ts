@@ -6,11 +6,7 @@ import { Message as HostMessage } from "../../../../target/sdk-generated/typescr
 // session's worker proxy; `Client` here is the proxy, only for the stale-handle
 // check at the end.
 import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
-import {
-  currentProjection,
-  liftEncodedContent,
-} from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { boundMessage } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/message";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 import {
@@ -28,7 +24,7 @@ import {
 
 // Text encoded on the main thread by the pure module, as a public value.
 function text(value: string): sdk.EncodedContent {
-  return liftEncodedContent(Pure.encodeText(value), currentProjection());
+  return Pure.encodeText(value);
 }
 
 export async function runBrowserBridgeConformance(
@@ -43,8 +39,8 @@ export async function runBrowserBridgeConformance(
     expect(Pure.sdkVersion().startsWith("1.12.0"), "wrong SDK version");
     const pureText = Pure.encodeText("pure browser value");
     equal(
-      Pure.decodeStandard(pureText).tag,
-      Pure.StandardContent_Tags.Text,
+      Pure.decodeStandard(pureText).kind,
+      "text",
       "main-thread pure WASM did not decode text",
     );
     await session.ready();

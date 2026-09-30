@@ -10,7 +10,7 @@ import {
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen.ts";
 import { dispatchGenerated } from "../../../../target/sdk-generated/typescript-wasm/dispatch.gen.ts";
-import { uniffiInitAsync } from "../../../../target/sdk-generated/typescript-wasm/index.ts";
+import { uniffiInitAsync } from "../../../../target/sdk-generated/typescript-wasm/binding.ts";
 import {
   enumFactory,
   type Shape,

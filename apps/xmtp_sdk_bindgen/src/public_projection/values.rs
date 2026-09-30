@@ -3,7 +3,7 @@ use std::fmt::Write as _;
 use anyhow::Result;
 use uniffi_meta::{EnumMetadata, RecordMetadata, Type};
 
-use super::{camel, convert, public_type};
+use super::{camel, convert, policy::cursor_type, public_type};
 
 pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
     let name = &record.name;
@@ -20,7 +20,7 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
             code,
             "readonly {}{optional}: {};",
             camel(&field.name),
-            public_type(&field.ty)
+            cursor_type(name, &camel(&field.name), public_type(&field.ty))
         )?;
     }
     code.push_str("};\n");

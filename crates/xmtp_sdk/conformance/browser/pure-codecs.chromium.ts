@@ -1,110 +1,121 @@
+// The public pure module in real Chromium: each standalone codec encodes the
+// conformance sample to the same bytes as Rust, over public values, and ID and
+// input failures throw the public XmtpError.
 import * as sdk from "../../../../target/sdk-pure-conformance/typescript-pure/index";
+
+type Kind = sdk.StandardContent["kind"];
+
+// The codec value of a sample: the variant's value, or the whole variant for
+// the codecs that encode a standard content variant.
+function codecValue(content: sdk.StandardContent): unknown {
+  switch (content.kind) {
+    case "readReceipt":
+      return undefined;
+    case "reaction":
+    case "reply":
+    case "deleteMessage":
+      return content;
+    default:
+      return content.value;
+  }
+}
 
 export async function checkPureCodecs(): Promise<number> {
   const loading = sdk.initPureWasm();
   if (loading !== sdk.initPureWasm()) throw new Error("pure WASM loaded twice");
   await loading;
-  const codecs = new Map([
-    [sdk.StandardContent_Tags.Text, new sdk.TextCodec()],
-    [sdk.StandardContent_Tags.Markdown, new sdk.MarkdownCodec()],
-    [sdk.StandardContent_Tags.ReadReceipt, new sdk.ReadReceiptCodec()],
-    [sdk.StandardContent_Tags.Reaction, new sdk.ReactionV2Codec()],
-    [sdk.StandardContent_Tags.Attachment, new sdk.AttachmentCodec()],
-    [
-      sdk.StandardContent_Tags.RemoteAttachment,
-      new sdk.RemoteAttachmentCodec(),
-    ],
-    [
-      sdk.StandardContent_Tags.MultiRemoteAttachment,
-      new sdk.MultiRemoteAttachmentCodec(),
-    ],
-    [
-      sdk.StandardContent_Tags.TransactionReference,
-      new sdk.TransactionReferenceCodec(),
-    ],
-    [sdk.StandardContent_Tags.WalletSendCalls, new sdk.WalletSendCallsCodec()],
-    [sdk.StandardContent_Tags.Actions, new sdk.ActionsCodec()],
-    [sdk.StandardContent_Tags.Intent, new sdk.IntentCodec()],
-    [sdk.StandardContent_Tags.Reply, new sdk.ReplyCodec()],
-    [sdk.StandardContent_Tags.GroupUpdated, new sdk.GroupUpdatedCodec()],
-    [sdk.StandardContent_Tags.DeleteMessage, new sdk.DeleteMessageCodec()],
-    [sdk.StandardContent_Tags.LeaveRequest, new sdk.LeaveRequestCodec()],
+  const codecs = new Map<Kind, sdk.ContentCodec<never>>([
+    ["text", new sdk.TextCodec()],
+    ["markdown", new sdk.MarkdownCodec()],
+    ["readReceipt", new sdk.ReadReceiptCodec()],
+    ["reaction", new sdk.ReactionV2Codec()],
+    ["attachment", new sdk.AttachmentCodec()],
+    ["remoteAttachment", new sdk.RemoteAttachmentCodec()],
+    ["multiRemoteAttachment", new sdk.MultiRemoteAttachmentCodec()],
+    ["transactionReference", new sdk.TransactionReferenceCodec()],
+    ["walletSendCalls", new sdk.WalletSendCallsCodec()],
+    ["actions", new sdk.ActionsCodec()],
+    ["intent", new sdk.IntentCodec()],
+    ["reply", new sdk.ReplyCodec()],
+    ["groupUpdated", new sdk.GroupUpdatedCodec()],
+    ["deleteMessage", new sdk.DeleteMessageCodec()],
+    ["leaveRequest", new sdk.LeaveRequestCodec()],
   ]);
   const samples = sdk.sdkConformanceStandardSamples();
   if (samples.length !== 15)
     throw new Error(`expected 15 samples, got ${samples.length}`);
   for (const sample of samples) {
-    const codec = codecs.get(sample.value.tag);
-    if (!codec) throw new Error(`missing codec ${sample.value.tag}`);
-    const value =
-      sample.value.tag === sdk.StandardContent_Tags.ReadReceipt
-        ? undefined
-        : sample.value.tag === sdk.StandardContent_Tags.Reaction ||
-            sample.value.tag === sdk.StandardContent_Tags.Reply ||
-            sample.value.tag === sdk.StandardContent_Tags.DeleteMessage
-          ? sample.value
-          : sample.value.inner[0];
+    const kind = sample.value.kind;
+    const codec = codecs.get(kind);
+    if (!codec) throw new Error(`missing codec ${kind}`);
+    const value = codecValue(sample.value);
     const encoded = codec.encode(value as never);
+    if (!(encoded.content instanceof Uint8Array))
+      throw new Error(`codec bytes are not a Uint8Array for ${kind}`);
     const roundTrip = codec.encode(codec.decode(encoded) as never);
-    const expected = Array.from(new Uint8Array(sample.expected.content));
+    const expected = JSON.stringify(Array.from(sample.expected.content));
     if (
-      JSON.stringify(Array.from(new Uint8Array(encoded.content))) !==
-        JSON.stringify(expected) ||
-      JSON.stringify(Array.from(new Uint8Array(roundTrip.content))) !==
-        JSON.stringify(expected)
+      JSON.stringify(Array.from(encoded.content)) !== expected ||
+      JSON.stringify(Array.from(roundTrip.content)) !== expected
     ) {
-      throw new Error(`codec bytes differ for ${sample.value.tag}`);
+      throw new Error(`codec bytes differ for ${kind}`);
     }
-    const parameters = (value: Map<string, string>): string =>
+    const parameters = (value: ReadonlyMap<string, string>): string =>
       JSON.stringify(
         [...value].sort(([left], [right]) => left.localeCompare(right)),
       );
     if (
       parameters(encoded.parameters) !== parameters(sample.expected.parameters)
     ) {
-      throw new Error(`codec parameters differ for ${sample.value.tag}`);
+      throw new Error(`codec parameters differ for ${kind}`);
     }
     if (
       encoded.type.typeId !== sample.expected.type.typeId ||
       encoded.fallback !== sample.expected.fallback
     ) {
-      throw new Error(`codec metadata differs for ${sample.value.tag}`);
+      throw new Error(`codec metadata differs for ${kind}`);
     }
   }
 
-  const invalidArgument = (label: string, encode: () => unknown): void => {
+  const failsWith = (
+    label: string,
+    type: typeof sdk.XmtpError.InvalidArgument | typeof sdk.XmtpError.InvalidInput,
+    code: "InvalidArgument" | "InvalidInput",
+    encode: () => unknown,
+  ): void => {
     try {
       encode();
     } catch (error) {
       if (
-        error instanceof Error &&
-        sdk.XmtpError.InvalidArgument.instanceOf(error) &&
-        error.inner[0].code === "InvalidArgument" &&
-        error.inner[0].category === sdk.ErrorCategory.Input &&
-        error.inner[0].retryable === false
+        error instanceof type &&
+        !("tag" in error) &&
+        error.details.code === code &&
+        error.details.category === "input" &&
+        error.details.retryable === false
       ) {
         return;
       }
       throw new Error(
-        `${label} did not return typed InvalidArgument: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
+        `${label} did not throw the public ${code}: ${error instanceof Error ? `${error.name}: ${error.message}` : String(error)}`,
         { cause: error },
       );
     }
-    throw new Error(`${label} accepted a malformed ID`);
+    throw new Error(`${label} accepted malformed input`);
   };
-  const sample = (tag: sdk.StandardContent_Tags): sdk.StandardContent => {
-    const value = samples.find((item) => item.value.tag === tag)?.value;
-    if (!value) throw new Error(`missing ${tag} sample`);
-    return value;
+  const invalidArgument = (label: string, encode: () => unknown): void =>
+    failsWith(label, sdk.XmtpError.InvalidArgument, "InvalidArgument", encode);
+  const sample = <K extends Kind>(
+    kind: K,
+  ): Extract<sdk.StandardContent, { kind: K }> => {
+    const value = samples.find((item) => item.value.kind === kind)?.value;
+    if (value?.kind !== kind) throw new Error(`missing ${kind} sample`);
+    return value as Extract<sdk.StandardContent, { kind: K }>;
   };
 
-  const deleted = sample(sdk.StandardContent_Tags.DeleteMessage);
-  if (deleted.tag !== sdk.StandardContent_Tags.DeleteMessage)
-    throw new Error("wrong delete sample");
-  const badDelete = sdk.StandardContent.DeleteMessage.new({
-    ...deleted.inner,
+  const badDelete: sdk.StandardContent = {
+    ...sample("deleteMessage"),
     messageId: "bad",
-  });
+  };
   invalidArgument("encodeStandard delete ID", () =>
     sdk.encodeStandard(badDelete),
   );
@@ -112,34 +123,23 @@ export async function checkPureCodecs(): Promise<number> {
     new sdk.DeleteMessageCodec().encode(badDelete),
   );
 
-  const reaction = sample(sdk.StandardContent_Tags.Reaction);
-  if (reaction.tag !== sdk.StandardContent_Tags.Reaction)
-    throw new Error("wrong reaction sample");
+  const reaction = sample("reaction");
   for (const [label, value] of [
-    ["reaction reference", { ...reaction.inner, reference: "bad" }],
-    ["reaction inbox", { ...reaction.inner, referenceInboxId: "" }],
+    ["reaction reference", { ...reaction, reference: "bad" }],
+    ["reaction inbox", { ...reaction, referenceInboxId: "" }],
   ] as const) {
-    invalidArgument(label, () =>
-      new sdk.ReactionV2Codec().encode(sdk.StandardContent.Reaction.new(value)),
-    );
+    invalidArgument(label, () => new sdk.ReactionV2Codec().encode(value));
   }
 
-  const reply = sample(sdk.StandardContent_Tags.Reply);
-  if (reply.tag !== sdk.StandardContent_Tags.Reply)
-    throw new Error("wrong reply sample");
+  const reply = sample("reply");
   for (const [label, value] of [
-    ["reply reference", { ...reply.inner, reference: "bad" }],
-    ["reply inbox", { ...reply.inner, referenceInboxId: "" }],
+    ["reply reference", { ...reply, reference: "bad" }],
+    ["reply inbox", { ...reply, referenceInboxId: "" }],
   ] as const) {
-    invalidArgument(label, () =>
-      new sdk.ReplyCodec().encode(sdk.StandardContent.Reply.new(value)),
-    );
+    invalidArgument(label, () => new sdk.ReplyCodec().encode(value));
   }
 
-  const group = sample(sdk.StandardContent_Tags.GroupUpdated);
-  if (group.tag !== sdk.StandardContent_Tags.GroupUpdated)
-    throw new Error("wrong group update sample");
-  const groupValue = group.inner[0];
+  const groupValue = sample("groupUpdated").value;
   invalidArgument("group initiator", () =>
     new sdk.GroupUpdatedCodec().encode({
       ...groupValue,
@@ -162,25 +162,11 @@ export async function checkPureCodecs(): Promise<number> {
       }),
     );
   }
-  try {
-    sdk.encodeStandard(
-      sdk.StandardContent.Intent.new({
-        id: "intent",
-        actionId: "action",
-        metadataJson: "{bad json",
-      }),
-    );
-    throw new Error("invalid metadata JSON was accepted");
-  } catch (error) {
-    if (
-      !(error instanceof Error) ||
-      !sdk.XmtpError.InvalidInput.instanceOf(error) ||
-      error.inner[0].code !== "InvalidInput" ||
-      error.inner[0].category !== sdk.ErrorCategory.Input ||
-      error.inner[0].retryable !== false
-    ) {
-      throw new Error("non-ID codec error changed", { cause: error });
-    }
-  }
+  failsWith("intent metadata JSON", sdk.XmtpError.InvalidInput, "InvalidInput", () =>
+    sdk.encodeStandard({
+      kind: "intent",
+      value: { id: "intent", actionId: "action", metadataJson: "{bad json" },
+    }),
+  );
   return samples.length;
 }

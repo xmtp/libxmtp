@@ -1,16 +1,14 @@
 import { expect, it } from "vitest";
 
 import { Group } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
-import {
-  PublicIdentityKind,
-  XmtpError,
-} from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
+import { PublicIdentityKind } from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
 import { host } from "./bridge-support";
 
 export function registerIdentityTests(): void {
-  // Each membership union calls the inbox or identity route in the worker. A
-  // mixed list fails with InvalidArgument before any call.
-  it("routes membership unions and rejects a mixed list before a call", async () => {
+  // Each membership method calls its own route in the worker.
+  it("forwards the inbox and identity membership methods by name", async () => {
+    // The worker proxy has no membership union: the public layer chooses the
+    // inbox or identity method and rejects a mixed list before any call.
     const keys: string[] = [];
     const { engine, session } = host(async (key) => {
       keys.push(key);
@@ -22,7 +20,7 @@ export function registerIdentityTests(): void {
       identifier: "0x0000000000000000000000000000000000000001",
       kind: PublicIdentityKind.Ethereum,
     };
-    await group.removeMembers([identity]);
+    await group.removeMembersByIdentity([identity]);
     await group.removeMembers(["inbox"]);
     await group.removeMembers([]);
     expect(keys).toEqual([
@@ -30,9 +28,5 @@ export function registerIdentityTests(): void {
       "Group.removeMembers",
       "Group.removeMembers",
     ]);
-    const mixed = ["inbox", identity] as unknown as string[];
-    const error: unknown = await group.removeMembers(mixed).catch((e) => e);
-    expect(XmtpError.InvalidArgument.instanceOf(error)).toBe(true);
-    expect(keys).toHaveLength(3);
   });
 }

@@ -4,7 +4,11 @@ Run commands from the repository root in the Nix shell. Run
 `just backend status` to find this worktree's backend ports.
 
 - `just sdk generate` builds the SDK libraries and writes Swift, Kotlin, Node,
-  worker WASM, and pure browser WASM bindings to `target/sdk-generated/`.
+  worker WASM, and pure browser WASM bindings to `target/sdk-generated/`. In
+  each TypeScript tree, `index.ts` is the package root: the public layer that
+  the projection generates. The stock UniFFI root is the private `binding.ts`.
+  The Node public layer imports it to load the native binding; otherwise only
+  the worker, the benchmark, and transport tests import it.
 - `just sdk check-file-sizes` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
@@ -54,14 +58,20 @@ Run commands from the repository root in the Nix shell. Run
   compiles separate consumers in `conformance/public/`: a SwiftPM package, an
   Android library that uses a real `Context`, and TypeScript projects that
   install the Node and browser packages in `node_modules`. The consumers call
-  the retained host Client surface, the identity methods, received identity,
-  and Message actions. Negative probes check that the binding Client, its
-  factories, the generated identity routes, the browser worker session, and
-  private package paths stay private. Before it compiles them,
+  the retained public Client surface, the identity unions, received identity,
+  and Message actions on the package roots. Negative probes check that the
+  binding Client, its factories, the generated identity routes, the browser
+  worker session, and private package paths stay private. The Node root must
+  export exactly the public names through both `import` and `require`. Before it compiles them,
   `dev/check-public-members.py` checks that every retained Client member in
   `docs/self-hosted/sdk-api-manifest.md` is public in each installed product,
   in the static or instance placement that the manifest names.
   Run `just sdk generate` first.
+- `just sdk manifest-check` compares `docs/self-hosted/sdk-api-manifest.md`
+  with the old SDK sources, then checks that each Node and browser binding
+  re-export row names a real export of the generated package roots. A rename
+  names the new export; a removal names its replacement. Run
+  `just sdk generate` first.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

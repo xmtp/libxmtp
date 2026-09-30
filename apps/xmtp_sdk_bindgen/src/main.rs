@@ -2,12 +2,9 @@ mod bridge;
 mod callback_cursor;
 mod format;
 mod forwarding;
-mod identity_unions;
 mod kotlin_callbacks;
 mod kotlin_records;
-mod nullable_identity;
 mod public_projection;
-mod reader_defaults;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -210,11 +207,6 @@ fn generate(
                     callback_cursor::rewrite(&fs::read_to_string(&binding)?)?,
                 )?;
             }
-            if !pure_only {
-                let source = nullable_identity::rewrite(&fs::read_to_string(&binding)?)?;
-                let source = identity_unions::rewrite(&source)?;
-                fs::write(&binding, reader_defaults::rewrite(&source)?)?;
-            }
             if is_wasm && !pure_only {
                 let mut body = fs::read_to_string(&binding)?;
                 body.push_str("\nexport { Message, Timestamp } from './runtime';\n");
@@ -236,11 +228,17 @@ fn generate(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );
             }
+            // The benchmark loads the private Node binding root with a
+            // CommonJS loader, which drops a star re-export, so the root names
+            // each binding export.
             if matches!(language, Language::TypescriptNapi) {
                 let exports = public_node_exports(&fs::read_to_string(&binding)?, &source);
                 source = source.replace("export * from './xmtp_sdk';", &exports);
             }
-            fs::write(index, source)?;
+            // The stock root loads and exports the binding. It stays private as
+            // `binding.ts`; the public projection writes the package root.
+            fs::write(out.join("binding.ts"), source)?;
+            fs::remove_file(index)?;
             if is_wasm && !pure_only {
                 bridge::generate(lib, out)?;
             }
@@ -278,6 +276,12 @@ fn generate(
             fs::copy(runtime.join(name), pure_runtime.join(name))?;
         }
         fs::copy(runtime.join("pure-index.ts"), pure_runtime.join("index.ts"))?;
+        // The public codecs wrap the pure codecs over public values.
+        let pure_public = pure_runtime.join("public");
+        fs::create_dir_all(&pure_public)?;
+        for name in ["codecs.ts", "codec.ts"] {
+            fs::copy(runtime.join("public").join(name), pure_public.join(name))?;
+        }
     } else {
         copy_tree(runtime.as_std_path(), out.join("runtime").as_std_path())?;
         if matches!(language, Language::Kotlin) {
@@ -297,6 +301,11 @@ fn generate(
             fs::copy(
                 runtime.join("worker-message.ts"),
                 out.join("runtime/message.ts"),
+            )?;
+            // The browser package has one Timestamp class: its pure module's.
+            fs::write(
+                out.join("runtime/ids.ts"),
+                "// The browser package shares one Timestamp class with its pure module.\nexport { Timestamp } from \"../../typescript-pure/runtime/ids.js\";\n",
             )?;
         }
     }
@@ -323,6 +332,9 @@ fn generate(
             public_projection::Target::Browser
         };
         public_projection::generate(&metadata, out, target)?;
+    }
+    if pure_only {
+        public_projection::generate(&metadata, out, public_projection::Target::Pure)?;
     }
     if matches!(language, Language::Swift | Language::Kotlin) {
         forwarding::generate(&metadata, language, out)?;

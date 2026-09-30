@@ -4,11 +4,7 @@ import {
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import { Message as HostMessage } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
-import {
-  currentProjection,
-  liftEncodedContent,
-} from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
@@ -67,7 +63,7 @@ export async function checkDeletedMessages(backendURL: string): Promise<void> {
     step = "send reply";
     const replyId = await client.conversations.replyToMessage(
       textId,
-      liftEncodedContent(Pure.encodeText("reply"), currentProjection()),
+      Pure.encodeText("reply"),
     );
     step = "delete text";
     await client.conversations.deleteMessage(textId);

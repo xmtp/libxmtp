@@ -4,8 +4,7 @@ import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_
 import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js";
 // @ts-ignore The browser fixture uses the published JavaScript build of viem.
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
-import { Client } from "../../../../target/sdk-generated/typescript-wasm/index";
-import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 
 function check(condition: boolean, message: string): void {
   if (!condition) throw new Error(message);
@@ -15,65 +14,48 @@ function check(condition: boolean, message: string): void {
 // handle. A Message returns that same public Client.
 export async function exercise(): Promise<void> {
   const account = privateKeyToAccount(generatePrivateKey());
-  const identity = {
+  const identity: sdk.PublicIdentity = {
     identifier: account.address.toLowerCase(),
-    kind: B.PublicIdentityKind.Ethereum,
+    kind: "ethereum",
   };
-  const backend = B.BackendSource.Options.new({
-    options: {
-      url: `${location.origin}/backend`,
-      appVersion: undefined,
-      credential: undefined,
-      credentials: undefined,
-    },
-  });
-  const signer = (beforeSign?: () => Promise<void>) => ({
+  const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
+  const signer = (beforeSign?: () => Promise<void>): sdk.Signer => ({
     async identity() {
       return identity;
     },
     async kind() {
-      return B.SignerKind.Eoa.new();
+      return { kind: "eoa" };
     },
-    async sign(request: { text: string }) {
+    async sign(request) {
       await beforeSign?.();
       const signed = await account.signMessage({ message: request.text });
-      return B.Signature.Ecdsa.new(Uint8Array.from(toBytes(signed)).buffer);
+      return { kind: "ecdsa", value: Uint8Array.from(toBytes(signed)) };
     },
   });
-  const options = {
+  const options: sdk.ClientOptions = {
     backend,
-    storage: {
-      location: B.StorageLocation.InMemory.new(),
-      label: undefined,
-      pool: undefined,
-      singleConnection: false,
-    },
+    storage: { location: "inMemory" },
     deviceSync: false,
-    registration: { auto: true, nonce: undefined },
-    forkRecovery: undefined,
-    workers: undefined,
   };
-  const client = await Client.create(signer(), options);
+  const client = await sdk.Client.create(signer(), options);
   check(await client.isRegistered(), "forwarded isRegistered failed");
   check(
-    (await client.inboxState(false)).inboxId === client.inboxId(),
+    (await client.inboxState(false)).inboxId === client.inboxId,
     "forwarded inboxState returned another inbox",
   );
   await client.catchUpToLive(undefined);
   check(
-    (await Client.inboxIdFor(identity, backend)) === client.inboxId(),
+    (await sdk.Client.inboxIdFor(identity, backend)) === client.inboxId,
     "static inboxIdFor did not run in the package worker",
   );
-  const group = await client.conversations().createGroup([], undefined);
-  const id = await group.sendText("public root", undefined);
-  const message = (await group.messages(undefined)).find(
-    (item) => item.id === id,
-  );
+  const group = await client.conversations.createGroup([]);
+  const id = await group.sendText("public root");
+  const message = (await group.messages()).find((item) => item.id === id);
   check(message !== undefined, "sent message missing");
   check(message!.client() === client, "Message did not return the app Client");
   check((await message!.refresh())?.id === id, "Message action failed");
   // A signer callback that ends its own client does not deadlock the end.
-  const other = await Client.create(signer(), options);
+  const other = await sdk.Client.create(signer(), options);
   let ended: string | undefined;
   const revoke = client
     .revokeInstallations(
@@ -85,7 +67,7 @@ export async function exercise(): Promise<void> {
           ),
         ]);
       }),
-      [other.installationId()],
+      [other.installationId],
     )
     .then(
       () => "revoked",
@@ -105,7 +87,7 @@ export async function exercise(): Promise<void> {
   try {
     message!.client();
   } catch (error) {
-    closed = B.XmtpError.ClientClosed.instanceOf(error);
+    closed = error instanceof sdk.XmtpError.ClientClosed;
   }
   check(closed, "Message kept its Client after end");
 }

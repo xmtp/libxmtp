@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 // Host runtime internals that these checks drive directly: the event start
 // hook and the host EventStream over a fake reader.
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";

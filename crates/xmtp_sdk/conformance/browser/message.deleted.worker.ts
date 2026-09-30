@@ -3,7 +3,7 @@ import {
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import { dispatchGenerated } from "../../../../target/sdk-generated/typescript-wasm/dispatch.gen";
-import { uniffiInitAsync } from "../../../../target/sdk-generated/typescript-wasm/index";
+import { uniffiInitAsync } from "../../../../target/sdk-generated/typescript-wasm/binding";
 import type {
   WireEndpoint,
   WireMessage,
