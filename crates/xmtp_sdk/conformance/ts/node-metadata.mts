@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
 
 // Alix and Bo read one group through different backend catalogues, so a
 // name labels a field for one reader only and the component ID identifies
@@ -12,28 +12,26 @@ const AVATAR = 0xc004;
 const LATER = 0xc005;
 const DISPLAY_NAME = 0x800c;
 
-type Options = Parameters<typeof sdk.Client.create>[1];
-type Policy = InstanceType<
-  (typeof sdk.MetadataBasePolicy)[
-    | "Allow"
-    | "Deny"
-    | "AllowIfAdmin"
-    | "AllowIfSelfOrNonMember"]
->;
+type Policy = sdk.MetadataBasePolicy;
 
-const Base = sdk.MetadataBasePolicy;
-const Type = sdk.MetadataComponentType;
-const nicknameType = new Type.Map({
-  keyType: sdk.MetadataKeyType.InboxId,
-  valueType: sdk.MetadataScalarType.String,
-});
+const allow: Policy = { kind: "allow" };
+const deny: Policy = { kind: "deny" };
+const allowIfAdmin: Policy = { kind: "allowIfAdmin" };
+const allowIfSelfOrNonMember: Policy = { kind: "allowIfSelfOrNonMember" };
+const stringType: sdk.MetadataComponentType = { kind: "string" };
+const bytesType: sdk.MetadataComponentType = { kind: "bytes" };
+const nicknameType: sdk.MetadataComponentType = {
+  kind: "map",
+  keyType: "inboxId",
+  valueType: "string",
+};
 
 function field(componentId: number, name?: string): sdk.MetadataFieldRef {
   return { componentId, name };
 }
 
 function permissions(base: Policy): sdk.ComponentPermissions {
-  const policy = new sdk.MetadataPolicy.Base(base);
+  const policy: sdk.MetadataPolicy = { kind: "base", value: base };
   return { insert: policy, update: policy, delete: policy };
 }
 
@@ -56,43 +54,28 @@ function definition(
 
 // `later` has a type tag no SDK knows, so no conversation registers it.
 const alixCatalogue = [
-  definition(STATUS, "status", new Type.String(), new Base.Allow(), true),
-  definition(
-    NICKNAME,
-    "nickname",
-    nicknameType,
-    new Base.AllowIfSelfOrNonMember(),
-    true,
-  ),
-  definition(TOPIC, "topic", new Type.String(), new Base.AllowIfAdmin(), true),
-  definition(AVATAR, "avatar", new Type.Bytes(), new Base.Allow(), false),
-  definition(
-    LATER,
-    "later",
-    new Type.Unknown({ tag: 99 }),
-    new Base.Allow(),
-    true,
-  ),
+  definition(STATUS, "status", stringType, allow, true),
+  definition(NICKNAME, "nickname", nicknameType, allowIfSelfOrNonMember, true),
+  definition(TOPIC, "topic", stringType, allowIfAdmin, true),
+  definition(AVATAR, "avatar", bytesType, allow, false),
+  definition(LATER, "later", { kind: "unknown", tag: 99 }, allow, true),
 ];
 // Bo's catalogue gives `status` to another field and names STATUS after a
 // well-known field, with a type and policy the group never committed.
 const boCatalogue = [
-  definition(STATUS, "GROUP_NAME", new Type.Bytes(), new Base.Deny(), true),
-  definition(AVATAR, "status", new Type.Bytes(), new Base.Allow(), false),
+  definition(STATUS, "GROUP_NAME", bytesType, deny, true),
+  definition(AVATAR, "status", bytesType, allow, false),
 ];
 
 async function clientWith(
   catalogue: sdk.ApplicationComponentDefinition[],
-  options: Options,
+  options: sdk.ClientOptions,
 ): Promise<sdk.Client> {
   await sdk.sdkConformanceUseApplicationComponents(catalogue);
   try {
     return await sdk.Client.create(await sdk.generateLocalSigner(), {
       ...options,
-      storage: {
-        ...options.storage,
-        location: new sdk.StorageLocation.InMemory(),
-      },
+      storage: { ...options.storage, location: "inMemory" },
     });
   } finally {
     await sdk.sdkConformanceUseApplicationComponents(undefined);
@@ -100,19 +83,23 @@ async function clientWith(
 }
 
 function string(value: string): sdk.FieldValue {
-  return new sdk.FieldValue.String(value);
+  return { kind: "string", value };
 }
 
 function bytes(...values: number[]): sdk.FieldValue {
-  return new sdk.FieldValue.Bytes(Uint8Array.from(values).buffer);
+  return { kind: "bytes", value: Uint8Array.from(values) };
 }
 
 function scalar(value: sdk.FieldValue): sdk.MetadataValue {
-  return new sdk.MetadataValue.Scalar(value);
+  return { kind: "scalar", value };
+}
+
+function replace(value: sdk.FieldValue): sdk.ComponentMutation {
+  return { kind: "replace", value };
 }
 
 function assertKind(error: unknown, code: string, category: sdk.ErrorCategory) {
-  const details = (error as { inner: [sdk.ErrorDetails] }).inner[0];
+  const { details } = error as sdk.XmtpError;
   assert.deepEqual(
     [details.code, details.category, details.retryable],
     [code, category, false],
@@ -120,32 +107,30 @@ function assertKind(error: unknown, code: string, category: sdk.ErrorCategory) {
   return true;
 }
 
-async function epoch(group: sdk.GroupLike): Promise<bigint> {
+async function epoch(group: sdk.Group | sdk.Dm): Promise<bigint> {
   return (await group.debugInfo()).epoch;
 }
 
-export async function metadataFields(options: Options): Promise<void> {
+export async function metadataFields(
+  options: sdk.ClientOptions,
+): Promise<void> {
   const alix = await clientWith(alixCatalogue, options);
   const bo = await clientWith(boCatalogue, options);
   assert.deepEqual(
-    alix.raw.serverConfiguration().applicationComponents,
+    alix.serverConfiguration.applicationComponents,
     alixCatalogue,
   );
-  const group = await alix
-    .conversations()
-    .createGroup([bo.inboxId()], undefined);
-  await bo.conversations().sync();
-  const joined = await bo.conversations().getById(group.id());
-  assert.equal(joined?.tag, sdk.Conversation_Tags.Group);
-  const boGroup = (joined as InstanceType<typeof sdk.Conversation.Group>).inner
-    .group;
+  const group = await alix.conversations.createGroup([bo.inboxId]);
+  await bo.conversations.sync();
+  const boGroup = await bo.conversations.getById(group.id);
+  assert.ok(boGroup instanceof sdk.Group);
 
   // Descriptors: the committed type and policies with each reader's labels.
   const rows: [number, sdk.MetadataComponentType, Policy, boolean][] = [
-    [STATUS, new Type.String(), new Base.Allow(), false],
-    [NICKNAME, nicknameType, new Base.AllowIfSelfOrNonMember(), true],
-    [TOPIC, new Type.String(), new Base.AllowIfAdmin(), false],
-    [AVATAR, new Type.Bytes(), new Base.Allow(), false],
+    [STATUS, stringType, allow, false],
+    [NICKNAME, nicknameType, allowIfSelfOrNonMember, true],
+    [TOPIC, stringType, allowIfAdmin, false],
+    [AVATAR, bytesType, allow, false],
   ];
   const application = (labels: (string | undefined)[]) =>
     rows.map(([id, componentType, base, isUserField], index) => ({
@@ -154,10 +139,8 @@ export async function metadataFields(options: Options): Promise<void> {
       permissions: permissions(base),
       isUserField,
     }));
-  const displayName = sdk.metadataFieldRef(
-    sdk.WellKnownMetadataField.UserDisplayName,
-  );
-  const groupName = sdk.metadataFieldRef(sdk.WellKnownMetadataField.GroupName);
+  const displayName = sdk.metadataFieldRef("userDisplayName");
+  const groupName = sdk.metadataFieldRef("groupName");
   assert.deepEqual(displayName, field(DISPLAY_NAME, "USER_DISPLAY_NAME"));
   const alixFields = await group.metadataFields();
   assert.deepEqual(
@@ -198,19 +181,13 @@ export async function metadataFields(options: Options): Promise<void> {
   assert.equal(await group.metadataField("later"), undefined);
 
   // Values: request order from one snapshot, each with the reader's label.
-  await boGroup.updateMetadataField(
-    field(STATUS),
-    new sdk.ComponentMutation.Replace(string("hello")),
-  );
+  await boGroup.updateMetadataField(field(STATUS), replace(string("hello")));
   await group.sync();
   await group.updateMetadataField(
     field(AVATAR, "avatar"),
-    new sdk.ComponentMutation.Replace(bytes(1, 2, 3)),
+    replace(bytes(1, 2, 3)),
   );
-  await group.updateMetadataField(
-    groupName,
-    new sdk.ComponentMutation.Replace(string("Team")),
-  );
+  await group.updateMetadataField(groupName, replace(string("Team")));
   await boGroup.sync();
   assert.deepEqual(
     await boGroup.metadataValues([
@@ -245,32 +222,29 @@ export async function metadataFields(options: Options): Promise<void> {
   assert.deepEqual(
     await group.userData(undefined, undefined),
     new Map([
-      [alix.inboxId(), []],
-      [bo.inboxId(), boProfile],
+      [alix.inboxId, []],
+      [bo.inboxId, boProfile],
     ]),
   );
   assert.deepEqual(
     await group.userData([], undefined),
     new Map([
-      [alix.inboxId(), []],
-      [bo.inboxId(), []],
+      [alix.inboxId, []],
+      [bo.inboxId, []],
     ]),
   );
   assert.deepEqual(await group.userData(undefined, []), new Map());
   assert.deepEqual(
-    await group.userData([field(NICKNAME)], [bo.inboxId()]),
-    new Map([[bo.inboxId(), boProfile.slice(1)]]),
+    await group.userData([field(NICKNAME)], [bo.inboxId]),
+    new Map([[bo.inboxId, boProfile.slice(1)]]),
   );
 
   // Denials are typed and commit nothing.
   await assert.rejects(
-    boGroup.updateMetadataField(
-      field(TOPIC),
-      new sdk.ComponentMutation.Replace(string("x")),
-    ),
+    boGroup.updateMetadataField(field(TOPIC), replace(string("x"))),
     (error) =>
-      sdk.XmtpError.PermissionDenied.instanceOf(error) &&
-      assertKind(error, "PermissionDenied", sdk.ErrorCategory.Conversation),
+      error instanceof sdk.XmtpError.PermissionDenied &&
+      assertKind(error, "PermissionDenied", "conversation"),
   );
   await assert.rejects(
     boGroup.updateUserData([
@@ -278,14 +252,14 @@ export async function metadataFields(options: Options): Promise<void> {
       { field: displayName, value: undefined },
     ]),
     (error) =>
-      sdk.XmtpError.DuplicateField.instanceOf(error) &&
-      assertKind(error, "DuplicateField", sdk.ErrorCategory.Input),
+      error instanceof sdk.XmtpError.DuplicateField &&
+      assertKind(error, "DuplicateField", "input"),
   );
   assert.equal(await epoch(boGroup), before + 1n);
   assert.equal(await boGroup.metadataValue(field(TOPIC)), undefined);
 
   // A DM holds the pair's profiles and its DM fields, never group-only ones.
-  const dm = await alix.conversations().createDm(bo.inboxId(), undefined);
+  const dm = await alix.conversations.createDm(bo.inboxId);
   const dmIds = (await dm.metadataFields()).map((d) => d.field.componentId);
   assert.ok(dmIds.includes(DISPLAY_NAME) && dmIds.includes(NICKNAME));
   assert.ok(!dmIds.includes(AVATAR));
@@ -293,18 +267,15 @@ export async function metadataFields(options: Options): Promise<void> {
   assert.deepEqual(
     await dm.userData(undefined, undefined),
     new Map([
-      [alix.inboxId(), [{ field: displayName, value: string("Alix") }]],
-      [bo.inboxId(), []],
+      [alix.inboxId, [{ field: displayName, value: string("Alix") }]],
+      [bo.inboxId, []],
     ]),
   );
   await assert.rejects(
-    dm.updateMetadataField(
-      field(AVATAR),
-      new sdk.ComponentMutation.Replace(bytes(1)),
-    ),
+    dm.updateMetadataField(field(AVATAR), replace(bytes(1))),
     (error) =>
-      sdk.XmtpError.UnknownField.instanceOf(error) &&
-      assertKind(error, "UnknownField", sdk.ErrorCategory.Input),
+      error instanceof sdk.XmtpError.UnknownField &&
+      assertKind(error, "UnknownField", "input"),
   );
 
   await alix.end();
