@@ -54,7 +54,10 @@ def main() -> None:
             continue
         cells = [cell.strip() for cell in line.split("|")[1:-1]]
         current, kind, final, status = cells[0], cells[1], cells[2], cells[3]
-        if kind not in CHECKED_KINDS or status == "approved removal":
+        if kind not in CHECKED_KINDS or status in {
+            "approved removal",
+            "proposed removal",
+        }:
             continue
         name = re.sub(r"^func ", "", final.strip("`"))
         if "." in name or "(" in name:

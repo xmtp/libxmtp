@@ -57,6 +57,9 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
         code.push_str(objects::PROJECTION_INSTALL);
     }
     code.push_str(errors::public_error(target));
+    if target != Target::Pure {
+        code.push_str(policy::DELIVERY_CURSOR);
+    }
     for item in &items {
         match item {
             Metadata::Object(value) if value.imp.has_struct() && value.name == "Client" => {

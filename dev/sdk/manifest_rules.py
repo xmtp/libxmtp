@@ -1360,6 +1360,10 @@ BINDING_REEXPORT_RENAMES: dict[str, tuple[str, str]] = {
     "SortDirection": ("MessageOrder", ""),
     "WorkerConfigOptions": ("WorkerOptions", ""),
     "WorkerIntervalOverride": ("WorkerInterval", ""),
+    "DeliveryCursor": (
+        "DeliveryCursor",
+        "It is now an opaque string alias, not a record.",
+    ),
     "WorkerJitterOverride": (
         "WorkerInterval",
         "The jitter is `WorkerInterval.jitterNs`.",
@@ -1387,12 +1391,11 @@ BINDING_REEXPORT_RENAMES: dict[str, tuple[str, str]] = {
     },
 }
 BINDING_REEXPORT_REMOVALS: dict[str, str] = {
-    "AppDataChange": "`ClientEvent` `conversationMetadataChanged` carries a `MetadataFieldChange` with field `appData`.",
+    "AppDataChange": "A received `GroupUpdated` message lists `metadataFieldChanges`; the entry whose `fieldName` is `app_data` has `oldValue` and `newValue`. The `conversationMetadataChanged` `ClientEvent` names the conversation and its changed fields.",
     "BackendBuilder": "The `BackendOptions` record replaces the builder; `Backend.connect(options)` opens a shared backend.",
     "ContentType": "Message filters take `ContentTypeId` lists (`ListMessagesOptions.contentTypes`); `StandardContentKind` names the standard kinds.",
     "ConversationListItem": "`Conversations.list` returns `Conversation` values (`Group | Dm`).",
     "Cursor": "The debug cursor is `ConversationDebugInfo.cursor`; delivery positions are delivery cursor strings (`Message.deliveryCursor`).",
-    "DeliveryCursor": "A delivery cursor is an opaque string: `Message.deliveryCursor` and the reader option `from`.",
     "EncryptedAttachment": "`encryptBytes` returns `EncryptedEncodedContent` (ciphertext and `EncryptionKeys`); `RemoteAttachmentCodec` encodes the reference.",
     "GroupMetadata": "`Group.creatorInboxId` and `Conversation.kind` replace the metadata object.",
     "Inbox": "`GroupUpdated` lists members as `InboxId` strings.",
@@ -1423,11 +1426,13 @@ def binding_reexport_outcome(sdk: str, name: str) -> Decision | None:
             f"Renamed in the facade package root. {note}".strip(),
         )
     if name in BINDING_REEXPORT_REMOVALS:
-        return decision(
-            "approved removal",
+        # A proposal, not an owner decision: Open items lists it.
+        return Decision(
+            "proposed removal",
             "—",
             ref,
-            f"Removed. Replacement: {BINDING_REEXPORT_REMOVALS[name]}",
+            f"Proposed removal. Replacement: {BINDING_REEXPORT_REMOVALS[name]}",
+            open=True,
         )
     return None
 

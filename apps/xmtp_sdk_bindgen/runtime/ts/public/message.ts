@@ -12,6 +12,7 @@ import {
   type ContentTypeId,
   type Conversation,
   type ConversationId,
+  type DeliveryCursor,
   type DeliveryStatus,
   type EncodedContent,
   type InboxId,
@@ -128,7 +129,7 @@ export class Message {
   /** The decoded body of this reply. */
   readonly replyContent?: MessageBody;
   /** The committed delivery position, or null when there is none. */
-  readonly deliveryCursor: string | null;
+  readonly deliveryCursor: DeliveryCursor | null;
 
   static {
     create = (bound) => new Message(bound);

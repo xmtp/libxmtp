@@ -11,6 +11,7 @@ use heck::ToLowerCamelCase;
 use uniffi_meta::{FnMetadata, FnParamMetadata, Metadata, MethodMetadata, Type};
 
 use super::identity::{ROUTES, is_nullable};
+use super::policy::cursor_type;
 use super::{
     Target, convert, identifier as camel, optional_parameters, parameters_with, public_type,
 };
@@ -216,6 +217,7 @@ fn call(
         ),
         Some(ty) => (public_type(ty), Some(convert(ty, "result", false))),
     };
+    let result_type = cursor_type(owner, name, result_type);
     let result_type = if asynchronous {
         format!("Promise<{result_type}>")
     } else {
@@ -480,6 +482,7 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
     }
     // The runtime exports its own synchronous log sink until F7.
     types.remove("LogSink");
+    types.insert("DeliveryCursor".to_owned());
     let join = |names: BTreeSet<String>| names.into_iter().collect::<Vec<_>>().join(", ");
     // Explicit names: Node's CommonJS interop drops a star re-export. The
     // browser has no process log sink or standalone codecs here: the pure

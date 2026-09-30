@@ -8,6 +8,7 @@ export type InboxId = string;
 export type InstallationId = string;
 export type ConversationId = string;
 export type MessageId = string;
+export type DeliveryCursor = string;
 export type MessageKind = "application" | "membershipChange";
 export type DeliveryStatus = "unpublished" | "published" | "failed";
 export type ContentTypeId = {

@@ -909,8 +909,13 @@ def render_sdk_rows(
             "static runtime",
             "platform helper",
             "approved removal",
+            "proposed removal",
         }:
             raise ValueError(status)
+        # A proposed removal has no owner approval, so it is always an open
+        # item.
+        if status == "proposed removal" and not is_open:
+            raise ValueError(f"{entry.display_name}: a proposed removal must be open")
         if status in {"generated", "static runtime"}:
             final, move = client_placement(final, declared_static(entry, source_texts))
             note = f"{note} {move}".strip() if move else note
@@ -970,7 +975,9 @@ def build() -> str:
         "",
         "`generated` means the facade generator emits the API. `static runtime` means hand-written host code ships with generated output. "
         "`platform helper` means native OS code stays in the SDK. "
-        "`approved removal` means the current export leaves the API. A dash in Final name marks a removal.",
+        "`approved removal` means the current export leaves the API. "
+        "`proposed removal` means the export would leave the API but needs an owner decision; Open items lists it. "
+        "A dash in Final name marks a removal.",
         "",
         "Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. "
         "A free property is `var name`, `val name`, or `let name`. "
