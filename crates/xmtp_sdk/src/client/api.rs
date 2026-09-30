@@ -11,8 +11,7 @@ impl Client {
         let mut task_guard = guard.share();
         let created = on_build_task(Box::pin(async move {
             let identity = signer::identity(signer.clone()).await?;
-            let created =
-                Self::create_with_guard(signer, identity, options, &mut task_guard).await;
+            let created = Self::create_with_guard(signer, identity, options, &mut task_guard).await;
             task_guard.disarm();
             created
         }))
@@ -35,8 +34,7 @@ impl Client {
         let guard = OpenStoreGuard::default();
         let mut task_guard = guard.share();
         let built = on_build_task(Box::pin(async move {
-            let built =
-                Self::build_inner(identity, options, inbox_id, true, &mut task_guard).await;
+            let built = Self::build_inner(identity, options, inbox_id, true, &mut task_guard).await;
             task_guard.disarm();
             built
         }))
