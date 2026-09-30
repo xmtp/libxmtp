@@ -39,6 +39,30 @@ export async function replyWithCodec(message: Message): Promise<string> {
   return message.reply(pointCodec, { x: 1, y: 2 });
 }
 
+// verifies: CTYPE-017
+export async function typedCodecHooks(message: Message): Promise<Client> {
+  // Optional send hooks keep the codec's value type.
+  const noted: ContentCodec<Point> = {
+    ...pointCodec,
+    fallback: (point) => `point ${point.x},${point.y}`,
+    shouldPush: (point) => point.x !== 0,
+  };
+  await message.reply(noted, { x: 1, y: 2 });
+  // @ts-expect-error The reply value must be the codec's value type.
+  await message.reply(pointCodec, { x: "1", y: 2 });
+  // @ts-expect-error The reply value must be the codec's value type.
+  await message.reply(textCodec, 1);
+  // @ts-expect-error A fallback hook takes the codec's value type.
+  const wrongHook: ContentCodec<Point> = { ...pointCodec, fallback: (text: string) => text };
+  void wrongHook;
+  // A codec with hooks still registers with others of any value type.
+  return Client.create(signer, {
+    backend: { url: "http://localhost:5050" },
+    storage: { location: "inMemory" },
+    codecs: [noted, textCodec],
+  });
+}
+
 export function readGetters(client: Client, conversation: Conversation) {
   const inboxId: string = client.inboxId;
   const kind: "group" | "dm" = conversation.kind;

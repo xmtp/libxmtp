@@ -1,0 +1,114 @@
+// The typed codec send policy through the public Message.reply (Ref Public
+// surface, Host codecs; P10). Codec steps run before the send; a failed step
+// is CodecEncodeFailed and makes no publish attempt.
+import assert from "node:assert/strict";
+
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+
+type Note = { readonly text: string };
+
+const noteType: sdk.ContentTypeId = {
+  authorityId: "example.org",
+  typeId: "note",
+  versionMajor: 1,
+  versionMinor: 0,
+};
+
+function throwing(step: string): never {
+  throw new Error(`${step} must not run`);
+}
+
+// A codec whose steps are replaced per case.
+function noteCodec(steps: Partial<sdk.ContentCodec<Note>> = {}): sdk.ContentCodec<Note> {
+  return {
+    type: noteType,
+    encode: (value) => ({
+      type: noteType,
+      parameters: new Map(),
+      content: new TextEncoder().encode(value.text),
+    }),
+    decode: (encoded) => ({ text: new TextDecoder().decode(encoded.content) }),
+    ...steps,
+  };
+}
+
+function isCodecEncodeFailed(error: unknown): boolean {
+  return (
+    error instanceof sdk.XmtpError.CodecEncodeFailed &&
+    error.details.code === "CodecEncodeFailed" &&
+    error.details.category === "callback" &&
+    error.details.retryable === false
+  );
+}
+
+// The nested envelope of a stored reply.
+async function nestedEnvelope(
+  group: sdk.Group,
+  id: sdk.MessageId,
+): Promise<sdk.EncodedContent> {
+  const reply = (await group.messages()).find((message) => message.id === id);
+  assert.ok(reply?.content.kind === "reply", "the reply was not stored");
+  const body = reply.content.body;
+  assert.ok(body.kind === "custom" || body.kind === "unknown");
+  return body.encoded;
+}
+
+// verifies: CTYPE-021
+export async function replyPolicy(
+  group: sdk.Group,
+  parent: sdk.Message,
+): Promise<void> {
+  // The fallback hook fills an envelope that has none.
+  const filled = await parent.reply(
+    noteCodec({
+      fallback: (value) => `a note: ${value.text}`,
+      shouldPush: () => throwing("shouldPush for a reply"),
+    }),
+    { text: "filled" },
+  );
+  assert.equal((await nestedEnvelope(group, filled)).fallback, "a note: filled");
+
+  // An envelope with a fallback keeps it; the hook is not called.
+  const kept = await parent.reply(
+    noteCodec({
+      encode: (value) => ({
+        type: noteType,
+        parameters: new Map(),
+        fallback: "own fallback",
+        content: new TextEncoder().encode(value.text),
+      }),
+      fallback: () => throwing("fallback with an envelope fallback"),
+    }),
+    { text: "kept" },
+  );
+  assert.equal((await nestedEnvelope(group, kept)).fallback, "own fallback");
+
+  // No hook: no fallback.
+  const plain = await parent.reply(noteCodec(), { text: "plain" });
+  assert.equal((await nestedEnvelope(group, plain)).fallback, undefined);
+
+  // A failed or invalid step fails the reply before any publish attempt.
+  const before = (await group.messages()).length;
+  for (const [step, codec] of [
+    ["encode", noteCodec({ encode: () => throwing("encode") })],
+    [
+      "encode result",
+      noteCodec({
+        encode: () => Promise.resolve() as unknown as sdk.EncodedContent,
+      }),
+    ],
+    ["fallback", noteCodec({ fallback: () => throwing("fallback") })],
+    ["fallback result", noteCodec({ fallback: () => 7 as unknown as string })],
+  ] as const) {
+    await assert.rejects(
+      parent.reply(codec, { text: step }),
+      isCodecEncodeFailed,
+      `${step} did not fail with CodecEncodeFailed`,
+    );
+  }
+  assert.equal(
+    (await group.messages()).length,
+    before,
+    "a failed codec step made a publish attempt",
+  );
+}

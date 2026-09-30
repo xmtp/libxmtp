@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import { replyPolicy } from "./codec-policy.mts";
 
 const viemRoot = realpathSync(
   fileURLToPath(
@@ -148,6 +149,7 @@ const textId = await group.sendText("hello public layer");
 const messages = await group.messages();
 const text = messages.find((message) => message.id === textId);
 assert.ok(text instanceof sdk.Message);
+await replyPolicy(group, text);
 assert.deepEqual(text.content, { kind: "text", value: "hello public layer" });
 assert.equal(text.kind, "application");
 assert.equal(text.deliveryStatus, "published");

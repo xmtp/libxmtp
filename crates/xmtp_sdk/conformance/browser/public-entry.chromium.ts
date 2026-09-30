@@ -239,6 +239,60 @@ export async function exercise(): Promise<string[]> {
     check((await reply.parent())?.id === id, "parent action failed");
     results.push("host Message fields and actions");
 
+    // The typed codec policy through the worker: the fallback hook fills the
+    // nested envelope, and a failed codec step makes no publish attempt.
+    const noteType: sdk.ContentTypeId = {
+      authorityId: "example.org",
+      typeId: "note",
+      versionMajor: 1,
+      versionMinor: 0,
+    };
+    const noteCodec: sdk.ContentCodec<string> = {
+      type: noteType,
+      encode: (value) => ({
+        type: noteType,
+        parameters: new Map(),
+        content: new TextEncoder().encode(value),
+      }),
+      decode: (encoded) => new TextDecoder().decode(encoded.content),
+      fallback: (value) => `a note: ${value}`,
+      shouldPush: () => {
+        throw new Error("a reply does not call shouldPush");
+      },
+    };
+    const noteId = await message.reply(noteCodec, "browser note");
+    const note = (await group.messages()).find((item) => item.id === noteId);
+    check(
+      note?.content.kind === "reply" &&
+        note.content.body.kind !== "text" &&
+        "encoded" in note.content.body &&
+        note.content.body.encoded.fallback === "a note: browser note",
+      "the fallback hook did not fill the nested envelope",
+    );
+    const beforeFailure = (await group.messages()).length;
+    const failedEncode = await rejection(
+      message.reply(
+        {
+          ...noteCodec,
+          encode: () => {
+            throw new Error("encode failed");
+          },
+        },
+        "never sent",
+      ),
+    );
+    check(
+      failedEncode instanceof sdk.XmtpError.CodecEncodeFailed &&
+        isPublicError(failedEncode) &&
+        failedEncode.details.category === "callback",
+      `a failed encode is not CodecEncodeFailed: ${String(failedEncode)}`,
+    );
+    check(
+      (await group.messages()).length === beforeFailure,
+      "a failed codec step made a publish attempt",
+    );
+    results.push("typed codec reply policy");
+
     // Streams and events yield public values.
     const stream = sdk.MessageStream.openGroup(alice, group);
     const streamedId = await group.sendText("streamed");

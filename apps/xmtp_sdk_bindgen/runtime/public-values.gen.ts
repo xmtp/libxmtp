@@ -164,6 +164,7 @@ export type ErrorDetails = {
 export declare class XmtpError extends Error {
   readonly details: ErrorDetails;
   constructor(details: ErrorDetails);
+  static readonly CodecEncodeFailed: typeof XmtpError;
 }
 export declare function publicError(error: unknown): unknown;
 
