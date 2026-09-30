@@ -314,27 +314,16 @@ where
 
     /// Retrieves the group name from the group's mutable metadata extension.
     pub fn group_name(&self) -> Result<String, GroupError> {
-        self.display_attribute::<GroupNameComponent>(MetadataField::GroupName)
+        Ok(self
+            .read_single_component::<GroupNameComponent>()?
+            .unwrap_or_default())
     }
 
     /// Retrieves the app_data field from the group's mutable metadata extension
     pub fn app_data(&self) -> Result<String, GroupError> {
-        self.display_attribute::<AppDataComponent>(MetadataField::AppData)
-    }
-
-    /// One display attribute: archived while `Restored`, otherwise the live component.
-    // implements: ARCH-020
-    fn display_attribute<C>(&self, field: MetadataField) -> Result<String, GroupError>
-    where
-        C: xmtp_mls_common::app_data::typed::Component<Value = String>,
-    {
-        if let Some(history) = self.restored_history()? {
-            return Ok(history
-                .mutable_metadata
-                .and_then(|metadata| metadata.attributes.get(field.as_str()).cloned())
-                .unwrap_or_default());
-        }
-        Ok(self.read_single_component::<C>()?.unwrap_or_default())
+        Ok(self
+            .read_single_component::<AppDataComponent>()?
+            .unwrap_or_default())
     }
 
     /// Updates the description of the group.
@@ -369,7 +358,9 @@ where
     }
 
     pub fn group_description(&self) -> Result<String, GroupError> {
-        self.display_attribute::<GroupDescriptionComponent>(MetadataField::Description)
+        Ok(self
+            .read_single_component::<GroupDescriptionComponent>()?
+            .unwrap_or_default())
     }
 
     /// Updates the image URL (square) of the group.
@@ -406,7 +397,9 @@ where
 
     /// Retrieves the image URL (square) of the group from the group's mutable metadata extension.
     pub fn group_image_url_square(&self) -> Result<String, GroupError> {
-        self.display_attribute::<GroupImageUrlComponent>(MetadataField::GroupImageUrlSquare)
+        Ok(self
+            .read_single_component::<GroupImageUrlComponent>()?
+            .unwrap_or_default())
     }
 
     pub async fn update_conversation_message_disappearing_settings(
@@ -494,11 +487,15 @@ where
     pub fn conversation_message_disappearing_settings(
         &self,
     ) -> Result<MessageDisappearingSettings, GroupError> {
-        if let Some(history) = self.restored_history()? {
-            // The archived row fields are the historical settings.
+        let stored = self
+            .context
+            .db()
+            .find_group(&self.group_id)?
+            .ok_or(NotFound::GroupById(self.group_id))?;
+        if stored.membership_state == GroupMembershipState::Restored {
             return match (
-                history.message_disappear_from_ns,
-                history.message_disappear_in_ns,
+                stored.message_disappear_from_ns,
+                stored.message_disappear_in_ns,
             ) {
                 (Some(from_ns), Some(in_ns)) => {
                     Ok(MessageDisappearingSettings::new(from_ns, in_ns))
@@ -568,13 +565,6 @@ where
     }
 
     fn read_admin_set(&self, kind: AdminListKind) -> Result<Vec<String>, GroupError> {
-        if let Some(history) = self.restored_history()? {
-            let metadata = history.mutable_metadata.unwrap_or_default();
-            return Ok(match kind {
-                AdminListKind::Admin => metadata.admin_list,
-                AdminListKind::SuperAdmin => metadata.super_admin_list,
-            });
-        }
         let ctx = self.load_group_context()?;
         let extensions = ctx.extensions();
         let facade = xmtp_mls_common::app_data::typed_facade::MlsGroupAppData::new(extensions);

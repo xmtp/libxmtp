@@ -9,8 +9,8 @@ public struct MessageHistorySnapshot {
 	public let cursor: DeliveryCursor
 
 	init(_ snapshot: FfiMessageHistorySnapshot) throws {
-		messages = snapshot.messages.compactMap { item in
-			DecodedMessage.decodeForDelivery(ffiMessage: item.message, deliveryCursor: item.cursor)
+		messages = try snapshot.messages.compactMap { item in
+			try DecodedMessage.decodeForDelivery(ffiMessage: item.message, deliveryCursor: item.cursor)
 		}
 		cursor = snapshot.cursor
 	}

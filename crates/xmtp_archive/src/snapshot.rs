@@ -15,22 +15,19 @@ use crate::{
     archive_options::{ArchiveOptions, BackupElementSelection},
 };
 use openmls::group::MlsGroup;
-use prost::Message;
-use std::collections::HashMap;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
     diesel::{Connection, SqliteConnection, connection::DefaultLoadingMode, prelude::*, sql_query},
-    group::{ConversationType, GroupMembershipState, StoredGroup},
+    group::{ConversationType, StoredGroup},
     group_message::{GroupMessageKind, StoredGroupMessage},
-    schema::{consent_records, group_messages, groups, restored_group_metadata},
+    schema::{consent_records, group_messages, groups},
 };
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata,
     group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata},
 };
-use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::device_sync::{
     BackupElementSelection as BackupElementSelectionProto, BackupMetadataSave,
     backup_element::Element,
@@ -93,13 +90,9 @@ fn read_in_transaction(
             let page = page.load::<StoredGroup>(conn)?;
             let Some(last) = page.last() else { break };
             after = Some(last.id);
-            let mut histories = restored_histories(conn, &page)?;
             let store = conn.key_store();
             for group in page {
-                let save = match histories.remove(&group.id) {
-                    Some(history) => restored_group_save(group, history),
-                    None => group_save(&store, group)?,
-                };
+                let save = group_save(&store, group)?;
                 emit(Element::Group(save))?;
             }
         }
@@ -138,49 +131,6 @@ fn read_in_transaction(
         }
     }
     Ok(metadata)
-}
-
-/// The archived records of the `Restored` groups in `page`, keyed by id. A
-/// Restored conversation re-exports its archived record, with the presence of
-/// its metadata message unchanged, never the metadata of its placeholder MLS
-/// state.
-// implements: ARCH-025
-fn restored_histories(
-    conn: &mut SqliteConnection,
-    page: &[StoredGroup],
-) -> Result<HashMap<GroupId, GroupSave>, ArchiveError> {
-    let ids: Vec<GroupId> = page
-        .iter()
-        .filter(|group| group.membership_state == GroupMembershipState::Restored)
-        .map(|group| group.id)
-        .collect();
-    let mut histories = HashMap::with_capacity(ids.len());
-    if ids.is_empty() {
-        return Ok(histories);
-    }
-    let rows = restored_group_metadata::table
-        .filter(restored_group_metadata::group_id.eq_any(&ids))
-        .select((
-            restored_group_metadata::group_id,
-            restored_group_metadata::group_save,
-        ))
-        .load::<(GroupId, Vec<u8>)>(conn)?;
-    for (group_id, bytes) in rows {
-        histories.insert(group_id, GroupSave::decode(bytes.as_slice())?);
-    }
-    Ok(histories)
-}
-
-/// The archived record of a Restored group. Only the physical id, the
-/// membership state, and the merged activity come from the current row.
-fn restored_group_save(group: StoredGroup, history: GroupSave) -> GroupSave {
-    let membership_state: GroupMembershipStateSave = group.membership_state.into();
-    GroupSave {
-        id: group.id.to_vec(),
-        membership_state: membership_state as i32,
-        last_message_ns: group.last_message_ns,
-        ..history
-    }
 }
 
 /// The group element for `group`, with metadata read from its MLS state.

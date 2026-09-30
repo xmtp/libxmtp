@@ -166,7 +166,6 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
     assert_eq!(after.membership_state, GroupMembershipState::Restored);
     assert_eq!(after.dm_id, before.dm_id);
     // A rejected Welcome keeps the archived record in use.
-    assert!(bo.db().restored_group_history(&dm.group_id)?.is_some());
 }
 
 // verifies: DMS-015

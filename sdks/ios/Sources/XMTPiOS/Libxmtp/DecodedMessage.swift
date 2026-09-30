@@ -86,10 +86,6 @@ public struct DecodedMessage: Identifiable {
 	private let decodedContent: Any?
 	/// Cursor for this stream handoff. Reading it does not acknowledge delivery.
 	public let deliveryCursor: FfiDeliveryCursor?
-	/// Set when the content could not be decoded: the exact received bytes, the
-	/// received identifier and fallback when present, and the typed cause.
-	/// `content()` throws for such a message; `fallback` returns the received one.
-	public let undecodable: UndecodableContent?
 
 	public var id: String {
 		ffiMessage.id.toHex
@@ -163,10 +159,7 @@ public struct DecodedMessage: Identifiable {
 
 	public var fallback: String {
 		get throws {
-			if let undecodable {
-				return undecodable.fallback ?? ""
-			}
-			return try encodedContent.fallback
+			try encodedContent.fallback
 		}
 	}
 
@@ -189,64 +182,32 @@ public struct DecodedMessage: Identifiable {
 	public static func create(ffiMessage: FfiMessage, deliveryCursor: FfiDeliveryCursor? = nil)
 		-> DecodedMessage?
 	{
-		decodeForDelivery(ffiMessage: ffiMessage, deliveryCursor: deliveryCursor)
+		do {
+			return try decodeForDelivery(ffiMessage: ffiMessage, deliveryCursor: deliveryCursor)
+		} catch {
+			print("Error creating Message: \(error)")
+			return nil
+		}
 	}
 
 	/// Return nil only for content that forges a reserved membership change,
-	/// which the delivery stream consumes without a handoff. Content that does
-	/// not parse or decode is kept as an undecodable message with its exact
-	/// bytes, so history keeps the row and the delivery stream hands it off.
+	/// which the delivery stream consumes without a handoff. Parse and codec
+	/// errors are raised to the caller. The delivery stream propagates them and
+	/// leaves the message pending: acknowledging one this client cannot decode
+	/// would advance the cursor past a message nothing has read.
 	static func decodeForDelivery(ffiMessage: FfiMessage, deliveryCursor: FfiDeliveryCursor? = nil)
-		-> DecodedMessage?
+		throws -> DecodedMessage?
 	{
-		let undecodable = { (encodedContent: EncodedContent?, kind: ContentDecodeFailureKind, message: String) in
-			DecodedMessage(
-				ffiMessage: ffiMessage,
-				decodedContent: nil,
-				deliveryCursor: deliveryCursor,
-				undecodable: UndecodableContent(
-					rawBytes: ffiMessage.content,
-					contentType: encodedContent.flatMap { content in
-						content.hasType
-							? FfiContentTypeId(
-								authorityId: content.type.authorityID,
-								typeId: content.type.typeID,
-								versionMajor: content.type.versionMajor,
-								versionMinor: content.type.versionMinor
-							)
-							: nil
-					},
-					fallback: encodedContent.map { $0.hasFallback ? $0.fallback : nil } ?? nil,
-					failureKind: kind,
-					failureMessage: message
-				)
-			)
-		}
-		let encodedContent: EncodedContent
-		do {
-			encodedContent = try EncodedContent(serializedBytes: ffiMessage.content)
-		} catch {
-			return undecodable(nil, .malformedEnvelope, "\(error)")
-		}
+		let encodedContent = try EncodedContent(serializedBytes: ffiMessage.content)
 		if encodedContent.type == ContentTypeGroupUpdated,
 		   ffiMessage.kind != .membershipChange
 		{
 			return nil
 		}
-		guard encodedContent.hasType,
-		      !encodedContent.type.authorityID.isEmpty,
-		      !encodedContent.type.typeID.isEmpty
-		else {
-			return undecodable(encodedContent, .malformedEnvelope, "content type identifier is absent or incomplete")
-		}
-		do {
-			let decodedContent: Any = try encodedContent.decoded()
-			return DecodedMessage(
-				ffiMessage: ffiMessage, decodedContent: decodedContent,
-				deliveryCursor: deliveryCursor, undecodable: nil
-			)
-		} catch {
-			return undecodable(encodedContent, .codecDecodeFailed, "\(error)")
-		}
+		let decodedContent: Any = try encodedContent.decoded()
+		return DecodedMessage(
+			ffiMessage: ffiMessage, decodedContent: decodedContent,
+			deliveryCursor: deliveryCursor
+		)
 	}
 }

@@ -292,7 +292,7 @@ An archive is authenticated by the key alone. Anyone who holds the key can write
 
 Archive import trusts the decrypted archive contents. Import does not verify message provenance or sender membership, so an archive from an untrusted source can add history that did not happen.
 
-A Restored conversation written by a client before the archived record existed keeps its placeholder metadata; a later import of the same group does not repair it under ARCH-014. The archived record retains operational fields of the source row, such as its pause version and cursor, for re-export only; they do not become live positions.
+Restored conversations currently use placeholder creator metadata and admin lists. They do not preserve arbitrary mutable attributes. Re-export does not preserve the source metadata presence or operational fields such as pause version and cursor. The archived group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. Existing archived records remain stored but are not read or changed; ARCH-020, ARCH-024, and ARCH-025 have gap waivers until exact historical metadata support returns.
 
 A message with a future expiry can remain in the archive after its deadline. Import applies META-051 only when the archive preserves that deadline. Legacy archives lack per-message expiry information; they remain readable with unknown expiry under ARCH-019. The store records unknown expiry and no expiry alike, so `exclude_disappearing_messages` still exports restored messages whose expiry is unknown. This is waived under ARCH-009 until the store can tell them apart.
 

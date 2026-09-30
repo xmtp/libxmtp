@@ -1,5 +1,6 @@
 package org.xmtp.android.library
 
+import com.google.protobuf.InvalidProtocolBufferException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
@@ -7,26 +8,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
-import org.xmtp.android.library.codecs.ContentTypeId
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.DecodedMessage
-import org.xmtp.android.library.libxmtp.DecodedMessageV2
-import org.xmtp.android.library.libxmtp.Reply
-import uniffi.xmtpv3.FfiContentDecodeFailureKind
-import uniffi.xmtpv3.FfiDecodedMessage
-import uniffi.xmtpv3.FfiDecodedMessageContent
 import uniffi.xmtpv3.FfiDeliveryCursor
 import uniffi.xmtpv3.FfiHistoryMessage
 import uniffi.xmtpv3.FfiMessageHistorySnapshot
-import uniffi.xmtpv3.FfiUndecodableContent
-import uniffi.xmtpv3.NoHandle
 
 private const val MESSAGE_READER_TEST_TIMEOUT_MS = 10_000L
 
@@ -172,9 +164,8 @@ class MessageReaderTest {
             }
         }
 
-    // verifies: CTYPE-008, CTYPE-009, PROC-028
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun undecodableContentIsHandedOffWithItsBytesAndAcknowledgedOnNext() =
+    fun decodeFailureClosesWithoutAcknowledgement() =
         runBlocking {
             val validCursor = FfiDeliveryCursor(databaseId = ByteArray(16), deliverySequence = 1uL)
             val snapshotCursor = FfiDeliveryCursor(databaseId = ByteArray(16), deliverySequence = 2uL)
@@ -183,33 +174,13 @@ class MessageReaderTest {
                     .encode("hi")
                     .toBuilder()
                     .putParameters("encoding", "UTF-16")
-                    .setFallback("kept fallback")
                     .build()
                     .toByteArray()
-
-            data class Case(
-                val content: ByteArray,
-                val kind: FfiContentDecodeFailureKind,
-                val typeId: String?,
-            )
-            val cases =
-                listOf(
-                    Case(byteArrayOf(0x80.toByte()), FfiContentDecodeFailureKind.MALFORMED_ENVELOPE, null),
-                    Case(invalidEncoding, FfiContentDecodeFailureKind.CODEC_DECODE_FAILED, "text"),
-                )
-            for (case in cases) {
-                val content = case.content
+            for ((content, errorType) in listOf(
+                byteArrayOf(0x80.toByte()) to InvalidProtocolBufferException::class.java,
+                invalidEncoding to XMTPException::class.java,
+            )) {
                 val message = deliveryTestMessage(content)
-                val decoded = DecodedMessage.createForDelivery(message, null)
-                assertNotNull(decoded)
-                val undecodable = decoded!!.undecodable
-                assertNotNull(undecodable)
-                assertTrue(undecodable!!.rawBytes.contentEquals(content))
-                assertEquals(case.kind, undecodable.failureKind)
-                assertEquals(case.typeId, undecodable.contentType?.typeId)
-                assertNull(decoded.content<Any>())
-                assertEquals(if (case.typeId == null) "" else "kept fallback", decoded.fallback)
-
                 val invalid = Delivery(decodeValue = { DecodedMessage.createForDelivery(message, null)?.let { 1 } })
                 var reads = 0
                 var ended = 0
@@ -218,21 +189,21 @@ class MessageReaderTest {
                         read = { if (reads++ == 0) invalid.queued() else null },
                         end = { ended++ },
                     )
-                assertEquals(1, invalidReader.next())
+                val failure = runCatching { invalidReader.next() }.exceptionOrNull()
+                assertEquals(errorType, failure?.javaClass)
+                assertEquals(1, reads)
                 assertEquals(0, invalid.acknowledgements)
-                assertNull(invalidReader.next())
-                assertEquals(1, invalid.acknowledgements)
-                assertEquals(0, invalid.rejections)
+                assertEquals(1, invalid.rejections)
                 assertEquals(1, ended)
+                assertNull(invalidReader.next())
 
                 val snapshot =
                     FfiMessageHistorySnapshot(
                         messages = listOf(FfiHistoryMessage(message = message, cursor = snapshotCursor)),
                         cursor = snapshotCursor,
                     )
-                val kept = snapshot.toMessageHistorySnapshot().messages
-                assertEquals(1, kept.size)
-                assertEquals(case.kind, kept.single().undecodable?.failureKind)
+                val snapshotFailure = runCatching { snapshot.toMessageHistorySnapshot() }.exceptionOrNull()
+                assertEquals(errorType, snapshotFailure?.javaClass)
             }
 
             val validMessage = deliveryTestMessage(TextCodec().encode("hi").toByteArray())
@@ -301,62 +272,4 @@ class MessageReaderTest {
             first.join()
             assertEquals(1, ended)
         }
-
-    // verifies: CTYPE-008
-    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun historyScanOverEncodedContentSkipsAMalformedRow() {
-        val cursor = FfiDeliveryCursor(databaseId = ByteArray(16), deliverySequence = 1uL)
-        val malformed = deliveryTestMessage(byteArrayOf(0x80.toByte()))
-        val valid = deliveryTestMessage(TextCodec().encode("hi").toByteArray())
-        val messages =
-            FfiMessageHistorySnapshot(
-                messages = listOf(malformed, valid).map { FfiHistoryMessage(message = it, cursor = cursor) },
-                cursor = cursor,
-            ).toMessageHistorySnapshot().messages
-        assertEquals(2, messages.size)
-        // The pattern apps use on history: it must not throw on the malformed row.
-        val text = messages.first { it.encodedContent.type.typeId == "text" }
-        assertSame(messages[1], text)
-        val synthesized = messages[0].encodedContent
-        assertEquals(ContentTypeId.getDefaultInstance(), synthesized.type)
-        assertTrue(synthesized.content.isEmpty)
-        assertEquals("", synthesized.fallback)
-        assertNotNull(messages[0].undecodable)
-        assertNull(messages[0].content<Any>())
-    }
-
-    // verifies: CTYPE-008
-    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun contentIsNullAndUndecodableCarriesTheEvidenceInV1AndV2() {
-        val evidence =
-            FfiUndecodableContent(
-                rawBytes = byteArrayOf(0x80.toByte()),
-                contentType = null,
-                fallback = null,
-                failureKind = FfiContentDecodeFailureKind.MALFORMED_ENVELOPE,
-                failureMessage = "malformed",
-            )
-
-        // V1: the old route keeps the evidence and no content value.
-        val v1 = DecodedMessage.createForDelivery(deliveryTestMessage(byteArrayOf(0x80.toByte())), null)
-        assertNotNull(v1)
-        val v1Reply: Reply? = v1!!.content<Reply>()
-        assertNull(v1Reply)
-        assertEquals(FfiContentDecodeFailureKind.MALFORMED_ENVELOPE, v1.undecodable?.failureKind)
-
-        // V2: undecodable content is never the content value, so a typed read
-        // is null (not a ClassCastException), and the evidence is exposed.
-        val ffi =
-            object : FfiDecodedMessage(NoHandle) {
-                override fun content(): FfiDecodedMessageContent = FfiDecodedMessageContent.Undecodable(evidence)
-            }
-        val v2 = DecodedMessageV2.create(ffi)
-        assertNotNull(v2)
-        val v2Reply: Reply? = v2!!.content<Reply>()
-        assertNull(v2Reply)
-        val v2Text: String? = v2.content<String>()
-        assertNull(v2Text)
-        assertTrue(v2.undecodable!!.rawBytes.contentEquals(evidence.rawBytes))
-        assertEquals(FfiContentDecodeFailureKind.MALFORMED_ENVELOPE, v2.undecodable?.failureKind)
-    }
 }

@@ -7,36 +7,19 @@ import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.decoded
 import org.xmtp.android.library.toHex
 import org.xmtp.proto.message.contents.Content
-import uniffi.xmtpv3.FfiContentDecodeFailureKind
-import uniffi.xmtpv3.FfiContentTypeId
 import uniffi.xmtpv3.FfiConversationMessageKind
 import uniffi.xmtpv3.FfiDeliveryCursor
 import uniffi.xmtpv3.FfiDeliveryStatus
 import uniffi.xmtpv3.FfiMessage
-import uniffi.xmtpv3.FfiUndecodableContent
 import java.util.Date
 
 class DecodedMessage private constructor(
     private val libXMTPMessage: FfiMessage,
-    private val parsedContent: Content.EncodedContent?,
+    val encodedContent: Content.EncodedContent,
     private val decodedContent: Any?,
     /** Database-local resume cursor. Present on streamed messages. Reading it does not acknowledge delivery. */
     val deliveryCursor: FfiDeliveryCursor? = null,
-    /**
-     * Set when the content could not be decoded: the exact received bytes, the
-     * received identifier and fallback when present, and the typed cause.
-     * `content()` is null for such a message; `fallback` returns the received one.
-     */
-    val undecodable: FfiUndecodableContent? = null,
 ) {
-    /**
-     * The parsed envelope. For an undecodable row whose bytes do not parse as
-     * an EncodedContent, this is an empty envelope with no type. It never
-     * throws. The evidence is on `undecodable`; do not forward this value.
-     */
-    val encodedContent: Content.EncodedContent
-        get() = parsedContent ?: Content.EncodedContent.getDefaultInstance()
-
     enum class MessageDeliveryStatus {
         ALL,
         PUBLISHED,
@@ -92,15 +75,11 @@ class DecodedMessage private constructor(
     val topic: String
         get() = Topic.groupMessage(conversationId).description
 
-    /**
-     * The decoded content as `T`, or null for an undecodable message. The
-     * cast is erased: a wrong `T` on decodable content fails at the caller.
-     */
     @Suppress("UNCHECKED_CAST")
     fun <T> content(): T? = decodedContent as? T
 
     val fallback: String
-        get() = undecodable?.let { it.fallback ?: "" } ?: encodedContent.fallback
+        get() = encodedContent.fallback
 
     val body: String
         get() {
@@ -113,72 +92,25 @@ class DecodedMessage private constructor(
         fun create(
             libXMTPMessage: FfiMessage,
             deliveryCursor: FfiDeliveryCursor?,
-        ): DecodedMessage? = createForDelivery(libXMTPMessage, deliveryCursor)
+        ): DecodedMessage? =
+            try {
+                createForDelivery(libXMTPMessage, deliveryCursor)
+            } catch (e: Exception) {
+                null // Return null if decoding fails
+            }
 
-        /**
-         * Null excludes forged membership content. Content that does not parse or
-         * decode is kept as an undecodable message with its exact bytes, so history
-         * keeps the row and the delivery flow hands it off.
-         */
+        /** Null excludes forged membership content. Parse and codec errors remain errors. */
         internal fun createForDelivery(
             libXMTPMessage: FfiMessage,
             deliveryCursor: FfiDeliveryCursor?,
         ): DecodedMessage? {
-            fun undecodable(
-                parsed: Content.EncodedContent?,
-                kind: FfiContentDecodeFailureKind,
-                message: String?,
-            ): DecodedMessage =
-                DecodedMessage(
-                    libXMTPMessage,
-                    parsed,
-                    null,
-                    deliveryCursor = deliveryCursor,
-                    undecodable =
-                        FfiUndecodableContent(
-                            rawBytes = libXMTPMessage.content,
-                            contentType =
-                                parsed?.takeIf { it.hasType() }?.type?.let {
-                                    FfiContentTypeId(
-                                        authorityId = it.authorityId,
-                                        typeId = it.typeId,
-                                        versionMajor = it.versionMajor.toUInt(),
-                                        versionMinor = it.versionMinor.toUInt(),
-                                    )
-                                },
-                            fallback = parsed?.takeIf { it.hasFallback() }?.fallback,
-                            failureKind = kind,
-                            failureMessage = message ?: "",
-                        ),
-                )
-
-            val encodedContent =
-                try {
-                    EncodedContent.parseFrom(libXMTPMessage.content)
-                } catch (e: Exception) {
-                    return undecodable(null, FfiContentDecodeFailureKind.MALFORMED_ENVELOPE, e.message)
-                }
+            val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
             if (encodedContent.type == ContentTypeGroupUpdated &&
                 libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE
             ) {
                 return null
             }
-            if (!encodedContent.hasType() ||
-                encodedContent.type.authorityId.isEmpty() ||
-                encodedContent.type.typeId.isEmpty()
-            ) {
-                return undecodable(
-                    encodedContent,
-                    FfiContentDecodeFailureKind.MALFORMED_ENVELOPE,
-                    "content type identifier is absent or incomplete",
-                )
-            }
-            val decodedContent =
-                try {
-                    encodedContent.decoded<Any>()
-                } catch (e: Exception) {
-                    return undecodable(encodedContent, FfiContentDecodeFailureKind.CODEC_DECODE_FAILED, e.message)
-                }
+            val decodedContent = encodedContent.decoded<Any>()
             return DecodedMessage(libXMTPMessage, encodedContent, decodedContent, deliveryCursor = deliveryCursor)
         }
     }

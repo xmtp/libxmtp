@@ -127,9 +127,9 @@ async fn archive_excludes_disappearing_messages_when_requested() {
     second.end().await?;
 }
 
-// verifies: ARCH-020, ARCH-024
+// verifies: ARCH-015, ARCH-020
 #[xmtp_common::test(unwrap_try = true)]
-async fn list_and_get_keep_restored_unknown_identity() {
+async fn list_and_get_keep_restored_groups_readable() {
     use xmtp_mls::groups::MlsGroup;
     use xmtp_mls::mls_common::group_metadata::DmMembers;
     use xmtp_proto::xmtp::device_sync::group_backup::{GroupSave, ImmutableMetadataSave};
@@ -185,11 +185,21 @@ async fn list_and_get_keep_restored_unknown_identity() {
         let listed = listed_conversation(&listed, &conversation_id);
         for conversation in [&fetched, listed] {
             let (creator, added_by, is_creator) = received_identity(conversation);
-            assert_eq!(creator, None);
-            assert!(!is_creator);
+            // Exact archived creator projection is deferred. Both paths use
+            // the same placeholder and still preserve the archived adder.
+            assert_eq!(creator.as_deref(), Some(own.as_str()));
+            assert!(is_creator);
             assert_eq!(added_by.as_deref(), adder);
         }
         assert_eq!(conversation_messages_count(&fetched).await?, 0);
+        let result = match &fetched {
+            crate::Conversation::Group { group } => group.send_text("inactive".into(), None).await,
+            crate::Conversation::Dm { dm } => dm.send_text("inactive".into(), None).await,
+        };
+        assert!(
+            result.is_err(),
+            "a placeholder creator must not authorize a send"
+        );
     }
     let (creator, _, is_creator) = received_identity(listed_conversation(&listed, &live.id()));
     assert_eq!(creator.as_deref(), Some(own.as_str()));

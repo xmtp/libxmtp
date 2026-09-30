@@ -183,3 +183,7 @@ mod tests {
         assert!(remaining.iter().any(|version| version == BASELINE));
     }
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+#[path = "migrations/tests.rs"]
+mod upgrade_tests;

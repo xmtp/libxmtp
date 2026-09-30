@@ -37,7 +37,6 @@ pub mod readd_status;
 pub mod received_proposal;
 pub mod refresh_state;
 pub mod remote_commit_log;
-pub mod restored_group_metadata;
 pub mod schema;
 mod schema_gen;
 pub mod server_configuration;
