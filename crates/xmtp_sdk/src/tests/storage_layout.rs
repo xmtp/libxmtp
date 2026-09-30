@@ -358,6 +358,57 @@ async fn explicit_storage_rejects_its_removed_creator() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_fetches_a_removal_made_on_another_installation() {
+    let relay = CountingRelay::start().await?;
+    let root = temp_root("explicit-removed-elsewhere");
+    std::fs::create_dir_all(&root)?;
+    let mut settings = options();
+    settings.backend = relay.backend();
+    settings.storage.location = explicit(&root.join("creator"));
+    let creator_signer = crate::generate_local_signer().await;
+    let creator = signer::identity(creator_signer.clone()).await?;
+    let client = Client::create(creator_signer.clone(), settings.clone()).await?;
+    let recovery_signer = crate::generate_local_signer().await;
+    let recovery = signer::identity(recovery_signer.clone()).await?;
+    client
+        .unsafe_add_account(recovery_signer.clone(), false)
+        .await?;
+    client
+        .change_recovery_identifier(creator_signer, recovery)
+        .await?;
+    client.end().await?;
+
+    // Another installation removes the creator, so only the network holds
+    // the removal.
+    let mut elsewhere = settings.clone();
+    elsewhere.storage.location = explicit(&root.join("recovery"));
+    let other = Client::create(recovery_signer.clone(), elsewhere).await?;
+    other
+        .remove_account(recovery_signer, creator.clone())
+        .await?;
+    other.end().await?;
+
+    let online = Client::build(creator.clone(), settings.clone(), None).await;
+    assert!(
+        is_identity_mismatch(&online),
+        "online build: {:?}",
+        online.err()
+    );
+
+    // The online check stored the removal it fetched.
+    relay.refuse();
+    settings.allow_offline = true;
+    let offline = Client::build(creator, settings, None).await;
+    assert!(
+        is_identity_mismatch(&offline),
+        "offline build: {:?}",
+        offline.err()
+    );
+    assert_eq!(relay.connections(), 0, "offline check sent a request");
+    std::fs::remove_dir_all(root)?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_without_identity_updates_opens_offline_only_for_its_creator() {
     use xmtp_db::{ConnectionExt, diesel::RunQueryDsl};
 
