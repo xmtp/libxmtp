@@ -42,6 +42,7 @@ const INTERNAL = new Set([
   "ClientMembers",
   "ObjectProjection",
   "StandardCodec",
+  "encodeForSend",
 ]);
 function exportedValues(source: string): string[] {
   return [
