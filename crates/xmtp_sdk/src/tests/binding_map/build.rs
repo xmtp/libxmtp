@@ -448,7 +448,7 @@ async fn offline_build_with_moved_url_uses_stored_copy() {
 }
 
 /// A real offline build whose database is bound to another deployment: the
-/// first request re-checks the backend (CONF-077), and the app gets the
+/// first request re-checks the backend, and the app gets the
 /// check's own code.
 // verifies: CONF-064, CONF-077
 #[xmtp_common::test(unwrap_try = true)]
