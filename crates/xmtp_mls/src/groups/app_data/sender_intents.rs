@@ -257,12 +257,12 @@ pub(crate) fn apply_app_data_update_intent(
             AppDataUpdateOperation::Update(payload.into()),
         )],
         AppDataUpdateIntentData::Fields(writes) => {
-            resolve_field_writes(openmls_group, own, &writes)?
+            let Some(updates) = field_writes_commit(openmls_group, own, &writes)? else {
+                return Ok(None);
+            };
+            updates
         }
     };
-    if updates.is_empty() {
-        return Ok(None);
-    }
     stage_updates(
         storage,
         openmls_group,
@@ -292,6 +292,32 @@ pub(crate) fn resolve_field_writes(
     let updates = FieldSnapshot::new(committed, &[])?.resolve_writes(Some(&values), own, writes)?;
     authorize_updates(openmls_group, &values, &updates)?;
     Ok(updates)
+}
+
+/// The operations of the commit that carries out `writes` by `own`, or
+/// `None` when no commit is needed. The operations are empty when pending
+/// proposals already carry out the writes but have changed a component
+/// they name: the value is then pending, not committed, and the commit of
+/// the pending proposals commits it.
+pub(crate) fn field_writes_commit(
+    openmls_group: &OpenMlsGroup,
+    own: InboxId,
+    writes: &[FieldWrite],
+) -> Result<Option<Vec<(ComponentId, AppDataUpdateOperation)>>, GroupError> {
+    let updates = resolve_field_writes(openmls_group, own, writes)?;
+    if !updates.is_empty() {
+        return Ok(Some(updates));
+    }
+    let committed = openmls_group
+        .extensions()
+        .app_data_dictionary()
+        .map(|extension| extension.dictionary());
+    let pending = pending_dictionary(openmls_group)?;
+    let uncommitted = writes.iter().any(|write| {
+        let id = write.component_id.as_u16();
+        committed.and_then(|values| values.get(&id)) != pending.get(&id)
+    });
+    Ok(uncommitted.then_some(updates))
 }
 
 /// Check `updates` by this client, in order, against the committed

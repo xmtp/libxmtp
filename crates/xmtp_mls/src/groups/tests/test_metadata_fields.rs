@@ -553,37 +553,8 @@ async fn test_reads_are_committed_and_writes_see_pending_proposals() {
         .await?;
     let bo_group = bo.sync_welcomes().await?.pop()?;
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
-
-    // Publish only the proposals of a display-name write.
-    let writes = vec![FieldWrite {
-        component_id: ComponentId::USER_DISPLAY_NAME,
-        component_type: ComponentType::TlsMapInboxIdString,
-        operation: WriteOperation::SetOwn(b"Al".to_vec()),
-    }];
     let own = inbox(&alix);
-    let mut payloads = state_write(group.context.mls_storage(), |tx| {
-        tx.with_group(group.group_id, |mls_group, storage| {
-            let publish = apply_app_data_update_intent(
-                storage,
-                mls_group,
-                AppDataUpdateIntentData::Fields(writes),
-                own,
-                &[],
-                &group.context.identity().installation_keys,
-                false,
-            )?;
-            Ok::<_, GroupError>(Continue(publish?.payloads_to_publish))
-        })
-    })?
-    .into_continued();
-    payloads.pop()?;
-    let messages = group.prepare_group_messages(
-        payloads
-            .iter()
-            .map(|payload| (payload.as_slice(), false))
-            .collect(),
-    )?;
-    group.context.api().send_group_messages(messages).await?;
+    publish_proposals(&group, own, display_name("Al")).await?;
     group.sync().await?;
     bo_group.sync().await?;
     let pending = group
@@ -613,6 +584,104 @@ async fn test_reads_are_committed_and_writes_see_pending_proposals() {
             value: string("Alix"),
         }]))
     );
+}
+
+/// A write of the value a pending proposal already sets commits that
+/// proposal, so its success means the value is committed, as reads see it.
+// verifies: META-073
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_writes_carried_out_by_pending_proposals_commit_them() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    let own = inbox(&alix);
+    publish_proposals(&group, own, display_name("Al")).await?;
+    group.sync().await?;
+
+    group.update_user_data(&[set(names.clone(), "Al")]).await?;
+    bo_group.sync().await?;
+    for member in [&group, &bo_group] {
+        assert_eq!(
+            member.map_value(&names, &FieldKey::InboxId(own))?,
+            Some(string("Al"))
+        );
+    }
+}
+
+/// A queued write that a proposal received before its publish already
+/// carries out commits that proposal when it is published.
+// verifies: META-073
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_queued_writes_carried_out_by_pending_proposals_commit_them() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    let own = inbox(&alix);
+    publish_proposals(&group, own, display_name("Al")).await?;
+    group.sync().await?;
+
+    let writes = display_name("Al");
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(
+            writes.clone(),
+        )))
+        .queue(&group)?;
+    group.publish_field_writes(intent.id, own, &writes).await?;
+    bo_group.sync().await?;
+    assert_eq!(
+        bo_group.map_value(&names, &FieldKey::InboxId(own))?,
+        Some(string("Al"))
+    );
+}
+
+/// A write of `value` to the writer's own display name.
+fn display_name(value: &str) -> Vec<FieldWrite> {
+    vec![FieldWrite {
+        component_id: ComponentId::USER_DISPLAY_NAME,
+        component_type: ComponentType::TlsMapInboxIdString,
+        operation: WriteOperation::SetOwn(value.as_bytes().to_vec()),
+    }]
+}
+
+/// Publish only the proposals of `writes` by `own`, so a member that syncs
+/// holds them pending with no commit.
+async fn publish_proposals<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    own: InboxId,
+    writes: Vec<FieldWrite>,
+) -> Result<(), GroupError> {
+    let mut payloads = state_write(group.context.mls_storage(), |tx| {
+        tx.with_group(group.group_id, |mls_group, storage| {
+            let publish = apply_app_data_update_intent(
+                storage,
+                mls_group,
+                AppDataUpdateIntentData::Fields(writes),
+                own,
+                &[],
+                &group.context.identity().installation_keys,
+                false,
+            )?;
+            Ok::<_, GroupError>(Continue(publish.expect("a commit").payloads_to_publish))
+        })
+    })?
+    .into_continued();
+    payloads.pop().expect("the commit");
+    let messages = group.prepare_group_messages(
+        payloads
+            .iter()
+            .map(|payload| (payload.as_slice(), false))
+            .collect(),
+    )?;
+    group.context.api().send_group_messages(messages).await?;
+    Ok(())
 }
 
 /// A queued field write is authorized again when its commit is built, so

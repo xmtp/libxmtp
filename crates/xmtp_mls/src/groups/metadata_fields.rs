@@ -27,7 +27,7 @@ use xmtp_mls_common::{
 
 use super::{
     GroupError, MlsGroup,
-    app_data::sender_intents::resolve_field_writes,
+    app_data::sender_intents::{field_writes_commit, resolve_field_writes},
     intents::{AppDataUpdateIntentData, QueueIntent},
 };
 use crate::context::XmtpSharedContext;
@@ -139,7 +139,9 @@ where
     /// call, so success is true at that point, and a commit that lands
     /// later is a later write, as it would be after a commit of ours. The
     /// publisher cannot make this call instead: it publishes before it
-    /// receives, so it sees the same local state.
+    /// receives, so it sees the same local state. A write that pending
+    /// proposals already carry out still commits them, here and when it
+    /// is published, so success never rests on an uncommitted value.
     async fn write_fields(
         &self,
         plan: impl FnOnce(&FieldSnapshot<'_>) -> Result<Vec<FieldWrite>, FieldError>,
@@ -154,8 +156,7 @@ where
                 .app_data_dictionary()
                 .map(|extension| extension.dictionary());
             let writes = plan(&FieldSnapshot::new(committed, &[])?)?;
-            let changes = !resolve_field_writes(group, own, &writes)?.is_empty();
-            Ok(changes.then_some(writes))
+            Ok(field_writes_commit(group, own, &writes)?.map(|_| writes))
         })?;
         let Some(writes) = writes else {
             return Ok(());
