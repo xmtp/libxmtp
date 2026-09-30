@@ -229,12 +229,7 @@ where
             let mut highest_consumed = None;
             for row in consumed {
                 highest_consumed = Some(row.inserted_at_ns);
-                let Ok(msg) = DecodedMessage::try_from(row)
-                    .inspect_err(|err| tracing::warn!("Failed to decode group update {err:?}"))
-                else {
-                    continue;
-                };
-                let MessageBody::GroupUpdated(update) = msg.content else {
+                let MessageBody::GroupUpdated(update) = DecodedMessage::from(row).content else {
                     continue;
                 };
 

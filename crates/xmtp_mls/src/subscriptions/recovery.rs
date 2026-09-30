@@ -14,6 +14,12 @@ pub(crate) const RECOVERY_POLL: Duration = Duration::from_secs(1);
 /// authorization refusals, and blocked connections end recovery immediately.
 // implements: PROC-021, AUTH-022, AUTH-025, CONF-075, API-284
 fn terminal_source(error: &(dyn std::error::Error + 'static)) -> bool {
+    // Admission failures end the scopes present at the attempt, not a later
+    // reader that copies the shared transport's old failure counters.
+    if xmtp_api::preflight::failure(error).is_some() {
+        return false;
+    }
+
     use xmtp_common::RetryableError;
     use xmtp_proto::api::{ApiClientError, AuthError};
 
@@ -71,6 +77,10 @@ fn terminal_source(error: &(dyn std::error::Error + 'static)) -> bool {
 
 /// These replies prohibit an unchanged request.
 pub(crate) fn rejected_request(error: &(dyn std::error::Error + 'static)) -> bool {
+    if xmtp_api::preflight::failure(error).is_some() {
+        return false;
+    }
+
     use xmtp_proto::api::ApiClientError;
 
     if let Some(status) = error.downcast_ref::<tonic::Status>() {

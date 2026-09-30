@@ -110,7 +110,7 @@ mock! {
         fn insert_newer_consent_record(
             &self,
             record: crate::consent_record::StoredConsentRecord,
-        ) -> Result<bool, crate::ConnectionError>;
+        ) -> Result<crate::consent_record::ConsentMerge, crate::ConnectionError>;
 
         fn insert_or_replace_consent_records(
             &self,
@@ -733,6 +733,13 @@ mock! {
             order_by: RemoteCommitLogOrder,
         ) -> Result<Vec<RemoteCommitLog>, crate::ConnectionError>;
 
+    }
+
+    impl QueryRestoredGroupMetadata for DbQuery {
+        fn restored_group_metadata(&self, group_id: &GroupId) -> Result<Option<crate::restored_group_metadata::StoredRestoredGroupMetadata>, StorageError>;
+        fn restored_group_history(&self, group_id: &GroupId) -> Result<Option<xmtp_proto::xmtp::device_sync::group_backup::GroupSave>, StorageError>;
+        fn restored_group_histories(&self, group_ids: &[GroupId]) -> Result<std::collections::HashMap<GroupId, xmtp_proto::xmtp::device_sync::group_backup::GroupSave>, StorageError>;
+        fn delete_restored_group_metadata(&self, group_id: &GroupId) -> Result<bool, StorageError>;
     }
 
     impl QueryServerConfiguration for DbQuery {

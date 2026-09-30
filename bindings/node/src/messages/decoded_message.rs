@@ -68,7 +68,9 @@ impl TryFrom<XmtpDecodedMessage> for DecodedMessage {
       kind: msg.metadata.kind.into(),
       sender_installation_id: hex::encode(&msg.metadata.sender_installation_id),
       sender_inbox_id: msg.metadata.sender_inbox_id.clone(),
-      content_type: msg.metadata.content_type.clone().into(),
+      // This legacy field is required; an absent received identifier is empty
+      // here and `content.undecodable.contentType` carries the true value.
+      content_type: msg.metadata.content_type.clone().unwrap_or_default().into(),
       conversation_id: hex::encode(msg.metadata.group_id),
       fallback: msg.fallback_text.clone(),
       delivery_status: msg.metadata.delivery_status.into(),

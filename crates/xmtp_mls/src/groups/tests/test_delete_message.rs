@@ -1091,6 +1091,160 @@ async fn test_reply_to_deleted_message() {
     assert_eq!(in_reply_to.num_replies, 0);
 }
 
+/// An authorized deletion leaves no original evidence on the placeholder
+/// or on a reply's parent: no body, fallback, or original type.
+// verifies: PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn deletion_clears_original_evidence_on_message_and_parent() {
+    use crate::messages::enrichment::deleted_message_content_type;
+    use xmtp_content_types::reply::ReplyCodec;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+
+    let mut text_content = TextCodec::encode("secret-body".to_string())?;
+    text_content.fallback = Some("secret-fallback".to_string());
+    text_content
+        .parameters
+        .insert("note".to_string(), "secret-parameter".to_string());
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let original_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    let bo_group = &bo.sync_welcomes().await?[0];
+    bo_group.sync().await?;
+    let reply_content = ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: hex::encode(&original_id),
+        reference_inbox_id: None,
+        content: TextCodec::encode("reply".to_string())?,
+    })?;
+    let reply_bytes = xmtp_content_types::encoded_content_to_bytes(reply_content);
+    let reply_id = bo_group
+        .send_message(&reply_bytes, SendMessageOpts::default())
+        .await?;
+    alix_group.sync().await?;
+
+    let before = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
+    let original = before
+        .iter()
+        .find(|m| m.metadata.id == original_id)
+        .unwrap();
+    assert_eq!(original.fallback_text.as_deref(), Some("secret-fallback"));
+
+    alix_group.delete_message(original_id.clone())?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+    alix_group.sync().await?;
+
+    let after = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
+    let placeholder = after.iter().find(|m| m.metadata.id == original_id).unwrap();
+    let MessageBody::Reply(reply) = &after
+        .iter()
+        .find(|m| m.metadata.id == reply_id)
+        .unwrap()
+        .content
+    else {
+        panic!("expected reply");
+    };
+    let parent = reply.in_reply_to.as_deref().expect("reply parent");
+    for (path, message) in [("message", placeholder), ("parent", parent)] {
+        assert!(
+            matches!(message.content, MessageBody::DeletedMessage { .. }),
+            "{path}"
+        );
+        assert_eq!(
+            message.metadata.content_type,
+            Some(deleted_message_content_type()),
+            "{path} kept the original type"
+        );
+        assert_eq!(message.fallback_text, None, "{path} kept the fallback");
+        assert!(
+            !format!("{message:?}").contains("secret"),
+            "{path} kept original evidence: {message:?}"
+        );
+    }
+}
+
+/// A row with a deletable type whose payload does not decode is kept as
+/// undecodable content; an authorized deletion clears its bytes and fallback
+/// on the placeholder and on a reply's parent.
+// verifies: CTYPE-018, PROC-037
+#[xmtp_common::test(unwrap_try = true)]
+async fn deletion_clears_an_undecodable_deletable_row_and_parent() {
+    use crate::messages::decoded_message::ContentDecodeFailureKind;
+    use xmtp_content_types::reply::ReplyCodec;
+
+    tester!(alix);
+    tester!(bo);
+    let alix_group = alix.create_group(None, None)?;
+    alix_group.add_members(&[bo.inbox_id()]).await?;
+
+    let mut text_content = TextCodec::encode("placeholder".to_string())?;
+    text_content.content = vec![0xff, 0xfe];
+    text_content.fallback = Some("secret-fallback".to_string());
+    let text_bytes = xmtp_content_types::encoded_content_to_bytes(text_content);
+    let original_id = alix_group
+        .send_message(&text_bytes, SendMessageOpts::default())
+        .await?;
+
+    let bo_group = &bo.sync_welcomes().await?[0];
+    bo_group.sync().await?;
+    let reply_content = ReplyCodec::encode(xmtp_content_types::reply::Reply {
+        reference: hex::encode(&original_id),
+        reference_inbox_id: None,
+        content: TextCodec::encode("reply".to_string())?,
+    })?;
+    let reply_id = bo_group
+        .send_message(
+            &xmtp_content_types::encoded_content_to_bytes(reply_content),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    alix_group.sync().await?;
+
+    let before = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
+    let original = before
+        .iter()
+        .find(|m| m.metadata.id == original_id)
+        .unwrap();
+    assert!(
+        matches!(&original.content, MessageBody::Undecodable(content)
+        if content.raw_bytes == text_bytes
+            && content.failure.kind == ContentDecodeFailureKind::CodecDecodeFailed)
+    );
+
+    alix_group.delete_message(original_id.clone())?;
+    alix_group.publish_messages().await?;
+    bo_group.sync().await?;
+    alix_group.sync().await?;
+
+    let after = alix_group.find_messages_v2(&MsgQueryArgs::default())?;
+    let placeholder = after.iter().find(|m| m.metadata.id == original_id).unwrap();
+    let MessageBody::Reply(reply) = &after
+        .iter()
+        .find(|m| m.metadata.id == reply_id)
+        .unwrap()
+        .content
+    else {
+        panic!("expected reply");
+    };
+    let parent = reply.in_reply_to.as_deref().expect("reply parent");
+    for (path, message) in [("message", placeholder), ("parent", parent)] {
+        assert!(
+            matches!(message.content, MessageBody::DeletedMessage { .. }),
+            "{path}: {:?}",
+            message.content
+        );
+        assert_eq!(message.fallback_text, None, "{path} kept the fallback");
+        let debug = format!("{message:?}");
+        assert!(!debug.contains("secret"), "{path} kept the fallback text");
+        assert!(!debug.contains("255, 254"), "{path} kept the raw bytes");
+    }
+}
+
 /// Test that cross-group deletion attempts are rejected
 #[xmtp_common::test(unwrap_try = true)]
 async fn test_cannot_delete_message_from_different_group() {

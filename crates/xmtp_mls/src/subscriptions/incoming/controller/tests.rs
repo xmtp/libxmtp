@@ -552,7 +552,7 @@ fn reopening_after_the_last_release_keeps_the_controller_alive() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_second_scope_captures_a_fresh_target_on_the_shared_registration() {
     let mut context = context();
-    Arc::get_mut(&mut context.api_client.api_client)
+    Arc::get_mut(context.api_client.api_client.raw_mut_for_test().unwrap())
         .unwrap()
         .expect_query_newest()
         .times(1)

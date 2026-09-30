@@ -12803,6 +12803,7 @@ dependencies = [
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_cryptography",
+ "xmtp_events",
  "xmtp_id",
  "xmtp_mls_validation",
  "xmtp_proto",

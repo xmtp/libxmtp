@@ -78,7 +78,6 @@ async fn transcript_types_are_never_sent() {
         alix.context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count()
@@ -153,7 +152,6 @@ async fn stored_reserved_message_fails_at_publish() {
         alix.context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count()
@@ -211,7 +209,6 @@ async fn queued_reserved_intent_fails_without_blocking_later_sends() {
         alix.context
             .api()
             .api_client
-            .as_ref()
             .mls_stats()
             .publish
             .get_count()

@@ -68,6 +68,11 @@ pub(crate) async fn list_local(
         .iter()
         .map(|item| item.group.group_id)
         .collect::<Vec<_>>();
+    // A Restored conversation reports its archived metadata, never its placeholder.
+    // Read it before the contexts. Activation is one-way, so a recorded group
+    // that is absent here was already activated when its context is read.
+    let mut histories = xmtp_mls::groups::restored_metadata(&client.context.db(), &ids)
+        .map_err(XmtpError::unknown)?;
     let contexts = client
         .context
         .mls_storage()
@@ -75,20 +80,25 @@ pub(crate) async fn list_local(
         .map_err(XmtpError::unknown)?;
     let mut result = Vec::with_capacity(items.len());
     for item in items {
-        let context = contexts
-            .get(&item.group.group_id)
-            .ok_or_else(|| XmtpError::unknown("conversation group context is missing"))?;
-        let seed = read_group_metadata_from_extensions(context.extensions())
-            .map_err(XmtpError::unknown)?
-            .ok_or_else(|| XmtpError::unknown("conversation metadata is missing"))?;
-        let metadata = GroupMetadata::try_from(GroupMetadataV1 {
-            conversation_type: seed.conversation_type,
-            creator_inbox_id: seed.creator_inbox_id,
-            creator_account_address: String::new(),
-            dm_members: seed.dm_members,
-            oneshot_message: seed.oneshot,
-        })
-        .map_err(XmtpError::unknown)?;
+        let metadata = match histories.remove(&item.group.group_id) {
+            Some(metadata) => metadata,
+            None => {
+                let context = contexts
+                    .get(&item.group.group_id)
+                    .ok_or_else(|| XmtpError::unknown("conversation group context is missing"))?;
+                let seed = read_group_metadata_from_extensions(context.extensions())
+                    .map_err(XmtpError::unknown)?
+                    .ok_or_else(|| XmtpError::unknown("conversation metadata is missing"))?;
+                GroupMetadata::try_from(GroupMetadataV1 {
+                    conversation_type: seed.conversation_type,
+                    creator_inbox_id: seed.creator_inbox_id,
+                    creator_account_address: String::new(),
+                    dm_members: seed.dm_members,
+                    oneshot_message: seed.oneshot,
+                })
+                .map_err(XmtpError::unknown)?
+            }
+        };
         let identity = ConversationIdentity::from_metadata(
             item.added_by_inbox_id,
             &metadata,

@@ -91,6 +91,10 @@ const getContentFromDecodedMessageContent = <T = unknown>(
     case "custom": {
       return content.content as T;
     }
+    case "undecodable": {
+      // Exact bytes, received identifier and fallback, and the typed cause.
+      return content.content as T;
+    }
     default:
       content satisfies never;
       return null as T;
@@ -148,6 +152,9 @@ const getContentTypeFromDecodedMessageContent = async (
     }
     case "custom": {
       return content.content.type;
+    }
+    case "undecodable": {
+      return content.content.contentType;
     }
     default:
       content satisfies never;

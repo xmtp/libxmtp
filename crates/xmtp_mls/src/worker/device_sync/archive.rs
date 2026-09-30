@@ -1,63 +1,14 @@
-use std::collections::HashMap;
-
 use super::DeviceSyncError;
-use crate::{
-    context::XmtpSharedContext,
-    groups::{MlsGroup, group_permissions::PolicySet},
-    worker::device_sync::MissingField,
-};
+use crate::{context::XmtpSharedContext, groups::MlsGroup};
 use futures::{Stream, StreamExt};
 pub use xmtp_archive::*;
-use xmtp_db::{
-    ConnectionExt, XmtpMlsStorageProvider,
-    consent_record::StoredConsentRecord,
-    group::{ConversationType, GroupMembershipState},
-    group_message::StoredGroupMessage,
-    prelude::*,
-};
-use xmtp_mls_common::group::GroupMetadataOptions;
-use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
+use xmtp_db::{consent_record::StoredConsentRecord, group_message::StoredGroupMessage, prelude::*};
 use xmtp_proto::xmtp::device_sync::{BackupElement, backup_element::Element};
 
 use xmtp_events::{ArchiveRestored, ClientEvent, EventWriter};
-use xmtp_proto::types::GroupId;
 #[derive(Default)]
 struct ImportContext {
-    group_timestamps: HashMap<Vec<u8>, Option<i64>>,
     changed: bool,
-}
-
-impl ImportContext {
-    fn post_import(&mut self, context: &impl XmtpSharedContext) -> Result<(), DeviceSyncError> {
-        use xmtp_db::diesel::prelude::*;
-        use xmtp_db::schema::groups::dsl;
-
-        // Keep a newer timestamp written by message receipt during the import.
-        // Each group update acquires the writer and uses the current row value.
-        for (group_id, timestamp) in &self.group_timestamps {
-            let Some(timestamp) = *timestamp else {
-                continue;
-            };
-            let changed = crate::state_tx::state_write(context.mls_storage(), |tx| {
-                let storage = tx.storage();
-                let changed = storage.db().raw_query(|conn| {
-                    xmtp_db::diesel::update(dsl::groups.find(group_id))
-                        .filter(
-                            dsl::last_message_ns
-                                .is_null()
-                                .or(dsl::last_message_ns.lt(timestamp)),
-                        )
-                        .set(dsl::last_message_ns.eq(Some(timestamp)))
-                        .execute(conn)
-                })?;
-                Ok::<_, xmtp_db::StorageError>(xmtp_db::TransactionOutcome::Continue(changed > 0))
-            })?
-            .into_continued();
-            self.changed |= changed;
-        }
-
-        Ok(())
-    }
 }
 
 pub async fn insert_importer(
@@ -85,14 +36,6 @@ where
         Ok(())
     }
     .await;
-    // Completed elements stay after a later failure, so apply the
-    // archived activity of every accepted group on both outcomes. The import
-    // error, if any, is the one reported.
-    let flushed = import_ctx.post_import(context);
-    if let (Err(_), Err(error)) = (&result, &flushed) {
-        tracing::warn!("archived group activity was not applied after a failed import: {error}");
-    }
-    let result = result.and(flushed);
     if import_ctx.changed {
         context.events().emit(
             Some(ClientEvent::ArchiveRestored(ArchiveRestored {
@@ -116,87 +59,11 @@ fn insert(
     match element {
         Element::Consent(consent) => {
             let consent: StoredConsentRecord = consent.try_into()?;
-            import_context.changed |= context.db().insert_newer_consent_record(consent)?;
+            // A stored element counts as a restore even when only its time moved.
+            import_context.changed |= context.db().insert_newer_consent_record(consent)?.applied;
         }
         Element::Group(save) => {
-            // Propagate a lookup error (incl. a dropped pool); only a genuine
-            // "not found" falls through to restore the group.
-            if let Some(existing_group) = context
-                .db()
-                .find_group(&GroupId::try_from(save.id.as_slice())?)?
-            {
-                let timestamp = match (existing_group.last_message_ns, save.last_message_ns) {
-                    (Some(e), Some(s)) => Some(e.max(s)),
-                    (None, Some(s)) => Some(s),
-                    (Some(e), None) => Some(e),
-                    (None, None) => None,
-                };
-
-                import_context
-                    .group_timestamps
-                    .insert(existing_group.id.to_vec(), timestamp);
-                // Do not restore groups that already exist.
-                return Ok(());
-            }
-
-            let conversation_type = save.conversation_type().try_into()?;
-            let attributes = save
-                .mutable_metadata
-                .map(|m| m.attributes)
-                .unwrap_or_default();
-
-            // Imported messages update this field from their sent time.
-            // Keep the archive timestamp too, including messages omitted by export filters.
-            import_context
-                .group_timestamps
-                .insert(save.id.clone(), save.last_message_ns);
-            let message_disappearing_settings =
-                match (save.message_disappear_from_ns, save.message_disappear_in_ns) {
-                    (Some(from_ns), Some(in_ns)) => {
-                        Some(MessageDisappearingSettings::new(from_ns, in_ns))
-                    }
-                    _ => None,
-                };
-
-            let metadata_options = GroupMetadataOptions {
-                name: attributes.get("group_name").cloned(),
-                image_url_square: attributes.get("group_image_url_square").cloned(),
-                description: attributes.get("description").cloned(),
-                app_data: attributes.get("app_data").cloned(),
-                message_disappearing_settings,
-            };
-            match conversation_type {
-                ConversationType::Dm => {
-                    let Some(dm_id) = save.dm_id else {
-                        return Err(DeviceSyncError::MissingField(
-                            MissingField::Conversation(super::ConversationField::DmId),
-                            format!("DM with id of {:?} was missing the dm_id field.", save.id),
-                        ));
-                    };
-
-                    let pair = crate::groups::parse_canonical_dm_id(Some(&dm_id))?;
-
-                    MlsGroup::create_restored_dm_and_insert(
-                        context,
-                        pair,
-                        metadata_options,
-                        &save.id,
-                    )?;
-                }
-                _ => {
-                    MlsGroup::insert(
-                        context,
-                        Some(&save.id),
-                        GroupMembershipState::Restored,
-                        conversation_type,
-                        PolicySet::default(),
-                        metadata_options,
-                        None,
-                        false,
-                    )?;
-                }
-            }
-            import_context.changed = true;
+            import_context.changed |= MlsGroup::restore_from_archive(context, &save)?;
         }
         Element::GroupMessage(message) => {
             let message: StoredGroupMessage = message.try_into()?;
@@ -224,6 +91,7 @@ mod tests {
     use xmtp_archive::exporter;
     use xmtp_cryptography::utils::generate_local_wallet;
     use xmtp_db::group_message::MsgQueryArgs;
+    use xmtp_db::{ConnectionExt, group::GroupMembershipState};
     use xmtp_db::{
         consent_record::StoredConsentRecord,
         group::StoredGroup,
@@ -234,6 +102,7 @@ mod tests {
         group::{DMMetadataOptions, GroupMetadataOptions},
         group_mutable_metadata::MessageDisappearingSettings,
     };
+    use xmtp_proto::types::GroupId;
 
     /// Runs `on_first` once, when the export first writes past the archive
     /// header, which happens while the snapshot's read transaction is open.
@@ -455,19 +324,89 @@ mod tests {
         ));
     }
 
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archived_consent_keeps_the_latest_record() {
+        tester!(alix, disable_workers);
+        let records = [
+            (xmtp_db::consent_record::ConsentState::Allowed, 10),
+            (xmtp_db::consent_record::ConsentState::Allowed, 30),
+            (xmtp_db::consent_record::ConsentState::Denied, 20),
+        ];
+        let mut elements = futures::stream::iter(records.map(|(state, consented_at_ns)| {
+            let record = StoredConsentRecord {
+                entity_type: xmtp_db::consent_record::ConsentType::InboxId,
+                state,
+                entity: "archived-inbox".into(),
+                consented_at_ns,
+            };
+            Ok::<_, std::io::Error>(BackupElement {
+                element: Some(Element::Consent(record.into())),
+            })
+        }));
+        insert_elements(&mut elements, &alix.context).await?;
+        let stored = alix
+            .db()
+            .get_consent_record(
+                "archived-inbox".into(),
+                xmtp_db::consent_record::ConsentType::InboxId,
+            )?
+            .unwrap();
+        assert_eq!(stored.state, xmtp_db::consent_record::ConsentState::Allowed);
+        assert_eq!(stored.consented_at_ns, 30);
+    }
+
+    /// An import that only moves a stored record's time still stored an
+    /// element, so it reports a restore.
+    // verifies: EVENT-001
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn archived_consent_time_move_reports_a_restore() {
+        tester!(alix, disable_workers);
+        let events = alix.context.events().subscribe(
+            xmtp_events::EventFilter::new([xmtp_events::EventKind::ArchiveRestored]),
+            Some(4),
+        );
+        let record = |consented_at_ns| StoredConsentRecord {
+            entity_type: xmtp_db::consent_record::ConsentType::InboxId,
+            state: xmtp_db::consent_record::ConsentState::Allowed,
+            entity: "time-move".into(),
+            consented_at_ns,
+        };
+        assert!(alix.db().insert_newer_consent_record(record(10))?.applied);
+        let mut elements = futures::stream::iter([Ok::<_, std::io::Error>(BackupElement {
+            element: Some(Element::Consent(record(30).into())),
+        })]);
+        insert_elements(&mut elements, &alix.context).await?;
+        let stored = alix
+            .db()
+            .get_consent_record(
+                "time-move".into(),
+                xmtp_db::consent_record::ConsentType::InboxId,
+            )?
+            .unwrap();
+        assert_eq!(stored.consented_at_ns, 30);
+        assert!(matches!(
+            events.drain().as_slice(),
+            [xmtp_events::EventEnvelope {
+                client: Some(ClientEvent::ArchiveRestored(restored)), ..
+            }] if restored.complete
+        ));
+    }
+
     #[xmtp_common::test(unwrap_try = true)]
     async fn archive_timestamp_keeps_a_message_received_during_import() {
         tester!(alix, disable_workers);
         let group = alix.create_group(None, None)?;
-        let mut pending_import = ImportContext {
-            group_timestamps: [(group.group_id.to_vec(), Some(0))].into(),
+        let save = xmtp_proto::xmtp::device_sync::group_backup::GroupSave {
+            id: group.group_id.to_vec(),
+            last_message_ns: Some(0),
             ..Default::default()
         };
 
         group.send_message_optimistic(b"message during import", Default::default())?;
         let current = alix.db().find_group(&group.group_id)??.last_message_ns;
         assert!(current > Some(0));
-        pending_import.post_import(&alix.context)?;
+        MlsGroup::restore_from_archive(&alix.context, &save)?;
         assert_eq!(
             alix.db().find_group(&group.group_id)??.last_message_ns,
             current
@@ -1398,3 +1337,6 @@ mod tests {
         assert_eq!(restored_second.group_name()?, "second group name");
     }
 }
+
+#[cfg(test)]
+mod restored_tests;

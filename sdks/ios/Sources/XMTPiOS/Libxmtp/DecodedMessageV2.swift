@@ -2,6 +2,10 @@ import Foundation
 
 public typealias Intent = FfiIntent
 public typealias Actions = FfiActions
+/// Received content the client could not decode: exact bytes, the received
+/// identifier and fallback when present, and the typed cause.
+public typealias UndecodableContent = FfiUndecodableContent
+public typealias ContentDecodeFailureKind = FfiContentDecodeFailureKind
 
 public struct DecodedMessageV2: Identifiable {
 	private let ffiMessage: FfiDecodedMessage
@@ -83,6 +87,8 @@ public struct DecodedMessageV2: Identifiable {
 				return text.content
 			case let .custom(encodedContent):
 				return encodedContent.fallback ?? ""
+			case let .undecodable(content):
+				return content.fallback ?? ""
 			case .leaveRequest:
 				return "A member has requested leaving the group"
 			default:
@@ -162,6 +168,9 @@ public struct DecodedMessageV2: Identifiable {
 			let codec = Client.codecRegistry.find(for: encoded.type)
 			return try codec.decode(content: encoded)
 
+		case let .undecodable(content):
+			return content
+
 		case let .intent(intent):
 			return intent
 
@@ -236,6 +245,8 @@ public struct DecodedMessageV2: Identifiable {
 			let encoded = try mapFfiEncodedContent(ffiEncodedContent)
 			let codec = Client.codecRegistry.find(for: encoded.type)
 			return try codec.decode(content: encoded)
+		case let .undecodable(content):
+			return content
 		case let .intent(intent):
 			return intent as Intent
 		case let .actions(actions):
@@ -291,6 +302,14 @@ public struct DecodedMessageV2: Identifiable {
 				// Return a default content type if none is specified
 				ContentTypeText
 			}
+		case let .undecodable(content):
+			// The received identifier, or an empty one: never a substitute type.
+			ContentTypeID(
+				authorityID: content.contentType?.authorityId ?? "",
+				typeID: content.contentType?.typeId ?? "",
+				versionMajor: Int(content.contentType?.versionMajor ?? 0),
+				versionMinor: Int(content.contentType?.versionMinor ?? 0)
+			)
 		case .intent:
 			ContentTypeID(
 				authorityID: "coinbase.com",

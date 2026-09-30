@@ -912,7 +912,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 continue;
             }
             if let Some(state) = self.state.consumer_recovery.lock().get_mut(&id) {
-                if attempted {
+                if attempted && xmtp_api::preflight::failure(cause.as_ref()).is_none() {
                     state.record_query_failure(
                         topic,
                         cause.clone(),
@@ -1053,8 +1053,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     fn open_error(&mut self, error: NetworkError) {
+        let preflight = xmtp_api::preflight::failure(&error).is_some();
         let rejected = crate::subscriptions::recovery::rejected_request(&error);
         self.source_error(error);
+        if preflight && let Some(cause) = self.transport.error.clone() {
+            self.apply_rejected_open(cause);
+        }
         if rejected
             && let (Some(request), Some(cause)) = (
                 self.transport.attempted_open.clone(),
@@ -1426,12 +1430,16 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 if scope.topics.contains(&topic)
                     && let Some(state) = consumers.get_mut(id)
                 {
-                    state.record_query_failure(
-                        &topic,
-                        cause.clone(),
-                        self.transport.recovery.failures,
-                        now,
-                    );
+                    if xmtp_api::preflight::failure(cause.as_ref()).is_some() {
+                        state.reject(cause.clone());
+                    } else {
+                        state.record_query_failure(
+                            &topic,
+                            cause.clone(),
+                            self.transport.recovery.failures,
+                            now,
+                        );
+                    }
                 }
             }
             drop(consumers);

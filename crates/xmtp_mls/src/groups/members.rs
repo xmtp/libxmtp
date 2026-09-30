@@ -84,7 +84,7 @@ where
                 return Err(GroupError::InvalidGroupMembership);
             }
         }
-        let mutable_metadata = self.mutable_metadata()?;
+        let mutable_metadata = self.live_mutable_metadata()?;
         let members = association_states
             .into_iter()
             .map(|association_state| {

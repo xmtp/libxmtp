@@ -263,7 +263,7 @@ mod tests {
         assert_eq!(deleted.metadata.sender_inbox_id, sender_inbox_id);
         assert_eq!(
             deleted.metadata.content_type,
-            deleted_message_content_type(),
+            Some(deleted_message_content_type()),
             "the deletion item has no content type"
         );
         match &deleted.content {

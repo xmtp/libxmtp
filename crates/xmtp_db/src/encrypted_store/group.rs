@@ -841,21 +841,26 @@ impl<C: ConnectionExt> QueryGroup for DbConnection<C> {
     }
 
     /// Newest local join time first; on an equal time, the greatest id first.
-    // implements: SYNC-002
+    /// A Restored placeholder is never selected: its archived time is
+    /// import-controlled and the group cannot send or process traffic.
+    // implements: SYNC-002, ARCH-015
     #[xmtp_common::db_span]
     fn all_sync_groups(&self) -> Result<Vec<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .order(dsl::created_at_ns.desc())
             .then_order_by(dsl::id.desc())
-            .filter(dsl::conversation_type.eq(ConversationType::Sync));
+            .filter(dsl::conversation_type.eq(ConversationType::Sync))
+            .filter(dsl::membership_state.ne(GroupMembershipState::Restored));
 
         self.raw_query(|conn| query.load(conn))
     }
 
+    /// The sync group with this id, unless it is a Restored placeholder.
     #[xmtp_common::db_span]
     fn find_sync_group(&self, id: &GroupId) -> Result<Option<StoredGroup>, crate::ConnectionError> {
         let query = dsl::groups
             .filter(dsl::conversation_type.eq(ConversationType::Sync))
+            .filter(dsl::membership_state.ne(GroupMembershipState::Restored))
             .filter(dsl::id.eq(id));
 
         self.raw_query(|conn| query.first(conn).optional())
@@ -1976,6 +1981,40 @@ pub(crate) mod tests {
                 .map(|group| group.id)
                 .collect();
             assert_eq!(ids, [newer[0], newer[1], older[1], older[0]]);
+        })
+    }
+
+    /// An imported Restored sync group carries an archive-controlled join
+    /// time. It is never selected, however new that time is: only active sync
+    /// groups can publish or process preference updates.
+    // verifies: SYNC-002, ARCH-015
+    #[xmtp_common::test]
+    fn restored_sync_group_is_never_selected() {
+        with_connection(|conn| {
+            let sync_group = |id: u8, created_at_ns, membership_state| {
+                let mut group = generate_group_with_created_at(None, created_at_ns);
+                group.id = GroupId::from([id; 16]);
+                group.conversation_type = ConversationType::Sync;
+                group.membership_state = membership_state;
+                group.store(conn).unwrap();
+                group.id
+            };
+            let active = sync_group(1, 1_000, GroupMembershipState::Allowed);
+            // Newer than the active group, and greater id: it would win on both keys.
+            let restored = sync_group(9, 2_000, GroupMembershipState::Restored);
+
+            let ids: Vec<_> = conn
+                .all_sync_groups()
+                .unwrap()
+                .into_iter()
+                .map(|group| group.id)
+                .collect();
+            assert_eq!(ids, [active]);
+            assert!(conn.find_sync_group(&restored).unwrap().is_none());
+            assert_eq!(
+                conn.find_sync_group(&active).unwrap().map(|group| group.id),
+                Some(active)
+            );
         })
     }
 

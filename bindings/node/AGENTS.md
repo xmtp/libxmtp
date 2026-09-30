@@ -35,7 +35,9 @@ just node test-ci                       # what CI runs (Nix build)
 ## Durable message readers
 
 - Call `checkOwner` before app handoff. Use `enrichedMessage` to read the
-  pending item; a null result requires reselection. Codec errors are terminal.
+  pending item; a null result requires reselection. Content that fails to
+  decode is delivered as `undecodable` with its exact bytes; only a database
+  failure is terminal.
 - `close` releases the default owner. `beginningDeliveryCursor` starts replay
   from the first retained item.
 

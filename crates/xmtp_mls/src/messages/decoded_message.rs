@@ -1,5 +1,4 @@
 use crate::groups::GroupError;
-use crate::messages::enrichment::EnrichMessageError;
 use prost::Message;
 use xmtp_content_types::actions::{Actions, ActionsCodec};
 use xmtp_content_types::group_updated::GroupUpdatedCodec;
@@ -58,6 +57,40 @@ pub enum DeletedBy {
     Admin(String), // inbox_id of the admin who deleted the message
 }
 
+/// Why received content could not be decoded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContentDecodeFailureKind {
+    /// The bytes are not a typed `EncodedContent`: protobuf parsing failed,
+    /// or the content type is absent or incomplete.
+    MalformedEnvelope,
+    /// A complete typed envelope whose compression, payload, or nested
+    /// content failed to decode.
+    CodecDecodeFailed,
+}
+
+/// The typed cause kept beside undecodable content.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContentDecodeFailure {
+    pub kind: ContentDecodeFailureKind,
+    pub message: String,
+}
+
+impl ContentDecodeFailure {
+    fn malformed(message: impl Into<String>) -> Self {
+        Self {
+            kind: ContentDecodeFailureKind::MalformedEnvelope,
+            message: message.into(),
+        }
+    }
+
+    fn codec(message: impl ToString) -> Self {
+        Self {
+            kind: ContentDecodeFailureKind::CodecDecodeFailed,
+            message: message.to_string(),
+        }
+    }
+}
+
 impl DeletedBy {
     /// Who deleted a message: its sender, or the admin with inbox
     /// `deleter_inbox_id`.
@@ -68,6 +101,36 @@ impl DeletedBy {
             DeletedBy::Admin(deleter_inbox_id.to_string())
         }
     }
+}
+
+impl From<ContentDecodeFailure> for CodecError {
+    fn from(failure: ContentDecodeFailure) -> Self {
+        match failure.kind {
+            ContentDecodeFailureKind::MalformedEnvelope => CodecError::InvalidContentType,
+            ContentDecodeFailureKind::CodecDecodeFailed => CodecError::Decode(failure.message),
+        }
+    }
+}
+
+/// A complete typed envelope that no core codec decodes. A host codec may.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomContent {
+    /// The decompressed envelope: the input for a host codec.
+    pub encoded: EncodedContent,
+    /// The exact received serialization of this envelope, before decompression.
+    pub raw_bytes: Vec<u8>,
+}
+
+/// Received content the client could not decode, kept with its exact bytes.
+#[derive(Debug, Clone, PartialEq)]
+pub struct UndecodableContent {
+    /// The parsed envelope, when the bytes parsed as protobuf. This is
+    /// evidence, not codec input: `content` is still compressed when
+    /// `compression` is set, and its type can be incomplete.
+    pub encoded: Option<EncodedContent>,
+    /// The exact received bytes.
+    pub raw_bytes: Vec<u8>,
+    pub failure: ContentDecodeFailure,
 }
 
 #[derive(Debug, Clone)]
@@ -90,7 +153,13 @@ pub enum MessageBody {
     DeletedMessage {
         deleted_by: DeletedBy,
     },
-    Custom(EncodedContent),
+    /// A complete typed envelope with no core codec. A nested custom body
+    /// keeps its own exact bytes.
+    Custom(CustomContent),
+    /// Content that failed to decode, with its exact bytes and typed cause.
+    /// A nested failure makes the outer body undecodable, so this variant
+    /// appears only at the top level.
+    Undecodable(UndecodableContent),
 }
 
 #[derive(Debug, Clone)]
@@ -109,8 +178,10 @@ pub struct DecodedMessageMetadata {
     pub sender_inbox_id: String,
     // The delivery status of the message
     pub delivery_status: DeliveryStatus,
-    // The content type of the message
-    pub content_type: ContentTypeId,
+    /// The received content type identifier, exactly as the envelope carried
+    /// it. Absent when the bytes did not parse or carried no identifier; it
+    /// can be incomplete. The client never substitutes another type.
+    pub content_type: Option<ContentTypeId>,
     // Time in nanoseconds the message was inserted into the database
     pub inserted_at_ns: i64,
     // Timestamp (in NS) after which the message must be deleted
@@ -133,26 +204,82 @@ pub struct DecodedMessage {
 /// Maximum number of reply envelopes inside one message.
 const MAX_REPLY_NESTING_DEPTH: usize = 8;
 
+/// Strict decode of an in-memory envelope. A content failure is an error.
+/// `Custom` raw bytes are this value's serialization, which is the input the
+/// decoder consumed; use [`MessageBody::from_received_bytes`] for received
+/// bytes that must be kept exactly.
 impl TryFrom<EncodedContent> for MessageBody {
     type Error = GroupError;
 
     fn try_from(value: EncodedContent) -> Result<Self, Self::Error> {
-        Self::decode_with_budget(value, &mut compression::DecompressionBudget::new(), 0)
+        let bytes = value.encode_to_vec();
+        Self::decode_bytes(&bytes, &mut compression::DecompressionBudget::new(), 0)
+            .map_err(|failure| GroupError::CodecError(failure.into()))
     }
 }
 
+fn has_complete_type(content: &EncodedContent) -> Option<&ContentTypeId> {
+    content
+        .r#type
+        .as_ref()
+        .filter(|kind| !kind.authority_id.is_empty() && !kind.type_id.is_empty())
+}
+
 impl MessageBody {
-    fn decode_with_budget(
-        value: EncodedContent,
+    /// Decode received content from its exact bytes. Every content failure
+    /// returns `Undecodable` with those bytes; this never fails.
+    // implements: CTYPE-008
+    pub fn from_received_bytes(raw: &[u8]) -> Self {
+        Self::from_received(EncodedContent::decode(raw).ok(), raw)
+    }
+
+    fn from_received(envelope: Option<EncodedContent>, raw: &[u8]) -> Self {
+        let mut budget = compression::DecompressionBudget::new();
+        let result = match envelope {
+            Some(envelope) => Self::decode_envelope(envelope, raw, &mut budget, 0),
+            None => Err(ContentDecodeFailure::malformed(
+                "bytes are not a serialized EncodedContent",
+            )),
+        };
+        result.unwrap_or_else(|failure| {
+            MessageBody::Undecodable(UndecodableContent {
+                encoded: EncodedContent::decode(raw).ok(),
+                raw_bytes: raw.to_vec(),
+                failure,
+            })
+        })
+    }
+
+    fn decode_bytes(
+        raw: &[u8],
         budget: &mut compression::DecompressionBudget,
         depth: usize,
-    ) -> Result<Self, GroupError> {
+    ) -> Result<Self, ContentDecodeFailure> {
+        let envelope = EncodedContent::decode(raw).map_err(|error| {
+            ContentDecodeFailure::malformed(format!(
+                "bytes are not a serialized EncodedContent: {error}"
+            ))
+        })?;
+        Self::decode_envelope(envelope, raw, budget, depth)
+    }
+
+    fn decode_envelope(
+        envelope: EncodedContent,
+        raw: &[u8],
+        budget: &mut compression::DecompressionBudget,
+        depth: usize,
+    ) -> Result<Self, ContentDecodeFailure> {
+        // An untyped envelope is malformed before anything else is checked.
+        let malformed_type =
+            || ContentDecodeFailure::malformed("content type identifier is absent or incomplete");
+        has_complete_type(&envelope).ok_or_else(malformed_type)?;
         // implements: CTYPE-024, CTYPE-025
-        let value = compression::decompress_with_budget(value, budget)?;
-        let content_type = match value.r#type.as_ref() {
-            Some(content_type) => content_type,
-            None => return Err(CodecError::InvalidContentType.into()),
-        };
+        let value = compression::decompress_with_budget(envelope, budget)
+            .map_err(ContentDecodeFailure::codec)?;
+        let content_type = has_complete_type(&value).ok_or_else(malformed_type)?;
+        fn decoded<T>(result: Result<T, CodecError>) -> Result<T, ContentDecodeFailure> {
+            result.map_err(ContentDecodeFailure::codec)
+        }
 
         if content_type.authority_id != "xmtp.org" {
             return match (
@@ -160,82 +287,103 @@ impl MessageBody {
                 content_type.type_id.as_str(),
                 content_type.version_major,
             ) {
-                ("coinbase.com", IntentCodec::TYPE_ID, IntentCodec::MAJOR_VERSION) => {
-                    Ok(MessageBody::Intent(Some(IntentCodec::decode(value)?)))
-                }
-                ("coinbase.com", ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => {
-                    Ok(MessageBody::Actions(Some(ActionsCodec::decode(value)?)))
-                }
-                _ => Ok(MessageBody::Custom(value)),
+                ("coinbase.com", IntentCodec::TYPE_ID, IntentCodec::MAJOR_VERSION) => Ok(
+                    MessageBody::Intent(Some(decoded(IntentCodec::decode(value))?)),
+                ),
+                ("coinbase.com", ActionsCodec::TYPE_ID, ActionsCodec::MAJOR_VERSION) => Ok(
+                    MessageBody::Actions(Some(decoded(ActionsCodec::decode(value))?)),
+                ),
+                _ => Ok(MessageBody::Custom(CustomContent {
+                    encoded: value,
+                    raw_bytes: raw.to_vec(),
+                })),
             };
         }
 
         match (content_type.type_id.as_str(), content_type.version_major) {
             (TextCodec::TYPE_ID, TextCodec::MAJOR_VERSION) => {
-                let text = TextCodec::decode(value)?;
+                let text = decoded(TextCodec::decode(value))?;
                 Ok(MessageBody::Text(Text { content: text }))
             }
             (MarkdownCodec::TYPE_ID, MarkdownCodec::MAJOR_VERSION) => {
-                let markdown = MarkdownCodec::decode(value)?;
+                let markdown = decoded(MarkdownCodec::decode(value))?;
                 Ok(MessageBody::Markdown(Markdown { content: markdown }))
             }
             (AttachmentCodec::TYPE_ID, AttachmentCodec::MAJOR_VERSION) => {
-                let attachment = AttachmentCodec::decode(value)?;
+                let attachment = decoded(AttachmentCodec::decode(value))?;
                 Ok(MessageBody::Attachment(attachment))
             }
             (RemoteAttachmentCodec::TYPE_ID, RemoteAttachmentCodec::MAJOR_VERSION) => {
-                let remote_attachment = RemoteAttachmentCodec::decode(value)?;
+                let remote_attachment = decoded(RemoteAttachmentCodec::decode(value))?;
                 Ok(MessageBody::RemoteAttachment(remote_attachment))
             }
             (ReplyCodec::TYPE_ID, ReplyCodec::MAJOR_VERSION) => {
                 if depth >= MAX_REPLY_NESTING_DEPTH {
-                    return Err(CodecError::Decode(format!(
+                    return Err(ContentDecodeFailure::codec(format!(
                         "reply nesting exceeds {MAX_REPLY_NESTING_DEPTH} levels"
-                    ))
-                    .into());
+                    )));
                 }
-                let reply = ReplyCodec::decode(value)?;
-                let content = Self::decode_with_budget(reply.content, budget, depth + 1)?;
+                // The reference is sender-controlled and kept as received. A
+                // value that is not a message id resolves to no parent; the
+                // reply itself is valid content.
+                let reference_id = value
+                    .parameters
+                    .get("reference")
+                    .cloned()
+                    .unwrap_or_default();
+                // The decompressed outer content is the nested envelope's
+                // exact serialization. A nested failure fails the outer body.
+                // implements: CTYPE-027, CTYPE-028, CTYPE-029
+                let content =
+                    Self::decode_bytes(&value.content, budget, depth + 1).map_err(|failure| {
+                        ContentDecodeFailure::codec(format!(
+                            "nested reply content: {}",
+                            failure.message
+                        ))
+                    })?;
                 Ok(MessageBody::Reply(Reply {
                     in_reply_to: None,
                     content: Box::new(content),
-                    reference_id: reply.reference,
+                    reference_id,
                 }))
             }
             (ReactionCodec::TYPE_ID, ReactionCodec::MAJOR_VERSION) => {
-                let reaction = ReactionCodec::decode(value)?;
+                let reaction = decoded(ReactionCodec::decode(value))?;
                 Ok(MessageBody::Reaction(reaction))
             }
             (LegacyReactionCodec::TYPE_ID, LegacyReactionCodec::MAJOR_VERSION) => {
-                let reaction = LegacyReactionCodec::decode(value)?;
+                let reaction = decoded(LegacyReactionCodec::decode(value))?;
                 Ok(MessageBody::Reaction(reaction.into()))
             }
             (MultiRemoteAttachmentCodec::TYPE_ID, MultiRemoteAttachmentCodec::MAJOR_VERSION) => {
-                let multi_remote_attachment = MultiRemoteAttachmentCodec::decode(value)?;
+                let multi_remote_attachment = decoded(MultiRemoteAttachmentCodec::decode(value))?;
                 Ok(MessageBody::MultiRemoteAttachment(multi_remote_attachment))
             }
             (TransactionReferenceCodec::TYPE_ID, TransactionReferenceCodec::MAJOR_VERSION) => {
-                let transaction_reference = TransactionReferenceCodec::decode(value)?;
+                let transaction_reference = decoded(TransactionReferenceCodec::decode(value))?;
                 Ok(MessageBody::TransactionReference(transaction_reference))
             }
             (GroupUpdatedCodec::TYPE_ID, GroupUpdatedCodec::MAJOR_VERSION) => {
-                let group_updated = GroupUpdatedCodec::decode(value)?;
+                let group_updated = decoded(GroupUpdatedCodec::decode(value))?;
                 Ok(MessageBody::GroupUpdated(group_updated))
             }
             (ReadReceiptCodec::TYPE_ID, ReadReceiptCodec::MAJOR_VERSION) => {
-                let read_receipt = ReadReceiptCodec::decode(value)?;
+                let read_receipt = decoded(ReadReceiptCodec::decode(value))?;
                 Ok(MessageBody::ReadReceipt(read_receipt))
             }
             (WalletSendCallsCodec::TYPE_ID, WalletSendCallsCodec::MAJOR_VERSION) => {
-                let wallet_send_calls = WalletSendCallsCodec::decode(value)?;
+                let wallet_send_calls = decoded(WalletSendCallsCodec::decode(value))?;
                 Ok(MessageBody::WalletSendCalls(wallet_send_calls))
             }
             (LeaveRequestCodec::TYPE_ID, LeaveRequestCodec::MAJOR_VERSION) => {
-                let leave_request = LeaveRequestCodec::decode(value)?;
+                let leave_request = decoded(LeaveRequestCodec::decode(value))?;
                 Ok(MessageBody::LeaveRequest(leave_request))
             }
 
-            _ => Ok(MessageBody::Custom(value)),
+            _ => Ok(MessageBody::Custom(CustomContent {
+                encoded: value,
+                raw_bytes: raw.to_vec(),
+            })),
         }
     }
 }
@@ -261,7 +409,7 @@ impl DecodedMessage {
                 sender_installation_id: value.sender_installation_id,
                 sender_inbox_id: value.sender_inbox_id,
                 delivery_status: value.delivery_status,
-                content_type: crate::messages::enrichment::deleted_message_content_type(),
+                content_type: Some(crate::messages::enrichment::deleted_message_content_type()),
                 inserted_at_ns: value.inserted_at_ns,
                 expires_at_ns: value.expire_at_ns,
             },
@@ -273,32 +421,18 @@ impl DecodedMessage {
     }
 }
 
-impl TryFrom<StoredGroupMessage> for DecodedMessage {
-    type Error = EnrichMessageError;
+/// Decode a stored message from its exact bytes. Content failures are kept
+/// in the body, so every stored row produces a message.
+impl From<StoredGroupMessage> for DecodedMessage {
+    fn from(value: StoredGroupMessage) -> Self {
+        let raw = value.decrypted_message_bytes.as_slice();
+        let envelope = EncodedContent::decode(raw).ok();
+        let (content_type, fallback) = envelope
+            .as_ref()
+            .map(|envelope| (envelope.r#type.clone(), envelope.fallback.clone()))
+            .unwrap_or_default();
+        let content = MessageBody::from_received(envelope, raw);
 
-    fn try_from(value: StoredGroupMessage) -> Result<Self, Self::Error> {
-        // Decode the message content from the stored bytes
-        // If we can't get past this part, we return an error
-        let encoded_content = EncodedContent::decode(&mut value.decrypted_message_bytes.as_slice())
-            .map_err(|_| CodecError::InvalidContentType)?;
-        let content_type_id = encoded_content.r#type.clone().unwrap_or_default();
-        let fallback = encoded_content.fallback.clone();
-
-        let content = match MessageBody::decode_with_budget(
-            encoded_content,
-            &mut compression::DecompressionBudget::new(),
-            0,
-        ) {
-            Ok(content) => content,
-            // The original envelope stays available to the app on decode failure.
-            // implements: CTYPE-008
-            Err(_) => MessageBody::Custom(
-                EncodedContent::decode(value.decrypted_message_bytes.as_slice())
-                    .map_err(|_| CodecError::InvalidContentType)?,
-            ),
-        };
-
-        // Create the metadata
         let metadata = DecodedMessageMetadata {
             id: value.id,
             group_id: value.group_id,
@@ -307,23 +441,19 @@ impl TryFrom<StoredGroupMessage> for DecodedMessage {
             sender_installation_id: value.sender_installation_id,
             sender_inbox_id: value.sender_inbox_id,
             delivery_status: value.delivery_status,
-            content_type: content_type_id,
+            content_type,
             inserted_at_ns: value.inserted_at_ns,
             expires_at_ns: value.expire_at_ns,
         };
 
-        // For now, we'll set default values for reactions and replies
-        // These could be populated later if needed
-        let reactions = Vec::new();
-        let num_replies = 0;
-
-        Ok(DecodedMessage {
+        DecodedMessage {
             metadata,
             content,
             fallback_text: fallback,
-            reactions,
-            num_replies,
-        })
+            // Enrichment fills reactions and reply counts.
+            reactions: Vec::new(),
+            num_replies: 0,
+        }
     }
 }
 
@@ -401,16 +531,16 @@ mod tests {
                 let id = standard.r#type.as_mut().expect("encoded type");
                 id.version_minor = 9;
                 let name = format!("{}/{}", id.authority_id, id.type_id);
-                let decoded = DecodedMessage::try_from(stored_message(standard.clone()))?;
+                let decoded = DecodedMessage::from(stored_message(standard.clone()));
                 assert!(matches!(decoded.content, $standard), "{name} did not decode");
 
                 if standard.r#type.as_ref().expect("encoded type").authority_id != "xmtp.org" {
                     let mut wrong_standard = standard.clone();
                     wrong_standard.r#type.as_mut().expect("encoded type").authority_id =
                         "xmtp.org".into();
-                    let decoded = DecodedMessage::try_from(stored_message(wrong_standard.clone()))?;
+                    let decoded = DecodedMessage::from(stored_message(wrong_standard.clone()));
                     assert!(
-                        matches!(decoded.content, MessageBody::Custom(actual) if actual == wrong_standard),
+                        matches!(decoded.content, MessageBody::Custom(actual) if actual.encoded == wrong_standard),
                         "{name} selected the wrong standard authority"
                     );
                 }
@@ -418,9 +548,9 @@ mod tests {
                 let mut custom = standard;
                 custom.r#type.as_mut().expect("encoded type").authority_id =
                     "custom.example".into();
-                let decoded = DecodedMessage::try_from(stored_message(custom.clone()))?;
+                let decoded = DecodedMessage::from(stored_message(custom.clone()));
                 assert!(
-                    matches!(decoded.content, MessageBody::Custom(actual) if actual == custom),
+                    matches!(decoded.content, MessageBody::Custom(actual) if actual.encoded == custom),
                     "{name} selected a codec for custom.example"
                 );
             }};
@@ -529,27 +659,28 @@ mod tests {
     #[xmtp_common::test(unwrap_try = true)]
     async fn compressed_custom_content_is_decompressed_at_both_levels() {
         let inner = compress(unknown_content(), Compression::Gzip)?;
-        let MessageBody::Custom(top) =
-            DecodedMessage::try_from(stored_message(inner.clone()))?.content
+        let MessageBody::Custom(top) = DecodedMessage::from(stored_message(inner.clone())).content
         else {
             panic!("expected top-level custom content");
         };
-        assert_eq!(top.compression, None);
-        assert_eq!(top.content, b"custom payload");
+        assert_eq!(top.encoded.compression, None);
+        assert_eq!(top.encoded.content, b"custom payload");
+        assert_eq!(top.raw_bytes, inner.encode_to_vec());
 
         let outer = ReplyCodec::encode(EncodedReply {
             reference: "0102".into(),
             reference_inbox_id: None,
             content: inner,
         })?;
-        let MessageBody::Reply(reply) = MessageBody::try_from(outer)? else {
+        let MessageBody::Reply(reply) = MessageBody::try_from(outer.clone())? else {
             panic!("expected reply");
         };
         let MessageBody::Custom(nested) = *reply.content else {
             panic!("expected nested custom content");
         };
-        assert_eq!(nested.compression, None);
-        assert_eq!(nested.content, b"custom payload");
+        assert_eq!(nested.encoded.compression, None);
+        assert_eq!(nested.encoded.content, b"custom payload");
+        assert_eq!(nested.raw_bytes, outer.content);
     }
 
     fn nested_reply(mut content: EncodedContent, levels: usize, pad_to: usize) -> EncodedContent {
@@ -587,12 +718,9 @@ mod tests {
         );
         let bytes = attack.encode_to_vec();
         let mut budget = compression::DecompressionBudget::new();
-        let error = MessageBody::decode_with_budget(attack, &mut budget, 0).unwrap_err();
-        assert!(matches!(
-            error,
-            GroupError::CodecError(CodecError::Decode(message))
-                if message.contains("decompressed content exceeds")
-        ));
+        let failure = MessageBody::decode_bytes(&bytes, &mut budget, 0).unwrap_err();
+        assert_eq!(failure.kind, ContentDecodeFailureKind::CodecDecodeFailed);
+        assert!(failure.message.contains("decompressed content exceeds"));
         assert!(budget.used() > 0);
         assert!(budget.peak_capacity() <= compression::MAX_DECOMPRESSED_BYTES + 65_536);
         eprintln!(
@@ -601,11 +729,18 @@ mod tests {
         );
 
         let expected = EncodedContent::decode(bytes.as_slice())?;
-        let decoded = DecodedMessage::try_from(stored_message(expected.clone()))?;
-        let MessageBody::Custom(original) = decoded.content else {
+        // Decode from the exact bytes: re-encoding a parameter map can
+        // reorder its entries.
+        let decoded = DecodedMessage::from(stored_bytes(bytes.clone()));
+        let MessageBody::Undecodable(original) = decoded.content else {
             panic!("expected preserved decode failure");
         };
-        assert_eq!(original, expected);
+        assert_eq!(original.raw_bytes, bytes);
+        assert_eq!(original.encoded, Some(expected));
+        assert_eq!(
+            original.failure.kind,
+            ContentDecodeFailureKind::CodecDecodeFailed
+        );
     }
 
     // verifies: CTYPE-008
@@ -616,12 +751,14 @@ mod tests {
             MAX_REPLY_NESTING_DEPTH + 1,
             0,
         );
-        let expected = content.clone();
-        let decoded = DecodedMessage::try_from(stored_message(content))?;
-        let MessageBody::Custom(original) = decoded.content else {
+        let bytes = content.encode_to_vec();
+        let decoded = DecodedMessage::from(stored_bytes(bytes.clone()));
+        let MessageBody::Undecodable(original) = decoded.content else {
             panic!("expected preserved decode failure");
         };
-        assert_eq!(original, expected);
+        assert_eq!(original.raw_bytes, bytes);
+        assert_eq!(original.encoded, Some(content));
+        assert!(original.failure.message.contains("reply nesting exceeds"));
     }
 
     // verifies: CTYPE-008, CTYPE-024
@@ -630,12 +767,235 @@ mod tests {
         let mut content = TextCodec::encode("unchanged".into())?;
         content.compression = Some(99);
         let bytes = content.encode_to_vec();
-        let message = stored_message(content);
-        let decoded = DecodedMessage::try_from(message)?;
+        let message = stored_message(content.clone());
+        let decoded = DecodedMessage::from(message);
         assert_eq!(decoded.metadata.id, vec![1, 2, 3]);
-        let MessageBody::Custom(custom) = decoded.content else {
-            panic!("expected original custom content");
+        assert_eq!(decoded.metadata.content_type, content.r#type);
+        let MessageBody::Undecodable(undecodable) = decoded.content else {
+            panic!("expected original undecodable content");
         };
-        assert_eq!(custom.encode_to_vec(), bytes);
+        assert_eq!(undecodable.raw_bytes, bytes);
+        assert_eq!(undecodable.encoded, Some(content));
+        assert_eq!(
+            undecodable.failure.kind,
+            ContentDecodeFailureKind::CodecDecodeFailed
+        );
+        assert!(undecodable.failure.message.contains("unknown compression"));
+    }
+
+    fn stored_bytes(bytes: Vec<u8>) -> StoredGroupMessage {
+        let mut message = stored_message(EncodedContent::default());
+        message.decrypted_message_bytes = bytes;
+        message
+    }
+
+    /// Append an unknown field (number 200, length-delimited) so the exact
+    /// serialization differs from the parsed value's re-encoding.
+    fn with_unknown_field(mut bytes: Vec<u8>) -> Vec<u8> {
+        bytes.extend_from_slice(&[0xc2, 0x0c, 0x03, b'x', b'y', b'z']);
+        bytes
+    }
+
+    // verifies: CTYPE-008, CTYPE-009
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn malformed_bytes_are_kept_with_their_cause() {
+        let decoded = DecodedMessage::from(stored_bytes(vec![0xff]));
+        assert_eq!(decoded.metadata.id, vec![1, 2, 3]);
+        assert_eq!(decoded.metadata.content_type, None);
+        assert_eq!(decoded.fallback_text, None);
+        let MessageBody::Undecodable(undecodable) = decoded.content else {
+            panic!("expected undecodable content, got {:?}", decoded.content);
+        };
+        assert_eq!(undecodable.raw_bytes, vec![0xff]);
+        assert_eq!(undecodable.encoded, None);
+        assert_eq!(
+            undecodable.failure.kind,
+            ContentDecodeFailureKind::MalformedEnvelope
+        );
+    }
+
+    // verifies: CTYPE-008, CTYPE-009
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn absent_or_partial_type_is_malformed_and_keeps_the_partial_identifier() {
+        let mut untyped = TextCodec::encode("text".into())?;
+        untyped.r#type = None;
+        untyped.fallback = Some("kept".into());
+        let mut partial = untyped.clone();
+        partial.r#type = Some(ContentTypeId {
+            authority_id: String::new(),
+            type_id: "text".into(),
+            version_major: 1,
+            version_minor: 0,
+        });
+        // Invalid compression does not change the cause of an untyped envelope.
+        let mut untyped_compressed = untyped.clone();
+        untyped_compressed.compression = Some(99);
+        let mut partial_compressed = partial.clone();
+        partial_compressed.compression = Some(99);
+        for content in [untyped, partial, untyped_compressed, partial_compressed] {
+            let bytes = content.encode_to_vec();
+            let decoded = DecodedMessage::from(stored_bytes(bytes.clone()));
+            assert_eq!(decoded.metadata.content_type, content.r#type);
+            assert_eq!(decoded.fallback_text.as_deref(), Some("kept"));
+            let MessageBody::Undecodable(undecodable) = decoded.content else {
+                panic!("expected undecodable content, got {:?}", decoded.content);
+            };
+            assert_eq!(undecodable.raw_bytes, bytes);
+            assert_eq!(undecodable.encoded, Some(content));
+            assert_eq!(
+                undecodable.failure.kind,
+                ContentDecodeFailureKind::MalformedEnvelope
+            );
+        }
+    }
+
+    // verifies: CTYPE-008, CTYPE-027
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn exact_bytes_survive_at_both_levels() {
+        let nested_bytes = with_unknown_field(unknown_content().encode_to_vec());
+        let mut outer = ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content: unknown_content(),
+        })?;
+        outer.content = nested_bytes.clone();
+        let outer_bytes = with_unknown_field(outer.encode_to_vec());
+
+        let MessageBody::Custom(top) =
+            DecodedMessage::from(stored_bytes(nested_bytes.clone())).content
+        else {
+            panic!("expected custom content");
+        };
+        assert_eq!(top.raw_bytes, nested_bytes);
+        assert_ne!(top.encoded.encode_to_vec(), nested_bytes);
+
+        let MessageBody::Reply(reply) = DecodedMessage::from(stored_bytes(outer_bytes)).content
+        else {
+            panic!("expected reply");
+        };
+        assert_eq!(reply.reference_id, "0102");
+        let MessageBody::Custom(nested) = *reply.content else {
+            panic!("expected nested custom content");
+        };
+        assert_eq!(nested.raw_bytes, nested_bytes);
+        assert_eq!(nested.encoded.content, b"custom payload");
+    }
+
+    // verifies: CTYPE-008, CTYPE-029
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn nested_failures_make_the_outer_reply_undecodable() {
+        let reply_with = |nested: Vec<u8>| {
+            let mut outer = ReplyCodec::encode(EncodedReply {
+                reference: "0102".into(),
+                reference_inbox_id: None,
+                content: TextCodec::encode("placeholder".into()).unwrap(),
+            })
+            .unwrap();
+            outer.content = nested;
+            outer.fallback = Some("outer fallback".into());
+            outer
+        };
+        let mut untyped = TextCodec::encode("nested".into())?;
+        untyped.r#type = None;
+        let mut bad_compression = TextCodec::encode("nested".into())?;
+        bad_compression.compression = Some(99);
+        let mut bad_text = TextCodec::encode("nested".into())?;
+        bad_text.content = vec![0xff, 0xfe];
+        let cases = [
+            ("malformed", vec![0xff]),
+            ("untyped", untyped.encode_to_vec()),
+            ("bad compression", bad_compression.encode_to_vec()),
+            ("failed standard", bad_text.encode_to_vec()),
+        ];
+        for (name, nested) in cases {
+            let outer = reply_with(nested);
+            let bytes = outer.encode_to_vec();
+            let decoded = DecodedMessage::from(stored_bytes(bytes.clone()));
+            assert_eq!(
+                decoded.fallback_text.as_deref(),
+                Some("outer fallback"),
+                "{name}"
+            );
+            assert_eq!(decoded.metadata.content_type, outer.r#type, "{name}");
+            let MessageBody::Undecodable(undecodable) = decoded.content else {
+                panic!(
+                    "{name}: expected undecodable outer reply, got {:?}",
+                    decoded.content
+                );
+            };
+            assert_eq!(undecodable.raw_bytes, bytes, "{name}");
+            assert_eq!(undecodable.encoded, Some(outer), "{name}");
+            assert_eq!(
+                undecodable.failure.kind,
+                ContentDecodeFailureKind::CodecDecodeFailed,
+                "{name}"
+            );
+            assert!(undecodable.failure.message.contains("nested"), "{name}");
+        }
+    }
+
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn invalid_reply_reference_is_a_reply_with_no_parent() {
+        // A sender-controlled reference that is not a message id resolves to
+        // no parent; the reply itself is valid content and is never marked
+        // undecodable. The reference is kept as received.
+        for reference in ["not-valid-hex!@#", ""] {
+            let outer = ReplyCodec::encode(EncodedReply {
+                reference: reference.into(),
+                reference_inbox_id: None,
+                content: TextCodec::encode("reply".into())?,
+            })?;
+            let decoded = DecodedMessage::from(stored_bytes(outer.encode_to_vec()));
+            let MessageBody::Reply(reply) = decoded.content else {
+                panic!("{reference:?}: expected a reply, got {:?}", decoded.content);
+            };
+            assert!(reply.in_reply_to.is_none());
+            assert_eq!(reply.reference_id, reference);
+            assert!(
+                matches!(*reply.content, MessageBody::Text(ref text) if text.content == "reply")
+            );
+        }
+    }
+
+    // verifies: CTYPE-028
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn nested_type_wins_over_the_outer_content_type_parameter() {
+        let mut outer = ReplyCodec::encode(EncodedReply {
+            reference: "0102".into(),
+            reference_inbox_id: None,
+            content: TextCodec::encode("placeholder".into())?,
+        })?;
+        assert_eq!(outer.parameters["contentType"], "xmtp.org/text:1.0");
+        outer.content = ReactionCodec::encode(ReactionV2 {
+            reference: "0102".into(),
+            content: "👍".into(),
+            ..Default::default()
+        })?
+        .encode_to_vec();
+        let MessageBody::Reply(reply) = MessageBody::try_from(outer)? else {
+            panic!("expected reply");
+        };
+        assert!(
+            matches!(*reply.content, MessageBody::Reaction(ref reaction) if reaction.content == "👍"),
+            "the outer contentType parameter selected the codec: {:?}",
+            reply.content
+        );
+    }
+
+    // verifies: CTYPE-009
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn strict_decode_reports_failures_as_errors() {
+        let mut untyped = TextCodec::encode("text".into())?;
+        untyped.r#type = None;
+        assert!(matches!(
+            MessageBody::try_from(untyped),
+            Err(GroupError::CodecError(CodecError::InvalidContentType))
+        ));
+        let mut bad_text = TextCodec::encode("text".into())?;
+        bad_text.content = vec![0xff, 0xfe];
+        assert!(matches!(
+            MessageBody::try_from(bad_text),
+            Err(GroupError::CodecError(CodecError::Decode(_)))
+        ));
     }
 }

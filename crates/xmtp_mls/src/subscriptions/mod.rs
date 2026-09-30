@@ -162,8 +162,8 @@ impl StreamMessages for Subscription<InternalEvent> {
 
 /// Deletion stream items for `deleted`. A row for which `is_expired` holds
 /// is the deleted-message placeholder, with no body and no fallback. Other
-/// rows keep their body; a decode failure goes to the caller, which is rare
-/// because the row was already stored.
+/// rows keep their body; content that does not decode stays in the body as
+/// undecodable content, so every row produces an item.
 // implements: META-051
 fn deletion_items(
     deleted: internal::DeletedMessages,
@@ -177,7 +177,7 @@ fn deletion_items(
         .into_iter()
         .map(|message| {
             if !is_expired(&message) {
-                return DecodedMessage::try_from(message).map_err(Into::into);
+                return Ok(DecodedMessage::from(message));
             }
             // With no actor, `Sender`; see `DecodedMessage::expired`.
             let deleted_by = deleted_by_inbox_id

@@ -24,6 +24,16 @@ use xmtp_proto::{
 };
 mod convert;
 
+/// The result of merging a received consent record (sync or archive import).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct ConsentMerge {
+    /// The row was written: the record is new or wins the time and state order.
+    pub applied: bool,
+    /// The app-visible state changed. A newer record with the stored state is
+    /// applied (its time moves) but is not a state change.
+    pub state_changed: bool,
+}
+
 /// StoredConsentRecord holds a serialized ConsentRecord
 #[derive(Insertable, Queryable, Debug, Clone, Eq, Deserialize, Serialize)]
 #[diesel(table_name = consent_records)]
@@ -96,11 +106,13 @@ pub trait QueryConsentRecord {
         offset: i64,
     ) -> Result<Vec<StoredConsentRecord>, crate::ConnectionError>;
 
-    /// Returns true if newer
+    /// Merge a received record. `applied` is set when the record is inserted or
+    /// wins the time and state order; `state_changed` only when the stored
+    /// state differs afterwards.
     fn insert_newer_consent_record(
         &self,
         record: StoredConsentRecord,
-    ) -> Result<bool, crate::ConnectionError>;
+    ) -> Result<ConsentMerge, crate::ConnectionError>;
 
     /// Insert consent_records, and replace existing entries, returns records that are new or changed
     fn insert_or_replace_consent_records(
@@ -152,42 +164,45 @@ impl<C: ConnectionExt> QueryConsentRecord for DbConnection<C> {
         self.raw_query(|conn| query.load::<StoredConsentRecord>(conn))
     }
 
-    // returns true if newer
+    /// Merge a received record. A newer record with the stored state is
+    /// applied and only moves the stored time: the client's own act echoed back
+    /// from another installation is not a state change.
+    // implements: CONS-010
     fn insert_newer_consent_record(
         &self,
         record: StoredConsentRecord,
-    ) -> Result<bool, crate::ConnectionError> {
+    ) -> Result<ConsentMerge, crate::ConnectionError> {
+        use diesel::query_dsl::methods::FilterDsl;
+
         self.raw_query(|conn| {
-            let maybe_inserted_consent_record: Option<StoredConsentRecord> =
-                diesel::insert_into(dsl::consent_records)
-                    .values(&record)
-                    .on_conflict_do_nothing()
-                    .get_result(conn)
-                    .optional()?;
-
-            // if record was not inserted...
-            if maybe_inserted_consent_record.is_none() {
-                let old_record = dsl::consent_records
-                    .find((&record.entity_type, &record.entity))
-                    .first::<StoredConsentRecord>(conn)?;
-
-                if old_record.eq(&record) {
-                    return Ok(false);
-                }
-
-                let should_replace = old_record.consented_at_ns < record.consented_at_ns;
-                if should_replace {
-                    diesel::insert_into(dsl::consent_records)
-                        .values(record)
-                        .on_conflict((dsl::entity_type, dsl::entity))
-                        .do_update()
-                        .set(dsl::state.eq(excluded(dsl::state)))
-                        .execute(conn)?;
-                }
-                return Ok(should_replace);
-            }
-
-            Ok(true)
+            // Two auto-committed statements: a deferred transaction that reads
+            // and then writes would fail its lock upgrade without waiting.
+            let stored_state: Option<ConsentState> = dsl::consent_records
+                .find((&record.entity_type, &record.entity))
+                .select(dsl::state)
+                .first(conn)
+                .optional()?;
+            let applied = diesel::insert_into(dsl::consent_records)
+                .values(&record)
+                .on_conflict((dsl::entity_type, dsl::entity))
+                .do_update()
+                .set((
+                    dsl::state.eq(excluded(dsl::state)),
+                    dsl::consented_at_ns.eq(excluded(dsl::consented_at_ns)),
+                ))
+                .filter(
+                    dsl::consented_at_ns.lt(excluded(dsl::consented_at_ns)).or(
+                        dsl::consented_at_ns
+                            .eq(excluded(dsl::consented_at_ns))
+                            .and(dsl::state.lt(excluded(dsl::state))),
+                    ),
+                )
+                .execute(conn)?;
+            let applied = applied != 0;
+            Ok(ConsentMerge {
+                applied,
+                state_changed: applied && stored_state != Some(record.state),
+            })
         })
     }
 
@@ -309,7 +324,7 @@ impl<T: QueryConsentRecord + ?Sized> QueryConsentRecord for &T {
     fn insert_newer_consent_record(
         &self,
         record: StoredConsentRecord,
-    ) -> Result<bool, crate::ConnectionError> {
+    ) -> Result<ConsentMerge, crate::ConnectionError> {
         (**self).insert_newer_consent_record(record)
     }
 
@@ -409,7 +424,291 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Store, group::tests::generate_group, test_utils::with_connection};
+    use crate::{Store, XmtpTestDb, group::tests::generate_group, test_utils::with_connection};
+
+    fn record(
+        entity_type: ConsentType,
+        entity: &str,
+        state: ConsentState,
+        consented_at_ns: i64,
+    ) -> StoredConsentRecord {
+        StoredConsentRecord {
+            entity_type,
+            state,
+            entity: entity.into(),
+            consented_at_ns,
+        }
+    }
+
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn newer_same_state_blocks_an_older_third_record_for_both_entity_types() {
+        with_connection(|conn| {
+            for (entity_type, entity) in [
+                (ConsentType::ConversationId, "conversation-one"),
+                (ConsentType::InboxId, "inbox-one"),
+            ] {
+                let first = record(entity_type, entity, ConsentState::Allowed, 10);
+                let newest = record(entity_type, entity, ConsentState::Allowed, 30);
+                let middle = record(entity_type, entity, ConsentState::Denied, 20);
+
+                assert!(conn.insert_newer_consent_record(first)?.state_changed);
+                // The same state at a later time moves the stored time only.
+                assert!(
+                    !conn
+                        .insert_newer_consent_record(newest.clone())?
+                        .state_changed
+                );
+                assert!(!conn.insert_newer_consent_record(middle)?.state_changed);
+                let stored = conn
+                    .get_consent_record(entity.into(), entity_type)?
+                    .unwrap();
+                assert_eq!(stored.state, ConsentState::Allowed);
+                assert_eq!(stored.consented_at_ns, 30);
+                assert!(!conn.insert_newer_consent_record(newest)?.state_changed);
+
+                assert!(
+                    conn.insert_newer_consent_record(record(
+                        entity_type,
+                        entity,
+                        ConsentState::Denied,
+                        40,
+                    ))?
+                    .state_changed
+                );
+                assert!(
+                    !conn
+                        .insert_newer_consent_record(record(
+                            entity_type,
+                            entity,
+                            ConsentState::Allowed,
+                            35,
+                        ))?
+                        .state_changed
+                );
+                let stored = conn
+                    .get_consent_record(entity.into(), entity_type)?
+                    .unwrap();
+                assert_eq!(stored.state, ConsentState::Denied);
+                assert_eq!(stored.consented_at_ns, 40);
+            }
+            Ok::<(), crate::ConnectionError>(())
+        })?;
+    }
+
+    /// The client's own act, echoed back from the sync group with a later
+    /// time and the same state, moves the stored time but is not a change.
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn own_sync_echo_with_the_same_state_is_not_a_change() {
+        with_connection(|conn| {
+            for entity_type in [ConsentType::ConversationId, ConsentType::InboxId] {
+                let entity = "entity";
+                assert!(
+                    conn.insert_newer_consent_record(record(
+                        entity_type,
+                        entity,
+                        ConsentState::Allowed,
+                        10,
+                    ))?
+                    .state_changed
+                );
+                // The local act keeps the stored time: the waived gap in
+                // docs/specs/waivers.toml for the local same-state act time.
+                // Update this test when that waiver closes.
+                conn.insert_or_replace_consent_records(&[record(
+                    entity_type,
+                    entity,
+                    ConsentState::Denied,
+                    20,
+                )])?;
+                let stored = conn
+                    .get_consent_record(entity.into(), entity_type)?
+                    .unwrap();
+                assert_eq!(
+                    (stored.state, stored.consented_at_ns),
+                    (ConsentState::Denied, 10)
+                );
+                // Its echo is newer but carries the same state: applied (the
+                // time moves) but not a state change.
+                let merge = conn.insert_newer_consent_record(record(
+                    entity_type,
+                    entity,
+                    ConsentState::Denied,
+                    20,
+                ))?;
+                assert!(merge.applied);
+                assert!(
+                    !merge.state_changed,
+                    "an echo of the stored state must not report a change"
+                );
+                let stored = conn
+                    .get_consent_record(entity.into(), entity_type)?
+                    .unwrap();
+                assert_eq!(
+                    (stored.state, stored.consented_at_ns),
+                    (ConsentState::Denied, 20)
+                );
+                // A newer different state is still a change.
+                assert!(
+                    conn.insert_newer_consent_record(record(
+                        entity_type,
+                        entity,
+                        ConsentState::Allowed,
+                        30,
+                    ))?
+                    .state_changed
+                );
+            }
+            Ok::<(), crate::ConnectionError>(())
+        })?;
+    }
+
+    /// Installation A repeats a local Denied before B's newer Allowed arrives;
+    /// both installations end on B's record because a local repeat does not
+    /// move the stored time.
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn installations_converge_when_a_local_repeat_precedes_a_newer_remote_record() {
+        with_connection(|conn| {
+            let kind = ConsentType::ConversationId;
+            // Installation A. The local repeat keeps the stored time: the waived
+            // gap in docs/specs/waivers.toml for the local same-state act time.
+            // Update this test when that waiver closes.
+            conn.insert_or_replace_consent_records(&[record(kind, "a", ConsentState::Denied, 10)])?;
+            conn.insert_or_replace_consent_records(&[record(kind, "a", ConsentState::Denied, 20)])?;
+            assert!(
+                conn.insert_newer_consent_record(record(kind, "a", ConsentState::Allowed, 15))?
+                    .state_changed
+            );
+            // Installation B.
+            assert!(
+                conn.insert_newer_consent_record(record(kind, "b", ConsentState::Allowed, 15))?
+                    .state_changed
+            );
+            assert!(
+                !conn
+                    .insert_newer_consent_record(record(kind, "b", ConsentState::Denied, 10))?
+                    .state_changed
+            );
+            for entity in ["a", "b"] {
+                let stored = conn.get_consent_record(entity.into(), kind)?.unwrap();
+                assert_eq!(
+                    (stored.state, stored.consented_at_ns),
+                    (ConsentState::Allowed, 15),
+                    "{entity}"
+                );
+            }
+            Ok::<(), crate::ConnectionError>(())
+        })?;
+    }
+
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    fn equal_time_uses_state_order_in_both_arrival_orders() {
+        with_connection(|conn| {
+            for entity_type in [ConsentType::ConversationId, ConsentType::InboxId] {
+                let prefix = match entity_type {
+                    ConsentType::ConversationId => "conversation",
+                    ConsentType::InboxId => "inbox",
+                };
+                let upgrade_entity = format!("{prefix}-upgrade");
+                let allowed = record(entity_type, &upgrade_entity, ConsentState::Allowed, 50);
+                let denied = record(entity_type, &upgrade_entity, ConsentState::Denied, 50);
+                let unknown = record(entity_type, &upgrade_entity, ConsentState::Unknown, 50);
+                assert!(
+                    conn.insert_newer_consent_record(unknown.clone())?
+                        .state_changed
+                );
+                assert!(
+                    conn.insert_newer_consent_record(allowed.clone())?
+                        .state_changed
+                );
+                assert!(
+                    conn.insert_newer_consent_record(denied.clone())?
+                        .state_changed
+                );
+                assert!(!conn.insert_newer_consent_record(allowed)?.state_changed);
+                assert!(!conn.insert_newer_consent_record(unknown)?.state_changed);
+                let stored = conn
+                    .get_consent_record(upgrade_entity, entity_type)?
+                    .unwrap();
+                assert_eq!(stored.state, ConsentState::Denied);
+                assert_eq!(stored.consented_at_ns, 50);
+
+                let downgrade_entity = format!("{prefix}-downgrade");
+                let allowed = record(entity_type, &downgrade_entity, ConsentState::Allowed, 60);
+                let denied = record(entity_type, &downgrade_entity, ConsentState::Denied, 60);
+                assert!(
+                    conn.insert_newer_consent_record(denied.clone())?
+                        .state_changed
+                );
+                assert!(!conn.insert_newer_consent_record(allowed)?.state_changed);
+                assert!(!conn.insert_newer_consent_record(denied)?.state_changed);
+                let stored = conn
+                    .get_consent_record(downgrade_entity, entity_type)?
+                    .unwrap();
+                assert_eq!(stored.state, ConsentState::Denied);
+                assert_eq!(stored.consented_at_ns, 60);
+            }
+            Ok::<(), crate::ConnectionError>(())
+        })?;
+    }
+
+    // verifies: CONS-010
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn winning_time_survives_reopen_and_repeat() {
+        let path = xmtp_common::tmp_path();
+        let entity = "reopened-inbox";
+        {
+            let store = crate::TestDb::create_persistent_store(Some(path.clone())).await;
+            let conn = store.db();
+            assert!(
+                conn.insert_newer_consent_record(record(
+                    ConsentType::InboxId,
+                    entity,
+                    ConsentState::Allowed,
+                    10,
+                ))?
+                .state_changed
+            );
+            // The same state at a later time moves the stored time only.
+            assert!(
+                !conn
+                    .insert_newer_consent_record(record(
+                        ConsentType::InboxId,
+                        entity,
+                        ConsentState::Allowed,
+                        30,
+                    ))?
+                    .state_changed
+            );
+        }
+        {
+            let store = crate::TestDb::create_persistent_store(Some(path)).await;
+            let conn = store.db();
+            let stored = conn
+                .get_consent_record(entity.into(), ConsentType::InboxId)?
+                .unwrap();
+            assert_eq!(stored.state, ConsentState::Allowed);
+            assert_eq!(stored.consented_at_ns, 30);
+            assert!(
+                !conn
+                    .insert_newer_consent_record(record(
+                        ConsentType::InboxId,
+                        entity,
+                        ConsentState::Denied,
+                        20,
+                    ))?
+                    .state_changed
+            );
+            let stored = conn
+                .get_consent_record(entity.into(), ConsentType::InboxId)?
+                .unwrap();
+            assert_eq!(stored.state, ConsentState::Allowed);
+            assert_eq!(stored.consented_at_ns, 30);
+        }
+    }
 
     fn generate_consent_record(
         entity_type: ConsentType,

@@ -505,48 +505,7 @@ where
     pub async fn refresh_server_configuration(
         &self,
     ) -> Result<xmtp_configuration::ServerConfiguration, ClientError> {
-        let handle = self.context.server_configuration();
-        let db = self.context.db();
-        let fetched =
-            match crate::server_configuration::fetch_and_store(self.context.api(), &db, handle)
-                .await
-            {
-                Ok(fetched) => fetched,
-                Err(error) => {
-                    // A blocked connection closes every open network stream, and cancelling
-                    // is what closes them. The worker cancels after its turn;
-                    // an explicit refresh has to do it here, because the blocked connection
-                    // it sets — a different deployment identifier — otherwise
-                    // leaves the streams and workers of a database known to
-                    // belong elsewhere still running.
-                    if handle.blocked_connection().is_some() {
-                        self.context.cancellation_token().cancel();
-                    }
-                    return Err(error);
-                }
-            };
-        if let Err(ClientError::ClientVersionTooOld { client, minimum }) =
-            crate::server_configuration::check_minimum_version(
-                &fetched,
-                self.context.version_info().pkg_semver().semver(),
-            )
-        {
-            tracing::error!(
-                %client,
-                %minimum,
-                "the backend now requires a newer libxmtp than this client"
-            );
-            // The copy is stored either way, and the client stops.
-            let error = handle.block_connection(
-                crate::server_configuration::BlockedConnection::ClientVersionTooOld {
-                    client,
-                    minimum,
-                },
-            );
-            self.context.cancellation_token().cancel();
-            return Err(error);
-        }
-        Ok(fetched)
+        crate::server_configuration::refresh(&self.context).await
     }
 
     /// Retrieves the client's installation public key, sometimes also called `installation_id`

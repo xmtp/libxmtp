@@ -126,3 +126,113 @@ async fn archive_excludes_disappearing_messages_when_requested() {
     first.end().await?;
     second.end().await?;
 }
+
+// verifies: ARCH-020, ARCH-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn list_and_get_keep_restored_unknown_identity() {
+    use xmtp_mls::groups::MlsGroup;
+    use xmtp_mls::mls_common::group_metadata::DmMembers;
+    use xmtp_proto::xmtp::device_sync::group_backup::{GroupSave, ImmutableMetadataSave};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let own = client.inbox_id().into_checked()?;
+    let live = client.conversations().create_group(vec![], None).await?;
+    // Legacy version-0 shapes: no metadata message and no adder; a present
+    // empty creator with a known adder; a DM with no metadata and no adder.
+    let unknown = GroupSave {
+        id: vec![0x91; 16],
+        conversation_type: 1,
+        ..Default::default()
+    };
+    let empty = GroupSave {
+        id: vec![0x92; 16],
+        conversation_type: 1,
+        added_by_inbox_id: "archived-adder".into(),
+        metadata: Some(ImmutableMetadataSave {
+            creator_inbox_id: String::new(),
+        }),
+        ..Default::default()
+    };
+    let dm = GroupSave {
+        id: vec![0x93; 16],
+        conversation_type: 2,
+        dm_id: Some(
+            DmMembers {
+                member_one_inbox_id: own.clone(),
+                member_two_inbox_id: "b".repeat(64),
+            }
+            .to_string(),
+        ),
+        ..Default::default()
+    };
+    for save in [&unknown, &empty, &dm] {
+        MlsGroup::<xmtp_mls::MlsContext>::restore_from_archive(&client.inner.context, save)?;
+    }
+
+    let listed = client.conversations().list(None).await?;
+    assert_eq!(listed.len(), 4);
+    for (save, adder) in [
+        (&unknown, None),
+        (&empty, Some("archived-adder")),
+        (&dm, None),
+    ] {
+        let conversation_id = ConversationId::try_from(hex::encode(&save.id))?;
+        let fetched = client
+            .conversations()
+            .get_by_id(conversation_id.clone())
+            .await?
+            .expect("restored conversation");
+        let listed = listed_conversation(&listed, &conversation_id);
+        for conversation in [&fetched, listed] {
+            let (creator, added_by, is_creator) = received_identity(conversation);
+            assert_eq!(creator, None);
+            assert!(!is_creator);
+            assert_eq!(added_by.as_deref(), adder);
+        }
+        assert_eq!(conversation_messages_count(&fetched).await?, 0);
+    }
+    let (creator, _, is_creator) = received_identity(listed_conversation(&listed, &live.id()));
+    assert_eq!(creator.as_deref(), Some(own.as_str()));
+    assert!(is_creator);
+    client.end().await?;
+}
+
+fn listed_conversation<'a>(
+    listed: &'a [crate::Conversation],
+    id: &ConversationId,
+) -> &'a crate::Conversation {
+    listed
+        .iter()
+        .find(|conversation| match conversation {
+            crate::Conversation::Group { group } => group.id() == *id,
+            crate::Conversation::Dm { dm } => dm.id() == *id,
+        })
+        .expect("conversation in list")
+}
+
+/// The creator, the adder, and `is_creator`. An unknown ID is empty text,
+/// which the checked accessor rejects, so it reads as `None`.
+fn received_identity(conversation: &crate::Conversation) -> (Option<String>, Option<String>, bool) {
+    let read = |id: Option<crate::InboxId>| id.and_then(|id| id.into_checked().ok());
+    match conversation {
+        crate::Conversation::Group { group } => (
+            read(group.creator_inbox_id()),
+            read(group.added_by_inbox_id()),
+            group.is_creator(),
+        ),
+        crate::Conversation::Dm { dm } => (
+            read(dm.creator_inbox_id()),
+            read(dm.added_by_inbox_id()),
+            dm.is_creator(),
+        ),
+    }
+}
+
+async fn conversation_messages_count(
+    conversation: &crate::Conversation,
+) -> Result<usize, XmtpError> {
+    Ok(match conversation {
+        crate::Conversation::Group { group } => group.messages(None).await?.len(),
+        crate::Conversation::Dm { dm } => dm.messages(None).await?.len(),
+    })
+}

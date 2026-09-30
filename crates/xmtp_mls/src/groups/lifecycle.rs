@@ -1,6 +1,8 @@
 //! Construction, loading, proposal capability, and insertion.
 
 use super::*;
+
+mod restored;
 use xmtp_db::TransactionalKeyStore;
 use xmtp_events::EventWriter;
 use xmtp_mls_common::app_data::creation::{InitialGroupKind, initial_dictionary};
@@ -647,22 +649,6 @@ where
         )
     }
 
-    // implements: ARCH-020
-    pub(crate) fn create_restored_dm_and_insert(
-        context: &Context,
-        dm_members: DmMembers<InboxId>,
-        opts: GroupMetadataOptions,
-        group_id: &[u8],
-    ) -> Result<Self, GroupError> {
-        Self::create_dm_with_members(
-            context,
-            GroupMembershipState::Restored,
-            dm_members,
-            opts,
-            Some(group_id),
-        )
-    }
-
     fn create_dm_with_members(
         context: &Context,
         membership_state: GroupMembershipState,
@@ -838,6 +824,9 @@ where
             .dm_id(Some(dm_members.to_string()))
             .build()?;
         stored_group.store(&db)?;
+        if membership_state == GroupMembershipState::Restored {
+            return Ok((stored_group, true, Vec::new()));
+        }
         let record = StoredConsentRecord::new(
             xmtp_db::consent_record::ConsentType::ConversationId,
             ConsentState::Allowed,

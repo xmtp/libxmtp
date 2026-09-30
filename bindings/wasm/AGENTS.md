@@ -34,7 +34,8 @@ just wasm test-ci                       # what CI runs (Nix build). Needs `just 
 
 - Keep tokens in the worker. Call `checkOwner` before app handoff. Use
   `enrichedMessage` for the pending item; a null result requires reselection.
-  Codec errors are terminal.
+  Content that fails to decode is delivered as `undecodable` with its exact
+  bytes; only a database failure is terminal.
 - `close` releases the default owner. Do not call `free` while an async reader
   method holds a borrow. `beginningDeliveryCursor` starts replay at the first
   retained item.

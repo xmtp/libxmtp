@@ -1,5 +1,4 @@
 use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
-use hex::ToHexExt;
 use prost::Message;
 use std::collections::HashMap;
 use thiserror::Error;
@@ -30,16 +29,6 @@ pub enum EnrichMessageError {
     #[error("DB error: {0}")]
     #[error_code(inherit)]
     DbConnection(#[from] xmtp_db::ConnectionError),
-    /// Codec decode error.
-    ///
-    /// Content type codec failed. Not retryable.
-    #[error("Decode error: {0}")]
-    CodecError(#[from] xmtp_content_types::CodecError),
-    /// Decode error.
-    ///
-    /// Protobuf decoding failed. Not retryable.
-    #[error("Decode error: {0}")]
-    DecodeError(#[from] prost::DecodeError),
 }
 
 impl RetryableError for EnrichMessageError {
@@ -47,8 +36,6 @@ impl RetryableError for EnrichMessageError {
         match self {
             Self::DbConnection(e) => e.is_retryable(),
             Self::Storage(e) => e.is_retryable(),
-            Self::CodecError(_) => false,
-            Self::DecodeError(_) => false,
         }
     }
 }
@@ -122,6 +109,26 @@ pub fn enrich_messages(
         .collect())
 }
 
+/// Replace a message with its deletion placeholder. Every trace of the
+/// original content goes: body, raw bytes, nested evidence, type, and fallback.
+// implements: PROC-037
+fn apply_deletion(
+    message: &mut DecodedMessage,
+    deletion: &StoredMessageDeletion,
+    stored: &StoredGroupMessage,
+) {
+    message.content = MessageBody::DeletedMessage {
+        deleted_by: DeletedBy::new(&deletion.deleted_by_inbox_id, &stored.sender_inbox_id),
+    };
+    message.metadata.content_type = Some(deleted_message_content_type());
+    message.fallback_text = None;
+    message.reactions = Vec::new();
+    message.num_replies = 0;
+}
+
+/// Enrich every stored row. Content that fails to decode stays in the list
+/// as an undecodable body; only a database failure is an error.
+// implements: CTYPE-008
 pub fn enrich_messages_with_stored(
     conn: impl DbQuery,
     group_id: &GroupId,
@@ -138,10 +145,8 @@ pub fn enrich_messages_with_stored(
 
     let messages: Vec<EnrichedStoredMessage> = messages
         .into_iter()
-        .filter_map(|stored_message| {
-            let mut decoded = DecodedMessage::try_from(stored_message.clone())
-                .inspect_err(|err| tracing::warn!("Failed to decode message {:?}", err))
-                .ok()?;
+        .map(|stored_message| {
+            let mut decoded = DecodedMessage::from(stored_message.clone());
             let mut parent_stored = None;
 
             let valid_deletion =
@@ -155,15 +160,7 @@ pub fn enrich_messages_with_stored(
                     });
 
             if let Some(deletion) = valid_deletion {
-                decoded.content = MessageBody::DeletedMessage {
-                    deleted_by: DeletedBy::new(
-                        &deletion.deleted_by_inbox_id,
-                        &stored_message.sender_inbox_id,
-                    ),
-                };
-                decoded.metadata.content_type = deleted_message_content_type();
-                decoded.reactions = Vec::new();
-                decoded.num_replies = 0;
+                apply_deletion(&mut decoded, deletion, &stored_message);
             } else {
                 decoded.reactions = relations
                     .reactions
@@ -178,59 +175,38 @@ pub fn enrich_messages_with_stored(
 
                 // Handle Reply messages - populate in_reply_to field
                 if let MessageBody::Reply(mut reply_body) = decoded.content {
-                    let _ = hex::decode(&reply_body.reference_id)
-                        .inspect_err(|err| {
-                            // The reference is sender-controlled; truncate so a
-                            // malformed value can't flood the log line.
-                            let reference_id: String =
-                                reply_body.reference_id.chars().take(64).collect();
-                            tracing::warn!(
-                                group_id = %group_id,
-                                message_id = %hex::encode(&stored_message.id),
-                                sender_inbox_id = %stored_message.sender_inbox_id,
-                                reference_id = %reference_id,
-                                "could not parse reference ID as hex: {:?}",
-                                err
-                            )
-                        })
-                        .inspect(|id| {
-                            parent_stored = relations
-                                .referenced_messages
-                                .get(id)
-                                .map(|(stored, _)| stored.clone());
-                            let mut in_reply_to = relations
-                                .referenced_messages
-                                .get(id)
-                                .map(|(_, decoded)| decoded.clone());
+                    // The decoder accepted only a hex reference.
+                    if let Ok(id) = hex::decode(&reply_body.reference_id) {
+                        parent_stored = relations
+                            .referenced_messages
+                            .get(&id)
+                            .map(|(stored, _)| stored.clone());
+                        let mut in_reply_to = relations
+                            .referenced_messages
+                            .get(&id)
+                            .map(|(_, decoded)| decoded.clone());
 
-                            if let Some(msg) = in_reply_to.as_mut()
-                                && let Some(deletions) = relations.deletions.get(id)
-                                && let Some((stored_msg, _)) = relations.referenced_messages.get(id)
-                                && let Some(deletion) = deletions.iter().find(|deletion| {
-                                    is_deletion_valid(deletion, stored_msg, group_id)
-                                })
-                            {
-                                msg.content = MessageBody::DeletedMessage {
-                                    deleted_by: DeletedBy::new(
-                                        &deletion.deleted_by_inbox_id,
-                                        &stored_msg.sender_inbox_id,
-                                    ),
-                                };
-                                msg.reactions = Vec::new();
-                                msg.num_replies = 0;
-                            }
-                            reply_body.in_reply_to = in_reply_to.map(Box::new);
-                        });
+                        if let Some(msg) = in_reply_to.as_mut()
+                            && let Some(deletions) = relations.deletions.get(&id)
+                            && let Some((stored_msg, _)) = relations.referenced_messages.get(&id)
+                            && let Some(deletion) = deletions
+                                .iter()
+                                .find(|deletion| is_deletion_valid(deletion, stored_msg, group_id))
+                        {
+                            apply_deletion(msg, deletion, stored_msg);
+                        }
+                        reply_body.in_reply_to = in_reply_to.map(Box::new);
+                    }
                     decoded.content = MessageBody::Reply(reply_body);
                 }
             }
 
-            Some(EnrichedStoredMessage {
+            EnrichedStoredMessage {
                 delivery_cursor: None,
                 stored: stored_message,
                 decoded,
                 parent_stored,
-            })
+            }
         })
         .collect();
 
@@ -292,38 +268,24 @@ struct GetRelationsResults {
 fn get_referenced_messages(messages: HashMap<Vec<u8>, StoredGroupMessage>) -> ReferencedMessageMap {
     messages
         .into_iter()
-        .filter_map(|(id, stored_message)| {
-            let message_id = id.clone();
-            DecodedMessage::try_from(stored_message.clone())
-                .inspect_err(|err| {
-                    tracing::warn!(
-                        "Failed to decode reply root message with ID {} {:?}",
-                        message_id.encode_hex(),
-                        err
-                    );
-                })
-                .map(|decoded| (id, (stored_message, decoded)))
-                .ok()
+        .map(|(id, stored_message)| {
+            let decoded = DecodedMessage::from(stored_message.clone());
+            (id, (stored_message, decoded))
         })
         .collect()
 }
 
+/// A parent's reaction summary lists the reactions that apply to it. A row
+/// with a reaction type but no decodable reaction stays in history as its
+/// own retained message; it cannot be applied here.
 fn get_reactions(messages: HashMap<Vec<u8>, Vec<StoredGroupMessage>>) -> ReactionMap {
     messages
         .into_iter()
         .map(|(id, reaction_messages)| {
             let mapped_reactions: Vec<DecodedMessage> = reaction_messages
                 .into_iter()
-                .filter_map(|stored_msg| {
-                    DecodedMessage::try_from(stored_msg)
-                        .inspect_err(|err| {
-                            tracing::warn!(
-                                "Failed to decode message categorized as Reaction: {:?}",
-                                err
-                            );
-                        })
-                        .ok()
-                })
+                .map(DecodedMessage::from)
+                .filter(|decoded| matches!(decoded.content, MessageBody::Reaction(_)))
                 .collect();
             (id, mapped_reactions)
         })

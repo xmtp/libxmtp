@@ -72,10 +72,6 @@ pub enum LocalDeliveryError {
     #[error(transparent)]
     #[error_code(inherit)]
     SessionFailure(std::sync::Arc<LocalDeliveryError>),
-    /// Message content could not be decoded or enriched. Not retryable.
-    #[error(transparent)]
-    #[error_code(inherit)]
-    Enrichment(crate::messages::enrichment::EnrichMessageError),
     /// The retained item has no decoded message. Not retryable.
     #[error("The delivery item has no enriched message")]
     EnrichedMessageUnavailable,
@@ -86,7 +82,8 @@ pub enum LocalDeliveryError {
         #[source]
         source: Option<std::sync::Arc<crate::subscriptions::incoming::IncomingError>>,
     },
-    /// A terminal transport error stopped this stream. Not retryable.
+    /// A terminal network error stopped this stream. A transient configuration
+    /// admission failure may be retried by opening a new reader.
     #[error("The message reader network failed: {0}")]
     NetworkFailure(#[source] std::sync::Arc<crate::subscriptions::incoming::IncomingError>),
     /// The client's server configuration changed. Not retryable on this client.
@@ -118,6 +115,8 @@ impl RetryableError for LocalDeliveryError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Storage(error) => error.is_retryable(),
+            Self::NetworkFailure(error) => xmtp_api::preflight::failure(error.as_ref())
+                .is_some_and(RetryableError::is_retryable),
             _ => false,
         }
     }

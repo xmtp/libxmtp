@@ -82,6 +82,40 @@ for sdk in ("Swift", "Kotlin"):
     )
 
 
+# Design SDK-040 retained-content exception: the legacy wrapper exposes the
+# binding record that keeps exact received bytes and the typed decode cause.
+# The façade carries the same evidence on MessageContent.Unknown.
+for name in ("UndecodableContent", "ContentDecodeFailureKind"):
+    add(
+        "Swift",
+        "",
+        name,
+        "generated",
+        "11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2",
+        finals="MessageContent.Unknown",
+        note="Retained undecodable content under the design SDK-040 exception: exact received bytes, received identifier and fallback, and the typed cause.",
+    )
+for sdk in ("Swift", "Kotlin"):
+    add(
+        sdk,
+        "DecodedMessage",
+        "undecodable",
+        "generated",
+        f"11.4 {sdk}, Messages, codecs, preferences, values; 11.1-11.2",
+        finals="MessageContent.Unknown",
+        note="Retained undecodable content on the old native route under the design SDK-040 exception.",
+    )
+add(
+    "Kotlin",
+    "DecodedMessageV2",
+    "undecodable",
+    "generated",
+    "11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2",
+    finals="MessageContent.Unknown",
+    note="Retained undecodable content on the V2 route under the design SDK-040 exception; content() is null for it.",
+)
+
+
 for sdk in ("Swift", "Kotlin"):
     client_owner = "Client" if sdk == "Swift" else "Client.Companion"
     ref = f"11.4 {sdk}, Client and options"

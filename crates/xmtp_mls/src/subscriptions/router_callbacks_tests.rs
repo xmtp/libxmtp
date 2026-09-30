@@ -262,7 +262,7 @@ async fn sibling_clients_share_the_process_transport() {
     let before = shared_transport_count();
     tester!(alix);
     tester!(bo);
-    tester!(caro, api_client: bo.context.api().api_client.clone());
+    tester!(caro, api_client: bo.context.api().api_client.raw_for_test().clone());
 
     let bo_group = alix.create_group(None, None)?;
     bo_group.invite(&bo).await?;
