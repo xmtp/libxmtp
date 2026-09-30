@@ -122,6 +122,59 @@ private func checkPushOptions() async throws {
     else { throw ConformanceFailure("the send options have the wrong push values: \(pushes)") }
     guard group.sent[2]?.optimistic == true
     else { throw ConformanceFailure("an explicit option lost its other fields") }
+    try await checkTypeReadsAndCancellation()
+}
+
+/// A codec that counts reads of its type and can cancel its caller's task
+/// from inside `encode`.
+private final class ProbeCodec: ContentCodec, @unchecked Sendable {
+    private let lock = NSLock()
+    private var reads = 0
+    let cancelInEncode: Bool
+    private(set) var encoded = false
+
+    init(cancelInEncode: Bool = false) {
+        self.cancelInEncode = cancelInEncode
+    }
+
+    var typeReads: Int {
+        lock.withLock { reads }
+    }
+
+    var type: ContentTypeId {
+        lock.withLock { reads += 1 }
+        return noteType
+    }
+
+    func encode(_ value: String) throws -> EncodedContent {
+        encoded = true
+        if cancelInEncode {
+            withUnsafeCurrentTask { $0?.cancel() }
+        }
+        return EncodedContent(type: noteType, content: Data(value.utf8))
+    }
+
+    func decode(_ encoded: EncodedContent) throws -> String {
+        String(decoding: encoded.content, as: UTF8.self)
+    }
+}
+
+/// The codec's type is read once per send, for the envelope check and the
+/// push choice. A task cancelled during a codec step stops before the send.
+private func checkTypeReadsAndCancellation() async throws {
+    let group = RecordingGroup()
+    let counted = ProbeCodec()
+    _ = try await group.send(counted, value: "counted")
+    guard counted.typeReads == 1
+    else { throw ConformanceFailure("a typed send read the codec type \(counted.typeReads) times") }
+
+    let cancelling = ProbeCodec(cancelInEncode: true)
+    let sends = group.sent.count
+    let outcome = await Task { try await group.send(cancelling, value: "cancelled") }.result
+    guard cancelling.encoded, case let .failure(error) = outcome, error is CancellationError
+    else { throw ConformanceFailure("a cancelled typed send did not stop: \(outcome)") }
+    guard group.sent.count == sends
+    else { throw ConformanceFailure("a cancelled typed send reached the send") }
 }
 
 private func envelope(_ message: Message?) -> EncodedContent? {

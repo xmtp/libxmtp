@@ -6,6 +6,8 @@ import * as P from "../../../../target/sdk-generated/typescript-wasm/public-valu
 import type * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 import type { ContentCodec } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/codec";
 import {
+  codecType,
+  contentForSend,
   encodeForSend,
   optionsForSend,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/codec-policy";
@@ -109,6 +111,77 @@ describe("typed codec send policy", () => {
           "x",
         ),
       );
+  });
+
+  it("keeps a failing getter or thenable check inside the failure boundary", () => {
+    const throwingThen = Object.defineProperty(envelope(), "then", {
+      get() {
+        throw new Error("then getter");
+      },
+    });
+    codecEncodeFailed(() =>
+      encodeForSend(codec({ encode: () => throwingThen }), "x"),
+    );
+    const throwingType = Object.defineProperty(
+      { content: new Uint8Array([1]) },
+      "type",
+      {
+        get() {
+          throw new Error("type getter");
+        },
+      },
+    );
+    codecEncodeFailed(() =>
+      encodeForSend(
+        codec({ encode: () => throwingType as P.EncodedContent }),
+        "x",
+      ),
+    );
+  });
+
+  it("describes a failure whose message or text cannot be read", () => {
+    const unreadable = Object.defineProperty(new Error(), "message", {
+      get() {
+        throw new Error("message getter");
+      },
+    });
+    const noText = {
+      toString() {
+        throw new Error("toString");
+      },
+    };
+    for (const cause of [unreadable, noText])
+      codecEncodeFailed(() =>
+        encodeForSend(
+          codec({
+            encode: () => {
+              throw cause;
+            },
+          }),
+          "x",
+        ),
+      );
+  });
+
+  it("checks a snapshot, so a hook cannot change the checked envelope", () => {
+    const readReceipt = {
+      authorityId: "xmtp.org",
+      typeId: "readReceipt",
+      versionMajor: 1,
+      versionMinor: 0,
+    };
+    const kept = { type: { ...noteType }, content: new Uint8Array([1]) };
+    const changing = codec({
+      encode: () => kept,
+      fallback: () => {
+        // The codec changes the envelope object that it returned.
+        Object.assign(kept.type, readReceipt);
+        return "a note";
+      },
+    });
+    const [sent] = contentForSend(changing, "x", undefined);
+    expect(sent.type).toEqual(noteType);
+    expect(sent.fallback).toBe("a note");
   });
 
   it("rejects a content type version outside u32", () => {
@@ -242,6 +315,27 @@ describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
   beforeAll(async () => {
     await initPureWasm();
     P.installProjection(new TestProjection());
+  });
+
+  it("reads the codec type once, inside the failure boundary", () => {
+    let reads = 0;
+    const counted = {
+      ...codec({ shouldPush: () => true }),
+      get type() {
+        reads += 1;
+        return noteType;
+      },
+    };
+    contentForSend(counted, "x", undefined);
+    expect(reads).toBe(1);
+    const throwing = {
+      ...codec(),
+      get type(): P.ContentTypeId {
+        throw new Error("type getter");
+      },
+    };
+    codecEncodeFailed(() => codecType(throwing));
+    codecEncodeFailed(() => contentForSend(throwing, "x", undefined));
   });
 
   function recordingGroup(calls: [string, unknown, unknown][]): P.Group {

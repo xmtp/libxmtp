@@ -192,7 +192,10 @@ public final class Message: Identifiable, Hashable, Sendable {
     /// `options.shouldPush` is set. A failed codec step is `CodecEncodeFailed`,
     /// with no publish attempt.
     public func reply<C: ContentCodec>(_ codec: C, value: C.Value, options: SendOptions? = nil) async throws -> MessageId {
-        try await reply(encodeForSend(codec, value: value), options: options)
+        let encoded = try encodeForSend(codec, value: value)
+        // A task cancelled during a codec step stops before the reply is sent.
+        try Task.checkCancellation()
+        return try await reply(encoded, options: options)
     }
 
     public func parent() async throws -> Message? {
