@@ -716,10 +716,30 @@ mod tests {
             Ok::<_, diesel::result::Error>(())
         })?;
 
+        #[derive(diesel::QueryableByName)]
+        struct Count {
+            #[diesel(sql_type = diesel::sql_types::BigInt)]
+            count: i64,
+        }
+        let has_index = |name: &str| {
+            connection.raw_query(|conn| {
+                diesel::sql_query(
+                    "SELECT COUNT(*) AS count FROM sqlite_master WHERE type = 'index' AND name = ?",
+                )
+                .bind::<diesel::sql_types::Text, _>(name)
+                .get_result::<Count>(conn)
+                .map(|row| row.count)
+            })
+        };
+        assert_eq!(has_index("group_messages_sent_at_sort")?, 1);
+        assert_eq!(has_index("group_messages_sent_at_id_sort")?, 0);
+
         EncryptedMessageStore::new(database)?;
         connection.raw_query(|conn| {
             diesel::sql_query("SELECT * FROM received_proposals").execute(conn)
         })?;
+        assert_eq!(has_index("group_messages_sent_at_sort")?, 0);
+        assert_eq!(has_index("group_messages_sent_at_id_sort")?, 1);
         let latest = connection.raw_query(|conn| {
             conn.applied_migrations()
                 .map_err(diesel::result::Error::QueryBuilderError)
