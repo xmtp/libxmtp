@@ -14,6 +14,29 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		case forgedMembership
 		case malformed
 		case codecFailure
+		case codecCancellation
+	}
+
+	private struct CancellingCodec: ContentCodec {
+		var contentType: ContentTypeID {
+			ContentTypeID(authorityID: "example.com", typeID: "delivery-cancellation", versionMajor: 1, versionMinor: 0)
+		}
+
+		func encode(content _: String) throws -> EncodedContent {
+			EncodedContent.with { $0.type = contentType }
+		}
+
+		func decode(content _: EncodedContent) throws -> String {
+			throw CancellationError()
+		}
+
+		func fallback(content _: String) throws -> String? {
+			nil
+		}
+
+		func shouldPush(content _: String) throws -> Bool {
+			false
+		}
 	}
 
 	private final class Token: MessageDeliveryToken, @unchecked Sendable {
@@ -115,6 +138,8 @@ final class MessageDeliveryStreamTests: XCTestCase {
 				$0.parameters = ["encoding": "UTF-16"]
 				$0.fallback = "unreadable content"
 			}.serializedData()
+		case .codecCancellation:
+			try CancellingCodec().encode(content: "cancel").serializedData()
 		}
 		return QueuedMessageDelivery(
 			message: FfiMessage(
@@ -309,6 +334,31 @@ final class MessageDeliveryStreamTests: XCTestCase {
 			XCTAssertEqual(error as? MessageDeliveryStreamError, .concurrentNext)
 		}
 		XCTAssertEqual(stale.counts().acknowledgements, 0)
+	}
+
+	// verifies: PROC-028
+	func testCodecCancellationRejectsTheItemAndStopsDelivery() async throws {
+		Client.register(codec: CancellingCodec())
+		let closed = expectation(description: "closed once")
+		closed.assertForOverFulfill = true
+		let token = Token()
+		let later = Token()
+		let stream = MessageDeliveryStream(onClose: { closed.fulfill() })
+		defer { stream.finish() }
+		try stream.receive(delivery(token: token, content: .codecCancellation))
+		try await assertThrowsAsyncError(await stream.next()) { error in
+			XCTAssertTrue(error is CancellationError)
+		}
+		XCTAssertEqual(token.counts().acknowledgements, 0)
+		XCTAssertEqual(token.counts().rejections, 1)
+		try stream.receive(delivery(2, token: later))
+		try await assertThrowsAsyncError(await stream.next()) { error in
+			XCTAssertTrue(error is CancellationError)
+		}
+		XCTAssertEqual(token.counts().acknowledgements, 0)
+		XCTAssertEqual(later.counts().acknowledgements, 0)
+		XCTAssertEqual(later.counts().rejections, 1)
+		await fulfillment(of: [closed], timeout: 3)
 	}
 
 	func testDecodeFailuresAreHandedOffAndStreamContinues() async throws {

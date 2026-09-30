@@ -201,7 +201,14 @@ public struct DecodedMessage: Identifiable {
 		{
 			return nil
 		}
-		let decodedContent: Any? = try? encodedContent?.decoded()
+		let decodedContent: Any?
+		do {
+			decodedContent = try encodedContent?.decoded()
+		} catch let error as CancellationError {
+			throw error
+		} catch {
+			decodedContent = nil
+		}
 		return DecodedMessage(
 			ffiMessage: ffiMessage, decodedContent: decodedContent,
 			deliveryCursor: deliveryCursor
