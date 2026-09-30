@@ -230,3 +230,69 @@ async fn explicit_storage_reopens_offline_without_inbox_id() {
     assert!(db_path.is_file());
     std::fs::remove_dir_all(root)?;
 }
+
+fn is_identity_mismatch(result: &Result<Client, XmtpError>) -> bool {
+    matches!(result, Err(XmtpError::IdentityMismatch(details))
+        if details.code == "IdentityMismatch"
+            && matches!(details.category, crate::ErrorCategory::Identity)
+            && !details.retryable)
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_opens_only_for_an_identity_of_its_inbox() {
+    let relay = CountingRelay::start().await?;
+    let root = temp_root("explicit-identity");
+    std::fs::create_dir_all(&root)?;
+    let db_path = root.join("chosen.sqlite");
+    let mut settings = options();
+    settings.backend = relay.backend();
+    settings.storage.location = StorageLocation::Explicit {
+        db_path: db_path.to_string_lossy().into_owned(),
+        attachments_dir: root.join("files").to_string_lossy().into_owned(),
+    };
+    let owner = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
+    let inbox_id = owner.inbox_id();
+    // An added account belongs to the inbox, but its own inbox ID differs.
+    let added_signer = crate::generate_local_signer().await;
+    owner
+        .unsafe_add_account(added_signer.clone(), false)
+        .await?;
+    let added = signer::identity(added_signer).await?;
+    assert_ne!(
+        added.to_core()?.inbox_id(0)?,
+        inbox_id.checked()?,
+        "the added account must not own the inbox ID"
+    );
+    // The database stores the association state with the added account.
+    assert!(owner.inbox_state(true).await?.identities.len() >= 2);
+    owner.end().await?;
+
+    let stranger_signer = crate::generate_local_signer().await;
+    let stranger = signer::identity(stranger_signer.clone()).await?;
+    let created = Client::create(stranger_signer, settings.clone()).await;
+    assert!(
+        is_identity_mismatch(&created),
+        "create: {:?}",
+        created.err()
+    );
+    let built = Client::build(stranger.clone(), settings.clone(), None).await;
+    assert!(is_identity_mismatch(&built), "build: {:?}", built.err());
+
+    let online = Client::build(added.clone(), settings.clone(), None).await?;
+    assert_eq!(online.inbox_id(), inbox_id);
+    online.end().await?;
+
+    relay.refuse();
+    settings.allow_offline = true;
+    let built = Client::build(stranger, settings.clone(), None).await;
+    assert!(
+        is_identity_mismatch(&built),
+        "offline build: {:?}",
+        built.err()
+    );
+    let offline = Client::build(added, settings, None).await?;
+    assert_eq!(offline.inbox_id(), inbox_id);
+    offline.end().await?;
+    assert_eq!(relay.connections(), 0, "offline check sent a request");
+    std::fs::remove_dir_all(root)?;
+}

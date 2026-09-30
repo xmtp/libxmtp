@@ -6,6 +6,9 @@ pub enum StorageLocation {
     Directory {
         directory: String,
     },
+    /// A database file and an attachments directory the app names. Create
+    /// and build without an inbox ID use the inbox stored in the database,
+    /// and fail `IdentityMismatch` when the identity does not belong to it.
     Explicit {
         db_path: String,
         attachments_dir: String,
