@@ -26,9 +26,14 @@ backend_image="${2:?Pass the backend image for the commit under test}"
 config_dir="$(mktemp -d)"
 trap 'rm -rf "$config_dir"' EXIT
 config="$config_dir/machine-config.json"
+machine_config="$root/sdks/ios/dev/fly/machine-config.json"
+if ! jq -e 'any(.containers[]; .name == "backend")' "$machine_config" >/dev/null; then
+  echo "Error: $machine_config has no backend container" >&2
+  exit 1
+fi
 backend_config="$(base64 < "$root/dev/backend/local-s3.toml" | tr -d '\n')"
 jq --arg cfg "$backend_config" --arg image "$backend_image" '.containers |= map(if .name == "backend" then .image = $image | .env.XMTP_REPLICA_URL = .env.XMTP_DATABASE_URL | .env.XMTP_S3_URL = "http://127.0.0.1:9067" | .env.XMTP_S3_BASE_URL = "http://127.0.0.1:9067/attachments" | .files = [{guest_path: "/config.toml", raw_value: $cfg}] else . end)' \
-  "$root/sdks/ios/dev/fly/machine-config.json" > "$config"
+  "$machine_config" > "$config"
 
 fly_org="${FLY_ORG:-xmtp-labs}"
 fly_region="${FLY_REGION:-sjc}"
@@ -47,6 +52,3 @@ flyctl machine run \
   --rm \
   --restart no \
   --machine-config "$config"
-
-echo "app_name=$app_name"
-echo "backend_url=https://${app_name}.fly.dev"
