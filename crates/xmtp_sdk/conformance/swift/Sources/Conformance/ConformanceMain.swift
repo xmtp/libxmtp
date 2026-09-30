@@ -533,15 +533,23 @@ struct Conformance {
                 credential: Credential(name: nil, value: "Bearer initial", expiresAtSeconds: largeExpiry)
             )),
             storage: options.storage,
-            deviceSync: false
+            deviceSync: false,
+            workers: WorkerOptions(defaultIntervalNs: UInt64(largeExpiry))
         )
         let credentialHost = try await SDKClient.build(
             identity: await signer.identity(), options: credentialOptions, inboxId: inboxId
         )
-        guard case let .some(.options(options: savedBackend)) = credentialHost.options().backend,
-              savedBackend.credential?.expiresAtSeconds == largeExpiry
+        let savedOptions = credentialHost.options()
+        guard savedOptions.workers?.defaultIntervalNs == UInt64(largeExpiry) else {
+            throw ConformanceFailure("worker interval lost 64-bit precision")
+        }
+        // The options never return the backend token or the database key.
+        guard case let .some(.options(options: savedBackend)) = savedOptions.backend,
+              savedBackend.credential == nil,
+              savedBackend.credentials == nil,
+              savedOptions.storage.encryptionKey == nil
         else {
-            throw ConformanceFailure("credential expiry lost 64-bit precision")
+            throw ConformanceFailure("client options exposed a secret")
         }
         try await credentialHost.setCredential(credential: Credential(
             name: nil, value: "Bearer renewed", expiresAtSeconds: largeExpiry

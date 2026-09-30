@@ -67,6 +67,41 @@ const signer: sdk.Signer = {
     return { kind: "ecdsa", value: Uint8Array.from(toBytes(signature)) };
   },
 };
+/** Fail when any string or byte array in `value` carries a secret. */
+function assertNoSecret(
+  value: unknown,
+  secrets: (string | Uint8Array)[],
+  path = "options",
+  seen = new Set<object>(),
+): void {
+  if (typeof value === "string") {
+    for (const secret of secrets)
+      if (typeof secret === "string" && value.includes(secret))
+        throw new Error(`${path} exposes a secret`);
+    return;
+  }
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  if (ArrayBuffer.isView(value) || value instanceof ArrayBuffer) {
+    const bytes = Buffer.from(
+      value instanceof ArrayBuffer
+        ? new Uint8Array(value)
+        : new Uint8Array(value.buffer, value.byteOffset, value.byteLength),
+    );
+    for (const secret of secrets)
+      if (secret instanceof Uint8Array && bytes.equals(Buffer.from(secret)))
+        throw new Error(`${path} exposes a secret key`);
+    return;
+  }
+  for (const key of Object.getOwnPropertyNames(value))
+    assertNoSecret(
+      (value as Record<string, unknown>)[key],
+      secrets,
+      `${path}.${key}`,
+      seen,
+    );
+}
+
 const backendOptions: sdk.BackendOptions = {
   url: process.env.XMTP_BACKEND_URL!,
 };
@@ -250,19 +285,23 @@ const credentialOptions = {
     },
   },
   storage: options.storage,
+  workers: { defaultIntervalNs: largeExpiry },
 } satisfies sdk.ClientOptions;
 const credentialClient = await sdk.Client.build(
   identity,
   credentialOptions,
   inboxId,
 );
+// The options keep 64-bit values but never return the backend token.
+assert.equal(
+  credentialClient.options.workers?.defaultIntervalNs,
+  largeExpiry,
+  "worker interval lost 64-bit precision",
+);
 const savedBackend = credentialClient.options.backend;
 assert.ok(savedBackend !== undefined && !(savedBackend instanceof sdk.Backend));
-const savedCredential = savedBackend.credentials;
-assert.ok(
-  savedCredential !== undefined && "expiresAtSeconds" in savedCredential,
-);
-assert.equal(savedCredential.expiresAtSeconds, largeExpiry);
+assert.equal(savedBackend.credentials, undefined);
+assertNoSecret(credentialClient.options, ["Bearer initial"]);
 await credentialClient.setCredential({
   name: undefined,
   value: "Bearer refreshed",
@@ -291,7 +330,27 @@ const sourceClient = await sdk.Client.build(
   inboxId,
 );
 assert.ok(sourceCalls > 0, "credential source was not called");
+const sourceBackend = sourceClient.options.backend;
+assert.ok(
+  sourceBackend !== undefined && !(sourceBackend instanceof sdk.Backend),
+);
+assert.equal(sourceBackend.credentials, undefined);
 await sourceClient.end();
+// The native database key is a secret too.
+const databaseKey = Uint8Array.from({ length: 32 }, (_, index) => index + 1);
+const keyedClient = await sdk.Client.create(signer, {
+  ...options,
+  storage: {
+    location: {
+      directory: await mkdtemp(join(tmpdir(), "xmtp-sdk-conformance-key-")),
+    },
+    encryptionKey: databaseKey,
+    singleConnection: false,
+  },
+});
+assert.equal(keyedClient.options.storage.encryptionKey, undefined);
+assertNoSecret(keyedClient.options, [databaseKey]);
+await keyedClient.end();
 console.log("Node scenario 3: credential update and 64-bit value passed");
 
 const snapshot = reopened.serverConfiguration;
