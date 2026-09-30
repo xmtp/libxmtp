@@ -11,13 +11,13 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
     // implements: ARCH-014, ARCH-020, ARCH-021
     pub fn restore_from_archive(context: &Context, save: &GroupSave) -> Result<bool, GroupError> {
         let group_id = GroupId::try_from(save.id.as_slice())?;
-        state_write(context.mls_storage(), |tx| {
+        // (storage changed, a Restored row was stored)
+        let (changed, stored) = state_write(context.mls_storage(), |tx| {
             if tx.storage().db().find_group(&group_id)?.is_some() {
-                return Ok::<_, GroupError>(Continue(merge_activity(
-                    &tx.storage().db(),
-                    &group_id,
-                    save.last_message_ns,
-                )?));
+                return Ok::<_, GroupError>(Continue((
+                    merge_activity(&tx.storage().db(), &group_id, save.last_message_ns)?,
+                    false,
+                )));
             }
             let conversation_type: ConversationType = save.conversation_type().try_into()?;
             let pair = if conversation_type == ConversationType::Dm {
@@ -125,9 +125,18 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 group_save: save.encode_to_vec(),
             }
             .store(&db)?;
-            Ok(Continue(true))
+            Ok(Continue((true, true)))
         })
-        .map(TransactionOutcome::into_continued)
+        .map(TransactionOutcome::into_continued)?;
+        // A scope opened before this import already selects the group's topic.
+        // implements: PROC-051
+        if stored {
+            crate::subscriptions::incoming::IncomingCoordinator::groups_restored(
+                context,
+                &[group_id],
+            );
+        }
+        Ok(changed)
     }
 }
 

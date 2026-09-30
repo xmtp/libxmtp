@@ -3331,7 +3331,9 @@ async fn a_device_sync_scope_skips_a_restored_sync_group() {
         scope: IncomingScope::DeviceSyncGroups,
     });
     controller.reconcile()?;
-    assert!(controller.scopes[&1].topics.contains(&topic));
+    // The sync-group query leaves out Restored rows, so the scope never
+    // selects the topic and holds no interest in it.
+    assert!(!controller.scopes[&1].topics.contains(&topic));
     assert!(!controller.interested().contains(&topic));
     assert!(
         controller
@@ -3366,7 +3368,7 @@ async fn releasing_a_scope_forgets_its_restored_groups_until_selected_again() {
 }
 
 /// A scope opened before its group is stored as Restored retires the topic
-/// when the Restored store notifies the context's controller.
+/// when the archive import that stores it notifies the context's controller.
 async fn scope_retires_a_group_restored_later(scope: impl Fn(&Topic) -> IncomingScope, dm: bool) {
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -3381,20 +3383,27 @@ async fn scope_retires_a_group_restored_later(scope: impl Fn(&Topic) -> Incoming
     controller.reconcile().unwrap();
     assert!(controller.interested().contains(&topic));
 
-    if dm {
-        crate::groups::MlsGroup::create_restored_dm_and_insert(
-            &alix.context,
-            xmtp_mls_common::group_metadata::DmMembers {
-                member_one_inbox_id: alix.inbox_id().to_string(),
-                member_two_inbox_id: bo.inbox_id().to_string(),
-            },
-            xmtp_mls_common::group::GroupMetadataOptions::default(),
-            group_id.as_slice(),
-        )
-        .unwrap();
+    // Restored rows come from archive `group` elements.
+    use xmtp_proto::xmtp::device_sync::group_backup::{ConversationTypeSave, GroupSave};
+    let save = if dm {
+        let pair = xmtp_mls_common::group_metadata::DmMembers {
+            member_one_inbox_id: alix.inbox_id().to_string(),
+            member_two_inbox_id: bo.inbox_id().to_string(),
+        };
+        GroupSave {
+            id: group_id.to_vec(),
+            conversation_type: ConversationTypeSave::Dm as i32,
+            dm_id: Some(pair.to_string()),
+            ..Default::default()
+        }
     } else {
-        insert_restored_placeholder(&alix.context, &group_id, ConversationType::Group);
-    }
+        GroupSave {
+            id: group_id.to_vec(),
+            conversation_type: ConversationTypeSave::Group as i32,
+            ..Default::default()
+        }
+    };
+    assert!(crate::groups::MlsGroup::restore_from_archive(&alix.context, &save).unwrap());
     assert_eq!(
         membership(&alix.context, &group_id),
         GroupMembershipState::Restored
