@@ -19,7 +19,7 @@ where
     xmtp_common::spawn(None, Box::pin(while_open(context, work)))
         .join()
         .await
-        .map_err(XmtpError::unknown)?
+        .map_err(XmtpError::from_core)?
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -40,9 +40,21 @@ pub(crate) fn enter_call(context: &MlsContext) -> Result<ForegroundCall, XmtpErr
         .enter()
         .ok_or_else(XmtpError::closed)?;
     if context.is_closed() {
-        return Err(XmtpError::closed());
+        return Err(closed_error(context));
     }
     Ok(call)
+}
+
+/// The error for a call whose client context is closed. A blocked connection,
+/// a configuration check that found another deployment or a too-old client,
+/// also closes the context. The app did not close that client, so it keeps
+/// the typed code, such as `BackendMismatch`. After end() begins, the call
+/// gate refuses the call first, so an ended client stays `ClientClosed`.
+fn closed_error(context: &MlsContext) -> XmtpError {
+    match context.server_configuration().blocked_connection() {
+        Some(blocked) => XmtpError::from_client(xmtp_mls::client::ClientError::from(&blocked)),
+        None => XmtpError::closed(),
+    }
 }
 
 // Check the closed state in the task because end() can run before it starts.
@@ -53,7 +65,7 @@ where
     let _call = enter_call(&context)?;
     work.await.map_err(|error| {
         if context.is_closed() {
-            XmtpError::closed()
+            closed_error(&context)
         } else {
             error
         }
@@ -78,7 +90,7 @@ pub(super) fn deletion_group(
         .context
         .db()
         .fetch_stitched(&stored.group_id)
-        .map_err(XmtpError::unknown)?;
+        .map_err(XmtpError::from_core)?;
     if stitched.is_none_or(|winner| winner.id != group.group_id) {
         return Err(XmtpError::conversation_permission_denied(
             "message belongs to another conversation",
@@ -86,5 +98,5 @@ pub(super) fn deletion_group(
     }
     MlsStore::new(group.context.clone())
         .group(&stored.group_id)
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
 }

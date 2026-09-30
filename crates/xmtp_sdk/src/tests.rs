@@ -519,6 +519,7 @@ mod identity_routes;
 mod lifecycle;
 mod message_actions;
 mod permissions;
+mod public_error_actions;
 mod query_costs;
 mod reader_delivery;
 mod reader_recovery;
@@ -526,5 +527,6 @@ mod reserved_transcript_sends;
 mod signers;
 mod standard_sends;
 mod storage;
+mod transparent_wrappers;
 
 mod reader_cursor;

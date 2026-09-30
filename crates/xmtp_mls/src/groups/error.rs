@@ -304,7 +304,7 @@ pub enum GroupError {
     ///
     /// Waiting for intent sync failed. Retryable.
     #[error("Sync failed to wait for intent: {}", _0)]
-    SyncFailedToWait(Box<SyncSummary>),
+    SyncFailedToWait(#[source] Box<SyncSummary>),
     /// Durable processing did not meet the fixed network targets. May be retryable.
     #[error(transparent)]
     #[error_code(inherit)]

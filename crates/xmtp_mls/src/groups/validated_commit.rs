@@ -56,7 +56,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
 pub enum CommitValidationError {
     /// Committed local state could not be read. Repair or restore before retry.
     #[error("Committed group state is invalid: {0}")]
-    InstalledState(Box<CommitValidationError>),
+    InstalledState(#[source] Box<CommitValidationError>),
     /// Resolve this proof outside the state transaction, then reload MLS state.
     #[error(transparent)]
     IdentityDependency(#[from] IdentityDependencyError),

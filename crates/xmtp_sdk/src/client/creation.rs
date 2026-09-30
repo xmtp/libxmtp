@@ -35,7 +35,7 @@ impl Client {
             .context
             .db()
             .disconnect()
-            .map_err(XmtpError::storage)
+            .map_err(XmtpError::from_core)
     }
 
     pub(super) async fn build_inner(
@@ -74,7 +74,7 @@ impl Client {
         match &mut options.storage.location {
             StorageLocation::Path(path) | StorageLocation::Directory(path) => {
                 *path = std::path::absolute(&*path)
-                    .map_err(XmtpError::unknown)?
+                    .map_err(XmtpError::from_core)?
                     .to_string_lossy()
                     .into_owned();
             }
@@ -112,7 +112,7 @@ impl Client {
                     Some(value) => value,
                     None => identifier
                         .inbox_id(options.registration.nonce.unwrap_or(0))
-                        .map_err(XmtpError::unknown)?,
+                        .map_err(XmtpError::from_core)?,
                 }
             }
         };
@@ -141,7 +141,7 @@ impl Client {
         .api_client_with_streams(backend.api.clone())
         .with_allow_offline(Some(options.allow_offline))
         .with_remote_verifier()
-        .map_err(XmtpError::unknown)?
+        .map_err(XmtpError::from_core)?
         .store(store)
         .device_sync_worker_mode(mode);
         if let Some(recovery) = fork_recovery {
@@ -152,7 +152,7 @@ impl Client {
         }
         let inner = builder
             .default_mls_store()
-            .map_err(XmtpError::unknown)?
+            .map_err(XmtpError::from_core)?
             .build()
             .await
             .map_err(XmtpError::from_builder)?;

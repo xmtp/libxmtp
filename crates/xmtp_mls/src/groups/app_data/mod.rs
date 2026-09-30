@@ -429,7 +429,7 @@ pub enum GroupAppDataError<StorageError: std::error::Error> {
     ApplyPayload(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
     /// Computing the removed-member cleanup for a swept removal failed.
     #[error("membership upkeep error: {0}")]
-    Upkeep(Box<crate::groups::GroupError>),
+    Upkeep(#[source] Box<crate::groups::GroupError>),
 }
 
 // Specialize to the concrete SqlKeyStoreError because that's the only

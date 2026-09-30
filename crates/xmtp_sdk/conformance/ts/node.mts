@@ -10,6 +10,7 @@ import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.t
 // hook and the host EventStream over a fake reader.
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
 import { EventStream as HostEventStream } from "../../../../target/sdk-conformance/typescript-napi/runtime/events/reader.ts";
+import { checkConfigurationMismatch } from "./config-mismatch.mts";
 import { checkIdentityRoutes } from "./identity-routes.mts";
 import {
   assertEncodedEqual,
@@ -120,6 +121,8 @@ const options = {
 await checkReaderCursor(signer, backendOptions);
 await checkRestoredPeer(backendOptions);
 await checkIdentityRoutes(backendOptions);
+await checkConfigurationMismatch(signer, backendOptions);
+console.log("Node offline build on another deployment fails with BackendMismatch");
 const client = await sdk.Client.create(signer, options);
 // Uppercase hex decodes, so only ID validation rejects it.
 await assert.rejects(

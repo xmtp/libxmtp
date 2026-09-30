@@ -48,6 +48,6 @@ impl Storage {
         if !self.client.context.shutdown_complete() {
             end_client(&self.client, &self.listeners, &self.event_readers).await?;
         }
-        std::fs::remove_file(path).map_err(XmtpError::unknown)
+        std::fs::remove_file(path).map_err(XmtpError::storage)
     }
 }

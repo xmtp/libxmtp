@@ -1,3 +1,8 @@
+mod wrappers;
+pub(crate) use wrappers::CoreError;
+#[cfg(all(test, not(feature = "pure-only")))]
+pub(crate) use wrappers::{CORE_ERROR_ROOTS, OPENED_WRAPPERS};
+
 /// The kind of a façade failure.
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ErrorCategory {
@@ -102,6 +107,13 @@ pub enum XmtpError {
     /// send. The SDK made no publish attempt. The host runtime returns it.
     #[error("codec encode failed: {0:?}")]
     CodecEncodeFailed(ErrorDetails),
+    /// The send was published, but the SDK could not confirm its processing.
+    /// Run the conversation's sync to finish it; do not send it again.
+    #[error("published but unconfirmed: {0:?}")]
+    PublishedButUnconfirmed(ErrorDetails),
+    /// The change would make the group larger than its member limit.
+    #[error("user limit exceeded: {0:?}")]
+    UserLimitExceeded(ErrorDetails),
     #[error("unknown failure: {0:?}")]
     Unknown(ErrorDetails),
 }
@@ -167,11 +179,25 @@ impl XmtpError {
         })
     }
 
+    /// A storage failure with no typed retry policy, such as a file-system
+    /// check. A typed `StorageError` goes through `from_core`, which keeps its
+    /// retry policy.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub(crate) fn storage(error: impl std::fmt::Display) -> Self {
         Self::Storage(Self::details(
             "Storage",
             ErrorCategory::Storage,
             false,
+            error.to_string(),
+        ))
+    }
+
+    fn storage_cause(error: &xmtp_db::StorageError) -> Self {
+        use xmtp_common::RetryableError;
+        Self::Storage(Self::details(
+            "Storage",
+            ErrorCategory::Storage,
+            error.is_retryable(),
             error.to_string(),
         ))
     }
@@ -205,56 +231,226 @@ impl XmtpError {
     }
 
     pub(crate) fn from_group(error: xmtp_mls::groups::GroupError) -> Self {
-        use xmtp_mls::groups::GroupError;
-        match error {
-            GroupError::ReservedTranscriptContentType => Self::InvalidInput(Self::details(
-                "ReservedTranscriptContentType",
-                ErrorCategory::Input,
-                false,
-                "reserved transcript content type",
-            )),
-            other => Self::unknown(other),
-        }
+        Self::from_core(error)
     }
 
-    pub(crate) fn signer() -> Self {
-        Self::Signer(ErrorDetails {
-            code: "SignerFailed".into(),
-            category: ErrorCategory::Callback,
-            retryable: false,
-            message: "signer callback failed".into(),
-        })
+    /// Map a core failure to the public code of its recovery action. The
+    /// search follows the source chain, because core wraps a typed cause, such
+    /// as a storage error, a configuration check, or a credential failure, in
+    /// operation errors. A failure with no typed cause is `Unknown`.
+    // implements: CONF-064
+    pub(crate) fn from_core<E: CoreError>(error: E) -> Self {
+        Self::classify(&error).unwrap_or_else(|| Self::unclassified(&error))
     }
 
-    pub(crate) fn callback_failed() -> Self {
-        Self::CallbackFailed(Self::details(
-            "CallbackFailed",
-            ErrorCategory::Callback,
-            false,
-            "pre-authenticate callback failed",
+    /// `Unknown` keeps the retry policy of a typed core error; with none, it
+    /// is not retryable.
+    fn unclassified(error: &(dyn std::error::Error + 'static)) -> Self {
+        Self::Unknown(Self::details(
+            "Unknown",
+            ErrorCategory::Unknown,
+            Self::typed_retryable(error).unwrap_or(false),
+            error.to_string(),
         ))
     }
 
-    pub(crate) fn from_signature_request(
-        error: xmtp_id::associations::builder::SignatureRequestError,
-    ) -> Self {
-        match &error {
-            xmtp_id::associations::builder::SignatureRequestError::ChainNotAccepted { .. } => {
-                Self::ChainNotAccepted(Self::details(
-                    "ChainNotAccepted",
-                    ErrorCategory::Configuration,
-                    false,
-                    error.to_string(),
-                ))
+    fn typed_retryable(error: &(dyn std::error::Error + 'static)) -> Option<bool> {
+        use xmtp_common::RetryableError;
+        use xmtp_mls::{
+            client::ClientError, groups::GroupError, identity::IdentityError,
+            mls_store::MlsStoreError, subscriptions::catch_up::CatchUpError,
+        };
+        if let Some(error) = error.downcast_ref::<xmtp_archive::ArchiveError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<CatchUpError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<GroupError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<ClientError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<IdentityError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<MlsStoreError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<xmtp_api::ApiError>() {
+            return Some(error.is_retryable());
+        }
+        error
+            .downcast_ref::<xmtp_db::StorageError>()
+            .map(RetryableError::is_retryable)
+    }
+
+    fn classify(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        // A failed check before the request wins: the request was not sent,
+        // and the check's own cause names the action. The search also opens
+        // the boxes that hide a source.
+        if let Some(preflight) = xmtp_api::preflight::failure(error) {
+            return Some(Self::preflight_cause(preflight));
+        }
+        let mut current = Some(error);
+        while let Some(error) = current {
+            if let Some(found) = Self::classify_one(error) {
+                return Some(found);
             }
-            _ => Self::invalid(error.to_string()),
+            current = wrappers::wrapped(error).or_else(|| error.source());
+        }
+        None
+    }
+
+    fn classify_one(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        use xmtp_mls::groups::GroupError;
+        if let Some(group) = error.downcast_ref::<GroupError>() {
+            return match group {
+                GroupError::ReservedTranscriptContentType => {
+                    Some(Self::InvalidInput(Self::details(
+                        "ReservedTranscriptContentType",
+                        ErrorCategory::Input,
+                        false,
+                        "reserved transcript content type",
+                    )))
+                }
+                GroupError::UserLimitExceeded => Some(Self::UserLimitExceeded(Self::details(
+                    "UserLimitExceeded",
+                    ErrorCategory::Input,
+                    false,
+                    group.to_string(),
+                ))),
+                // Core may retry the confirmation, but the app must not
+                // repeat the send: the conversation's sync finishes it.
+                GroupError::PublishedButUnconfirmed { .. } => {
+                    Some(Self::PublishedButUnconfirmed(Self::details(
+                        "PublishedButUnconfirmed",
+                        ErrorCategory::Conversation,
+                        false,
+                        group.to_string(),
+                    )))
+                }
+                GroupError::WrappedApi(api) => Some(Self::api_cause(api)),
+                GroupError::Storage(storage) => Some(Self::storage_cause(storage)),
+                GroupError::Client(client) => Self::client_cause(client),
+                _ => None,
+            };
+        }
+        if let Some(client) = error.downcast_ref::<xmtp_mls::client::ClientError>() {
+            return Self::client_cause(client);
+        }
+        if let Some(api) = error.downcast_ref::<xmtp_api::ApiError>() {
+            return Some(Self::api_cause(api));
+        }
+        if let Some(auth) = error.downcast_ref::<xmtp_proto::api::AuthError>() {
+            return Some(Self::from_auth(*auth));
+        }
+        if let Some(storage) = error.downcast_ref::<xmtp_db::StorageError>() {
+            return Some(Self::storage_cause(storage));
+        }
+        // A data directory bound to another deployment has the same action
+        // as a backend mismatch: select the bound deployment.
+        if let Some(xmtp_mls::storage_location::StorageLocationError::DeploymentMismatch) =
+            error.downcast_ref::<xmtp_mls::storage_location::StorageLocationError>()
+        {
+            return Some(Self::BackendMismatch(Self::details(
+                "BackendMismatch",
+                ErrorCategory::Configuration,
+                false,
+                error.to_string(),
+            )));
+        }
+        if let Some(query) = error.downcast_ref::<xmtp_db::diesel::result::Error>() {
+            use xmtp_common::RetryableError;
+            return Some(Self::Storage(Self::details(
+                "Storage",
+                ErrorCategory::Storage,
+                query.is_retryable(),
+                query.to_string(),
+            )));
+        }
+        if let Some(platform) = error.downcast_ref::<xmtp_db::PlatformStorageError>() {
+            use xmtp_common::RetryableError;
+            return Some(Self::Storage(Self::details(
+                "Storage",
+                ErrorCategory::Storage,
+                platform.is_retryable(),
+                platform.to_string(),
+            )));
+        }
+        if let Some(connection) = error.downcast_ref::<xmtp_db::ConnectionError>() {
+            use xmtp_common::RetryableError;
+            return Some(Self::Storage(Self::details(
+                "Storage",
+                ErrorCategory::Storage,
+                connection.is_retryable(),
+                connection.to_string(),
+            )));
+        }
+        None
+    }
+
+    /// A failed configuration check before a request keeps the
+    /// code of the check's own failure.
+    // implements: CONF-077
+    fn preflight_cause(preflight: &xmtp_api::preflight::PreflightError) -> Self {
+        use xmtp_common::RetryableError;
+        std::error::Error::source(preflight)
+            .and_then(Self::classify)
+            .unwrap_or_else(|| {
+                Self::Unknown(Self::details(
+                    "Unknown",
+                    ErrorCategory::Network,
+                    preflight.is_retryable(),
+                    preflight.to_string(),
+                ))
+            })
+    }
+
+    fn api_cause(api: &xmtp_api::ApiError) -> Self {
+        use xmtp_common::RetryableError;
+        match api {
+            xmtp_api::ApiError::Auth(auth) => Self::from_auth(*auth),
+            xmtp_api::ApiError::Preflight(preflight) => Self::preflight_cause(preflight),
+            other => Self::classify_sources(other).unwrap_or_else(|| {
+                Self::Unknown(Self::details(
+                    "Unknown",
+                    ErrorCategory::Network,
+                    other.is_retryable(),
+                    other.to_string(),
+                ))
+            }),
         }
     }
 
-    pub(crate) fn from_client(error: xmtp_mls::client::ClientError) -> Self {
+    /// The configuration or lifecycle code of a typed cause in `error`'s
+    /// chain, if it has one.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn configuration_cause(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        Self::classify(error).filter(|found| {
+            matches!(
+                found,
+                Self::BackendMismatch(_)
+                    | Self::ClientVersionTooOld(_)
+                    | Self::ConfigurationUnavailable(_)
+                    | Self::ConfigurationInvalid(_)
+                    | Self::AuthRequired(_)
+                    | Self::ChainNotAccepted(_)
+                    | Self::ClientClosed(_)
+            )
+        })
+    }
+
+    /// Classify only the causes below `error`, not `error` itself.
+    fn classify_sources(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
+        error.source().and_then(Self::classify)
+    }
+
+    pub(crate) fn client_cause(error: &xmtp_mls::client::ClientError) -> Option<Self> {
         use xmtp_common::RetryableError;
         use xmtp_mls::client::ClientError;
-        match error {
+        Some(match error {
             ClientError::AlreadyClosed => Self::closed(),
             ClientError::ConfigurationUnavailable(source) => {
                 Self::ConfigurationUnavailable(Self::details(
@@ -300,18 +496,48 @@ impl XmtpError {
                     format!("chain {chain} is not in {}", accepted.join(", ")),
                 ))
             }
-            ClientError::Api(api) => Self::from_api(api),
-            ClientError::Identity(identity) => Self::from_identity(identity),
-            other => {
-                let retryable = other.is_retryable();
-                Self::Unknown(Self::details(
-                    "Unknown",
-                    ErrorCategory::Unknown,
-                    retryable,
-                    other.to_string(),
+            ClientError::Api(api) => Self::api_cause(api),
+            ClientError::Storage(storage) => Self::storage_cause(storage),
+            _ => return None,
+        })
+    }
+
+    pub(crate) fn signer() -> Self {
+        Self::Signer(ErrorDetails {
+            code: "SignerFailed".into(),
+            category: ErrorCategory::Callback,
+            retryable: false,
+            message: "signer callback failed".into(),
+        })
+    }
+
+    pub(crate) fn callback_failed() -> Self {
+        Self::CallbackFailed(Self::details(
+            "CallbackFailed",
+            ErrorCategory::Callback,
+            false,
+            "pre-authenticate callback failed",
+        ))
+    }
+
+    pub(crate) fn from_signature_request(
+        error: xmtp_id::associations::builder::SignatureRequestError,
+    ) -> Self {
+        match &error {
+            xmtp_id::associations::builder::SignatureRequestError::ChainNotAccepted { .. } => {
+                Self::ChainNotAccepted(Self::details(
+                    "ChainNotAccepted",
+                    ErrorCategory::Configuration,
+                    false,
+                    error.to_string(),
                 ))
             }
+            _ => Self::invalid(error.to_string()),
         }
+    }
+
+    pub(crate) fn from_client(error: xmtp_mls::client::ClientError) -> Self {
+        Self::from_core(error)
     }
 
     pub(crate) fn from_auth(error: xmtp_proto::api::AuthError) -> Self {
@@ -349,33 +575,11 @@ impl XmtpError {
     }
 
     pub(crate) fn from_api(error: xmtp_api::ApiError) -> Self {
-        use xmtp_common::RetryableError;
-        match error {
-            xmtp_api::ApiError::Auth(auth) => Self::from_auth(auth),
-            other => Self::Unknown(Self::details(
-                "Unknown",
-                ErrorCategory::Network,
-                other.is_retryable(),
-                other.to_string(),
-            )),
-        }
-    }
-
-    fn from_identity(error: xmtp_mls::identity::IdentityError) -> Self {
-        match error {
-            xmtp_mls::identity::IdentityError::ApiClient(api) => Self::from_api(api),
-            other => Self::unknown(other),
-        }
+        Self::api_cause(&error)
     }
 
     pub(crate) fn from_builder(error: xmtp_mls::builder::ClientBuilderError) -> Self {
-        use xmtp_mls::builder::ClientBuilderError;
-        match error {
-            ClientBuilderError::WrappedApiError(api) => Self::from_api(api),
-            ClientBuilderError::ClientError(client) => Self::from_client(client),
-            ClientBuilderError::Identity(identity) => Self::from_identity(identity),
-            other => Self::unknown(other),
-        }
+        Self::from_core(error)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -384,6 +588,16 @@ impl XmtpError {
     ) -> Self {
         use xmtp_common::RetryableError;
         use xmtp_mls::client::notifications::NotificationError;
+        // A failed configuration check or a blocked connection keeps its
+        // configuration code, as on every other path.
+        let configuration = match &error {
+            NotificationError::Api(source) => Self::configuration_cause(source),
+            NotificationError::Group(source) => Self::configuration_cause(source),
+            _ => None,
+        };
+        if let Some(found) = configuration {
+            return found;
+        }
         match error {
             NotificationError::PermissionDenied => Self::PermissionDenied(Self::details(
                 "PermissionDenied",
