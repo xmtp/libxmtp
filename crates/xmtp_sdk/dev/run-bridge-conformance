@@ -37,3 +37,6 @@ NODE_OPTIONS= \
 NODE_OPTIONS= \
   sdks/node/node_modules/.bin/tsx \
   crates/xmtp_sdk/conformance/browser/storage.chromium.mts
+NODE_OPTIONS= \
+  sdks/node/node_modules/.bin/tsx \
+  crates/xmtp_sdk/conformance/browser/package.chromium.mts

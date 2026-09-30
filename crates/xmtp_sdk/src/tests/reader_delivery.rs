@@ -35,7 +35,7 @@ async fn slice_create_send_read_stream_end() {
         matches!(sent.0.content, MessageContent::Text(ref text) if text == "hello from the slice")
     );
 
-    let reader = bo_group.message_reader().await?;
+    let reader = bo_group.message_reader(None).await?;
     let received = xmtp_common::time::timeout(std::time::Duration::from_secs(30), async {
         loop {
             if let Some(message) = reader.next().await?
@@ -65,7 +65,7 @@ async fn cancel_idle_read_settles() {
         .await?,
     );
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let idle = reader.idle_read_for_test();
     let pending_reader = reader.clone();
     let pending = tokio::spawn(async move { pending_reader.next().await });
@@ -87,7 +87,7 @@ async fn cancel_idle_read_settles() {
 async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let idle = reader.idle_read_for_test();
     let pending_reader = reader.clone();
     let pending = tokio::spawn(async move { pending_reader.next().await });
@@ -102,7 +102,7 @@ async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
     assert_eq!(delivered.0.id, message_id);
     reader.end().await?;
 
-    let replay = group.message_reader().await?;
+    let replay = group.message_reader(None).await?;
     let repeated = xmtp_common::time::timeout(Duration::from_secs(5), replay.next())
         .await??
         .expect("message was not acknowledged");
@@ -258,7 +258,7 @@ async fn all_scope_message_reader_skips_synced_denied_message() {
     let allowed_id = allowed.send_text("allowed".into(), None).await?;
     bo_allowed.sync().await?;
 
-    let reader = bo_allowed.message_reader().await?;
+    let reader = bo_allowed.message_reader(None).await?;
     reader.update_all_scope_for_test();
     let selected = xmtp_common::time::timeout(Duration::from_secs(5), async {
         loop {
@@ -282,7 +282,7 @@ async fn stream_ack_only_on_next_request() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let first_id = group.send_text("first".into(), None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     assert_eq!(
         xmtp_common::time::timeout(Duration::from_secs(5), reader.next())
             .await??
@@ -293,7 +293,7 @@ async fn stream_ack_only_on_next_request() {
     );
     reader.end().await?;
 
-    let replay = group.message_reader().await?;
+    let replay = group.message_reader(None).await?;
     assert_eq!(
         xmtp_common::time::timeout(Duration::from_secs(5), replay.next())
             .await??
@@ -313,7 +313,7 @@ async fn stream_ack_only_on_next_request() {
     );
     replay.end().await?;
 
-    let remaining = group.message_reader().await?;
+    let remaining = group.message_reader(None).await?;
     assert_eq!(
         xmtp_common::time::timeout(Duration::from_secs(5), remaining.next())
             .await??

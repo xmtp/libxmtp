@@ -329,7 +329,7 @@ export function registerTransportTests(): void {
     session.release([12]);
     await new Promise<void>((resolve) => queueMicrotask(resolve));
     expect(main.sent.filter((message) => message.t === "release")).toEqual([
-      { t: "release", handles: [11, 12] },
+      { t: "release", handles: [11, 12], revision: 1 },
     ]);
     await session.call("bytes", []);
     expect(

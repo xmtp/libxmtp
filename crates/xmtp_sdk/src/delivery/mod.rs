@@ -1,5 +1,6 @@
 mod connection_state;
 mod conversation_reader;
+pub(crate) mod cursor;
 mod message_reader;
 
 pub use connection_state::ConnectionState;
@@ -127,12 +128,14 @@ pub(crate) fn configuration_error(error: &ClientError, message: String) -> XmtpE
 pub(crate) fn enrichment_error(error: EnrichMessageError) -> XmtpError {
     let retryable = error.is_retryable();
     match error {
-        EnrichMessageError::DbConnection(_) => XmtpError::Storage(details(
-            "Storage",
-            ErrorCategory::Storage,
-            retryable,
-            error.to_string(),
-        )),
+        EnrichMessageError::DbConnection(_) | EnrichMessageError::Storage(_) => {
+            XmtpError::Storage(details(
+                "Storage",
+                ErrorCategory::Storage,
+                retryable,
+                error.to_string(),
+            ))
+        }
     }
 }
 

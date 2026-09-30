@@ -65,6 +65,10 @@ export class Message {
     this.content = liftCustomContent(content, owner !== undefined, decoded);
   }
 
+  get deliveryCursor(): string | null {
+    return this.data.deliveryCursor ?? null;
+  }
+
   get id(): MessageId {
     return this.data.id;
   }

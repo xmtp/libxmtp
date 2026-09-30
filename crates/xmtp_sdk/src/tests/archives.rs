@@ -213,7 +213,7 @@ fn listed_conversation<'a>(
 /// The creator, the adder, and `is_creator`. An unknown ID is empty text,
 /// which the checked accessor rejects, so it reads as `None`.
 fn received_identity(conversation: &crate::Conversation) -> (Option<String>, Option<String>, bool) {
-    let read = |id: crate::InboxId| id.into_checked().ok();
+    let read = |id: Option<crate::InboxId>| id.and_then(|id| id.into_checked().ok());
     match conversation {
         crate::Conversation::Group { group } => (
             read(group.creator_inbox_id()),

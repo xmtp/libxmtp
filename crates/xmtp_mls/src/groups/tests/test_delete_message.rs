@@ -631,6 +631,77 @@ async fn test_true_out_of_order_deletion_by_sender() {
     assert_eq!(*deleted_by, DeletedBy::Sender);
 }
 
+/// An admin delete that arrives before its target names the admin when the
+/// target, already expired, is stored later.
+// verifies: META-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn out_of_order_admin_delete_of_expired_message_names_the_admin() {
+    use crate::context::XmtpSharedContext;
+    use crate::subscriptions::{StreamMessages, internal::InternalEvent};
+    use futures::StreamExt;
+    use xmtp_db::message_deletion::StoredMessageDeletion;
+
+    tester!(alix);
+    let alix_group = alix.create_group(None, None)?;
+    let target_id = vec![0xAD, 0x01];
+    let delete_id = vec![0xAD, 0x02];
+    // The deletion record references the stored delete message.
+    StoredGroupMessage {
+        content_type: ContentType::DeleteMessage,
+        ..cached_text_row(
+            alix_group.group_id,
+            delete_id.clone(),
+            alix.inbox_id(),
+            "xmtp.org",
+        )?
+    }
+    .store(&alix.context.db())?;
+    StoredMessageDeletion {
+        id: delete_id,
+        group_id: alix_group.group_id,
+        deleted_message_id: target_id.clone(),
+        deleted_by_inbox_id: alix.inbox_id().to_string(),
+        is_super_admin_deletion: true,
+        deleted_at_ns: xmtp_common::time::now_ns(),
+    }
+    .store(&alix.context.db())?;
+    let deletions = alix
+        .context
+        .events()
+        .subscribe(
+            xmtp_events::EventFilter::default().with_internal(InternalEvent::is_message_deletion),
+            Some(8),
+        )
+        .stream_message_deletions();
+    futures::pin_mut!(deletions);
+
+    let target = StoredGroupMessage {
+        expire_at_ns: Some(xmtp_common::time::now_ns() - 1),
+        ..cached_text_row(alix_group.group_id, target_id.clone(), "sender", "xmtp.org")?
+    };
+    crate::state_tx::state_write_with_events(
+        alix.context.mls_storage(),
+        alix.context.events(),
+        |tx, buffer| {
+            let storage = tx.storage();
+            alix_group.store_external_application_message(&storage, &target, buffer)?;
+            Ok::<_, crate::groups::mls_sync::GroupMessageProcessingError>(
+                xmtp_db::TransactionOutcome::Continue(()),
+            )
+        },
+    )?;
+
+    let deleted = xmtp_common::time::timeout(std::time::Duration::from_secs(5), deletions.next())
+        .await?
+        .expect("a deletion item")?;
+    assert_eq!(deleted.metadata.id, target_id);
+    assert_eq!(deleted.fallback_text, None);
+    let MessageBody::DeletedMessage { deleted_by } = &deleted.content else {
+        panic!("the deletion item carried a body: {:?}", deleted.content);
+    };
+    assert_eq!(*deleted_by, DeletedBy::Admin(alix.inbox_id().to_string()));
+}
+
 /// Test that unauthorized deletion records are rejected at query time.
 // verifies: PROC-037, EVENT-001
 #[xmtp_common::test(unwrap_try = true)]

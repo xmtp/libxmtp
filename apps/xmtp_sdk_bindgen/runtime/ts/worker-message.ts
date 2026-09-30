@@ -10,6 +10,10 @@ import type {
 export class Message {
   constructor(readonly data: MessageData) {}
 
+  get deliveryCursor(): string | null {
+    return this.data.deliveryCursor ?? null;
+  }
+
   get id(): MessageId {
     return this.data.id;
   }

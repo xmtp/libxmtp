@@ -3,6 +3,8 @@ import type {
   ClientLike,
   Conversation,
   ConversationReaderOptions,
+  MessageReaderOptions,
+  ConversationMessageReaderOptions,
 } from "../../xmtp_sdk";
 import type { Client } from "../client";
 import type { Message } from "../message";
@@ -26,11 +28,18 @@ export type StreamOptions = {
   ) => void;
 };
 
-type ReaderLike<T> = {
+export type ReaderLike<T> = {
   next(options?: { signal: AbortSignal }): Promise<T | undefined>;
   end(): Promise<void>;
   connectionState?(): Promise<ConnectionState>;
   connectionStateChanged?(previous: ConnectionState): Promise<ConnectionState>;
+};
+
+type MessageReaderSource<T, Selection> = {
+  messageReader(
+    selection?: Selection,
+    transport?: { signal: AbortSignal },
+  ): Promise<ReaderLike<T>>;
 };
 
 /** Each next request acknowledges the value returned by the prior request. */
@@ -41,6 +50,7 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   private active?: ReaderLike<T>;
   private pending?: AbortController;
   private closed = false;
+  private reads: Promise<void> = Promise.resolve();
   private closeReason?: StreamCloseReason;
   private closing?: Promise<void>;
   private readonly abortListener = () =>
@@ -163,7 +173,24 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
     }
   }
 
-  async next(): Promise<IteratorResult<T>> {
+  /**
+   * Reads run one at a time. The next read acknowledges the prior value, so a
+   * second read must not start while the first value has not reached the app.
+   */
+  next(): Promise<IteratorResult<T>> {
+    // A closed stream answers at once. It does not wait for a read that is
+    // still ending its reader.
+    const result = Promise.race([this.reads, this.stopped]).then(() =>
+      this.read(),
+    );
+    this.reads = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  private async read(): Promise<IteratorResult<T>> {
     if (this.closed) return this.closedResult();
     try {
       const reader = await Promise.race([this.reader, this.stopped]);
@@ -195,7 +222,11 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
   /** Resolve after the callback; the next read then acknowledges this value. */
   async onValue(callback: (value: T) => void | Promise<void>): Promise<void> {
     try {
-      for await (const value of this) await callback(value);
+      for (;;) {
+        const item = await this.next();
+        if (item.done) return;
+        await callback(item.value);
+      }
     } catch (error) {
       await this.fail(error);
       throw error;
@@ -213,6 +244,44 @@ export class ReaderStream<T> implements AsyncIterableIterator<T> {
 }
 
 export class MessageStream<T = Message> extends ReaderStream<T> {
+  static open<T>(
+    owner: { conversations(): MessageReaderSource<T, MessageReaderOptions> },
+    selection?: MessageReaderOptions,
+    options?: StreamOptions,
+  ): MessageStream<T> {
+    return new MessageStream(
+      (signal) => owner.conversations().messageReader(selection, { signal }),
+      owner,
+      options,
+    );
+  }
+
+  static openGroup<T>(
+    owner: object,
+    group: MessageReaderSource<T, ConversationMessageReaderOptions>,
+    selection?: ConversationMessageReaderOptions,
+    options?: StreamOptions,
+  ): MessageStream<T> {
+    return new MessageStream(
+      (signal) => group.messageReader(selection, { signal }),
+      owner,
+      options,
+    );
+  }
+
+  static openDm<T>(
+    owner: object,
+    dm: MessageReaderSource<T, ConversationMessageReaderOptions>,
+    selection?: ConversationMessageReaderOptions,
+    options?: StreamOptions,
+  ): MessageStream<T> {
+    return new MessageStream(
+      (signal) => dm.messageReader(selection, { signal }),
+      owner,
+      options,
+    );
+  }
+
   constructor(
     open: (signal: AbortSignal) => Promise<ReaderLike<T>>,
     owner: object,
@@ -230,7 +299,7 @@ export class ConversationStream extends ReaderStream<Conversation> {
   ): ConversationStream {
     return new ConversationStream(
       (signal) =>
-        owner.raw.conversations().conversationReader(selection, { signal }),
+        owner.conversations().conversationReader(selection, { signal }),
       owner,
       options,
     );

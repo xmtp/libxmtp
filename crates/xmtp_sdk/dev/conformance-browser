@@ -15,4 +15,5 @@ ln -sfn "$root/sdks/browser/node_modules/@vitest/browser-playwright" "$root/node
 NODE_OPTIONS=--preserve-symlinks sdks/browser/node_modules/.bin/vitest run \
   --config crates/xmtp_sdk/conformance/browser/vitest.browser.config.mts
 sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/storage.chromium.mts
+sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/package.chromium.mts
 sdks/node/node_modules/.bin/tsx crates/xmtp_sdk/conformance/browser/bridge.chromium.mts

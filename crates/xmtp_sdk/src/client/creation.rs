@@ -6,7 +6,7 @@ impl Client {
     /// the storage lock when create fails, so the store must not stay
     /// connected, even when close fails and keeps it connected for a retry.
     /// Returns an error when the store stays connected. Then
-    /// `store_left_open` reports it to the browser worker, which keeps the
+    /// `storage_requires_worker_restart` reports it to the browser worker, which keeps the
     /// storage lock.
     pub(crate) async fn discard(&self) -> Result<(), XmtpError> {
         let Err(error) = self.end().await else {
@@ -190,7 +190,7 @@ impl Client {
             };
             if let Err(error) = registered {
                 // The caller gets the registration error. A store that stays
-                // open is reported through `store_left_open`.
+                // open is reported through `storage_requires_worker_restart`.
                 let _ = client.discard().await;
                 return Err(error);
             }

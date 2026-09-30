@@ -4,14 +4,14 @@ This manifest classifies the public exports of the four current SDKs before they
 
 `generated` means the facade generator emits the API. `static runtime` means hand-written host code ships with generated output. `platform helper` means native OS code stays in the SDK. `approved removal` means the current export leaves the API. A dash in Final name marks a removal.
 
-Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. A free property is `var name`, `val name`, or `let name`. Nested owners use dots, such as `Client.Companion.create`. A computed member is `Owner[Symbol.asyncIterator]`. A named constructor parameter in a public signature uses `Owner.parameter` and Kind `constructor parameter`. A method may show a call shape in either name column, such as `Client.Companion.register(codec)`, `Group.state().name`, `Client.inboxId(for:)`, or `Conversation.lastActivityAt(contentTypes?)`; `Client.inboxId` without parentheses is the field. An enum value under a record field uses `Record.field.value`, such as `ListMessagesOptions.sortBy.sentAt`. Kotlin `Client.Companion.register(codec:)` is today's global codec method and is removed; final `Client.register()` registers an identity. A group row starts `pattern:` and shows a source glob or regular expression plus its declaration count. The xmtpv3.swift family patterns run in table order after individually listed public-signature `Ffi*` roots are excluded; each declaration matches the first family only. The final `^.+$` family closes that partition. Notes name the source file. Kind and a declaration signature distinguish overloads without line numbers. The helper counts source-declared Swift public/open and SPI items, Kotlin public declarations and constructor properties, and TypeScript package exports plus exported class and object-type members. Compiler-synthesized members are outside this source inventory. The counts are declaration counts, not table-row counts. Run `python3 dev/sdk/inventory.py --self-test` and `--check` to verify them. If Section 11.4, another design section, or a plan decision does not cover a symbol, the SDK row gives a proposed status and Open items lists it.
+Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free function is `func name`. A free property is `var name`, `val name`, or `let name`. Nested owners use dots, such as `Client.Companion.create`. A final Client member that is static in the new SDK has the `static` prefix, such as `static Client.create`; a note marks a member that changes placement. A computed member is `Owner[Symbol.asyncIterator]`. A named constructor parameter in a public signature uses `Owner.parameter` and Kind `constructor parameter`. A method may show a call shape in either name column, such as `Client.Companion.register(codec)`, `Group.state().name`, `Client.inboxId(for:)`, or `Conversation.lastActivityAt(contentTypes?)`; `Client.inboxId` without parentheses is the field. An enum value under a record field uses `Record.field.value`, such as `ListMessagesOptions.sortBy.sentAt`. Kotlin `Client.Companion.register(codec:)` is today's global codec method and is removed; final `Client.register()` registers an identity. A group row starts `pattern:` and shows a source glob or regular expression plus its declaration count. The xmtpv3.swift family patterns run in table order after individually listed public-signature `Ffi*` roots are excluded; each declaration matches the first family only. The final `^.+$` family closes that partition. Notes name the source file. Kind and a declaration signature distinguish overloads without line numbers. The helper counts source-declared Swift public/open and SPI items, Kotlin public declarations and constructor properties, and TypeScript package exports plus exported class and object-type members. Compiler-synthesized members are outside this source inventory. The counts are declaration counts, not table-row counts. Run `python3 dev/sdk/inventory.py --self-test` and `--check` to verify them. If Section 11.4, another design section, or a plan decision does not cover a symbol, the SDK row gives a proposed status and Open items lists it.
 
 | SDK | Public declarations |
 | --- | ---: |
 | Swift | 7132 |
 | Kotlin | 964 |
-| Node | 519 |
-| Browser | 530 |
+| Node | 522 |
+| Browser | 533 |
 
 ## Swift
 
@@ -30,15 +30,15 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.activatePersistentLibXMTPLogWriter` | func | `Client.activatePersistentLibXMTPLogWriter` | platform helper | 2, platform files | Moves to Logging.swift. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.addAccount` | func | `Client.unsafeAddAccount` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.archiveMetadata` | func | `Client.archives.metadataFromFile` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.build` | func | `Client.build` | static runtime | 11.4 Swift, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Build requires a stored identity and does not fetch configuration for an empty database. The current Swift build starts offline with an inbox ID. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.build` | func | `static Client.build` | static runtime | 11.4 Swift, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Build requires a stored identity and does not fetch configuration for an empty database. The current Swift build starts offline with an inbox ID. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.canMessage` | func | `Client.canMessage` | generated | 11.4 Swift, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public func canMessage(identities:[PublicIdentity])`. |
 | `Client.canMessage` | func | `Client.canMessage` | generated | 11.4 Swift, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public func canMessage(identity:PublicIdentity)`. |
-| `Client.canMessage` | func | `Client.canMessage` | generated | 11.4 Swift, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func canMessage(accountIdentities:[PublicIdentity],api:ClientOptions.Api)`. |
+| `Client.canMessage` | func | `static Client.canMessage` | generated | 11.4 Swift, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func canMessage(accountIdentities:[PublicIdentity],api:ClientOptions.Api)`. |
 | `Client.catchUpToLive` | func | `Client.catchUpToLive` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.clearXMTPLogs` | func | `Client.clearXMTPLogs` | platform helper | 2, platform files | Moves to Logging.swift. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.connectToApiBackend` | func | `Backend.connect` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.conversations` | var | `Client.conversations` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.create` | func | `Client.create` | static runtime | 11.4 Swift, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.create` | func | `static Client.create` | static runtime | 11.4 Swift, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.createArchive` | func | `Client.archives.exportToFile` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.createInMemory` | func | — | approved removal | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.dbPath` | let | `Client.storage.path` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
@@ -49,30 +49,30 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.dropLocalDatabaseConnection` | func | `Client.end()` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.enableNotifications` | func | `Client.enableNotifications` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.environment` | let | `Client.options.storage.label` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.fetchServerConfiguration` | func | `Client.fetchServerConfiguration` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.fetchServerConfiguration` | func | `static Client.fetchServerConfiguration` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.ffiAddIdentity` | func | `Client.unsafeAddAccountSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.ffiApplySignatureRequest` | func | `Client.unsafeApplySignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public func ffiApplySignatureRequest(signatureRequest:SignatureRequest)`. |
-| `Client.ffiApplySignatureRequest` | func | `Client.unsafeApplySignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func ffiApplySignatureRequest(api:ClientOptions.Api,signatureRequest:SignatureRequest)`. |
+| `Client.ffiApplySignatureRequest` | func | `Client.unsafeApplySignatureRequest` | generated | 11.4 Swift, Client and options | Moves from a static member to an instance member. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func ffiApplySignatureRequest(api:ClientOptions.Api,signatureRequest:SignatureRequest)`. |
 | `Client.ffiCreateClient` | func | — | approved removal | 11.4 Swift, Client and options | Deprecated binding entry point; create/build are host wrappers. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.ffiRegisterIdentity` | func | `Client.register` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.ffiRevokeAllOtherInstallations` | func | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.ffiRevokeIdentity` | func | `Client.unsafeRemoveAccountSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.ffiRevokeInstallations` | func | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public func ffiRevokeInstallations(ids:[Data])`. |
-| `Client.ffiRevokeInstallations` | func | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func ffiRevokeInstallations(api:ClientOptions.Api,publicIdentity:PublicIdentity,inboxId:InboxId,installationIds:[String])`. |
+| `Client.ffiRevokeInstallations` | func | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Swift, Client and options | Moves from a static member to an instance member. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func ffiRevokeInstallations(api:ClientOptions.Api,publicIdentity:PublicIdentity,inboxId:InboxId,installationIds:[String])`. |
 | `Client.ffiSignatureRequest` | func | `Client.unsafeCreateInboxSignatureRequest` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.getNewestMessageMetadata` | func | `Client.newestMessageMetadata` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.getOrCreateInboxId` | func | `Client.inboxId(for:)` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.getNewestMessageMetadata` | func | `static Client.newestMessageMetadata` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.getOrCreateInboxId` | func | `static Client.inboxId(for:)` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.getXMTPLogFilePaths` | func | `Client.getXMTPLogFilePaths` | platform helper | 2, platform files | Moves to Logging.swift. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.importArchive` | func | `Client.archives.importFromFile` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.inMemoryDbPath` | let | `Client.inMemoryDbPath` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.inMemoryDbPath` | let | `Client.inMemoryDbPath` | generated | open | Not covered by the design. Moves from a static member to an instance member. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.inboxID` | let | `Client.inboxId` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.inboxIdFromIdentity` | func | `Client.inboxId(for:)` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.inboxState` | func | `Client.inboxState` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.inboxStatesForInboxIds` | func | `Client.inboxStates` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public func inboxStatesForInboxIds(refreshFromNetwork:Bool,inboxIds:[InboxId])`. |
-| `Client.inboxStatesForInboxIds` | func | `Client.inboxStates` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func inboxStatesForInboxIds(inboxIds:[InboxId],api:ClientOptions.Api)`. |
+| `Client.inboxStatesForInboxIds` | func | `static Client.inboxStates` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func inboxStatesForInboxIds(inboxIds:[InboxId],api:ClientOptions.Api)`. |
 | `Client.installationID` | let | `Client.installationId` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.isInMemory` | var | `Client.isInMemory` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.keyPackageStatusesForInstallationIds` | func | `Client.keyPackageStatuses` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.keyPackageStatusesForInstallationIds` | func | `static Client.keyPackageStatuses` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.libXMTPVersion` | let | `Client.libxmtpVersion` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.manageStreamLifecycle` | var | `Client.manageStreamLifecycle` | platform helper | 2, platform files | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.notificationState` | func | `Client.notificationState` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
@@ -84,13 +84,13 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.removeAccount` | func | `Client.removeAccount` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.revokeAllOtherInstallations` | func | `Client.revokeAllOtherInstallations` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.revokeInstallations` | func | `Client.revokeInstallations` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public func revokeInstallations(signingKey:SigningKey,installationIds:[String])`. |
-| `Client.revokeInstallations` | func | `Client.revokeInstallations` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func revokeInstallations(api:ClientOptions.Api,signingKey:SigningKey,inboxId:InboxId,installationIds:[String])`. |
+| `Client.revokeInstallations` | func | `static Client.revokeInstallations` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. Signature: `class public static func revokeInstallations(api:ClientOptions.Api,signingKey:SigningKey,inboxId:InboxId,installationIds:[String])`. |
 | `Client.serverConfiguration` | func | `Client.serverConfiguration` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.setLibXMTPNativeLogLevel` | func | `Client.setLibXMTPNativeLogLevel` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.setLibXMTPNativeLogLevel` | func | `Client.setLibXMTPNativeLogLevel` | generated | open | Not covered by the design. Moves from a static member to an instance member. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.signWithInstallationKey` | func | `Client.signWithInstallationKey` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.syncAllDeviceSyncGroups` | func | `Client.syncAllDeviceSyncGroups` | generated | 11.4 Swift, Client and options | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `Client.verifySignature` | func | `Client.verifySignedWithInstallationKey` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
-| `Client.verifySignatureWithInstallationId` | func | `Client.verifySignedWithPublicKey` | generated | 11.4 Swift, Client and options | Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
+| `Client.verifySignatureWithInstallationId` | func | `static Client.verifySignedWithPublicKey` | generated | 11.4 Swift, Client and options | Moves from an instance member to a static member. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `ClientError` | enum | — | approved removal | 11.4 Swift, Client and options | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `ClientError.creationError` | case | — | approved removal | 11.4 Swift, Client and options | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
 | `ClientError.description` | var | — | approved removal | 11.4 Swift, Client and options | The old type and its members leave the API. Source: `sdks/ios/Sources/XMTPiOS/Client.swift`. |
@@ -461,11 +461,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.messageReader` | func | `Conversations.messageReader` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.newConversation` | func | `Conversations.createDm` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.newConversationWithIdentity` | func | `Conversations.createDm` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.newGroup` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.newGroupCustomPermissions` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.newGroupCustomPermissionsWithIdentities` | func | `Conversations.createGroupWithIdentities` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.newGroup` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.newGroupCustomPermissions` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.newGroupCustomPermissionsWithIdentities` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.newGroupOptimistic` | func | `Conversations.createGroupOptimistic` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
-| `Conversations.newGroupWithIdentities` | func | `Conversations.createGroupWithIdentities` | generated | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
+| `Conversations.newGroupWithIdentities` | func | `Conversations.createGroup` | generated | 11.4 Swift, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.stream` | func | `Conversations.stream` | generated | 11.4 Swift, Conversations | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.streamAllMessages` | func | `Conversations.streamAllMessages` | generated | 11.4 Swift, Conversations | Behavior change: no consent list now selects allowed and unknown conversations. Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
 | `Conversations.streamMessageDeletions` | func | — | approved removal | 11.4 Swift, Conversations | Source: `sdks/ios/Sources/XMTPiOS/Conversations.swift`. |
@@ -538,7 +538,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.==` | func | `Group.==` | static runtime | 11.7, value equality | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.addAdmin` | func | `Group.addAdmin` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.addMembers` | func | `Group.addMembers` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
-| `Group.addMembersByIdentity` | func | `Group.addMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
+| `Group.addMembersByIdentity` | func | `Group.addMembers` | generated | 11.4 Swift, Conversation, Group, Dm | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.addSuperAdmin` | func | `Group.addSuperAdmin` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.addedByInboxId` | func | `Group.addedByInboxId` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.appData` | func | `Group.state().appData` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
@@ -591,7 +591,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.publishMessages` | func | `Group.publishMessages` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.removeAdmin` | func | `Group.removeAdmin` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.removeMembers` | func | `Group.removeMembers` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
-| `Group.removeMembersByIdentity` | func | `Group.removeMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
+| `Group.removeMembersByIdentity` | func | `Group.removeMembers` | generated | 11.4 Swift, Conversation, Group, Dm | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.removeSuperAdmin` | func | `Group.removeSuperAdmin` | generated | 11.4 Swift, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. |
 | `Group.send` | func | `Group.send` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. Signature: `struct public func send(content:some Any,options:SendOptions?=nil)`. |
 | `Group.send` | func | `Group.send` | generated | 11.4 Swift, Conversation, Group, Dm | Source: `sdks/ios/Sources/XMTPiOS/Group.swift`. Signature: `struct public func send(encodedContent:EncodedContent,visibilityOptions:MessageVisibilityOptions?=nil)`. |
@@ -1404,28 +1404,28 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.Companion` | object | `Client` | generated | 11.1, client static functions | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.IN_MEMORY_DB_PATH` | val | — | approved removal | 11.4 Kotlin, Client and options | In-memory storage uses StorageOptions.location. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.activatePersistentLibXMTPLogWriter` | fun | `Client.activatePersistentLibXMTPLogWriter` | platform helper | 2, platform files | Moves to Logging.kt. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.build` | fun | `Client.build` | static runtime | 11.4 Kotlin, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Build requires a stored identity and does not fetch configuration for an empty database. The current Kotlin build starts offline with an inbox ID. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.canMessage` | fun | `Client.canMessage` | generated | 11.4 Kotlin, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.build` | fun | `static Client.build` | static runtime | 11.4 Kotlin, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Build requires a stored identity and does not fetch configuration for an empty database. The current Kotlin build starts offline with an inbox ID. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.canMessage` | fun | `static Client.canMessage` | generated | 11.4 Kotlin, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.clearXMTPLogs` | fun | `Client.clearXMTPLogs` | platform helper | 2, platform files | Moves to Logging.kt. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.codecRegistry` | var | — | approved removal | 11.4 Kotlin, Client and options | Global codec registry moves to ClientOptions.codecs. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.connectToApiBackend` | fun | `Backend.connect` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.create` | fun | `Client.create` | static runtime | 11.4 Kotlin, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.create` | fun | `static Client.create` | static runtime | 11.4 Kotlin, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.createInMemory` | fun | — | approved removal | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.deactivatePersistentLibXMTPLogWriter` | fun | `Client.deactivatePersistentLibXMTPLogWriter` | platform helper | 2, platform files | Moves to Logging.kt. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.fetchServerConfiguration` | fun | `Client.fetchServerConfiguration` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. Signature: `suspend fun fetchServerConfiguration(api:ClientOptions.Api)`. |
-| `Client.Companion.fetchServerConfiguration` | fun | `Client.fetchServerConfiguration` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. Signature: `suspend fun fetchServerConfiguration(backendUrl:String,appVersion:String?=null,)`. |
-| `Client.Companion.ffiApplySignatureRequest` | fun | `Client.unsafeApplySignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.fetchServerConfiguration` | fun | `static Client.fetchServerConfiguration` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. Signature: `suspend fun fetchServerConfiguration(api:ClientOptions.Api)`. |
+| `Client.Companion.fetchServerConfiguration` | fun | `static Client.fetchServerConfiguration` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. Signature: `suspend fun fetchServerConfiguration(backendUrl:String,appVersion:String?=null,)`. |
+| `Client.Companion.ffiApplySignatureRequest` | fun | `Client.unsafeApplySignatureRequest` | generated | 11.4 Kotlin, Client and options | Moves from a static member to an instance member. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.ffiCreateClient` | fun | — | approved removal | 11.4 Kotlin, Client and options | Deprecated binding entry point; create/build are host wrappers. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.ffiRevokeInstallations` | fun | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.getNewestMessageMetadata` | fun | `Client.newestMessageMetadata` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.getOrCreateInboxId` | fun | `Client.inboxId(for:)` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.ffiRevokeInstallations` | fun | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Kotlin, Client and options | Moves from a static member to an instance member. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.getNewestMessageMetadata` | fun | `static Client.newestMessageMetadata` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.getOrCreateInboxId` | fun | `static Client.inboxId(for:)` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.getXMTPLogFilePaths` | fun | `Client.getXMTPLogFilePaths` | platform helper | 2, platform files | Moves to Logging.kt. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.inboxStatesForInboxIds` | fun | `Client.inboxStates` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.keyPackageStatusesForInstallationIds` | fun | `Client.keyPackageStatuses` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.inboxStatesForInboxIds` | fun | `static Client.inboxStates` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.keyPackageStatusesForInstallationIds` | fun | `static Client.keyPackageStatuses` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.manageStreamLifecycle` | var | `Client.manageStreamLifecycle` | platform helper | 2, platform files | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.Companion.register(codec)` | fun | — | approved removal | 11.4 Kotlin, Client and options | The global codec registration method moves to ClientOptions.codecs; Client.register() registers an identity. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.revokeInstallations` | fun | `Client.revokeInstallations` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.Companion.setLibXMTPNativeLogLevel` | fun | `Client.setLibXMTPNativeLogLevel` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.revokeInstallations` | fun | `static Client.revokeInstallations` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.Companion.setLibXMTPNativeLogLevel` | fun | `Client.setLibXMTPNativeLogLevel` | generated | open | Not covered by the design. Moves from a static member to an instance member. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.addAccount` | fun | `Client.unsafeAddAccount` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.archiveMetadata` | fun | `Client.archives.metadataFromFile` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.canMessage` | fun | `Client.canMessage` | generated | 11.4 Kotlin, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
@@ -1467,7 +1467,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.signWithInstallationKey` | fun | `Client.signWithInstallationKey` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.syncAllDeviceSyncGroups` | fun | `Client.syncAllDeviceSyncGroups` | generated | 11.4 Kotlin, Client and options | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `Client.verifySignature` | fun | `Client.verifySignedWithInstallationKey` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
-| `Client.verifySignatureWithInstallationId` | fun | `Client.verifySignedWithPublicKey` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
+| `Client.verifySignatureWithInstallationId` | fun | `static Client.verifySignedWithPublicKey` | generated | 11.4 Kotlin, Client and options | Moves from an instance member to a static member. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `ClientOptions` | class | `ClientOptions` | static runtime | 11.4 Kotlin, Client and options | Host options wrapper holds codecs and callbacks. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `ClientOptions.Api` | class | `BackendOptions` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
 | `ClientOptions.Api.appVersion` | constructor property | `BackendOptions.appVersion` | generated | 11.4 Kotlin, Client and options | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`. |
@@ -1589,11 +1589,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversations.messageReader` | fun | `Conversations.messageReader` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.newConversation` | fun | `Conversations.createDm` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.newConversationWithIdentity` | fun | `Conversations.createDm` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.newGroup` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.newGroupCustomPermissions` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.newGroupCustomPermissionsWithIdentities` | fun | `Conversations.createGroupWithIdentities` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.newGroup` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.newGroupCustomPermissions` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.newGroupCustomPermissionsWithIdentities` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.newGroupOptimistic` | fun | `Conversations.createGroupOptimistic` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
-| `Conversations.newGroupWithIdentities` | fun | `Conversations.createGroupWithIdentities` | generated | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
+| `Conversations.newGroupWithIdentities` | fun | `Conversations.createGroup` | generated | 11.4 Kotlin, Conversations | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.stream` | fun | `Conversations.stream` | generated | 11.4 Kotlin, Conversations | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.streamAllMessages` | fun | `Conversations.streamAllMessages` | generated | 11.4 Kotlin, Conversations | Behavior change: no consent list now selects allowed and unknown conversations. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
 | `Conversations.streamMessageDeletions` | fun | — | approved removal | 11.4 Kotlin, Conversations | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Conversations.kt`. |
@@ -1668,7 +1668,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group` | class | `Group` | generated | 11.1-11.2, live objects | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.addAdmin` | fun | `Group.addAdmin` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.addMembers` | fun | `Group.addMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
-| `Group.addMembersByIdentity` | fun | `Group.addMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
+| `Group.addMembersByIdentity` | fun | `Group.addMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.addSuperAdmin` | fun | `Group.addSuperAdmin` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.addedByInboxId` | fun | `Group.addedByInboxId` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.appData` | fun | `Group.state().appData` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
@@ -1728,7 +1728,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.publishMessages` | fun | `Group.publishMessages` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.removeAdmin` | fun | `Group.removeAdmin` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.removeMembers` | fun | `Group.removeMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
-| `Group.removeMembersByIdentity` | fun | `Group.removeMembersByIdentity` | generated | open | Not covered by the design. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
+| `Group.removeMembersByIdentity` | fun | `Group.removeMembers` | generated | 11.4 Kotlin, Conversation, Group, Dm | Identity forms are same-name overloads (plan Decision 6). Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.removeSuperAdmin` | fun | `Group.removeSuperAdmin` | generated | 11.4 Kotlin, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. |
 | `Group.send` | fun | `Group.send` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. Signature: `suspend fun send(encodedContent:EncodedContent,opts:MessageVisibilityOptions=MessageVisibilityOptions(shouldPush=true),)`. |
 | `Group.send` | fun | `Group.send` | generated | 11.4 Kotlin, Conversation, Group, Dm | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`. Signature: `suspend fun send(text:String)`. |
@@ -2489,31 +2489,33 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.accountIdentifier` | member | `Client.identity` | generated | 11.1, Client.identity | Source: `sdks/node/src/Client.ts`. |
 | `Client.appVersion` | member | `Client.appVersion` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts`. |
 | `Client.archiveMetadata` | member | `Client.archives.metadataFromFile` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.build` | member | `Client.build` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). The façade build requires a stored identity and does not fetch configuration for an empty database. The current Node build does not: it resolves the inbox ID from the backend and creates the client online without allowOffline, so an empty database fetches configuration and needs no stored identity. Source: `sdks/node/src/Client.ts`. |
+| `Client.build` | static member | `static Client.build` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). The façade build requires a stored identity and does not fetch configuration for an empty database. The current Node build does not: it resolves the inbox ID from the backend and creates the client online without allowOffline, so an empty database fetches configuration and needs no stored identity. Source: `sdks/node/src/Client.ts`. |
 | `Client.canMessage` | member | `Client.canMessage` | generated | 11.4 Node, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/node/src/Client.ts`. |
+| `Client.canMessage` | static member | `static Client.canMessage` | generated | 11.4 Node, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/node/src/Client.ts`. |
 | `Client.changeRecoveryIdentifier` | member | `Client.changeRecoveryIdentifier` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.close` | member | `Client.end()` | generated | plan Decisions, client end | Source: `sdks/node/src/Client.ts`. |
 | `Client.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Client.ts`. |
 | `Client.conversations` | member | `Client.conversations` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
-| `Client.create` | member | `Client.create` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/node/src/Client.ts`. |
+| `Client.create` | static member | `static Client.create` | static runtime | 11.4 Node, Client and options | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/node/src/Client.ts`. |
 | `Client.createArchive` | member | `Client.archives.exportToFile` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.debugInformation` | member | `Client.diagnostics` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.disableNotifications` | member | `Client.disableNotifications` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
 | `Client.enableNotifications` | member | `Client.enableNotifications` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
 | `Client.env` | member | `Client.options.storage.label` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.fetchInboxIdByIdentifier` | member | `Client.inboxId(for:)` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.fetchInboxStates` | member | `Client.inboxStates` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.fetchInboxStates` | static member | `static Client.inboxStates` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.fetchKeyPackageStatuses` | member | `Client.keyPackageStatuses` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.fetchLatestInboxUpdatesCount` | member | `Client.latestInboxUpdatesCount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.fetchLatestInboxUpdatesCount` | static member | `Client.latestInboxUpdatesCount` | generated | 11.4 Node, Client and options | Moves from a static member to an instance member. Source: `sdks/node/src/Client.ts`. |
 | `Client.fetchOwnInboxUpdatesCount` | member | `Client.ownInboxUpdatesCount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.fetchServerConfiguration` | member | `Client.fetchServerConfiguration` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.fetchServerConfiguration` | static member | `static Client.fetchServerConfiguration` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.importArchive` | member | `Client.archives.importFromFile` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.inboxId` | member | `Client.inboxId` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.init` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Client.ts`. |
 | `Client.installationId` | member | `Client.installationId` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.installationIdBytes` | member | `Client.installationIdBytes` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts`. |
-| `Client.isAddressAuthorized` | member | `Client.isAddressAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
-| `Client.isInstallationAuthorized` | member | `Client.isInstallationAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
+| `Client.isAddressAuthorized` | static member | `static Client.isAddressAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
+| `Client.isInstallationAuthorized` | static member | `static Client.isInstallationAuthorized` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
 | `Client.isRegistered` | member | `Client.isRegistered()` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.libxmtpVersion` | member | `Client.libxmtpVersion` | generated | 11.1, Client immutable fields | Source: `sdks/node/src/Client.ts`. |
 | `Client.notificationState` | member | `Client.notificationState` | generated | 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/node/src/Client.ts`. |
@@ -2524,6 +2526,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.removeAccount` | member | `Client.removeAccount` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.revokeAllOtherInstallations` | member | `Client.revokeAllOtherInstallations` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.revokeInstallations` | member | `Client.revokeInstallations` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.revokeInstallations` | static member | `static Client.revokeInstallations` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.serverConfiguration` | member | `Client.serverConfiguration` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.signWithInstallationKey` | member | `Client.signWithInstallationKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.signer` | member | — | approved removal | 11.1, Client and Signer | The client does not expose its signer. Source: `sdks/node/src/Client.ts`. |
@@ -2538,7 +2541,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.unsafe_revokeAllOtherInstallationsSignatureRequest` | member | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.unsafe_revokeInstallationsSignatureRequest` | member | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `Client.verifySignedWithInstallationKey` | member | `Client.verifySignedWithInstallationKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
-| `Client.verifySignedWithPublicKey` | member | `Client.verifySignedWithPublicKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
+| `Client.verifySignedWithPublicKey` | static member | `static Client.verifySignedWithPublicKey` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/Client.ts`. |
 | `CodecRegistry.constructor` | member | `CodecRegistry.constructor` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/node/src/CodecRegistry.ts`. |
 | `CodecRegistry.getCodec` | member | `CodecRegistry.getCodec` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/node/src/CodecRegistry.ts`. |
 | `Conversation._client` | constructor parameter | — | approved removal | 11.4 Node, Conversation, Group, Dm; 11.2 | Internal constructor storage is not a facade field. Source: `sdks/node/src/Conversation.ts`. |
@@ -2587,11 +2590,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.updateMessageDisappearingSettings` | member | `Conversation.updateDisappearingSettings` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Conversation.ts`. |
 | `Conversations.beginningDeliveryCursor` | member | `Conversations.beginningDeliveryCursor` | generated | 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createDmWithIdentifier` | member | `Conversations.createDmWithIdentity` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
-| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroupWithIdentities` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createDmWithIdentifier` | member | `Conversations.createDm` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
+| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroup` | generated | 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.fetchDmByIdentifier` | member | `Conversations.getDmByIdentity` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.getConversationById` | member | `Conversations.getById` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
 | `Conversations.getDmByInboxId` | member | `Conversations.getDmByInboxId` | generated | 11.4 Node, Conversations | Source: `sdks/node/src/Conversations.ts`. |
@@ -2638,7 +2641,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.peerInboxId` | member | `Dm.peerInboxId` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Dm.ts`. |
 | `Group.addAdmin` | member | `Group.addAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.addMembers` | member | `Group.addMembers` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
-| `Group.addMembersByIdentifiers` | member | `Group.addMembersByIdentifiers` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts`. |
+| `Group.addMembersByIdentifiers` | member | `Group.addMembers` | generated | 11.4 Node, Conversation, Group, Dm | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Group.ts`. |
 | `Group.addSuperAdmin` | member | `Group.addSuperAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.appData` | member | `Group.state().appData` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts`. |
 | `Group.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/node/src/Group.ts`. |
@@ -2653,7 +2656,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.permissions` | member | `Group.state().permissions` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts`. |
 | `Group.removeAdmin` | member | `Group.removeAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.removeMembers` | member | `Group.removeMembers` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
-| `Group.removeMembersByIdentifiers` | member | `Group.removeMembersByIdentifiers` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/node/src/Group.ts`. |
+| `Group.removeMembersByIdentifiers` | member | `Group.removeMembers` | generated | 11.4 Node, Conversation, Group, Dm | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/node/src/Group.ts`. |
 | `Group.removeSuperAdmin` | member | `Group.removeSuperAdmin` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.requestRemoval` | member | `Group.requestRemoval` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
 | `Group.updateAppData` | member | `Group.updateAppData` | generated | 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/node/src/Group.ts`. |
@@ -2803,8 +2806,8 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `StreamFailedError.constructor` | member | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts`. |
 | `StreamInvalidRetryAttemptsError` | class | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts`. |
 | `StreamInvalidRetryAttemptsError.constructor` | member | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts`. |
-| `func generateInboxId` | free function | `Client.inboxId(for:)` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts`. |
-| `func getInboxIdForIdentifier` | free function | `Client.inboxId(for:)` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts`. |
+| `func generateInboxId` | free function | `static Client.inboxId(for:)` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts`. |
+| `func getInboxIdForIdentifier` | free function | `static Client.inboxId(for:)` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts`. |
 | `func isActions` | free function | `func isActions` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/node/src/utils/messages.ts`. |
 | `func isAttachment` | free function | `func isAttachment` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/node/src/utils/messages.ts`. |
 | `func isGroupUpdated` | free function | `func isGroupUpdated` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/node/src/utils/messages.ts`. |
@@ -2981,22 +2984,24 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.accountIdentifier` | member | `Client.identity` | generated | 11.1, Client.identity | Source: `sdks/browser/src/Client.ts`. |
 | `Client.appVersion` | member | `Client.appVersion` | generated | 11.1, Client immutable fields | Source: `sdks/browser/src/Client.ts`. |
 | `Client.archiveMetadata` | member | `Client.archives.metadataFromBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
-| `Client.build` | member | `Client.build` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). The façade build requires a stored identity and does not fetch configuration for an empty database. The current Browser build does not: it resolves the inbox ID from the backend and creates the client online without allowOffline, so an empty database fetches configuration and needs no stored identity. Source: `sdks/browser/src/Client.ts`. |
+| `Client.build` | static member | `static Client.build` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). The façade build requires a stored identity and does not fetch configuration for an empty database. The current Browser build does not: it resolves the inbox ID from the backend and creates the client online without allowOffline, so an empty database fetches configuration and needs no stored identity. Source: `sdks/browser/src/Client.ts`. |
 | `Client.canMessage` | member | `Client.canMessage` | generated | 11.4 Browser; 11.4 Node, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/browser/src/Client.ts`. |
+| `Client.canMessage` | static member | `static Client.canMessage` | generated | 11.4 Browser; 11.4 Node, Client and options | Behavior change: result keys use `ethereum:<core text>` or `passkey:<lowercase core hex>` so identity kinds do not collide. Source: `sdks/browser/src/Client.ts`. |
 | `Client.changeRecoveryIdentifier` | member | `Client.changeRecoveryIdentifier` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.close` | member | `Client.end()` | generated | plan Decisions, client end | Source: `sdks/browser/src/Client.ts`. |
 | `Client.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Client.ts`. |
 | `Client.conversations` | member | `Client.conversations` | generated | 11.4 Browser; 11.4 Node, Client and options | Unchanged member or spelling rule. Source: `sdks/browser/src/Client.ts`. |
-| `Client.create` | member | `Client.create` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/browser/src/Client.ts`. |
+| `Client.create` | static member | `static Client.create` | static runtime | 11.4 Browser | Host wrapper owns codecs and closures (11.1; plan Decisions). Source: `sdks/browser/src/Client.ts`. |
 | `Client.createArchive` | member | `Client.archives.exportToBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.debugInformation` | member | `Client.diagnostics` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.env` | member | `Client.options.storage.label` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.fetchInboxIdByIdentifier` | member | `Client.inboxId(for:)` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
-| `Client.fetchInboxStates` | member | `Client.inboxStates` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
+| `Client.fetchInboxStates` | static member | `static Client.inboxStates` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.fetchKeyPackageStatuses` | member | `Client.keyPackageStatuses` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.fetchLatestInboxUpdatesCount` | member | `Client.latestInboxUpdatesCount` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
+| `Client.fetchLatestInboxUpdatesCount` | static member | `Client.latestInboxUpdatesCount` | generated | 11.4 Browser | Moves from a static member to an instance member. Source: `sdks/browser/src/Client.ts`. |
 | `Client.fetchOwnInboxUpdatesCount` | member | `Client.ownInboxUpdatesCount` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
-| `Client.fetchServerConfiguration` | member | `Client.fetchServerConfiguration` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
+| `Client.fetchServerConfiguration` | static member | `static Client.fetchServerConfiguration` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.importArchive` | member | `Client.archives.importFromBytes` | generated | 11.4 Browser | Source: `sdks/browser/src/Client.ts`. |
 | `Client.inboxId` | member | `Client.inboxId` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.init` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Client.ts`. |
@@ -3012,6 +3017,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.removeAccount` | member | `Client.removeAccount` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.revokeAllOtherInstallations` | member | `Client.revokeAllOtherInstallations` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.revokeInstallations` | member | `Client.revokeInstallations` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
+| `Client.revokeInstallations` | static member | `static Client.revokeInstallations` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.serverConfiguration` | member | `Client.serverConfiguration` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.signWithInstallationKey` | member | `Client.signWithInstallationKey` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
 | `Client.signer` | member | — | approved removal | 11.1, Client and Signer | The client does not expose its signer. Source: `sdks/browser/src/Client.ts`. |
@@ -3025,7 +3031,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Client.unsafe_revokeAllOtherInstallationsSignatureText` | member | `Client.unsafeRevokeAllOtherInstallationsSignatureRequest` | generated | 11.4 Browser | Signature text changes to a SignatureRequest object. Source: `sdks/browser/src/Client.ts`. |
 | `Client.unsafe_revokeInstallationsSignatureText` | member | `Client.unsafeRevokeInstallationsSignatureRequest` | generated | 11.4 Browser | Signature text changes to a SignatureRequest object. Source: `sdks/browser/src/Client.ts`. |
 | `Client.verifySignedWithInstallationKey` | member | `Client.verifySignedWithInstallationKey` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
-| `Client.verifySignedWithPublicKey` | member | `Client.verifySignedWithPublicKey` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/Client.ts`. |
+| `Client.verifySignedWithPublicKey` | member | `static Client.verifySignedWithPublicKey` | generated | 11.4 Browser; 11.4 Node, Client and options | Moves from an instance member to a static member. Source: `sdks/browser/src/Client.ts`. |
 | `CodecRegistry.constructor` | member | `CodecRegistry.constructor` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/browser/src/CodecRegistry.ts`. |
 | `CodecRegistry.getCodec` | member | `CodecRegistry.getCodec` | static runtime | 4, custom codecs; 11.4 Node, unchanged | Source: `sdks/browser/src/CodecRegistry.ts`. |
 | `Conversation.addedByInboxId` | member | `Conversation.addedByInboxId` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Conversation.ts`. |
@@ -3071,11 +3077,11 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Conversation.updateMessageDisappearingSettings` | member | `Conversation.updateDisappearingSettings` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Conversation.ts`. |
 | `Conversations.beginningDeliveryCursor` | member | `Conversations.beginningDeliveryCursor` | generated | 11.4 Browser; 11.4 Node, Conversations | Unchanged member or spelling rule. Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.constructor` | member | — | approved removal | 11.1-11.2, generated live objects | Construction uses the client, conversation, and factory methods. Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createDmWithIdentifier` | member | `Conversations.createDmWithIdentity` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
-| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroupWithIdentities` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createDm` | member | `Conversations.createDm` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createDmWithIdentifier` | member | `Conversations.createDm` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createGroup` | member | `Conversations.createGroup` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createGroupOptimistic` | member | `Conversations.createGroupOptimistic` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
+| `Conversations.createGroupWithIdentifiers` | member | `Conversations.createGroup` | generated | 11.4 Browser; 11.4 Node, Conversations | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.fetchDmByIdentifier` | member | `Conversations.getDmByIdentity` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.getConversationById` | member | `Conversations.getById` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
 | `Conversations.getDmByInboxId` | member | `Conversations.getDmByInboxId` | generated | 11.4 Browser; 11.4 Node, Conversations | Source: `sdks/browser/src/Conversations.ts`. |
@@ -3123,7 +3129,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Dm.peerInboxId` | member | `Dm.peerInboxId` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Dm.ts`. |
 | `Group.addAdmin` | member | `Group.addAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.addMembers` | member | `Group.addMembers` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
-| `Group.addMembersByIdentifiers` | member | `Group.addMembersByIdentifiers` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts`. |
+| `Group.addMembersByIdentifiers` | member | `Group.addMembers` | generated | 11.4 Node, Conversation, Group, Dm | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Group.ts`. |
 | `Group.addSuperAdmin` | member | `Group.addSuperAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.admins` | member | `Group.state().admins` | generated | 11.4 Browser | Source: `sdks/browser/src/Group.ts`. |
 | `Group.appData` | member | `Group.state().appData` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts`. |
@@ -3139,7 +3145,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Group.permissions` | member | `Group.state().permissions` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts`. |
 | `Group.removeAdmin` | member | `Group.removeAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.removeMembers` | member | `Group.removeMembers` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
-| `Group.removeMembersByIdentifiers` | member | `Group.removeMembersByIdentifiers` | generated | 11.4 Node, Conversation, Group, Dm | Source: `sdks/browser/src/Group.ts`. |
+| `Group.removeMembersByIdentifiers` | member | `Group.removeMembers` | generated | 11.4 Node, Conversation, Group, Dm | Identity forms are TypeScript unions (plan Decision 6). Source: `sdks/browser/src/Group.ts`. |
 | `Group.removeSuperAdmin` | member | `Group.removeSuperAdmin` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.requestRemoval` | member | `Group.requestRemoval` | generated | 11.4 Browser; 11.4 Node, Conversation, Group, Dm | Unchanged member or spelling rule. Source: `sdks/browser/src/Group.ts`. |
 | `Group.superAdmins` | member | `Group.state().superAdmins` | generated | 11.4 Browser | Source: `sdks/browser/src/Group.ts`. |
@@ -3179,7 +3185,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Opfs.clearAll` | member | `StorageAdmin.clearAll` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.close` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.constructor` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
-| `Opfs.create` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
+| `Opfs.create` | static member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.deleteFile` | member | `StorageAdmin.deleteFile` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.exportDb` | member | `StorageAdmin.exportDb` | generated | 11.4 Browser; 11.2, StorageAdmin | OPFS administration moves to the storage object. Source: `sdks/browser/src/Opfs.ts`. |
 | `Opfs.fileCount` | member | — | approved removal | 11.4 Browser | This old class member has no StorageAdmin counterpart. Source: `sdks/browser/src/Opfs.ts`. |
@@ -3215,9 +3221,9 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `Preferences` | re-export | `Preferences` | generated | 11.2, preferences | Source: `sdks/browser/src/index.ts`. |
 | `ResolveValue` | re-export | `ResolveValue` | static runtime | 5, host stream adapter | Source: `sdks/browser/src/index.ts`. |
 | `func createBackend` | free function | `Backend.connect` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
-| `func fetchServerConfiguration` | free function | `Client.fetchServerConfiguration` | generated | 11.1, Client static methods | Source: `sdks/browser/src/index.ts`. |
-| `func generateInboxId` | free function | `Client.inboxId(for:)` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
-| `func getInboxIdForIdentifier` | free function | `Client.inboxId(for:)` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
+| `func fetchServerConfiguration` | free function | `static Client.fetchServerConfiguration` | generated | 11.1, Client static methods | Source: `sdks/browser/src/index.ts`. |
+| `func generateInboxId` | free function | `static Client.inboxId(for:)` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
+| `func getInboxIdForIdentifier` | free function | `static Client.inboxId(for:)` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
 | `func metadataFieldName` | free function | `func metadataFieldName` | generated | open | Not covered by the design. Source: `sdks/browser/src/index.ts`. |
 | `AuthCallback` | type | `AuthCallback` | generated | 11.1, credential foreign trait | Source: `sdks/browser/src/types/options.ts`. |
 | `BuiltInContentTypes` | type | `BuiltInContentTypes` | static runtime | 4, typed custom codecs | Source: `sdks/browser/src/types/options.ts`. |
@@ -3420,10 +3426,10 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 
 ## Open items
 
-93 exports need a design decision. Their proposed status appears in the SDK table.
+89 exports need a design decision. Their proposed status appears in the SDK table.
 
-- Swift `Client.inMemoryDbPath` (`sdks/ios/Sources/XMTPiOS/Client.swift`): proposed **generated**. Not covered by the design.
-- Swift `Client.setLibXMTPNativeLogLevel` (`sdks/ios/Sources/XMTPiOS/Client.swift`): proposed **generated**. Not covered by the design.
+- Swift `Client.inMemoryDbPath` (`sdks/ios/Sources/XMTPiOS/Client.swift`): proposed **generated**. Not covered by the design. Moves from a static member to an instance member.
+- Swift `Client.setLibXMTPNativeLogLevel` (`sdks/ios/Sources/XMTPiOS/Client.swift`): proposed **generated**. Not covered by the design. Moves from a static member to an instance member.
 - Swift `AttachmentCodecError` (`sdks/ios/Sources/XMTPiOS/Codecs/AttachmentCodec.swift`): proposed **generated**. Not covered by the design.
 - Swift `AttachmentCodecError.invalidParameters` (`sdks/ios/Sources/XMTPiOS/Codecs/AttachmentCodec.swift`): proposed **generated**. Not covered by the design.
 - Swift `AttachmentCodecError.unknownDecodingError` (`sdks/ios/Sources/XMTPiOS/Codecs/AttachmentCodec.swift`): proposed **generated**. Not covered by the design.
@@ -3451,19 +3457,15 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 - Swift `Conversation.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Conversation.swift`): proposed **generated**. Not covered by the design.
 - Swift `Dm.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Dm.swift`): proposed **generated**. Not covered by the design.
 - Swift `Dm.encodeContent` (`sdks/ios/Sources/XMTPiOS/Dm.swift`): proposed **generated**. Not covered by the design.
-- Swift `Group.addMembersByIdentity` (`sdks/ios/Sources/XMTPiOS/Group.swift`): proposed **generated**. Not covered by the design.
 - Swift `Group.clientInboxId` (`sdks/ios/Sources/XMTPiOS/Group.swift`): proposed **generated**. Not covered by the design.
 - Swift `Group.encodeContent` (`sdks/ios/Sources/XMTPiOS/Group.swift`): proposed **generated**. Not covered by the design.
-- Swift `Group.removeMembersByIdentity` (`sdks/ios/Sources/XMTPiOS/Group.swift`): proposed **generated**. Not covered by the design.
 - Swift `PermissionOption.admin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `PermissionOption.allow` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `PermissionOption.deny` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `PermissionOption.superAdmin` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `PermissionOption.unknown` (`sdks/ios/Sources/XMTPiOS/Libxmtp/PermissionPolicySet.swift`): proposed **generated**. 11.2 names PermissionPolicy but does not specify this case.
 - Swift `FfiXmtpClient.waitForRegistrationVisible` (`sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`): proposed **generated**. The standalone method keeps its behavior; design 11.4 does not name it.
-- Kotlin `Client.Companion.setLibXMTPNativeLogLevel` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`): proposed **generated**. Not covered by the design.
-- Kotlin `Group.addMembersByIdentity` (`sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`): proposed **generated**. Not covered by the design.
-- Kotlin `Group.removeMembersByIdentity` (`sdks/android/library/src/main/java/org/xmtp/android/library/Group.kt`): proposed **generated**. Not covered by the design.
+- Kotlin `Client.Companion.setLibXMTPNativeLogLevel` (`sdks/android/library/src/main/java/org/xmtp/android/library/Client.kt`): proposed **generated**. Not covered by the design. Moves from a static member to an instance member.
 - Kotlin `ConsentRecord.Companion` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.Companion.conversationId` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt`): proposed **generated**. Not covered by the design.
 - Kotlin `ConsentRecord.Companion.inboxId` (`sdks/android/library/src/main/java/org/xmtp/android/library/PrivatePreferences.kt`): proposed **generated**. Not covered by the design.

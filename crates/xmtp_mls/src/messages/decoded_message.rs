@@ -91,6 +91,18 @@ impl ContentDecodeFailure {
     }
 }
 
+impl DeletedBy {
+    /// Who deleted a message: its sender, or the admin with inbox
+    /// `deleter_inbox_id`.
+    pub(crate) fn new(deleter_inbox_id: &str, sender_inbox_id: &str) -> Self {
+        if deleter_inbox_id == sender_inbox_id {
+            DeletedBy::Sender
+        } else {
+            DeletedBy::Admin(deleter_inbox_id.to_string())
+        }
+    }
+}
+
 impl From<ContentDecodeFailure> for CodecError {
     fn from(failure: ContentDecodeFailure) -> Self {
         match failure.kind {
@@ -381,8 +393,13 @@ impl DecodedMessage {
     /// shown as the deleted-message placeholder, with no body or fallback.
     /// A body decoded from nothing would read as an empty message or as a
     /// decode failure.
+    ///
+    /// `deleted_by` is the actor of the delete. Expiry cleanup has no actor.
+    /// Its callers pass `DeletedBy::Sender`: `DeletedBy` has no expiry
+    /// variant, and adding one changes the binding types. No admin removed
+    /// the message, and `Admin` needs an inbox id.
     // implements: META-051
-    pub(crate) fn expired(value: StoredGroupMessage) -> Self {
+    pub(crate) fn expired(value: StoredGroupMessage, deleted_by: DeletedBy) -> Self {
         DecodedMessage {
             metadata: DecodedMessageMetadata {
                 id: value.id,
@@ -396,12 +413,7 @@ impl DecodedMessage {
                 inserted_at_ns: value.inserted_at_ns,
                 expires_at_ns: value.expire_at_ns,
             },
-            // `DeletedBy` has no expiry variant, and adding one changes the
-            // binding types. `Sender` is the least wrong existing value: no
-            // admin removed the message, and `Admin` needs an inbox id.
-            content: MessageBody::DeletedMessage {
-                deleted_by: DeletedBy::Sender,
-            },
+            content: MessageBody::DeletedMessage { deleted_by },
             fallback_text: None,
             reactions: Vec::new(),
             num_replies: 0,

@@ -55,7 +55,7 @@ use crate::{
     Client,
     context::XmtpSharedContext,
     groups::{GroupError, MlsGroup, mls_sync::GroupMessageProcessingError},
-    messages::decoded_message::DecodedMessage,
+    messages::decoded_message::{DecodedMessage, DeletedBy},
 };
 use internal::InternalEvent;
 use thiserror::Error;
@@ -140,15 +140,17 @@ impl StreamMessages for Subscription<InternalEvent> {
                         "legacy deletion stream lagged"
                     );
                 }
-                let decoded: Vec<Result<DecodedMessage>> = match item.internal {
-                    Some(InternalEvent::MessagesDeleted(messages)) => messages
-                        .into_iter()
-                        .map(|m| Ok(DecodedMessage::from(m)))
-                        .collect(),
-                    Some(InternalEvent::MessagesExpired(messages)) => messages
-                        .into_iter()
-                        .map(|m| Ok(DecodedMessage::expired(m)))
-                        .collect(),
+                let decoded = match item.internal {
+                    // An item can wait in the broadcast buffer, for example
+                    // behind a slow callback, until after its message expired.
+                    // Check the expiry again at delivery.
+                    Some(InternalEvent::MessagesDeleted(deleted)) => {
+                        let now = xmtp_common::time::now_ns();
+                        deletion_items(deleted, |m| m.expire_at_ns.is_some_and(|at| at <= now))
+                    }
+                    Some(InternalEvent::MessagesExpired(deleted)) => {
+                        deletion_items(deleted, |_| true)
+                    }
                     _ => continue,
                 };
                 return Some((futures::stream::iter(decoded), subscription));
@@ -156,6 +158,36 @@ impl StreamMessages for Subscription<InternalEvent> {
         })
         .flatten()
     }
+}
+
+/// Deletion stream items for `deleted`. A row for which `is_expired` holds
+/// is the deleted-message placeholder, with no body and no fallback. Other
+/// rows keep their body; content that does not decode stays in the body as
+/// undecodable content, so every row produces an item.
+// implements: META-051
+fn deletion_items(
+    deleted: internal::DeletedMessages,
+    is_expired: impl Fn(&StoredGroupMessage) -> bool,
+) -> Vec<Result<DecodedMessage>> {
+    let internal::DeletedMessages {
+        messages,
+        deleted_by_inbox_id,
+    } = deleted;
+    messages
+        .into_iter()
+        .map(|message| {
+            if !is_expired(&message) {
+                return Ok(DecodedMessage::from(message));
+            }
+            // With no actor, `Sender`; see `DecodedMessage::expired`.
+            let deleted_by = deleted_by_inbox_id
+                .as_deref()
+                .map_or(DeletedBy::Sender, |deleter| {
+                    DeletedBy::new(deleter, &message.sender_inbox_id)
+                });
+            Ok(DecodedMessage::expired(message, deleted_by))
+        })
+        .collect()
 }
 
 #[derive(thiserror::Error, Debug, ErrorCode)]

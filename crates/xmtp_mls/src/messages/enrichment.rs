@@ -23,6 +23,9 @@ pub fn deleted_message_content_type() -> ContentTypeId {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum EnrichMessageError {
+    #[error("Storage error: {0}")]
+    #[error_code(inherit)]
+    Storage(#[from] xmtp_db::StorageError),
     #[error("DB error: {0}")]
     #[error_code(inherit)]
     DbConnection(#[from] xmtp_db::ConnectionError),
@@ -32,6 +35,7 @@ impl RetryableError for EnrichMessageError {
     fn is_retryable(&self) -> bool {
         match self {
             Self::DbConnection(e) => e.is_retryable(),
+            Self::Storage(e) => e.is_retryable(),
         }
     }
 }
@@ -44,6 +48,7 @@ type ReferencedMessageMap = HashMap<Vec<u8>, (StoredGroupMessage, DecodedMessage
 type DeletionMap = HashMap<Vec<u8>, Vec<StoredMessageDeletion>>;
 
 pub struct EnrichedStoredMessage {
+    pub delivery_cursor: Option<xmtp_db::delivery::DeliveryCursor>,
     pub stored: StoredGroupMessage,
     pub decoded: DecodedMessage,
     pub parent_stored: Option<StoredGroupMessage>,
@@ -112,13 +117,8 @@ fn apply_deletion(
     deletion: &StoredMessageDeletion,
     stored: &StoredGroupMessage,
 ) {
-    let is_sender = deletion.deleted_by_inbox_id == stored.sender_inbox_id;
     message.content = MessageBody::DeletedMessage {
-        deleted_by: if is_sender {
-            DeletedBy::Sender
-        } else {
-            DeletedBy::Admin(deletion.deleted_by_inbox_id.clone())
-        },
+        deleted_by: DeletedBy::new(&deletion.deleted_by_inbox_id, &stored.sender_inbox_id),
     };
     message.metadata.content_type = Some(deleted_message_content_type());
     message.fallback_text = None;
@@ -202,6 +202,7 @@ pub fn enrich_messages_with_stored(
             }
 
             EnrichedStoredMessage {
+                delivery_cursor: None,
                 stored: stored_message,
                 decoded,
                 parent_stored,

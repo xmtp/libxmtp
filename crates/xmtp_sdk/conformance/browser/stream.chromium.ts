@@ -8,10 +8,9 @@ import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
-import {
-  Client,
-  MessageStream,
-} from "../../../../target/sdk-generated/typescript-wasm/index";
+import { MessageStream } from "../../../../target/sdk-generated/typescript-wasm/index";
+// Transport tests use the worker proxy Client with their own session.
+import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
@@ -155,13 +154,9 @@ export async function checkMessageStream(backendURL: string): Promise<void> {
     // and gets the unacknowledged message again.
     step = "stream redelivery";
     const states: B.ConnectionState[] = [];
-    const stream = new MessageStream(
-      (signal) => group.messageReader({ signal }),
-      alice,
-      {
-        onConnectionStateChange: (_previous, current) => states.push(current),
-      },
-    );
+    const stream = MessageStream.openGroup(alice, group, undefined, {
+      onConnectionStateChange: (_previous, current) => states.push(current),
+    });
     const replayed = await withTimeout(stream.next(), "stream redelivery");
     if (replayed.done || replayed.value.id.toString() !== firstId.toString())
       throw new Error("stream did not redeliver the message");

@@ -181,6 +181,24 @@ pub struct ConversationReaderOptions {
     pub consent_states: Option<Vec<ConsentState>>,
 }
 
+/// Fixed selection and replay position for an all-conversation message reader.
+#[derive(Clone, Debug, Default, uniffi::Record)]
+pub struct MessageReaderOptions {
+    #[uniffi(default = None)]
+    pub conversation_kind: Option<ConversationKind>,
+    #[uniffi(default = None)]
+    pub consent_states: Option<Vec<ConsentState>>,
+    #[uniffi(default = None)]
+    pub from: Option<String>,
+}
+
+/// Exclusive replay position for a named conversation.
+#[derive(Clone, Debug, Default, uniffi::Record)]
+pub struct ConversationMessageReaderOptions {
+    #[uniffi(default = None)]
+    pub from: Option<String>,
+}
+
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ConversationOrder {
     CreatedAt,

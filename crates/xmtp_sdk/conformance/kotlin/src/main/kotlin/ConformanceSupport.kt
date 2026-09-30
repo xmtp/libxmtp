@@ -155,7 +155,7 @@ internal suspend fun releasedMessage(
     inboxId: InboxId,
 ): Pair<Message, WeakReference<SDKClient>> {
     val host = SDKClient.build(identity, options, inboxId)
-    val group = host.raw.conversations().createGroup(emptyList(), null)
+    val group = host.conversations().createGroup(emptyList(), null)
     val id = group.sendText("weak owner", null)
     val message = group.messages(null).first { it.id == id }
     return message to WeakReference(host)

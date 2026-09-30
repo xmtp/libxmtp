@@ -304,11 +304,13 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
             // Content that fails to decode is delivered as an undecodable
             // body; only a database failure stops the read.
             // implements: CTYPE-008
-            let mut messages = enrich_messages(db, &self.group_id, vec![message]).map_err(
-                |EnrichMessageError::DbConnection(error)| {
-                    LocalDeliveryError::Storage(StorageError::Connection(error))
-                },
-            )?;
+            let mut messages =
+                enrich_messages(db, &self.group_id, vec![message]).map_err(|error| {
+                    LocalDeliveryError::Storage(match error {
+                        EnrichMessageError::DbConnection(error) => StorageError::Connection(error),
+                        EnrichMessageError::Storage(error) => error,
+                    })
+                })?;
             messages
                 .pop()
                 .ok_or(LocalDeliveryError::EnrichedMessageUnavailable)

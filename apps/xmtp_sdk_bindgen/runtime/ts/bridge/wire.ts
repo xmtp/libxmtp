@@ -16,6 +16,21 @@ export const BRIDGE_ERROR_CODES = bridgeCodes(
 
 export type BridgeErrorCode = (typeof BRIDGE_ERROR_CODES)[number];
 
+/**
+ * Reader reads whose admitted value is abandoned when the owner client ends.
+ * Client end waits for their database work, not for their reply to reach the
+ * app. The value stays unacknowledged, so a later reader or replay sees it.
+ */
+const ABANDONED_AT_END = new Set([
+  "MessageReader.next",
+  "ConversationReader.next",
+  "EventReader.next",
+]);
+
+export function abandonedAtEnd(key: string): boolean {
+  return ABANDONED_AT_END.has(key);
+}
+
 export interface ErrorWire {
   variant: string;
   code: string;
@@ -171,14 +186,22 @@ export interface CallbackWire {
 }
 
 export type WireMessage =
-  | { t: "hello"; version: number; hash: string }
+  | { t: "hello"; version: number; hash: string; lifetimeLock?: string }
   | { t: "ready"; epoch: number }
+  | { t: "idle"; revision: number }
   | { t: "refused"; error: ErrorWire }
-  | { t: "call"; id: number; key: string; target?: HandleWire; args: unknown[] }
+  | {
+      t: "call";
+      id: number;
+      key: string;
+      target?: HandleWire;
+      args: unknown[];
+      revision?: number;
+    }
   | { t: "return"; id: number; value: unknown }
-  | { t: "error"; id: number; error: ErrorWire }
+  | { t: "error"; id: number; error: ErrorWire; fatal?: boolean }
   | { t: "cancel"; id: number }
-  | { t: "release"; handles: number[]; owners?: number[] }
+  | { t: "release"; handles: number[]; owners?: number[]; revision?: number }
   | { t: "callback"; id: number; cb: number; method: string; args: unknown[] }
   | { t: "callbackResult"; id: number; value?: unknown; error?: ErrorWire }
   | { t: "callbackDrop"; cb: number }
@@ -189,7 +212,7 @@ export interface WireEndpoint {
   onMessage(handler: (message: WireMessage) => void): void;
   onExit(handler: () => void): void;
   close?(): void;
-  terminate?(): void;
+  terminate?(): void | Promise<void>;
 }
 
 export function assertCloneable(value: unknown): void {

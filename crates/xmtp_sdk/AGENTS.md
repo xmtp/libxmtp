@@ -8,7 +8,9 @@ Run commands from the repository root in the Nix shell. Run
 - `just sdk check-file-sizes` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
-- `just sdk lint` checks file sizes, generated names, and TypeScript source. It also
+- `just sdk lint` checks file sizes, generated names, and TypeScript source.
+  It checks shared public value types on Node and browser, including negative
+  consumers for readonly records, transport fields, credentials, and bytes. It also
   rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
   benchmark exports in the default bindings and in
   `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks in test source sets.
@@ -40,6 +42,26 @@ Run commands from the repository root in the Nix shell. Run
   Tests and changelogs remain outside the shipped-code guard.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
+- `just sdk conformance-storage` runs the real-worker OPFS proof against the
+  staged SDK. Run `just sdk generate` first after SDK or runtime changes.
+- `just sdk conformance-package` checks package creation reservations, shared
+  client/admin workers, final worker termination, and collection in Chromium.
+  Run `just sdk generate` first after SDK or runtime changes.
+- `just sdk conformance-bridge-unit <vitest arguments>` runs focused bridge
+  unit tests against the staged SDK.
+- `just sdk public-consumer` stages the generated Swift, Kotlin, Node, and
+  browser SDKs as separate public products under `target/sdk-public/`. It then
+  compiles separate consumers in `conformance/public/`: a SwiftPM package, an
+  Android library that uses a real `Context`, and TypeScript projects that
+  install the Node and browser packages in `node_modules`. The consumers call
+  the retained host Client surface, the identity methods, received identity,
+  and Message actions. Negative probes check that the binding Client, its
+  factories, the generated identity routes, the browser worker session, and
+  private package paths stay private. Before it compiles them,
+  `dev/check-public-members.py` checks that every retained Client member in
+  `docs/self-hosted/sdk-api-manifest.md` is public in each installed product,
+  in the static or instance placement that the manifest names.
+  Run `just sdk generate` first.
 - `just test crate xmtp_sdk` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps

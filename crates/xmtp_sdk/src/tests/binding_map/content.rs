@@ -352,6 +352,10 @@ async fn storage_key_rejects_wrong_key_for_existing_database() {
         ..Default::default()
     };
     let first = Client::create(signer.clone(), first_options.clone()).await?;
+    assert!(
+        first.options().storage.encryption_key.is_none(),
+        "options exposed the database key"
+    );
     first.end().await?;
     let second = Client::create(
         signer,
@@ -427,7 +431,7 @@ async fn new_installation_can_find_existing_dm() {
         .await?
         .expect("new installation can find the DM");
     assert_eq!(found.id(), dm.id());
-    assert_eq!(found.peer_inbox_id(), peer.inbox_id());
+    assert_eq!(found.peer_inbox_id().await?, Some(peer.inbox_id()));
     first.end().await?;
     second.end().await?;
     peer.end().await?;

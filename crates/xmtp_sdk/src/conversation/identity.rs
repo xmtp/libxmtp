@@ -14,7 +14,6 @@ pub struct Dm {
     pub(crate) inner: MlsGroup<xmtp_mls::MlsContext>,
     pub(crate) client_key: u64,
     identity: ConversationIdentity,
-    peer_inbox_id: InboxId,
     #[cfg(all(test, not(target_arch = "wasm32")))]
     pub(crate) state_counts: Arc<parking_lot::Mutex<(u64, u64, u64)>>,
     #[cfg(test)]
@@ -39,12 +38,14 @@ impl ConversationIdentity {
         metadata: &xmtp_mls::mls_common::group_metadata::GroupMetadata,
         own_inbox_id: &str,
     ) -> Self {
-        let creator = metadata.creator_inbox_id.clone();
+        let creator_inbox_id = known_inbox_id(metadata.creator_inbox_id.clone());
         Self {
             added_by_inbox_id: known_inbox_id(added_by_inbox_id),
             // An unknown creator is never the local inbox.
-            is_creator: !creator.is_empty() && creator == own_inbox_id,
-            creator_inbox_id: known_inbox_id(creator),
+            is_creator: creator_inbox_id
+                .as_ref()
+                .is_some_and(|creator| creator.checked().is_ok_and(|text| text == own_inbox_id)),
+            creator_inbox_id,
         }
     }
 
@@ -85,20 +86,13 @@ impl Dm {
         identity: ConversationIdentity,
         metadata: xmtp_mls::mls_common::group_metadata::GroupMetadata,
     ) -> Result<Self, XmtpError> {
-        let members = metadata
+        metadata
             .dm_members
             .ok_or_else(|| XmtpError::invalid("DM has no peer metadata"))?;
-        let peer = if members.member_one_inbox_id == inner.context.inbox_id() {
-            members.member_two_inbox_id
-        } else {
-            members.member_one_inbox_id
-        };
-        let peer_inbox_id = InboxId::try_from(peer.to_string())?;
         Ok(Self {
             inner,
             client_key,
             identity,
-            peer_inbox_id,
             #[cfg(all(test, not(target_arch = "wasm32")))]
             state_counts: Arc::new(parking_lot::Mutex::new((0, 0, 0))),
             #[cfg(test)]
@@ -112,5 +106,51 @@ impl Dm {
     ) -> Result<Self, XmtpError> {
         let (identity, metadata) = ConversationIdentity::from_core(&inner).await?;
         Self::from_metadata(inner, client_key, identity, metadata)
+    }
+}
+
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use xmtp_mls::mls_common::group_metadata::GroupMetadata;
+
+    const OWN: &str = "0000000000000000000000000000000000000000000000000000000000000001";
+    const OTHER: &str = "0000000000000000000000000000000000000000000000000000000000000002";
+
+    fn identity(creator: &str, adder: &str) -> ConversationIdentity {
+        let metadata = GroupMetadata::new(ConversationType::Group, creator.into(), None, None);
+        ConversationIdentity::from_metadata(adder.into(), &metadata, OWN)
+    }
+
+    // Each distinct received state keeps unknown values absent and known text exact.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn received_identity_states_keep_unknown_values_absent() {
+        let unknown_creator = identity("", OTHER);
+        assert_eq!(unknown_creator.creator_inbox_id, None);
+        assert_eq!(
+            unknown_creator
+                .added_by_inbox_id
+                .map(|id| id.into_checked().unwrap()),
+            Some(OTHER.into())
+        );
+        assert!(!unknown_creator.is_creator);
+
+        let unknown_adder = identity(OWN, "");
+        assert_eq!(
+            unknown_adder
+                .creator_inbox_id
+                .map(|id| id.into_checked().unwrap()),
+            Some(OWN.into())
+        );
+        assert_eq!(unknown_adder.added_by_inbox_id, None);
+        assert!(unknown_adder.is_creator);
+
+        let both_unknown = identity("", "");
+        assert_eq!(both_unknown.creator_inbox_id, None);
+        assert_eq!(both_unknown.added_by_inbox_id, None);
+        assert!(!both_unknown.is_creator);
+
+        let other_creator = identity(OTHER, OWN);
+        assert!(!other_creator.is_creator);
     }
 }

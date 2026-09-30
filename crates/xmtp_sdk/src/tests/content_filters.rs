@@ -8,7 +8,7 @@ async fn reaction_message_keeps_its_target_on_single_read_and_reader() {
     let group = client.conversations().create_group(vec![], None).await?;
     let parent = group.send_text("parent".into(), None).await?;
     let parent_sender = client.inbox_id();
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let reaction_id = client
         .conversations()
         .react_to_message(

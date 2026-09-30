@@ -22,22 +22,12 @@ macro_rules! common_conversation {
                 }
             }
 
-            /// An unknown received adder is the empty ID, which the checked
-            /// accessor rejects; it is never another inbox.
-            pub fn added_by_inbox_id(&self) -> InboxId {
-                self.identity
-                    .added_by_inbox_id
-                    .clone()
-                    .unwrap_or_else(|| InboxId::unchecked(String::new()))
+            pub fn added_by_inbox_id(&self) -> Option<InboxId> {
+                self.identity.added_by_inbox_id.clone()
             }
 
-            /// An unknown received creator is the empty ID, which the checked
-            /// accessor rejects; it is never another inbox.
-            pub fn creator_inbox_id(&self) -> InboxId {
-                self.identity
-                    .creator_inbox_id
-                    .clone()
-                    .unwrap_or_else(|| InboxId::unchecked(String::new()))
+            pub fn creator_inbox_id(&self) -> Option<InboxId> {
+                self.identity.creator_inbox_id.clone()
             }
 
             pub fn is_creator(&self) -> bool {
@@ -424,7 +414,7 @@ macro_rules! common_conversation {
                 let query: MsgQueryArgs = options.unwrap_or_default().try_into()?;
                 let group = self.inner.clone();
                 let client_key = self.client_key;
-                #[cfg(test)]
+                #[cfg(all(test, not(target_arch = "wasm32")))]
                 let history_query_count = self.history_query_count.clone();
                 on_sdk_worker(self.inner.context.clone(), async move {
                     let load = || -> Result<Vec<Message>, XmtpError> {
@@ -433,13 +423,13 @@ macro_rules! common_conversation {
                             .map_err(XmtpError::unknown)?;
                         Ok(lift_history_messages(enriched, client_key))
                     };
-                    #[cfg(test)]
+                    #[cfg(all(test, not(target_arch = "wasm32")))]
                     {
                         let (messages, queries, _) = xmtp_db::count_sql_queries(load);
                         *history_query_count.lock() = queries;
                         messages
                     }
-                    #[cfg(not(test))]
+                    #[cfg(any(not(test), target_arch = "wasm32"))]
                     {
                         load()
                     }
@@ -491,12 +481,24 @@ macro_rules! common_conversation {
                 .await
             }
 
-            pub async fn message_reader(&self) -> Result<Arc<MessageReader>, XmtpError> {
+            #[uniffi::method(default(options = None))]
+            pub async fn message_reader(
+                &self,
+                options: Option<crate::ConversationMessageReaderOptions>,
+            ) -> Result<Arc<MessageReader>, XmtpError> {
                 let context = self.inner.context.clone();
                 let group_id = self.inner.group_id;
                 let client_key = self.client_key;
                 on_sdk_worker(self.inner.context.clone(), async move {
-                    MessageReader::open(context, group_id, client_key)
+                    MessageReader::open(
+                        context,
+                        xmtp_mls::subscriptions::local_delivery::DeliveryScope::Groups(vec![
+                            group_id,
+                        ]),
+                        Default::default(),
+                        options.unwrap_or_default().from,
+                        client_key,
+                    )
                 })
                 .await
             }

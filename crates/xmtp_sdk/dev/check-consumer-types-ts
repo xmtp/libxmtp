@@ -3,6 +3,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
+bash crates/xmtp_sdk/dev/check-wasm-init
 nix build --no-link .#ubjs-core .#ubjs-node
 core="$(nix path-info .#ubjs-core)"
 node="$(nix path-info .#ubjs-node)"
@@ -10,8 +11,9 @@ package_dir=target/sdk-generated/typescript-napi/node_modules/@ubjs
 mkdir -p "$package_dir"
 ln -sfn "$core/lib/node_modules/@ubjs/core" "$package_dir/core"
 ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
-args=(--noEmit --module esnext --moduleResolution bundler --target es2022 --allowImportingTsExtensions --skipLibCheck)
+args=(--noEmit --strict --module esnext --moduleResolution bundler --target es2022 --allowImportingTsExtensions --skipLibCheck)
 node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/consumers/positive.ts
+node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/public-layer/positive.ts
 log="$(mktemp)"
 trap 'rm -f "$log"' EXIT
 if node_modules/.bin/tsc "${args[@]}" crates/xmtp_sdk/conformance/ts/consumers/negative.ts >"$log" 2>&1; then
@@ -22,4 +24,5 @@ test "$(grep -c "TS2322: Type 'number' is not assignable to type 'string'." "$lo
 grep -q "TS2322.*EncodedContent" "$log"
 grep -q "TS2339.*group" "$log"
 grep -q "TS2693.*MessageId" "$log"
+bash crates/xmtp_sdk/dev/check-public-values
 echo "TypeScript ID, content, and Group/Dm consumer checks passed"
