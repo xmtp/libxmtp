@@ -350,6 +350,7 @@ where
                         events,
                         vec![original_msg],
                         xmtp_events::DeletionCause::DeletedLocally,
+                        Some(deletion.deleted_by_inbox_id.clone()),
                         &db,
                     )?;
                 }

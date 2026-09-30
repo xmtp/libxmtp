@@ -31,10 +31,21 @@ pub enum InternalEvent {
         updates: Vec<PreferenceUpdate>,
         origin: PreferenceOrigin,
     },
-    MessagesDeleted(Vec<StoredGroupMessage>),
+    /// Deleted rows whose expiry had not passed when the event was emitted.
+    /// A row can expire before delivery, so a reader checks it again.
+    MessagesDeleted(DeletedMessages),
     /// Deleted rows whose expiry had passed: expiry cleanup, or a delete of
     /// an already expired message. Their bodies are cleared.
-    MessagesExpired(Vec<StoredGroupMessage>),
+    MessagesExpired(DeletedMessages),
+}
+
+/// Rows removed by one delete, and the inbox that deleted them.
+#[derive(Clone, Debug)]
+pub struct DeletedMessages {
+    pub messages: Vec<StoredGroupMessage>,
+    /// The inbox that sent the delete. `None` when no inbox did: expiry
+    /// cleanup, or a local removal of the row.
+    pub deleted_by_inbox_id: Option<String>,
 }
 
 impl InternalEvent {
@@ -134,10 +145,13 @@ pub(crate) fn emit_preference_updates_with_public(
     Ok(())
 }
 
+/// Emit the deletion of `messages` by the inbox `deleted_by_inbox_id`, or by
+/// no inbox (`None`) for a local removal of the rows.
 pub(crate) fn emit_deleted_messages(
     writer: &impl EventWriter<InternalEvent>,
     messages: Vec<StoredGroupMessage>,
     cause: DeletionCause,
+    deleted_by_inbox_id: Option<String>,
     db: &impl DbQuery,
 ) -> Result<(), ConnectionError> {
     if messages.is_empty() {
@@ -168,7 +182,13 @@ pub(crate) fn emit_deleted_messages(
         .into_iter()
         .partition(|message| message.expire_at_ns.is_some_and(|at| at <= now));
     if !live.is_empty() {
-        writer.emit(None, Some(InternalEvent::MessagesDeleted(live)));
+        writer.emit(
+            None,
+            Some(InternalEvent::MessagesDeleted(DeletedMessages {
+                messages: live,
+                deleted_by_inbox_id: deleted_by_inbox_id.clone(),
+            })),
+        );
     }
     if !expired.is_empty() {
         let expired = expired
@@ -178,7 +198,13 @@ pub(crate) fn emit_deleted_messages(
                 ..message
             })
             .collect();
-        writer.emit(None, Some(InternalEvent::MessagesExpired(expired)));
+        writer.emit(
+            None,
+            Some(InternalEvent::MessagesExpired(DeletedMessages {
+                messages: expired,
+                deleted_by_inbox_id,
+            })),
+        );
     }
     Ok(())
 }
@@ -206,7 +232,13 @@ pub(crate) fn emit_expired_messages(
             None,
         );
     }
-    writer.emit(None, Some(InternalEvent::MessagesExpired(messages)));
+    writer.emit(
+        None,
+        Some(InternalEvent::MessagesExpired(DeletedMessages {
+            messages,
+            deleted_by_inbox_id: None,
+        })),
+    );
     Ok(())
 }
 
