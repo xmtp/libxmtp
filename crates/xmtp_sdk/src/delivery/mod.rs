@@ -136,7 +136,6 @@ pub(crate) fn enrichment_error(error: EnrichMessageError) -> XmtpError {
                 error.to_string(),
             ))
         }
-        _ => XmtpError::unknown(error),
     }
 }
 

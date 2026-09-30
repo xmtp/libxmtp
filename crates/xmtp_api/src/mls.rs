@@ -208,12 +208,16 @@ impl<C: XmtpBackendClient> ApiClientWrapper<C> {
     }
 }
 
-impl<C: XmtpMlsStreams> ApiClientWrapper<C> {
+impl<C: XmtpMlsStreams + XmtpBackendClient> ApiClientWrapper<C>
+where
+    C::GroupMessageStream: 'static,
+    C::WelcomeMessageStream: 'static,
+{
     #[xmtp_common::rpc_span]
     pub async fn subscribe_group_messages(
         &self,
         groups: &[&GroupId],
-    ) -> Result<C::GroupMessageStream> {
+    ) -> Result<<crate::preflight::GuardedApi<C> as XmtpMlsStreams>::GroupMessageStream> {
         self.retry_call(|| self.api_client.subscribe_group_messages(groups), false)
             .await
             .map_err(dyn_err)
@@ -222,7 +226,7 @@ impl<C: XmtpMlsStreams> ApiClientWrapper<C> {
     pub async fn subscribe_group_messages_with_cursors(
         &self,
         cursors: &TopicCursor,
-    ) -> Result<C::GroupMessageStream> {
+    ) -> Result<<crate::preflight::GuardedApi<C> as XmtpMlsStreams>::GroupMessageStream> {
         self.retry_call(
             || {
                 self.api_client
@@ -237,7 +241,7 @@ impl<C: XmtpMlsStreams> ApiClientWrapper<C> {
     pub async fn subscribe_welcome_messages(
         &self,
         installations: &[&InstallationId],
-    ) -> Result<C::WelcomeMessageStream> {
+    ) -> Result<<crate::preflight::GuardedApi<C> as XmtpMlsStreams>::WelcomeMessageStream> {
         self.retry_call(
             || self.api_client.subscribe_welcome_messages(installations),
             false,
@@ -249,7 +253,7 @@ impl<C: XmtpMlsStreams> ApiClientWrapper<C> {
     pub async fn subscribe_welcome_messages_with_cursors(
         &self,
         cursors: &TopicCursor,
-    ) -> Result<C::WelcomeMessageStream> {
+    ) -> Result<<crate::preflight::GuardedApi<C> as XmtpMlsStreams>::WelcomeMessageStream> {
         self.retry_call(
             || {
                 self.api_client

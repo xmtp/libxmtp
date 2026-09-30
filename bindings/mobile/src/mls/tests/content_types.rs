@@ -563,6 +563,120 @@ async fn test_find_enriched_messages_with_replies() {
         .unwrap();
 }
 
+/// A received row that cannot be decoded stays in history, lookup, and a
+/// reply's parent with its exact bytes and typed cause.
+// verifies: CTYPE-008, CTYPE-009
+#[tokio::test(flavor = "multi_thread", worker_threads = 5)]
+async fn test_undecodable_content_is_kept_with_its_bytes() {
+    use crate::message::{FfiContentDecodeFailureKind, FfiContentTypeId};
+    let alix = new_test_client().await;
+    let bo = new_test_client().await;
+    let alix_group = alix
+        .conversations()
+        .create_group_by_identity(
+            vec![bo.account_identifier.clone()],
+            FfiCreateGroupOptions::default(),
+        )
+        .await
+        .unwrap();
+    bo.conversations().sync().await.unwrap();
+    let bo_group = bo.conversation(alix_group.id()).unwrap();
+
+    // Not a serialized EncodedContent at all.
+    let malformed = vec![0xff, 0x00, 0x80];
+    let malformed_id = alix_group
+        .send(malformed.clone(), FfiSendMessageOpts::default())
+        .await
+        .unwrap();
+    // A typed text envelope whose payload is not UTF-8.
+    let mut bad_text = TextCodec::encode("text".to_string()).unwrap();
+    bad_text.content = vec![0xff, 0xfe];
+    let bad_text_bytes = encoded_content_to_bytes(bad_text);
+    let bad_text_id = alix_group
+        .send(bad_text_bytes.clone(), FfiSendMessageOpts::default())
+        .await
+        .unwrap();
+    alix_group
+        .send(
+            encoded_content_to_bytes(TextCodec::encode("after".to_string()).unwrap()),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+    bo_group.sync().await.unwrap();
+    let reply_id = bo_group
+        .send(
+            encode_reply(FfiReply {
+                reference: hex::encode(&malformed_id),
+                reference_inbox_id: Some(alix.inbox_id()),
+                content: TextCodec::encode("replying to bytes".to_string())
+                    .unwrap()
+                    .into(),
+            })
+            .unwrap(),
+            FfiSendMessageOpts::default(),
+        )
+        .await
+        .unwrap();
+    alix_group.sync().await.unwrap();
+
+    for (client, group) in [(&alix, &*alix_group), (&bo, &bo_group)] {
+        let messages = group
+            .find_enriched_messages(FfiListMessagesOptions::default())
+            .unwrap();
+        let by_id = |id: &Vec<u8>| messages.iter().find(|m| &m.id() == id).unwrap().clone();
+
+        let kept = by_id(&malformed_id);
+        assert_eq!(kept.content_type_id(), FfiContentTypeId::default());
+        assert_eq!(kept.fallback_text(), None);
+        let FfiDecodedMessageContent::Undecodable(content) = kept.content() else {
+            panic!("expected undecodable content, got {:?}", kept.content());
+        };
+        assert_eq!(content.raw_bytes, malformed);
+        assert_eq!(content.content_type, None);
+        assert_eq!(
+            content.failure_kind,
+            FfiContentDecodeFailureKind::MalformedEnvelope
+        );
+
+        let failed = by_id(&bad_text_id);
+        assert_eq!(failed.content_type_id().type_id, "text");
+        let FfiDecodedMessageContent::Undecodable(content) = failed.content() else {
+            panic!("expected undecodable content, got {:?}", failed.content());
+        };
+        assert_eq!(content.raw_bytes, bad_text_bytes);
+        assert_eq!(
+            content.content_type.map(|kind| kind.type_id),
+            Some("text".to_string())
+        );
+        assert_eq!(
+            content.failure_kind,
+            FfiContentDecodeFailureKind::CodecDecodeFailed
+        );
+
+        assert!(messages.iter().any(|m| matches!(
+            m.content(),
+            FfiDecodedMessageContent::Text(text) if text.content == "after"
+        )));
+
+        let FfiDecodedMessageContent::Reply(reply) = by_id(&reply_id).content() else {
+            panic!("expected reply");
+        };
+        let parent = reply.in_reply_to.expect("reply parent");
+        assert_eq!(parent.id(), malformed_id);
+        assert!(matches!(
+            parent.content(),
+            FfiDecodedMessageContent::Undecodable(content) if content.raw_bytes == malformed
+        ));
+
+        let looked_up = client.enriched_message(malformed_id.clone()).unwrap();
+        assert!(matches!(
+            looked_up.content(),
+            FfiDecodedMessageContent::Undecodable(content) if content.raw_bytes == malformed
+        ));
+    }
+}
+
 #[tokio::test]
 async fn test_intent_codec() {
     use prost::Message;

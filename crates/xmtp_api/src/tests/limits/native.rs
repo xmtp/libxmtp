@@ -85,6 +85,7 @@ async fn update_entry_boundary(#[case] adds: bool, #[case] cap: usize) {
             .boxed();
         let mut inbound = api
             .api_client
+            .raw_for_test()
             .inner()
             .subscribe_bidi(outbound)
             .await
@@ -151,6 +152,7 @@ async fn token_bucket_boundary(#[case] updates: bool, #[case] burst: u32, #[case
         let (sender, requests) = futures::channel::mpsc::unbounded();
         let mut inbound = api
             .api_client
+            .raw_for_test()
             .inner()
             .subscribe_bidi(requests.boxed())
             .await
@@ -243,7 +245,7 @@ async fn token_bucket_boundary(#[case] updates: bool, #[case] burst: u32, #[case
 #[xmtp_common::test(unwrap_try = true)]
 async fn http2_stream_boundary(#[case] cap: usize) {
     let api = backend();
-    let client = api.api_client.inner();
+    let client = api.api_client.raw_for_test().inner();
     let mut held = Vec::new();
     for _ in 0..cap {
         let (sender, requests) = futures::channel::mpsc::unbounded();

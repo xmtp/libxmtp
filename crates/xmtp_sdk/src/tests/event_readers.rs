@@ -86,8 +86,8 @@ async fn event_reader_and_listener_create_no_network_interest() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let api = &client.inner.context.api().api_client;
-    let mls = api.as_ref().mls_stats();
-    let identity = api.as_ref().identity_stats();
+    let mls = api.mls_stats();
+    let identity = api.identity_stats();
     let api_counts = || {
         [
             mls.publish.get_count(),

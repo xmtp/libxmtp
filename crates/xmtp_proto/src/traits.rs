@@ -29,6 +29,18 @@ pub trait HasStats {
     fn identity_stats(&self) -> IdentityStats;
 }
 
+impl<T: HasStats + ?Sized> HasStats for Arc<T> {
+    fn aggregate_stats(&self) -> AggregateStats {
+        (**self).aggregate_stats()
+    }
+    fn mls_stats(&self) -> ApiStats {
+        (**self).mls_stats()
+    }
+    fn identity_stats(&self) -> IdentityStats {
+        (**self).identity_stats()
+    }
+}
+
 /// provides the necessary information for a backend API call.
 /// Indicates the Output type
 pub trait Endpoint<Specialized = ()>: MaybeSend + MaybeSync {

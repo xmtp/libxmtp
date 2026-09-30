@@ -68,12 +68,14 @@ mod tests {
                 "2026-09-28-000000-0000_received_proposals",
                 "2026-09-28-010000_conversation_list_expiry",
                 "2026-09-29-000000_conversation_list_latest_message_index",
+                "2026-09-29-010000_restored_group_metadata",
             ]
         );
         let applied = applied_migrations(&conn)?;
         assert_eq!(
             applied,
             [
+                "20260929010000",
                 "20260929000000",
                 "20260928010000",
                 "202609280000000000",
@@ -88,11 +90,11 @@ mod tests {
 
         // Each rollback names a target version and reverts it and every later one.
         rollback_confirmed(&conn, "20260928010000")?;
-        assert_eq!(applied_migrations(&conn)?, applied[2..].to_vec());
+        assert_eq!(applied_migrations(&conn)?, applied[3..].to_vec());
         conn.raw_query(|c| c.batch_execute("SELECT * FROM conversation_list"))?;
 
         rollback_confirmed(&conn, "20260924000000")?;
-        assert_eq!(applied_migrations(&conn)?, applied[4..].to_vec());
+        assert_eq!(applied_migrations(&conn)?, applied[5..].to_vec());
         assert!(
             conn.raw_query(|c| c.batch_execute("SELECT * FROM local_attachments"))
                 .is_err()
@@ -102,7 +104,7 @@ mod tests {
                 .is_err()
         );
 
-        rollback_confirmed(&conn, &applied[4])?;
+        rollback_confirmed(&conn, &applied[5])?;
         assert!(applied_migrations(&conn)?.is_empty());
 
         db.run_pending_migrations()?;

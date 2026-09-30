@@ -297,7 +297,7 @@ where
 
         let sender_inbox_id = self.context.inbox_id();
         let is_sender = original_msg.sender_inbox_id == sender_inbox_id;
-        let is_super_admin = self.is_super_admin(sender_inbox_id.to_string())?;
+        let is_super_admin = self.live_is_super_admin(sender_inbox_id)?;
 
         if !is_sender && !is_super_admin {
             return Err(DeleteMessageError::NotAuthorized.into());

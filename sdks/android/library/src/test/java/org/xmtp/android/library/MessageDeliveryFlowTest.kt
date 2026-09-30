@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import com.google.protobuf.InvalidProtocolBufferException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -9,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -232,19 +232,15 @@ class MessageDeliveryFlowTest {
             assertEquals(0, pending.acknowledgements)
             assertEquals(1, pending.rejections)
 
+            // Content that does not decode is handed off, not a flow failure.
+            // verifies: CTYPE-008, PROC-028
             val invalidEncoding =
                 TextCodec()
                     .encode("hi")
                     .toBuilder()
                     .putParameters("encoding", "UTF-16")
                     .build()
-            for (
-            (content, errorType) in
-            listOf(
-                byteArrayOf(0x80.toByte()) to InvalidProtocolBufferException::class.java,
-                invalidEncoding.toByteArray() to XMTPException::class.java,
-            )
-            ) {
+            for (content in listOf(byteArrayOf(0x80.toByte()), invalidEncoding.toByteArray())) {
                 val delivery =
                     Delivery(
                         decodeValue = {
@@ -260,10 +256,10 @@ class MessageDeliveryFlowTest {
                             return@acknowledgedMessageFlow {}
                         }.collect { received.add(it) }
                     }
-                assertTrue(errorType.isInstance(result.exceptionOrNull()))
-                assertTrue(received.isEmpty())
-                assertEquals(0, delivery.acknowledgements)
-                assertEquals(1, delivery.rejections)
+                assertNull(result.exceptionOrNull())
+                assertEquals(listOf(1), received)
+                assertEquals(1, delivery.acknowledgements)
+                assertEquals(0, delivery.rejections)
             }
         }
 

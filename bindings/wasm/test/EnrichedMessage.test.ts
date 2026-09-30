@@ -422,6 +422,82 @@ describe("EnrichedMessage", () => {
       });
     });
 
+    describe("Undecodable content", () => {
+      // verifies: CTYPE-008, CTYPE-009
+      it("keeps a failed decode with its bytes and cause on list and parent paths", async () => {
+        const { client2, conversation, conversation2 } =
+          await setupConversation();
+
+        const broken = {
+          ...encodeText("valid"),
+          content: new Uint8Array([0xff, 0xfe]),
+        };
+        // The exact serialization of `broken`: type, one parameter, content.
+        const utf8 = (text: string) =>
+          Array.from(new TextEncoder().encode(text));
+        const field = (tag: number, bytes: number[]) => [
+          tag,
+          bytes.length,
+          ...bytes,
+        ];
+        const expectedRawBytes = new Uint8Array([
+          ...field(0x0a, [
+            ...field(0x0a, utf8("xmtp.org")),
+            ...field(0x12, utf8("text")),
+            0x18,
+            0x01,
+          ]),
+          ...field(0x12, [
+            ...field(0x0a, utf8("encoding")),
+            ...field(0x12, utf8("UTF-8")),
+          ]),
+          0x22,
+          0x02,
+          0xff,
+          0xfe,
+        ]);
+        const brokenId = await conversation.send(broken, { shouldPush: false });
+        const afterId = await conversation.sendText("after");
+        await conversation2.sync();
+        const replyId = await conversation2.sendReply({
+          reference: brokenId,
+          referenceInboxId: client2.inboxId,
+          content: encodeText("replying to bytes"),
+        });
+        await conversation.sync();
+
+        for (const group of [conversation, conversation2]) {
+          const messages = await group.findEnrichedMessages();
+          const brokenMessage = messages.find((m) => m.id === brokenId);
+          expect(brokenMessage).toBeDefined();
+          expect(brokenMessage!.content.type).toBe("undecodable");
+          expect(brokenMessage!.contentType.typeId).toBe("text");
+          if (brokenMessage!.content.type !== "undecodable") throw new Error();
+          const undecodable = brokenMessage!.content.content;
+          expect(undecodable.failureKind).toBe("codecDecodeFailed");
+          expect(undecodable.contentType?.typeId).toBe("text");
+          expect(new Uint8Array(undecodable.rawBytes)).toEqual(
+            expectedRawBytes,
+          );
+
+          const after = messages.find((m) => m.id === afterId);
+          expect(after?.content.type).toBe("text");
+          expect(after?.content.content).toBe("after");
+
+          const replyMessage = messages.find((m) => m.id === replyId);
+          expect(replyMessage?.content.type).toBe("reply");
+          const replyContent = replyMessage?.content.content as EnrichedReply;
+          expect(replyContent.inReplyTo?.id).toBe(brokenId);
+          expect(replyContent.inReplyTo?.content.type).toBe("undecodable");
+          if (replyContent.inReplyTo?.content.type !== "undecodable")
+            throw new Error();
+          expect(
+            new Uint8Array(replyContent.inReplyTo.content.content.rawBytes),
+          ).toEqual(expectedRawBytes);
+        }
+      });
+    });
+
     describe("Attachment", () => {
       it("should send and receive attachment", async () => {
         const { conversation, conversation2 } = await setupConversation();

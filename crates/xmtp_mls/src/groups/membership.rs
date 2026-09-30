@@ -201,7 +201,7 @@ where
         let readd_min_version =
             LibXMTPVersion::parse(xmtp_configuration::MIN_RECOVERY_REQUEST_VERSION)
                 .map_err(super::validated_commit::CommitValidationError::from)?;
-        let metadata = self.mutable_metadata()?;
+        let metadata = self.live_mutable_metadata()?;
         let group_version = metadata
             .attributes
             .get(MetadataField::MinimumSupportedProtocolVersion.as_str());
@@ -259,7 +259,7 @@ where
             return Ok(());
         }
 
-        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.live_is_super_admin(self.context.inbox_id())?;
         if !is_super_admin {
             tracing::debug!(
                 group_id = %self.group_id,
@@ -434,7 +434,7 @@ where
             return Err(GroupLeaveValidationError::DmLeaveForbidden.into());
         }
 
-        let is_super_admin = self.is_super_admin(self.context.inbox_id().to_string())?;
+        let is_super_admin = self.live_is_super_admin(self.context.inbox_id())?;
 
         // super-admin cannot leave a group; must be demoted first
         // since SuperAdmins can't remove other SuperAdmins they need to be demoted first

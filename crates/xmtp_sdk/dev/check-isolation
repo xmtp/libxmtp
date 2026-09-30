@@ -6,6 +6,11 @@ set -euo pipefail
 # files may contain only their reviewed PROC-032 backlink removal. Compare their full bytes with
 # the base after that one replacement. This does not mistake string content or text outside KDoc
 # for a comment.
+# The design SDK-040 exceptions are pinned: crates/xmtp_sdk/dev/isolation-pins.tsv lists each
+# excepted shipped file with the git blob hash of the exact content that was reviewed. A listed
+# file passes only while its content hashes to that pin, so a later pull request cannot change it
+# freely. After the last reviewed change to a listed file, refresh the pins with
+# `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with that change.
 # A stacked pull request is checked against its own base, so a lower PR's changes do not count.
 # A given base branch wins. In a pull request run (no argument), HEAD is GitHub's merge commit
 # and its first parent is the base; the workflow's base_ref can name the stack's trunk instead,
@@ -16,6 +21,19 @@ fail_query() {
   echo "SDK isolation gate could not inspect Git state: $1" >&2
   exit 1
 }
+
+pins_file="$(dirname "${BASH_SOURCE[0]}")/isolation-pins.tsv"
+if [ "${1:-}" = "--pin" ]; then
+  # Rewrite every pin with the hash of the file's current content.
+  tmp=$(mktemp)
+  while IFS=$'\t' read -r path _; do
+    [ -z "$path" ] && continue
+    printf '%s\t%s\n' "$path" "$(git hash-object "$path")" >> "$tmp"
+  done < "$pins_file"
+  mv "$tmp" "$pins_file"
+  echo "Pinned $(wc -l < "$pins_file" | tr -d ' ') SDK-040 exception files" >&2
+  exit 0
+fi
 
 if [ -n "${1:-}" ]; then
   base_ref="origin/$1"
@@ -58,10 +76,7 @@ while IFS= read -r path; do
   if [ -z "$status" ]; then
     fail_query "empty status for $path"
   fi
-  case "$path" in
-    *.sh|*.bash|*.zsh|*.command|*.ps1|*.d.ts|*generated*|*Generated*|*/script/*|*/scripts/*|*/dev/*|*/bin/*|sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift)
-      blocked+="$path"$'\n'; continue ;;
-  esac
+  # A file-mode change fails on every path, allowlisted or not.
   if [[ "$status" == M ]]; then
     if ! summary=$(git diff --no-renames --summary "$base" -- "$path"); then
       fail_query "mode summary for $path"
@@ -71,10 +86,47 @@ while IFS= read -r path; do
       continue
     fi
   fi
+  # Scripts and generated output fail on every path. The one carve-out is the
+  # regenerated Swift bindings as a modification under SDK-040 exception 1
+  # (below); the bindings-check job matches that file against the Rust source.
   case "$path" in
-    */test/*|*/tests/*|*/Tests/*|*/androidTest/*|*.test.ts|*.test.js|*_test.rs|*/CHANGELOG.md)
+    *.sh|*.bash|*.zsh|*.command|*.ps1|*.d.ts|*generated*|*Generated*|*/script/*|*/scripts/*|*/dev/*|*/bin/*|sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift)
+      if [ "$status:$path" != "M:sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift" ]; then
+        blocked+="$path"$'\n'; continue
+      fi ;;
+  esac
+  case "$path" in
+    */test/*|*/tests/*|*/Tests/*|*/androidTest/*|*.test.ts|*.test.js|*_test.rs|*/CHANGELOG.md|*/AGENTS.md)
       continue ;;
   esac
+  # Design SDK-040 names two narrow pre-cutover exceptions, each an exact file
+  # list pinned to reviewed content (see the header). Every other shipped
+  # change still fails, and so does any change to a listed file whose content
+  # is not the pinned one. The regenerated Swift bindings are matched against
+  # the Rust source by the bindings-check job.
+  # 1. Retained undecodable content (CTYPE-008): the legacy binding records
+  #    and variants, their regenerated outputs, and the wrapper projections
+  #    that expose exact received bytes and the typed cause.
+  # 2. Foreign Restored DM peer getter: mobile returns None; Node and WASM
+  #    return a typed no-peer error.
+  # bindings/node/src/client/identity.rs is a test-module-only edit
+  # (CONF-077, b04a2c97e) listed as a whole file; the pin holds its shipped
+  # part to the reviewed content.
+  if pin=$(grep -F -- "$path"$'\t' "$pins_file" | awk -F '\t' -v p="$path" '$1 == p { print $2 }') && [ -n "$pin" ]; then
+    if [[ "$status" != M ]]; then
+      blocked+="$path"$'\n'
+      continue
+    fi
+    if ! actual=$(git hash-object "$path"); then
+      fail_query "hash for $path"
+    fi
+    if [ "$actual" = "$pin" ]; then
+      continue
+    fi
+    echo "$path is allowlisted only at blob $pin; this change ($actual) is not" >&2
+    blocked+="$path"$'\n'
+    continue
+  fi
   case "$path" in
     sdks/node/src/MessageStream.ts|sdks/browser/src/MessageStream.ts|sdks/ios/Sources/XMTPiOS/MessageDeliveryStream.swift|sdks/android/library/src/main/java/org/xmtp/android/library/MessageDeliveryFlow.kt) ;;
     *) blocked+="$path"$'\n'; continue ;;

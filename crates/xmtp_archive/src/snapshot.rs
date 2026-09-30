@@ -15,19 +15,22 @@ use crate::{
     archive_options::{ArchiveOptions, BackupElementSelection},
 };
 use openmls::group::MlsGroup;
+use prost::Message;
+use std::collections::HashMap;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
     diesel::{Connection, SqliteConnection, connection::DefaultLoadingMode, prelude::*, sql_query},
-    group::{ConversationType, StoredGroup},
+    group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{GroupMessageKind, StoredGroupMessage},
-    schema::{consent_records, group_messages, groups},
+    schema::{consent_records, group_messages, groups, restored_group_metadata},
 };
 use xmtp_mls_common::{
     group_metadata::extract_group_metadata,
     group_mutable_metadata::{GroupMutableMetadata, merge_dict_into_mutable_metadata},
 };
+use xmtp_proto::types::GroupId;
 use xmtp_proto::xmtp::device_sync::{
     BackupElementSelection as BackupElementSelectionProto, BackupMetadataSave,
     backup_element::Element,
@@ -90,9 +93,14 @@ fn read_in_transaction(
             let page = page.load::<StoredGroup>(conn)?;
             let Some(last) = page.last() else { break };
             after = Some(last.id);
+            let mut histories = restored_histories(conn, &page)?;
             let store = conn.key_store();
             for group in page {
-                emit(Element::Group(group_save(&store, group)?))?;
+                let save = match histories.remove(&group.id) {
+                    Some(history) => restored_group_save(group, history),
+                    None => group_save(&store, group)?,
+                };
+                emit(Element::Group(save))?;
             }
         }
         let mut messages = group_messages::table
@@ -130,6 +138,49 @@ fn read_in_transaction(
         }
     }
     Ok(metadata)
+}
+
+/// The archived records of the `Restored` groups in `page`, keyed by id. A
+/// Restored conversation re-exports its archived record, with the presence of
+/// its metadata message unchanged, never the metadata of its placeholder MLS
+/// state.
+// implements: ARCH-025
+fn restored_histories(
+    conn: &mut SqliteConnection,
+    page: &[StoredGroup],
+) -> Result<HashMap<GroupId, GroupSave>, ArchiveError> {
+    let ids: Vec<GroupId> = page
+        .iter()
+        .filter(|group| group.membership_state == GroupMembershipState::Restored)
+        .map(|group| group.id)
+        .collect();
+    let mut histories = HashMap::with_capacity(ids.len());
+    if ids.is_empty() {
+        return Ok(histories);
+    }
+    let rows = restored_group_metadata::table
+        .filter(restored_group_metadata::group_id.eq_any(&ids))
+        .select((
+            restored_group_metadata::group_id,
+            restored_group_metadata::group_save,
+        ))
+        .load::<(GroupId, Vec<u8>)>(conn)?;
+    for (group_id, bytes) in rows {
+        histories.insert(group_id, GroupSave::decode(bytes.as_slice())?);
+    }
+    Ok(histories)
+}
+
+/// The archived record of a Restored group. Only the physical id, the
+/// membership state, and the merged activity come from the current row.
+fn restored_group_save(group: StoredGroup, history: GroupSave) -> GroupSave {
+    let membership_state: GroupMembershipStateSave = group.membership_state.into();
+    GroupSave {
+        id: group.id.to_vec(),
+        membership_state: membership_state as i32,
+        last_message_ns: group.last_message_ns,
+        ..history
+    }
 }
 
 /// The group element for `group`, with metadata read from its MLS state.
@@ -176,19 +227,25 @@ fn group_save(
 #[cfg(test)]
 mod tests {
     use crate::{
-        ArchiveError, ArchiveImporter,
+        ArchiveError, ArchiveImporter, BACKUP_VERSION, NONCE_SIZE,
         archive_options::{ArchiveOptions, BackupElementSelection},
         exporter,
+        util::GenericArrayExt,
     };
+    use aes_gcm::aead::Aead;
     use futures::{
-        StreamExt,
+        AsyncReadExt, StreamExt,
         io::{BufReader, Cursor},
     };
+    use prost::Message;
+    #[allow(deprecated)]
+    use sha2::digest::generic_array::GenericArray;
     use xmtp_db::{
         Store, TestDb, XmtpTestDb,
         consent_record::{ConsentState, ConsentType, StoredConsentRecord},
         group::{ConversationType, GroupMembershipState, StoredGroup},
     };
+    use xmtp_proto::xmtp::device_sync::BackupElement;
     use xmtp_proto::{types::GroupId, xmtp::device_sync::backup_element::Element};
 
     const KEY: [u8; 32] = [7; 32];
@@ -222,6 +279,125 @@ mod tests {
             .map(|e| e.unwrap().element.unwrap())
             .collect()
             .await
+    }
+
+    /// A sink that accepts one to three bytes per write, interrupts every
+    /// other write, and fails its first flush when asked.
+    struct ShortSink {
+        bytes: Vec<u8>,
+        writes: usize,
+        flushes: usize,
+        fail_first_flush: bool,
+    }
+
+    impl std::io::Write for ShortSink {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.writes += 1;
+            if self.writes.is_multiple_of(2) {
+                return Err(std::io::ErrorKind::Interrupted.into());
+            }
+            let amount = buf.len().min(1 + self.writes % 3);
+            self.bytes.extend_from_slice(&buf[..amount]);
+            Ok(amount)
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            self.flushes += 1;
+            if self.fail_first_flush && self.flushes == 1 {
+                return Err(std::io::Error::other("flush failed"));
+            }
+            Ok(())
+        }
+    }
+
+    /// The archive is the version, the starting nonce, then one zstd stream
+    /// of length-prefixed AES-GCM frames under counter nonces: the metadata,
+    /// then each element. Short and interrupted writes change none of those
+    /// bytes, and a sink that fails a flush fails the export.
+    // verifies: ARCH-001
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn short_and_interrupted_writes_preserve_exact_frames() {
+        let store = TestDb::create_ephemeral_store().await;
+        let db = store.db();
+        let mut records = Vec::new();
+        for entity in ["alice", "bob", "carol"] {
+            let record = StoredConsentRecord::new(
+                ConsentType::InboxId,
+                ConsentState::Allowed,
+                entity.into(),
+            );
+            record.store(&db)?;
+            records.push(record);
+        }
+        let consent = options(&[BackupElementSelection::Consent]);
+
+        let mut sink = ShortSink {
+            bytes: Vec::new(),
+            writes: 0,
+            flushes: 0,
+            fail_first_flush: true,
+        };
+        // verifies: ARCH-017
+        assert!(
+            exporter::export(consent.clone(), &db, &KEY, &mut sink).is_err(),
+            "a failed flush did not fail the export"
+        );
+
+        let mut sink = ShortSink {
+            bytes: Vec::new(),
+            writes: 0,
+            flushes: 0,
+            fail_first_flush: false,
+        };
+        let metadata = exporter::export(consent, &db, &KEY, &mut sink)?;
+        assert!(sink.writes > 3, "the sink saw no short writes");
+        let archive = sink.bytes;
+
+        // The header is in the clear: the version, then the starting nonce.
+        assert_eq!(&archive[..2], &BACKUP_VERSION.to_le_bytes());
+        #[allow(deprecated)]
+        let mut nonce = GenericArray::clone_from_slice(&archive[2..2 + NONCE_SIZE]);
+        let cipher = crate::cipher(&KEY)?;
+        let mut expected = Vec::new();
+        let elements = std::iter::once(Element::Metadata(metadata)).chain(
+            records
+                .into_iter()
+                .map(|record| Element::Consent(record.into())),
+        );
+        for element in elements {
+            let plaintext = BackupElement {
+                element: Some(element),
+            }
+            .encode_to_vec();
+            let ciphertext = cipher.encrypt(&nonce, &*plaintext)?;
+            nonce.increment();
+            expected.extend_from_slice(&(ciphertext.len() as u32).to_le_bytes());
+            expected.extend_from_slice(&ciphertext);
+        }
+        let mut frames = Vec::new();
+        async_compression::futures::bufread::ZstdDecoder::new(Cursor::new(
+            &archive[2 + NONCE_SIZE..],
+        ))
+        .read_to_end(&mut frames)
+        .await?;
+        assert!(
+            frames == expected,
+            "the frames differ from the counter-nonce sequence"
+        );
+
+        // Every export starts from its own random nonce.
+        let mut second = Vec::new();
+        exporter::export(
+            options(&[BackupElementSelection::Consent]),
+            &db,
+            &KEY,
+            &mut second,
+        )?;
+        assert_ne!(
+            &second[2..2 + NONCE_SIZE],
+            &archive[2..2 + NONCE_SIZE],
+            "a second export reused the starting nonce"
+        );
     }
 
     /// An export reads every eligible conversation: an eligible group it

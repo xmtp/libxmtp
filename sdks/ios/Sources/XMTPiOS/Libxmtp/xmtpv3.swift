@@ -12610,6 +12610,92 @@ public func FfiConverterTypeFfiTransactionReference_lower(_ value: FfiTransactio
 
 
 /**
+ * Received content the client could not decode. The exact bytes, the
+ * identifier and fallback the envelope carried, and the typed cause.
+ */
+public struct FfiUndecodableContent: Equatable, Hashable {
+    /**
+     * The exact received bytes of the serialized envelope.
+     */
+    public var rawBytes: Data
+    /**
+     * The received identifier, when the envelope parsed and carried one. It
+     * can be incomplete. `content_type_id()` on the message reports an empty
+     * identifier for this case; this field is the authoritative value.
+     */
+    public var contentType: FfiContentTypeId?
+    public var fallback: String?
+    public var failureKind: FfiContentDecodeFailureKind
+    public var failureMessage: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(
+        /**
+         * The exact received bytes of the serialized envelope.
+         */rawBytes: Data, 
+        /**
+         * The received identifier, when the envelope parsed and carried one. It
+         * can be incomplete. `content_type_id()` on the message reports an empty
+         * identifier for this case; this field is the authoritative value.
+         */contentType: FfiContentTypeId?, fallback: String?, failureKind: FfiContentDecodeFailureKind, failureMessage: String) {
+        self.rawBytes = rawBytes
+        self.contentType = contentType
+        self.fallback = fallback
+        self.failureKind = failureKind
+        self.failureMessage = failureMessage
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiUndecodableContent: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiUndecodableContent: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiUndecodableContent {
+        return
+            try FfiUndecodableContent(
+                rawBytes: FfiConverterData.read(from: &buf), 
+                contentType: FfiConverterOptionTypeFfiContentTypeId.read(from: &buf), 
+                fallback: FfiConverterOptionString.read(from: &buf), 
+                failureKind: FfiConverterTypeFfiContentDecodeFailureKind.read(from: &buf), 
+                failureMessage: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiUndecodableContent, into buf: inout [UInt8]) {
+        FfiConverterData.write(value.rawBytes, into: &buf)
+        FfiConverterOptionTypeFfiContentTypeId.write(value.contentType, into: &buf)
+        FfiConverterOptionString.write(value.fallback, into: &buf)
+        FfiConverterTypeFfiContentDecodeFailureKind.write(value.failureKind, into: &buf)
+        FfiConverterString.write(value.failureMessage, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiUndecodableContent_lift(_ buf: RustBuffer) throws -> FfiUndecodableContent {
+    return try FfiConverterTypeFfiUndecodableContent.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiUndecodableContent_lower(_ value: FfiUndecodableContent) -> RustBuffer {
+    return FfiConverterTypeFfiUndecodableContent.lower(value)
+}
+
+
+/**
  * Unstable: the set of group-change callbacks to register on a client.
  *
  * Only `app_data` exists today. This is a record rather than a bare callback
@@ -13692,6 +13778,81 @@ public func FfiConverterTypeFfiConsentState_lower(_ value: FfiConsentState) -> R
 
 
 
+/**
+ * Why received content could not be decoded.
+ */
+
+public enum FfiContentDecodeFailureKind: Equatable, Hashable {
+    
+    /**
+     * Not a typed `EncodedContent`: unparseable bytes or an absent or incomplete type.
+     */
+    case malformedEnvelope
+    /**
+     * A typed envelope whose compression, payload, or nested content failed to decode.
+     */
+    case codecDecodeFailed
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiContentDecodeFailureKind: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiContentDecodeFailureKind: FfiConverterRustBuffer {
+    typealias SwiftType = FfiContentDecodeFailureKind
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiContentDecodeFailureKind {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .malformedEnvelope
+        
+        case 2: return .codecDecodeFailed
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiContentDecodeFailureKind, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .malformedEnvelope:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .codecDecodeFailed:
+            writeInt(&buf, Int32(2))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiContentDecodeFailureKind_lift(_ buf: RustBuffer) throws -> FfiContentDecodeFailureKind {
+    return try FfiConverterTypeFfiContentDecodeFailureKind.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiContentDecodeFailureKind_lower(_ value: FfiContentDecodeFailureKind) -> RustBuffer {
+    return FfiConverterTypeFfiContentDecodeFailureKind.lower(value)
+}
+
+
+
 
 public enum FfiContentType: Equatable, Hashable {
     
@@ -14124,6 +14285,11 @@ public enum FfiDecodedMessageBody: Equatable, Hashable {
     )
     case custom(FfiEncodedContent
     )
+    /**
+     * Content that failed to decode, kept with its exact bytes.
+     */
+    case undecodable(FfiUndecodableContent
+    )
 
 
 
@@ -14188,6 +14354,9 @@ public struct FfiConverterTypeFfiDecodedMessageBody: FfiConverterRustBuffer {
         )
         
         case 15: return .custom(try FfiConverterTypeFfiEncodedContent.read(from: &buf)
+        )
+        
+        case 16: return .undecodable(try FfiConverterTypeFfiUndecodableContent.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -14272,6 +14441,11 @@ public struct FfiConverterTypeFfiDecodedMessageBody: FfiConverterRustBuffer {
             writeInt(&buf, Int32(15))
             FfiConverterTypeFfiEncodedContent.write(v1, into: &buf)
             
+        
+        case let .undecodable(v1):
+            writeInt(&buf, Int32(16))
+            FfiConverterTypeFfiUndecodableContent.write(v1, into: &buf)
+            
         }
     }
 }
@@ -14327,6 +14501,11 @@ public enum FfiDecodedMessageContent {
     case deletedMessage(FfiDeletedMessage
     )
     case custom(FfiEncodedContent
+    )
+    /**
+     * Content that failed to decode, kept with its exact bytes.
+     */
+    case undecodable(FfiUndecodableContent
     )
 
 
@@ -14395,6 +14574,9 @@ public struct FfiConverterTypeFfiDecodedMessageContent: FfiConverterRustBuffer {
         )
         
         case 16: return .custom(try FfiConverterTypeFfiEncodedContent.read(from: &buf)
+        )
+        
+        case 17: return .undecodable(try FfiConverterTypeFfiUndecodableContent.read(from: &buf)
         )
         
         default: throw UniffiInternalError.unexpectedEnumCase
@@ -14483,6 +14665,11 @@ public struct FfiConverterTypeFfiDecodedMessageContent: FfiConverterRustBuffer {
         case let .custom(v1):
             writeInt(&buf, Int32(16))
             FfiConverterTypeFfiEncodedContent.write(v1, into: &buf)
+            
+        
+        case let .undecodable(v1):
+            writeInt(&buf, Int32(17))
+            FfiConverterTypeFfiUndecodableContent.write(v1, into: &buf)
             
         }
     }

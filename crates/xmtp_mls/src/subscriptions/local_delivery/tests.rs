@@ -668,48 +668,48 @@ async fn failed_old_acknowledgement_cannot_release_a_competing_owner() {
     );
 }
 
-// verifies: PROC-040
+// verifies: CTYPE-008, PROC-045
 #[xmtp_common::test(unwrap_try = true)]
-async fn queued_content_decode_failure_is_terminal_and_does_not_advance_delivery() {
+async fn queued_undecodable_content_is_delivered_and_the_stream_continues() {
+    use crate::messages::decoded_message::{ContentDecodeFailureKind, MessageBody};
+    use prost::Message;
+    use xmtp_content_types::{ContentCodec, text::TextCodec};
     tester!(alix);
     let group = alix.create_group(None, None)?;
-    let message = generate_stored_msg(Cursor(100), group.group_id);
-    message.store(&alix.context.db())?;
-    let create = || {
-        MessageReader::new(
-            alix.context.clone(),
-            DeliveryScope::All,
-            LocalDeliveryFilter::default(),
-            None,
-        )
-    };
-    let mut reader = create()?;
+    // The mock row's bytes are not a serialized EncodedContent.
+    let malformed = generate_stored_msg(Cursor(100), group.group_id);
+    malformed.store(&alix.context.db())?;
+    let mut valid = generate_stored_msg(Cursor(200), group.group_id);
+    valid.decrypted_message_bytes = TextCodec::encode("after".into())?.encode_to_vec();
+    valid.store(&alix.context.db())?;
+    let mut reader = MessageReader::new(
+        alix.context.clone(),
+        DeliveryScope::All,
+        LocalDeliveryFilter::default(),
+        None,
+    )?;
     let item = reader.next_delivery().await?.unwrap();
-    let mut pending = Box::pin(reader.next_delivery());
-    assert!(pending.as_mut().now_or_never().is_none());
-    let error = item.acknowledgement.enriched_message().unwrap_err();
-    let LocalDeliveryError::SessionFailure(original) = &error else {
-        panic!("Expected the shared enrichment failure")
+    assert_eq!(item.message.id, malformed.id);
+    let enriched = item.acknowledgement.enriched_message()?;
+    assert_eq!(enriched.metadata.id, malformed.id);
+    assert_eq!(enriched.metadata.content_type, None);
+    let MessageBody::Undecodable(undecodable) = enriched.content else {
+        panic!("expected undecodable content, got {:?}", enriched.content);
     };
+    assert_eq!(undecodable.raw_bytes, malformed.decrypted_message_bytes);
+    assert_eq!(
+        undecodable.failure.kind,
+        ContentDecodeFailureKind::MalformedEnvelope
+    );
+    item.acknowledgement.acknowledge()?;
+    let next = timeout(Duration::from_secs(5), reader.next_delivery())
+        .await??
+        .unwrap();
+    assert_eq!(next.message.id, valid.id);
     assert!(matches!(
-        original.as_ref(),
-        LocalDeliveryError::Enrichment(_)
+        next.acknowledgement.enriched_message()?.content,
+        MessageBody::Text(text) if text.content == "after"
     ));
-    assert_eq!(error.error_code(), original.error_code());
-    assert_eq!(error.to_string(), original.to_string());
-    let Err(reader_error) = timeout(Duration::from_secs(1), pending).await? else {
-        panic!("The pending reader lost its enrichment failure")
-    };
-    assert!(
-        matches!(reader_error, LocalDeliveryError::SessionFailure(cause) if Arc::ptr_eq(original, &cause))
-    );
-    assert!(reader.next_delivery().await?.is_none());
-    assert!(
-        matches!(item.acknowledgement.acknowledge(), Err(LocalDeliveryError::SessionFailure(cause)) if Arc::ptr_eq(original, &cause))
-    );
-    let replay = create()?.next_delivery().await?.unwrap();
-    assert_eq!(replay.cursor, item.cursor);
-    assert_eq!(replay.message.id, message.id);
 }
 
 // verifies: PROC-040

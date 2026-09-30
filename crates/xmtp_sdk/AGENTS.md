@@ -34,6 +34,12 @@ Run commands from the repository root in the Nix shell. Run
   `bindings/` on a façade branch. Its Task 1 exception accepts only the reviewed
   PROC-032 backlink removal in four named SDK source files, checked against
   their full base content. Later backlink changes need a reviewed gate update.
+  Its other exceptions are the exact files of the two design SDK-040 changes
+  (retained undecodable content; the foreign Restored DM peer getter), pinned
+  in `crates/xmtp_sdk/dev/isolation-pins.tsv` to the git blob hash of their
+  reviewed content: a listed file passes only while it hashes to its pin.
+  After the last reviewed change to a listed file, run
+  `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with it.
   The gate rejects code, scripts, generated output, and file-mode changes.
   Locally, pass the base branch (`just sdk check-isolation self-hosted`): a
   branch tip that merges trunk otherwise looks like a pull request merge commit.

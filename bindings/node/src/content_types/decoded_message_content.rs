@@ -11,10 +11,13 @@ use super::remote_attachment::RemoteAttachment;
 use super::reply::EnrichedReply;
 use super::transaction_reference::TransactionReference;
 use super::wallet_send_calls::WalletSendCalls;
-use crate::messages::encoded_content::EncodedContent;
+use crate::messages::encoded_content::{ContentTypeId, EncodedContent};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use xmtp_mls::messages::decoded_message::MessageBody;
+use xmtp_mls::messages::decoded_message::{
+  ContentDecodeFailureKind as XmtpContentDecodeFailureKind, MessageBody,
+  UndecodableContent as XmtpUndecodableContent,
+};
 
 #[napi(string_enum)]
 #[derive(Clone, PartialEq)]
@@ -35,6 +38,62 @@ pub enum DecodedMessageContentType {
   TransactionReference,
   WalletSendCalls,
   DeletedMessage,
+  Undecodable,
+}
+
+/// Why received content could not be decoded.
+#[napi(string_enum)]
+#[derive(Clone, PartialEq)]
+pub enum ContentDecodeFailureKind {
+  MalformedEnvelope,
+  CodecDecodeFailed,
+}
+
+/// Received content the client could not decode, kept with its exact bytes.
+#[napi(object)]
+pub struct UndecodableContent {
+  /// The exact received bytes of the serialized envelope.
+  pub raw_bytes: Uint8Array,
+  /// The received identifier, when the envelope parsed and carried one. It can be incomplete.
+  pub content_type: Option<ContentTypeId>,
+  pub fallback: Option<String>,
+  pub failure_kind: ContentDecodeFailureKind,
+  pub failure_message: String,
+}
+
+impl Clone for UndecodableContent {
+  fn clone(&self) -> Self {
+    Self {
+      raw_bytes: self.raw_bytes.to_vec().into(),
+      content_type: self.content_type.clone(),
+      fallback: self.fallback.clone(),
+      failure_kind: self.failure_kind.clone(),
+      failure_message: self.failure_message.clone(),
+    }
+  }
+}
+
+impl From<XmtpUndecodableContent> for UndecodableContent {
+  fn from(content: XmtpUndecodableContent) -> Self {
+    let envelope = content.encoded;
+    Self {
+      raw_bytes: content.raw_bytes.into(),
+      content_type: envelope
+        .as_ref()
+        .and_then(|envelope| envelope.r#type.clone())
+        .map(Into::into),
+      fallback: envelope.and_then(|envelope| envelope.fallback),
+      failure_kind: match content.failure.kind {
+        XmtpContentDecodeFailureKind::MalformedEnvelope => {
+          ContentDecodeFailureKind::MalformedEnvelope
+        }
+        XmtpContentDecodeFailureKind::CodecDecodeFailed => {
+          ContentDecodeFailureKind::CodecDecodeFailed
+        }
+      },
+      failure_message: content.failure.message,
+    }
+  }
 }
 
 #[derive(Clone)]
@@ -55,6 +114,7 @@ pub enum DecodedMessageContentInner {
   TransactionReference(TransactionReference),
   WalletSendCalls(WalletSendCalls),
   DeletedMessage(DeletedMessage),
+  Undecodable(UndecodableContent),
 }
 
 #[derive(Clone)]
@@ -90,6 +150,7 @@ impl DecodedMessageContent {
       }
       DecodedMessageContentInner::WalletSendCalls(_) => DecodedMessageContentType::WalletSendCalls,
       DecodedMessageContentInner::DeletedMessage(_) => DecodedMessageContentType::DeletedMessage,
+      DecodedMessageContentInner::Undecodable(_) => DecodedMessageContentType::Undecodable,
     }
   }
 
@@ -220,6 +281,14 @@ impl DecodedMessageContent {
       _ => None,
     }
   }
+
+  #[napi(getter)]
+  pub fn undecodable(&self) -> Option<UndecodableContent> {
+    match &self.inner {
+      DecodedMessageContentInner::Undecodable(u) => Some(u.clone()),
+      _ => None,
+    }
+  }
 }
 
 impl TryFrom<MessageBody> for DecodedMessageContent {
@@ -256,7 +325,8 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
       MessageBody::DeletedMessage { deleted_by } => {
         DecodedMessageContentInner::DeletedMessage(deleted_by.into())
       }
-      MessageBody::Custom(c) => DecodedMessageContentInner::Custom(c.into()),
+      MessageBody::Custom(c) => DecodedMessageContentInner::Custom(c.encoded.into()),
+      MessageBody::Undecodable(u) => DecodedMessageContentInner::Undecodable(u.into()),
     };
 
     Ok(Self { inner })

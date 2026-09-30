@@ -563,6 +563,15 @@ where
 
         // Insert the group, replace a Restored placeholder, or advance an existing cursor.
         let stored_group = db.insert_or_replace_group(to_store)?;
+        // A validated join ends the historical projection in the same
+        // transaction; reads and exports now use live metadata.
+        // implements: ARCH-025, JOIN-080
+        if existing_group
+            .as_ref()
+            .is_some_and(|existing| existing.membership_state == GroupMembershipState::Restored)
+        {
+            db.delete_restored_group_metadata(&stored_group.id)?;
+        }
 
         let consent_entity = hex::encode(stored_group.id);
         let prior_consent = db.get_consent_record(

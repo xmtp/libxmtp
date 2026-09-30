@@ -79,6 +79,7 @@ mls/tests/content_types.rs	test_group_updated_codec	façade: `crates/xmtp_sdk/sr
 mls/tests/content_types.rs	test_leave_request_encode_decode	façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::facade_extended_content_records_keep_nested_fields`
 mls/tests/content_types.rs	test_text_codec	façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::facade_extended_content_records_keep_nested_fields`
 mls/tests/content_types.rs	test_delete_message_encode_decode	binding only: mobile standalone delete payload codec accepts arbitrary strings; the façade exposes a typed delete action and DeletedMessage result
+mls/tests/content_types.rs	test_undecodable_content_is_kept_with_its_bytes	core: `crates/xmtp_mls/src/groups/message_list.rs::malformed_rows_are_kept_on_history_lookup_and_parent_paths`
 mls/tests/dms.rs	test_find_or_create_dm	façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup`
 mls/tests/dms.rs	test_dms_sync_but_do_not_list	façade: `crates/xmtp_sdk/src/tests/binding_map/build.rs::dm_create_is_idempotent_and_peer_ids_survive_lookup`
 mls/tests/dms.rs	test_dm_stream_correct_type	binding only: mobile callback stream shape and delivery; the façade exposes a durable MessageReader with separate ownership tests

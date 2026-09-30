@@ -251,56 +251,60 @@ async fn api_identity_happy_path() {
     });
 
     let mut wrapper = ApiClientWrapper::new(mock_api, retry());
-    wrapper.api_client.expect_query().returning({
-        let ident = ident.clone();
-        let inbox_id = inbox_id.clone();
-        move |req| {
-            let kind: IdentifierKind = (&ident).into();
+    wrapper
+        .api_client
+        .raw_mut_for_test()
+        .unwrap()
+        .expect_query()
+        .returning({
+            let ident = ident.clone();
+            let inbox_id = inbox_id.clone();
+            move |req| {
+                let kind: IdentifierKind = (&ident).into();
 
-            let update = IdentityUpdate {
-                actions: vec![IdentityAction {
-                    kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
-                        initial_identifier: format!("{ident}"),
-                        nonce,
-                        initial_identifier_signature: Some(ProtoSignature {
-                            signature: Some(SignatureEnum::Erc191(RecoverableEcdsaSignature {
-                                bytes: vec![1; 65], // dummy but structurally valid
-                            })),
-                        }),
-                        initial_identifier_kind: kind as i32,
-                        relying_party: None,
-                    })),
-                }],
-                client_timestamp_ns: 0,
-                inbox_id: inbox_id.clone(),
-            };
+                let update = IdentityUpdate {
+                    actions: vec![IdentityAction {
+                        kind: Some(IdentityActionKindProto::CreateInbox(CreateInboxProto {
+                            initial_identifier: format!("{ident}"),
+                            nonce,
+                            initial_identifier_signature: Some(ProtoSignature {
+                                signature: Some(SignatureEnum::Erc191(RecoverableEcdsaSignature {
+                                    bytes: vec![1; 65], // dummy but structurally valid
+                                })),
+                            }),
+                            initial_identifier_kind: kind as i32,
+                            relying_party: None,
+                        })),
+                    }],
+                    client_timestamp_ns: 0,
+                    inbox_id: inbox_id.clone(),
+                };
 
-            Ok(xmtp_proto::backend_v1::QueryResponse {
-                envelopes: vec![xmtp_proto::backend_v1::ServerEnvelope {
-                    meta: Some(xmtp_proto::backend_v1::EnvelopeMeta {
-                        topic: req.queries[0].topic.clone(),
-                        cursor: Some(xmtp_proto::backend_v1::Cursor { sequence_id: 1 }),
-                        server_ns: 0,
-                        message_hash: Some(xmtp_proto::backend_v1::MessageHash {
-                            hash: Some(xmtp_proto::backend_v1::message_hash::Hash::Sha256(vec![
-                                1;
-                                32
-                            ])),
+                Ok(xmtp_proto::backend_v1::QueryResponse {
+                    envelopes: vec![xmtp_proto::backend_v1::ServerEnvelope {
+                        meta: Some(xmtp_proto::backend_v1::EnvelopeMeta {
+                            topic: req.queries[0].topic.clone(),
+                            cursor: Some(xmtp_proto::backend_v1::Cursor { sequence_id: 1 }),
+                            server_ns: 0,
+                            message_hash: Some(xmtp_proto::backend_v1::MessageHash {
+                                hash: Some(xmtp_proto::backend_v1::message_hash::Hash::Sha256(
+                                    vec![1; 32],
+                                )),
+                            }),
+                            ..Default::default()
                         }),
-                        ..Default::default()
-                    }),
-                    envelope: Some(xmtp_proto::backend_v1::ClientEnvelope {
-                        payload: Some(
-                            xmtp_proto::backend_v1::client_envelope::Payload::IdentityUpdate(
-                                update,
+                        envelope: Some(xmtp_proto::backend_v1::ClientEnvelope {
+                            payload: Some(
+                                xmtp_proto::backend_v1::client_envelope::Payload::IdentityUpdate(
+                                    update,
+                                ),
                             ),
-                        ),
-                    }),
-                }],
-                continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
-            })
-        }
-    });
+                        }),
+                    }],
+                    continuation: Some(xmtp_proto::backend_v1::Continuation { has_more: false }),
+                })
+            }
+        });
 
     let stored: StoredIdentity = (&Identity {
         inbox_id: inbox_id.clone(),

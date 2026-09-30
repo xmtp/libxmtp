@@ -1,6 +1,8 @@
 //! Construction, loading, proposal capability, and insertion.
 
 use super::*;
+
+mod restored;
 use xmtp_db::TransactionalKeyStore;
 use xmtp_events::EventWriter;
 use xmtp_mls_common::app_data::creation::{InitialGroupKind, initial_dictionary};
@@ -402,6 +404,39 @@ where
         oneshot_message: Option<OneshotMessage>,
         emit_created_event: bool,
     ) -> Result<StoredGroup, GroupError> {
+        let stored_group = Self::insert_committed(
+            context,
+            existing_group_id,
+            membership_state,
+            conversation_type,
+            permissions_policy_set,
+            opts,
+            oneshot_message,
+            emit_created_event,
+        )?;
+        if stored_group.membership_state == GroupMembershipState::Restored {
+            crate::subscriptions::incoming::IncomingCoordinator::groups_restored(
+                context,
+                &[stored_group.id],
+            );
+        }
+        Ok(stored_group)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "creation event mode keeps the write atomic"
+    )]
+    fn insert_committed(
+        context: &Context,
+        existing_group_id: Option<&[u8]>,
+        membership_state: GroupMembershipState,
+        conversation_type: ConversationType,
+        permissions_policy_set: PolicySet,
+        opts: GroupMetadataOptions,
+        oneshot_message: Option<OneshotMessage>,
+        emit_created_event: bool,
+    ) -> Result<StoredGroup, GroupError> {
         assert!(conversation_type != ConversationType::Dm);
 
         let creator_inbox_id = context.inbox_id();
@@ -614,22 +649,6 @@ where
         )
     }
 
-    // implements: ARCH-020
-    pub(crate) fn create_restored_dm_and_insert(
-        context: &Context,
-        dm_members: DmMembers<InboxId>,
-        opts: GroupMetadataOptions,
-        group_id: &[u8],
-    ) -> Result<Self, GroupError> {
-        Self::create_dm_with_members(
-            context,
-            GroupMembershipState::Restored,
-            dm_members,
-            opts,
-            Some(group_id),
-        )
-    }
-
     fn create_dm_with_members(
         context: &Context,
         membership_state: GroupMembershipState,
@@ -735,6 +754,12 @@ where
             .into_continued()
             .0
         };
+        if stored_group.membership_state == GroupMembershipState::Restored {
+            crate::subscriptions::incoming::IncomingCoordinator::groups_restored(
+                context,
+                &[stored_group.id],
+            );
+        }
         let new_group = Self::new_from_arc(
             context.clone(),
             stored_group.id,
@@ -799,6 +824,9 @@ where
             .dm_id(Some(dm_members.to_string()))
             .build()?;
         stored_group.store(&db)?;
+        if membership_state == GroupMembershipState::Restored {
+            return Ok((stored_group, true, Vec::new()));
+        }
         let record = StoredConsentRecord::new(
             xmtp_db::consent_record::ConsentType::ConversationId,
             ConsentState::Allowed,

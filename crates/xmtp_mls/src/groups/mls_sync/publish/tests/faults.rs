@@ -51,7 +51,7 @@ impl FaultyApi {
         faults: impl IntoIterator<Item = Fault>,
     ) -> Self {
         Self {
-            inner: tester.context.api().api_client.clone(),
+            inner: tester.context.api().api_client.raw_for_test().clone(),
             intercepts,
             faults: Arc::new(Mutex::new(faults.into_iter().collect())),
             requests: Default::default(),

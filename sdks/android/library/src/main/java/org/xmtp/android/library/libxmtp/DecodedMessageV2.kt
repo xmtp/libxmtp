@@ -38,6 +38,7 @@ import uniffi.xmtpv3.FfiReactionSchema
 import uniffi.xmtpv3.FfiRemoteAttachment
 import uniffi.xmtpv3.FfiTransactionMetadata
 import uniffi.xmtpv3.FfiTransactionReference
+import uniffi.xmtpv3.FfiUndecodableContent
 import java.net.URL
 import java.util.Date
 
@@ -91,6 +92,19 @@ class DecodedMessageV2 private constructor(
     val contentTypeId: ContentTypeId
         get() = ContentTypeIdBuilder.fromFfi(libXMTPMessage.contentTypeId())
 
+    /**
+     * Content the client could not decode: the exact received bytes, the
+     * received identifier and fallback when present, and the typed cause.
+     * `content()` is null for such a message.
+     */
+    val undecodable: FfiUndecodableContent?
+        get() = (libXMTPMessage.content() as? FfiDecodedMessageContent.Undecodable)?.v1
+
+    /**
+     * The decoded content as `T`, or null when the content is undecodable or
+     * decoding fails. The cast is erased: a wrong `T` on decodable content
+     * fails at the caller.
+     */
     @Suppress("UNCHECKED_CAST")
     fun <T> content(): T? =
         try {
@@ -310,6 +324,12 @@ class DecodedMessageV2 private constructor(
                     encodedContent.decoded<Any>()
                 }
 
+                // Undecodable content is never the content value; the
+                // evidence is on `undecodable`.
+                is FfiDecodedMessageContent.Undecodable -> {
+                    null
+                }
+
                 else -> {
                     null
                 }
@@ -363,6 +383,11 @@ class DecodedMessageV2 private constructor(
                 is FfiDecodedMessageBody.Custom -> {
                     val encodedContent = encodedContentFromFfi(body.v1)
                     encodedContent.decoded<Any>()
+                }
+
+                // An undecodable nested body is never a content value.
+                is FfiDecodedMessageBody.Undecodable -> {
+                    null
                 }
 
                 else -> {

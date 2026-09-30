@@ -136,7 +136,7 @@ async fn restored_dm_backup_stub_activates_with_archived_history() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_foreign_pair_rejects_different_welcome_pair() {
     use xmtp_db::group::{GroupMembershipState, QueryGroup};
-    use xmtp_mls_common::{group::GroupMetadataOptions, group_metadata::DmMembers};
+    use xmtp_mls_common::group_metadata::DmMembers;
 
     tester!(alix, disable_workers);
     tester!(bo, disable_workers);
@@ -146,11 +146,14 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
         member_one_inbox_id: alix.inbox_id().to_string(),
         member_two_inbox_id: foreign,
     };
-    TestMlsGroup::create_restored_dm_and_insert(
+    TestMlsGroup::restore_from_archive(
         &bo.context,
-        historical_pair.clone(),
-        GroupMetadataOptions::default(),
-        dm.group_id.as_ref(),
+        &xmtp_proto::xmtp::device_sync::group_backup::GroupSave {
+            id: dm.group_id.to_vec(),
+            conversation_type: 2,
+            dm_id: Some(historical_pair.to_string()),
+            ..Default::default()
+        },
     )?;
     let before = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(
@@ -162,6 +165,8 @@ async fn restored_foreign_pair_rejects_different_welcome_pair() {
     let after = bo.db().find_group(&dm.group_id)?.expect("Restored group");
     assert_eq!(after.membership_state, GroupMembershipState::Restored);
     assert_eq!(after.dm_id, before.dm_id);
+    // A rejected Welcome keeps the archived record in use.
+    assert!(bo.db().restored_group_history(&dm.group_id)?.is_some());
 }
 
 // verifies: DMS-015

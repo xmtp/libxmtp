@@ -115,7 +115,7 @@ pub(crate) async fn maybe_share_private_key(
             // We cannot update mutable metadata for DMs
             return Ok(());
         }
-        let metadata = group.mutable_metadata()?;
+        let metadata = group.live_mutable_metadata()?;
         if metadata.commit_log_signer().is_none_or(|private_key| {
             !RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
         }) {
@@ -175,7 +175,7 @@ pub(crate) fn get_or_create_signing_key(
     }
 
     let (group, _) = MlsGroup::new_cached(context, &conversation.id)?;
-    if let Some(private_key) = group.mutable_metadata()?.commit_log_signer()
+    if let Some(private_key) = group.live_mutable_metadata()?.commit_log_signer()
         && consensus_public_key.is_none_or(|consensus_public_key| {
             RustCrypto::public_key_matches_private_key(consensus_public_key, &private_key)
         })

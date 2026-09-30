@@ -169,6 +169,9 @@ pub fn chunk_publish(units: &[PublishUnit]) -> Result<Vec<&[PublishUnit]>> {
 }
 
 pub(crate) fn size_error(error: &(dyn std::error::Error + 'static)) -> bool {
+    if crate::preflight::failure(error).is_some() {
+        return false;
+    }
     let Some(status) = grpc_status(error) else {
         return false;
     };
@@ -204,11 +207,13 @@ enum CallError<E> {
     #[error(transparent)]
     Retry(E),
 }
-impl<E: RetryableError> RetryableError for CallError<E> {
+impl<E: RetryableError + 'static> RetryableError for CallError<E> {
     fn is_retryable(&self) -> bool {
         match self {
             Self::Resize(_) => false,
-            Self::Retry(error) => error.is_retryable(),
+            Self::Retry(error) => {
+                crate::preflight::failure(error).is_none() && error.is_retryable()
+            }
         }
     }
 }

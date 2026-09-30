@@ -113,7 +113,7 @@ mod tests {
     set_registration_cursor_for_test(&alix.context.db(), i64::MAX);
     let reopened = MlsClient::builder(IdentityStrategy::CachedOnly)
       .store(alix.context.store().clone())
-      .api_client(alix.context.api().api_client.clone())
+      .api_client(alix.context.api().api_client.raw_for_test().clone())
       .with_scw_verifier(alix.scw_verifier())
       .default_mls_store()?
       .with_disable_workers(true)

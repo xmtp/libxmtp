@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use tsify::Tsify;
 use wasm_bindgen::JsError;
-use xmtp_mls::messages::decoded_message::MessageBody;
+use xmtp_mls::messages::decoded_message::{
+  ContentDecodeFailureKind as XmtpContentDecodeFailureKind, MessageBody,
+  UndecodableContent as XmtpUndecodableContent,
+};
 
 use super::{
   actions::Actions, attachment::Attachment, deleted_message::DeletedMessage,
@@ -10,7 +13,59 @@ use super::{
   remote_attachment::RemoteAttachment, reply::EnrichedReply,
   transaction_reference::TransactionReference, wallet_send_calls::WalletSendCalls,
 };
-use crate::encoded_content::EncodedContent;
+use crate::encoded_content::{ContentTypeId, EncodedContent};
+
+/// Why received content could not be decoded.
+#[derive(Clone, Serialize, Deserialize, Tsify, PartialEq)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub enum ContentDecodeFailureKind {
+  MalformedEnvelope,
+  CodecDecodeFailed,
+}
+
+/// Received content the client could not decode, kept with its exact bytes.
+#[derive(Clone, Serialize, Deserialize, Tsify)]
+#[tsify(into_wasm_abi, from_wasm_abi)]
+#[serde(rename_all = "camelCase")]
+pub struct UndecodableContent {
+  /// The exact received bytes of the serialized envelope.
+  #[serde(with = "serde_bytes")]
+  #[tsify(type = "Uint8Array")]
+  pub raw_bytes: Vec<u8>,
+  /// The received identifier, when the envelope parsed and carried one. It can be incomplete.
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
+  pub content_type: Option<ContentTypeId>,
+  #[serde(skip_serializing_if = "Option::is_none")]
+  #[tsify(optional)]
+  pub fallback: Option<String>,
+  pub failure_kind: ContentDecodeFailureKind,
+  pub failure_message: String,
+}
+
+impl From<XmtpUndecodableContent> for UndecodableContent {
+  fn from(content: XmtpUndecodableContent) -> Self {
+    let envelope = content.encoded;
+    Self {
+      raw_bytes: content.raw_bytes,
+      content_type: envelope
+        .as_ref()
+        .and_then(|envelope| envelope.r#type.clone())
+        .map(Into::into),
+      fallback: envelope.and_then(|envelope| envelope.fallback),
+      failure_kind: match content.failure.kind {
+        XmtpContentDecodeFailureKind::MalformedEnvelope => {
+          ContentDecodeFailureKind::MalformedEnvelope
+        }
+        XmtpContentDecodeFailureKind::CodecDecodeFailed => {
+          ContentDecodeFailureKind::CodecDecodeFailed
+        }
+      },
+      failure_message: content.failure.message,
+    }
+  }
+}
 
 #[derive(Clone, Serialize, Deserialize, Tsify)]
 #[tsify(into_wasm_abi, from_wasm_abi)]
@@ -32,6 +87,7 @@ pub enum DecodedMessageContent {
   TransactionReference { content: TransactionReference },
   WalletSendCalls { content: WalletSendCalls },
   DeletedMessage { content: DeletedMessage },
+  Undecodable { content: UndecodableContent },
 }
 
 impl TryFrom<MessageBody> for DecodedMessageContent {
@@ -43,7 +99,10 @@ impl TryFrom<MessageBody> for DecodedMessageContent {
         content: a.map(|a| a.try_into()).transpose()?,
       }),
       MessageBody::Attachment(a) => Ok(DecodedMessageContent::Attachment { content: a.into() }),
-      MessageBody::Custom(c) => Ok(DecodedMessageContent::Custom { content: c.into() }),
+      MessageBody::Custom(c) => Ok(DecodedMessageContent::Custom {
+        content: c.encoded.into(),
+      }),
+      MessageBody::Undecodable(u) => Ok(DecodedMessageContent::Undecodable { content: u.into() }),
       MessageBody::GroupUpdated(gu) => {
         Ok(DecodedMessageContent::GroupUpdated { content: gu.into() })
       }

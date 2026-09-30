@@ -89,6 +89,10 @@ const getContentFromDecodedMessageContent = <T = unknown>(
     case DecodedMessageContentType.Custom: {
       return content.custom as T;
     }
+    case DecodedMessageContentType.Undecodable: {
+      // Exact bytes, received identifier and fallback, and the typed cause.
+      return content.undecodable as T;
+    }
     default:
       content.type satisfies never;
       return null as T;
@@ -146,6 +150,9 @@ const getContentTypeFromDecodedMessageContent = (
     }
     case DecodedMessageContentType.Custom: {
       return content.custom?.type;
+    }
+    case DecodedMessageContentType.Undecodable: {
+      return content.undecodable?.contentType ?? undefined;
     }
     default:
       content.type satisfies never;
