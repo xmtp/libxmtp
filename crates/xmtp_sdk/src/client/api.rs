@@ -7,10 +7,17 @@ impl Client {
     ) -> Result<Self, XmtpError> {
         // Check ID arguments before the signer callback runs.
         options.fork_recovery_opts()?;
-        let identity = signer::identity(signer.clone()).await?;
-        let mut guard = OpenStoreGuard::default();
-        let created = Self::create_with_guard(signer, identity, options, &mut guard).await;
-        guard.disarm();
+        let guard = OpenStoreGuard::default();
+        let mut task_guard = guard.share();
+        let created = on_build_task(Box::pin(async move {
+            let identity = signer::identity(signer.clone()).await?;
+            let created =
+                Self::create_with_guard(signer, identity, options, &mut task_guard).await;
+            task_guard.disarm();
+            created
+        }))
+        .await;
+        drop(guard);
         created
     }
 
@@ -25,9 +32,16 @@ impl Client {
         options: ClientOptions,
         inbox_id: Option<InboxId>,
     ) -> Result<Self, XmtpError> {
-        let mut guard = OpenStoreGuard::default();
-        let built = Self::build_inner(identity, options, inbox_id, true, &mut guard).await;
-        guard.disarm();
+        let guard = OpenStoreGuard::default();
+        let mut task_guard = guard.share();
+        let built = on_build_task(Box::pin(async move {
+            let built =
+                Self::build_inner(identity, options, inbox_id, true, &mut task_guard).await;
+            task_guard.disarm();
+            built
+        }))
+        .await;
+        drop(guard);
         built
     }
 

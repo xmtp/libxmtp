@@ -309,3 +309,43 @@ async fn disabled_task_runner_has_typed_notification_error() {
     assert!(matches!(result, Err(XmtpError::TaskRunnerDisabled(_))));
     client.end().await?;
 }
+
+/// Poll `work` on a new thread with half the 512 KiB stack of a Swift
+/// cooperative thread, so a call that polls the core build itself overflows.
+#[cfg(not(target_arch = "wasm32"))]
+async fn on_small_stack<T: Send + 'static>(
+    work: impl Future<Output = T> + Send + 'static,
+) -> Result<T, XmtpError> {
+    let work = Box::pin(work);
+    let runtime = tokio::runtime::Handle::current();
+    let (sender, receiver) = tokio::sync::oneshot::channel();
+    std::thread::Builder::new()
+        .stack_size(256 * 1024)
+        .spawn(move || {
+            let _runtime = runtime.enter();
+            let _ = sender.send(futures::executor::block_on(work));
+        })
+        .map_err(XmtpError::unknown)?;
+    receiver.await.map_err(XmtpError::unknown)
+}
+
+// Swift polls create and build on a cooperative thread with a small stack.
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn create_and_build_run_off_the_calling_thread() {
+    let signer = crate::generate_local_signer().await;
+    let identity = crate::signer::identity(signer.clone()).await?;
+    let path = std::env::temp_dir().join(format!(
+        "xmtp-sdk-small-stack-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ));
+    let mut settings = options();
+    settings.storage.location = explicit_location(&path);
+    let created = on_small_stack(Client::create(signer, settings.clone())).await??;
+    created.end().await?;
+    let built = on_small_stack(Client::build(identity, settings, None)).await??;
+    assert_eq!(built.inbox_id(), created.inbox_id());
+    built.end().await?;
+    let _ = std::fs::remove_file(&path);
+}
