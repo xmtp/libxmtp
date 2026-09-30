@@ -45,6 +45,7 @@ const INTERNAL = new Set([
   "encodeForSend",
   "optionsForSend",
   "contentForSend",
+  "codecType",
 ]);
 function exportedValues(source: string): string[] {
   return [

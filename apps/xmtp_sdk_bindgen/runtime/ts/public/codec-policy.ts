@@ -10,13 +10,23 @@ import {
 import type { ContentCodec } from "./codec";
 import { isCatalogueContentType } from "./host";
 
+// A description of a codec failure. Reading the cause can itself throw, for
+// example a throwing `message` getter or `toString`, so it has a fixed
+// fallback.
+function describe(cause: unknown): string {
+  try {
+    return cause instanceof Error ? String(cause.message) : String(cause);
+  } catch {
+    return "the failure has no readable description";
+  }
+}
+
 function codecFailed(step: string, cause: unknown): XmtpError {
-  const reason = cause instanceof Error ? cause.message : String(cause);
   return new XmtpError.CodecEncodeFailed({
     code: "CodecEncodeFailed",
     category: "callback",
     retryable: false,
-    message: `content codec ${step} failed: ${reason}`,
+    message: `content codec ${step} failed: ${describe(cause)}`,
   });
 }
 
@@ -28,29 +38,32 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
   );
 }
 
-// A codec step is synchronous. Run it; a throw, a Promise, or a result that
-// `valid` rejects is CodecEncodeFailed. A rejected Promise is handled here, so
-// an async step cannot also end the process with an unhandled rejection.
+/** A step result that its parser rejected. */
+const INVALID: unique symbol = Symbol("invalid codec step result");
+
+// A codec step is synchronous. Run it and parse its result; a throw, a
+// Promise, or a result that `parse` rejects is CodecEncodeFailed. The whole
+// step, including reading the result's properties, is inside the boundary,
+// so a throwing getter is a codec failure too. A rejected Promise is handled
+// here, so an async step cannot also end the process with an unhandled
+// rejection.
 function runStep<R>(
   step: string,
   run: () => unknown,
-  valid: (result: unknown) => result is R,
+  parse: (result: unknown) => R | typeof INVALID,
 ): R {
-  let result: unknown;
   try {
-    result = run();
+    const result = run();
+    if (isThenable(result)) {
+      Promise.resolve(result).catch(() => undefined);
+      throw new Error("the result is a Promise; codec steps are synchronous");
+    }
+    const parsed = parse(result);
+    if (parsed === INVALID) throw new Error("the result has the wrong type");
+    return parsed;
   } catch (error) {
     throw codecFailed(step, error);
   }
-  if (isThenable(result)) {
-    Promise.resolve(result).catch(() => undefined);
-    throw codecFailed(
-      step,
-      "the result is a Promise; codec steps are synchronous",
-    );
-  }
-  if (!valid(result)) throw codecFailed(step, "the result has the wrong type");
-  return result;
 }
 
 function isUint(value: unknown): value is number {
@@ -68,16 +81,23 @@ function isNonEmptyString(value: unknown): value is string {
 
 // implements: CTYPE-003
 // An envelope type names a non-empty authority and type ID, so a codec with an
-// empty identifier fails before the send, not in the binding.
-function isContentTypeId(value: unknown): value is ContentTypeId {
-  return (
-    value !== null &&
-    typeof value === "object" &&
-    isNonEmptyString(Reflect.get(value, "authorityId")) &&
-    isNonEmptyString(Reflect.get(value, "typeId")) &&
-    isUint(Reflect.get(value, "versionMajor")) &&
-    isUint(Reflect.get(value, "versionMinor"))
-  );
+// empty identifier fails before the send, not in the binding. Each property is
+// read once, and the result is a new object, so a getter or a later change to
+// the codec's object cannot change the checked value.
+function parseContentTypeId(value: unknown): ContentTypeId | typeof INVALID {
+  if (value === null || typeof value !== "object") return INVALID;
+  const authorityId: unknown = Reflect.get(value, "authorityId");
+  const typeId: unknown = Reflect.get(value, "typeId");
+  const versionMajor: unknown = Reflect.get(value, "versionMajor");
+  const versionMinor: unknown = Reflect.get(value, "versionMinor");
+  if (
+    !isNonEmptyString(authorityId) ||
+    !isNonEmptyString(typeId) ||
+    !isUint(versionMajor) ||
+    !isUint(versionMinor)
+  )
+    return INVALID;
+  return { authorityId, typeId, versionMajor, versionMinor };
 }
 
 function sameType(left: ContentTypeId, right: ContentTypeId): boolean {
@@ -89,31 +109,53 @@ function sameType(left: ContentTypeId, right: ContentTypeId): boolean {
   );
 }
 
-function isParameters(value: unknown): boolean {
-  if (value === undefined) return true;
-  if (!(value instanceof Map)) return false;
-  for (const [key, item] of value)
-    if (typeof key !== "string" || typeof item !== "string") return false;
-  return true;
+function parseParameters(
+  value: unknown,
+): ReadonlyMap<string, string> | undefined | typeof INVALID {
+  if (value === undefined) return undefined;
+  if (!(value instanceof Map)) return INVALID;
+  const copy = new Map<string, string>();
+  for (const [key, item] of value) {
+    if (typeof key !== "string" || typeof item !== "string") return INVALID;
+    copy.set(key, item);
+  }
+  return copy;
 }
 
-function isEncodedContent(value: unknown): value is EncodedContent {
-  if (value === null || typeof value !== "object") return false;
+// A snapshot of the codec's envelope. Later hooks run on the value, not on
+// this snapshot, so a codec that keeps and changes its own envelope object
+// cannot change what the policy checked. The content bytes are not copied:
+// they do not decide the type or the push policy.
+function parseEncodedContent(value: unknown): EncodedContent | typeof INVALID {
+  if (value === null || typeof value !== "object") return INVALID;
+  const type = parseContentTypeId(Reflect.get(value, "type"));
+  const parameters = parseParameters(Reflect.get(value, "parameters"));
   const fallback: unknown = Reflect.get(value, "fallback");
-  return (
-    isContentTypeId(Reflect.get(value, "type")) &&
-    isParameters(Reflect.get(value, "parameters")) &&
-    (fallback === undefined || typeof fallback === "string") &&
-    Reflect.get(value, "content") instanceof Uint8Array
-  );
+  const content: unknown = Reflect.get(value, "content");
+  if (
+    type === INVALID ||
+    parameters === INVALID ||
+    (fallback !== undefined && typeof fallback !== "string") ||
+    !(content instanceof Uint8Array)
+  )
+    return INVALID;
+  return { type, parameters, fallback, content } as EncodedContent;
 }
 
-function isFallback(value: unknown): value is string | undefined {
-  return value === undefined || typeof value === "string";
+function parseFallback(value: unknown): string | undefined | typeof INVALID {
+  return value === undefined || typeof value === "string" ? value : INVALID;
 }
 
-function isBoolean(value: unknown): value is boolean {
-  return typeof value === "boolean";
+function parseBoolean(value: unknown): boolean | typeof INVALID {
+  return typeof value === "boolean" ? value : INVALID;
+}
+
+/**
+ * The codec's content type, read once. A throwing or invalid `type` is
+ * `CodecEncodeFailed`.
+ */
+export function codecType<T>(codec: ContentCodec<T>): ContentTypeId {
+  return runStep("type", () => codec.type, parseContentTypeId);
 }
 
 /**
@@ -124,29 +166,39 @@ function isBoolean(value: unknown): value is boolean {
 export function encodeForSend<T>(
   codec: ContentCodec<T>,
   value: T,
+  type: ContentTypeId = codecType(codec),
 ): EncodedContent {
   const encoded = runStep(
     "encode",
     () => codec.encode(value),
-    isEncodedContent,
+    parseEncodedContent,
   );
   // implements: CTYPE-007
   // The envelope type is the codec's type. A codec cannot send another type,
   // so its push hook cannot steer catalogue dispatch.
-  if (!sameType(encoded.type, codec.type))
+  if (!sameType(encoded.type, type))
     throw codecFailed(
       "encode",
       "the envelope type differs from the codec type",
     );
-  const hook = codec.fallback;
+  const hook = runStep("fallback", () => codec.fallback, parseHook<T>);
   if (encoded.fallback !== undefined || hook === undefined) return encoded;
   // Call each hook on its codec, so a class codec can use `this`.
   const fallback = runStep(
     "fallback",
     () => hook.call(codec, value),
-    isFallback,
+    parseFallback,
   );
   return fallback === undefined ? encoded : { ...encoded, fallback };
+}
+
+function parseHook<T>(
+  value: unknown,
+): ((value: T) => unknown) | undefined | typeof INVALID {
+  if (value === undefined) return undefined;
+  return typeof value === "function"
+    ? (value as (value: T) => unknown)
+    : INVALID;
 }
 
 /**
@@ -160,14 +212,15 @@ export function optionsForSend<T>(
   value: T,
   options: SendOptions | undefined,
   isCatalogue: (type: ContentTypeId) => boolean,
+  type: ContentTypeId = codecType(codec),
 ): SendOptions | undefined {
-  const hook = codec.shouldPush;
-  if (options?.shouldPush !== undefined || hook === undefined) return options;
-  if (isCatalogue(codec.type)) return options;
+  if (options?.shouldPush !== undefined) return options;
+  const hook = runStep("shouldPush", () => codec.shouldPush, parseHook<T>);
+  if (hook === undefined || isCatalogue(type)) return options;
   const shouldPush = runStep(
     "shouldPush",
     () => hook.call(codec, value),
-    isBoolean,
+    parseBoolean,
   );
   return { ...options, shouldPush };
 }
@@ -192,9 +245,11 @@ export function contentForSend<T>(
   if (!isCodec(content))
     return [content, valueOrOptions as SendOptions | undefined];
   const value = valueOrOptions as T;
-  const encoded = encodeForSend(content, value);
+  // Read the codec's type once, for the envelope check and the push choice.
+  const type = codecType(content);
+  const encoded = encodeForSend(content, value, type);
   return [
     encoded,
-    optionsForSend(content, value, options, isCatalogueContentType),
+    optionsForSend(content, value, options, isCatalogueContentType, type),
   ];
 }
