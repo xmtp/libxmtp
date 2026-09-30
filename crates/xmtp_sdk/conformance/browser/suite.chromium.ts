@@ -157,6 +157,7 @@ export async function runBrowserBridgeConformance(
     expect(reply, "reply message was not read");
     expect(parent instanceof sdk.Message, "list message was not public");
     expect(reply instanceof sdk.Message, "optional message was not public");
+    expect(parent.encoded, "text codec input was not retained");
     equal(
       (await reopened.decodeContent(parent.encoded)).kind,
       "text",
