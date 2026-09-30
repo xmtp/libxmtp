@@ -119,12 +119,12 @@ private fun checkKind(
 internal suspend fun metadataFields(options: ClientOptions) {
     val alix = clientWith(alixCatalogue, options)
     val bo = clientWith(boCatalogue, options)
-    check(alix.raw.serverConfiguration().applicationComponents == alixCatalogue)
-    val alixId = alix.raw.inboxId()
-    val boId = bo.raw.inboxId()
-    val group = alix.raw.conversations().createGroup(listOf(boId))
-    bo.raw.conversations().sync()
-    val boGroup = (bo.raw.conversations().getById(group.id()) as Conversation.Group).group
+    check(alix.serverConfiguration().applicationComponents == alixCatalogue)
+    val alixId = alix.inboxId()
+    val boId = bo.inboxId()
+    val group = alix.conversations().createGroup(listOf(boId))
+    bo.conversations().sync()
+    val boGroup = (bo.conversations().getById(group.id()) as Conversation.Group).group
 
     // Descriptors: the committed type and policies with each reader's labels.
     val displayName = metadataFieldRef(WellKnownMetadataField.USER_DISPLAY_NAME)
@@ -223,7 +223,7 @@ internal suspend fun metadataFields(options: ClientOptions) {
     check(boGroup.metadataValue(field(TOPIC)) == null)
 
     // A DM holds the pair's profiles and its DM fields, never group-only ones.
-    val dm = alix.raw.conversations().createDm(boId)
+    val dm = alix.conversations().createDm(boId)
     val dmIds = dm.metadataFields().map { it.field.componentId }
     check(DISPLAY_NAME in dmIds && NICKNAME in dmIds && AVATAR !in dmIds) { "$dmIds" }
     dm.updateUserData(listOf(UserFieldUpdate(displayName, FieldValue.String("Alix"))))
