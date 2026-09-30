@@ -549,7 +549,7 @@ id = "EVENT-024"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4207"
-reason = "The specified event payload members and their source values are not implemented."
+reason = "Installed-package proof pending for the attachment payload members, which the generated SDK now sets on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. Issue 4207 tracks the rest of the event contract."
 
 [[waiver]]
 id = "EVENT-026"
@@ -667,125 +667,125 @@ id = "STORE-019"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "No SDK or binding opens a database with a data_dir storage location yet. The façade and the existing SDKs name the database xmtp-<label>-<inbox id>.db3 in the root directory itself."
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "STORE-020"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "No SDK or binding exposes the storage location layouts yet. The façade and the existing SDKs put the database file in the default location or the named directory itself, with no attachments directory, and the façade has no explicit location with an attachments directory."
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "STORE-021"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The façade rejects separators, the colon, and control characters in a label, but accepts . and ..; the existing SDKs reject none of them."
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "EVENT-015"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The SDK does not yet deliver the seven attachment.* kinds: its event conversion skips them and the reader and listener continue past them, so an attachment event is not handed off. SDK exposure of these kinds is pending."
+reason = "Installed-package proof pending for the seven attachment.* kinds, which the generated SDK delivers on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "EVENT-020"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "The SDK EventKind and EventFilter do not yet include the seven attachment.* kinds, so a subscription cannot select them. SDK exposure of these kinds is pending."
+reason = "Installed-package proof pending for the seven attachment.* kinds, which the generated SDK delivers on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-009"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-072"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending, and a TypeScript gap. Swift and Kotlin enums cannot express a source of the wrong shape. The TypeScript public layer rejects one with a TypeError before any read or write, not with an attachment failure whose cause is malformed. Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-038"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-067"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-040"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-069"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-044"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-062"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-060"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-061"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-079"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "binding and SDK exposure pending"
+reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "CONF-061"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "No SDK exposes the attachments or application_components fields of GetConfigurationResponse yet; binding and SDK exposure pending."
+reason = "Installed-package proof pending for the attachments field, which the generated SDK exposes on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run. No SDK exposes application_components yet."
 [[waiver]]
 id = "CONF-062"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "No SDK exposes the attachments field of GetConfigurationResponse yet; binding and SDK exposure pending."
+reason = "Installed-package proof pending for the attachments field, which the generated SDK exposes on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-039"
