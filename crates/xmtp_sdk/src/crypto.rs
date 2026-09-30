@@ -56,7 +56,7 @@ impl From<core::EncryptedEncodedContent> for EncryptedEncodedContent {
 pub async fn encrypt_bytes(bytes: Vec<u8>) -> Result<EncryptedEncodedContent, XmtpError> {
     core::encrypt_bytes(&bytes)
         .map(Into::into)
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
 }
 
 #[xmtp_macro::sdk_export]
@@ -64,7 +64,7 @@ pub async fn decrypt_bytes(
     ciphertext: Vec<u8>,
     keys: EncryptionKeys,
 ) -> Result<Vec<u8>, XmtpError> {
-    core::decrypt_bytes(&ciphertext, &keys.into()).map_err(XmtpError::unknown)
+    core::decrypt_bytes(&ciphertext, &keys.into()).map_err(XmtpError::from_core)
 }
 
 #[xmtp_macro::sdk_export]
@@ -89,7 +89,7 @@ pub async fn encrypt_encoded_content(
     }
     core::encrypt_encoded_content(content)
         .map(Into::into)
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
 }
 
 #[xmtp_macro::sdk_export]
@@ -98,7 +98,7 @@ pub async fn decrypt_encoded_content(
 ) -> Result<Vec<u8>, XmtpError> {
     core::decrypt_encoded_content(&encrypted.ciphertext, &encrypted.keys.into())
         .map(|content| content.encode_to_vec())
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -111,9 +111,9 @@ pub async fn encrypt_file(input: String, output: String) -> Result<EncryptionKey
         )
     })
     .await
-    .map_err(XmtpError::unknown)?
+    .map_err(XmtpError::from_core)?
     .map(Into::into)
-    .map_err(XmtpError::unknown)
+    .map_err(XmtpError::from_core)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -131,6 +131,6 @@ pub async fn decrypt_file(
         )
     })
     .await
-    .map_err(XmtpError::unknown)?
-    .map_err(XmtpError::unknown)
+    .map_err(XmtpError::from_core)?
+    .map_err(XmtpError::from_core)
 }

@@ -16,6 +16,7 @@ fn storage_busy_keeps_direct_and_wrapped_causes() {
     #[derive(Debug, thiserror::Error)]
     #[error("wrapped storage: {0}")]
     struct Wrapped(#[source] StorageError);
+    impl crate::error::CoreError for Wrapped {}
 
     for error in [
         client::map_wasm_storage_error(PlatformStorageError::DatabaseInUse),

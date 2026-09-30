@@ -92,14 +92,14 @@ fn has_complete_type(content: &EncodedContent) -> bool {
 
 impl MessageContent {
     pub(crate) fn decode(encoded: Vec<u8>) -> Result<Self, XmtpError> {
-        let content = EncodedContent::decode(encoded.as_slice()).map_err(XmtpError::unknown)?;
+        let content = EncodedContent::decode(encoded.as_slice()).map_err(XmtpError::from_core)?;
         Self::decode_proto(content, &encoded)
     }
 
     fn decode_proto(content: EncodedContent, raw_bytes: &[u8]) -> Result<Self, XmtpError> {
         // The shared bounded decoder validates nested content before any standard codec runs.
         let body = xmtp_mls::messages::decoded_message::MessageBody::try_from(content.clone())
-            .map_err(XmtpError::unknown)?;
+            .map_err(XmtpError::from_core)?;
         Self::from_core(body, content, raw_bytes)
     }
 
@@ -204,7 +204,7 @@ impl MessageBody {
 fn nested_reply_content(encoded: SdkEncodedContent) -> Result<SdkEncodedContent, XmtpError> {
     ReplyCodec::decode(encoded.into())
         .map(|reply| reply.content.into())
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
 }
 
 impl TryFrom<xmtp_mls::messages::decoded_message::DeletedBy> for crate::DeletedBy {

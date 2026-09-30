@@ -17,7 +17,9 @@ import {
   Message,
   registerClient,
 } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen.js";
+import { UniffiInternalError } from "../../../../target/sdk-generated/typescript-wasm/node_modules/@ubjs/core/dist/esm/index.js";
 import type { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen.js";
+import { encodeError as encodeGeneratedError } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire.js";
 import {
   Compression,
   CredentialError_Tags,
@@ -33,6 +35,7 @@ import {
   type MessageData,
   type SendOptions,
 } from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
+import { clearLogSink } from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
 import { Endpoint, host, TestProxy, stringKeys } from "./bridge-support";
 export function registerTransportTests(): void {
   it("exposes only PascalCase error codes", () => {
@@ -98,6 +101,47 @@ export function registerTransportTests(): void {
       encodeError(new Error(`Lifting custom type \`OtherId\` failed: ${cause}`))
         .code,
     ).toBe("Unknown");
+  });
+
+  it("encodes an aborted binding call as Cancelled", () => {
+    const aborted = new UniffiInternalError.AbortError();
+    // Cancellation comes from the class, even when diagnostic text changes.
+    aborted.name = "renamed binding failure";
+    expect(encodeError(aborted)).toMatchObject({
+      variant: "Cancelled",
+      code: "Cancelled",
+      category: 6,
+      retryable: false,
+    });
+  });
+
+  it("encodes a real cancelled generated binding call as Cancelled", async () => {
+    const { uniffiInitAsync } =
+      await import("../../../../target/sdk-generated/typescript-wasm/binding.js");
+    await uniffiInitAsync(
+      new URL(
+        "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.wasm",
+        import.meta.url,
+      ),
+    );
+    const controller = new AbortController();
+    controller.abort();
+    let failure: unknown;
+    try {
+      await clearLogSink({ signal: controller.signal });
+    } catch (error) {
+      failure = error;
+    }
+    expect(failure).toBeInstanceOf(UniffiInternalError.AbortError);
+    const expected = {
+      variant: "Cancelled",
+      code: "Cancelled",
+      category: 6,
+      retryable: false,
+      message: "A Rust future was aborted",
+    };
+    expect(encodeGeneratedError(failure)).toMatchObject(expected);
+    expect(encodeError(failure)).toMatchObject(expected);
   });
 
   it("uses the numeric Lifecycle category for transport errors", () => {

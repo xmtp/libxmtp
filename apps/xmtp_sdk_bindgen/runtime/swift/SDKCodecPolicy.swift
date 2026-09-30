@@ -24,7 +24,9 @@ private struct CodecStepFailure: Error, CustomStringConvertible {
 private func step<R>(_ name: String, _ run: () throws -> R) throws -> R {
     do {
         return try run()
-    } catch let cancelled as CancellationError {
+    } catch let cancelled as CancellationError where Task.isCancelled {
+        // Only a cancelled task makes this the caller's cancellation. A
+        // codec's own CancellationError() in a live task is a codec failure.
         throw cancelled
     } catch {
         throw codecEncodeFailed(name, error)

@@ -167,7 +167,7 @@ pub enum DeviceSyncError {
     ///
     /// Sync completed with errors. May be retryable.
     #[error("{}", _0.to_string())]
-    Sync(Box<SyncSummary>),
+    Sync(#[source] Box<SyncSummary>),
     /// MLS store error.
     ///
     /// OpenMLS key store operation failed. Retryable.

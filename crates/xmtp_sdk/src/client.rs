@@ -143,7 +143,7 @@ async fn open_existing_store(
         }
     }
     let store = open_store(options, inbox_id).await?;
-    let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::unknown)?;
+    let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::from_core)?;
     if stored.is_none() {
         return Err(XmtpError::identity_not_found());
     }
@@ -203,10 +203,10 @@ pub(crate) async fn open_store(
             match &options.encryption_key {
                 Some(bytes) => {
                     let key =
-                        EncryptionKey::try_from(bytes.as_slice()).map_err(XmtpError::unknown)?;
-                    $builder.key(key).build().map_err(XmtpError::unknown)?
+                        EncryptionKey::try_from(bytes.as_slice()).map_err(XmtpError::from_core)?;
+                    $builder.key(key).build().map_err(XmtpError::from_core)?
                 }
-                None => $builder.build_unencrypted().map_err(XmtpError::unknown)?,
+                None => $builder.build_unencrypted().map_err(XmtpError::from_core)?,
             }
         }};
     }
@@ -215,7 +215,7 @@ pub(crate) async fn open_store(
     } else {
         finish!(builder)
     };
-    EncryptedMessageStore::new(db).map_err(XmtpError::unknown)
+    EncryptedMessageStore::new(db).map_err(XmtpError::from_core)
 }
 
 pub(crate) fn database_name(options: &StorageOptions, inbox_id: &str) -> Result<String, XmtpError> {
@@ -254,7 +254,7 @@ pub(crate) fn native_storage_path(
                 use std::os::unix::fs::DirBuilderExt;
                 builder.mode(0o700);
             }
-            builder.create(directory).map_err(XmtpError::unknown)?;
+            builder.create(directory).map_err(XmtpError::from_core)?;
             Some(
                 std::path::Path::new(directory)
                     .join(database_name(options, inbox_id)?)
@@ -282,7 +282,7 @@ pub(crate) async fn open_store(
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn map_wasm_storage_error(error: impl std::error::Error + 'static) -> XmtpError {
+pub(crate) fn map_wasm_storage_error(error: impl crate::error::CoreError) -> XmtpError {
     use xmtp_db::{ConnectionError, OpfsSAHError, PlatformStorageError, StorageError};
 
     let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&error);
@@ -305,10 +305,15 @@ pub(crate) fn map_wasm_storage_error(error: impl std::error::Error + 'static) ->
                 PlatformStorageError::DatabaseInUse
                 | PlatformStorageError::SAH(OpfsSAHError::CreateSyncAccessHandle(_)),
             ) => return XmtpError::storage_busy(error.to_string()),
+            // An environment without OPFS support, such as a page that is not
+            // a dedicated worker, cannot become usable by retrying.
+            Some(PlatformStorageError::SAH(OpfsSAHError::NotSupported)) => {
+                return XmtpError::storage(error.to_string());
+            }
             _ => cause = current.source(),
         }
     }
-    XmtpError::unknown(error)
+    XmtpError::from_core(error)
 }
 
 #[cfg(all(test, target_arch = "wasm32"))]
@@ -319,12 +324,17 @@ mod wasm_storage_tests;
 mod wasm_storage_error_tests {
     use super::*;
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn unsupported_opfs_is_not_storage_busy() {
         let error = map_wasm_storage_error(xmtp_db::PlatformStorageError::SAH(
             xmtp_db::OpfsSAHError::NotSupported,
         ));
-        assert!(matches!(error, XmtpError::Unknown(_)));
+        let XmtpError::Storage(details) = error else {
+            panic!("unsupported OPFS must report Storage: {error:?}");
+        };
+        assert_eq!(details.code, "Storage");
+        assert!(matches!(details.category, crate::ErrorCategory::Storage));
+        assert!(!details.retryable);
     }
 }
 

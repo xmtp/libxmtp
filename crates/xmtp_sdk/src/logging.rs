@@ -66,7 +66,7 @@ pub struct OtelOptions {
 pub async fn init_logging(options: LoggingOptions) -> Result<(), XmtpError> {
     let level = options.level.unwrap_or(LogLevel::Info);
     if let Some(handle) = LOGGING.get() {
-        return handle.set_level(level.into()).map_err(XmtpError::unknown);
+        return handle.set_level(level.into()).map_err(XmtpError::from_core);
     }
     let builder = xmtp_logging::XmtpLogging::builder()
         .level(level.into())
@@ -81,7 +81,7 @@ pub async fn init_logging(options: LoggingOptions) -> Result<(), XmtpError> {
         logs: true,
         resource_attributes: options.resource_attributes.into_iter().collect(),
     }));
-    let handle = builder.install().map_err(XmtpError::unknown)?;
+    let handle = builder.install().map_err(XmtpError::from_core)?;
     LOGGING
         .set(handle)
         .map_err(|_| XmtpError::invalid("logging was initialized concurrently"))
@@ -115,7 +115,7 @@ mod sink {
             }
         })
         .await
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
     }
 
     #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
@@ -136,7 +136,7 @@ mod sink {
             tracing::error!(target: "xmtp_sdk::conformance", "locked log");
         })
         .await
-        .map_err(XmtpError::unknown)
+        .map_err(XmtpError::from_core)
     }
 
     #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
@@ -247,7 +247,7 @@ mod sink {
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub fn set_log_sink_queued(sink: Arc<dyn LogSink>) -> Result<(), XmtpError> {
-        let queue = BoundedSink::new(Arc::new(SinkBridge(sink))).map_err(XmtpError::unknown)?;
+        let queue = BoundedSink::new(Arc::new(SinkBridge(sink))).map_err(XmtpError::from_core)?;
         handle()?.set_sink(Some(Arc::new(queue) as Arc<dyn LogSinkTarget>));
         Ok(())
     }
@@ -319,13 +319,13 @@ mod sink {
                 process_type: process_type.into(),
                 level: level.into(),
             })
-            .map_err(XmtpError::unknown)
+            .map_err(XmtpError::from_core)
     }
 
     #[cfg(not(target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub fn exit_debug_writer() -> Result<(), XmtpError> {
-        handle()?.disable_file().map_err(XmtpError::unknown)
+        handle()?.disable_file().map_err(XmtpError::from_core)
     }
 
     #[cfg(all(test, not(target_arch = "wasm32")))]

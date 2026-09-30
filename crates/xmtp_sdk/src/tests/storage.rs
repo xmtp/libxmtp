@@ -195,13 +195,24 @@ async fn storage_delete_can_retry_after_file_removal_fails() {
         mode: original_mode,
     };
     std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o500))?;
-    assert!(client.storage().delete().await.is_err());
+    let error = client
+        .storage()
+        .delete()
+        .await
+        .expect_err("directory is read-only");
     drop(restore);
     assert!(path.exists());
     client.storage().delete().await?;
     assert!(!path.exists());
     client.end().await?;
     std::fs::remove_dir_all(directory)?;
+    let XmtpError::Storage(details) = error else {
+        panic!("file removal must report Storage: {error:?}");
+    };
+    assert_eq!(details.code, "Storage");
+    assert!(matches!(details.category, crate::ErrorCategory::Storage));
+    assert!(!details.retryable);
+    assert!(!details.message.is_empty());
 }
 
 // verifies: STORE-009

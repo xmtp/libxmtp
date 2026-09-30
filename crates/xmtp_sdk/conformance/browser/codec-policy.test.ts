@@ -1,9 +1,9 @@
+import { runInNewContext } from "node:vm";
+
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { initPureWasm } from "../../../../target/sdk-generated/typescript-pure/index";
-
 import * as P from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
-import type * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 import type { ContentCodec } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/codec";
 import {
   codecType,
@@ -11,6 +11,8 @@ import {
   encodeForSend,
   optionsForSend,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/codec-policy";
+import { Message } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/message";
+import type * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 
 // The typed codec send policy (Ref Public surface, Host codecs; P10). Every
 // failed step is CodecEncodeFailed, and a rejected async step is handled.
@@ -25,7 +27,9 @@ const envelope = (fields: object = {}): P.EncodedContent => ({
   content: new Uint8Array([1]),
   ...fields,
 });
-function codec(steps: Partial<ContentCodec<string>> = {}): ContentCodec<string> {
+function codec(
+  steps: Partial<ContentCodec<string>> = {},
+): ContentCodec<string> {
   return {
     type: noteType,
     encode: () => envelope(),
@@ -139,6 +143,53 @@ describe("typed codec send policy", () => {
     );
   });
 
+  it("passes a value that is not an object through as an envelope", () => {
+    // The binding, not the codec policy, rejects it with its input error.
+    for (const content of [null, "text"]) {
+      const [sent] = contentForSend(content as never, undefined, undefined);
+      expect(sent).toBe(content);
+    }
+  });
+
+  it("accepts envelope bytes and parameters from another realm", () => {
+    const foreign = runInNewContext(
+      "({ bytes: new Uint8Array([1, 2]), parameters: new Map([['k', 'v']]) })",
+    ) as { bytes: Uint8Array; parameters: Map<string, string> };
+    expect(foreign.bytes instanceof Uint8Array).toBe(false);
+    const sent = encodeForSend(
+      codec({
+        encode: () =>
+          ({
+            type: noteType,
+            content: foreign.bytes,
+            parameters: foreign.parameters,
+          }) as P.EncodedContent,
+      }),
+      "x",
+    );
+    expect(sent.content).toBe(foreign.bytes);
+    expect([...(sent.parameters ?? new Map())]).toEqual([["k", "v"]]);
+    // A value that only claims to be bytes or a map is rejected.
+    codecEncodeFailed(() =>
+      encodeForSend(
+        codec({
+          encode: () =>
+            envelope({ content: { [Symbol.toStringTag]: "Uint8Array" } }),
+        }),
+        "x",
+      ),
+    );
+    codecEncodeFailed(() =>
+      encodeForSend(
+        codec({
+          encode: () =>
+            envelope({ parameters: { [Symbol.toStringTag]: "Map" } }),
+        }),
+        "x",
+      ),
+    );
+  });
+
   it("keeps a throwing codec check inside the failure boundary", () => {
     const trap = new Proxy(codec(), {
       has() {
@@ -191,13 +242,19 @@ describe("typed codec send policy", () => {
     });
     expect(encodeForSend(notAFunction, "x").fallback).toBe("own");
     // An explicit option and a catalogue type skip the push hook.
-    const push = Object.defineProperty(codec(), "shouldPush", throwing("shouldPush"));
+    const push = Object.defineProperty(
+      codec(),
+      "shouldPush",
+      throwing("shouldPush"),
+    );
     expect(optionsForSend(push, "x", { shouldPush: false }, custom)).toEqual({
       shouldPush: false,
     });
     expect(optionsForSend(push, "x", undefined, catalogue)).toBeUndefined();
     const invalidPush = codec({ shouldPush: 7 as unknown as () => boolean });
-    expect(optionsForSend(invalidPush, "x", undefined, catalogue)).toBeUndefined();
+    expect(
+      optionsForSend(invalidPush, "x", undefined, catalogue),
+    ).toBeUndefined();
   });
 
   it("rejects a content type version outside u32", () => {
@@ -229,7 +286,9 @@ describe("typed codec send policy", () => {
     );
     codecEncodeFailed(() =>
       encodeForSend(
-        codec({ encode: () => envelope({ type: { ...noteType, versionMinor: 1 } }) }),
+        codec({
+          encode: () => envelope({ type: { ...noteType, versionMinor: 1 } }),
+        }),
         "x",
       ),
     );
@@ -376,17 +435,88 @@ describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
   });
 
   function recordingGroup(calls: [string, unknown, unknown][]): P.Group {
-    const record = (name: string) => async (encoded: unknown, options: unknown) => {
-      calls.push([name, encoded, options]);
-      return "id";
-    };
+    const record =
+      (name: string) => async (encoded: unknown, options: unknown) => {
+        calls.push([name, encoded, options]);
+        return "id";
+      };
     return P.wrapGroup(
-      binding({ send: record("send"), prepareMessage: record("prepareMessage") }),
+      binding({
+        send: record("send"),
+        prepareMessage: record("prepareMessage"),
+      }),
     );
   }
   const binding = (fields: object): B.GroupLike => fields as B.GroupLike;
   const pushOf = (options: unknown) =>
     (options as { shouldPush?: boolean } | undefined)?.shouldPush;
+
+  it("encodes callable codecs before send and prepareMessage", async () => {
+    const calls: [string, unknown, unknown][] = [];
+    const values: string[] = [];
+    const callable: ContentCodec<string> = Object.assign(
+      () => undefined,
+      codec({
+        encode: (value) => {
+          values.push(value);
+          return envelope({ content: new TextEncoder().encode(value) });
+        },
+        fallback: (value) => `about ${value}`,
+        shouldPush: () => false,
+      }),
+    );
+    const group = recordingGroup(calls);
+    await group.send(callable, "sent");
+    await group.prepareMessage(callable, "prepared");
+    expect(values).toEqual(["sent", "prepared"]);
+    expect(calls.map(([name]) => name)).toEqual(["send", "prepareMessage"]);
+    for (const [index, [, encoded, options]] of calls.entries()) {
+      expect(
+        new TextDecoder().decode(
+          new Uint8Array((encoded as B.EncodedContent).content),
+        ),
+      ).toBe(values[index]);
+      expect((encoded as B.EncodedContent).fallback).toBe(
+        `about ${values[index]}`,
+      );
+      expect(pushOf(options)).toBe(false);
+    }
+  });
+
+  it("encodes a callable codec before a reply", async () => {
+    const replies: [string, P.EncodedContent, P.SendOptions | undefined][] = [];
+    const parent = Object.assign(Object.create(Message.prototype) as Message, {
+      id: "parent-id",
+      client: () => ({
+        conversations: {
+          replyToMessage: async (
+            id: string,
+            encoded: P.EncodedContent,
+            options?: P.SendOptions,
+          ) => {
+            replies.push([id, encoded, options]);
+            return "reply-id";
+          },
+        },
+      }),
+    });
+    const callable: ContentCodec<string> = Object.assign(
+      () => undefined,
+      codec({
+        encode: (value) =>
+          envelope({ content: new TextEncoder().encode(value) }),
+        fallback: (value) => `about ${value}`,
+        shouldPush: never("reply push"),
+      }),
+    );
+    expect(await parent.reply(callable, "reply")).toBe("reply-id");
+    expect(replies).toHaveLength(1);
+    const [id, encoded, options] = replies[0]!;
+    expect(id).toBe("parent-id");
+    expect(new TextDecoder().decode(encoded.content)).toBe("reply");
+    expect(encoded.fallback).toBe("about reply");
+    expect(options).toBeUndefined();
+  });
 
   it("sends the codec's envelope with the push the policy chose", async () => {
     const calls: [string, unknown, unknown][] = [];
@@ -413,7 +543,12 @@ describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
     expect(pushOf(calls[0]![2])).toBe(true);
     // A codec of a catalogue type keeps the catalogue default: no hook call,
     // no push option.
-    const text = { authorityId: "xmtp.org", typeId: "text", versionMajor: 1, versionMinor: 0 };
+    const text = {
+      authorityId: "xmtp.org",
+      typeId: "text",
+      versionMajor: 1,
+      versionMinor: 0,
+    };
     const catalogueCodec = codec({
       type: text,
       encode: () => envelope({ type: text }),

@@ -303,7 +303,7 @@ pub enum GroupMessageProcessingError {
     UnsupportedOwnIntentKind(String),
     /// A local prepared attempt cannot safely explain this own envelope.
     #[error("prepared attempt state: {0}")]
-    PreparedAttempt(Box<GroupError>),
+    PreparedAttempt(#[source] Box<GroupError>),
     /// A stored terminal rejection whose original parameters were not retained.
     #[error("intent rejected: {0}")]
     RejectedIntent(&'static str),
