@@ -6,8 +6,9 @@ Run commands from the repository root in the Nix shell. Run
 - `just sdk generate` builds the SDK libraries and writes Swift, Kotlin, Node,
   worker WASM, and pure browser WASM bindings to `target/sdk-generated/`. In
   each TypeScript tree, `index.ts` is the package root: the public layer that
-  the projection generates. The stock UniFFI root is the private `binding.ts`;
-  only the worker, the benchmark, and transport tests import it.
+  the projection generates. The stock UniFFI root is the private `binding.ts`.
+  The Node public layer imports it to load the native binding; otherwise only
+  the worker, the benchmark, and transport tests import it.
 - `just sdk check-file-sizes` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.

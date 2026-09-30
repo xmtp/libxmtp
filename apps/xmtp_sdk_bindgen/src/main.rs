@@ -228,6 +228,9 @@ fn generate(
                     "export type { StreamCloseReason, StreamOptions } from './runtime';\n",
                 );
             }
+            // The benchmark loads the private Node binding root with a
+            // CommonJS loader, which drops a star re-export, so the root names
+            // each binding export.
             if matches!(language, Language::TypescriptNapi) {
                 let exports = public_node_exports(&fs::read_to_string(&binding)?, &source);
                 source = source.replace("export * from './xmtp_sdk';", &exports);
