@@ -222,7 +222,15 @@ export async function runBrowserBridgeConformance(
       type: failingType,
       encode: (value) =>
         encodedOf(failingType, new TextEncoder().encode(value)),
-      decode() {
+      decode(encoded) {
+        const value = new TextDecoder().decode(encoded.content);
+        if (value === "null prototype") throw Object.create(null);
+        if (value === "throwing toString")
+          throw {
+            toString() {
+              throw new Error("diagnostic failed");
+            },
+          };
         throw new Error("bad custom payload");
       },
     };
@@ -387,6 +395,58 @@ export async function runBrowserBridgeConformance(
       }
     }
     expect(sawCodecFailure, "codec stream hid the failed content item");
+    for (const hostile of ["null prototype", "throwing toString"]) {
+      const failedId = await customGroup.send(failingCodec.encode(hostile));
+      const failed = (await codecStream.next()).value;
+      expect(failed instanceof sdk.Message, "hostile failure ended the stream");
+      equal(failed.id, failedId, "hostile failure item missing");
+      if (failed.content.kind !== "custom")
+        throw new Error("hostile failure lost custom content");
+      equal(
+        failed.content.error?.code,
+        "CodecDecodeFailed",
+        "hostile error code",
+      );
+      equal(
+        failed.content.error?.category,
+        "callback",
+        "hostile error category",
+      );
+      equal(failed.content.error?.retryable, false, "hostile error retry flag");
+      equal(
+        failed.content.error?.message,
+        "custom content codec failed",
+        "hostile diagnostic fallback",
+      );
+      equal(
+        failed.content.value,
+        undefined,
+        "hostile failure produced a value",
+      );
+      expect(
+        failed.content.rawBytes.byteLength > 0,
+        "hostile failure lost raw bytes",
+      );
+      const goodId = await customGroup.send(
+        customCodec.encode("after hostile failure"),
+      );
+      const good = (await codecStream.next()).value;
+      expect(
+        good instanceof sdk.Message,
+        "valid item after hostile failure missing",
+      );
+      equal(good.id, goodId, "valid item after hostile failure missing");
+      if (good.content.kind !== "custom")
+        throw new Error("valid item after hostile failure lost custom content");
+      equal(
+        good.content.value,
+        "after hostile failure",
+        "stream stopped after hostile failure",
+      );
+    }
+    console.log(
+      "Browser stream delivered both hostile codec failures and the next valid items",
+    );
     await codecStream.return();
     await customOwner.end();
     // A Message of an ended client keeps its fields; its actions fail.

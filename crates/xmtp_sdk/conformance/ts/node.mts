@@ -691,8 +691,17 @@ console.log(
 await ownerWithFailingCodec.end();
 const throwingCodec: sdk.ContentCodec<string> = {
   ...customCodec,
-  decode() {
-    throw new Error("codec exploded");
+  decode(encoded) {
+    const value = new TextDecoder().decode(encoded.content);
+    if (value === "null prototype") throw Object.create(null);
+    if (value === "throwing toString")
+      throw {
+        toString() {
+          throw new Error("diagnostic failed");
+        },
+      };
+    if (value === "bad decode") throw new Error("codec exploded");
+    return value;
   },
 };
 const ownerWithThrowingCodec = await sdk.Client.build(
@@ -719,6 +728,30 @@ assert.equal(broken.content.error?.category, "callback");
 assert.ok(broken.content.rawBytes.byteLength > 0);
 const continuedId = await throwingGroup.sendText("after codec error");
 assert.equal((await codecStream.next()).value?.id, continuedId);
+for (const hostile of ["null prototype", "throwing toString"]) {
+  const failedId = await throwingGroup.send(customCodec.encode(hostile));
+  const failed = (await codecStream.next()).value;
+  assert.equal(failed?.id, failedId);
+  if (failed?.content.kind !== "custom")
+    throw new Error("hostile codec failure lost its custom content");
+  assert.equal(failed.content.error?.code, "CodecDecodeFailed");
+  assert.equal(failed.content.error?.category, "callback");
+  assert.equal(failed.content.error?.retryable, false);
+  assert.equal(failed.content.error?.message, "custom content codec failed");
+  assert.equal(failed.content.value, undefined);
+  assert.ok(failed.content.rawBytes.byteLength > 0);
+  const goodId = await throwingGroup.send(
+    customCodec.encode("after hostile failure"),
+  );
+  const good = (await codecStream.next()).value;
+  assert.equal(good?.id, goodId);
+  if (good?.content.kind !== "custom")
+    throw new Error("valid item after hostile failure lost its custom content");
+  assert.equal(good.content.value, "after hostile failure");
+}
+console.log(
+  "Node stream delivered both hostile codec failures and the next valid items",
+);
 await codecStream.end();
 await ownerWithThrowingCodec.end();
 await ownerWithCodec.end();

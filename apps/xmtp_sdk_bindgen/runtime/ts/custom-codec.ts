@@ -26,12 +26,18 @@ export function decodeCustom(
   try {
     return { value: codec.decode(encoded) };
   } catch (error) {
+    let message: string;
+    try {
+      message = String(error);
+    } catch {
+      message = "custom content codec failed";
+    }
     return {
       error: {
         code: "CodecDecodeFailed",
         category: ErrorCategory.Callback,
         retryable: false,
-        message: String(error),
+        message,
       },
     };
   }
