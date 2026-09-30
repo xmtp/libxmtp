@@ -248,3 +248,70 @@ fn unknown_keeps_the_typed_retry_policy() {
         false,
     );
 }
+
+fn connection() -> xmtp_db::ConnectionError {
+    xmtp_db::ConnectionError::Database(xmtp_db::diesel::result::Error::NotFound)
+}
+
+// createGroup, createGroupWithIdentities, and findOrCreateDm return a
+// ClientError that wraps the GroupError transparently.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_group_cause_in_a_client_error_keeps_its_code() {
+    expect(
+        XmtpError::from_client(ClientError::Group(Box::new(GroupError::UserLimitExceeded))),
+        "UserLimitExceeded",
+        ErrorCategory::Input,
+        false,
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn a_store_cause_in_a_client_error_keeps_its_code() {
+    use xmtp_mls::mls_store::MlsStoreError;
+    expect(
+        XmtpError::from_client(ClientError::MlsStore(
+            MlsStoreError::Storage(head_changed()),
+        )),
+        "Storage",
+        ErrorCategory::Storage,
+        true,
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn a_store_cause_in_a_group_client_error_keeps_its_code() {
+    use xmtp_mls::mls_store::MlsStoreError;
+    expect(
+        XmtpError::from_group(GroupError::Client(ClientError::MlsStore(
+            MlsStoreError::Storage(head_changed()),
+        ))),
+        "Storage",
+        ErrorCategory::Storage,
+        true,
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn a_group_cause_in_a_builder_error_keeps_its_code() {
+    use xmtp_mls::builder::ClientBuilderError;
+    expect(
+        XmtpError::from_builder(ClientBuilderError::GroupError(Box::new(
+            GroupError::UserLimitExceeded,
+        ))),
+        "UserLimitExceeded",
+        ErrorCategory::Input,
+        false,
+    );
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn a_connection_cause_in_a_client_error_is_storage() {
+    let error = XmtpError::from_client(ClientError::Db(connection()));
+    assert!(matches!(error, XmtpError::Storage(_)), "{error:?}");
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn a_connection_cause_in_a_group_error_is_storage() {
+    let error = XmtpError::from_group(GroupError::Db(connection()));
+    assert!(matches!(error, XmtpError::Storage(_)), "{error:?}");
+}

@@ -1,3 +1,7 @@
+mod wrappers;
+#[cfg(all(test, not(feature = "pure-only")))]
+pub(crate) use wrappers::OPENED_WRAPPERS;
+
 /// The kind of a façade failure.
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum ErrorCategory {
@@ -275,49 +279,6 @@ impl XmtpError {
             .map(RetryableError::is_retryable)
     }
 
-    /// The inner error of a core wrapper variant marked
-    /// `#[error(transparent)]`. Such a variant forwards `source()` to its
-    /// inner error's source, so a walk over `source()` alone skips the inner
-    /// error. Variants with their own message keep the inner error as their
-    /// source and need no entry.
-    fn wrapped<'a>(
-        error: &'a (dyn std::error::Error + 'static),
-    ) -> Option<&'a (dyn std::error::Error + 'static)> {
-        use xmtp_mls::{
-            builder::ClientBuilderError, groups::GroupError, groups::intents::IntentError,
-            identity::IdentityError, mls_store::MlsStoreError,
-        };
-        if let Some(GroupError::MlsStore(inner)) = error.downcast_ref::<GroupError>() {
-            return Some(inner);
-        }
-        if let Some(IntentError::Storage(inner)) = error.downcast_ref::<IntentError>() {
-            return Some(inner);
-        }
-        if let Some(error) = error.downcast_ref::<MlsStoreError>() {
-            return match error {
-                MlsStoreError::Storage(inner) => Some(inner),
-                MlsStoreError::Api(inner) => Some(inner),
-                _ => None,
-            };
-        }
-        if let Some(error) = error.downcast_ref::<IdentityError>() {
-            return match error {
-                IdentityError::StorageError(inner) => Some(inner),
-                IdentityError::ApiClient(inner) => Some(inner),
-                _ => None,
-            };
-        }
-        if let Some(error) = error.downcast_ref::<ClientBuilderError>() {
-            return match error {
-                ClientBuilderError::Identity(inner) => Some(inner),
-                ClientBuilderError::ClientError(inner) => Some(inner),
-                ClientBuilderError::WrappedApiError(inner) => Some(inner),
-                _ => None,
-            };
-        }
-        None
-    }
-
     fn classify(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
         // A failed check before the request wins: the request was not sent,
         // and the check's own cause names the action. The search also opens
@@ -330,7 +291,7 @@ impl XmtpError {
             if let Some(found) = Self::classify_one(error) {
                 return Some(found);
             }
-            current = Self::wrapped(error).or_else(|| error.source());
+            current = wrappers::wrapped(error).or_else(|| error.source());
         }
         None
     }
@@ -380,6 +341,15 @@ impl XmtpError {
         }
         if let Some(storage) = error.downcast_ref::<xmtp_db::StorageError>() {
             return Some(Self::storage_cause(storage));
+        }
+        if let Some(query) = error.downcast_ref::<xmtp_db::diesel::result::Error>() {
+            use xmtp_common::RetryableError;
+            return Some(Self::Storage(Self::details(
+                "Storage",
+                ErrorCategory::Storage,
+                query.is_retryable(),
+                query.to_string(),
+            )));
         }
         if let Some(connection) = error.downcast_ref::<xmtp_db::ConnectionError>() {
             use xmtp_common::RetryableError;
