@@ -324,12 +324,17 @@ mod wasm_storage_tests;
 mod wasm_storage_error_tests {
     use super::*;
 
-    #[xmtp_common::test]
+    #[xmtp_common::test(unwrap_try = true)]
     fn unsupported_opfs_is_not_storage_busy() {
         let error = map_wasm_storage_error(xmtp_db::PlatformStorageError::SAH(
             xmtp_db::OpfsSAHError::NotSupported,
         ));
-        assert!(matches!(error, XmtpError::Unknown(_)));
+        let XmtpError::Storage(details) = error else {
+            panic!("unsupported OPFS must report Storage: {error:?}");
+        };
+        assert_eq!(details.code, "Storage");
+        assert!(matches!(details.category, crate::ErrorCategory::Storage));
+        assert!(!details.retryable);
     }
 }
 
