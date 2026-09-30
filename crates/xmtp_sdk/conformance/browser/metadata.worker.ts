@@ -1,10 +1,10 @@
+import { uniffiInitAsync } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/binding";
 // Loads the conformance build, whose hooks the default build must not export.
 import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen";
 import { dispatchGenerated } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/dispatch.gen";
-import { uniffiInitAsync } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
 import type {
   WireEndpoint,
   WireMessage,

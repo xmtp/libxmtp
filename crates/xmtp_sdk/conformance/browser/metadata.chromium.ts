@@ -7,18 +7,33 @@ import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/
 // @ts-ignore The browser fixture uses the published JavaScript build of viem.
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
 import * as Pure from "../../../../target/sdk-bridge-panic-fixture/typescript-pure/index";
-import { mainEncoder } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/codec.main.gen";
 import {
   CONTRACT_HASH,
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen";
-import { Client } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
+import * as sdk from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
+// The catalogue hook changes the worker's state, so the clients and the hook
+// share one session to that worker. The package worker ends when idle.
+import {
+  Client as ProxyClient,
+  sdkConformanceUseApplicationComponents,
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/proxy.gen";
+import { wrapClient } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/public-client.gen";
+import {
+  currentProjection,
+  lowerApplicationComponentDefinition,
+  lowerSigner,
+  publicError,
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/public-values.gen";
 import { MainSession } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/main/session";
 import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/wire";
-import * as B from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/xmtp_sdk";
+import {
+  hostOptions,
+  publicClient,
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/public/client";
 
 // Alix and Bo read one group through different backend catalogues, so a
 // name labels a field for one reader only and the component ID identifies
@@ -30,29 +45,36 @@ const AVATAR = 0xc004;
 const LATER = 0xc005;
 const DISPLAY_NAME = 0x800c;
 
-const Base = B.MetadataBasePolicy;
-const Type = B.MetadataComponentType;
-const nicknameType = Type.Map.new({
-  keyType: B.MetadataKeyType.InboxId,
-  valueType: B.MetadataScalarType.String,
-});
+type Policy = sdk.MetadataBasePolicy;
 
-function field(componentId: number, name?: string): B.MetadataFieldRef {
+const allow: Policy = { kind: "allow" };
+const deny: Policy = { kind: "deny" };
+const allowIfAdmin: Policy = { kind: "allowIfAdmin" };
+const allowIfSelfOrNonMember: Policy = { kind: "allowIfSelfOrNonMember" };
+const stringType: sdk.MetadataComponentType = { kind: "string" };
+const bytesType: sdk.MetadataComponentType = { kind: "bytes" };
+const nicknameType: sdk.MetadataComponentType = {
+  kind: "map",
+  keyType: "inboxId",
+  valueType: "string",
+};
+
+function field(componentId: number, name?: string): sdk.MetadataFieldRef {
   return { componentId, name };
 }
 
-function permissions(base: B.MetadataBasePolicy): B.ComponentPermissions {
-  const policy = B.MetadataPolicy.Base.new(base);
+function permissions(base: Policy): sdk.ComponentPermissions {
+  const policy: sdk.MetadataPolicy = { kind: "base", value: base };
   return { insert: policy, update: policy, delete: policy };
 }
 
 function definition(
   componentId: number,
   name: string,
-  componentType: B.MetadataComponentType,
-  base: B.MetadataBasePolicy,
+  componentType: sdk.MetadataComponentType,
+  base: Policy,
   inDms: boolean,
-): B.ApplicationComponentDefinition {
+): sdk.ApplicationComponentDefinition {
   return {
     componentId,
     name,
@@ -65,125 +87,102 @@ function definition(
 
 // `later` has a type tag no SDK knows, so no conversation registers it.
 const alixCatalogue = [
-  definition(STATUS, "status", Type.String.new(), Base.Allow.new(), true),
-  definition(
-    NICKNAME,
-    "nickname",
-    nicknameType,
-    Base.AllowIfSelfOrNonMember.new(),
-    true,
-  ),
-  definition(TOPIC, "topic", Type.String.new(), Base.AllowIfAdmin.new(), true),
-  definition(AVATAR, "avatar", Type.Bytes.new(), Base.Allow.new(), false),
-  definition(
-    LATER,
-    "later",
-    Type.Unknown.new({ tag: 99 }),
-    Base.Allow.new(),
-    true,
-  ),
+  definition(STATUS, "status", stringType, allow, true),
+  definition(NICKNAME, "nickname", nicknameType, allowIfSelfOrNonMember, true),
+  definition(TOPIC, "topic", stringType, allowIfAdmin, true),
+  definition(AVATAR, "avatar", bytesType, allow, false),
+  definition(LATER, "later", { kind: "unknown", tag: 99 }, allow, true),
 ];
 // Bo's catalogue gives `status` to another field and names STATUS after a
 // well-known field, with a type and policy the group never committed.
 const boCatalogue = [
-  definition(STATUS, "GROUP_NAME", Type.Bytes.new(), Base.Deny.new(), true),
-  definition(AVATAR, "status", Type.Bytes.new(), Base.Allow.new(), false),
+  definition(STATUS, "GROUP_NAME", bytesType, deny, true),
+  definition(AVATAR, "status", bytesType, allow, false),
 ];
 
-function signer(): B.Signer {
+function signer(): sdk.Signer {
   const account = privateKeyToAccount(generatePrivateKey());
   return {
     async identity() {
-      return {
-        identifier: account.address.toLowerCase(),
-        kind: B.PublicIdentityKind.Ethereum,
-      };
+      return { identifier: account.address.toLowerCase(), kind: "ethereum" };
     },
     async kind() {
-      return B.SignerKind.Eoa.new();
+      return { kind: "eoa" };
     },
-    async sign(request: { text: string }) {
+    async sign(request) {
       const signed = await account.signMessage({ message: request.text });
-      return B.Signature.Ecdsa.new(Uint8Array.from(toBytes(signed)).buffer);
+      return { kind: "ecdsa", value: Uint8Array.from(toBytes(signed)) };
     },
   };
 }
 
 async function useCatalogue(
   session: MainSession,
-  catalogue: B.ApplicationComponentDefinition[] | undefined,
+  catalogue: sdk.ApplicationComponentDefinition[] | undefined,
 ): Promise<void> {
-  await session.call("sdkConformanceUseApplicationComponents", () => [
-    mainEncoder(session).convert(
-      {
-        kind: "optional",
-        inner: {
-          kind: "sequence",
-          inner: { kind: "record", name: "ApplicationComponentDefinition" },
-        },
-      },
-      catalogue,
+  const projection = currentProjection();
+  await sdkConformanceUseApplicationComponents(
+    session,
+    catalogue?.map((item) =>
+      lowerApplicationComponentDefinition(item, projection),
     ),
-  ]);
+  );
 }
 
 async function clientWith(
   session: MainSession,
-  catalogue: B.ApplicationComponentDefinition[],
+  catalogue: sdk.ApplicationComponentDefinition[],
   backendURL: string,
-): Promise<Client> {
+): Promise<sdk.Client> {
   await useCatalogue(session, catalogue);
   try {
-    return await Client.create(session, signer(), {
-      backend: B.BackendSource.Options.new({
-        options: {
-          url: backendURL,
-          appVersion: undefined,
-          credential: undefined,
-          credentials: undefined,
-        },
-      }),
-      storage: {
-        location: B.StorageLocation.InMemory.new(),
-        label: undefined,
-        pool: undefined,
-        singleConnection: false,
-      },
+    const projection = currentProjection();
+    const options: sdk.ClientOptions = {
+      backend: { url: backendURL },
+      storage: { location: "inMemory" },
       deviceSync: false,
-      allowOffline: false,
-      registration: { auto: true, nonce: undefined },
-      forkRecovery: undefined,
-      workers: undefined,
+    };
+    const proxy = await ProxyClient.create(
+      session,
+      lowerSigner(signer(), projection),
+      hostOptions(options, projection),
+    ).catch((error: unknown) => {
+      throw publicError(error);
     });
+    return publicClient(wrapClient(proxy));
   } finally {
     await useCatalogue(session, undefined);
   }
 }
 
-function string(value: string): B.FieldValue {
-  return B.FieldValue.String.new(value);
+function string(value: string): sdk.FieldValue {
+  return { kind: "string", value };
 }
 
-function bytes(...values: number[]): B.FieldValue {
-  return B.FieldValue.Bytes.new(Uint8Array.from(values).buffer);
+function bytes(...values: number[]): sdk.FieldValue {
+  return { kind: "bytes", value: Uint8Array.from(values) };
 }
 
-function scalar(value: B.FieldValue): B.MetadataValue {
-  return B.MetadataValue.Scalar.new(value);
+function scalar(value: sdk.FieldValue): sdk.MetadataValue {
+  return { kind: "scalar", value };
+}
+
+function replace(value: sdk.FieldValue): sdk.ComponentMutation {
+  return { kind: "replace", value };
 }
 
 async function rejects(
   action: Promise<unknown>,
   variant: (error: unknown) => boolean,
   code: string,
-  category: B.ErrorCategory,
+  category: sdk.ErrorCategory,
 ): Promise<void> {
   const error = await action.then(
     () => undefined,
     (error: unknown) => error,
   );
   expect(variant(error)).toBe(true);
-  const details = (error as { inner: [B.ErrorDetails] }).inner[0];
+  const { details } = error as sdk.XmtpError;
   expect([details.code, details.category, details.retryable]).toStrictEqual([
     code,
     category,
@@ -191,12 +190,12 @@ async function rejects(
   ]);
 }
 
-async function epoch(group: B.GroupLike): Promise<bigint> {
+async function epoch(group: sdk.Group | sdk.Dm): Promise<bigint> {
   return (await group.debugInfo()).epoch;
 }
 
-// `toStrictEqual` compares ArrayBuffer contents and record types; `toEqual`
-// would accept any two byte values.
+// `toStrictEqual` compares byte contents and record types; `toEqual` would
+// accept any two byte values.
 export async function checkMetadataFields(backendURL: string): Promise<void> {
   await Pure.initPureWasm();
   const worker = new Worker(new URL("./metadata.worker.ts", import.meta.url), {
@@ -219,35 +218,27 @@ export async function checkMetadataFields(backendURL: string): Promise<void> {
     },
   };
   const session = new MainSession(endpoint, PROTOCOL_VERSION, CONTRACT_HASH);
-  let alix: Client | undefined;
-  let bo: Client | undefined;
+  let alix: sdk.Client | undefined;
+  let bo: sdk.Client | undefined;
   try {
     await session.ready();
     alix = await clientWith(session, alixCatalogue, backendURL);
     bo = await clientWith(session, boCatalogue, backendURL);
-    expect(alix.serverConfiguration().applicationComponents).toStrictEqual(
+    expect(alix.serverConfiguration.applicationComponents).toStrictEqual(
       alixCatalogue,
     );
-    const group = await alix
-      .conversations()
-      .createGroup([bo.inboxId()], undefined);
-    await bo.conversations().sync();
-    const joined = await bo.conversations().getById(group.id());
-    if (joined?.tag !== B.Conversation_Tags.Group)
+    const group = await alix.conversations.createGroup([bo.inboxId]);
+    await bo.conversations.sync();
+    const boGroup = await bo.conversations.getById(group.id);
+    if (!(boGroup instanceof sdk.Group))
       throw new Error("Bo did not join the group");
-    const boGroup = joined.inner.group;
 
     // Descriptors: the committed type and policies with each reader's labels.
-    const rows: [
-      number,
-      B.MetadataComponentType,
-      B.MetadataBasePolicy,
-      boolean,
-    ][] = [
-      [STATUS, Type.String.new(), Base.Allow.new(), false],
-      [NICKNAME, nicknameType, Base.AllowIfSelfOrNonMember.new(), true],
-      [TOPIC, Type.String.new(), Base.AllowIfAdmin.new(), false],
-      [AVATAR, Type.Bytes.new(), Base.Allow.new(), false],
+    const rows: [number, sdk.MetadataComponentType, Policy, boolean][] = [
+      [STATUS, stringType, allow, false],
+      [NICKNAME, nicknameType, allowIfSelfOrNonMember, true],
+      [TOPIC, stringType, allowIfAdmin, false],
+      [AVATAR, bytesType, allow, false],
     ];
     const application = (labels: (string | undefined)[]) =>
       rows.map(([id, componentType, base, isUserField], index) => ({
@@ -256,12 +247,8 @@ export async function checkMetadataFields(backendURL: string): Promise<void> {
         permissions: permissions(base),
         isUserField,
       }));
-    const displayName = Pure.metadataFieldRef(
-      Pure.WellKnownMetadataField.UserDisplayName,
-    );
-    const groupName = Pure.metadataFieldRef(
-      Pure.WellKnownMetadataField.GroupName,
-    );
+    const displayName = Pure.metadataFieldRef("userDisplayName");
+    const groupName = Pure.metadataFieldRef("groupName");
     expect(displayName).toStrictEqual(field(DISPLAY_NAME, "USER_DISPLAY_NAME"));
     const alixFields = await group.metadataFields();
     expect(
@@ -296,19 +283,13 @@ export async function checkMetadataFields(backendURL: string): Promise<void> {
     expect(await group.metadataField("later")).toBeUndefined();
 
     // Values: request order from one snapshot, each with the reader's label.
-    await boGroup.updateMetadataField(
-      field(STATUS),
-      B.ComponentMutation.Replace.new(string("hello")),
-    );
+    await boGroup.updateMetadataField(field(STATUS), replace(string("hello")));
     await group.sync();
     await group.updateMetadataField(
       field(AVATAR, "avatar"),
-      B.ComponentMutation.Replace.new(bytes(1, 2, 3)),
+      replace(bytes(1, 2, 3)),
     );
-    await group.updateMetadataField(
-      groupName,
-      B.ComponentMutation.Replace.new(string("Team")),
-    );
+    await group.updateMetadataField(groupName, replace(string("Team")));
     await boGroup.sync();
     expect(
       await boGroup.metadataValues([
@@ -341,45 +322,42 @@ export async function checkMetadataFields(backendURL: string): Promise<void> {
     ];
     expect(await group.userData(undefined, undefined)).toStrictEqual(
       new Map([
-        [alix.inboxId(), []],
-        [bo.inboxId(), boProfile],
+        [alix.inboxId, []],
+        [bo.inboxId, boProfile],
       ]),
     );
     expect(await group.userData([], undefined)).toStrictEqual(
       new Map([
-        [alix.inboxId(), []],
-        [bo.inboxId(), []],
+        [alix.inboxId, []],
+        [bo.inboxId, []],
       ]),
     );
     expect(await group.userData(undefined, [])).toStrictEqual(new Map());
-    expect(
-      await group.userData([field(NICKNAME)], [bo.inboxId()]),
-    ).toStrictEqual(new Map([[bo.inboxId(), boProfile.slice(1)]]));
+    expect(await group.userData([field(NICKNAME)], [bo.inboxId])).toStrictEqual(
+      new Map([[bo.inboxId, boProfile.slice(1)]]),
+    );
 
     // Denials are typed and commit nothing.
     await rejects(
-      boGroup.updateMetadataField(
-        field(TOPIC),
-        B.ComponentMutation.Replace.new(string("x")),
-      ),
-      (error) => B.XmtpError.PermissionDenied.instanceOf(error),
+      boGroup.updateMetadataField(field(TOPIC), replace(string("x"))),
+      (error) => error instanceof sdk.XmtpError.PermissionDenied,
       "PermissionDenied",
-      B.ErrorCategory.Conversation,
+      "conversation",
     );
     await rejects(
       boGroup.updateUserData([
         { field: displayName, value: string("Bobby") },
         { field: displayName, value: undefined },
       ]),
-      (error) => B.XmtpError.DuplicateField.instanceOf(error),
+      (error) => error instanceof sdk.XmtpError.DuplicateField,
       "DuplicateField",
-      B.ErrorCategory.Input,
+      "input",
     );
     expect(await epoch(boGroup)).toBe(before + 1n);
     expect(await boGroup.metadataValue(field(TOPIC))).toBeUndefined();
 
     // A DM holds the pair's profiles and its DM fields, never group-only ones.
-    const dm = await alix.conversations().createDm(bo.inboxId(), undefined);
+    const dm = await alix.conversations.createDm(bo.inboxId);
     const dmIds = (await dm.metadataFields()).map((d) => d.field.componentId);
     expect(dmIds).toContain(DISPLAY_NAME);
     expect(dmIds).toContain(NICKNAME);
@@ -387,18 +365,15 @@ export async function checkMetadataFields(backendURL: string): Promise<void> {
     await dm.updateUserData([{ field: displayName, value: string("Alix") }]);
     expect(await dm.userData(undefined, undefined)).toStrictEqual(
       new Map([
-        [alix.inboxId(), [{ field: displayName, value: string("Alix") }]],
-        [bo.inboxId(), []],
+        [alix.inboxId, [{ field: displayName, value: string("Alix") }]],
+        [bo.inboxId, []],
       ]),
     );
     await rejects(
-      dm.updateMetadataField(
-        field(AVATAR),
-        B.ComponentMutation.Replace.new(bytes(1)),
-      ),
-      (error) => B.XmtpError.UnknownField.instanceOf(error),
+      dm.updateMetadataField(field(AVATAR), replace(bytes(1))),
+      (error) => error instanceof sdk.XmtpError.UnknownField,
       "UnknownField",
-      B.ErrorCategory.Input,
+      "input",
     );
   } finally {
     await alix?.end();
