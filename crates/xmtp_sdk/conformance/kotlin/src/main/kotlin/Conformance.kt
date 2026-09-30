@@ -513,17 +513,21 @@ fun main() =
                         ),
                     ),
                 storage = options.storage,
+                workers = WorkerOptions(defaultIntervalNs = largeExpiry.toULong()),
             )
         val credentialHost = SDKClient.build(signer.identity(), credentialOptions, inboxId)
+        val savedOptions = credentialHost.options()
+        check(savedOptions.workers?.defaultIntervalNs == largeExpiry.toULong()) {
+            "worker interval lost 64-bit precision"
+        }
+        // The options never return the backend token or the database key.
+        val savedBackend = (savedOptions.backend as BackendSource.Options).options
         check(
-            credentialHost
-                .options()
-                .backend
-                .let { it as BackendSource.Options }
-                .options.credential
-                ?.expiresAtSeconds == largeExpiry,
+            savedBackend.credential == null &&
+                savedBackend.credentials == null &&
+                savedOptions.storage.encryptionKey == null,
         ) {
-            "credential expiry lost 64-bit precision"
+            "client options exposed a secret"
         }
         credentialHost.setCredential(Credential(null, "Bearer renewed", largeExpiry))
         credentialHost.end()

@@ -352,6 +352,10 @@ async fn storage_key_rejects_wrong_key_for_existing_database() {
         ..Default::default()
     };
     let first = Client::create(signer.clone(), first_options.clone()).await?;
+    assert!(
+        first.options().storage.encryption_key.is_none(),
+        "options exposed the database key"
+    );
     first.end().await?;
     let second = Client::create(
         signer,
