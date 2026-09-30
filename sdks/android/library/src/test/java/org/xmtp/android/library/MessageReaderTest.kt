@@ -8,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -16,9 +17,16 @@ import org.xmtp.android.library.codecs.ContentTypeGroupUpdated
 import org.xmtp.android.library.codecs.EncodedContent
 import org.xmtp.android.library.codecs.TextCodec
 import org.xmtp.android.library.libxmtp.DecodedMessage
+import org.xmtp.android.library.libxmtp.DecodedMessageV2
+import org.xmtp.android.library.libxmtp.Reply
+import uniffi.xmtpv3.FfiContentDecodeFailureKind
+import uniffi.xmtpv3.FfiDecodedMessage
+import uniffi.xmtpv3.FfiDecodedMessageContent
 import uniffi.xmtpv3.FfiDeliveryCursor
 import uniffi.xmtpv3.FfiHistoryMessage
 import uniffi.xmtpv3.FfiMessageHistorySnapshot
+import uniffi.xmtpv3.FfiUndecodableContent
+import uniffi.xmtpv3.NoHandle
 
 private const val MESSAGE_READER_TEST_TIMEOUT_MS = 10_000L
 
@@ -272,4 +280,29 @@ class MessageReaderTest {
             first.join()
             assertEquals(1, ended)
         }
+
+    // verifies: CTYPE-008
+    @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
+    fun v2UndecodableContentIsNullAndKeepsTheEvidence() {
+        val evidence =
+            FfiUndecodableContent(
+                rawBytes = byteArrayOf(0x80.toByte()),
+                contentType = null,
+                fallback = null,
+                failureKind = FfiContentDecodeFailureKind.MALFORMED_ENVELOPE,
+                failureMessage = "malformed",
+            )
+        val ffi =
+            object : FfiDecodedMessage(NoHandle) {
+                override fun content(): FfiDecodedMessageContent = FfiDecodedMessageContent.Undecodable(evidence)
+            }
+        val decoded = DecodedMessageV2.create(ffi)
+        assertNotNull(decoded)
+        val reply: Reply? = decoded!!.content<Reply>()
+        assertNull(reply)
+        val text: String? = decoded.content<String>()
+        assertNull(text)
+        assertArrayEquals(evidence.rawBytes, decoded.undecodable!!.rawBytes)
+        assertEquals(FfiContentDecodeFailureKind.MALFORMED_ENVELOPE, decoded.undecodable?.failureKind)
+    }
 }
