@@ -17,7 +17,7 @@ private fun directoryOptions(
 /** Storage locations open the layouts they name, offline from their record. */
 suspend fun checkStorageLayout(backend: BackendOptions) {
     val root = Files.createTempDirectory("xmtp-sdk-layout-").toRealPath()
-    // verifies: STORE-019, STORE-020, ATCH-040, ATCH-069
+    // A labelled directory holds the store at its deployment path.
     var relay = CountingRelay(backend.url)
     val signer = generateLocalSigner()
     val identity = signer.identity()
@@ -52,9 +52,9 @@ suspend fun checkStorageLayout(backend: BackendOptions) {
         }.exceptionOrNull()
     check(isStorageLocation(unrecorded)) { "expected a storage location error, got $unrecorded" }
     check(relay.connections() == 0) { "offline first start sent a request" }
-    println("Kotlin STORE-019: a labelled directory reopens offline")
+    println("Kotlin storage layout: a labelled directory reopens offline")
 
-    // verifies: STORE-021
+    // Unsafe labels fail before any path or request.
     val unsafeRoot = root.resolve("unsafe")
     for (label in listOf(".", "..", "bad/name", "bad\\name", "bad:name", "a\u0000b")) {
         val error =
@@ -66,9 +66,9 @@ suspend fun checkStorageLayout(backend: BackendOptions) {
     check(relay.connections() == 0) { "an unsafe label sent a request" }
     check(!Files.exists(unsafeRoot))
     relay.close()
-    println("Kotlin STORE-021: unsafe labels fail before any path or request")
+    println("Kotlin storage layout: unsafe labels fail before any path or request")
 
-    // verifies: STORE-020
+    // An explicit location opens the file the app chose.
     relay = CountingRelay(backend.url)
     val explicitSigner = generateLocalSigner()
     val dbPath = root.resolve("chosen.sqlite").toString()
@@ -93,5 +93,5 @@ suspend fun checkStorageLayout(backend: BackendOptions) {
     reopened.end()
     relay.close()
     root.toFile().deleteRecursively()
-    println("Kotlin STORE-020: an explicit location reopens offline")
+    println("Kotlin storage layout: an explicit location reopens offline")
 }

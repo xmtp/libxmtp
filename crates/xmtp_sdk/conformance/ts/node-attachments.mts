@@ -143,7 +143,6 @@ function attachmentsDir(databasePath: string | undefined): string {
 export async function attachmentSettings(
   backend: sdk.BackendOptions,
 ): Promise<void> {
-  // verifies: CONF-061, CONF-062
   const offered = {
     baseUrl:
       process.env.XMTP_S3_BASE_URL ?? "http://127.0.0.1:9067/attachments",
@@ -167,11 +166,10 @@ export async function attachmentSettings(
   );
   assert.deepEqual(client.serverConfiguration.attachments, offered);
   assert.deepEqual(client.options.attachments, settings);
-  // verifies: ATCH-009
   assert.equal(client.attachments.offered, true);
   await client.end();
   await rm(root, { recursive: true, force: true });
-  console.log("Node CONF-061: attachment configuration and 64-bit options");
+  console.log("Node attachments: configuration and 64-bit options");
 }
 
 /** Create, send, upload, reopen, resume, and download on another client. */
@@ -241,7 +239,6 @@ export async function attachmentFlow(
   await assert.rejects(fromPath.status(), isClientClosed);
   await assert.rejects(attachments.listPending(), isClientClosed);
 
-  // verifies: ATCH-038, ATCH-067
   // A reopened client lists the upload it did not finish and resumes it.
   const reopened = await sdk.Client.build(
     await signer.identity(),
@@ -269,7 +266,6 @@ export async function attachmentFlow(
     failure("stagedUnusable"),
   );
 
-  // verifies: ATCH-044
   // The receiver derives the path of the record it was sent without a request.
   await receiver.conversations.syncAll(undefined);
   const message = await receiver.conversations.getMessageById(sent);
@@ -288,7 +284,7 @@ export async function attachmentFlow(
   const expectedPath = await receiving.localPath(received);
   assert.equal(existsSync(expectedPath), false);
 
-  // verifies: ATCH-062, EVENT-015, EVENT-020
+  // Download events arrive in order; a filtered reader sees only its kind.
   const deletedOnly = await receiver.events(
     attachmentFilter(["attachmentDeleted"]),
   );
@@ -336,7 +332,7 @@ export async function attachmentFlow(
   await reopened.end();
   await receiver.end();
   await rm(root, { recursive: true, force: true });
-  console.log("Node ATCH-038: upload, reopen, resume, download, and delete");
+  console.log("Node attachments: upload, reopen, resume, download, and delete");
 }
 
 /** Failed uploads and downloads carry one record in errors and status. */
@@ -352,7 +348,6 @@ export async function attachmentFailures(
   const events = await client.events(attachmentFilter());
   const staged = join(attachmentsDir(await client.storage.path()), ".staged");
 
-  // verifies: ATCH-060
   // Missing staged data fails the upload before any request.
   const pending = await attachments.create(bytesSource("staged"));
   const remote = pending.remoteAttachment;
@@ -392,7 +387,6 @@ export async function attachmentFailures(
   );
   await events.return();
 
-  // verifies: ATCH-079
   // The creating client holds the plaintext, so another client downloads.
   const downloader = await sdk.Client.create(
     await sdk.generateLocalSigner(),
@@ -471,7 +465,7 @@ export async function attachmentFailures(
   await downloader.end();
   await client.end();
   await rm(root, { recursive: true, force: true });
-  console.log("Node ATCH-060: real failures carry one record");
+  console.log("Node attachments: real failures carry one record");
 }
 
 // Each cause with the error category and retry the ATCH table gives it.
@@ -533,7 +527,6 @@ export async function attachmentRecords(
     fileOptions(backend, root),
   );
   const attachments = client.attachments;
-  // verifies: ATCH-060, ATCH-061, ATCH-079
   for (const [
     index,
     [recorded, category, retryable],
@@ -575,7 +568,9 @@ export async function attachmentRecords(
   await events.return();
   await client.end();
   await rm(root, { recursive: true, force: true });
-  console.log("Node ATCH-061: every cause and credential kind in both forms");
+  console.log(
+    "Node attachments: every cause and credential kind in both forms",
+  );
 }
 
 /** End waits for an operation in flight; later calls fail closed. */

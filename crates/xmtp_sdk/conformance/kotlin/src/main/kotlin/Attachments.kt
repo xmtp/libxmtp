@@ -28,7 +28,6 @@ private fun readText(path: String) = Files.readString(Path.of(path))
 
 /** Storage and server configuration fields, including 64-bit values. */
 suspend fun checkAttachmentSettings(backend: BackendOptions) {
-    // verifies: CONF-061, CONF-062
     val offered =
         AttachmentsConfiguration(
             baseUrl = System.getenv("XMTP_S3_BASE_URL") ?: "http://127.0.0.1:9067/attachments",
@@ -42,11 +41,10 @@ suspend fun checkAttachmentSettings(backend: BackendOptions) {
     val client = SDKClient.create(generateLocalSigner(), fileOptions(backend, root, settings))
     check(client.serverConfiguration().attachments == offered)
     check(client.options().attachments == settings)
-    // verifies: ATCH-009
     check(client.attachments().offered())
     client.end()
     root.toFile().deleteRecursively()
-    println("Kotlin CONF-061: attachment configuration and 64-bit options")
+    println("Kotlin attachments: configuration and 64-bit options")
 }
 
 /** Create, send, upload, reopen, resume, and download on another client. */
@@ -99,7 +97,6 @@ suspend fun checkAttachmentFlow(backend: BackendOptions) =
         checkClientClosed { fromPath.status() }
         checkClientClosed { attachments.listPending() }
 
-        // verifies: ATCH-038, ATCH-067
         // A reopened client lists the upload it did not finish and resumes it.
         val reopened = SDKClient.build(signer.identity(), senderOptions)
         val resuming = reopened.attachments()
@@ -117,7 +114,6 @@ suspend fun checkAttachmentFlow(backend: BackendOptions) =
                 failure(AttachmentFailureCause.STAGED_UNUSABLE),
         )
 
-        // verifies: ATCH-044
         // The receiver derives the path of the record it was sent without a request.
         receiver.conversations().syncAll(null)
         val message = receiver.conversations().getMessageById(sent)
@@ -135,7 +131,7 @@ suspend fun checkAttachmentFlow(backend: BackendOptions) =
         val expectedPath = receiving.localPath(received)
         check(!Files.exists(Path.of(expectedPath)))
 
-        // verifies: ATCH-062, EVENT-015, EVENT-020
+        // Download events arrive in order; a filtered reader sees only its kind.
         val deletedOnly = EventQueue.open(this, receiver, attachmentFilter(listOf(EventKind.ATTACHMENT_DELETED)))
         val downloaded = receiving.download(received)
         check(downloaded == DownloadedAttachment(expectedPath, "text/plain", "note.txt")) { "downloaded $downloaded" }
@@ -169,7 +165,7 @@ suspend fun checkAttachmentFlow(backend: BackendOptions) =
         reopened.end()
         receiver.end()
         root.toFile().deleteRecursively()
-        println("Kotlin ATCH-038: upload, reopen, resume, download, and delete")
+        println("Kotlin attachments: upload, reopen, resume, download, and delete")
     }
 
 /** Failed uploads and downloads carry one record in errors and status. */
@@ -181,7 +177,6 @@ suspend fun checkAttachmentFailures(backend: BackendOptions) =
         val events = EventQueue.open(this, client)
         val staged = attachmentsDir(client.storage().path()).resolve(".staged")
 
-        // verifies: ATCH-060
         // Missing staged data fails the upload before any request.
         val pending = attachments.create(bytesSource("staged"))
         val remote = pending.remoteAttachment()
@@ -208,7 +203,6 @@ suspend fun checkAttachmentFailures(backend: BackendOptions) =
         check(thrownFailure { attachments.create(missing) }.cause == AttachmentFailureCause.SOURCE_UNREADABLE)
         events.end()
 
-        // verifies: ATCH-079
         // The creating client holds the plaintext, so another client downloads.
         val downloader = SDKClient.create(generateLocalSigner(), fileOptions(backend, root.resolve("downloader")))
         val downloads = downloader.attachments()
@@ -253,7 +247,7 @@ suspend fun checkAttachmentFailures(backend: BackendOptions) =
         downloader.end()
         client.end()
         root.toFile().deleteRecursively()
-        println("Kotlin ATCH-060: real failures carry one record")
+        println("Kotlin attachments: real failures carry one record")
     }
 
 // Each cause with the error category and retry the ATCH table gives it.
@@ -318,7 +312,6 @@ suspend fun checkAttachmentRecords(backend: BackendOptions) =
         val root = Files.createTempDirectory("xmtp-sdk-atch-").toRealPath()
         val client = SDKClient.create(generateLocalSigner(), fileOptions(backend, root))
         val attachments = client.attachments()
-        // verifies: ATCH-060, ATCH-061, ATCH-079
         for ((index, row) in failureTable.withIndex()) {
             val (recorded, category, retryable) = row
             val error = thrownAttachment { sdkConformanceAttachmentError(recorded) }
@@ -344,7 +337,7 @@ suspend fun checkAttachmentRecords(backend: BackendOptions) =
         events.end()
         client.end()
         root.toFile().deleteRecursively()
-        println("Kotlin ATCH-061: every cause and credential kind in both forms")
+        println("Kotlin attachments: every cause and credential kind in both forms")
     }
 
 /** End waits for an operation in flight; later calls fail closed. */

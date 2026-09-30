@@ -32,7 +32,7 @@ export async function storageLayout(
   backend: sdk.BackendOptions,
 ): Promise<void> {
   const root = realpathSync(await mkdtemp(join(tmpdir(), "xmtp-sdk-layout-")));
-  // verifies: STORE-019, STORE-020, ATCH-040, ATCH-069
+  // A labelled directory holds the store at its deployment path.
   let relay = await countingRelay(backend.url);
   const signer = await sdk.generateLocalSigner();
   const identity = await signer.identity();
@@ -73,9 +73,9 @@ export async function storageLayout(
     isStorageLocation,
   );
   assert.equal(relay.connections(), 0, "offline first start sent a request");
-  console.log("Node STORE-019: a labelled directory reopens offline");
+  console.log("Node storage layout: a labelled directory reopens offline");
 
-  // verifies: STORE-021
+  // Unsafe labels fail before any path or request.
   const unsafeRoot = join(root, "unsafe");
   for (const label of [".", "..", "bad/name", "bad\\name", "bad:name", "a\0b"])
     await assert.rejects(
@@ -86,9 +86,11 @@ export async function storageLayout(
   assert.equal(relay.connections(), 0, "an unsafe label sent a request");
   assert.equal(existsSync(unsafeRoot), false);
   await relay.close();
-  console.log("Node STORE-021: unsafe labels fail before any path or request");
+  console.log(
+    "Node storage layout: unsafe labels fail before any path or request",
+  );
 
-  // verifies: STORE-020
+  // An explicit location opens the file the app chose.
   relay = await countingRelay(backend.url);
   const explicitSigner = await sdk.generateLocalSigner();
   const dbPath = join(root, "chosen.sqlite");
@@ -115,5 +117,5 @@ export async function storageLayout(
   await reopened.end();
   await relay.close();
   await rm(root, { recursive: true, force: true });
-  console.log("Node STORE-020: an explicit location reopens offline");
+  console.log("Node storage layout: an explicit location reopens offline");
 }
