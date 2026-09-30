@@ -12,7 +12,6 @@ import {
   type Message,
   type MessageId,
   type Signer,
-  type StandardContent,
 } from "xmtp-sdk-browser";
 
 type Point = { readonly x: number; readonly y: number };
@@ -48,7 +47,6 @@ export async function consumeTypedCodecs(
   group: Group,
   dm: Dm,
   message: Message,
-  reaction: Extract<StandardContent, { kind: "reaction" }>,
 ): Promise<void> {
   const point: Point = { x: 1, y: 2 };
   const sent: MessageId = await group.send(pointCodec, point);
@@ -57,7 +55,13 @@ export async function consumeTypedCodecs(
   });
   const prepared: MessageId = await group.prepareMessage(pointCodec, point);
   const dmPrepared: MessageId = await dm.prepareMessage(pointCodec, point);
-  const reacted: MessageId = await group.send(new ReactionV2Codec(), reaction);
+  // A real reaction value compiles, so the variant type is not never.
+  const reacted: MessageId = await group.send(new ReactionV2Codec(), {
+    kind: "reaction",
+    reference: message.id,
+    referenceInboxId: undefined,
+    reaction: { content: "👍", action: "added", schema: "unicode" },
+  });
   const reply: MessageId = await message.reply(pointCodec, point);
   const encoded: EncodedContent = pointCodec.encode(point);
   // Codecs of different value types register together.
