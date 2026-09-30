@@ -181,6 +181,7 @@ mod tests {
     use super::*;
     use crate::messages::decoded_message::{DecodedMessage, DeletedBy, MessageBody};
     use crate::tester;
+    use xmtp_db::group_message::StoredGroupMessage;
     use xmtp_events::{ClientEvent, EventBus, EventFilter, EventKind, EventWriter};
     use xmtp_mls_common::group::GroupMetadataOptions;
     use xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings;
@@ -363,54 +364,64 @@ mod tests {
     }
 
     /// A deletion item can wait in the broadcast buffer until after its
-    /// message expired. It must not deliver the body then.
+    /// message expired. It must not deliver the body then. The item is live
+    /// when emitted and its row is expired when read, with no wait.
     // verifies: META-051
     #[xmtp_common::test(unwrap_try = true)]
     async fn deletion_that_expires_before_delivery_carries_no_body() {
+        use crate::subscriptions::{StreamMessages, internal::DeletedMessages};
         use futures::StreamExt;
-        /// Long enough for the delete to finish before the expiry.
-        const LIFESPAN: Duration = Duration::from_secs(3);
+        use xmtp_db::group_message::{ContentType, DeliveryStatus, GroupMessageKind};
 
-        tester!(alix, disable_workers);
-        let group = alix.create_group(
-            None,
-            Some(GroupMetadataOptions {
-                message_disappearing_settings: Some(MessageDisappearingSettings::new(
-                    1,
-                    LIFESPAN.as_nanos() as i64,
-                )),
-                ..Default::default()
-            }),
-        )?;
-        let deletions = deletion_stream(&alix.context);
+        let bus = EventBus::new();
+        let deletions = bus
+            .subscribe(
+                EventFilter::default().with_internal(InternalEvent::is_message_deletion),
+                Some(8),
+            )
+            .stream_message_deletions();
         futures::pin_mut!(deletions);
-        let message_id = group
-            .send_message(&secret_text(), Default::default())
-            .await?;
-        let expire_at = alix
-            .context
-            .db()
-            .get_group_message(&message_id)?
-            .and_then(|message| message.expire_at_ns)
-            .expect("an expiring message");
-
-        group.delete_message(message_id.clone())?;
-        let emitted_at = now_ns();
-        assert!(
-            emitted_at < expire_at,
-            "the delete finished at {emitted_at}, after the expiry {expire_at}; the test \
-             needs a message that is live at emit time"
+        let group_id = GroupId::from([9; 16]);
+        let message_id = vec![0xE1, 0x05];
+        let sender_inbox_id = "sender";
+        let row = StoredGroupMessage {
+            id: message_id.clone(),
+            group_id,
+            decrypted_message_bytes: secret_text(),
+            sent_at_ns: now_ns() - 2,
+            kind: GroupMessageKind::Application,
+            sender_installation_id: vec![1, 2, 3],
+            sender_inbox_id: sender_inbox_id.into(),
+            delivery_status: DeliveryStatus::Published,
+            content_type: ContentType::Text,
+            version_major: 1,
+            version_minor: 0,
+            authority_id: "xmtp.org".into(),
+            reference_id: None,
+            expire_at_ns: Some(now_ns() - 1),
+            sequence_id: 1,
+            envelope_hash: None,
+            expiry_ns: None,
+            inserted_at_ns: 0,
+            should_push: false,
+            idempotency_key: String::new(),
+        };
+        bus.emit(
+            None,
+            Some(InternalEvent::MessagesDeleted(DeletedMessages {
+                messages: vec![row],
+                deleted_by_inbox_id: Some(sender_inbox_id.into()),
+            })),
         );
-        wait_until_expired(&alix.context, &message_id).await;
 
         let deleted = xmtp_common::time::timeout(Duration::from_secs(5), deletions.next())
             .await?
             .expect("a deletion item")?;
         assert_no_body(
             &deleted,
-            &group.group_id,
+            &group_id,
             &message_id,
-            alix.inbox_id(),
+            sender_inbox_id,
             &DeletedBy::Sender,
         );
     }
