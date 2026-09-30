@@ -15,8 +15,20 @@ private struct CodecStepFailure: Error, CustomStringConvertible {
     let description: String
 }
 
+/// A codec step runs synchronously inside the caller's task, so a
+/// `CancellationError` from it (for example `Task.checkCancellation()` in a
+/// hook) reports the caller's cancellation and passes through unchanged. Every
+/// other error is `CodecEncodeFailed`. Kotlin differs on purpose: a Kotlin step
+/// is not a suspend function and cannot see the caller's coroutine, so there a
+/// codec's own `CancellationException` is `CodecEncodeFailed`.
 private func step<R>(_ name: String, _ run: () throws -> R) throws -> R {
-    do { return try run() } catch { throw codecEncodeFailed(name, error) }
+    do {
+        return try run()
+    } catch let cancelled as CancellationError {
+        throw cancelled
+    } catch {
+        throw codecEncodeFailed(name, error)
+    }
 }
 
 private func sameType(_ left: ContentTypeId, _ right: ContentTypeId) -> Bool {

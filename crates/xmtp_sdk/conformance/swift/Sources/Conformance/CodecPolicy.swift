@@ -131,10 +131,21 @@ private final class ProbeCodec: ContentCodec, @unchecked Sendable {
     private let lock = NSLock()
     private var reads = 0
     let cancelInEncode: Bool
+    let cancelInFallback: Bool
     private(set) var encoded = false
 
-    init(cancelInEncode: Bool = false) {
+    init(cancelInEncode: Bool = false, cancelInFallback: Bool = false) {
         self.cancelInEncode = cancelInEncode
+        self.cancelInFallback = cancelInFallback
+    }
+
+    func fallback(_: String) throws -> String? {
+        if cancelInFallback {
+            // The hook sees its own task cancelled and stops with CancellationError.
+            withUnsafeCurrentTask { $0?.cancel() }
+            try Task.checkCancellation()
+        }
+        return nil
     }
 
     var typeReads: Int {
@@ -175,6 +186,15 @@ private func checkTypeReadsAndCancellation() async throws {
     else { throw ConformanceFailure("a cancelled typed send did not stop: \(outcome)") }
     guard group.sent.count == sends
     else { throw ConformanceFailure("a cancelled typed send reached the send") }
+
+    // A hook that checks its task's cancellation reports the caller's
+    // cancellation unchanged, not as CodecEncodeFailed.
+    let checking = ProbeCodec(cancelInFallback: true)
+    let checked = await Task { try await group.send(checking, value: "checked") }.result
+    guard case let .failure(error) = checked, error is CancellationError
+    else { throw ConformanceFailure("a hook's CancellationError was not kept: \(checked)") }
+    guard group.sent.count == sends
+    else { throw ConformanceFailure("a hook cancelled in its task reached the send") }
 }
 
 private func envelope(_ message: Message?) -> EncodedContent? {
