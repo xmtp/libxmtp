@@ -2451,7 +2451,7 @@ def _classify(entry: object) -> Decision:
             "generated",
             spelling(name),
             ref,
-            "Facade generator supplies this binding export.",
+            "The facade package root exports this name from its public projection.",
         )
     if (name.endswith(".sentAt") or name.endswith(".sentAtNs")) and name.split(".", 1)[
         0
