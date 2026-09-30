@@ -192,7 +192,6 @@ fn expect_kind(error: XmtpError, name: &str, category: ErrorCategory) {
 /// Each reader lists the group's fields in component ID order, named by its
 /// own catalogue, with the committed type and policies. A name finds the
 /// reader's field, and a well-known name wins over a catalogue name.
-// verifies: META-069
 #[xmtp_common::test(unwrap_try = true)]
 async fn fields_are_identified_by_component_id() {
     let alix = client_with(alix_catalogue()).await;
@@ -314,7 +313,6 @@ async fn fields_are_identified_by_component_id() {
 
 /// A batch read answers in request order from one snapshot, with each
 /// reader's label, and an absent value stays absent.
-// verifies: META-070, META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn batch_reads_keep_request_order() {
     let alix = client_with(alix_catalogue()).await;
@@ -432,7 +430,6 @@ async fn batch_reads_keep_request_order() {
 /// Absent filters select every user field and every member; an empty field
 /// list gives each selected inbox an empty list, and an empty inbox list
 /// selects no inbox. A DM reads its pair's profiles.
-// verifies: META-072
 #[xmtp_common::test(unwrap_try = true)]
 async fn user_data_keeps_absent_and_empty_filters_apart() {
     let alix = client_with(alix_catalogue()).await;
@@ -499,7 +496,6 @@ async fn user_data_keeps_absent_and_empty_filters_apart() {
 /// One call writes several of the caller's own fields in one commit. A
 /// write that changes nothing makes no commit, a rejected batch commits
 /// nothing, and a denied write is a typed `PermissionDenied`.
-// verifies: META-071, META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn profile_writes_are_atomic_and_denials_are_typed() {
     let alix = client_with(alix_catalogue()).await;
@@ -559,7 +555,6 @@ async fn profile_writes_are_atomic_and_denials_are_typed() {
 
 /// Map and set deltas apply in one commit or not at all, and reads return
 /// their entries with bytes and inbox ID keys.
-// verifies: META-070, META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn collection_fields_apply_whole_deltas() {
     let alix = client_with(vec![
