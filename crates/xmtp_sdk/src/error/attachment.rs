@@ -39,7 +39,9 @@ pub enum CredentialFailureKind {
 pub struct AttachmentFailure {
     pub cause: AttachmentFailureCause,
     pub credential_kind: Option<CredentialFailureKind>,
-    /// The credential source can succeed on a later attempt.
+    /// For the `Credential` cause, whether the credential source can succeed
+    /// on a later attempt. It does not say whether the operation can: the
+    /// thrown error's `retryable` detail does.
     pub retryable: bool,
     /// The backend rejected the credential's scope.
     pub missing_scope: bool,

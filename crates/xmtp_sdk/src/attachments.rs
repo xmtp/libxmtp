@@ -117,8 +117,10 @@ fn path_string(path: PathBuf) -> Result<String, XmtpError> {
 ///
 /// The SDK stores and transfers the file an app gives it. It makes no preview
 /// or thumbnail: an app that shows an image makes its own from the local file.
-/// The SDK retries no failed upload or download; an app calls again when the
-/// error or status says the failure is retryable.
+/// The SDK retries no failed upload or download. A thrown
+/// `XmtpError.Attachment` says in its `retryable` detail whether the same call
+/// can succeed later. A `Failed` status has no such detail: its failure's
+/// `cause` and `httpStatus` decide it by the ATCH cause table.
 #[derive(uniffi::Object)]
 pub struct Attachments {
     pub(crate) client: Arc<CoreClient>,
