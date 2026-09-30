@@ -165,6 +165,8 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     welcome_blocked_rescan_at: Option<Instant>,
     extra_topics: HashSet<Topic>,
     topics: HashMap<Topic, TopicSchedule>,
+    /// Selected group topics with no stored group row yet.
+    missing_group_topics: HashSet<Topic>,
     storage_error: Option<Arc<IncomingError>>,
     callbacks: HashMap<
         xmtp_proto::types::GroupId,
@@ -203,6 +205,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             welcome_blocked_rescan_at: None,
             extra_topics: HashSet::new(),
             topics: HashMap::new(),
+            missing_group_topics: HashSet::new(),
             storage_error: None,
             callbacks: HashMap::new(),
         }
@@ -356,6 +359,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 
     fn reconcile(&mut self) -> Result<(), IncomingError> {
+        let missing_group_topics = self.missing_group_topics.clone();
         let retired: Vec<_> = self
             .topics
             .iter()
@@ -455,10 +459,15 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                         // An empty pending queue cannot report an already inactive group.
                         let group = match MlsStore::new(self.context.clone()).group(group_id) {
                             Ok(group) => group,
-                            Err(crate::mls_store::MlsStoreError::NotFound(_)) => continue,
+                            Err(crate::mls_store::MlsStoreError::NotFound(_)) => {
+                                self.missing_group_topics.insert(topic);
+                                continue;
+                            }
                             Err(error) => return Err(error.into()),
                         };
-                        if !group.is_active()? {
+                        let active = group.is_active()?;
+                        self.missing_group_topics.remove(&topic);
+                        if !active {
                             self.topics.entry(topic).or_default().processing.retired = true;
                         }
                     }
@@ -487,11 +496,9 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     )))
                     .collect(),
             };
-            // A group is Restored only when an import creates it, so a topic is
-            // checked when a scope selects it. Explicit groups check activity
-            // above, and discovery leaves out Restored groups. A lookup error
-            // fails the pass before this scope's new topics are selected; the
-            // next pass checks them again.
+            // Check state when a scope selects a group. Only an import creates
+            // a Restored row. Keep missing rows for later checks. A lookup error
+            // fails the pass before this scope selects its new topics.
             // implements: PROC-051
             if !matches!(scope.scope, ScopeKind::Groups(_) | ScopeKind::AllGroups) {
                 for topic in topics.difference(&scope.topics) {
@@ -501,12 +508,20 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     let Ok(group_id) = GroupId::try_from(topic.identifier()) else {
                         continue;
                     };
-                    if is_restored(&self.context, &group_id)? {
-                        self.topics
-                            .entry(topic.clone())
-                            .or_default()
-                            .processing
-                            .retired = true;
+                    match stored_membership(&self.context, &group_id)? {
+                        Some(state) => {
+                            self.missing_group_topics.remove(topic);
+                            if state == GroupMembershipState::Restored {
+                                self.topics
+                                    .entry(topic.clone())
+                                    .or_default()
+                                    .processing
+                                    .retired = true;
+                            }
+                        }
+                        None => {
+                            self.missing_group_topics.insert(topic.clone());
+                        }
                     }
                 }
             }
@@ -514,6 +529,29 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             scope
                 .targets
                 .retain(|topic, _| scope.topics.contains(topic));
+        }
+        let scopes = &self.scopes;
+        self.missing_group_topics
+            .retain(|topic| scopes.values().any(|scope| scope.topics.contains(topic)));
+        // Stored groups need no repeat lookup. A missing row can be imported
+        // while its topic is selected. Check it before adding network interest.
+        // implements: PROC-051
+        for topic in missing_group_topics {
+            if !self.missing_group_topics.contains(&topic) {
+                continue;
+            }
+            let group_id = GroupId::try_from(topic.identifier())
+                .map_err(|_| IncomingError::UnsupportedTopic)?;
+            if let Some(state) = stored_membership(&self.context, &group_id)? {
+                if state == GroupMembershipState::Restored {
+                    self.topics
+                        .entry(topic.clone())
+                        .or_default()
+                        .processing
+                        .retired = true;
+                }
+                self.missing_group_topics.remove(&topic);
+            }
         }
         self.extra_topics = self
             .dependency_registry
@@ -1426,15 +1464,15 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
     }
 }
 
-fn is_restored<C: XmtpSharedContext>(
+fn stored_membership<C: XmtpSharedContext>(
     context: &C,
     group_id: &GroupId,
-) -> Result<bool, IncomingError> {
+) -> Result<Option<GroupMembershipState>, IncomingError> {
     Ok(context
         .db()
         .find_group(group_id)
         .map_err(|error| IncomingError::Storage(error.into()))?
-        .is_some_and(|group| group.membership_state == GroupMembershipState::Restored))
+        .map(|group| group.membership_state))
 }
 
 pub(crate) fn topic_key(topic: &Topic) -> Result<StreamTopic, IncomingError> {
