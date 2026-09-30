@@ -233,6 +233,53 @@ mod native {
         assert_eq!(document["deployments"][backend.url()], identifier);
     }
 
+    // verifies: ATCH-040
+    #[xmtp_common::test(unwrap_try = true)]
+    async fn host_opener_opens_resolved_paths() {
+        use crate::utils::test::backend::EphemeralBackend;
+        let dir = tempfile::tempdir()?;
+        let backend = EphemeralBackend::start("").await?;
+        let mut api_builder = xmtp_api_backend::MessageBackendBuilder::new();
+        api_builder.host(backend.url());
+        let opened = Arc::new(parking_lot::Mutex::new(None));
+        let seen = opened.clone();
+        let client = Client::builder(identity_setup(generate_local_wallet()))
+            .api_client_with_streams(api_builder.build()?)
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+            .data_location_with(
+                StorageLocation::DataDir(dir.path().to_path_buf()),
+                move |paths: ResolvedPaths| -> xmtp_common::BoxDynFuture<'static, _> {
+                    Box::pin(async move {
+                        std::fs::create_dir_all(paths.db_path.parent().unwrap())
+                            .map_err(StorageLocationError::from)?;
+                        let db = xmtp_db::NativeDb::builder()
+                            .persistent(paths.db_path.to_string_lossy().into_owned())
+                            .build_unencrypted()?;
+                        *seen.lock() = Some(paths);
+                        Ok(xmtp_db::EncryptedMessageStore::new(db)?)
+                    })
+                },
+            )?
+            .default_mls_store()?
+            .with_disable_workers(true)
+            .build()
+            .await?;
+        let root = dir
+            .path()
+            .join(deployment_component(
+                &client.server_configuration().identifier,
+            ))
+            .join(client.inbox_id().to_ascii_lowercase());
+        let paths = opened
+            .lock()
+            .clone()
+            .expect("the host opener opened the store");
+        assert_eq!(paths.db_path, root.join("xmtp.db3"));
+        assert_eq!(paths.attachments_dir, root.join("attachments"));
+        assert!(paths.db_path.exists());
+        assert_eq!(client.context.attachments.dir, Some(paths.attachments_dir));
+    }
+
     // Covers plan P19.
     #[xmtp_common::test(unwrap_try = true)]
     async fn torn_file_treated_empty() {

@@ -35,11 +35,14 @@ use xmtp_proto::xmtp::mls::database::{
 };
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
-type LocationStoreOpener<Db> =
-    fn(
-        crate::storage_location::ResolvedPaths,
-        xmtp_db::EncryptionKey,
-    ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>;
+/// Opens the store at the paths `build` resolves for a storage location.
+type LocationStoreOpener<Db> = Box<
+    dyn FnOnce(
+            crate::storage_location::ResolvedPaths,
+        ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>
+        + Send
+        + Sync,
+>;
 
 fn open_location_store(
     paths: crate::storage_location::ResolvedPaths,
@@ -143,10 +146,7 @@ impl From<crate::groups::GroupError> for ClientBuilderError {
 
 pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) deployment_recorder: Option<crate::storage_location::DeploymentRecorder>,
-    pub(crate) data_location: Option<(
-        crate::storage_location::StorageLocation,
-        xmtp_db::EncryptionKey,
-    )>,
+    pub(crate) data_location: Option<crate::storage_location::StorageLocation>,
     pub(crate) location_store_opener: Option<LocationStoreOpener<Db>>,
     pub(crate) mls_storage_factory: Option<fn(&Db) -> S>,
     pub(crate) storage_location_selected: bool,
@@ -422,7 +422,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
 
         let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
         let mut data_dir_opened_identifier = None;
-        if let Some((location, key)) = data_location {
+        if let Some(location) = data_location {
             use crate::storage_location::StorageLocationError;
             let inbox_id = match location {
                 crate::storage_location::StorageLocation::DataDir(_) => identity_strategy
@@ -473,7 +473,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 (paths, Some(identifier))
             };
             let opener = location_store_opener.ok_or(StorageLocationError::ConflictingStore)?;
-            let opened = opener(paths.clone(), key).await?;
+            let opened = opener(paths.clone()).await?;
             if let Some((identifier, response)) = fetched {
                 opened.db().store_server_configuration(
                     &identifier,
@@ -844,6 +844,23 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         location: crate::storage_location::StorageLocation,
         key: xmtp_db::EncryptionKey,
     ) -> Result<ClientBuilder<ApiClient, S, xmtp_db::DefaultStore>, ClientBuilderError> {
+        self.data_location_with(location, move |paths| open_location_store(paths, key))
+    }
+
+    /// Save a deployment-scoped location that `opener` opens. `build` resolves
+    /// the paths after all options are set and passes them to `opener`, so a
+    /// host can open the store with its own connection options.
+    pub fn data_location_with<NewDb>(
+        self,
+        location: crate::storage_location::StorageLocation,
+        opener: impl FnOnce(
+            crate::storage_location::ResolvedPaths,
+        )
+            -> xmtp_common::BoxDynFuture<'static, Result<NewDb, ClientBuilderError>>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Result<ClientBuilder<ApiClient, S, NewDb>, ClientBuilderError> {
         location.validate()?;
         let conflict = self.storage_location_conflict
             || self.store.is_some()
@@ -853,8 +870,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             || self.attachments_dir.is_some();
         Ok(ClientBuilder {
             deployment_recorder: None,
-            data_location: Some((location, key)),
-            location_store_opener: Some(open_location_store),
+            data_location: Some(location),
+            location_store_opener: Some(Box::new(opener)),
             mls_storage_factory: None,
             storage_location_selected: true,
             storage_location_conflict: conflict,
