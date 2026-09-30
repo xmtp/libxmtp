@@ -94,7 +94,10 @@ async fn create_client_does_not_hit_network() {
     assert_eq!(api_stats.subscribe_static, 0);
 
     let identity_stats = client.api_identity_statistics();
-    assert!(api_stats.query >= 6);
+    // Three identity reads and the sync group's first read. The receiver applies
+    // queued scope changes in one pass, so it skips later reads of the sync group
+    // from its own published cursor, which return nothing new.
+    assert!(api_stats.query >= 4);
     assert_eq!(identity_stats.get_inbox_ids, 1);
     assert_eq!(identity_stats.verify_smart_contract_wallet_signatures, 0);
 
