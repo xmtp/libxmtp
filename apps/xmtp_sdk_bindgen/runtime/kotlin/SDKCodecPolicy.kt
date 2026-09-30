@@ -19,7 +19,10 @@ private fun codecEncodeFailed(
 // A codec step is not a suspend function, so anything it throws comes from the
 // codec, including a CancellationException, a NotImplementedError from TODO(),
 // or an AssertionError. Each one is CodecEncodeFailed. Only a
-// VirtualMachineError, such as OutOfMemoryError, passes through.
+// VirtualMachineError, such as OutOfMemoryError, passes through. Swift differs
+// on purpose: a Swift step runs inside the caller's task, so there a
+// CancellationError reports the caller's cancellation and passes through. Here
+// the caller's cancellation is checked with ensureActive() around the steps.
 private inline fun <R> codecStep(
     name: String,
     run: () -> R,
