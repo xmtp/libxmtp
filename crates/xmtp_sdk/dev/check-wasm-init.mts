@@ -1,5 +1,6 @@
 import { uniffiInitAsync } from "../../../target/sdk-generated/typescript-wasm/binding.ts";
 import * as PurePublic from "../../../target/sdk-generated/typescript-pure/index.ts";
+import * as BrowserRoot from "../../../target/sdk-generated/typescript-wasm/index.ts";
 
 const wasm = new URL(
   "../../../target/sdk-generated/typescript-wasm/xmtp_sdk.wasm",
@@ -25,4 +26,19 @@ try {
 }
 if (!(invalid instanceof PurePublic.XmtpError) || "tag" in invalid)
   throw new Error("pure public decode did not throw the public XmtpError");
+// The browser root and its pure module share one module instance of each
+// class, so a pure codec error is the root's XmtpError under a TypeScript
+// loader too.
+if (BrowserRoot.XmtpError !== PurePublic.XmtpError)
+  throw new Error("the browser root and the pure module load two XmtpError classes");
+if (BrowserRoot.Timestamp !== PurePublic.Timestamp)
+  throw new Error("the browser root and the pure module load two Timestamp classes");
+let codecError: unknown;
+try {
+  new PurePublic.MarkdownCodec().decode(new PurePublic.TextCodec().encode("text"));
+} catch (error) {
+  codecError = error;
+}
+if (!(codecError instanceof BrowserRoot.XmtpError))
+  throw new Error("a pure codec error is not the browser root XmtpError");
 console.log("XMTP SDK worker and pure WASM initialized");

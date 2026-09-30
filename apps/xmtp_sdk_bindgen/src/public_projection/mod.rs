@@ -122,9 +122,11 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
     )?;
     // Keep the projection's target import private. Package staging supplies the
     // final browser/node conditions when the public adapters are installed.
-    // The pure module is ES modules only: its root re-exports the binding with
-    // a star export, which a CommonJS load would drop.
-    let module_type = if target == Target::Pure {
+    // The browser trees are ES modules only. The pure root re-exports the
+    // binding with a star export, which a CommonJS load would drop, and the
+    // worker root imports the pure module's classes, so both trees must load
+    // as one module kind for `instanceof` to hold under a TypeScript loader.
+    let module_type = if target != Target::Node {
         "\"type\":\"module\","
     } else {
         ""
