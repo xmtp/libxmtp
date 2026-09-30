@@ -376,6 +376,39 @@ impl MessageBody {
     }
 }
 
+impl DecodedMessage {
+    /// The deletion item for an expired message: its identity and metadata,
+    /// shown as the deleted-message placeholder, with no body or fallback.
+    /// A body decoded from nothing would read as an empty message or as a
+    /// decode failure.
+    // implements: META-051
+    pub(crate) fn expired(value: StoredGroupMessage) -> Self {
+        DecodedMessage {
+            metadata: DecodedMessageMetadata {
+                id: value.id,
+                group_id: value.group_id,
+                sent_at_ns: value.sent_at_ns,
+                kind: value.kind,
+                sender_installation_id: value.sender_installation_id,
+                sender_inbox_id: value.sender_inbox_id,
+                delivery_status: value.delivery_status,
+                content_type: Some(crate::messages::enrichment::deleted_message_content_type()),
+                inserted_at_ns: value.inserted_at_ns,
+                expires_at_ns: value.expire_at_ns,
+            },
+            // `DeletedBy` has no expiry variant, and adding one changes the
+            // binding types. `Sender` is the least wrong existing value: no
+            // admin removed the message, and `Admin` needs an inbox id.
+            content: MessageBody::DeletedMessage {
+                deleted_by: DeletedBy::Sender,
+            },
+            fallback_text: None,
+            reactions: Vec::new(),
+            num_replies: 0,
+        }
+    }
+}
+
 /// Decode a stored message from its exact bytes. Content failures are kept
 /// in the body, so every stored row produces a message.
 impl From<StoredGroupMessage> for DecodedMessage {

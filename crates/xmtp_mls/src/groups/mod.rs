@@ -4,6 +4,7 @@ mod lifecycle;
 mod membership;
 mod messages;
 mod metadata;
+mod metadata_fields;
 mod state;
 pub use builders::*;
 pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot, restored_metadata};

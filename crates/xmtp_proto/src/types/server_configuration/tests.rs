@@ -1,8 +1,10 @@
 use super::*;
 use xmtp_configuration::{
-    BACKEND_DEFAULT_MAX_PUBLISH_TOPICS, BACKEND_DEFAULT_MAX_QUERY_LIMIT,
-    BACKEND_DEFAULT_MAX_UPLOAD_BYTES, BACKEND_DEFAULT_WELCOME_SECONDS, ENABLE_COMMIT_LOG,
-    MAX_ATTACHMENT_RETENTION_SECONDS, MAX_ATTACHMENT_UPLOAD_BYTES, MAX_GROUP_SIZE,
+    ApplicationComponentDefinition, ApplicationComponentError, BACKEND_DEFAULT_MAX_PUBLISH_TOPICS,
+    BACKEND_DEFAULT_MAX_QUERY_LIMIT, BACKEND_DEFAULT_MAX_UPLOAD_BYTES,
+    BACKEND_DEFAULT_WELCOME_SECONDS, ComponentPermissions, ENABLE_COMMIT_LOG,
+    MAX_ATTACHMENT_RETENTION_SECONDS, MAX_ATTACHMENT_UPLOAD_BYTES, MAX_GROUP_SIZE, MetadataPolicy,
+    ServerConfigurationError,
 };
 
 /// A response with every published field set, so a test can prove each one
@@ -56,6 +58,51 @@ fn populated() -> backend_v1::GetConfigurationResponse {
         }),
         smart_contract_wallet_chains: vec!["eip155:1".to_owned(), "eip155:8453".to_owned()],
         attachments: None,
+        application_components: vec![backend_v1::ApplicationComponentDefinition {
+            component_id: 0xC001,
+            name: "USER_PRONOUNS".to_owned(),
+            component_type: 7,
+            permissions: Some(mls::ComponentPermissions {
+                insert_policy: Some(base(5)),
+                update_policy: Some(mls::MetadataPolicy {
+                    kind: Some(Kind::AnyCondition(AnyCondition {
+                        policies: vec![base(5), base(3)],
+                    })),
+                }),
+                delete_policy: Some(mls::MetadataPolicy {
+                    kind: Some(Kind::AndCondition(AndCondition {
+                        policies: vec![base(4)],
+                    })),
+                }),
+            }),
+            in_groups: true,
+            in_dms: false,
+        }],
+    }
+}
+
+fn base(tag: i32) -> mls::MetadataPolicy {
+    mls::MetadataPolicy {
+        kind: Some(Kind::Base(tag)),
+    }
+}
+
+/// The native form of the catalogue entry in `populated`.
+fn pronouns() -> ApplicationComponentDefinition {
+    ApplicationComponentDefinition {
+        component_id: 0xC001,
+        name: "USER_PRONOUNS".to_owned(),
+        component_type: 7,
+        permissions: ComponentPermissions {
+            insert: Some(MetadataPolicy::Base(5)),
+            update: Some(MetadataPolicy::Any(vec![
+                MetadataPolicy::Base(5),
+                MetadataPolicy::Base(3),
+            ])),
+            delete: Some(MetadataPolicy::And(vec![MetadataPolicy::Base(4)])),
+        },
+        in_groups: true,
+        in_dms: false,
     }
 }
 
@@ -115,6 +162,55 @@ fn every_published_field_survives_the_conversion() {
     assert_eq!(
         configuration.smart_contract_wallet_chains,
         vec!["eip155:1".to_owned(), "eip155:8453".to_owned()]
+    );
+    assert_eq!(configuration.application_components, vec![pronouns()]);
+}
+
+// The backend publishes through the reverse conversion and a client later
+// copies the snapshot entry into a group registry, so both directions must
+// carry every field and every policy shape unchanged.
+// verifies: CONF-079
+#[xmtp_common::test(unwrap_try = true)]
+fn the_catalogue_converts_both_ways_unchanged() {
+    let published = populated().application_components.remove(0);
+    assert_eq!(
+        backend_v1::ApplicationComponentDefinition::from(pronouns()),
+        published
+    );
+    assert_eq!(ApplicationComponentDefinition::from(published), pronouns());
+}
+
+// A definition the client cannot represent faithfully must still fail
+// validation, not turn into a different, valid definition.
+// verifies: CONF-071
+#[xmtp_common::test(unwrap_try = true)]
+fn an_unrepresentable_definition_is_refused_after_conversion() {
+    let reason = |edit: fn(&mut backend_v1::ApplicationComponentDefinition)| {
+        let mut response = populated();
+        edit(&mut response.application_components[0]);
+        ServerConfiguration::from(response).validate()
+    };
+    let refused = |reason| Err(ServerConfigurationError::ApplicationComponent { index: 0, reason });
+
+    // 0x1C001 would truncate to the valid 0xC001.
+    assert_eq!(
+        reason(|d| d.component_id = 0x1_C001),
+        refused(ApplicationComponentError::ComponentId)
+    );
+    assert_eq!(
+        reason(|d| d.permissions = None),
+        refused(ApplicationComponentError::Permissions)
+    );
+    assert_eq!(
+        reason(|d| d.permissions.as_mut().unwrap().delete_policy = None),
+        refused(ApplicationComponentError::Permissions)
+    );
+    // A policy with no kind is set but unusable, like the unspecified base.
+    assert_eq!(
+        reason(|d| {
+            d.permissions.as_mut().unwrap().insert_policy = Some(mls::MetadataPolicy { kind: None })
+        }),
+        refused(ApplicationComponentError::Permissions)
     );
 }
 

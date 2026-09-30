@@ -6,7 +6,7 @@ use crate::{
 /// Everything an operator sets in TOML must come back on the wire, and the
 /// response must be reachable without a credential.
 #[xmtp_common::test(unwrap_try = true)]
-// verifies: CONF-069, CONF-070
+// verifies: CONF-069, CONF-070, CONF-079
 async fn published_settings_round_trip_from_the_configuration_file() {
     let server = TestServer::from_toml(
         "[server]
@@ -23,6 +23,24 @@ group_message_seconds = 604800
 [chains]
 'eip155:1' = 'https://chain.example.com'
 'eip155:8453' = 'https://base.example.com'
+[[application_components]]
+component_id = 0xC001
+name = 'USER_PRONOUNS'
+component_type = 'tls_map_inbox_id_string'
+insert_policy = 'allow_if_self_or_non_member'
+update_policy = 'allow_if_self_or_non_member'
+delete_policy = 'allow_if_admin'
+in_groups = true
+in_dms = true
+[[application_components]]
+component_id = 0xC000
+name = 'topic'
+component_type = 'string'
+insert_policy = 'allow'
+update_policy = 'allow_if_admin'
+delete_policy = 'deny'
+in_groups = true
+in_dms = false
 ",
     )
     .await?;
@@ -50,6 +68,12 @@ group_message_seconds = 604800
         published.smart_contract_wallet_chains,
         ["eip155:1", "eip155:8453"]
     );
+    let catalogue: Vec<_> = published
+        .application_components
+        .iter()
+        .map(|definition| (definition.component_id, definition.name.as_str()))
+        .collect();
+    assert_eq!(catalogue, [(0xC000, "topic"), (0xC001, "USER_PRONOUNS")]);
     server.stop().await?;
 }
 

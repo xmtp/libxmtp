@@ -74,6 +74,10 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                 &opts,
                 context.inbox_id(),
                 None,
+                &context
+                    .server_configuration()
+                    .configuration()
+                    .application_components,
             )
             .map_err(app_data::migration::BootstrapSynthesisError::from)?;
             let config = build_group_config(dictionary)?;

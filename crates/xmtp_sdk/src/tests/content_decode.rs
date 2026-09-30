@@ -141,17 +141,51 @@ async fn invalid_reply_parent_body_does_not_break_reads() {
     use xmtp_content_types::{
         ContentCodec,
         actions::{Actions, ActionsCodec},
+        group_updated::GroupUpdatedCodec,
     };
+    use xmtp_db::{Store, group_message::QueryGroupMessage};
+    use xmtp_proto::xmtp::mls::message_contents::GroupUpdated;
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let actions: Actions = serde_json::from_str(
         r#"{"id":"far-future","description":"Choose","expiresAt":"9999-12-31T23:59:59.999Z","actions":[{"id":"one","label":"One"}]}"#,
     )?;
-    let parents = [("actions", ActionsCodec::encode(actions)?.into())];
+    // An older peer can still send a transcript type as application content.
+    // The send checks refuse it here, so that parent is stored directly.
+    let parents = [
+        (
+            "group_updated",
+            GroupUpdatedCodec::encode(GroupUpdated {
+                initiated_by_inbox_id: String::new(),
+                ..Default::default()
+            })?,
+        ),
+        ("actions", ActionsCodec::encode(actions)?),
+    ];
     let reader = group.message_reader().await?;
     for (kind, content) in parents {
-        let parent_id = group.send(content, None).await?;
+        let parent_id = if kind == "group_updated" {
+            let template = group.inner.prepare_message_for_later_publish(
+                b"parent template",
+                false,
+                Some("template".into()),
+            )?;
+            let db = group.inner.context.db();
+            let mut stored = db.get_group_message(&template)?.unwrap();
+            let bytes = prost::Message::encode_to_vec(&content);
+            stored.id = xmtp_mls::utils::id::calculate_message_id(
+                group.inner.group_id,
+                &bytes,
+                "forged-parent",
+            );
+            stored.decrypted_message_bytes = bytes;
+            stored.idempotency_key = "forged-parent".into();
+            stored.store(&db)?;
+            MessageId::from_bytes(&stored.id)?
+        } else {
+            group.send(content.into(), None).await?
+        };
         let reply_id = client
             .conversations()
             .reply_to_message(parent_id, crate::encode_text("reply".into())?, None)

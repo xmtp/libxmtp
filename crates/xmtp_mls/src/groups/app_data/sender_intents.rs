@@ -2,16 +2,21 @@
 //!
 //! Each helper here corresponds to one `IntentKind` branch in
 //! `mls_sync.rs::get_publish_intent_data`. The caller has already
-//! loaded the dictionary-native group; these
-//! functions stage the inline `AppDataUpdate` commit and return the
+//! loaded the dictionary-native group; these functions propose the
+//! intent's `AppDataUpdate`s, stage one commit of them, and return the
 //! resulting `PublishIntentData`.
 
-use std::collections::BTreeMap;
-
-use openmls::{group::MlsGroup as OpenMlsGroup, prelude::tls_codec::Serialize};
+use openmls::{
+    group::MlsGroup as OpenMlsGroup, messages::proposals::AppDataUpdateOperation,
+    prelude::tls_codec::Serialize,
+};
 use openmls_traits::signatures::Signer;
 use prost::Message;
-use tls_codec::VLBytes;
+use std::collections::{HashMap, HashSet};
+
+use openmls::extensions::AppDataDictionary;
+use tls_codec::{Deserialize, VLBytes};
+use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
@@ -20,22 +25,24 @@ use xmtp_mls_common::{
             inbox_id_set::{AdminListComponent, SuperAdminListComponent},
             tls_map_components::ComponentRegistryComponent,
         },
+        fields::{FieldError, FieldSnapshot, FieldWrite},
         typed::Component,
     },
     group_mutable_metadata::GroupMutableMetadataError,
     inbox_id::InboxId,
-    tls_map::TlsMapDelta,
+    tls_map::{TlsMap, TlsMapDelta},
     tls_set::{TlsSetDelta, TlsSetMutation},
+};
+use xmtp_mls_validation::commit::{
+    AppDataUpdateInCommit, extract_commit_participant, read_committed_metadata,
+    validate_app_data_update_sequence,
 };
 use xmtp_proto::xmtp::mls::message_contents::{
     MetadataPolicy as MetadataPolicyProto,
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
-use super::{
-    pending_app_data_updates, stage_app_data_proposals_and_commit,
-    stage_app_data_propose_and_commit,
-};
+use super::{load_component_registry, pending_dictionary, stage_app_data_proposals_and_commit};
 use crate::groups::{
     AdminListActionType, GroupError,
     error::MetadataPermissionsError,
@@ -63,6 +70,7 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdateAdminListIntentData,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
@@ -93,32 +101,14 @@ pub(crate) fn apply_update_admin_list_app_data_intent(
     }
     .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_prepared_commit(
+    stage_updates(
         storage,
         openmls_group,
-        move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_app_data_propose_and_commit(
-                group,
-                provider,
-                &signer,
-                component_id,
-                payload,
-            )?)
-        },
-    )?;
-
-    let (commit, welcome, _group_info) = bundle.into_messages();
-    let post_commit_action = welcome_post_commit_action(welcome, staged_commit.as_deref())?;
-    Ok(PublishIntentData {
-        payloads_to_publish: vec![
-            proposal_msg.tls_serialize_detached()?,
-            commit.tls_serialize_detached()?,
-        ],
-        staged_commit,
-        post_commit_action,
+        vec![(component_id, AppDataUpdateOperation::Update(payload.into()))],
+        catalogue,
+        signer,
         should_send_push_notification,
-        group_epoch,
-    })
+    )
 }
 
 /// Stage the `AppDataUpdate` commit for an `UpdatePermission` intent on
@@ -128,6 +118,7 @@ pub(crate) fn apply_update_permission_app_data_intent(
     storage: &impl XmtpMlsStorageProvider,
     openmls_group: &mut OpenMlsGroup,
     intent_data: UpdatePermissionIntentData,
+    catalogue: &[ApplicationComponentDefinition],
     signer: impl Signer,
     should_send_push_notification: bool,
 ) -> Result<PublishIntentData, GroupError> {
@@ -173,22 +164,14 @@ pub(crate) fn apply_update_permission_app_data_intent(
     // The commit includes pending proposals from all members. Read their
     // accumulated state before replacing a whole registry entry, so an edit
     // to one policy field cannot undo a pending edit to another field.
-    let pending: BTreeMap<_, _> = pending_app_data_updates(openmls_group)?
-        .into_iter()
-        .flatten()
-        .collect();
+    let pending = pending_dictionary(openmls_group)?;
     let read = |id: ComponentId| {
-        match pending.get(&id.as_u16()) {
-            Some(value) => value.as_deref(),
-            None => openmls_group
-                .extensions()
-                .app_data_dictionary()
-                .and_then(|extension| extension.dictionary().get(&id.as_u16())),
-        }
-        .ok_or_else(|| ComponentSourceError::MalformedComponentValue {
-            component_id: id,
-            reason: "component is missing from pending state".into(),
-        })
+        pending
+            .get(&id.as_u16())
+            .ok_or_else(|| ComponentSourceError::MalformedComponentValue {
+                component_id: id,
+                reason: "component is missing from pending state".into(),
+            })
     };
     let registry =
         ComponentRegistry::from_bytes(read(ComponentId::COMPONENT_REGISTRY)?).map_err(|error| {
@@ -233,14 +216,145 @@ pub(crate) fn apply_update_permission_app_data_intent(
     let payload = <ComponentRegistryComponent as Component>::encode_mutation(&delta)
         .map_err(|e| GroupError::ComponentSource(ComponentSourceError::from(e)))?;
 
-    let updates = vec![(ComponentId::COMPONENT_REGISTRY, payload)];
+    stage_updates(
+        storage,
+        openmls_group,
+        vec![(
+            ComponentId::COMPONENT_REGISTRY,
+            AppDataUpdateOperation::Update(payload.into()),
+        )],
+        catalogue,
+        signer,
+        should_send_push_notification,
+    )
+}
 
+/// Stage the commit of an [`AppDataUpdateIntentData`], or `None` when
+/// its field writes change nothing.
+///
+/// A payload intent is proposed verbatim. Field writes are resolved
+/// against the committed registry, which is the authority for their
+/// types and policies, and against the dictionary the commit
+/// starts from, which decides whether an own-key write is an insert or an
+/// update. A field that is gone or changed type since the write was
+/// encoded fails the intent.
+// implements: META-071, META-073
+pub(crate) fn apply_app_data_update_intent(
+    storage: &impl XmtpMlsStorageProvider,
+    openmls_group: &mut OpenMlsGroup,
+    intent_data: AppDataUpdateIntentData,
+    own: InboxId,
+    catalogue: &[ApplicationComponentDefinition],
+    signer: impl Signer,
+    should_send_push_notification: bool,
+) -> Result<Option<PublishIntentData>, GroupError> {
+    let updates = match intent_data {
+        AppDataUpdateIntentData::Payload {
+            component_id,
+            payload,
+        } => vec![(
+            ComponentId::new(component_id),
+            AppDataUpdateOperation::Update(payload.into()),
+        )],
+        AppDataUpdateIntentData::Fields(writes) => {
+            resolve_field_writes(openmls_group, own, &writes)?
+        }
+    };
+    if updates.is_empty() {
+        return Ok(None);
+    }
+    stage_updates(
+        storage,
+        openmls_group,
+        updates,
+        catalogue,
+        signer,
+        should_send_push_notification,
+    )
+    .map(Some)
+}
+
+/// The `AppDataUpdate` operations of `writes` by `own` in a commit built
+/// now. Field types and policies come from the committed registry; current
+/// values and membership from the committed dictionary with pending
+/// proposals applied. A write the policies deny is refused here, as every
+/// receiver would refuse it, so it is never published.
+pub(crate) fn resolve_field_writes(
+    openmls_group: &OpenMlsGroup,
+    own: InboxId,
+    writes: &[FieldWrite],
+) -> Result<Vec<(ComponentId, AppDataUpdateOperation)>, GroupError> {
+    let committed = openmls_group
+        .extensions()
+        .app_data_dictionary()
+        .map(|extension| extension.dictionary());
+    let values = pending_dictionary(openmls_group)?;
+    let updates = FieldSnapshot::new(committed, &[])?.resolve_writes(Some(&values), own, writes)?;
+    authorize_updates(openmls_group, &values, &updates)?;
+    Ok(updates)
+}
+
+/// Check `updates` by this client, in order, against the committed
+/// registry's policies as a receiver would, starting from `values`.
+///
+/// The `GROUP_MEMBERSHIP` of `values` is the commit's post-commit
+/// membership: no field is `GROUP_MEMBERSHIP`, and membership upkeep only
+/// cleans up after removals already pending, never changing membership.
+// implements: META-071, META-073
+fn authorize_updates(
+    openmls_group: &OpenMlsGroup,
+    values: &AppDataDictionary,
+    updates: &[(ComponentId, AppDataUpdateOperation)],
+) -> Result<(), GroupError> {
+    let registry = load_component_registry(openmls_group)?;
+    let (immutable, mutable) = read_committed_metadata(openmls_group)?;
+    let own = extract_commit_participant(
+        &openmls_group.own_leaf_index(),
+        openmls_group,
+        &immutable,
+        &mutable,
+    )?;
+    let value = |id: ComponentId| values.get(&id.as_u16()).map(<[u8]>::to_vec);
+    let members = value(ComponentId::GROUP_MEMBERSHIP)
+        .and_then(|bytes| TlsMap::<InboxId, VLBytes>::tls_deserialize_exact(bytes).ok())
+        .map(|map| map.keys().copied().collect::<HashSet<_>>());
+    let mut states = HashMap::new();
+    for (id, operation) in updates {
+        let update = AppDataUpdateInCommit {
+            component_id: *id,
+            operation,
+            actor: (&own).into(),
+            proposer_inbox_id: &own.inbox_id,
+        };
+        let post = validate_app_data_update_sequence(
+            [update],
+            |id| states.get(&id).cloned().unwrap_or_else(|| value(id)),
+            &registry,
+            immutable.dm_members.as_ref(),
+            members.as_ref(),
+        )
+        .map_err(|_| FieldError::Denied(*id))?;
+        states.extend(post);
+    }
+    Ok(())
+}
+
+/// Propose `updates` and stage one commit of them, publishing the
+/// proposals before the commit.
+fn stage_updates(
+    storage: &impl XmtpMlsStorageProvider,
+    openmls_group: &mut OpenMlsGroup,
+    updates: Vec<(ComponentId, AppDataUpdateOperation)>,
+    catalogue: &[ApplicationComponentDefinition],
+    signer: impl Signer,
+    should_send_push_notification: bool,
+) -> Result<PublishIntentData, GroupError> {
     let ((proposal_messages, bundle), staged_commit, group_epoch) = generate_prepared_commit(
         storage,
         openmls_group,
         move |group, provider| -> Result<_, GroupError> {
             Ok(stage_app_data_proposals_and_commit(
-                group, provider, &signer, updates,
+                group, provider, &signer, catalogue, updates,
             )?)
         },
     )?;
@@ -254,73 +368,6 @@ pub(crate) fn apply_update_permission_app_data_intent(
     payloads_to_publish.push(commit.tls_serialize_detached()?);
     Ok(PublishIntentData {
         payloads_to_publish,
-        staged_commit,
-        post_commit_action,
-        should_send_push_notification,
-        group_epoch,
-    })
-}
-
-/// Stage the `AppDataUpdate(component_id, payload)` commit for a
-/// generic [`AppDataUpdateIntentData`]. Two op flavors:
-///
-/// - **`Replace(bytes)`** — the bytes ARE the new wire-form value of the
-///   component. The handler emits them directly via
-///   [`stage_app_data_propose_and_commit`]. Last-writer-wins; idempotent
-///   under replay. Covers every Bytes / String typed component
-///   (EXTERNAL_COMMIT_POLICY, GROUP_NAME, GROUP_IMAGE_URL, APP_DATA,
-///   COMMIT_LOG_SIGNER, MESSAGE_DISAPPEAR_*, MIN_SUPPORTED_PROTOCOL_VERSION).
-///
-/// - **`DeltaWithBase { pre, post }`** — for collection-typed components
-///   (TlsMap / TlsSet) where the on-wire AppDataUpdate proposal carries
-///   a *delta* against prior state. To replay correctly under concurrent
-///   same-key writes, the dispatcher reads current state at commit time
-///   and emits only the residual mutations. The residual computation is
-///   shape-specific and lives in a per-component table — landing it for
-///   each of the three collection shapes (`TlsSet<InboxId>`,
-///   `TlsMap<InboxId, bytes>`, `TlsMap<ComponentId, ComponentMetadata>`)
-///   is intentionally deferred to a follow-on PR that also migrates the
-///   existing typed `UpdateAdminList` / `UpdatePermission` /
-///   `UpdateGroupMembership` intents onto this generic shape.
-///
-///   The DeltaWithBase arm in this PR returns
-///   `GroupError::ProposalsNotSupported` with a clear error message —
-///   callers using L-0 today (only EXTERNAL_COMMIT_POLICY) only need
-///   the Replace flavor. Surfacing the explicit error keeps the
-///   forward-compat intent shape in place without silently downgrading
-///   collection writes to last-writer-wins (which would corrupt the
-///   collections' replay semantics).
-pub(crate) fn apply_app_data_update_intent(
-    storage: &impl XmtpMlsStorageProvider,
-    openmls_group: &mut OpenMlsGroup,
-    intent_data: AppDataUpdateIntentData,
-    signer: impl Signer,
-    should_send_push_notification: bool,
-) -> Result<PublishIntentData, GroupError> {
-    let component_id = ComponentId::new(intent_data.component_id);
-    let payload = intent_data.payload;
-
-    let ((proposal_msg, bundle), staged_commit, group_epoch) = generate_prepared_commit(
-        storage,
-        openmls_group,
-        move |group, provider| -> Result<_, GroupError> {
-            Ok(stage_app_data_propose_and_commit(
-                group,
-                provider,
-                &signer,
-                component_id,
-                payload,
-            )?)
-        },
-    )?;
-
-    let (commit, welcome, _group_info) = bundle.into_messages();
-    let post_commit_action = welcome_post_commit_action(welcome, staged_commit.as_deref())?;
-    Ok(PublishIntentData {
-        payloads_to_publish: vec![
-            proposal_msg.tls_serialize_detached()?,
-            commit.tls_serialize_detached()?,
-        ],
         staged_commit,
         post_commit_action,
         should_send_push_notification,

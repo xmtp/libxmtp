@@ -187,7 +187,7 @@ JSON payloads use [RFC 8259 §§4–8](https://www.rfc-editor.org/rfc/rfc8259.ht
 | Delete message | `xmtp.org/deleteMessage:1.0` | Protobuf `DeleteMessage` | none | false | no |
 | Edit message (reserved) | `xmtp.org/editMessage:1.0` | Protobuf `EditMessage` | none | false | no |
 
-Group updated and legacy membership change represent commit transcripts. GMOD-034 requires that the client derives transcript records from validated commits, and GMOD-035 that it never publishes either transcript type as an application message.
+Group updated and legacy membership change represent commit transcripts. GMOD-034 requires that the client derives transcript records from validated commits, and GMOD-035 that it does not publish either transcript type as an application message, except the saved bytes of an attempt already prepared.
 
 | ID | Title | Requirement | Why |
 | --- | --- | --- | --- |

@@ -5,6 +5,10 @@
 //! module owns the three places the database is touched: the resolve that runs
 //! once inside `build`, the refresh worker, and the explicit refresh the SDKs
 //! expose.
+//!
+//! The snapshot carries the deployment's application component catalogue with
+//! everything else it publishes, so a refreshed catalogue, like any other
+//! refreshed value, reaches only a client created later on the database.
 
 use std::sync::{
     Arc, OnceLock,

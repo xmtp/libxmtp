@@ -66,6 +66,7 @@ pub(crate) fn expand_inbox_id_set_changes(
     match op {
         AppDataUpdateOperation::Remove => Ok(vec![ExpandedComponentChange {
             op: ComponentOp::Delete,
+            key: None,
             value: None,
         }]),
         AppDataUpdateOperation::Update(payload) => {
@@ -130,10 +131,12 @@ pub(crate) fn expand_inbox_id_set_changes(
                 match mutation {
                     TlsSetMutation::Insert(key) => out.push(ExpandedComponentChange {
                         op: ComponentOp::Insert,
+                        key: None,
                         value: Some(key.into_bytes().to_vec()),
                     }),
                     TlsSetMutation::Remove(key) => out.push(ExpandedComponentChange {
                         op: ComponentOp::Delete,
+                        key: None,
                         value: Some(key.into_bytes().to_vec()),
                     }),
                     TlsSetMutation::RemoveByHash(target) => {
@@ -143,6 +146,7 @@ pub(crate) fn expand_inbox_id_set_changes(
                             .map(|id| id.as_bytes().to_vec());
                         out.push(ExpandedComponentChange {
                             op: ComponentOp::Delete,
+                            key: None,
                             value: resolved,
                         });
                     }

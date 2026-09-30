@@ -45,9 +45,6 @@ pub enum GroupError {
     /// Application messages cannot use a reserved transcript content type. Not retryable.
     #[error("reserved transcript content type")]
     ReservedTranscriptContentType,
-    /// A saved publish attempt may have reached the backend. Retry confirmation only.
-    #[error("send outcome unknown for intent {intent_id}")]
-    SendOutcomeUnknown { intent_id: i32 },
     #[error(transparent)]
     #[error_code(inherit)]
     OutgoingPreparation(#[from] super::mls_sync::publish::OutgoingPreparationError),
@@ -246,6 +243,11 @@ pub enum GroupError {
     /// AppDataUpdate path. Not retryable.
     #[error("component source error: {0}")]
     ComponentSource(#[from] xmtp_mls_common::app_data::component_source::ComponentSourceError),
+    /// A metadata field read or write is invalid for the group's committed
+    /// fields: an unknown field, a wrong type, or a write the committed
+    /// state rejects. Not retryable.
+    #[error("metadata field error: {0}")]
+    MetadataField(#[from] xmtp_mls_common::app_data::fields::FieldError),
     /// AppData commit error.
     ///
     /// Failed to build or stage a commit that bundles an inline AppDataUpdate
@@ -604,6 +606,7 @@ impl RetryableError for GroupError {
             Self::MinVersionDowngrade { .. } => false,
             Self::InvalidMinVersion { .. } => false,
             Self::ComponentSource(_) => false,
+            Self::MetadataField(_) => false,
             Self::AppDataCommit(e) => e.is_retryable(),
             // Bootstrap synthesis can fail on a transient identity-update
             // API blip — delegate to the inner error so we retry on
@@ -620,7 +623,6 @@ impl RetryableError for GroupError {
             Self::SyncFailedToWait(_) => true,
             Self::StreamBarrier(error) => error.is_retryable(),
             Self::PublishedButUnconfirmed { .. } => true,
-            Self::SendOutcomeUnknown { .. } => true,
             Self::CodecError(_) => true,
             Self::Sync(s) => s.is_retryable(),
             Self::Db(e) => e.is_retryable(),

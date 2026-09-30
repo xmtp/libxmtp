@@ -6,6 +6,9 @@
 //! valid supported metadata policies. Child order, duplicate
 //! children, and all condition wrappers are preserved.
 //!
+//! A metadata field's `ALLOW_IF_SELF_OR_NON_MEMBER` projects as `Deny`, its
+//! result on every scalar; an action entry that uses it is rejected.
+//!
 //! This is not an identity for arbitrary PolicySet values. Admin combinators
 //! have no forward mapping. Permission updates always require a super admin
 //! (including DMs, whose legacy policy is Deny). Creation fills sparse metadata
@@ -15,7 +18,7 @@ use openmls::{extensions::Extensions, group::GroupContext};
 use xmtp_proto::xmtp::mls::message_contents::{
     MembershipPolicy, MetadataPolicy, PermissionsUpdatePolicy, PolicySet,
     membership_policy::{self, BasePolicy as MembershipBasePolicy, Kind as MembershipPolicyKind},
-    metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+    metadata_policy::{self, Kind as MetadataPolicyKind, MetadataBasePolicy},
     permissions_update_policy::{Kind as PermissionsPolicyKind, PermissionsBasePolicy},
 };
 
@@ -133,18 +136,37 @@ pub fn validate_registry_action_policies(
     Ok(())
 }
 
-fn valid_metadata(policy: &MetadataPolicy) -> bool {
-    match &policy.kind {
-        Some(MetadataPolicyKind::Base(base)) => MetadataBasePolicy::try_from(*base)
-            .is_ok_and(|base| base != MetadataBasePolicy::Unspecified),
-        Some(MetadataPolicyKind::AndCondition(condition)) => {
-            !condition.policies.is_empty() && condition.policies.iter().all(valid_metadata)
+/// Project a metadata field's registry policy into the legacy vocabulary,
+/// or `None` for a malformed tree. Every projected field is a scalar, on
+/// which `ALLOW_IF_SELF_OR_NON_MEMBER` always denies, so it becomes `Deny`:
+/// the legacy `PolicySet` cannot carry it, and dropping the whole tree
+/// would misreport a sibling that allows.
+fn legacy_metadata_policy(policy: &MetadataPolicy) -> Option<MetadataPolicy> {
+    let children = |policies: &[MetadataPolicy]| {
+        (!policies.is_empty())
+            .then(|| policies.iter().map(legacy_metadata_policy).collect())
+            .flatten()
+    };
+    let kind = match policy.kind.as_ref()? {
+        MetadataPolicyKind::Base(base) => {
+            MetadataPolicyKind::Base(match MetadataBasePolicy::try_from(*base).ok()? {
+                MetadataBasePolicy::Unspecified => return None,
+                MetadataBasePolicy::AllowIfSelfOrNonMember => MetadataBasePolicy::Deny as i32,
+                _ => *base,
+            })
         }
-        Some(MetadataPolicyKind::AnyCondition(condition)) => {
-            !condition.policies.is_empty() && condition.policies.iter().all(valid_metadata)
+        MetadataPolicyKind::AndCondition(condition) => {
+            MetadataPolicyKind::AndCondition(metadata_policy::AndCondition {
+                policies: children(&condition.policies)?,
+            })
         }
-        None => false,
-    }
+        MetadataPolicyKind::AnyCondition(condition) => {
+            MetadataPolicyKind::AnyCondition(metadata_policy::AnyCondition {
+                policies: children(&condition.policies)?,
+            })
+        }
+    };
+    Some(MetadataPolicy { kind: Some(kind) })
 }
 
 /// Read the four action slots from COMPONENT_REGISTRY alone.
@@ -182,7 +204,7 @@ pub fn policy_set_from_dictionary(
         // This view validates the whole metadata tree. Enforcement can
         // short-circuit OR, so malformed trailing children can give a
         // different result. This pre-existing difference is retained.
-        .filter(valid_metadata)
+        .and_then(|policy| legacy_metadata_policy(&policy))
         .unwrap_or(MetadataPolicy {
             kind: Some(MetadataPolicyKind::Base(MetadataBasePolicy::Deny as i32)),
         });
@@ -377,6 +399,64 @@ mod tests {
             }
         }
         assert!(metadata_policy_to_admin_policy(&base(MetadataBasePolicy::Allow)).is_err());
+    }
+
+    /// The legacy membership and admin policies have no self-owned base, so
+    /// an action entry that uses one anywhere in its tree must be refused
+    /// rather than projected into a policy with another meaning.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-017
+    fn action_projection_rejects_self_or_non_member() {
+        let own = base(MetadataBasePolicy::AllowIfSelfOrNonMember);
+        let nested = MetadataPolicy {
+            kind: Some(MetadataPolicyKind::AnyCondition(AnyCondition {
+                policies: vec![base(MetadataBasePolicy::AllowIfAdmin), own.clone()],
+            })),
+        };
+        for policy in [&own, &nested] {
+            assert!(metadata_policy_to_membership_policy(policy).is_err());
+        }
+        assert!(metadata_policy_to_admin_policy(&own).is_err());
+
+        let mut registry = synthesize_registry_from_policy_set(&policy_set())?;
+        let mut metadata = registry.get(&ComponentId::GROUP_MEMBERSHIP)??;
+        metadata.permissions.as_mut()?.delete_policy = Some(nested);
+        registry.set(ComponentId::GROUP_MEMBERSHIP, metadata)?;
+        assert!(validate_registry_action_policies(&registry).is_err());
+    }
+
+    /// A self-owned base on a scalar metadata field always denies, so the
+    /// legacy view reports it as `Deny` in place and keeps an allowing
+    /// sibling, instead of failing the whole `PolicySet` or hiding the tree.
+    #[xmtp_common::test(unwrap_try = true)]
+    // verifies: PERM-024
+    fn metadata_projection_reports_self_or_non_member_as_deny() {
+        let (field, id, _) = &metadata_field_registry_mapping()[0];
+        let stored = MetadataPolicy {
+            kind: Some(MetadataPolicyKind::AnyCondition(AnyCondition {
+                policies: vec![
+                    base(MetadataBasePolicy::AllowIfSelfOrNonMember),
+                    base(MetadataBasePolicy::AllowIfAdmin),
+                ],
+            })),
+        };
+        let mut registry = synthesize_registry_from_policy_set(&policy_set())?;
+        let mut metadata = registry.get(id)??;
+        metadata.permissions.as_mut()?.update_policy = Some(stored);
+        registry.set(*id, metadata)?;
+
+        let projected = policy_set_from_dictionary(&extensions(&registry))?;
+        assert_eq!(
+            projected.update_metadata_policy[field.as_str()],
+            MetadataPolicy {
+                kind: Some(MetadataPolicyKind::AnyCondition(AnyCondition {
+                    policies: vec![
+                        base(MetadataBasePolicy::Deny),
+                        base(MetadataBasePolicy::AllowIfAdmin),
+                    ],
+                })),
+            }
+        );
     }
 
     #[xmtp_common::test(unwrap_try = true)]

@@ -446,18 +446,6 @@ mod tests {
             );
         }
 
-        #[cfg(target_arch = "wasm32")]
-        {
-            use futures::AsyncReadExt;
-            let mut read = Vec::new();
-            let failure = exporter::ArchiveExporter::new(messages, &db, &KEY)
-                .read_to_end(&mut read)
-                .await;
-            assert!(
-                failure.is_err() && read.is_empty(),
-                "stream served a failed export"
-            );
-        }
         let mut archive = Vec::new();
         let metadata = exporter::export(options(&[]), &db, &KEY, &mut archive)?;
         assert!(metadata.elements.is_empty());

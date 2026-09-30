@@ -5,8 +5,9 @@
 //! continue to use the intent infrastructure in `xmtp_mls` (`mls_sync.rs`)
 //! plus `stage_app_data_propose_and_commit`; this facade is for callers
 //! that need a single typed value (e.g. permissions checks, registry
-//! lookups, custom-component reads).
-//!
+//! lookups, custom-component reads). Developer-facing field access, which
+//! lists fields and resolves types from the committed registry, lives in
+//! [`fields`](super::fields).
 
 use crate::app_data::typed::Component;
 use openmls::extensions::Extensions;
