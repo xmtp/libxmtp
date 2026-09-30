@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import com.google.protobuf.InvalidProtocolBufferException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
@@ -9,6 +8,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -216,7 +216,7 @@ class MessageDeliveryFlowTest {
 
     // verifies: PROC-028
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
-    fun decodeAndCollectorFailuresRejectTheItem() =
+    fun decodeFailuresContinueButCollectorFailureRejectsTheItem() =
         runBlocking {
             val error = IllegalStateException("collector failed")
             val pending = Delivery()
@@ -238,32 +238,48 @@ class MessageDeliveryFlowTest {
                     .toBuilder()
                     .putParameters("encoding", "UTF-16")
                     .build()
-            for (
-            (content, errorType) in
-            listOf(
-                byteArrayOf(0x80.toByte()) to InvalidProtocolBufferException::class.java,
-                invalidEncoding.toByteArray() to XMTPException::class.java,
-            )
-            ) {
+            for (content in listOf(byteArrayOf(0x80.toByte()), invalidEncoding.toByteArray())) {
                 val delivery =
-                    Delivery(
-                        decodeValue = {
-                            DecodedMessage.createForDelivery(deliveryTestMessage(content), null)?.let { 1 }
-                        },
-                    )
+                    Delivery(decodeValue = {
+                        val decoded = DecodedMessage.createForDelivery(deliveryTestMessage(content), null)
+                        assertNotNull(decoded)
+                        assertNull(decoded!!.content<String>())
+                        1
+                    })
+                val later =
+                    Delivery(decodeValue = {
+                        val decoded =
+                            DecodedMessage.createForDelivery(
+                                deliveryTestMessage(TextCodec().encode("later").toByteArray()),
+                                null,
+                            )
+                        assertEquals("later", decoded!!.content<String>())
+                        2
+                    })
                 val received = mutableListOf<Int>()
-                val result =
-                    runCatching {
-                        acknowledgedMessageFlow<Int>(null) { callback ->
-                            callback.onMessage(delivery.queued())
-                            callback.onClose()
-                            return@acknowledgedMessageFlow {}
-                        }.collect { received.add(it) }
+                acknowledgedMessageFlow<Int>(null) { callback ->
+                    callback.onMessage(delivery.queued())
+                    launch {
+                        delivery.acknowledged.await()
+                        callback.onMessage(later.queued())
+                        later.acknowledged.await()
+                        callback.onClose()
                     }
-                assertTrue(errorType.isInstance(result.exceptionOrNull()))
-                assertTrue(received.isEmpty())
-                assertEquals(0, delivery.acknowledgements)
-                assertEquals(1, delivery.rejections)
+                    return@acknowledgedMessageFlow {}
+                }.collect {
+                    if (it == 1) {
+                        assertEquals(0, delivery.acknowledgements)
+                    } else {
+                        assertEquals(1, delivery.acknowledgements)
+                        assertEquals(0, later.acknowledgements)
+                    }
+                    received.add(it)
+                }
+                assertEquals(listOf(1, 2), received)
+                assertEquals(1, delivery.acknowledgements)
+                assertEquals(1, later.acknowledgements)
+                assertEquals(0, delivery.rejections)
+                assertEquals(0, later.rejections)
             }
         }
 

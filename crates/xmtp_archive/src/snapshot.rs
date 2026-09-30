@@ -20,7 +20,7 @@ use xmtp_db::{
     ConnectionExt, TransactionalKeyStore, XmtpMlsStorageProvider,
     consent_record::StoredConsentRecord,
     diesel::{Connection, SqliteConnection, connection::DefaultLoadingMode, prelude::*, sql_query},
-    group::{ConversationType, StoredGroup},
+    group::{ConversationType, GroupMembershipState, StoredGroup},
     group_message::{GroupMessageKind, StoredGroupMessage},
     schema::{consent_records, group_messages, groups},
 };
@@ -56,6 +56,7 @@ pub(crate) fn read(
     db.raw_query(|conn| Ok(conn.transaction(|conn| read_in_transaction(conn, opts, &mut emit))))?
 }
 
+// implements: ARCH-026
 fn read_in_transaction(
     conn: &mut SqliteConnection,
     opts: &ArchiveOptions,
@@ -81,6 +82,7 @@ fn read_in_transaction(
         loop {
             let mut page = groups::table
                 .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
+                .filter(groups::membership_state.ne(GroupMembershipState::Restored))
                 .order(groups::id)
                 .limit(GROUP_PAGE)
                 .into_boxed();
@@ -99,6 +101,7 @@ fn read_in_transaction(
         let mut messages = group_messages::table
             .inner_join(groups::table)
             .filter(groups::conversation_type.ne_all(ConversationType::virtual_types()))
+            .filter(groups::membership_state.ne(GroupMembershipState::Restored))
             .filter(group_messages::kind.eq(GroupMessageKind::Application))
             .select(StoredGroupMessage::as_select())
             .order(group_messages::id)

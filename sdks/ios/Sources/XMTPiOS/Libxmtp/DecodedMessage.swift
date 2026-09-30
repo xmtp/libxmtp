@@ -190,21 +190,18 @@ public struct DecodedMessage: Identifiable {
 		}
 	}
 
-	/// Return nil only for content that forges a reserved membership change,
-	/// which the delivery stream consumes without a handoff. Parse and codec
-	/// errors are raised to the caller. The delivery stream propagates them and
-	/// leaves the message pending: acknowledging one this client cannot decode
-	/// would advance the cursor past a message nothing has read.
+	/// Keep decode failures as messages so readers can advance after handoff.
+	/// Return nil only for content that forges a reserved membership change.
 	static func decodeForDelivery(ffiMessage: FfiMessage, deliveryCursor: FfiDeliveryCursor? = nil)
 		throws -> DecodedMessage?
 	{
-		let encodedContent = try EncodedContent(serializedBytes: ffiMessage.content)
-		if encodedContent.type == ContentTypeGroupUpdated,
+		let encodedContent = try? EncodedContent(serializedBytes: ffiMessage.content)
+		if encodedContent?.type == ContentTypeGroupUpdated,
 		   ffiMessage.kind != .membershipChange
 		{
 			return nil
 		}
-		let decodedContent: Any = try encodedContent.decoded()
+		let decodedContent: Any? = try? encodedContent?.decoded()
 		return DecodedMessage(
 			ffiMessage: ffiMessage, decodedContent: decodedContent,
 			deliveryCursor: deliveryCursor

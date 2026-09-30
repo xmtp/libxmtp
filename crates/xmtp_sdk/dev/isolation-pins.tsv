@@ -4,12 +4,12 @@ bindings/node/src/messages/decoded_message.rs	29cb29924b3e83db0e73b49230da5a8e42
 bindings/wasm/src/content_types/decoded_message_content.rs	b1b83022a70cf17a8001d3f160a9833c647de093
 bindings/wasm/src/enriched_message.rs	5d3fc4699a5d36c9b3df0bebef7bc78ea13ed5c8
 sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessageV2.swift	3479688eb58dcba6c59800782b2d5a333cc5200a
-sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift	59b6d0604d58a778f9a1e9fca78601a25a4d91bc
-sdks/ios/Sources/XMTPiOS/MessageDeliveryStream.swift	4f4c7388632311e57f0d546cdaff2f83b54554d9
+sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift	737737885cd197f8a2a72590294cc89ab3d4a82e
+sdks/ios/Sources/XMTPiOS/MessageDeliveryStream.swift	b6f1fc4f2ba9131589cbbb3357e47f48d6f52b48
 sdks/ios/Sources/XMTPiOS/MessageReader.swift	48ead1937a809f56133a1bd500538b347fa193df
-sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift	ea0d77f3eccbd2809e26471f8ec0a0e04390f866
+sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift	4fbb2c3aea593b10f02ba180cbc8fcb04a8aead9
 sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt	4f1d0ab5ff0f7827c743db687b7715daf2dd12a7
-sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt	5ac5f2375fdabb1349f06ecab10220940ae7094b
+sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt	06dae161fdcf18cc1d1fddc5a277468f5ff37442
 sdks/node/src/DecodedMessage.ts	261bced2a079ad553cb4d5ff8fa28cccbb13b157
 sdks/browser/src/DecodedMessage.ts	0fef8b623227c07a3bbe3afa66389419bc4d53b1
 bindings/mobile/src/mls/conversation.rs	35e33ddc5c9eb6645df10a8d023c6b14ec9ff9c7

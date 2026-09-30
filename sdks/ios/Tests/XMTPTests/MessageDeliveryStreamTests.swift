@@ -13,6 +13,7 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		case text
 		case forgedMembership
 		case malformed
+		case codecFailure
 	}
 
 	private final class Token: MessageDeliveryToken, @unchecked Sendable {
@@ -108,6 +109,11 @@ final class MessageDeliveryStreamTests: XCTestCase {
 			try GroupUpdatedCodec().encode(content: GroupUpdated()).serializedData()
 		case .malformed:
 			Data([0xFF])
+		case .codecFailure:
+			try EncodedContent.with {
+				$0.type = ContentTypeText
+				$0.parameters = ["encoding": "UTF-16"]
+			}.serializedData()
 		}
 		return QueuedMessageDelivery(
 			message: FfiMessage(
@@ -304,40 +310,44 @@ final class MessageDeliveryStreamTests: XCTestCase {
 		XCTAssertEqual(stale.counts().acknowledgements, 0)
 	}
 
-	func testDecodeFailureRejectsTheItemAndStops() async throws {
-		let token = Token()
-		let later = Token()
-		let stream = MessageDeliveryStream(onClose: nil)
-		defer { stream.finish() }
-		let malformed = try delivery(token: token, content: .malformed)
-		let valid = try delivery(2, token: later)
-		stream.receive(malformed)
-		try await assertThrowsAsyncError(await stream.next()) { error in
-			XCTAssertTrue(error is BinaryDecodingError)
-		}
-		stream.receive(valid)
-		XCTAssertEqual(token.counts().acknowledgements, 0)
-		XCTAssertEqual(token.counts().rejections, 1)
-		XCTAssertEqual(later.counts().acknowledgements, 0)
-		XCTAssertEqual(later.counts().rejections, 1)
+	func testDecodeFailuresAreHandedOffAndStreamContinues() async throws {
+		for content in [TestContent.malformed, .codecFailure] {
+			let token = Token()
+			let later = Token()
+			let stream = MessageDeliveryStream(onClose: nil)
+			defer { stream.finish() }
+			let failed = try delivery(token: token, content: content)
+			let valid = try delivery(2, token: later)
+			stream.receive(failed)
+			let firstValue = try await stream.next()
+			let first = try XCTUnwrap(firstValue)
+			XCTAssertEqual(first.id, "01")
+			XCTAssertEqual(first.deliveryCursor, failed.cursor)
+			XCTAssertEqual(first.ffiMessage.content, failed.message.content)
+			XCTAssertThrowsError(try first.content() as String)
+			if case .malformed = content {
+				XCTAssertThrowsError(try first.encodedContent)
+			} else {
+				XCTAssertEqual(try first.encodedContent.serializedData(), failed.message.content)
+			}
+			XCTAssertEqual(token.counts().acknowledgements, 0)
+			stream.receive(valid)
+			let secondValue = try await stream.next()
+			let second = try XCTUnwrap(secondValue)
+			XCTAssertEqual(try second.content() as String, "message 2")
+			XCTAssertEqual(token.counts().acknowledgements, 1)
+			XCTAssertEqual(token.counts().rejections, 0)
+			XCTAssertEqual(later.counts().acknowledgements, 0)
 
-		let forged = try delivery(0, token: Token(), content: .forgedMembership)
-		let snapshotCursor = FfiDeliveryCursor(
-			databaseId: valid.cursor.databaseId, deliverySequence: 3
-		)
-		let snapshot = try MessageHistorySnapshot(FfiMessageHistorySnapshot(
-			messages: [forged, valid].map { FfiHistoryMessage(message: $0.message, cursor: $0.cursor) },
-			cursor: snapshotCursor
-		))
-		XCTAssertEqual(snapshot.messages.map(\.id), ["02"])
-		XCTAssertEqual(try snapshot.messages.map { try $0.content() as String }, ["message 2"])
-		XCTAssertEqual(snapshot.messages.first?.deliveryCursor, valid.cursor)
-		XCTAssertEqual(snapshot.cursor, snapshotCursor)
-		XCTAssertThrowsError(try MessageHistorySnapshot(FfiMessageHistorySnapshot(
-			messages: [forged, malformed, valid].map { FfiHistoryMessage(message: $0.message, cursor: $0.cursor) },
-			cursor: snapshotCursor
-		))) { error in
-			XCTAssertTrue(error is BinaryDecodingError)
+			let forged = try delivery(0, token: Token(), content: .forgedMembership)
+			let snapshot = try MessageHistorySnapshot(FfiMessageHistorySnapshot(
+				messages: [forged, failed, valid].map { FfiHistoryMessage(message: $0.message, cursor: $0.cursor) },
+				cursor: valid.cursor
+			))
+			XCTAssertEqual(snapshot.messages.map(\.id), ["01", "02"])
+			XCTAssertThrowsError(try snapshot.messages[0].content() as String)
+			XCTAssertEqual(try snapshot.messages[1].content() as String, "message 2")
+			XCTAssertEqual(snapshot.cursor, valid.cursor)
 		}
 	}
 

@@ -17622,6 +17622,7 @@ public func FfiConverterTypeFfiSyncMetric_lower(_ value: FfiSyncMetric) -> RustB
 
 public enum FfiWorkerKind: Equatable, Hashable {
     
+    case attachmentCleanup
     case deviceSync
     case disappearingMessages
     case keyPackageCleaner
@@ -17650,19 +17651,21 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
         let variant: Int32 = try readInt(&buf)
         switch variant {
         
-        case 1: return .deviceSync
+        case 1: return .attachmentCleanup
         
-        case 2: return .disappearingMessages
+        case 2: return .deviceSync
         
-        case 3: return .keyPackageCleaner
+        case 3: return .disappearingMessages
         
-        case 4: return .commitLog
+        case 4: return .keyPackageCleaner
         
-        case 5: return .taskRunner
+        case 5: return .commitLog
         
-        case 6: return .configurationRefresh
+        case 6: return .taskRunner
         
-        case 7: return .hmacEpoch
+        case 7: return .configurationRefresh
+        
+        case 8: return .hmacEpoch
         
         default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -17672,32 +17675,36 @@ public struct FfiConverterTypeFfiWorkerKind: FfiConverterRustBuffer {
         switch value {
         
         
-        case .deviceSync:
+        case .attachmentCleanup:
             writeInt(&buf, Int32(1))
         
         
-        case .disappearingMessages:
+        case .deviceSync:
             writeInt(&buf, Int32(2))
         
         
-        case .keyPackageCleaner:
+        case .disappearingMessages:
             writeInt(&buf, Int32(3))
         
         
-        case .commitLog:
+        case .keyPackageCleaner:
             writeInt(&buf, Int32(4))
         
         
-        case .taskRunner:
+        case .commitLog:
             writeInt(&buf, Int32(5))
         
         
-        case .configurationRefresh:
+        case .taskRunner:
             writeInt(&buf, Int32(6))
         
         
-        case .hmacEpoch:
+        case .configurationRefresh:
             writeInt(&buf, Int32(7))
+        
+        
+        case .hmacEpoch:
+            writeInt(&buf, Int32(8))
         
         }
     }

@@ -15,11 +15,14 @@ import java.util.Date
 
 class DecodedMessage private constructor(
     private val libXMTPMessage: FfiMessage,
-    val encodedContent: Content.EncodedContent,
+    private val parsedContent: Content.EncodedContent?,
     private val decodedContent: Any?,
     /** Database-local resume cursor. Present on streamed messages. Reading it does not acknowledge delivery. */
     val deliveryCursor: FfiDeliveryCursor? = null,
 ) {
+    val encodedContent: Content.EncodedContent
+        get() = parsedContent ?: EncodedContent.parseFrom(libXMTPMessage.content)
+
     enum class MessageDeliveryStatus {
         ALL,
         PUBLISHED,
@@ -92,25 +95,29 @@ class DecodedMessage private constructor(
         fun create(
             libXMTPMessage: FfiMessage,
             deliveryCursor: FfiDeliveryCursor?,
-        ): DecodedMessage? =
+        ): DecodedMessage? = createForDelivery(libXMTPMessage, deliveryCursor)
+
+        private inline fun <T> decodeOrNull(decode: () -> T): T? =
             try {
-                createForDelivery(libXMTPMessage, deliveryCursor)
-            } catch (e: Exception) {
-                null // Return null if decoding fails
+                decode()
+            } catch (error: VirtualMachineError) {
+                throw error
+            } catch (error: Throwable) {
+                null
             }
 
-        /** Null excludes forged membership content. Parse and codec errors remain errors. */
+        /** Keep decode failures for handoff. Null excludes forged membership content. */
         internal fun createForDelivery(
             libXMTPMessage: FfiMessage,
             deliveryCursor: FfiDeliveryCursor?,
         ): DecodedMessage? {
-            val encodedContent = EncodedContent.parseFrom(libXMTPMessage.content)
-            if (encodedContent.type == ContentTypeGroupUpdated &&
+            val encodedContent = decodeOrNull { EncodedContent.parseFrom(libXMTPMessage.content) }
+            if (encodedContent?.type == ContentTypeGroupUpdated &&
                 libXMTPMessage.kind != FfiConversationMessageKind.MEMBERSHIP_CHANGE
             ) {
                 return null
             }
-            val decodedContent = encodedContent.decoded<Any>()
+            val decodedContent = decodeOrNull { encodedContent?.decoded<Any>() }
             return DecodedMessage(libXMTPMessage, encodedContent, decodedContent, deliveryCursor = deliveryCursor)
         }
     }

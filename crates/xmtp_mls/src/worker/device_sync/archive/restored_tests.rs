@@ -105,21 +105,13 @@ async fn restored_history_keeps_source_fields_and_independent_settings() {
         assert_eq!(after.created_at_ns, row.created_at_ns);
         assert_eq!(after.added_by_inbox_id, row.added_by_inbox_id);
         assert_eq!(after.last_message_ns, Some(500));
-        let exported = exported_groups(alix.db()).await?;
-        let exported = &exported[&save.id];
-        assert_eq!(exported.created_at_ns, save.created_at_ns);
-        assert_eq!(exported.added_by_inbox_id, save.added_by_inbox_id);
-        assert_eq!(exported.conversation_type, save.conversation_type);
-        assert_eq!(exported.dm_id, save.dm_id);
-        assert_eq!(exported.last_message_ns, Some(500));
+        assert_eq!(after.conversation_type, row.conversation_type);
+        assert_eq!(after.dm_id, row.dm_id);
         assert_eq!(
-            exported.message_disappear_from_ns,
-            save.message_disappear_from_ns
+            after.message_disappear_from_ns,
+            row.message_disappear_from_ns
         );
-        assert_eq!(
-            exported.message_disappear_in_ns,
-            save.message_disappear_in_ns
-        );
+        assert_eq!(after.message_disappear_in_ns, row.message_disappear_in_ns);
     }
 }
 
@@ -265,24 +257,87 @@ async fn restored_history_dm_creation_does_not_synthesize_allowed_consent() {
 async fn exported_groups(
     db: impl DbQuery + 'static,
 ) -> Result<HashMap<Vec<u8>, GroupSave>, DeviceSyncError> {
+    Ok(exported_elements(db)
+        .await?
+        .into_iter()
+        .filter_map(|element| {
+            if let Element::Group(save) = element {
+                Some((save.id.clone(), save))
+            } else {
+                None
+            }
+        })
+        .collect())
+}
+
+async fn exported_elements(db: impl DbQuery + 'static) -> Result<Vec<Element>, DeviceSyncError> {
     let key = vec![7; 32];
     let opts = ArchiveOptions {
         start_ns: None,
         end_ns: None,
-        elements: vec![BackupElementSelection::Messages],
+        elements: vec![
+            BackupElementSelection::Messages,
+            BackupElementSelection::Consent,
+        ],
         exclude_disappearing_messages: false,
     };
     let mut bytes = Vec::new();
     xmtp_archive::exporter::export(opts, db, &key, &mut bytes)?;
     let mut importer =
         ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(bytes))), &key).await?;
-    let mut saves = HashMap::new();
+    let mut elements = Vec::new();
     while let Some(element) = importer.next().await {
-        if let Some(Element::Group(save)) = element?.element {
-            saves.insert(save.id.clone(), save);
+        if let Some(element) = element?.element {
+            elements.push(element);
         }
     }
-    Ok(saves)
+    Ok(elements)
+}
+
+// verifies: ARCH-017, ARCH-026
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_history_export_excludes_groups_and_messages_but_keeps_consent() {
+    tester!(alix, disable_workers);
+    let live = alix.create_group(None, None)?;
+    let live_message = stored_message(live.group_id, alix.inbox_id().to_string(), 61);
+    live_message.store(&alix.db())?;
+    for (seed, dm) in [(62, false), (63, true)] {
+        let save = saved_group(seed, dm);
+        let id = GroupId::try_from(save.id.as_slice())?;
+        apply(&alix.context, vec![group_element(save)]).await?;
+        stored_message(id, alix.inbox_id().to_string(), seed).store(&alix.db())?;
+        alix.db().insert_newer_consent_record(StoredConsentRecord {
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Denied,
+            entity: hex::encode(id),
+            consented_at_ns: 30,
+        })?;
+    }
+    let elements = exported_elements(alix.db()).await?;
+    let groups: Vec<_> = elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Group(g) => Some(g.id.as_slice()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(groups, vec![live.group_id.as_slice()]);
+    let messages: Vec<_> = elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::GroupMessage(m) => Some(m.id.as_slice()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(messages, vec![live_message.id.as_slice()]);
+    for seed in [62, 63] {
+        let entity = hex::encode([seed; 16]);
+        assert!(
+            elements
+                .iter()
+                .any(|e| matches!(e, Element::Consent(c) if c.entity == entity))
+        );
+    }
 }
 
 fn stored_message(group_id: GroupId, sender_inbox_id: String, marker: u8) -> StoredGroupMessage {
@@ -311,7 +366,7 @@ fn stored_message(group_id: GroupId, sender_inbox_id: String, marker: u8) -> Sto
     }
 }
 
-// verifies: JOIN-080
+// verifies: JOIN-080, ARCH-026
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_history_yields_to_live_metadata_after_activation() {
     tester!(alix, disable_workers);
@@ -331,6 +386,7 @@ async fn restored_history_yields_to_live_metadata_after_activation() {
     let handle = bo.group(&dm.group_id)?;
     assert_eq!(handle.added_by_inbox_id()?, "archived-adder");
 
+    assert!(!exported_groups(bo.db()).await?.contains_key(&save.id));
     bo.sync_welcomes().await?;
     assert_ne!(
         bo.db().find_group(&dm.group_id)??.membership_state,

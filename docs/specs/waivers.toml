@@ -307,7 +307,7 @@ id = "ARCH-020"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Restored conversations use placeholder metadata until the restored-history follow-up. The archived creator, arbitrary mutable attributes, admin and super-admin lists are not projected. Re-export also replaces installations_last_checked, welcome_id, rotated_at_ns, and paused_for_version with placeholder values. The group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+reason = "Restored conversations use placeholder metadata until the restored-history follow-up. The archived creator, arbitrary mutable attributes, admin and super-admin lists are not projected. The group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
 id = "CTYPE-001"
@@ -830,14 +830,14 @@ id = "ARCH-017"
 kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "The successful-import preservation clause has the historical-metadata gap described in ARCH-020, ARCH-024, and ARCH-025. Export selection, defaults, windows, and failure on unreadable or unencodable selected records remain required. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+reason = "The successful-import preservation clause has the historical-metadata gap described in ARCH-020 and ARCH-024. Export selection, defaults, windows, and failure on unreadable or unencodable selected records remain required. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
 id = "ARCH-022"
 kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "The historical-metadata preservation clause has the gaps described in ARCH-020, ARCH-024, and ARCH-025. Both version-0 nonce forms, group ids and DM pairs, message ids and bytes, and consent remain supported. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+reason = "The historical-metadata preservation clause has the gaps described in ARCH-020 and ARCH-024. Both version-0 nonce forms, group ids and DM pairs, message ids and bytes, and consent remain supported. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
 id = "ARCH-024"
@@ -847,15 +847,8 @@ issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
 reason = "Restored conversations report the placeholder creator, including when archived metadata was absent or its creator was empty. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
-id = "ARCH-025"
-kind = "gap"
-owner = "protocol"
-issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "Re-export builds metadata from the Restored placeholder and does not preserve whether imported group.metadata was absent or present. Applied migration SQL and existing archived records remain intact for a later restored-history change. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
-
-[[waiver]]
 id = "CTYPE-008"
 kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "Legacy Swift and Kotlin V1 DecodedMessage paths do not expose undecodable content. Their history helpers can omit a row or fail a snapshot, and their delivery adapters stop without acknowledging a decode failure. Core storage, V2 binding projections, and the new generated SDK remain subject to the requirement. The V1 gap ends when those SDKs are removed at cutover. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+reason = "Legacy Swift and Kotlin V1 DecodedMessage paths retain a row with no decoded content after a decode failure, but do not expose the failure kind, diagnostics, or malformed envelope bytes to the app. Their history and delivery adapters retain the row, and delivery continues with normal acknowledgement timing. Core storage, V2 binding projections, and the new generated SDK remain subject to the requirement. The V1 gap ends when those SDKs are removed at cutover. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."

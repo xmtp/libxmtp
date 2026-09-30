@@ -8,7 +8,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 
 | SDK | Public declarations |
 | --- | ---: |
-| Swift | 7131 |
+| Swift | 7132 |
 | Kotlin | 963 |
 | Node | 522 |
 | Browser | 533 |
@@ -1205,7 +1205,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `XmtpApiClient.uniffiCloneHandle` | func | — | approved removal | 2, generated bridge replacement | Old API client member is replaced by Backend. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^(?:FfiConverter[^.]*\|func FfiConverter[^ ]*)(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (863 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^Ffi(?!Converter)[A-Za-z0-9_]*(?:Callback\|Listener)(?:Impl)?(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (72 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
-| `pattern: ^Ffi[A-Za-z0-9_]+(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (844 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `pattern: ^Ffi[A-Za-z0-9_]+(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (845 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^func .+$ [after prior family rules; excluding public-signature Ffi roots]` (273 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^.+$ [after prior family rules; excluding public-signature Ffi roots]` (15 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `DeliveryCursor` | typealias | `DeliveryCursor` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift`. |
@@ -2205,7 +2205,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.conversationId` | val | `Message.conversationId` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.deliveryCursor` | constructor property | `Message.deliveryCursor` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.deliveryStatus` | val | `Message.deliveryStatus` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
-| `DecodedMessage.encodedContent` | constructor property | `Message.encodedContent` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
+| `DecodedMessage.encodedContent` | val | `Message.encodedContent` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.expiresAt` | val | `Message.expiresAt.date` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.expiresAtNs` | val | `Message.expiresAt.ns` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.fallback` | val | `Message.fallback` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |

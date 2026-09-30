@@ -1,6 +1,5 @@
 package org.xmtp.android.library
 
-import com.google.protobuf.InvalidProtocolBufferException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelAndJoin
@@ -173,7 +172,7 @@ class MessageReaderTest {
         }
 
     @Test(timeout = MESSAGE_READER_TEST_TIMEOUT_MS)
-    fun decodeFailureClosesWithoutAcknowledgement() =
+    fun decodeFailureIsHandedOffAndReaderContinues() =
         runBlocking {
             val validCursor = FfiDeliveryCursor(databaseId = ByteArray(16), deliverySequence = 1uL)
             val snapshotCursor = FfiDeliveryCursor(databaseId = ByteArray(16), deliverySequence = 2uL)
@@ -184,34 +183,56 @@ class MessageReaderTest {
                     .putParameters("encoding", "UTF-16")
                     .build()
                     .toByteArray()
-            for ((content, errorType) in listOf(
-                byteArrayOf(0x80.toByte()) to InvalidProtocolBufferException::class.java,
-                invalidEncoding to XMTPException::class.java,
-            )) {
+            for (content in listOf(byteArrayOf(0x80.toByte()), invalidEncoding)) {
                 val message = deliveryTestMessage(content)
-                val invalid = Delivery(decodeValue = { DecodedMessage.createForDelivery(message, null)?.let { 1 } })
-                var reads = 0
-                var ended = 0
-                val invalidReader =
+                val invalid =
+                    Delivery(decodeValue = {
+                        val decoded = DecodedMessage.createForDelivery(message, validCursor)
+                        assertNotNull(decoded)
+                        assertNull(decoded!!.content<String>())
+                        assertEquals(message.id.toHex(), decoded.id)
+                        assertEquals(validCursor, decoded.deliveryCursor)
+                        if (content === invalidEncoding) {
+                            assertArrayEquals(content, decoded.encodedContent.toByteArray())
+                        } else {
+                            assertTrue(runCatching { decoded.encodedContent }.isFailure)
+                        }
+                        1
+                    })
+                val later =
+                    Delivery(decodeValue = {
+                        val decoded =
+                            DecodedMessage.createForDelivery(
+                                deliveryTestMessage(TextCodec().encode("later").toByteArray()),
+                                null,
+                            )
+                        assertEquals("later", decoded!!.content<String>())
+                        2
+                    })
+                val queued = mutableListOf(invalid.queued(), later.queued())
+                val reader =
                     AcknowledgedMessageReader(
-                        read = { if (reads++ == 0) invalid.queued() else null },
-                        end = { ended++ },
+                        read = { queued.removeFirstOrNull() },
+                        end = {},
                     )
-                val failure = runCatching { invalidReader.next() }.exceptionOrNull()
-                assertEquals(errorType, failure?.javaClass)
-                assertEquals(1, reads)
+                assertEquals(1, reader.next())
                 assertEquals(0, invalid.acknowledgements)
-                assertEquals(1, invalid.rejections)
-                assertEquals(1, ended)
-                assertNull(invalidReader.next())
+                assertEquals(2, reader.next())
+                assertEquals(1, invalid.acknowledgements)
+                assertEquals(0, later.acknowledgements)
+                assertNull(reader.next())
+                assertEquals(1, later.acknowledgements)
+                assertEquals(0, invalid.rejections)
+                assertEquals(0, later.rejections)
 
                 val snapshot =
                     FfiMessageHistorySnapshot(
                         messages = listOf(FfiHistoryMessage(message = message, cursor = snapshotCursor)),
                         cursor = snapshotCursor,
-                    )
-                val snapshotFailure = runCatching { snapshot.toMessageHistorySnapshot() }.exceptionOrNull()
-                assertEquals(errorType, snapshotFailure?.javaClass)
+                    ).toMessageHistorySnapshot()
+                assertEquals(listOf(message.id.toHex()), snapshot.messages.map { it.id })
+                assertNull(snapshot.messages.single().content<String>())
+                assertEquals(snapshotCursor, snapshot.cursor)
             }
 
             val validMessage = deliveryTestMessage(TextCodec().encode("hi").toByteArray())
