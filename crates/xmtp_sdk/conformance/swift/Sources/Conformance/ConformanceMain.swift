@@ -27,29 +27,26 @@ struct Conformance {
         let codecSamples = sdkConformanceStandardSamples()
         guard codecSamples.count == 15 else { throw ConformanceFailure("missing standard codec samples") }
         for sample in codecSamples {
-            let codec: any SDKContentCodec
-            let value: any Sendable
+            let expected = sample.expected
+            let matches: Bool
             switch sample.value {
-            case let .text(item): codec = TextCodec(); value = item
-            case let .markdown(item): codec = MarkdownCodec(); value = item
-            case .readReceipt: codec = ReadReceiptCodec(); value = ()
-            case .reaction: codec = ReactionV2Codec(); value = sample.value
-            case let .attachment(item): codec = AttachmentCodec(); value = item
-            case let .remoteAttachment(item): codec = RemoteAttachmentCodec(); value = item
-            case let .multiRemoteAttachment(item): codec = MultiRemoteAttachmentCodec(); value = item
-            case let .transactionReference(item): codec = TransactionReferenceCodec(); value = item
-            case let .walletSendCalls(item): codec = WalletSendCallsCodec(); value = item
-            case let .actions(item): codec = ActionsCodec(); value = item
-            case let .intent(item): codec = IntentCodec(); value = item
-            case .reply: codec = ReplyCodec(); value = sample.value
-            case let .groupUpdated(item): codec = GroupUpdatedCodec(); value = item
-            case .deleteMessage: codec = DeleteMessageCodec(); value = sample.value
-            case let .leaveRequest(item): codec = LeaveRequestCodec(); value = item
+            case let .text(item): matches = try matchesRust(TextCodec(), item, expected)
+            case let .markdown(item): matches = try matchesRust(MarkdownCodec(), item, expected)
+            case .readReceipt: matches = try matchesRust(ReadReceiptCodec(), (), expected)
+            case .reaction: matches = try matchesRust(ReactionV2Codec(), sample.value, expected)
+            case let .attachment(item): matches = try matchesRust(AttachmentCodec(), item, expected)
+            case let .remoteAttachment(item): matches = try matchesRust(RemoteAttachmentCodec(), item, expected)
+            case let .multiRemoteAttachment(item): matches = try matchesRust(MultiRemoteAttachmentCodec(), item, expected)
+            case let .transactionReference(item): matches = try matchesRust(TransactionReferenceCodec(), item, expected)
+            case let .walletSendCalls(item): matches = try matchesRust(WalletSendCallsCodec(), item, expected)
+            case let .actions(item): matches = try matchesRust(ActionsCodec(), item, expected)
+            case let .intent(item): matches = try matchesRust(IntentCodec(), item, expected)
+            case .reply: matches = try matchesRust(ReplyCodec(), sample.value, expected)
+            case let .groupUpdated(item): matches = try matchesRust(GroupUpdatedCodec(), item, expected)
+            case .deleteMessage: matches = try matchesRust(DeleteMessageCodec(), sample.value, expected)
+            case let .leaveRequest(item): matches = try matchesRust(LeaveRequestCodec(), item, expected)
             }
-            let encoded = try codec.encode(value)
-            guard sameEncoded(encoded, sample.expected),
-                  try sameEncoded(codec.encode(codec.decode(encoded)), sample.expected)
-            else { throw ConformanceFailure("standard codec bytes differ from Rust") }
+            guard matches else { throw ConformanceFailure("standard codec bytes differ from Rust") }
         }
         print("Swift P69: all 15 standard codecs match Rust bytes")
 
@@ -786,6 +783,8 @@ struct Conformance {
         else { throw ConformanceFailure("throwing custom codec was not recorded") }
         try await failingHost.end()
         print("Swift codec_scoped_to_client passed")
+        try await checkCodecPolicy(group: family, receiver: withoutCodec)
+        print("Swift typed codec send policy passed")
         try await withCodec.end()
         try await withoutCodec.end()
         print("Swift scenario 6: custom codec stayed with its client")

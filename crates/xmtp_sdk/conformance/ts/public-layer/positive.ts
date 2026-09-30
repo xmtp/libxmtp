@@ -3,10 +3,12 @@
 import {
   AttachmentCodec,
   Client,
+  DeleteMessageCodec,
   Dm,
   Group,
   MessageStream,
   ReactionV2Codec,
+  ReplyCodec,
   TextCodec,
   XmtpError,
   type Attachment,
@@ -57,6 +59,20 @@ export async function standardVariantCodecs(
   await dm.send(reactions, { kind: "text", value: "x" });
   // @ts-expect-error A reaction codec does not encode text content.
   reactions.encode({ kind: "text", value: "x" });
+  const replies = new ReplyCodec();
+  // @ts-expect-error A reply codec does not take text content.
+  await group.send(replies, { kind: "text", value: "x" });
+  // @ts-expect-error A reply codec does not take text content.
+  await dm.send(replies, { kind: "text", value: "x" });
+  // @ts-expect-error A reply codec does not encode text content.
+  replies.encode({ kind: "text", value: "x" });
+  const deletions = new DeleteMessageCodec();
+  // @ts-expect-error A delete-message codec does not take text content.
+  await group.send(deletions, { kind: "text", value: "x" });
+  // @ts-expect-error A delete-message codec does not take text content.
+  await dm.send(deletions, { kind: "text", value: "x" });
+  // @ts-expect-error A delete-message codec does not encode text content.
+  deletions.encode({ kind: "text", value: "x" });
 }
 
 // verifies: CTYPE-017
