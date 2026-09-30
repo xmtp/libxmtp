@@ -258,8 +258,11 @@ impl XmtpError {
         use xmtp_common::RetryableError;
         use xmtp_mls::{
             client::ClientError, groups::GroupError, identity::IdentityError,
-            mls_store::MlsStoreError,
+            mls_store::MlsStoreError, subscriptions::catch_up::CatchUpError,
         };
+        if let Some(error) = error.downcast_ref::<CatchUpError>() {
+            return Some(error.is_retryable());
+        }
         if let Some(error) = error.downcast_ref::<GroupError>() {
             return Some(error.is_retryable());
         }

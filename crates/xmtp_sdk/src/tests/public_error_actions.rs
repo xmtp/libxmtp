@@ -435,3 +435,29 @@ fn a_storage_cause_in_a_failed_sync_wait_keeps_its_retry_policy() {
         true,
     );
 }
+
+// A catch-up deadline can resume from its committed progress.
+#[xmtp_common::test(unwrap_try = true)]
+fn an_incomplete_catch_up_keeps_its_typed_retry_policy() {
+    use xmtp_mls::subscriptions::{
+        barrier::{BarrierError, BarrierFailure},
+        catch_up::{CatchUpError, CatchUpSummary},
+    };
+    for (reason, retryable) in [
+        (BarrierFailure::Deadline, true),
+        (BarrierFailure::Cancelled, false),
+    ] {
+        expect(
+            XmtpError::from_core(CatchUpError::Incomplete {
+                summary: CatchUpSummary::default(),
+                causes: vec![BarrierError::Incomplete {
+                    reason,
+                    unfinished: vec![],
+                }],
+            }),
+            "Unknown",
+            ErrorCategory::Unknown,
+            retryable,
+        );
+    }
+}
