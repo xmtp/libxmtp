@@ -3234,6 +3234,141 @@ fn membership<C: XmtpSharedContext>(context: &C, group_id: &GroupId) -> GroupMem
 }
 
 // verifies: PROC-051
+#[rstest::rstest]
+#[case::topics(0)]
+#[case::groups(1)]
+#[case::barrier(2)]
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_selected_missing_group_retires_after_import_and_returns_after_welcome(
+    #[case] kind: usize,
+) {
+    tester!(alix, disable_workers);
+    tester!(bo, disable_workers);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await
+        .unwrap();
+    let topic = Topic::new_group_message(group.group_id);
+    let mut controller = controller(bo.context.clone());
+    let scope = match kind {
+        0 => IncomingScope::Topics(vec![topic.clone()]),
+        1 => IncomingScope::Groups(vec![group.group_id]),
+        2 => IncomingScope::Barrier {
+            targets: [(topic.clone(), Cursor(0))].into(),
+            deadline: Instant::now() + Duration::from_secs(60),
+            receive_policy: IncomingReceivePolicy::ImmediateQuery,
+        },
+        _ => unreachable!(),
+    };
+    controller.command(Command::Acquire { id: 1, scope });
+    controller.reconcile().unwrap();
+    assert!(controller.interested().contains(&topic));
+    controller.reconcile().unwrap();
+    assert!(controller.interested().contains(&topic));
+
+    insert_restored_placeholder(&bo.context, &group.group_id, ConversationType::Group);
+    controller.reconcile().unwrap();
+    assert!(
+        !controller.interested().contains(&topic),
+        "the imported placeholder still has network interest"
+    );
+
+    bo.sync_welcomes().await.unwrap();
+    controller.reconcile().unwrap();
+    assert!(controller.interested().contains(&topic));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn only_selected_missing_groups_add_repeated_lookup_cost() {
+    use xmtp_db::database::count_sql_queries;
+    tester!(alix, disable_workers);
+    let mut controller = controller(alix.context.clone());
+    let (_, baseline, _) = count_sql_queries(|| controller.reconcile().unwrap());
+    let mut topics = Vec::new();
+    for _ in 0..20 {
+        let id = GroupId::generate();
+        insert_restored_placeholder(&alix.context, &id, ConversationType::Group);
+        set_membership_value(&alix.context, &id, GroupMembershipState::Allowed as i32);
+        topics.push(Topic::new_group_message(id));
+    }
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Topics(topics),
+    });
+    controller.reconcile()?;
+    for _ in 0..3 {
+        let (_, queries, _) = count_sql_queries(|| controller.reconcile().unwrap());
+        assert_eq!(queries, baseline, "stored groups added repeat lookups");
+    }
+
+    let missing = GroupId::generate();
+    let topic = Topic::new_group_message(missing);
+    controller.command(Command::Acquire {
+        id: 2,
+        scope: IncomingScope::Topics(vec![topic.clone()]),
+    });
+    controller.reconcile()?;
+    let (_, queries, _) = count_sql_queries(|| controller.reconcile().unwrap());
+    assert_eq!(
+        queries,
+        baseline + 1,
+        "a selected missing group was not checked again"
+    );
+    assert!(controller.interested().contains(&topic));
+
+    controller.command(Command::Release(2));
+    let (_, queries, _) = count_sql_queries(|| controller.reconcile().unwrap());
+    assert_eq!(
+        queries, baseline,
+        "a released missing group still had lookup cost"
+    );
+
+    controller.command(Command::Acquire {
+        id: 2,
+        scope: IncomingScope::Topics(vec![topic.clone()]),
+    });
+    controller.reconcile()?;
+    insert_restored_placeholder(&alix.context, &missing, ConversationType::Group);
+    set_membership_value(
+        &alix.context,
+        &missing,
+        GroupMembershipState::Allowed as i32,
+    );
+    controller.reconcile()?;
+    assert!(controller.interested().contains(&topic));
+    let (_, queries, _) = count_sql_queries(|| controller.reconcile().unwrap());
+    assert_eq!(
+        queries, baseline,
+        "a stored group remained on the missing-row check path"
+    );
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
+async fn a_missing_group_recheck_retries_after_a_storage_error() {
+    tester!(alix, disable_workers);
+    let id = GroupId::generate();
+    let topic = Topic::new_group_message(id);
+    let mut controller = controller(alix.context.clone());
+    controller.command(Command::Acquire {
+        id: 1,
+        scope: IncomingScope::Topics(vec![topic.clone()]),
+    });
+    controller.reconcile()?;
+    insert_restored_placeholder(&alix.context, &id, ConversationType::Group);
+    set_membership_value(&alix.context, &id, UNDECODABLE);
+    assert!(matches!(
+        controller.reconcile(),
+        Err(IncomingError::Storage(_))
+    ));
+
+    set_membership_value(&alix.context, &id, GroupMembershipState::Restored as i32);
+    controller.reconcile()?;
+    assert!(!controller.interested().contains(&topic));
+}
+
+// verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
 async fn all_groups_discovery_skips_a_restored_group_until_its_welcome() {
     tester!(alix, disable_workers);
