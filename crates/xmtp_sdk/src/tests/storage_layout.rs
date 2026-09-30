@@ -300,12 +300,13 @@ async fn explicit_storage_opens_only_for_an_identity_of_its_inbox() {
     std::fs::remove_dir_all(root)?;
 }
 
-// The build seeds the key package tasks when it registers its workers, just
-// before it starts them. A rejected identity must not reach that point, since
-// the workers act as the database's installation.
+// The build sweeps expired pending uploads, then seeds the key package tasks
+// when it registers its workers, just before it starts them. A rejected
+// identity must not reach either point, since both act as the database's
+// installation.
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers() {
-    use xmtp_db::{ConnectionExt, diesel::prelude::*};
+    use xmtp_db::{ConnectionExt, attachments::QueryPendingAttachment as _, diesel::prelude::*};
 
     let relay = CountingRelay::start().await?;
     let root = temp_root("explicit-identity-workers");
@@ -313,9 +314,25 @@ async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers(
     let mut settings = options();
     settings.backend = relay.backend();
     settings.storage.location = explicit(&root);
+    settings.attachments = Some(crate::AttachmentOptions {
+        allow_private_network: true,
+        ..Default::default()
+    });
     let owner = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
+    let digest = owner
+        .attachments()
+        .create(crate::AttachmentSource::Bytes {
+            bytes: b"owned".to_vec(),
+            filename: Some("note.txt".into()),
+            mime_type: "text/plain".into(),
+        })
+        .await?
+        .remote_attachment()
+        .content_digest;
     owner.end().await?;
     let db_path = root.join("chosen.sqlite");
+    let staged = root.join("files").join(".staged").join(&digest);
+    assert!(staged.is_file());
     let tasks = async || -> Result<i64, XmtpError> {
         let (store, _) = crate::client::open_store_if_present(&settings.storage, &db_path)
             .await?
@@ -334,9 +351,32 @@ async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers(
     }
     assert_eq!(tasks().await?, 0);
 
+    // Every pending upload has expired for the stranger's options.
+    let mut stranger_settings = settings.clone();
+    stranger_settings.attachments = Some(crate::AttachmentOptions {
+        max_pending_age_seconds: Some(0),
+        allow_private_network: true,
+        ..Default::default()
+    });
     let stranger = signer::identity(crate::generate_local_signer().await).await?;
-    let built = Client::build(stranger, settings.clone(), None).await;
+    let built = Client::build(stranger, stranger_settings, None).await;
     assert!(is_identity_mismatch(&built), "build: {:?}", built.err());
+    let (store, _) = crate::client::open_store_if_present(&settings.storage, &db_path)
+        .await?
+        .expect("the database stays");
+    assert!(
+        store
+            .db()
+            .get_pending_attachment(&digest)
+            .map_err(XmtpError::unknown)?
+            .is_some(),
+        "the rejected build swept the pending upload"
+    );
+    drop(store);
+    assert!(
+        staged.is_file(),
+        "the rejected build deleted the staged file"
+    );
     assert_eq!(tasks().await?, 0, "the rejected build prepared its workers");
     std::fs::remove_dir_all(root)?;
 }
@@ -688,6 +728,45 @@ async fn explicit_storage_refuses_its_creator_offline_when_membership_needs_a_wa
     let offline = Client::build(creator, settings, None).await;
     assert!(
         is_identity_mismatch(&offline),
+        "offline build: {:?}",
+        offline.err()
+    );
+    assert_eq!(relay.connections(), 0, "offline check sent a request");
+    std::fs::remove_dir_all(root)?;
+}
+
+// An update the database cannot read is a broken store, not a verdict on the
+// identity, so the offline build reports it as it is.
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_reports_an_unreadable_identity_update_offline() {
+    use xmtp_db::{identity_update::StoredIdentityUpdate, prelude::QueryIdentityUpdates};
+
+    let relay = CountingRelay::start().await?;
+    let root = temp_root("explicit-unreadable-update");
+    std::fs::create_dir_all(&root)?;
+    let mut settings = options();
+    settings.backend = relay.backend();
+    settings.storage.location = explicit(&root);
+    let creator_signer = crate::generate_local_signer().await;
+    let creator = signer::identity(creator_signer.clone()).await?;
+    let client = Client::create(creator_signer, settings.clone()).await?;
+    let inbox_id = client.inner.inbox_id().to_owned();
+    let db = client.inner.context.db();
+    let last = db.get_identity_updates(&inbox_id, None, None)?;
+    let sequence_id = last.last().expect("the creator's updates").sequence_id + 1;
+    db.insert_or_ignore_identity_updates(&[StoredIdentityUpdate::new(
+        inbox_id,
+        sequence_id,
+        0,
+        vec![0xff; 8],
+    )])?;
+    client.end().await?;
+
+    relay.refuse();
+    settings.allow_offline = true;
+    let offline = Client::build(creator, settings, None).await;
+    assert!(
+        matches!(&offline, Err(error) if !matches!(error, XmtpError::IdentityMismatch(_))),
         "offline build: {:?}",
         offline.err()
     );
