@@ -408,6 +408,64 @@ async fn explicit_storage_fetches_a_removal_made_on_another_installation() {
     std::fs::remove_dir_all(root)?;
 }
 
+// verifies: CONF-033
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_sends_no_identity_request_to_a_deployment_it_refuses() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*, prelude::QueryServerConfiguration};
+
+    let relay = CountingRelay::start().await?;
+    let root = temp_root("explicit-refused-deployment");
+    std::fs::create_dir_all(&root)?;
+    let mut settings = options();
+    settings.backend = relay.backend();
+    settings.storage.location = explicit(&root);
+    let creator_signer = crate::generate_local_signer().await;
+    let client = Client::create(creator_signer.clone(), settings.clone()).await?;
+    // The database is bound to another deployment and holds no identity
+    // update, so a fetch of the inbox's identity updates would store them.
+    let db = client.inner.context.db();
+    let stored = db
+        .server_configuration()?
+        .expect("create stores the configuration");
+    db.store_server_configuration(
+        "another-deployment",
+        &stored.backend_url,
+        &stored.response,
+        stored.fetched_at_ns,
+    )?;
+    db.raw_query(|conn| {
+        xmtp_db::diesel::delete(xmtp_db::schema::identity_updates::table).execute(conn)
+    })?;
+    client.end().await?;
+
+    // The backend URL moved, so the build asks the backend for its
+    // deployment before any other request.
+    settings.backend = options().backend;
+    let built = Client::build(
+        signer::identity(creator_signer).await?,
+        settings.clone(),
+        None,
+    )
+    .await;
+    assert!(
+        matches!(built, Err(XmtpError::BackendMismatch(_))),
+        "build: {:?}",
+        built.err()
+    );
+
+    let db_path = root.join("chosen.sqlite");
+    let (store, _) = crate::client::open_store_if_present(&settings.storage, &db_path)
+        .await?
+        .expect("the database stays");
+    let updates: i64 = store.db().raw_query(|conn| {
+        xmtp_db::schema::identity_updates::table
+            .count()
+            .get_result(conn)
+    })?;
+    assert_eq!(updates, 0, "the refused deployment got an identity request");
+    std::fs::remove_dir_all(root)?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_without_identity_updates_opens_offline_only_for_its_creator() {
     use xmtp_db::{ConnectionExt, diesel::RunQueryDsl};
