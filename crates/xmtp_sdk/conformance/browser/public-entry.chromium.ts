@@ -291,7 +291,31 @@ export async function exercise(): Promise<string[]> {
       (await group.messages()).length === beforeFailure,
       "a failed codec step made a publish attempt",
     );
-    results.push("typed codec reply policy");
+    // A typed send through the worker: the catalogue predicate runs on the
+    // main thread in the pure module, and the hook's push reaches the send.
+    const sentId = await group.send(
+      { ...noteCodec, shouldPush: () => false },
+      "browser send",
+    );
+    const sentNote = (await group.messages()).find((item) => item.id === sentId);
+    check(
+      sentNote?.content.kind === "unknown" &&
+        sentNote.content.encoded.fallback === "a note: browser send",
+      "a typed send did not store the codec's envelope",
+    );
+    const preparedNote = await group.prepareMessage(
+      { ...noteCodec, shouldPush: () => true },
+      "browser prepared",
+    );
+    check(
+      (await group.messages()).some(
+        (item) =>
+          item.id === preparedNote && item.deliveryStatus === "unpublished",
+      ),
+      "a typed prepareMessage did not store an unpublished item",
+    );
+    await group.publishMessage(preparedNote);
+    results.push("typed codec reply and send policy");
 
     // Streams and events yield public values.
     const stream = sdk.MessageStream.openGroup(alice, group);

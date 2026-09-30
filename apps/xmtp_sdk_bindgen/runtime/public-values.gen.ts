@@ -167,6 +167,7 @@ export declare class XmtpError extends Error {
   static readonly CodecEncodeFailed: typeof XmtpError;
 }
 export declare function publicError(error: unknown): unknown;
+export declare function isCatalogueContentType(type: ContentTypeId): boolean;
 
 export type ConnectionState =
   | "connecting"

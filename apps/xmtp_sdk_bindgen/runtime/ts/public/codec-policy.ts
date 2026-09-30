@@ -8,6 +8,7 @@ import {
   type SendOptions,
 } from "../../public-values.gen";
 import type { ContentCodec } from "./codec";
+import { isCatalogueContentType } from "./host";
 
 function codecFailed(step: string, cause: unknown): XmtpError {
   const reason = cause instanceof Error ? cause.message : String(cause);
@@ -161,4 +162,31 @@ export function optionsForSend<T>(
     isBoolean,
   );
   return { ...options, shouldPush };
+}
+
+function isCodec<T>(
+  content: EncodedContent | ContentCodec<T>,
+): content is ContentCodec<T> {
+  return typeof Reflect.get(content, "encode") === "function";
+}
+
+/**
+ * The envelope and options of a Group or Dm send (Decision 23). A typed codec
+ * runs every step before the send: encode, fallback, then push, where the
+ * catalogue predicate (Decision 24) keeps a catalogue type's default. An
+ * envelope send keeps its policy.
+ */
+export function contentForSend<T>(
+  content: EncodedContent | ContentCodec<T>,
+  valueOrOptions: T | SendOptions | undefined,
+  options: SendOptions | undefined,
+): [EncodedContent, SendOptions | undefined] {
+  if (!isCodec(content))
+    return [content, valueOrOptions as SendOptions | undefined];
+  const value = valueOrOptions as T;
+  const encoded = encodeForSend(content, value);
+  return [
+    encoded,
+    optionsForSend(content, value, options, isCatalogueContentType),
+  ];
 }

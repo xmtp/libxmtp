@@ -259,6 +259,12 @@ fn render_body(
     Ok(())
 }
 
+/// The Group and Dm sends that take a typed codec and its value as well as an
+/// envelope (Decision 23).
+fn is_codec_send(owner: &str, name: &str) -> bool {
+    matches!(owner, "Group" | "Dm") && matches!(name, "send" | "prepareMessage")
+}
+
 /// A synchronous, argument-free, infallible member with a result.
 pub(super) fn is_getter(method: &MethodMetadata) -> bool {
     !method.is_async
@@ -279,14 +285,24 @@ fn member(code: &mut String, owner: &str, method: &MethodMetadata, receiver: &st
     // Decision 14: a synchronous, argument-free, infallible member is a
     // readonly getter.
     let getter = is_getter(method);
-    writeln!(
-        code,
-        "{}{}{name}({}): {} {{",
-        if method.is_async { "async " } else { "" },
-        if getter { "get " } else { "" },
-        call.parameters,
-        call.result_type
-    )?;
+    if is_codec_send(owner, &name) {
+        // Decision 23: a typed codec form overloads the envelope form. The
+        // codec steps run first, so a failed step makes no binding call.
+        writeln!(
+            code,
+            "{name}(encoded: EncodedContent, options?: SendOptions): {result};\n{name}<T>(codec: ContentCodec<T>, value: NoInfer<T>, options?: SendOptions): {result};\nasync {name}<T>(content: EncodedContent | ContentCodec<T>, valueOrOptions?: T | SendOptions, sendOptions?: SendOptions): {result} {{\nconst [encoded, options] = contentForSend(content, valueOrOptions, sendOptions);",
+            result = call.result_type
+        )?;
+    } else {
+        writeln!(
+            code,
+            "{}{}{name}({}): {} {{",
+            if method.is_async { "async " } else { "" },
+            if getter { "get " } else { "" },
+            call.parameters,
+            call.result_type
+        )?;
+    }
     let routed = call.routed.as_ref();
     render_body(
         code,

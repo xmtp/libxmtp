@@ -183,3 +183,56 @@ const unhandled: unknown[] = [];
 function recordUnhandled(reason: unknown): void {
   unhandled.push(reason);
 }
+
+async function stored(
+  group: sdk.Group,
+  id: sdk.MessageId,
+): Promise<sdk.Message> {
+  const message = (await group.messages()).find((item) => item.id === id);
+  assert.ok(message, "the message was not stored");
+  return message;
+}
+
+// verifies: CTYPE-017, CTYPE-021
+export async function sendPolicy(
+  group: sdk.Group,
+  receiver: sdk.Client,
+): Promise<void> {
+  // A typed send fills the fallback and keeps the codec's value type. The
+  // sender has no registered codec for the type, so the content is unknown.
+  const codec = noteCodec({ fallback: (value) => `a note: ${value.text}` });
+  const sentId = await group.send(codec, { text: "typed send" });
+  const sent = (await stored(group, sentId)).content;
+  assert.ok(sent.kind === "unknown", `typed send content is ${sent.kind}`);
+  assert.equal(sent.encoded.fallback, "a note: typed send");
+  // An explicit compression round-trips: the receiver gets the plain bytes.
+  const gzipId = await group.send(codec, { text: "gzip" }, { compression: "gzip" });
+
+  // prepareMessage takes the same codec form and stores an unpublished item.
+  const preparedId = await group.prepareMessage(codec, { text: "prepared" });
+  assert.equal((await stored(group, preparedId)).deliveryStatus, "unpublished");
+  await group.publishMessage(preparedId);
+
+  // A receiver without the codec keeps the envelope and its fallback.
+  await receiver.conversations.syncAll(undefined);
+  const received = await receiver.conversations.getMessageById(sentId);
+  assert.ok(received, "the receiver did not get the typed send");
+  assert.ok(received.content.kind === "unknown", "missing codec is not unknown");
+  assert.equal(received.content.encoded.fallback, "a note: typed send");
+  const gzip = await receiver.conversations.getMessageById(gzipId);
+  assert.ok(gzip?.content.kind === "unknown", "the gzip send did not arrive");
+  assert.equal(new TextDecoder().decode(gzip.content.encoded.content), "gzip");
+  assert.equal(gzip.content.encoded.fallback, "a note: gzip");
+
+  // A failed codec step makes no send attempt, on send and prepareMessage.
+  const before = (await group.messages()).length;
+  const failing = noteCodec({ shouldPush: () => throwing("shouldPush") });
+  await assert.rejects(group.send(failing, { text: "x" }), isCodecEncodeFailed);
+  await assert.rejects(
+    group.prepareMessage(failing, { text: "x" }),
+    isCodecEncodeFailed,
+  );
+  assert.equal((await group.messages()).length, before);
+  // An explicit shouldPush skips the hook.
+  await group.send(failing, { text: "explicit" }, { shouldPush: false });
+}

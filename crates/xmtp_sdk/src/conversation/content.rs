@@ -1,21 +1,6 @@
 use super::*;
 
-fn catalogue_push_default(content_type: &ContentTypeId) -> bool {
-    !matches!(
-        (
-            content_type.authority_id.as_str(),
-            content_type.type_id.as_str(),
-            content_type.version_major,
-        ),
-        ("xmtp.org", "reaction", 2)
-            | ("xmtp.org", "readReceipt", 1)
-            | ("xmtp.org", "group_updated", 1)
-            | ("xmtp.org", "group_membership_change", 1)
-            | ("xmtp.org", "leave_request", 1)
-            | ("xmtp.org", "deleteMessage", 1)
-            | ("xmtp.org", "editMessage", 1)
-    )
-}
+use crate::content::catalogue_push_default;
 
 pub(super) async fn send_standard(
     group: MlsGroup<xmtp_mls::MlsContext>,

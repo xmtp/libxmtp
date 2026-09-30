@@ -105,6 +105,56 @@ fn standard_type(kind: StandardContentKind) -> ProtoContentTypeId {
     }
 }
 
+/// The XMTP content type catalogue: each authority, type ID, and major
+/// version that the SDK knows, with its push default. It is the one source for
+/// the send push default and for [`is_catalogue_content_type`].
+const CATALOGUE: &[(&str, &str, u32, bool)] = &[
+    ("xmtp.org", "text", 1, true),
+    ("xmtp.org", "markdown", 1, true),
+    ("xmtp.org", "readReceipt", 1, false),
+    ("xmtp.org", "reaction", 1, true),
+    ("xmtp.org", "reaction", 2, false),
+    ("xmtp.org", "attachment", 1, true),
+    ("xmtp.org", "remoteStaticAttachment", 1, true),
+    ("xmtp.org", "multiRemoteStaticAttachment", 1, true),
+    ("xmtp.org", "transactionReference", 1, true),
+    ("xmtp.org", "walletSendCalls", 1, true),
+    ("coinbase.com", "actions", 1, true),
+    ("coinbase.com", "intent", 1, true),
+    ("xmtp.org", "reply", 1, true),
+    ("xmtp.org", "group_updated", 1, false),
+    ("xmtp.org", "group_membership_change", 1, false),
+    ("xmtp.org", "deleteMessage", 1, false),
+    ("xmtp.org", "leave_request", 1, false),
+    ("xmtp.org", "editMessage", 1, false),
+];
+
+fn catalogue_entry(content_type: &ContentTypeId) -> Option<bool> {
+    CATALOGUE
+        .iter()
+        .find(|(authority, type_id, major, _)| {
+            *authority == content_type.authority_id
+                && *type_id == content_type.type_id
+                && *major == content_type.version_major
+        })
+        .map(|(_, _, _, push)| *push)
+}
+
+/// The push default of a send: the catalogue's value for a catalogue type,
+/// and push for any other type.
+#[cfg_attr(feature = "pure-only", allow(dead_code))]
+pub(crate) fn catalogue_push_default(content_type: &ContentTypeId) -> bool {
+    catalogue_entry(content_type).unwrap_or(true)
+}
+
+/// True when `content_type` is an XMTP catalogue content type. A catalogue
+/// type keeps its catalogue push default; a host content codec's push hook
+/// applies only to other types.
+#[xmtp_macro::sdk_export(pure)]
+pub fn is_catalogue_content_type(content_type: ContentTypeId) -> bool {
+    catalogue_entry(&content_type).is_some()
+}
+
 #[xmtp_macro::sdk_export(pure)]
 pub fn standard_content_type(kind: StandardContentKind) -> ContentTypeId {
     let kind = standard_type(kind);

@@ -42,6 +42,22 @@ export async function replyWithCodec(message: Message): Promise<string> {
 }
 
 // verifies: CTYPE-017
+export async function typedCodecSends(group: Group, encoded: EncodedContent) {
+  await group.send(pointCodec, { x: 1, y: 2 });
+  await group.send(pointCodec, { x: 1, y: 2 }, { shouldPush: false });
+  await group.prepareMessage(textCodec, "prepared");
+  // The envelope form keeps working next to the codec form.
+  await group.send(encoded);
+  await group.send(encoded, { shouldPush: true });
+  // @ts-expect-error The send value must be the codec's value type.
+  await group.send(pointCodec, { x: "1", y: 2 });
+  // @ts-expect-error The send value must be the codec's value type.
+  await group.prepareMessage(literalCodec, anyText);
+  // @ts-expect-error A codec send needs a value.
+  await group.send(pointCodec);
+}
+
+// verifies: CTYPE-017
 export async function typedCodecHooks(message: Message): Promise<Client> {
   // Optional send hooks keep the codec's value type.
   const noted: ContentCodec<Point> = {

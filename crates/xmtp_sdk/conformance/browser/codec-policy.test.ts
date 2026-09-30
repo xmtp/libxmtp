@@ -1,7 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { initPureWasm } from "../../../../target/sdk-generated/typescript-pure/index";
 
 import * as P from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
+import type * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 import type { ContentCodec } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/codec";
 import {
   encodeForSend,
@@ -204,5 +206,105 @@ describe("typed codec send policy", () => {
     );
     await settle();
     expect(unhandled).toEqual([]);
+  });
+});
+
+class TestProjection extends P.ObjectProjection {
+  liftMessage(): never {
+    throw new Error("no message in these calls");
+  }
+
+  lowerMessage(): never {
+    throw new Error("no message in these calls");
+  }
+}
+
+describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
+  // The catalogue predicate is a pure WASM function on the main thread.
+  beforeAll(async () => {
+    await initPureWasm();
+    P.installProjection(new TestProjection());
+  });
+
+  function recordingGroup(calls: [string, unknown, unknown][]): P.Group {
+    const record = (name: string) => async (encoded: unknown, options: unknown) => {
+      calls.push([name, encoded, options]);
+      return "id";
+    };
+    return P.wrapGroup(
+      binding({ send: record("send"), prepareMessage: record("prepareMessage") }),
+    );
+  }
+  const binding = (fields: object): B.GroupLike => fields as B.GroupLike;
+  const pushOf = (options: unknown) =>
+    (options as { shouldPush?: boolean } | undefined)?.shouldPush;
+
+  it("sends the codec's envelope with the push the policy chose", async () => {
+    const calls: [string, unknown, unknown][] = [];
+    const group = recordingGroup(calls);
+    const quiet = codec({
+      fallback: (value) => `about ${value}`,
+      shouldPush: () => false,
+    });
+    await group.send(quiet, "x");
+    await group.prepareMessage(quiet, "y");
+    expect(calls.map(([name]) => name)).toEqual(["send", "prepareMessage"]);
+    for (const [, encoded, options] of calls) {
+      expect((encoded as { fallback?: string }).fallback).toMatch(/^about /);
+      expect(pushOf(options)).toBe(false);
+    }
+  });
+
+  it("keeps an explicit push, a catalogue default, and an envelope send", async () => {
+    const calls: [string, unknown, unknown][] = [];
+    const group = recordingGroup(calls);
+    const throwingPush = codec({ shouldPush: never("shouldPush") });
+    await group.send(throwingPush, "x", { shouldPush: true });
+    expect(pushOf(calls[0]![2])).toBe(true);
+    // A codec of a catalogue type keeps the catalogue default: no hook call,
+    // no push option.
+    const text = { authorityId: "xmtp.org", typeId: "text", versionMajor: 1, versionMinor: 0 };
+    const catalogueCodec = codec({
+      type: text,
+      encode: () => envelope({ type: text }),
+      shouldPush: never("shouldPush"),
+    });
+    await group.send(catalogueCodec, "x");
+    expect(pushOf(calls[1]![2])).toBeUndefined();
+    await group.send(envelope(), { shouldPush: false });
+    expect(pushOf(calls[2]![2])).toBe(false);
+  });
+
+  // verifies: CTYPE-031
+  it("adds no compression unless the send asks for it", async () => {
+    const calls: [string, unknown, unknown][] = [];
+    const group = recordingGroup(calls);
+    const pushing = codec({ shouldPush: () => true });
+    await group.send(pushing, "x");
+    await group.send(pushing, "y", { compression: "gzip" });
+    await group.send(codec(), "z");
+    const compressionOf = (options: unknown) =>
+      (options as { compression?: unknown } | undefined)?.compression;
+    expect(compressionOf(calls[0]![2])).toBeUndefined();
+    expect(compressionOf(calls[1]![2])).toBeDefined();
+    expect(calls[2]![2]).toBeUndefined();
+  });
+
+  it("makes no send call when a codec step fails", async () => {
+    const calls: [string, unknown, unknown][] = [];
+    const group = recordingGroup(calls);
+    for (const failing of [
+      codec({ encode: never("encode") }),
+      codec({ fallback: never("fallback") }),
+      codec({ shouldPush: never("shouldPush") }),
+    ]) {
+      await expect(group.send(failing, "x")).rejects.toBeInstanceOf(
+        P.XmtpError.CodecEncodeFailed,
+      );
+      await expect(group.prepareMessage(failing, "x")).rejects.toBeInstanceOf(
+        P.XmtpError.CodecEncodeFailed,
+      );
+    }
+    expect(calls).toEqual([]);
   });
 });

@@ -11,6 +11,8 @@ export {
 } from "../client";
 export type { Message as BoundMessage } from "../message";
 export { encodeText } from "../../xmtp_sdk";
+// The one catalogue predicate for the send push default (Decision 24).
+export { isCatalogueContentType } from "../../public-values.gen";
 
 /** On Node, the binding message is the host Message. */
 export function boundMessageOf(value: RuntimeMessage): RuntimeMessage {
