@@ -703,7 +703,7 @@ id = "ATCH-072"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending, and a TypeScript gap. Swift and Kotlin enums cannot express a source of the wrong shape. The TypeScript public layer rejects one with a TypeError before any read or write, not with an attachment failure whose cause is malformed. Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending, and a TypeScript gap. Swift and Kotlin enums cannot express a source of the wrong shape. The TypeScript public layer accepts or rejects one without the malformed cause: the generated lowering drops an extra bytes or path, a missing bytes throws a TypeError, and a missing path fails, if at all, only in the FFI string converter. Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-038"
@@ -743,9 +743,10 @@ reason = "Attachments::list_local in xmtp_sdk lists the client's local attachmen
 
 [[waiver]]
 id = "ATCH-060"
-kind = "untested"
+kind = "gap"
 owner = "attachments"
-reason = "XmtpError::Attachment in xmtp_sdk carries one AttachmentFailure, with one AttachmentFailureCause, for a failed creation, upload, download, or path derivation. The generated SDK is expected to meet this row on every host, but the installed-package proof is pending: Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+issue = "https://github.com/xmtp/libxmtp/issues/4246"
+reason = "Installed-package proof pending, and a TypeScript gap. XmtpError::Attachment in xmtp_sdk carries one AttachmentFailure, with one AttachmentFailureCause, for a failed creation, upload, download, or path derivation. The TypeScript public layer does not report a creation from an AttachmentSource of the wrong shape with the malformed cause (the ATCH-072 gap). Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-061"
