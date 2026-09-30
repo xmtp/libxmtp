@@ -275,6 +275,11 @@ pub enum IdentityError {
     /// Associated InboxID does not match stored value. Not retryable.
     #[error("The InboxID {id}, associated does not match the stored InboxId {stored}.")]
     InboxIdMismatch { id: InboxId, stored: InboxId },
+    /// Identifier not in inbox.
+    ///
+    /// The identifier does not belong to the inbox of the stored identity. Not retryable.
+    #[error("The identifier does not belong to the stored InboxId {inbox_id}.")]
+    IdentifierNotInInbox { inbox_id: InboxId },
     /// No associated Inbox ID.
     ///
     /// Address has no associated InboxID. Not retryable.

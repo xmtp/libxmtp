@@ -300,6 +300,47 @@ async fn explicit_storage_opens_only_for_an_identity_of_its_inbox() {
     std::fs::remove_dir_all(root)?;
 }
 
+// The build seeds the key package tasks when it registers its workers, just
+// before it starts them. A rejected identity must not reach that point, since
+// the workers act as the database's installation.
+#[xmtp_common::test(unwrap_try = true)]
+async fn explicit_storage_rejects_an_identity_before_the_build_prepares_workers() {
+    use xmtp_db::{ConnectionExt, diesel::prelude::*};
+
+    let relay = CountingRelay::start().await?;
+    let root = temp_root("explicit-identity-workers");
+    std::fs::create_dir_all(&root)?;
+    let mut settings = options();
+    settings.backend = relay.backend();
+    settings.storage.location = explicit(&root);
+    let owner = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
+    owner.end().await?;
+    let db_path = root.join("chosen.sqlite");
+    let tasks = async || -> Result<i64, XmtpError> {
+        let (store, _) = crate::client::open_store_if_present(&settings.storage, &db_path)
+            .await?
+            .expect("the database stays");
+        Ok(store
+            .db()
+            .raw_query(|conn| xmtp_db::schema::tasks::table.count().get_result(conn))?)
+    };
+    {
+        let (store, _) = crate::client::open_store_if_present(&settings.storage, &db_path)
+            .await?
+            .expect("the database stays");
+        store.db().raw_query(|conn| {
+            xmtp_db::diesel::delete(xmtp_db::schema::tasks::table).execute(conn)
+        })?;
+    }
+    assert_eq!(tasks().await?, 0);
+
+    let stranger = signer::identity(crate::generate_local_signer().await).await?;
+    let built = Client::build(stranger, settings.clone(), None).await;
+    assert!(is_identity_mismatch(&built), "build: {:?}", built.err());
+    assert_eq!(tasks().await?, 0, "the rejected build prepared its workers");
+    std::fs::remove_dir_all(root)?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_rejects_its_removed_creator() {
     let relay = CountingRelay::start().await?;

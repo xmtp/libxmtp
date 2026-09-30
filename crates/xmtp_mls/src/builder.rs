@@ -176,6 +176,9 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
         Option<Arc<dyn crate::subscriptions::incoming::SubscriptionFactory>>,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
+    /// Whether the strategy's identifier must belong to the inbox of the
+    /// identity the build loads.
+    pub(crate) require_identifier_in_inbox: bool,
     pub(crate) disable_commit_log_worker: bool,
     pub(crate) mls_storage: Option<S>,
     pub(crate) disable_workers: bool,
@@ -263,6 +266,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             incoming_factory: None,
             version_info: VersionInfo::default(),
             allow_offline: false,
+            require_identifier_in_inbox: false,
             disable_commit_log_worker: false,
             mls_storage: None,
             disable_workers: false,
@@ -307,6 +311,7 @@ where
             incoming_factory: client.context.incoming_runtime.original_factory.clone(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
+            require_identifier_in_inbox: false,
             disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
             disable_workers: false,
@@ -401,6 +406,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             incoming_factory,
             version_info,
             allow_offline,
+            require_identifier_in_inbox,
             disable_commit_log_worker,
             mut mls_storage,
             disable_workers,
@@ -614,6 +620,17 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             .set_limits(Arc::new(snapshot.limits.clone()));
         api_client.set_configuration(snapshot);
 
+        let identifier_check = match &identity_strategy {
+            IdentityStrategy::CreateIfNotFound {
+                identifier, nonce, ..
+            }
+            | IdentityStrategy::CreateForIdentifier { identifier, nonce }
+                if require_identifier_in_inbox =>
+            {
+                Some((identifier.clone(), *nonce))
+            }
+            _ => None,
+        };
         let mut identity = if let Some(identity) = identity {
             identity
         } else {
@@ -642,6 +659,30 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 vec![identity.inbox_id.as_str()].as_slice(),
             )
             .await?;
+        }
+        // The identity store trusts a stored identity of the same inbox. The
+        // check runs on the identity updates loaded above and before any
+        // worker, so a rejected identifier makes no request as the stored
+        // installation.
+        if let Some((identifier, nonce)) = identifier_check {
+            let membership = crate::identity_updates::identifier_membership(
+                &conn,
+                &identity.inbox_id,
+                &identifier,
+                &scw_verifier,
+            )
+            .await?;
+            if !crate::identity_updates::identifier_opens_inbox(
+                membership,
+                &identifier,
+                nonce,
+                &identity.inbox_id,
+            ) {
+                return Err(crate::identity::IdentityError::IdentifierNotInInbox {
+                    inbox_id: identity.inbox_id.clone(),
+                }
+                .into());
+            }
         }
 
         // Fold the legacy single-worker toggles into the unified enable map so
@@ -920,6 +961,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -967,6 +1009,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1008,6 +1051,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self
                 .store
                 .as_ref()
@@ -1047,6 +1091,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: Some(mls_storage),
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1139,6 +1184,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1222,6 +1268,20 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
+    /// Require the identity strategy's identifier to belong to the inbox of
+    /// the identity the build loads, including a stored one. The build checks
+    /// the association state after it loads the inbox's identity updates and
+    /// before it starts any worker. Before the inbox's first identity update,
+    /// only the identifier whose inbox at the strategy's nonce is that inbox
+    /// belongs to it. A failure is
+    /// [`IdentityError::IdentifierNotInInbox`](crate::identity::IdentityError::IdentifierNotInInbox).
+    pub fn require_identifier_in_inbox(self) -> Self {
+        Self {
+            require_identifier_in_inbox: true,
+            ..self
+        }
+    }
+
     /// Control whether the CommitLogWorker background task is enabled.
     /// Useful for tests that need deterministic commit log operations.
     #[cfg(any(test, feature = "test-utils"))]
@@ -1277,6 +1337,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1314,6 +1375,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1362,6 +1424,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,

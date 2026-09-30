@@ -477,3 +477,42 @@ async fn identity_persistence_test() {
         .unwrap();
     assert_eq!(client_d.installation_public_key().to_vec(), keybytes_a);
 }
+
+// A stored identity trusts any identifier of its inbox ID, so a build that
+// requires it checks the identifier against the inbox's association state.
+#[xmtp_common::test(unwrap_try = true)]
+async fn stored_identity_opens_only_for_an_identifier_of_its_inbox() {
+    let tmpdb = tmp_path();
+    let owner = generate_local_wallet();
+    let nonce = 1;
+    let inbox_id = owner.identifier().inbox_id(nonce)?;
+    let builder = async |identifier: Identifier| {
+        Client::builder(IdentityStrategy::new(inbox_id.clone(), identifier, nonce))
+            .api_client(DefaultTestClientCreator::create().build().unwrap())
+            .store(xmtp_db::TestDb::create_persistent_store(Some(tmpdb.clone())).await)
+            .default_mls_store()
+            .unwrap()
+            .with_scw_verifier(MockSmartContractSignatureVerifier::new(true))
+    };
+    let client = builder(owner.identifier()).await.build().await?;
+    register_client(&client, &owner).await;
+    drop(client);
+
+    let stranger = generate_local_wallet().identifier();
+    let rejected = builder(stranger)
+        .await
+        .require_identifier_in_inbox()
+        .build()
+        .await;
+    assert!(matches!(
+        rejected,
+        Err(ClientBuilderError::Identity(IdentityError::IdentifierNotInInbox { inbox_id: stored }))
+            if stored == inbox_id
+    ));
+
+    builder(owner.identifier())
+        .await
+        .require_identifier_in_inbox()
+        .build()
+        .await?;
+}
