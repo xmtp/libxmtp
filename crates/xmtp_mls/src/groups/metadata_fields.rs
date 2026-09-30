@@ -27,7 +27,7 @@ use xmtp_mls_common::{
 
 use super::{
     GroupError, MlsGroup,
-    app_data::sender_intents::{field_writes_commit, resolve_field_writes},
+    app_data::sender_intents::field_writes_commit,
     intents::{AppDataUpdateIntentData, QueueIntent},
 };
 use crate::context::XmtpSharedContext;
@@ -196,7 +196,7 @@ where
         );
         if failed
             && let Err(field @ GroupError::MetadataField(_)) =
-                self.with_group_snapshot(|group| resolve_field_writes(group, own, writes))
+                self.with_group_snapshot(|group| field_writes_commit(group, own, writes))
         {
             return Err(field);
         }

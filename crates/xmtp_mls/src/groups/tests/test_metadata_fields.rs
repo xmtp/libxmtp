@@ -717,6 +717,168 @@ async fn test_map_updates_of_pending_entries_commit_them() {
     );
 }
 
+/// A pending removal of the caller's own committed entry carries out a
+/// clear of it, so the clear commits that removal.
+// verifies: META-073
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_clears_carried_out_by_pending_removals_commit_them() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    let own = inbox(&alix);
+    group.update_user_data(&[set(names.clone(), "Al")]).await?;
+    let clear_own = vec![FieldWrite {
+        component_id: ComponentId::USER_DISPLAY_NAME,
+        component_type: ComponentType::TlsMapInboxIdString,
+        operation: WriteOperation::ClearOwn,
+    }];
+    publish_proposals(&group, own, clear_own).await?;
+    group.sync().await?;
+    assert!(pending_proposals(&group)? > 0);
+
+    group.update_user_data(&[clear(names.clone())]).await?;
+    bo_group.sync().await?;
+    assert_eq!(bo_group.map_value(&names, &FieldKey::InboxId(own))?, None);
+}
+
+/// Several writes the committed values already carry out, one unchanged
+/// and one a clear of an absent entry, make no commit next to another
+/// member's pending proposal.
+// verifies: META-073
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_unchanged_writes_ignore_other_pending_entries() {
+    tester!(alix, configured: |c| c.application_components = catalogue());
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    group.update_user_data(&[set(names.clone(), "Al")]).await?;
+    bo_group.sync().await?;
+    publish_proposals(&bo_group, inbox(&bo), display_name("Bo")).await?;
+    group.sync().await?;
+    assert!(pending_proposals(&group)? > 0);
+    let epoch = group.epoch().await?;
+
+    group
+        .update_user_data(&[set(names.clone(), "Al"), clear(nickname())])
+        .await?;
+    assert_eq!(group.epoch().await?, epoch);
+}
+
+/// A queued write whose pending proposal another member commits first is
+/// then carried out by the committed values, so its publish makes no
+/// commit.
+// verifies: META-073
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_queued_writes_committed_by_another_member_make_no_commit() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    let own = inbox(&alix);
+    publish_proposals(&group, own, display_name("Al")).await?;
+    group.sync().await?;
+    let writes = display_name("Al");
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(
+            writes.clone(),
+        )))
+        .queue(&group)?;
+    bo_group.sync().await?;
+    bo_group
+        .update_user_data(&[set(names.clone(), "Bo")])
+        .await?;
+    let epoch = bo_group.epoch().await?;
+
+    group.publish_field_writes(intent.id, own, &writes).await?;
+    assert_eq!(group.epoch().await?, epoch);
+    assert_eq!(
+        group.map_value(&names, &FieldKey::InboxId(own))?,
+        Some(string("Al"))
+    );
+}
+
+/// A write that only another member's pending proposal carries out is
+/// still checked against the committed policies, as the change it makes
+/// to the committed values: a member who may not write the field is
+/// refused and commits nothing.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_writes_carried_out_by_pending_proposals_are_authorized() {
+    tester!(alix, configured: |c| c.application_components = catalogue());
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let topic = vec![FieldWrite {
+        component_id: ComponentId::new(TOPIC),
+        component_type: ComponentType::String,
+        operation: WriteOperation::Update(b"x".to_vec()),
+    }];
+    publish_proposals(&group, inbox(&alix), topic).await?;
+    bo_group.sync().await?;
+    assert!(pending_proposals(&bo_group)? > 0);
+    let epoch = bo_group.epoch().await?;
+
+    let error = bo_group
+        .update_metadata_field(
+            &MetadataFieldRef::new(ComponentId::new(TOPIC)),
+            &ComponentMutation::Replace(string("x")),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        field_error(error),
+        FieldError::Denied(id) if id.as_u16() == TOPIC
+    ));
+    assert_eq!(bo_group.epoch().await?, epoch);
+}
+
+/// A map update of another member's entry that only their pending proposal
+/// holds is checked as that update after the proposal, so a member who may
+/// not write the entry is refused.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_map_updates_of_pending_entries_are_authorized() {
+    tester!(alix, configured: |c| c.application_components = catalogue());
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let own = inbox(&alix);
+    let nickname_write = vec![FieldWrite {
+        component_id: ComponentId::new(NICKNAME),
+        component_type: ComponentType::TlsMapInboxIdString,
+        operation: WriteOperation::SetOwn(b"Al".to_vec()),
+    }];
+    publish_proposals(&group, own, nickname_write).await?;
+    bo_group.sync().await?;
+    assert!(pending_proposals(&bo_group)? > 0);
+    let epoch = bo_group.epoch().await?;
+
+    let update = MapMutation::Update(FieldKey::InboxId(own), string("Al"));
+    let error = bo_group
+        .update_metadata_field(&nickname(), &ComponentMutation::MapDelta(vec![update]))
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        field_error(error),
+        FieldError::Denied(id) if id.as_u16() == NICKNAME
+    ));
+    assert_eq!(bo_group.epoch().await?, epoch);
+}
+
 /// The number of proposals `group` holds pending.
 fn pending_proposals<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<usize, GroupError> {
     group.with_group_snapshot(|group| Ok(group.pending_proposals().count()))
