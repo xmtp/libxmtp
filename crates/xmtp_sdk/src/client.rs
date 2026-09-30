@@ -305,6 +305,11 @@ pub(crate) fn map_wasm_storage_error(error: impl crate::error::CoreError) -> Xmt
                 PlatformStorageError::DatabaseInUse
                 | PlatformStorageError::SAH(OpfsSAHError::CreateSyncAccessHandle(_)),
             ) => return XmtpError::storage_busy(error.to_string()),
+            // An environment without OPFS support, such as a page that is not
+            // a dedicated worker, cannot become usable by retrying.
+            Some(PlatformStorageError::SAH(OpfsSAHError::NotSupported)) => {
+                return XmtpError::storage(error.to_string());
+            }
             _ => cause = current.source(),
         }
     }

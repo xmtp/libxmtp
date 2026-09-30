@@ -32,6 +32,15 @@ const { privateKeyToAccount } = await import(
 );
 
 /** Fail when any string or byte array in `value` carries a secret. */
+/** The retry flag of a binding error's details. */
+function retryableOf(error: unknown): unknown {
+  const inner: unknown =
+    error !== null && typeof error === "object" ? Reflect.get(error, "inner") : undefined;
+  return Array.isArray(inner) && inner[0] !== null && typeof inner[0] === "object"
+    ? Reflect.get(inner[0], "retryable")
+    : undefined;
+}
+
 function assertNoSecret(
   value: unknown,
   secrets: (string | Uint8Array)[],
@@ -173,6 +182,8 @@ try {
       assert.ok(error instanceof Error);
       // The platform storage failure keeps its typed Storage code.
       assert.ok(B.XmtpError.Storage.instanceOf(error), String(error));
+      // No OPFS support cannot become usable by retrying.
+      assert.equal(retryableOf(error), false, String(error));
       assert.ok(!B.XmtpError.StorageLocationRequired.instanceOf(error));
       return true;
     },
@@ -230,6 +241,7 @@ try {
     (error: unknown) => {
       // An OPFS failure keeps its typed Storage code; it is not StorageBusy.
       assert.ok(B.XmtpError.Storage.instanceOf(error), String(error));
+      assert.equal(retryableOf(error), false, String(error));
       assert.ok(!B.XmtpError.StorageBusy.instanceOf(error));
       return true;
     },
