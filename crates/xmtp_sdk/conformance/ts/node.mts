@@ -651,6 +651,43 @@ assert.match(failedDecode.content.error?.message ?? "", /codec decode failed/);
 assert.equal(failedDecode.content.error?.code, "CodecDecodeFailed");
 assert.equal(failedDecode.content.error?.category, "callback");
 assert.equal(failedDecode.content.error?.retryable, false);
+assert.deepEqual(failedDecode.content.rawBytes, decoded.content.rawBytes);
+// verifies: CTYPE-008, CTYPE-009, CTYPE-029
+const failedNestedReply =
+  await ownerWithFailingCodec.conversations.getMessageById(customReplyId);
+if (failedNestedReply?.content.kind !== "unknown")
+  throw new Error("nested Node host failure did not retain the outer reply");
+assert.equal(failedNestedReply.content.error.code, "CodecDecodeFailed");
+assert.equal(failedNestedReply.content.error.category, "callback");
+assert.equal(failedNestedReply.content.error.retryable, false);
+assert.deepEqual(failedNestedReply.content.rawBytes, customReply.rawBytes);
+assert.equal(failedNestedReply.content.encoded?.fallback, customReply.fallback);
+assert.ok(customReply.fallback);
+const normalReplyId = await ownerWithFailingCodec.conversations.replyToMessage(
+  customId,
+  sdk.encodeText("valid reply with failed parent"),
+);
+const replyWithFailedParent =
+  await ownerWithFailingCodec.conversations.getMessageById(normalReplyId);
+assert.equal(replyWithFailedParent?.content.kind, "reply");
+assert.equal(replyWithFailedParent?.replyContent?.kind, "text");
+if (replyWithFailedParent?.inReplyToContent?.kind !== "custom")
+  throw new Error("Node parent custom failure missing");
+assert.equal(
+  replyWithFailedParent.inReplyToContent.error?.code,
+  "CodecDecodeFailed",
+);
+assert.equal(
+  replyWithFailedParent.inReplyToContent.error?.category,
+  "callback",
+);
+assert.deepEqual(
+  replyWithFailedParent.inReplyToContent.rawBytes,
+  decoded.content.rawBytes,
+);
+console.log(
+  "Node retained outer reply and isolated parent host failure passed",
+);
 await ownerWithFailingCodec.end();
 const throwingCodec: sdk.ContentCodec<string> = {
   ...customCodec,

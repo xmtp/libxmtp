@@ -272,7 +272,7 @@ id = "PROC-045"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Legacy Swift and Kotlin V1 readers keep failed rows without a decoded custom value or typed failure details. The new SDK returns a failed custom item with ErrorDetails and keeps the stream open; linked Node, browser, Swift, Kotlin, and Rust tests cover that path."
+reason = "Legacy Swift and Kotlin V1 readers keep failed rows without a decoded custom value or typed failure details. The new SDK returns a failed custom item with ErrorDetails and keeps the stream open; linked Node, browser, Swift, and Kotlin tests cover that path."
 
 [[waiver]]
 id = "SEND-019"
