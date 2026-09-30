@@ -1,9 +1,7 @@
-//! Each archive group element commits its inert stub, row, and history together.
+//! Each archive group element commits its inert stub and row together.
 
 use super::*;
-use prost::Message;
 use xmtp_db::ConnectionExt;
-use xmtp_db::restored_group_metadata::StoredRestoredGroupMetadata;
 use xmtp_proto::xmtp::device_sync::group_backup::GroupSave;
 
 impl<Context: XmtpSharedContext> MlsGroup<Context> {
@@ -120,11 +118,6 @@ impl<Context: XmtpSharedContext> MlsGroup<Context> {
                     .execute(conn)
             })?;
             merge_activity(&db, &group_id, save.last_message_ns)?;
-            StoredRestoredGroupMetadata {
-                group_id,
-                group_save: save.encode_to_vec(),
-            }
-            .store(&db)?;
             Ok(Continue(true))
         })
         .map(TransactionOutcome::into_continued)

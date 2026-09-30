@@ -9,7 +9,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | SDK | Public declarations |
 | --- | ---: |
 | Swift | 7132 |
-| Kotlin | 964 |
+| Kotlin | 963 |
 | Node | 522 |
 | Browser | 533 |
 
@@ -668,7 +668,6 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.sentAt` | var | `Message.sentAt.date` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `DecodedMessage.sentAtNs` | var | `Message.sentAt.ns` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `DecodedMessage.topic` | var | `Message.topic` | static runtime | 11.4 Swift, Messages, codecs, preferences, values; 11.7 | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
-| `DecodedMessage.undecodable` | let | `MessageContent.Unknown` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Retained undecodable content on the old native route under the design SDK-040 exception. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `MessageDeliveryStatus` | enum | `DeliveryStatus` | generated | 11.2, MessageData.deliveryStatus | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `MessageDeliveryStatus.all` | case | — | approved removal | 11.2, ListMessagesOptions | An absent filter includes all statuses. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
 | `MessageDeliveryStatus.failed` | case | `DeliveryStatus.failed` | generated | 11.2, MessageData.deliveryStatus | Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/DecodedMessage.swift`. |
@@ -1206,7 +1205,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `XmtpApiClient.uniffiCloneHandle` | func | — | approved removal | 2, generated bridge replacement | Old API client member is replaced by Backend. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^(?:FfiConverter[^.]*\|func FfiConverter[^ ]*)(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (863 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^Ffi(?!Converter)[A-Za-z0-9_]*(?:Callback\|Listener)(?:Impl)?(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (72 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Internal UniFFI plumbing; pattern and count are in Current export. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
-| `pattern: ^Ffi[A-Za-z0-9_]+(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (844 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
+| `pattern: ^Ffi[A-Za-z0-9_]+(?:\..*)?$ [after prior family rules; excluding public-signature Ffi roots]` (845 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^func .+$ [after prior family rules; excluding public-signature Ffi roots]` (273 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `pattern: ^.+$ [after prior family rules; excluding public-signature Ffi roots]` (15 declarations) | generated family | — | approved removal | 2, generated bridge replacement | Old generated binding is replaced by facade output. Source: `sdks/ios/Sources/XMTPiOS/Libxmtp/xmtpv3.swift`. |
 | `DeliveryCursor` | typealias | `DeliveryCursor` | generated | 11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2 | Generated value or record field. Source: `sdks/ios/Sources/XMTPiOS/MessageReader.swift`. |
@@ -2217,7 +2216,6 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `DecodedMessage.sentAt` | val | `Message.sentAt.date` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.sentAtNs` | val | `Message.sentAt.ns` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessage.topic` | val | `Message.topic` | static runtime | 11.4 Kotlin, Messages, codecs, preferences, values; 11.7 | Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
-| `DecodedMessage.undecodable` | constructor property | `MessageContent.Unknown` | generated | 11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2 | Retained undecodable content on the old native route under the design SDK-040 exception. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessage.kt`. |
 | `DecodedMessageV2` | class | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values; 19, decision 5 | The V2 type leaves the API; its value fields move to Message. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
 | `DecodedMessageV2.Companion` | object | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
 | `DecodedMessageV2.Companion.create` | fun | — | approved removal | 11.4 Kotlin, Messages, codecs, preferences, values | Factories become internal. Source: `sdks/android/library/src/main/java/org/xmtp/android/library/libxmtp/DecodedMessageV2.kt`. |
@@ -3631,6 +3629,7 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/local_delivery/tests.rs` | `replay_cursor_rejects_malformed_database_identity_with_typed_error` | binding only: reader and cursor input are Task 19 (#4250); this façade branch has no public replay cursor input |
 | `bindings/mobile/src/mls/local_delivery/tests.rs` | `catch_up_translation_keeps_previous_generation_and_typed_blocked_cause` | core: `crates/xmtp_mls/src/subscriptions/stream_failure/tests.rs::published_failure_keeps_zero_target_and_intent_identity` |
 | `bindings/mobile/src/mls/notifications.rs` | `notification_debug_redacts_credentials` | binding only: mobile debug formatting of the notification object |
+| `bindings/mobile/src/mls/tests/archive.rs` | `restored_identity_and_roles_are_unknown_until_activation` | binding only: legacy empty-text creator and direct role getters; the façade uses optional identity and views |
 | `bindings/mobile/src/mls/tests/archive.rs` | `test_archive_excludes_disappearing_messages` | façade: `crates/xmtp_sdk/src/tests/archives.rs::archive_excludes_disappearing_messages_when_requested` |
 | `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_storage` | façade: `crates/xmtp_sdk/src/tests/storage.rs::storage_default_requires_host_and_directory_names_are_unique` |
 | `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_key` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::storage_key_rejects_wrong_key_for_existing_database` |

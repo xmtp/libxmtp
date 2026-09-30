@@ -686,9 +686,8 @@ export async function retiredWorker(
 /**
  * A foreign Restored DM and group through the package root. C imports A's
  * archive and is neither DM member, so the DM has no peer for C: the public
- * result is null, never undefined (Decision 13). A live client always knows
- * the creator and adder, so the getters return text here; the projection unit
- * test covers null for an unknown creator or adder.
+ * result is null, never undefined (Decision 13). Restored creators are also
+ * unknown until activation. The independent adder stays equal to A's inbox.
  */
 export async function restored(): Promise<string[]> {
   const backend: sdk.BackendOptions = { url: `${location.origin}/backend` };
@@ -723,17 +722,34 @@ export async function restored(): Promise<string[]> {
     }
     const restoredGroup = await c.conversations.getById(group.id);
     check(restoredGroup instanceof sdk.Group, "restored group missing");
-    for (const [name, value] of [
-      ["group creator", restoredGroup.creatorInboxId],
-      ["group adder", restoredGroup.addedByInboxId],
-      ["DM creator", restoredDm.creatorInboxId],
-      ["DM adder", restoredDm.addedByInboxId],
-    ] as const)
+    const listedGroups = await c.conversations.listGroups(undefined);
+    const listedGroup = listedGroups.find((item) => item.id === group.id);
+    check(listedGroup !== undefined, "restored group missing from list");
+    const listedDm = listed.find((item) => item.id === dm.id);
+    check(listedDm !== undefined, "restored DM missing from list");
+    for (const [name, conversation] of [
+      ["get group", restoredGroup],
+      ["get DM", restoredDm],
+      ["listed group", listedGroup],
+      ["listed DM", listedDm],
+    ] as const) {
       check(
-        typeof value === "string" && value.length > 0,
-        `${name} is ${String(value)}, not known text`,
+        conversation.creatorInboxId === null,
+        `${name} creator is ${String(conversation.creatorInboxId)}, not null`,
       );
-    return ["restored DM peer is null", "restored creator and adder are text"];
+      check(
+        conversation.isCreator === false,
+        `${name} isCreator is ${String(conversation.isCreator)}, not false`,
+      );
+      check(
+        conversation.addedByInboxId === a.inboxId,
+        `${name} adder is ${String(conversation.addedByInboxId)}, not the source inbox`,
+      );
+    }
+    return [
+      "restored DM peer and creator are null",
+      "restored adder is preserved",
+    ];
   } finally {
     await a.end();
     await b.end();

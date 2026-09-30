@@ -37,8 +37,14 @@ impl ConversationIdentity {
         added_by_inbox_id: String,
         metadata: &xmtp_mls::mls_common::group_metadata::GroupMetadata,
         own_inbox_id: &str,
+        membership_state: xmtp_db::group::GroupMembershipState,
     ) -> Self {
-        let creator_inbox_id = known_inbox_id(metadata.creator_inbox_id.clone());
+        let creator_inbox_id = if membership_state == xmtp_db::group::GroupMembershipState::Restored
+        {
+            None
+        } else {
+            known_inbox_id(metadata.creator_inbox_id.clone())
+        };
         Self {
             added_by_inbox_id: known_inbox_id(added_by_inbox_id),
             // An unknown creator is never the local inbox.
@@ -52,10 +58,23 @@ impl ConversationIdentity {
     async fn from_core(
         group: &MlsGroup<xmtp_mls::MlsContext>,
     ) -> Result<(Self, xmtp_mls::mls_common::group_metadata::GroupMetadata), XmtpError> {
-        let added_by_inbox_id = group.added_by_inbox_id().map_err(XmtpError::from_core)?;
+        let stored = group
+            .context
+            .db()
+            .find_group(&group.group_id)
+            .map_err(xmtp_mls::groups::GroupError::from)
+            .and_then(|stored| {
+                stored.ok_or_else(|| xmtp_db::NotFound::GroupById(group.group_id).into())
+            })
+            .map_err(XmtpError::from_core)?;
         let metadata = group.metadata().await.map_err(XmtpError::from_core)?;
         Ok((
-            Self::from_metadata(added_by_inbox_id, &metadata, group.context.inbox_id()),
+            Self::from_metadata(
+                stored.added_by_inbox_id,
+                &metadata,
+                group.context.inbox_id(),
+                stored.membership_state,
+            ),
             metadata,
         ))
     }
@@ -119,7 +138,12 @@ mod identity_tests {
 
     fn identity(creator: &str, adder: &str) -> ConversationIdentity {
         let metadata = GroupMetadata::new(ConversationType::Group, creator.into(), None, None);
-        ConversationIdentity::from_metadata(adder.into(), &metadata, OWN)
+        ConversationIdentity::from_metadata(
+            adder.into(),
+            &metadata,
+            OWN,
+            xmtp_db::group::GroupMembershipState::Allowed,
+        )
     }
 
     // Each distinct received state keeps unknown values absent and known text exact.

@@ -216,7 +216,7 @@ class MessageDeliveryFlowTest {
 
     // verifies: PROC-028
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
-    fun decodeAndCollectorFailuresRejectTheItem() =
+    fun decodeFailuresContinueButCollectorFailureRejectsTheItem() =
         runBlocking {
             val error = IllegalStateException("collector failed")
             val pending = Delivery()
@@ -232,34 +232,66 @@ class MessageDeliveryFlowTest {
             assertEquals(0, pending.acknowledgements)
             assertEquals(1, pending.rejections)
 
-            // Content that does not decode is handed off, not a flow failure.
-            // verifies: CTYPE-008, PROC-028
             val invalidEncoding =
                 TextCodec()
                     .encode("hi")
                     .toBuilder()
                     .putParameters("encoding", "UTF-16")
+                    .setFallback("unreadable content")
                     .build()
-            for (content in listOf(byteArrayOf(0x80.toByte()), invalidEncoding.toByteArray())) {
+            for ((content, expectedFallback) in listOf(
+                byteArrayOf(0x80.toByte()) to "",
+                invalidEncoding.toByteArray() to "unreadable content",
+            )) {
+                lateinit var failedMessage: DecodedMessage
                 val delivery =
-                    Delivery(
-                        decodeValue = {
-                            DecodedMessage.createForDelivery(deliveryTestMessage(content), null)?.let { 1 }
-                        },
-                    )
+                    Delivery(decodeValue = {
+                        val decoded = DecodedMessage.createForDelivery(deliveryTestMessage(content), null)
+                        assertNotNull(decoded)
+                        assertNull(decoded!!.content<String>())
+                        failedMessage = decoded
+                        1
+                    })
+                val later =
+                    Delivery(decodeValue = {
+                        val decoded =
+                            DecodedMessage.createForDelivery(
+                                deliveryTestMessage(TextCodec().encode("later").toByteArray()),
+                                null,
+                            )
+                        assertEquals("later", decoded!!.content<String>())
+                        2
+                    })
                 val received = mutableListOf<Int>()
-                val result =
-                    runCatching {
-                        acknowledgedMessageFlow<Int>(null) { callback ->
-                            callback.onMessage(delivery.queued())
-                            callback.onClose()
-                            return@acknowledgedMessageFlow {}
-                        }.collect { received.add(it) }
+                acknowledgedMessageFlow<Int>(null) { callback ->
+                    callback.onMessage(delivery.queued())
+                    launch {
+                        delivery.acknowledged.await()
+                        callback.onMessage(later.queued())
+                        later.acknowledged.await()
+                        callback.onClose()
                     }
-                assertNull(result.exceptionOrNull())
-                assertEquals(listOf(1), received)
+                    return@acknowledgedMessageFlow {}
+                }.collect {
+                    if (it == 1) {
+                        assertEquals(expectedFallback, failedMessage.body)
+                        assertEquals(expectedFallback, failedMessage.fallback)
+                        assertEquals(
+                            if (expectedFallback.isEmpty()) EncodedContent.getDefaultInstance() else invalidEncoding,
+                            failedMessage.encodedContent,
+                        )
+                        assertEquals(0, delivery.acknowledgements)
+                    } else {
+                        assertEquals(1, delivery.acknowledgements)
+                        assertEquals(0, later.acknowledgements)
+                    }
+                    received.add(it)
+                }
+                assertEquals(listOf(1, 2), received)
                 assertEquals(1, delivery.acknowledgements)
+                assertEquals(1, later.acknowledgements)
                 assertEquals(0, delivery.rejections)
+                assertEquals(0, later.rejections)
             }
         }
 

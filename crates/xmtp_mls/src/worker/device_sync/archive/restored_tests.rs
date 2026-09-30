@@ -1,10 +1,9 @@
-//! Transaction boundaries and historical projections for restored history.
+//! Transaction boundaries and inactive groups after archive import.
 use super::*;
 use crate::groups::{DeleteMessageError, GroupError};
 use crate::tester;
 use crate::worker::device_sync::{ArchiveOptions, BackupElementSelection};
 use futures::io::{BufReader, Cursor};
-use prost::Message;
 use std::collections::HashMap;
 use xmtp_db::{
     ConnectionExt, Store,
@@ -96,8 +95,6 @@ async fn restored_history_keeps_source_fields_and_independent_settings() {
         assert!(!row.should_publish_commit_log);
         assert_eq!(row.sequence_id, None);
         assert_eq!(row.paused_for_version, None);
-        let history = alix.db().restored_group_metadata(&id)??;
-        assert_eq!(GroupSave::decode(history.group_save.as_slice())?, save);
         let mut later = save.clone();
         later.created_at_ns = 999;
         later.added_by_inbox_id = "replace".into();
@@ -108,13 +105,19 @@ async fn restored_history_keeps_source_fields_and_independent_settings() {
         assert_eq!(after.created_at_ns, row.created_at_ns);
         assert_eq!(after.added_by_inbox_id, row.added_by_inbox_id);
         assert_eq!(after.last_message_ns, Some(500));
-        assert_eq!(alix.db().restored_group_metadata(&id)??, history);
+        assert_eq!(after.conversation_type, row.conversation_type);
+        assert_eq!(after.dm_id, row.dm_id);
+        assert_eq!(
+            after.message_disappear_from_ns,
+            row.message_disappear_from_ns
+        );
+        assert_eq!(after.message_disappear_in_ns, row.message_disappear_in_ns);
     }
 }
 
 // verifies: ARCH-021
 #[xmtp_common::test(unwrap_try = true)]
-async fn restored_history_insert_failure_rolls_back_row_stub_and_consent() {
+async fn restored_group_update_failure_rolls_back_row_stub_and_consent() {
     use xmtp_db::diesel::{connection::SimpleConnection, prelude::*};
     tester!(alix, disable_workers);
     let db = alix.db();
@@ -126,7 +129,7 @@ async fn restored_history_insert_failure_rolls_back_row_stub_and_consent() {
         })
     };
     let before = count()?;
-    db.raw_query(|conn| conn.batch_execute("CREATE TRIGGER fail_history BEFORE INSERT ON restored_group_metadata BEGIN SELECT RAISE(ABORT, 'history failure'); END;"))?;
+    db.raw_query(|conn| conn.batch_execute("CREATE TRIGGER fail_group BEFORE UPDATE OF created_at_ns ON groups BEGIN SELECT RAISE(ABORT, 'group update failure'); END;"))?;
     for (index, dm) in [false, true].into_iter().enumerate() {
         let save = saved_group(index as u8 + 3, dm);
         let id = GroupId::try_from(save.id.as_slice())?;
@@ -136,20 +139,18 @@ async fn restored_history_insert_failure_rolls_back_row_stub_and_consent() {
                 .is_err()
         );
         assert!(db.find_group(&id)?.is_none());
-        assert!(db.restored_group_metadata(&id)?.is_none());
         assert!(
             db.get_consent_record(hex::encode(id), ConsentType::ConversationId)?
                 .is_none()
         );
         assert_eq!(count()?, before, "the failed element left an MLS stub");
     }
-    db.raw_query(|conn| conn.batch_execute("DROP TRIGGER fail_history;"))?;
+    db.raw_query(|conn| conn.batch_execute("DROP TRIGGER fail_group;"))?;
     for (index, dm) in [false, true].into_iter().enumerate() {
         let save = saved_group(index as u8 + 3, dm);
         let id = GroupId::try_from(save.id.as_slice())?;
         apply(&alix.context, vec![group_element(save)]).await?;
         assert!(db.find_group(&id)?.is_some());
-        assert!(db.restored_group_metadata(&id)?.is_some());
     }
 }
 
@@ -175,15 +176,6 @@ async fn restored_history_completed_elements_keep_metadata_and_activity_after_fa
     let row = alix.db().find_group(&id)??;
     assert_eq!(row.last_message_ns, Some(300));
     assert_eq!(row.created_at_ns, 123);
-    assert_eq!(
-        GroupSave::decode(
-            alix.db()
-                .restored_group_metadata(&id)??
-                .group_save
-                .as_slice()
-        )?,
-        first
-    );
     assert!(events.drain().iter().any(|event| matches!(
         &event.client,
         Some(ClientEvent::ArchiveRestored(ArchiveRestored {
@@ -197,9 +189,9 @@ async fn restored_history_completed_elements_keep_metadata_and_activity_after_fa
     );
 }
 
-// verifies: ARCH-014, ARCH-020
+// verifies: ARCH-014
 #[xmtp_common::test(unwrap_try = true)]
-async fn restored_history_does_not_rewrite_an_old_row_without_a_blob() {
+async fn restored_import_does_not_rewrite_an_existing_group() {
     tester!(alix, disable_workers);
     let group = alix.create_group(None, None)?;
     alix.db()
@@ -211,11 +203,6 @@ async fn restored_history_does_not_rewrite_an_old_row_without_a_blob() {
     let after = alix.db().find_group(&group.group_id)??;
     assert_eq!(after.created_at_ns, before.created_at_ns);
     assert_eq!(after.added_by_inbox_id, before.added_by_inbox_id);
-    assert!(
-        alix.db()
-            .restored_group_metadata(&group.group_id)?
-            .is_none()
-    );
 }
 
 // verifies: ARCH-014, CONS-010
@@ -270,24 +257,87 @@ async fn restored_history_dm_creation_does_not_synthesize_allowed_consent() {
 async fn exported_groups(
     db: impl DbQuery + 'static,
 ) -> Result<HashMap<Vec<u8>, GroupSave>, DeviceSyncError> {
+    Ok(exported_elements(db)
+        .await?
+        .into_iter()
+        .filter_map(|element| {
+            if let Element::Group(save) = element {
+                Some((save.id.clone(), save))
+            } else {
+                None
+            }
+        })
+        .collect())
+}
+
+async fn exported_elements(db: impl DbQuery + 'static) -> Result<Vec<Element>, DeviceSyncError> {
     let key = vec![7; 32];
     let opts = ArchiveOptions {
         start_ns: None,
         end_ns: None,
-        elements: vec![BackupElementSelection::Messages],
+        elements: vec![
+            BackupElementSelection::Messages,
+            BackupElementSelection::Consent,
+        ],
         exclude_disappearing_messages: false,
     };
     let mut bytes = Vec::new();
     xmtp_archive::exporter::export(opts, db, &key, &mut bytes)?;
     let mut importer =
         ArchiveImporter::load(Box::pin(BufReader::new(Cursor::new(bytes))), &key).await?;
-    let mut saves = HashMap::new();
+    let mut elements = Vec::new();
     while let Some(element) = importer.next().await {
-        if let Some(Element::Group(save)) = element?.element {
-            saves.insert(save.id.clone(), save);
+        if let Some(element) = element?.element {
+            elements.push(element);
         }
     }
-    Ok(saves)
+    Ok(elements)
+}
+
+// verifies: ARCH-017, ARCH-026
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_history_export_excludes_groups_and_messages_but_keeps_consent() {
+    tester!(alix, disable_workers);
+    let live = alix.create_group(None, None)?;
+    let live_message = stored_message(live.group_id, alix.inbox_id().to_string(), 61);
+    live_message.store(&alix.db())?;
+    for (seed, dm) in [(62, false), (63, true)] {
+        let save = saved_group(seed, dm);
+        let id = GroupId::try_from(save.id.as_slice())?;
+        apply(&alix.context, vec![group_element(save)]).await?;
+        stored_message(id, alix.inbox_id().to_string(), seed).store(&alix.db())?;
+        alix.db().insert_newer_consent_record(StoredConsentRecord {
+            entity_type: ConsentType::ConversationId,
+            state: ConsentState::Denied,
+            entity: hex::encode(id),
+            consented_at_ns: 30,
+        })?;
+    }
+    let elements = exported_elements(alix.db()).await?;
+    let groups: Vec<_> = elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::Group(g) => Some(g.id.as_slice()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(groups, vec![live.group_id.as_slice()]);
+    let messages: Vec<_> = elements
+        .iter()
+        .filter_map(|e| match e {
+            Element::GroupMessage(m) => Some(m.id.as_slice()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(messages, vec![live_message.id.as_slice()]);
+    for seed in [62, 63] {
+        let entity = hex::encode([seed; 16]);
+        assert!(
+            elements
+                .iter()
+                .any(|e| matches!(e, Element::Consent(c) if c.entity == entity))
+        );
+    }
 }
 
 fn stored_message(group_id: GroupId, sender_inbox_id: String, marker: u8) -> StoredGroupMessage {
@@ -316,140 +366,7 @@ fn stored_message(group_id: GroupId, sender_inbox_id: String, marker: u8) -> Sto
     }
 }
 
-// verifies: ARCH-020, ARCH-024
-#[xmtp_common::test(unwrap_try = true)]
-async fn restored_history_projects_archived_identity_without_substitution() {
-    use xmtp_db::group::ConversationType;
-    tester!(alix, disable_workers);
-    let present = |creator: &str| {
-        Some(ImmutableMetadataSave {
-            creator_inbox_id: creator.into(),
-        })
-    };
-    // (metadata, adder) -> (expected creator, expected adder)
-    let cases = [
-        (None, "archived-adder", "", "archived-adder"),
-        (present(""), "archived-adder", "", "archived-adder"),
-        (present("archived-creator"), "", "archived-creator", ""),
-        (present(""), "", "", ""),
-    ];
-    for (index, (metadata, adder, creator, expected_adder)) in cases.into_iter().enumerate() {
-        let mut save = saved_group(index as u8 + 10, false);
-        save.metadata = metadata;
-        save.added_by_inbox_id = adder.into();
-        apply(&alix.context, vec![group_element(save.clone())]).await?;
-        let group = alix.group(&GroupId::try_from(save.id.as_slice())?)?;
-
-        let identity = group.metadata().await?;
-        assert_eq!(identity.creator_inbox_id, creator);
-        assert_ne!(identity.creator_inbox_id, alix.inbox_id());
-        assert_eq!(identity.conversation_type, ConversationType::Group);
-        assert_eq!(group.added_by_inbox_id()?, expected_adder);
-        assert_ne!(group.added_by_inbox_id()?, alix.inbox_id());
-
-        let mutable = group.mutable_metadata()?;
-        assert_eq!(
-            mutable.attributes.get("unknown-key").map(String::as_str),
-            Some("retained value")
-        );
-        assert_eq!(mutable.admin_list, ["historical-admin"; 2]);
-        assert_eq!(mutable.super_admin_list, ["historical-super-admin"]);
-        assert_eq!(group.group_name()?, "historical name");
-        assert_eq!(group.group_description()?, "");
-        assert_eq!(group.admin_list()?, ["historical-admin"; 2]);
-        assert_eq!(group.super_admin_list()?, ["historical-super-admin"]);
-        assert!(group.is_super_admin("historical-super-admin".into())?);
-        assert!(!group.is_super_admin(alix.inbox_id().to_string())?);
-        assert!(group.conversation_message_disappearing_settings().is_err());
-
-        let snapshot = group.state_snapshot()?;
-        assert!(!snapshot.is_active);
-        let snapshot = snapshot.group?;
-        assert_eq!(snapshot.name, "historical name");
-        assert_eq!(snapshot.admins, ["historical-admin"; 2]);
-        assert_eq!(snapshot.super_admins, ["historical-super-admin"]);
-        assert_eq!(snapshot.membership_state, GroupMembershipState::Restored);
-    }
-
-    // A foreign DM keeps its archived pair with an unknown creator.
-    let mut dm = saved_group(20, true);
-    dm.metadata = None;
-    dm.message_disappear_in_ns = Some(200);
-    apply(&alix.context, vec![group_element(dm.clone())]).await?;
-    let group = alix.group(&GroupId::try_from(dm.id.as_slice())?)?;
-    let identity = group.metadata().await?;
-    assert_eq!(identity.creator_inbox_id, "");
-    assert_eq!(identity.conversation_type, ConversationType::Dm);
-    assert_eq!(identity.dm_members.map(|pair| pair.to_string()), dm.dm_id);
-    assert_eq!(
-        group.conversation_message_disappearing_settings()?,
-        xmtp_mls_common::group_mutable_metadata::MessageDisappearingSettings::new(100, 200)
-    );
-}
-
-// verifies: ARCH-020, ARCH-025
-#[xmtp_common::test(unwrap_try = true)]
-async fn restored_history_reexport_preserves_metadata_presence() {
-    tester!(alix, disable_workers);
-    let mut absent = saved_group(30, false);
-    absent.metadata = None;
-    let mut empty = saved_group(31, true);
-    empty.metadata = Some(ImmutableMetadataSave {
-        creator_inbox_id: String::new(),
-    });
-    let mut later = saved_group(32, false);
-    later.last_message_ns = Some(50);
-    for save in [&absent, &empty, &later] {
-        apply(&alix.context, vec![group_element(save.clone())]).await?;
-    }
-    // A later message raises only the activity the re-export carries.
-    stored_message(
-        GroupId::try_from(later.id.as_slice())?,
-        "a".repeat(64),
-        0x60,
-    )
-    .store(&alix.db())?;
-    let restored = GroupMembershipStateSave::from(GroupMembershipState::Restored) as i32;
-
-    let exported = exported_groups(alix.db()).await?;
-    assert_eq!(
-        exported[&absent.id],
-        GroupSave {
-            membership_state: restored,
-            ..absent.clone()
-        }
-    );
-    assert_eq!(exported[&absent.id].metadata, None);
-    assert_eq!(
-        exported[&empty.id],
-        GroupSave {
-            membership_state: restored,
-            ..empty.clone()
-        }
-    );
-    assert_eq!(
-        exported[&empty.id].metadata,
-        Some(ImmutableMetadataSave {
-            creator_inbox_id: String::new()
-        })
-    );
-    assert_eq!(
-        exported[&later.id],
-        GroupSave {
-            membership_state: restored,
-            last_message_ns: Some(250),
-            ..later.clone()
-        }
-    );
-    for save in exported.values() {
-        assert_ne!(
-            save.metadata.as_ref().map(|m| m.creator_inbox_id.as_str()),
-            Some(alix.inbox_id())
-        );
-    }
-}
-
-// verifies: ARCH-025, JOIN-080
+// verifies: JOIN-080, ARCH-026
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_history_yields_to_live_metadata_after_activation() {
     tester!(alix, disable_workers);
@@ -467,16 +384,14 @@ async fn restored_history_yields_to_live_metadata_after_activation() {
     save.metadata = None;
     apply(&bo.context, vec![group_element(save.clone())]).await?;
     let handle = bo.group(&dm.group_id)?;
-    assert_eq!(handle.metadata().await?.creator_inbox_id, "");
     assert_eq!(handle.added_by_inbox_id()?, "archived-adder");
-    assert_eq!(exported_groups(bo.db()).await?[&save.id].metadata, None);
 
+    assert!(!exported_groups(bo.db()).await?.contains_key(&save.id));
     bo.sync_welcomes().await?;
     assert_ne!(
         bo.db().find_group(&dm.group_id)??.membership_state,
         GroupMembershipState::Restored
     );
-    assert!(bo.db().restored_group_metadata(&dm.group_id)?.is_none());
     // Core caches nothing: the earlier handle and a fresh one both read live metadata.
     for group in [handle, bo.group(&dm.group_id)?] {
         assert_eq!(group.metadata().await?.creator_inbox_id, alix.inbox_id());
@@ -497,7 +412,7 @@ async fn restored_history_yields_to_live_metadata_after_activation() {
     );
 }
 
-// verifies: ARCH-015, ARCH-020
+// verifies: ARCH-015
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_history_never_grants_authority() {
     tester!(alix, disable_workers);
@@ -515,10 +430,8 @@ async fn restored_history_never_grants_authority() {
     message.store(&alix.db())?;
     let group = alix.group(&id)?;
 
-    // History is visible as history.
-    assert_eq!(group.metadata().await?.creator_inbox_id, me);
-    assert!(group.is_admin(me.clone())?);
-    assert!(group.is_super_admin(me.clone())?);
+    // The imported message remains readable.
+    assert!(group.metadata().await?.creator_inbox_id.is_empty());
     assert_eq!(
         alix.db().get_group_message(&message.id)?.map(|m| m.id),
         Some(message.id.clone())
@@ -541,7 +454,7 @@ async fn restored_history_never_grants_authority() {
     assert_eq!(group.group_name()?, "historical name");
 }
 
-// verifies: ARCH-021, ARCH-024
+// verifies: ARCH-021
 #[xmtp_common::test(unwrap_try = true)]
 async fn restored_history_ignores_a_stray_dm_id_on_a_group() {
     use xmtp_db::group::ConversationType;
@@ -554,15 +467,6 @@ async fn restored_history_ignores_a_stray_dm_id_on_a_group() {
     let metadata = alix.group(&id)?.metadata().await?;
     assert_eq!(metadata.conversation_type, ConversationType::Group);
     assert_eq!(metadata.dm_members, None);
-    assert_eq!(
-        crate::groups::restored_metadata(&alix.db(), &[id])?[&id],
-        metadata
-    );
-    // The record still carries the source value for re-export.
-    assert_eq!(
-        exported_groups(alix.db()).await?[&save.id].dm_id.as_deref(),
-        Some("not-a-pair")
-    );
 }
 
 // verifies: ARCH-015, JOIN-080, PERM-001
@@ -589,8 +493,7 @@ async fn restored_history_forged_claim_yields_to_live_permissions_after_activati
     // The archive arrives before the Welcome: a Restored row with forged claims.
     apply(&bo.context, vec![group_element(save)]).await?;
     let handle = bo.group(&alix_group.group_id)?;
-    assert!(handle.is_super_admin(me.clone())?);
-    assert_eq!(handle.metadata().await?.creator_inbox_id, me);
+    assert!(handle.metadata().await?.creator_inbox_id.is_empty());
 
     bo.sync_welcomes().await?;
     assert_ne!(

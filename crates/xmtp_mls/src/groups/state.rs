@@ -1,60 +1,6 @@
 //! Admin lists, consent, epoch state, and group context.
 
 use super::*;
-use std::collections::HashMap;
-use xmtp_proto::xmtp::device_sync::group_backup::GroupSave;
-
-/// Immutable metadata from an archived record. An absent metadata message or
-/// an empty creator stays empty; no inbox is substituted.
-// implements: ARCH-024
-fn historical_metadata(history: &GroupSave) -> Result<GroupMetadata, GroupError> {
-    let conversation_type: ConversationType = history.conversation_type().try_into()?;
-    // Import validates the pair only for a DM; a group's stray dm_id is inert history.
-    let dm_members = if conversation_type == ConversationType::Dm {
-        Some(crate::groups::parse_canonical_dm_id(
-            history.dm_id.as_deref(),
-        )?)
-    } else {
-        None
-    };
-    let creator_inbox_id = history
-        .metadata
-        .as_ref()
-        .map(|metadata| metadata.creator_inbox_id.clone())
-        .unwrap_or_default();
-    Ok(GroupMetadata::new(
-        conversation_type,
-        creator_inbox_id,
-        dm_members,
-        None,
-    ))
-}
-
-/// Archived immutable metadata for every listed group that is still
-/// `Restored`, read in a bounded number of statements. A list projection
-/// uses this instead of one read per group; activated and unrecorded groups
-/// are absent and keep their live metadata.
-// implements: ARCH-020, ARCH-024
-pub fn restored_metadata(
-    db: &impl DbQuery,
-    group_ids: &[GroupId],
-) -> Result<HashMap<GroupId, GroupMetadata>, GroupError> {
-    db.restored_group_histories(group_ids)?
-        .iter()
-        .map(|(group_id, history)| Ok((*group_id, historical_metadata(history)?)))
-        .collect()
-}
-
-/// Mutable metadata from an archived record: the exact attribute map and both lists.
-fn historical_mutable_metadata(history: &GroupSave) -> GroupMutableMetadata {
-    let metadata = history.mutable_metadata.clone().unwrap_or_default();
-    GroupMutableMetadata::new(
-        metadata.attributes,
-        metadata.admin_list,
-        metadata.super_admin_list,
-    )
-}
-
 /// Locally stored group fields read without an MLS group load.
 #[derive(Debug, Clone, PartialEq)]
 pub struct GroupMetadataSnapshot {
@@ -124,21 +70,16 @@ where
         };
         let group = if stored.conversation_type == ConversationType::Group {
             use xmtp_mls_common::app_data::component_source::ComponentSourceError;
-            // Only a Restored row can carry archived history; live rows skip the read.
-            let history = if stored.membership_state == GroupMembershipState::Restored {
-                db.restored_group_history(&self.group_id)?
-            } else {
-                None
-            };
             let ctx = self.load_group_context()?;
-            let metadata = match &history {
-                Some(history) => historical_mutable_metadata(history),
-                None => xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(ctx.extensions())
-                    .map_err(|error| match error {
-                        ComponentSourceError::GroupMutableMetadata(inner) => GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner)),
-                        other => GroupError::MetadataPermissionsError(MetadataPermissionsError::ComponentSource(other)),
-                    })?,
-            };
+            let mut metadata = xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(ctx.extensions())
+                .map_err(|error| match error {
+                    ComponentSourceError::GroupMutableMetadata(inner) => GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner)),
+                    other => GroupError::MetadataPermissionsError(MetadataPermissionsError::ComponentSource(other)),
+                })?;
+            if stored.membership_state == GroupMembershipState::Restored {
+                metadata.admin_list.clear();
+                metadata.super_admin_list.clear();
+            }
             let permissions = group_permissions::policy_set_from_dictionary(ctx.extensions())
                 .map_err(|error| GroupError::MetadataPermissionsError(error.into()))?;
             let field = |key: MetadataField| {
@@ -386,25 +327,13 @@ where
         Ok(stored_group.membership_state)
     }
 
-    /// The archived record of this conversation while it remains `Restored`.
-    ///
-    /// Display reads select it over the placeholder dictionary. Authorization
-    /// and signer reads never do; see [`Self::live_mutable_metadata`].
-    // implements: ARCH-020
-    pub(crate) fn restored_history(&self) -> Result<Option<GroupSave>, GroupError> {
-        Ok(self.context.db().restored_group_history(&self.group_id)?)
-    }
-
     /// Get the `GroupMetadata` of the group.
     ///
     /// The AppData dictionary contains CONVERSATION_TYPE,
     /// CREATOR_INBOX_ID, DM_MEMBERS, and ONESHOT_MESSAGE.
-    /// A `Restored` conversation reports its archived values instead.
-    // implements: ARCH-024
+    /// Restored conversations have an empty creator until activation.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
-        if let Some(history) = self.restored_history()? {
-            return historical_metadata(&history);
-        }
+        let is_restored = self.membership_state()? == GroupMembershipState::Restored;
         self.with_group_snapshot(|mls_group| {
             let seed = xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(
                 mls_group,
@@ -414,7 +343,11 @@ where
             use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
             let proto = GroupMetadataProto {
                 conversation_type: seed.conversation_type,
-                creator_inbox_id: seed.creator_inbox_id,
+                creator_inbox_id: if is_restored {
+                    String::new()
+                } else {
+                    seed.creator_inbox_id
+                },
                 creator_account_address: String::new(),
                 dm_members: seed.dm_members,
                 oneshot_message: seed.oneshot,
@@ -443,19 +376,19 @@ where
 
     /// Get the `GroupMutableMetadata` of the group.
     ///
-    /// The AppData dictionary contains all mutable metadata. A `Restored`
-    /// conversation reports its archived attributes and lists instead.
+    /// The AppData dictionary contains all mutable metadata.
+    /// Restored conversations have no public admin roles until activation.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        if let Some(history) = self.restored_history()? {
-            return Ok(historical_mutable_metadata(&history));
+        let is_restored = self.membership_state()? == GroupMembershipState::Restored;
+        let mut metadata = self.live_mutable_metadata()?;
+        if is_restored {
+            metadata.admin_list.clear();
+            metadata.super_admin_list.clear();
         }
-        self.live_mutable_metadata()
+        Ok(metadata)
     }
 
-    /// The current MLS dictionary, without archived history.
-    ///
-    /// Authorization, signer, and version checks read this so an archived
-    /// admin list or signer attribute never acts as live authority.
+    /// The current MLS dictionary for display and permission checks.
     // implements: ARCH-015
     pub(crate) fn live_mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
         use xmtp_mls_common::app_data::component_source::ComponentSourceError;

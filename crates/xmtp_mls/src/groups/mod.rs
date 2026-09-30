@@ -7,7 +7,7 @@ mod metadata;
 mod metadata_fields;
 mod state;
 pub use builders::*;
-pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot, restored_metadata};
+pub use state::{ConversationStateSnapshot, GroupMetadataSnapshot};
 pub mod change_callbacks;
 pub mod commit_log;
 pub mod commit_log_key;
@@ -196,6 +196,7 @@ where
 
 pub struct ConversationListItem<Context> {
     pub group: MlsGroup<Context>,
+    pub membership_state: GroupMembershipState,
     pub added_by_inbox_id: String,
     pub last_message: Option<StoredGroupMessage>,
     pub is_commit_log_forked: Option<bool>,

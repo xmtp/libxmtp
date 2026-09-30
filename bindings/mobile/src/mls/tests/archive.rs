@@ -6,6 +6,106 @@ use crate::device_sync::{FfiArchiveOptions, FfiBackupElementSelection};
 
 use super::*;
 
+// verifies: ARCH-015, ARCH-024
+#[xmtp_common::test(unwrap_try = true)]
+async fn restored_identity_and_roles_are_unknown_until_activation() {
+    let source = new_test_client().await;
+    let peer = new_test_client().await;
+    let importer = new_test_client().await;
+    let source_id = source.inbox_id();
+    let importer_id = importer.inbox_id();
+    let group = source
+        .conversations()
+        .create_group_by_identity(vec![], FfiCreateGroupOptions::default())
+        .await?;
+    let dm = source
+        .conversations()
+        .find_or_create_dm(peer.inbox_id(), FfiCreateDMOptions::default())
+        .await?;
+    group.send_text("archived group").await?;
+    dm.send_text("archived DM").await?;
+    let path = tmp_path();
+    let key = vec![7; 32];
+    source
+        .create_archive(
+            path.clone(),
+            FfiArchiveOptions {
+                start_ns: None,
+                end_ns: None,
+                elements: vec![FfiBackupElementSelection::Messages],
+                exclude_disappearing_messages: false,
+            },
+            key.clone(),
+        )
+        .await?;
+    importer.import_archive(path, key).await?;
+
+    for (id, kind) in [
+        (group.id(), FfiConversationType::Group),
+        (dm.id(), FfiConversationType::Dm),
+    ] {
+        let restored = importer.conversation(id)?;
+        let metadata = restored.group_metadata().await?;
+        assert!(metadata.creator_inbox_id().is_empty());
+        assert_eq!(metadata.conversation_type(), kind);
+        assert_eq!(restored.added_by_inbox_id()?, source_id);
+        assert!(!restored.is_active()?);
+        assert!(restored.admin_list()?.is_empty());
+        assert!(restored.super_admin_list()?.is_empty());
+        for inbox_id in [&source_id, &importer_id] {
+            assert!(!restored.is_admin(inbox_id)?);
+            assert!(!restored.is_super_admin(inbox_id)?);
+            assert!(!restored.inner.is_admin(inbox_id.clone())?);
+            assert!(!restored.inner.is_super_admin(inbox_id.clone())?);
+        }
+        assert!(restored.list_members().await?.is_empty());
+        let mutable = restored.inner.mutable_metadata()?;
+        assert!(mutable.admin_list.is_empty());
+        assert!(mutable.super_admin_list.is_empty());
+        if let Some(snapshot) = restored.inner.state_snapshot()?.group {
+            assert!(snapshot.admins.is_empty());
+            assert!(snapshot.super_admins.is_empty());
+        }
+        assert!(
+            restored
+                .send_text("blocked before activation")
+                .await
+                .is_err()
+        );
+    }
+    let restored = importer.conversation(group.id())?;
+    let captured = restored.group_metadata().await?;
+    group.add_members(vec![importer_id.clone()]).await?;
+    importer.conversations().sync().await?;
+    group.add_admin(importer_id.clone()).await?;
+    restored.sync().await?;
+
+    assert!(restored.is_active()?);
+    assert_eq!(
+        restored.group_metadata().await?.creator_inbox_id(),
+        source_id
+    );
+    assert!(captured.creator_inbox_id().is_empty());
+    assert_eq!(restored.added_by_inbox_id()?, source_id);
+    assert!(restored.is_admin(&importer_id)?);
+    assert!(!restored.is_super_admin(&importer_id)?);
+    assert!(restored.is_super_admin(&source_id)?);
+    assert!(restored.inner.is_admin(importer_id.clone())?);
+    assert!(restored.inner.is_super_admin(source_id.clone())?);
+    let snapshot = restored.inner.state_snapshot()?.group?;
+    assert!(snapshot.admins.contains(&importer_id));
+    assert!(snapshot.super_admins.contains(&source_id));
+    let members = restored.list_members().await?;
+    assert_eq!(members.len(), 2);
+    assert!(members.iter().any(|member| member.inbox_id == source_id
+        && matches!(
+            member.permission_level,
+            crate::FfiPermissionLevel::SuperAdmin
+        )));
+    assert!(members.iter().any(|member| member.inbox_id == importer_id
+        && matches!(member.permission_level, crate::FfiPermissionLevel::Admin)));
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 5)]
 async fn test_archive_excludes_disappearing_messages() {
     let alix_wallet = PrivateKeySigner::random();
