@@ -307,7 +307,7 @@ id = "ARCH-020"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Restored conversations use placeholder metadata until the restored-history follow-up. The archived creator, arbitrary mutable attributes, admin and super-admin lists are not projected. The group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+reason = "Restored conversations do not project the archived creator, arbitrary mutable attributes, or admin and super-admin lists. Their creator is unknown and their member and role lists are empty until validated activation. The group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
 id = "CTYPE-001"
@@ -844,7 +844,7 @@ id = "ARCH-024"
 kind = "gap"
 owner = "protocol"
 issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
-reason = "Legacy core metadata for Restored conversations reports the placeholder creator. The new SDK reports an unknown creator until validated activation, including when the archive supplied a creator. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
 id = "CTYPE-008"

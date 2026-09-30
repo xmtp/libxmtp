@@ -565,6 +565,9 @@ where
     }
 
     fn read_admin_set(&self, kind: AdminListKind) -> Result<Vec<String>, GroupError> {
+        if self.membership_state()? == GroupMembershipState::Restored {
+            return Ok(Vec::new());
+        }
         let ctx = self.load_group_context()?;
         let extensions = ctx.extensions();
         let facade = xmtp_mls_common::app_data::typed_facade::MlsGroupAppData::new(extensions);

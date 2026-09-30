@@ -431,7 +431,7 @@ async fn restored_history_never_grants_authority() {
     let group = alix.group(&id)?;
 
     // The imported message remains readable.
-    assert_eq!(group.metadata().await?.creator_inbox_id, me);
+    assert!(group.metadata().await?.creator_inbox_id.is_empty());
     assert_eq!(
         alix.db().get_group_message(&message.id)?.map(|m| m.id),
         Some(message.id.clone())
@@ -493,7 +493,7 @@ async fn restored_history_forged_claim_yields_to_live_permissions_after_activati
     // The archive arrives before the Welcome: a Restored row with forged claims.
     apply(&bo.context, vec![group_element(save)]).await?;
     let handle = bo.group(&alix_group.group_id)?;
-    assert_eq!(handle.metadata().await?.creator_inbox_id, me);
+    assert!(handle.metadata().await?.creator_inbox_id.is_empty());
 
     bo.sync_welcomes().await?;
     assert_ne!(

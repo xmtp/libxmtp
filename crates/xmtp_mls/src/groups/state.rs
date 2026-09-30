@@ -71,11 +71,15 @@ where
         let group = if stored.conversation_type == ConversationType::Group {
             use xmtp_mls_common::app_data::component_source::ComponentSourceError;
             let ctx = self.load_group_context()?;
-            let metadata = xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(ctx.extensions())
+            let mut metadata = xmtp_mls_common::app_data::component_source::extract_group_mutable_metadata_capability_aware_from_extensions(ctx.extensions())
                 .map_err(|error| match error {
                     ComponentSourceError::GroupMutableMetadata(inner) => GroupError::MetadataPermissionsError(MetadataPermissionsError::Mutable(inner)),
                     other => GroupError::MetadataPermissionsError(MetadataPermissionsError::ComponentSource(other)),
                 })?;
+            if stored.membership_state == GroupMembershipState::Restored {
+                metadata.admin_list.clear();
+                metadata.super_admin_list.clear();
+            }
             let permissions = group_permissions::policy_set_from_dictionary(ctx.extensions())
                 .map_err(|error| GroupError::MetadataPermissionsError(error.into()))?;
             let field = |key: MetadataField| {
@@ -327,7 +331,9 @@ where
     ///
     /// The AppData dictionary contains CONVERSATION_TYPE,
     /// CREATOR_INBOX_ID, DM_MEMBERS, and ONESHOT_MESSAGE.
+    /// Restored conversations have an empty creator until activation.
     pub async fn metadata(&self) -> Result<GroupMetadata, GroupError> {
+        let is_restored = self.membership_state()? == GroupMembershipState::Restored;
         self.with_group_snapshot(|mls_group| {
             let seed = xmtp_mls_common::app_data::component_source::read_group_metadata_from_dict(
                 mls_group,
@@ -337,7 +343,11 @@ where
             use xmtp_proto::xmtp::mls::message_contents::GroupMetadataV1 as GroupMetadataProto;
             let proto = GroupMetadataProto {
                 conversation_type: seed.conversation_type,
-                creator_inbox_id: seed.creator_inbox_id,
+                creator_inbox_id: if is_restored {
+                    String::new()
+                } else {
+                    seed.creator_inbox_id
+                },
                 creator_account_address: String::new(),
                 dm_members: seed.dm_members,
                 oneshot_message: seed.oneshot,
@@ -367,8 +377,15 @@ where
     /// Get the `GroupMutableMetadata` of the group.
     ///
     /// The AppData dictionary contains all mutable metadata.
+    /// Restored conversations have no public admin roles until activation.
     pub fn mutable_metadata(&self) -> Result<GroupMutableMetadata, GroupError> {
-        self.live_mutable_metadata()
+        let is_restored = self.membership_state()? == GroupMembershipState::Restored;
+        let mut metadata = self.live_mutable_metadata()?;
+        if is_restored {
+            metadata.admin_list.clear();
+            metadata.super_admin_list.clear();
+        }
+        Ok(metadata)
     }
 
     /// The current MLS dictionary for display and permission checks.
