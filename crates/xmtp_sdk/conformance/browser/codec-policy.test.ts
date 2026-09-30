@@ -290,6 +290,28 @@ describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
     expect(calls[2]![2]).toBeUndefined();
   });
 
+  it("honours the push hook of an app codec for legacy reaction v1", async () => {
+    // Reaction v1 is outside the catalogue (CTYPE section 6), so its codec's
+    // shouldPush decides.
+    const calls: [string, unknown, unknown][] = [];
+    const group = recordingGroup(calls);
+    const reactionV1 = {
+      authorityId: "xmtp.org",
+      typeId: "reaction",
+      versionMajor: 1,
+      versionMinor: 0,
+    };
+    await group.send(
+      codec({
+        type: reactionV1,
+        encode: () => envelope({ type: reactionV1 }),
+        shouldPush: () => false,
+      }),
+      "x",
+    );
+    expect(pushOf(calls[0]![2])).toBe(false);
+  });
+
   it("makes no send call when a codec step fails", async () => {
     const calls: [string, unknown, unknown][] = [];
     const group = recordingGroup(calls);

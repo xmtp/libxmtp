@@ -105,14 +105,14 @@ fn standard_type(kind: StandardContentKind) -> ProtoContentTypeId {
     }
 }
 
-/// The XMTP content type catalogue: each authority, type ID, and major
-/// version that the SDK knows, with its push default. It is the one source for
-/// the send push default and for [`is_catalogue_content_type`].
+/// The XMTP content type catalogue (CTYPE section 6): each authority, type
+/// ID, and major version, with its push default. It is the one source for the
+/// send push default and for [`is_catalogue_content_type`]. Legacy reaction
+/// v1 is not in the catalogue, so an app codec for it keeps its push hook.
 const CATALOGUE: &[(&str, &str, u32, bool)] = &[
     ("xmtp.org", "text", 1, true),
     ("xmtp.org", "markdown", 1, true),
     ("xmtp.org", "readReceipt", 1, false),
-    ("xmtp.org", "reaction", 1, true),
     ("xmtp.org", "reaction", 2, false),
     ("xmtp.org", "attachment", 1, true),
     ("xmtp.org", "remoteStaticAttachment", 1, true),

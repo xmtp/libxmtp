@@ -205,7 +205,12 @@ export async function sendPolicy(
   const sent = (await stored(group, sentId)).content;
   assert.ok(sent.kind === "unknown", `typed send content is ${sent.kind}`);
   assert.equal(sent.encoded.fallback, "a note: typed send");
-  // An explicit compression round-trips: the receiver gets the plain bytes.
+  // A gzip send is readable by the receiver. Node cannot see whether the
+  // stored envelope is compressed (its raw bytes are not an EncodedContent), so
+  // this checks only the round trip. The vitest policy test checks that the
+  // compression option reaches the send, and the Rust
+  // message_actions_use_ids_and_compression_is_opt_in test checks the stored
+  // envelope.
   const gzipId = await group.send(codec, { text: "gzip" }, { compression: "gzip" });
 
   // prepareMessage takes the same codec form and stores an unpublished item.

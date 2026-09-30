@@ -6,6 +6,7 @@ import {
   Dm,
   Group,
   MessageStream,
+  ReactionV2Codec,
   TextCodec,
   XmtpError,
   type Attachment,
@@ -18,6 +19,7 @@ import {
   type EncodedContent,
   type Message,
   type Signer,
+  type StandardContent,
 } from "../../../../../target/sdk-generated/typescript-napi/index.ts";
 
 type Point = { readonly x: number; readonly y: number };
@@ -39,6 +41,22 @@ export async function registerTypedCodecs(): Promise<Client> {
 
 export async function replyWithCodec(message: Message): Promise<string> {
   return message.reply(pointCodec, { x: 1, y: 2 });
+}
+
+// A standard codec for one StandardContent variant takes only that variant.
+export async function standardVariantCodecs(
+  group: Group,
+  dm: Dm,
+  reaction: Extract<StandardContent, { kind: "reaction" }>,
+) {
+  const reactions = new ReactionV2Codec();
+  await group.send(reactions, reaction);
+  // @ts-expect-error A reaction codec does not take text content.
+  await group.send(reactions, { kind: "text", value: "x" });
+  // @ts-expect-error A reaction codec does not take text content.
+  await dm.send(reactions, { kind: "text", value: "x" });
+  // @ts-expect-error A reaction codec does not encode text content.
+  reactions.encode({ kind: "text", value: "x" });
 }
 
 // verifies: CTYPE-017

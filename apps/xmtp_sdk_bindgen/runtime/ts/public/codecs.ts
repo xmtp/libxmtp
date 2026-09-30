@@ -24,6 +24,7 @@ import {
   lowerTransactionReference,
   lowerWalletSendCalls,
   publicError,
+  XmtpError,
   type Actions,
   type Attachment,
   type ContentTypeId,
@@ -117,30 +118,59 @@ export class ReadReceiptCodec extends StandardCodec<void, void> {
   }
 }
 
-export class ReactionV2Codec extends StandardCodec<
+// A standard codec for one StandardContent variant takes and returns only that
+// variant, so a value of another variant does not compile (P9).
+type Variant<K extends StandardContent["kind"]> = Extract<
   StandardContent,
+  { readonly kind: K }
+>;
+
+function liftVariant<K extends StandardContent["kind"]>(
+  kind: K,
+): Convert<ReturnType<typeof lowerStandardContent>, Variant<K>> {
+  const isVariant = (content: StandardContent): content is Variant<K> =>
+    content.kind === kind;
+  return (value, projection) => {
+    const content = liftStandardContent(value, projection);
+    if (!isVariant(content))
+      throw new XmtpError.InvalidArgument({
+        code: "InvalidArgument",
+        category: "input",
+        retryable: false,
+        message: `the content is not a ${kind}`,
+      });
+    return content;
+  };
+}
+
+export class ReactionV2Codec extends StandardCodec<
+  Variant<"reaction">,
   ReturnType<typeof lowerStandardContent>
 > {
   constructor() {
-    super(new HostReaction(), lowerStandardContent, liftStandardContent);
+    super(new HostReaction(), lowerStandardContent, liftVariant("reaction"));
   }
 }
 
 export class ReplyCodec extends StandardCodec<
-  StandardContent,
+  Variant<"reply">,
   ReturnType<typeof lowerStandardContent>
 > {
   constructor() {
-    super(new HostReply(), lowerStandardContent, liftStandardContent);
+    super(new HostReply(), lowerStandardContent, liftVariant("reply"));
   }
 }
 
 export class DeleteMessageCodec extends StandardCodec<
-  StandardContent,
+  Variant<"deleteMessage">,
   ReturnType<typeof lowerStandardContent>
 > {
   constructor() {
-    super(new HostDeleteMessage(), lowerStandardContent, liftStandardContent);
+    super(
+      new HostDeleteMessage(),
+      lowerStandardContent,
+      liftVariant("deleteMessage"),
+    );
   }
 }
 

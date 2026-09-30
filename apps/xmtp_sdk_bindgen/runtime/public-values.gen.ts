@@ -165,6 +165,7 @@ export declare class XmtpError extends Error {
   readonly details: ErrorDetails;
   constructor(details: ErrorDetails);
   static readonly CodecEncodeFailed: typeof XmtpError;
+  static readonly InvalidArgument: typeof XmtpError;
 }
 export declare function publicError(error: unknown): unknown;
 export declare function isCatalogueContentType(type: ContentTypeId): boolean;

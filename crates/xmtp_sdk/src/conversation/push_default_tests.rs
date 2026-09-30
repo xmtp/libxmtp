@@ -77,5 +77,7 @@ fn only_xmtp_catalogue_types_are_catalogue() {
     assert!(!is_catalogue(custom("example.org", "text", 1)));
     assert!(!is_catalogue(custom("xmtp.org", "note", 1)));
     assert!(!is_catalogue(custom("xmtp.org", "text", 2)));
+    // Legacy reaction v1 is outside the catalogue (CTYPE section 6).
+    assert!(!is_catalogue(custom("xmtp.org", "reaction", 1)));
     assert!(catalogue_push_default(&custom("xmtp.org", "note", 1)));
 }
