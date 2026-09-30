@@ -125,7 +125,12 @@ fn bo_catalogue() -> Vec<ApplicationComponentDefinition> {
     ]
 }
 
+/// Held from setting a catalogue until it is reset, because tests on other
+/// threads share the process-wide catalogue.
+static CATALOGUE: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn client_with(catalogue: Vec<ApplicationComponentDefinition>) -> Client {
+    let _catalogue = CATALOGUE.lock().await;
     use_application_components(Some(catalogue)).unwrap();
     let client = Client::create(crate::generate_local_signer().await, options()).await;
     use_application_components(None).unwrap();

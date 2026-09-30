@@ -16,7 +16,8 @@ static APPLICATION_COMPONENTS: Mutex<Option<Vec<config::ApplicationComponentDefi
     parking_lot::const_mutex(None);
 
 /// Clients built after this call use `components` as the backend's
-/// application catalogue, or the fetched catalogue when absent.
+/// application catalogue, or the fetched catalogue when absent. The
+/// catalogue is process-wide, so build one client at a time while it is set.
 #[cfg(feature = "conformance")]
 #[xmtp_macro::sdk_export]
 pub async fn sdk_conformance_use_application_components(
