@@ -36,12 +36,19 @@ use xmtp_proto::xmtp::mls::database::{
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
 /// Opens the store at the paths `build` resolves for a storage location.
+#[cfg(not(target_arch = "wasm32"))]
 type LocationStoreOpener<Db> = Box<
     dyn FnOnce(
             crate::storage_location::ResolvedPaths,
         ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>
         + Send
         + Sync,
+>;
+#[cfg(target_arch = "wasm32")]
+type LocationStoreOpener<Db> = Box<
+    dyn FnOnce(
+        crate::storage_location::ResolvedPaths,
+    ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>,
 >;
 
 fn open_location_store(
@@ -857,8 +864,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             crate::storage_location::ResolvedPaths,
         )
             -> xmtp_common::BoxDynFuture<'static, Result<NewDb, ClientBuilderError>>
-        + Send
-        + Sync
+        + xmtp_common::MaybeSend
+        + xmtp_common::MaybeSync
         + 'static,
     ) -> Result<ClientBuilder<ApiClient, S, NewDb>, ClientBuilderError> {
         location.validate()?;
