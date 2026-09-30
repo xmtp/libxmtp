@@ -140,8 +140,9 @@ where
     /// later is a later write, as it would be after a commit of ours. The
     /// publisher cannot make this call instead: it publishes before it
     /// receives, so it sees the same local state. A write that pending
-    /// proposals already carry out still commits them, here and when it
-    /// is published, so success never rests on an uncommitted value.
+    /// proposals carry out but the committed values do not still commits
+    /// them, here and when it is published, so success never rests on an
+    /// uncommitted value.
     async fn write_fields(
         &self,
         plan: impl FnOnce(&FieldSnapshot<'_>) -> Result<Vec<FieldWrite>, FieldError>,

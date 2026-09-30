@@ -15,7 +15,7 @@ use xmtp_mls_common::{
         component_id::ComponentId,
         components::tls_map_components::ComponentRegistryComponent,
         fields::{
-            ComponentMutation, FieldError, FieldKey, FieldValue, FieldWrite, MapEntry,
+            ComponentMutation, FieldError, FieldKey, FieldValue, FieldWrite, MapEntry, MapMutation,
             MetadataComponentType, MetadataFieldRef, MetadataKeyType, MetadataScalarType,
             MetadataValue, UserFieldUpdate, UserFieldValue, WriteOperation,
         },
@@ -557,9 +557,7 @@ async fn test_reads_are_committed_and_writes_see_pending_proposals() {
     publish_proposals(&group, own, display_name("Al")).await?;
     group.sync().await?;
     bo_group.sync().await?;
-    let pending = group
-        .with_group_snapshot(|group| Ok::<_, GroupError>(group.pending_proposals().count()))?;
-    assert!(pending > 0);
+    assert!(pending_proposals(&group)? > 0);
     for member in [&group, &bo_group] {
         assert_eq!(member.metadata_value(&names)?, None);
         assert_eq!(
@@ -640,6 +638,88 @@ async fn test_queued_writes_carried_out_by_pending_proposals_commit_them() {
         bo_group.map_value(&names, &FieldKey::InboxId(own))?,
         Some(string("Al"))
     );
+}
+
+/// A write the committed values already carry out makes no commit while
+/// another member's proposal changes a different entry of the same field.
+/// Here the caller clears an entry it does not have.
+// verifies: META-073
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_clearing_an_absent_entry_ignores_other_pending_entries() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    publish_proposals(&bo_group, inbox(&bo), display_name("Bo")).await?;
+    group.sync().await?;
+    assert!(pending_proposals(&group)? > 0);
+    let epoch = group.epoch().await?;
+
+    group.update_user_data(&[clear(names.clone())]).await?;
+    assert_eq!(group.epoch().await?, epoch);
+    assert_eq!(group.metadata_value(&names)?, None);
+}
+
+/// As above, when the caller sets the value it already has.
+// verifies: META-073
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_rewriting_a_committed_entry_ignores_other_pending_entries() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    group.update_user_data(&[set(names.clone(), "Al")]).await?;
+    bo_group.sync().await?;
+    publish_proposals(&bo_group, inbox(&bo), display_name("Bo")).await?;
+    group.sync().await?;
+    assert!(pending_proposals(&group)? > 0);
+    let epoch = group.epoch().await?;
+
+    group.update_user_data(&[set(names.clone(), "Al")]).await?;
+    assert_eq!(group.epoch().await?, epoch);
+    assert_eq!(
+        group.map_value(&names, &FieldKey::InboxId(inbox(&bo)))?,
+        None
+    );
+}
+
+/// A map update of an entry that only a pending proposal holds cannot
+/// apply to the committed values, so it commits that proposal rather than
+/// failing or committing nothing.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_map_updates_of_pending_entries_commit_them() {
+    tester!(alix);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    let own = inbox(&alix);
+    publish_proposals(&group, own, display_name("Al")).await?;
+    group.sync().await?;
+
+    let update = MapMutation::Update(FieldKey::InboxId(own), string("Al"));
+    group
+        .update_metadata_field(&names, &ComponentMutation::MapDelta(vec![update]))
+        .await?;
+    bo_group.sync().await?;
+    assert_eq!(
+        bo_group.map_value(&names, &FieldKey::InboxId(own))?,
+        Some(string("Al"))
+    );
+}
+
+/// The number of proposals `group` holds pending.
+fn pending_proposals<C: XmtpSharedContext>(group: &MlsGroup<C>) -> Result<usize, GroupError> {
+    group.with_group_snapshot(|group| Ok(group.pending_proposals().count()))
 }
 
 /// A write of `value` to the writer's own display name.

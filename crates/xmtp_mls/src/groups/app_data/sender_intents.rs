@@ -296,9 +296,10 @@ pub(crate) fn resolve_field_writes(
 
 /// The operations of the commit that carries out `writes` by `own`, or
 /// `None` when no commit is needed. The operations are empty when pending
-/// proposals already carry out the writes but have changed a component
-/// they name: the value is then pending, not committed, and the commit of
-/// the pending proposals commits it.
+/// proposals already carry out the writes but the committed values do not:
+/// the value is then pending, not committed, and the commit of the pending
+/// proposals commits it. A write the committed values already carry out
+/// needs no commit, whatever other entries pending proposals change.
 pub(crate) fn field_writes_commit(
     openmls_group: &OpenMlsGroup,
     own: InboxId,
@@ -308,16 +309,18 @@ pub(crate) fn field_writes_commit(
     if !updates.is_empty() {
         return Ok(Some(updates));
     }
+    // The registry is the same as above, so the writes' type, name and
+    // policy errors have surfaced there. Only the values differ, and a
+    // write the committed values cannot take (such as a map update of a key
+    // only a pending proposal inserted) is not committed either.
     let committed = openmls_group
         .extensions()
         .app_data_dictionary()
         .map(|extension| extension.dictionary());
-    let pending = pending_dictionary(openmls_group)?;
-    let uncommitted = writes.iter().any(|write| {
-        let id = write.component_id.as_u16();
-        committed.and_then(|values| values.get(&id)) != pending.get(&id)
-    });
-    Ok(uncommitted.then_some(updates))
+    let committed_carries_out = FieldSnapshot::new(committed, &[])?
+        .resolve_writes(committed, own, writes)
+        .is_ok_and(|changes| changes.is_empty());
+    Ok((!committed_carries_out).then_some(updates))
 }
 
 /// Check `updates` by this client, in order, against the committed
