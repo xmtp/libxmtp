@@ -42,7 +42,8 @@ export function liftBackendSource(value: B.BackendSource, projection: ObjectProj
 
 /// A plain JavaScript caller can pass any value as a storage location. A
 /// value that names no complete location fails with the public
-/// `StorageLocation` error before the binding sees it (ATCH-082).
+/// `StorageLocation` error before the binding sees it.
+// implements: ATCH-082
 pub(super) const STORAGE_LOCATION: &str = r#"
 export type StorageLocation = 'default' | 'inMemory' | { readonly directory: string } | { readonly dbPath: string; readonly attachmentsDir: string };
 function storageLocationFailure(message: string): XmtpError {
