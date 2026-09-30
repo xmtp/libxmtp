@@ -231,11 +231,14 @@ export function optionsForSend<T>(
   return { ...options, shouldPush };
 }
 
-// A codec has an `encode` member. The check does not call a getter, and a
-// check that throws (a Proxy trap) is a codec failure.
+// A codec is an object with an `encode` member. The check does not call a
+// getter, and a check that throws (a Proxy trap) is a codec failure. A value
+// that is not an object, such as `null` or a string passed by mistake, is not
+// a codec, so the binding gives it the input error it had before.
 function isCodec<T>(
   content: EncodedContent | ContentCodec<T>,
 ): content is ContentCodec<T> {
+  if (typeof content !== "object" || content === null) return false;
   try {
     return "encode" in content;
   } catch (error) {

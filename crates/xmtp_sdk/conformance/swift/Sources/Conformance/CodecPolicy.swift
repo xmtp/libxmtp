@@ -132,14 +132,20 @@ private final class ProbeCodec: ContentCodec, @unchecked Sendable {
     private var reads = 0
     let cancelInEncode: Bool
     let cancelInFallback: Bool
+    let ownCancellation: Bool
     private(set) var encoded = false
 
-    init(cancelInEncode: Bool = false, cancelInFallback: Bool = false) {
+    init(cancelInEncode: Bool = false, cancelInFallback: Bool = false, ownCancellation: Bool = false) {
         self.cancelInEncode = cancelInEncode
         self.cancelInFallback = cancelInFallback
+        self.ownCancellation = ownCancellation
     }
 
     func fallback(_: String) throws -> String? {
+        if ownCancellation {
+            // The codec throws its own CancellationError in a live task.
+            throw CancellationError()
+        }
         if cancelInFallback {
             // The hook sees its own task cancelled and stops with CancellationError.
             withUnsafeCurrentTask { $0?.cancel() }
@@ -195,6 +201,14 @@ private func checkTypeReadsAndCancellation() async throws {
     else { throw ConformanceFailure("a hook's CancellationError was not kept: \(checked)") }
     guard group.sent.count == sends
     else { throw ConformanceFailure("a hook cancelled in its task reached the send") }
+
+    // A codec's own CancellationError in a task that is not cancelled is a
+    // codec failure.
+    let own = await Task { try await group.send(ProbeCodec(ownCancellation: true), value: "own") }.result
+    guard case let .failure(error) = own, case XmtpError.CodecEncodeFailed = error
+    else { throw ConformanceFailure("a codec's own CancellationError was not CodecEncodeFailed: \(own)") }
+    guard group.sent.count == sends
+    else { throw ConformanceFailure("a codec's own CancellationError reached the send") }
 }
 
 private func envelope(_ message: Message?) -> EncodedContent? {

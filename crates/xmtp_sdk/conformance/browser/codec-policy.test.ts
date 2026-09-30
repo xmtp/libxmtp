@@ -139,6 +139,14 @@ describe("typed codec send policy", () => {
     );
   });
 
+  it("passes a value that is not an object through as an envelope", () => {
+    // The binding, not the codec policy, rejects it with its input error.
+    for (const content of [null, "text"]) {
+      const [sent] = contentForSend(content as never, undefined, undefined);
+      expect(sent).toBe(content);
+    }
+  });
+
   it("keeps a throwing codec check inside the failure boundary", () => {
     const trap = new Proxy(codec(), {
       has() {
