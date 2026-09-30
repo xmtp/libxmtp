@@ -97,6 +97,9 @@ jobs:
         id: deploy
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+          # The backend presigns uploads for loopback port 9067, where the
+          # Swift job runs the conformance object store.
+          BACKEND_CONFIG_FILE: dev/backend/local-s3.toml
         run: |
           APP_NAME="libxmtp-sdk-test-${{ github.run_id }}-${{ github.run_attempt }}"
           echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
@@ -135,6 +138,7 @@ jobs:
       - run: just sdk conformance swift
         env:
           XMTP_BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
+          SDK_OBJECT_STORE_PORT: "9067"
 
   cleanup-backend:
     needs: [deploy-backend, swift]

@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Run a command with the loopback object store at SDK_FIXTURE_URL.
+# SDK_OBJECT_STORE_PORT picks its port. CI sets the port the backend presigns
+# uploads for, so the same store also takes the uploads.
+set -euo pipefail
+
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+output="$(mktemp)"
+node "$root/crates/xmtp_sdk/conformance/ts/object-store.mjs" "${SDK_OBJECT_STORE_PORT:-0}" >"$output" &
+store=$!
+trap 'kill "$store" 2>/dev/null || true; rm -f "$output"' EXIT
+SDK_FIXTURE_URL=
+for _ in $(seq 100); do
+  SDK_FIXTURE_URL="$(head -n 1 "$output")"
+  if test -n "$SDK_FIXTURE_URL" || ! kill -0 "$store" 2>/dev/null; then
+    break
+  fi
+  sleep 0.1
+done
+if test -z "$SDK_FIXTURE_URL"; then
+  echo "the object store did not start" >&2
+  exit 1
+fi
+export SDK_FIXTURE_URL
+"$@"

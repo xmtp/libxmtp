@@ -53,7 +53,9 @@
       "image": "ghcr.io/xmtp/backend:self-hosted",
       "env": {
         "XMTP_DATABASE_URL": "postgres://xmtp:xmtp@localhost:5432/xmtp_backend",
-        "XMTP_CHAIN_31337_URL": "http://localhost:8545"
+        "XMTP_CHAIN_31337_URL": "http://localhost:8545",
+        "XMTP_S3_URL": "http://127.0.0.1:9067",
+        "XMTP_S3_BASE_URL": "http://127.0.0.1:9067/attachments"
       },
       "cmd": [
         "--config-file",

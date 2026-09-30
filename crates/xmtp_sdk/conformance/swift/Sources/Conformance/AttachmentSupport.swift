@@ -18,15 +18,21 @@ func deploymentComponent(_ identifier: String) throws -> String {
     return "\(identifier.lowercased())-\(sha256Hex(Data(identifier.utf8)))"
 }
 
-/// The loopback object store the backend presigns uploads for.
-let objectStore = ProcessInfo.processInfo.environment["XMTP_S3_URL"] ?? "http://127.0.0.1:9067"
+/// The loopback object store the conformance runner starts.
+func objectStore() throws -> String {
+    guard let url = ProcessInfo.processInfo.environment["SDK_FIXTURE_URL"] else {
+        throw ConformanceFailure("SDK_FIXTURE_URL is not set")
+    }
+    return url
+}
 
 /// Store bytes on the object store and return their URL.
 func servedObject(_ body: Data) throws -> String {
     let file = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
     try body.write(to: file)
     defer { try? FileManager.default.removeItem(at: file) }
-    let url = "\(objectStore)/fixtures/\(UUID().uuidString)"
+    let store = try objectStore()
+    let url = "\(store)/fixtures/\(UUID().uuidString)"
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/curl")
     process.arguments = ["--silent", "--fail", "--upload-file", file.path, url]

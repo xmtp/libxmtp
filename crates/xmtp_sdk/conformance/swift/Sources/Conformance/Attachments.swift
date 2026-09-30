@@ -255,7 +255,8 @@ func checkAttachmentFailures(backend: BackendOptions) async throws {
     let downloads = downloader.attachments()
     let downloadEvents = try await EventQueue(downloader)
     var unavailable = remote
-    unavailable.url = "\(objectStore)/status/503"
+    let store = try objectStore()
+    unavailable.url = "\(store)/status/503"
     let (details, unavailableFailure) = try await thrownAttachment {
         _ = try await downloads.download(remote: unavailable)
     }

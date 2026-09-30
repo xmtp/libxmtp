@@ -25,6 +25,9 @@ Run commands from the repository root in the Nix shell. Run
   Chromium, then checks real OPFS and worker behavior. Its recipe builds the
   pure codec and panic fixtures in the Rust shell before the JS shell.
   Scenario 7 checks readers and streams. Scenario 8 checks events and listeners.
+  The Swift run starts `conformance/ts/object-store.mjs` for its download
+  fixtures; `SDK_OBJECT_STORE_PORT=9067` also makes it the upload target of a
+  backend with no S3 of its own, as in CI.
 - `just sdk bench` compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
