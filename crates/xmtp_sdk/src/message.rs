@@ -249,6 +249,8 @@ impl TryFrom<xmtp_mls::messages::decoded_message::DeletedBy> for crate::DeletedB
 pub struct MessageData {
     pub id: MessageId,
     pub client_key: u64,
+    #[uniffi(default = None)]
+    pub delivery_cursor: Option<String>,
     pub conversation_id: ConversationId,
     pub topic: String,
     pub sender_inbox_id: InboxId,
@@ -295,6 +297,14 @@ pub struct Message(pub MessageData);
 uniffi::custom_newtype!(Message, MessageData);
 
 impl Message {
+    pub(crate) fn with_delivery_cursor(
+        mut self,
+        cursor: Option<xmtp_db::delivery::DeliveryCursor>,
+    ) -> Self {
+        self.0.delivery_cursor = cursor.map(crate::delivery::cursor::encode);
+        self
+    }
+
     pub(crate) fn from_stored(
         value: StoredGroupMessage,
         client_key: u64,
@@ -379,6 +389,7 @@ impl Message {
         Ok(Self(MessageData {
             id: MessageId::from_bytes(&value.id)?,
             client_key,
+            delivery_cursor: None,
             conversation_id: value.group_id.into(),
             topic: xmtp_proto::types::Topic::new_group_message(value.group_id).to_string(),
             sender_inbox_id: InboxId::try_from(value.sender_inbox_id)?,

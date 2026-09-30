@@ -160,6 +160,53 @@ impl Group {
         .await
     }
 
+    /// Add members by account identity. Hosts present this as an
+    /// `addMembers` overload or union.
+    pub async fn add_members_by_identity(
+        &self,
+        members: Vec<PublicIdentity>,
+    ) -> Result<crate::MembershipResult, XmtpError> {
+        let group = self.inner.clone();
+        let members = members
+            .iter()
+            .map(PublicIdentity::to_core)
+            .collect::<Result<Vec<_>, _>>()?;
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .add_members_by_identity(&members)
+                    .await
+                    .map_err(XmtpError::unknown)?
+                    .try_into()
+            }),
+        )
+        .await
+    }
+
+    /// Remove members by account identity. Hosts present this as a
+    /// `removeMembers` overload or union.
+    pub async fn remove_members_by_identity(
+        &self,
+        members: Vec<PublicIdentity>,
+    ) -> Result<(), XmtpError> {
+        let group = self.inner.clone();
+        let members = members
+            .iter()
+            .map(PublicIdentity::to_core)
+            .collect::<Result<Vec<_>, _>>()?;
+        on_sdk_worker(
+            self.inner.context.clone(),
+            Box::pin(async move {
+                group
+                    .remove_members_by_identity(&members)
+                    .await
+                    .map_err(XmtpError::unknown)
+            }),
+        )
+        .await
+    }
+
     pub async fn add_admin(&self, inbox_id: InboxId) -> Result<(), XmtpError> {
         self.update_admin_list(xmtp_mls::groups::UpdateAdminListType::Add, inbox_id)
             .await
@@ -271,8 +318,23 @@ impl Group {
 
 #[xmtp_macro::sdk_export]
 impl Dm {
-    pub fn peer_inbox_id(&self) -> InboxId {
-        self.peer_inbox_id.clone()
+    // implements: DMS-017
+    pub async fn peer_inbox_id(&self) -> Result<Option<InboxId>, XmtpError> {
+        use xmtp_db::group::DmIdExt;
+        let group = self.inner.clone();
+        on_sdk_worker(self.inner.context.clone(), async move {
+            let stored = group
+                .context
+                .db()
+                .find_group(&group.group_id)
+                .map_err(XmtpError::unknown)?;
+            stored
+                .and_then(|stored| stored.dm_id)
+                .and_then(|id| id.other_inbox_id(group.context.inbox_id()))
+                .map(InboxId::try_from)
+                .transpose()
+        })
+        .await
     }
 
     pub async fn duplicate_dms(&self) -> Result<Vec<Arc<Dm>>, XmtpError> {

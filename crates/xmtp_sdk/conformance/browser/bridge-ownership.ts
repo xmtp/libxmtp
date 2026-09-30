@@ -1,5 +1,6 @@
 import { expect, it, vi } from "vitest";
 
+import { RemoteObject } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/remote-object.js";
 import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
 import {
   PoolLocks,
@@ -7,6 +8,7 @@ import {
   type LockProvider,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
 import {
+  host,
   pair,
   TestProxy,
   workerLockManager,
@@ -247,4 +249,95 @@ export function registerOwnershipTests(): void {
     await otherWorker.open("client-pool");
     otherWorker.close("client-pool");
   });
+
+  // verifies: PROC-028
+  it("ends a client while an admitted read reply is in transit", async () => {
+    const { session, engine } = host(async (key, _args, context) => {
+      if (key === "MessageReader.next") {
+        // The read's database work is done; its reply is still in transit.
+        context.started?.();
+        context.settled?.();
+        readHeld();
+        await readRelease;
+        return { id: "admitted" };
+      }
+      return undefined;
+    });
+    let readHeld!: () => void;
+    const held = new Promise<void>((resolve) => {
+      readHeld = resolve;
+    });
+    let releaseRead!: () => void;
+    const readRelease = new Promise<void>((resolve) => {
+      releaseRead = resolve;
+    });
+    await session.ready();
+    const clientHandle = engine.registry.add({}, "Client");
+    const client = new TestProxy(session, clientHandle);
+    const reader = new ReaderProxy(
+      session,
+      engine.registry.add({}, "MessageReader", clientHandle.owner),
+    );
+    const read = reader.next();
+    const outcome = read.then(
+      (value) => ({ value }),
+      (error: unknown) => ({ error }),
+    );
+    await held;
+    await client.end();
+    releaseRead();
+    expect(await outcome).toMatchObject({ error: { code: "ClientClosed" } });
+  });
+
+  // Only an admitted read is abandoned at end. Another call's reply is not.
+  it("ends a client only after a running mutation replies", async () => {
+    let releaseSend!: () => void;
+    const sendRelease = new Promise<void>((resolve) => {
+      releaseSend = resolve;
+    });
+    let sendStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      sendStarted = resolve;
+    });
+    const { session, engine } = host(async (key, _args, context) => {
+      if (key === "Group.send") {
+        context.started?.();
+        context.settled?.();
+        sendStarted();
+        await sendRelease;
+        return "sent";
+      }
+      return undefined;
+    });
+    await session.ready();
+    const clientHandle = engine.registry.add({}, "Client");
+    const client = new TestProxy(session, clientHandle);
+    const group = new GroupProxy(
+      session,
+      engine.registry.add({}, "Group", clientHandle.owner),
+    );
+    const send = group.send();
+    await started;
+    let ended = false;
+    const end = client.end().then(() => {
+      ended = true;
+    });
+    await new Promise<void>((resolve) => setTimeout(resolve, 10));
+    expect(ended).toBe(false);
+    releaseSend();
+    await end;
+    expect(await send).toBe("sent");
+  });
+}
+
+class ReaderProxy extends RemoteObject {
+  next(): Promise<unknown> {
+    return this.call("MessageReader.next", []);
+  }
+}
+
+class GroupProxy extends RemoteObject {
+  send(): Promise<unknown> {
+    return this.call("Group.send", []);
+  }
 }

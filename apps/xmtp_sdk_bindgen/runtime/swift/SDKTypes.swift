@@ -83,6 +83,10 @@ public final class Message: Identifiable, Hashable, Sendable {
         }
     }
 
+    public var deliveryCursor: String? {
+        data.deliveryCursor
+    }
+
     public var id: MessageId {
         data.id
     }

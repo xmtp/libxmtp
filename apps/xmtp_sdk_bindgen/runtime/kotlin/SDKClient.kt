@@ -17,9 +17,13 @@ private class CodecRegistry(
     }
 }
 
-/** The host client resolves storage and owns the weak message lookup entry. */
+/**
+ * The host client resolves storage and owns the weak message lookup entry.
+ * Generated forwarders in `ClientForwarding.kt` expose the other Client methods.
+ * The generated Client stays private to the runtime.
+ */
 class SDKClient private constructor(
-    val raw: Client,
+    internal val raw: Client,
     codecs: List<SDKContentCodec>,
 ) {
     private val codecs = CodecRegistry(codecs)
@@ -143,17 +147,43 @@ class SDKClient private constructor(
     /** A value is acknowledged only when the next collection request starts. */
     fun messages(
         group: Group,
+        options: ConversationMessageReaderOptions? = null,
         onClose: ((SDKStreamCloseReason) -> Unit)? = null,
         onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
     ): Flow<Message> =
         messageFlow(
             this,
-            open = { group.messageReader() },
+            open = { group.messageReader(options) },
             onClose = onClose,
             onConnectionStateChange = onConnectionStateChange,
         )
 
-    fun conversations(
+    fun messages(
+        dm: Dm,
+        options: ConversationMessageReaderOptions? = null,
+        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
+        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
+    ): Flow<Message> =
+        messageFlow(
+            this,
+            open = { dm.messageReader(options) },
+            onClose = onClose,
+            onConnectionStateChange = onConnectionStateChange,
+        )
+
+    fun messages(
+        options: MessageReaderOptions? = null,
+        onClose: ((SDKStreamCloseReason) -> Unit)? = null,
+        onConnectionStateChange: ((ConnectionState?, ConnectionState) -> Unit)? = null,
+    ): Flow<Message> =
+        messageFlow(
+            this,
+            open = { raw.conversations().messageReader(options) },
+            onClose = onClose,
+            onConnectionStateChange = onConnectionStateChange,
+        )
+
+    fun conversationStream(
         kind: ConversationKind? = null,
         consentStates: List<ConsentState>? = null,
         onClose: ((SDKStreamCloseReason) -> Unit)? = null,

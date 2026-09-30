@@ -10,7 +10,7 @@ use xmtp_proto::types::GroupId;
 use super::{
     consent_record::{ConsentState, ConsentType},
     group::ConversationType,
-    group_message::{DeliveryStatus, StoredGroupMessage},
+    group_message::{DeliveryStatus, MsgQueryArgs, QueryGroupMessage, StoredGroupMessage},
     refresh_state::EntityKind,
     schema::{
         group_messages as messages, groups, refresh_state as progress,
@@ -18,7 +18,7 @@ use super::{
     },
     stream_storage::{StreamStorageError, stream_transaction},
 };
-use crate::{ConnectionExt, NotFound, StorageError};
+use crate::{ConnectionExt, NotFound, StorageError, TransactionalKeyStore, XmtpMlsStorageProvider};
 
 const PREFERENCES_ID: i32 = 0;
 const ALLOCATOR_ID: &[u8] = &[];
@@ -66,6 +66,13 @@ pub struct DeliverySnapshot {
     pub cursor: DeliveryCursor,
 }
 
+/// One stored row and its committed cursor from the same read snapshot.
+#[derive(Debug, Clone)]
+pub struct AppVisibleMessageRow {
+    pub stored: StoredGroupMessage,
+    pub cursor: Option<DeliveryCursor>,
+}
+
 /// Current stored groups selected by a conversation stream.
 #[derive(Debug, Clone)]
 pub struct ResolvedGroupScope {
@@ -86,6 +93,32 @@ pub trait QueryDelivery: ConnectionExt + Sized {
                 resolve_group_scope(conn, requested)
             })
         })?)
+    }
+
+    /// Read history and nullable cursors from one database snapshot.
+    // implements: PROC-050
+    fn app_visible_message_rows(
+        &self,
+        group_id: &GroupId,
+        query: &MsgQueryArgs,
+    ) -> Result<Vec<AppVisibleMessageRow>, StorageError> {
+        self.raw_query(|conn| {
+            Ok(conn.transaction(|conn| read_app_rows(conn, Some((group_id, query)), None)))
+        })?
+    }
+
+    /// Read one visible row and its cursor without a later metadata lookup.
+    // implements: PROC-050, META-051
+    fn app_visible_message_row(
+        &self,
+        id: &[u8],
+        now_ns: i64,
+    ) -> Result<Option<AppVisibleMessageRow>, StorageError> {
+        self.raw_query(|conn| {
+            Ok(conn.transaction(|conn| {
+                read_app_rows(conn, None, Some((id, now_ns))).map(|mut rows| rows.pop())
+            }))
+        })?
     }
 
     /// Read the database identity used to reject foreign or pre-restore cursors.
@@ -651,6 +684,64 @@ fn read_messages(
                 database_id,
                 delivery_sequence: sequence as u64,
             },
+        })
+        .collect())
+}
+
+// The caller owns the read transaction. All queries reuse its connection.
+fn read_app_rows(
+    conn: &mut diesel::SqliteConnection,
+    history: Option<(&GroupId, &MsgQueryArgs)>,
+    lookup: Option<(&[u8], i64)>,
+) -> Result<Vec<AppVisibleMessageRow>, StorageError> {
+    const CURSOR_QUERY_BATCH: usize = 500;
+    let database_id = database_id(conn)?;
+    let store = conn.key_store();
+    let db = store.db();
+    let rows = if let Some((group, query)) = history {
+        db.get_group_messages(group, query)?
+    } else if let Some((id, now_ns)) = lookup {
+        db.get_app_visible_group_message(id, now_ns)?
+            .into_iter()
+            .collect()
+    } else {
+        Vec::new()
+    };
+    #[cfg(test)]
+    tests::observe_app_rows(None);
+    let mut cursors = std::collections::HashMap::new();
+    for batch in rows.chunks(CURSOR_QUERY_BATCH) {
+        #[cfg(test)]
+        tests::observe_app_rows(Some(batch.len()));
+        let ids = batch
+            .iter()
+            .map(|row| row.id.as_slice())
+            .collect::<Vec<_>>();
+        let values = db.raw_query(|conn| {
+            messages::table
+                .filter(messages::id.eq_any(ids))
+                .select((messages::id, messages::delivery_sequence))
+                .load::<(Vec<u8>, Option<i64>)>(conn)
+        })?;
+        for (id, sequence) in values {
+            let cursor = sequence
+                .map(|sequence| {
+                    u64::try_from(sequence)
+                        .map(|delivery_sequence| DeliveryCursor {
+                            database_id,
+                            delivery_sequence,
+                        })
+                        .map_err(|_| StorageError::DbDeserialize)
+                })
+                .transpose()?;
+            cursors.insert(id, cursor);
+        }
+    }
+    Ok(rows
+        .into_iter()
+        .map(|stored| {
+            let cursor = cursors.remove(&stored.id).flatten();
+            AppVisibleMessageRow { stored, cursor }
         })
         .collect())
 }

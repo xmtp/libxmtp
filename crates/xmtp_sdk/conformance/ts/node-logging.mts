@@ -3,14 +3,14 @@ import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
 
 export async function logging(
   reopened: sdk.Client,
-  snapshot: ReturnType<sdk.Client["raw"]["serverConfiguration"]>,
+  snapshot: sdk.ServerConfiguration,
 ): Promise<void> {
   await sdk.initLogging({
-    level: sdk.LogLevel.Error,
+    level: "error",
     structured: true,
     performance: false,
     otel: undefined,
@@ -25,11 +25,11 @@ export async function logging(
     log(record) {
       try {
         assert.ok(record.target.length > 0);
-        assert.ok(record.level !== undefined);
+        assert.equal(typeof record.level, "string");
         assert.ok(record.fields instanceof Map);
         assert.equal(typeof record.droppedRecords, "bigint");
         assert.equal(
-          reopened.raw.serverConfiguration().identifier,
+          reopened.serverConfiguration.identifier,
           snapshot.identifier,
         );
       } catch (error) {
@@ -38,9 +38,7 @@ export async function logging(
       sinkDelivered();
     },
   });
-  await assert.rejects(
-    sdk.localSignerFromPrivateKey(new Uint8Array(31).buffer),
-  );
+  await assert.rejects(sdk.localSignerFromPrivateKey(new Uint8Array(31)));
   await Promise.race([
     sinkRecord,
     new Promise<never>((_, reject) =>
@@ -57,9 +55,7 @@ export async function logging(
       throw new Error("test sink failure");
     },
   });
-  await assert.rejects(
-    sdk.localSignerFromPrivateKey(new Uint8Array(31).buffer),
-  );
+  await assert.rejects(sdk.localSignerFromPrivateKey(new Uint8Array(31)));
   for (let attempt = 0; attempt < 30 && !sinkThrew; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 10));
   }

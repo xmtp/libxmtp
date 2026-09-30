@@ -82,7 +82,7 @@ async fn storage_delete_waits_for_running_call() {
     settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     // The handoff gate holds next() inside its worker call.
     let gate = Arc::new(reader::HandoffGate {
         arrived: Notify::new(),

@@ -50,7 +50,7 @@ async fn group_actions_return_client_closed_after_end() {
         Err(XmtpError::ClientClosed(_))
     ));
     assert!(matches!(
-        group.message_reader().await,
+        group.message_reader(None).await,
         Err(XmtpError::ClientClosed(_))
     ));
 }
@@ -106,7 +106,7 @@ async fn message_reader_racing_end_is_closed_and_takes_no_lease() {
     let group = client.conversations().create_group(vec![], None).await?;
     begin_end(&client);
     assert!(matches!(
-        group.message_reader().await,
+        group.message_reader(None).await,
         Err(XmtpError::ClientClosed(_))
     ));
     assert!(client.inner.context.delivery_owner().lock().is_none());
@@ -121,7 +121,7 @@ async fn reader_end_rejects_pending_handoff() {
     )
     .await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let reader = group.message_reader().await?;
+    let reader = group.message_reader(None).await?;
     let gate = Arc::new(reader::HandoffGate {
         arrived: Notify::new(),
         release: Notify::new(),
@@ -163,7 +163,7 @@ async fn reader_skips_handoff_removed_from_scope() {
     .await?;
     let stale_group = client.conversations().create_group(vec![], None).await?;
     let live_group = client.conversations().create_group(vec![], None).await?;
-    let reader = stale_group.message_reader().await?;
+    let reader = stale_group.message_reader(None).await?;
     let gate = Arc::new(reader::HandoffGate {
         arrived: Notify::new(),
         release: Notify::new(),

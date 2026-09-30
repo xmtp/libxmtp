@@ -19,8 +19,8 @@ async fn group_options_metadata_members_and_message_filters() {
     let state = group.state().await?;
     assert_eq!(state.name, "first name");
     let (_, immutable_reads, _) = xmtp_db::count_sql_queries(|| {
-        assert_eq!(group.creator_inbox_id(), client.inbox_id());
-        assert_eq!(group.added_by_inbox_id(), client.inbox_id());
+        assert_eq!(group.creator_inbox_id(), Some(client.inbox_id()));
+        assert_eq!(group.added_by_inbox_id(), Some(client.inbox_id()));
         assert!(group.is_creator());
         assert!(!group.topic().is_empty());
     });

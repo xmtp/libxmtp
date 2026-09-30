@@ -175,7 +175,7 @@ async fn dm_create_is_idempotent_and_peer_ids_survive_lookup() {
     let alix = Client::create(crate::generate_local_signer().await, options()).await?;
     let bo = Client::create(crate::generate_local_signer().await, options()).await?;
     let first = alix.conversations().create_dm(bo.inbox_id(), None).await?;
-    assert_eq!(first.peer_inbox_id(), bo.inbox_id());
+    assert_eq!(first.peer_inbox_id().await?, Some(bo.inbox_id()));
     let again = alix.conversations().create_dm(bo.inbox_id(), None).await?;
     assert_eq!(again.id(), first.id());
     let listed = alix.conversations().list(None).await?;
@@ -188,7 +188,7 @@ async fn dm_create_is_idempotent_and_peer_ids_survive_lookup() {
         .collect::<Vec<_>>();
     assert_eq!(dms.len(), 1);
     assert_eq!(dms[0].id(), first.id());
-    assert_eq!(dms[0].peer_inbox_id(), bo.inbox_id());
+    assert_eq!(dms[0].peer_inbox_id().await?, Some(bo.inbox_id()));
     let groups = alix
         .conversations()
         .list(Some(crate::ListConversationsOptions {
@@ -218,7 +218,7 @@ async fn dm_create_is_idempotent_and_peer_ids_survive_lookup() {
         .await?
         .expect("the peer DM");
     assert_eq!(from_peer.id(), first.id());
-    assert_eq!(from_peer.peer_inbox_id(), alix.inbox_id());
+    assert_eq!(from_peer.peer_inbox_id().await?, Some(alix.inbox_id()));
     let peer_groups = bo
         .conversations()
         .list(Some(crate::ListConversationsOptions {

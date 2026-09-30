@@ -90,8 +90,21 @@ impl Client {
             .app_version()
     }
 
+    /// The options this client was built with, without its secrets: the
+    /// static credential, the credential source, and the storage encryption
+    /// key are `None`. Any holder of the client can read these options, and
+    /// the browser worker copies them to the page.
     pub fn options(&self) -> crate::ClientOptions {
-        self.options.clone()
+        let mut options = self.options.clone();
+        if let Some(crate::BackendSource::Options { options: backend }) = &mut options.backend {
+            backend.credential = None;
+            backend.credentials = None;
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            options.storage.encryption_key = None;
+        }
+        options
     }
 
     pub async fn decode_content(

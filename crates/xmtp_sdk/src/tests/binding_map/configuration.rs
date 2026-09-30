@@ -133,7 +133,7 @@ async fn reader_survives_group_name_update_without_fork() {
         .await?;
     bo.inner.sync_welcomes().await?;
     let bo_group = crate::Group::from_core(bo.inner.group(&group.inner.group_id)?, bo.key).await?;
-    let reader = bo_group.message_reader().await?;
+    let reader = bo_group.message_reader(None).await?;
     group.update_name("renamed".into()).await?;
     let id = group.send_text("after rename".into(), None).await?;
     let delivered = xmtp_common::time::timeout(Duration::from_secs(15), async {

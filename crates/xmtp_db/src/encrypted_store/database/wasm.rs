@@ -6,7 +6,7 @@ use crate::{ConnectionExt, StorageOption, XmtpDb};
 use diesel::prelude::SqliteConnection;
 use diesel::{connection::SimpleConnection, prelude::*};
 use sqlite_wasm_vfs::sahpool::OpfsSAHPoolCfg;
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
 use thiserror::Error;
@@ -14,7 +14,10 @@ use web_sys::wasm_bindgen::JsCast;
 use xmtp_common::ErrorCode;
 
 mod restore;
-pub use restore::{clear_opfs_databases, delete_opfs_database, import_opfs_database};
+pub use restore::{
+    clear_opfs_databases, delete_opfs_database, export_opfs_database, import_opfs_database,
+    list_opfs_databases, opfs_database_count, opfs_database_exists, opfs_pool_capacity,
+};
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum PlatformStorageError {
@@ -51,6 +54,12 @@ pub enum PlatformStorageError {
     /// The OPFS utility could not be initialized.
     #[error("OPFS initialization failed: {0}")]
     Initialization(String),
+    /// A pool transition failed or was cancelled. Terminate this worker before retrying.
+    #[error("OPFS pool is unusable; terminate this worker before retrying")]
+    PoolUnusable,
+    /// Persistent OPFS storage needs a plain path, not a SQLite URI. Not retryable.
+    #[error("persistent OPFS storage requires a plain path; SQLite URIs are not supported")]
+    InvalidDatabasePath,
 }
 
 impl xmtp_common::RetryableError for PlatformStorageError {
@@ -60,7 +69,11 @@ impl xmtp_common::RetryableError for PlatformStorageError {
             Self::Connection(_) => true,
             Self::DieselResult(_) => true,
             Self::Disconnected | Self::DatabaseInUse | Self::Initialization(_) => true,
-            Self::Replaced | Self::RestoreDestinationExists | Self::InvalidRestoreInput => false,
+            Self::Replaced
+            | Self::RestoreDestinationExists
+            | Self::InvalidRestoreInput
+            | Self::PoolUnusable
+            | Self::InvalidDatabasePath => false,
         }
     }
 }
@@ -86,9 +99,11 @@ impl std::ops::Deref for SyncOpfsUtil {
     }
 }
 
-pub static SQLITE: tokio::sync::OnceCell<SyncOpfsUtil> = tokio::sync::OnceCell::const_new();
+static SQLITE: tokio::sync::OnceCell<SyncOpfsUtil> = tokio::sync::OnceCell::const_new();
 
-/// Get a reference to the initialized OPFS util, if available.
+/// Get the raw OPFS utility for legacy callers.
+/// New callers must use the guarded database utility functions. The raw utility
+/// does not enforce admission, transition exclusion, or failed-pool fencing.
 pub fn get_sqlite() -> Option<Result<&'static OpfsSAHPoolUtil, &'static String>> {
     SQLITE.get().map(|w| w.0.as_ref())
 }
@@ -99,25 +114,95 @@ pub fn get_sqlite() -> Option<Result<&'static OpfsSAHPoolUtil, &'static String>>
 /// However, if opfs needs to be used before client creation, this should
 /// be called.
 pub async fn init_sqlite() {
-    if let Err(e) = try_init_sqlite().await {
+    if let Err(e) = init_sqlite_lenient().await {
         tracing::error!("{e}");
     }
 }
 
-/// A failed install does not enter the once cell. Another open can retry.
-pub async fn try_init_sqlite() -> Result<(), PlatformStorageError> {
-    let util = SQLITE.get_or_try_init(init_opfs).await?;
-    if let Ok(util) = &util.0 {
-        util.unpause_vfs().await?;
+/// The legacy install. A failed install stays retryable in this worker, as
+/// before strict opens: a later call installs once another owner releases
+/// the pool.
+async fn init_sqlite_lenient() -> Result<(), PlatformStorageError> {
+    let _utility = restore::ActiveUtility::acquire()?;
+    let _transition = POOL_TRANSITION.lock().await;
+    resume_sqlite(false).await?;
+    Ok(())
+}
+
+// Admission is synchronous. Every admitted operation takes this mutex before
+// touching VFS maps or starting install, resume, resize, or clear.
+static POOL_TRANSITION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+thread_local! {
+    static POOL_UNUSABLE: Cell<bool> = const { Cell::new(false) };
+}
+
+/// A failed or cancelled VFS transition can leave partial access handles.
+/// The owner must terminate this worker while it still holds its Web Lock.
+pub fn opfs_requires_worker_restart() -> bool {
+    POOL_UNUSABLE.with(Cell::get)
+}
+
+fn check_pool_usable() -> Result<(), PlatformStorageError> {
+    if opfs_requires_worker_restart() {
+        return Err(PlatformStorageError::PoolUnusable);
     }
     Ok(())
 }
 
+/// Mark a partial VFS transition unusable on error or future cancellation.
+struct VfsTransitionFailure(bool);
+
+impl VfsTransitionFailure {
+    fn complete(mut self) {
+        self.0 = false;
+    }
+}
+
+impl Drop for VfsTransitionFailure {
+    fn drop(&mut self) {
+        if self.0 {
+            POOL_UNUSABLE.with(|failed| failed.set(true));
+        }
+    }
+}
+
+/// Install or resume under utility admission and the shared transition guard.
+pub async fn try_init_sqlite() -> Result<(), PlatformStorageError> {
+    let _utility = restore::ActiveUtility::acquire()?;
+    let _transition = POOL_TRANSITION.lock().await;
+    resume_sqlite(true).await?;
+    Ok(())
+}
+
+/// The caller must hold POOL_TRANSITION and an admission guard. A strict
+/// transition that fails or is cancelled makes the pool unusable in this
+/// worker. A lenient one, for legacy callers, leaves it retryable.
+async fn resume_sqlite(strict: bool) -> Result<&'static OpfsSAHPoolUtil, PlatformStorageError> {
+    check_pool_usable()?;
+    let failure = VfsTransitionFailure(strict);
+    let util = SQLITE.get_or_try_init(init_opfs).await?;
+    let util = util
+        .0
+        .as_ref()
+        .map_err(|error| PlatformStorageError::Initialization(error.clone()))?;
+    util.unpause_vfs().await?;
+    failure.complete();
+    Ok(util)
+}
+
 /// Give up OPFS access handles after the last SQLite file closes.
-/// A live database makes `pause_vfs` fail without changing the pool.
-/// A pending open has no live file yet, so it skips the pause itself.
+/// Do not pause while any admitted work can still touch the pool.
 pub fn pause_sqlite_if_idle() {
-    if restore::open_pending() {
+    if restore::operation_pending() || opfs_requires_worker_restart() {
+        return;
+    }
+    let Ok(_transition) = POOL_TRANSITION.try_lock() else {
+        return;
+    };
+    // The pinned VFS tracks open filenames in a set, not connection counts.
+    // Its idle check alone cannot prove that every local connection is closed.
+    if restore::closed_target(None).is_err() {
         return;
     }
     if let Some(Ok(util)) = get_sqlite()
@@ -127,23 +212,24 @@ pub fn pause_sqlite_if_idle() {
     }
 }
 
-async fn maybe_resize() -> Result<(), PlatformStorageError> {
-    if let Some(Ok(util)) = get_sqlite() {
-        let capacity = util.get_capacity();
-        let used = util.count();
-        if used >= capacity / 2 {
-            let adding = (capacity * 2) - capacity;
-            tracing::debug!(
-                "{used} files in pool, increasing capacity to {}",
-                adding + capacity
-            );
-            util.add_capacity(adding).await?;
-        }
+/// The caller must hold POOL_TRANSITION and PendingOpen.
+async fn maybe_resize(util: &OpfsSAHPoolUtil) -> Result<(), PlatformStorageError> {
+    let capacity = util.get_capacity();
+    let used = util.count();
+    if used >= capacity / 2 {
+        let adding = capacity;
+        tracing::debug!(
+            "{used} files in pool, increasing capacity to {}",
+            adding + capacity
+        );
+        let failure = VfsTransitionFailure(true);
+        util.add_capacity(adding).await?;
+        failure.complete();
     }
     Ok(())
 }
 
-pub async fn init_opfs() -> Result<SyncOpfsUtil, PlatformStorageError> {
+async fn init_opfs() -> Result<SyncOpfsUtil, PlatformStorageError> {
     let cfg = OpfsSAHPoolCfg {
         vfs_name: xmtp_configuration::WASM_VFS_NAME.into(),
         directory: xmtp_configuration::WASM_VFS_DIRECTORY.into(),
@@ -171,6 +257,24 @@ pub async fn init_opfs() -> Result<SyncOpfsUtil, PlatformStorageError> {
         .map_err(PlatformStorageError::SAH)
 }
 
+/// URI parsing can give different inputs the same VFS filename. The registry
+/// requires plain paths so admission uses the exact filename SQLite will open.
+fn validate_persistent_path(path: &str) -> Result<(), PlatformStorageError> {
+    if path.starts_with("file:") || path.starts_with("sqlite://") {
+        return Err(PlatformStorageError::InvalidDatabasePath);
+    }
+    Ok(())
+}
+
+/// Synchronous opens cannot wait for resume. Reject them while it is needed.
+fn check_pool_ready() -> Result<(), PlatformStorageError> {
+    check_pool_usable()?;
+    match get_sqlite() {
+        Some(Ok(util)) if !util.is_paused() => Ok(()),
+        _ => Err(PlatformStorageError::DatabaseInUse),
+    }
+}
+
 fn log_exception(e: &wasm_bindgen::JsValue) {
     if let Ok(exception) = e.clone().dyn_into::<web_sys::DomException>() {
         tracing::error!(
@@ -192,20 +296,45 @@ impl std::fmt::Debug for WasmDb {
 }
 
 impl WasmDb {
+    /// Open a database for existing callers. If this worker cannot install or
+    /// resume the OPFS pool, log the error and open the path on SQLite's
+    /// default VFS. Such a database is not persistent. For example, a second
+    /// worker cannot take a pool that another worker owns.
     pub async fn new(opts: &StorageOption) -> Result<Self, PlatformStorageError> {
+        Self::open(opts, false).await
+    }
+
+    /// Open a database that must use the OPFS pool. Pool failures return their
+    /// typed error. The path must be plain, and it must have no live connection.
+    /// Its connections stop when the pool becomes unusable.
+    pub async fn new_strict(opts: &StorageOption) -> Result<Self, PlatformStorageError> {
+        Self::open(opts, true).await
+    }
+
+    async fn open(opts: &StorageOption, strict: bool) -> Result<Self, PlatformStorageError> {
         use crate::StorageOption::*;
         let conn = match opts {
             Ephemeral => PersistentOrMem::Mem(WasmDbConnection::new_ephemeral("xmtp-ephemeral")?),
             Persistent(db_path) => {
-                // Unpause here even when the caller already did: an ending
-                // client can pause the pool before this open starts. A pause
-                // during the unpause is a no-op. Keep no await between the
-                // unpause and the guard, so a later pause sees the guard.
-                init_sqlite().await;
-                let _opening = restore::PendingOpen::acquire()?;
-                maybe_resize().await?;
+                if strict {
+                    validate_persistent_path(db_path)?;
+                }
+                let _opening = restore::PendingOpen::acquire_for(strict)?;
+                let _transition = POOL_TRANSITION.lock().await;
+                if strict {
+                    restore::closed_target(Some(db_path))?;
+                    let util = resume_sqlite(true).await?;
+                    maybe_resize(util).await?;
+                } else {
+                    match resume_sqlite(false).await {
+                        Ok(util) => maybe_resize(util).await?,
+                        Err(error) => tracing::error!(
+                            "OPFS pool is unavailable; {db_path} opens on the default SQLite VFS: {error}"
+                        ),
+                    }
+                }
                 tracing::debug!("creating persistent opfs db @{}", db_path);
-                PersistentOrMem::Persistent(WasmDbConnection::new(db_path)?)
+                PersistentOrMem::Persistent(WasmDbConnection::connect(db_path, strict)?)
             }
         };
         Ok(Self {
@@ -220,6 +349,8 @@ pub struct WasmDbConnection {
     conn: Rc<RefCell<ConnectionState>>,
     path: String,
     persistent: bool,
+    /// Strict connections need a usable OPFS pool and an exclusive path.
+    strict: bool,
 }
 
 /// Lifecycle state shared by every clone of one database connection.
@@ -232,7 +363,19 @@ struct ConnectionState {
 
 impl WasmDbConnection {
     pub fn new(path: &str) -> Result<Self, PlatformStorageError> {
-        restore::check_open_allowed()?;
+        validate_persistent_path(path)?;
+        let _opening = restore::PendingOpen::acquire()?;
+        let _transition = POOL_TRANSITION
+            .try_lock()
+            .map_err(|_| PlatformStorageError::DatabaseInUse)?;
+        restore::closed_target(Some(path))?;
+        check_pool_ready()?;
+        Self::connect(path, true)
+    }
+
+    // The caller holds persistent-open admission and POOL_TRANSITION. A strict
+    // caller has also checked that this plain path has no live connection.
+    fn connect(path: &str, strict: bool) -> Result<Self, PlatformStorageError> {
         let mut conn = SqliteConnection::establish(path)?;
         conn.batch_execute("PRAGMA foreign_keys = on;")?;
         #[derive(QueryableByName)]
@@ -251,6 +394,7 @@ impl WasmDbConnection {
             conn,
             path: path.to_string(),
             persistent: true,
+            strict,
         })
     }
 
@@ -267,6 +411,7 @@ impl WasmDbConnection {
             })),
             path,
             persistent: false,
+            strict: false,
         })
     }
 
@@ -281,6 +426,9 @@ impl ConnectionExt for WasmDbConnection {
         F: FnOnce(&mut SqliteConnection) -> Result<T, diesel::result::Error>,
         Self: Sized,
     {
+        if self.strict {
+            check_pool_usable()?;
+        }
         let mut state = self
             .conn
             .try_borrow_mut()
@@ -309,20 +457,43 @@ impl ConnectionExt for WasmDbConnection {
     }
 
     fn reconnect(&self) -> Result<(), crate::ConnectionError> {
-        restore::check_open_allowed()?;
+        let _opening = self
+            .persistent
+            .then(|| restore::PendingOpen::acquire_for(self.strict))
+            .transpose()?;
+        let _transition = if self.strict {
+            Some(
+                POOL_TRANSITION
+                    .try_lock()
+                    .map_err(|_| PlatformStorageError::DatabaseInUse)?,
+            )
+        } else {
+            None
+        };
+        {
+            let state = self
+                .conn
+                .try_borrow()
+                .map_err(|_| crate::ConnectionError::ReconnectInTransaction)?;
+            if state.replaced {
+                return Err(PlatformStorageError::Replaced.into());
+            }
+            if state.connection.is_some() {
+                return Ok(());
+            }
+        }
+        if self.strict {
+            check_pool_ready()?;
+            restore::closed_target(Some(&self.path))?;
+        }
         let mut state = self
             .conn
             .try_borrow_mut()
             .map_err(|_| crate::ConnectionError::ReconnectInTransaction)?;
-        if state.replaced {
-            return Err(PlatformStorageError::Replaced.into());
-        }
-        if state.connection.is_none() {
-            let mut conn =
-                SqliteConnection::establish(&self.path).map_err(PlatformStorageError::from)?;
-            conn.batch_execute("PRAGMA foreign_keys = on;")?;
-            state.connection = Some(conn);
-        }
+        let mut conn =
+            SqliteConnection::establish(&self.path).map_err(PlatformStorageError::from)?;
+        conn.batch_execute("PRAGMA foreign_keys = on;")?;
+        state.connection = Some(conn);
         Ok(())
     }
 }

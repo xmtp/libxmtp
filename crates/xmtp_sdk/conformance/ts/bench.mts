@@ -7,6 +7,7 @@ import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import * as sdk from "../../../../target/sdk-bench/typescript-napi/index.ts";
+import { bindingClient } from "../../../../target/sdk-bench/typescript-napi/runtime/client.ts";
 
 const require = createRequire(import.meta.url);
 const native = require(process.env.SDK_NAPI_BIN!);
@@ -120,7 +121,7 @@ const dbPath = join(seedDirectory, dbName);
 await seedClient.end();
 seededPage.uniffiDestroy();
 seededEmpty.uniffiDestroy();
-seedClient.raw.uniffiDestroy();
+bindingClient(seedClient).uniffiDestroy();
 const nativeClient = await native.createClient(
   url,
   { dbPath },

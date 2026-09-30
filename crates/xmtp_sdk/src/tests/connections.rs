@@ -24,7 +24,7 @@ async fn cancelled_connection_state_waits_release_reader_workers() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let messages = group.message_reader().await?;
+    let messages = group.message_reader(None).await?;
     let conversations = client.conversations().conversation_reader(None).await?;
     xmtp_common::time::timeout(Duration::from_secs(20), async {
         tokio::try_join!(
@@ -96,7 +96,7 @@ async fn connection_state_across_toxiproxy_drop() {
             .create_group(vec![], None)
             .await
             .expect("group");
-        let messages = group.message_reader().await.expect("message reader");
+        let messages = group.message_reader(None).await.expect("message reader");
         let conversations = client
             .conversations()
             .conversation_reader(None)

@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+// Fake-reader cases drive the shared host reader stream directly.
+import {
+  MessageStream as HostMessageStream,
+  type StreamCloseReason as HostCloseReason,
+} from "../../../../target/sdk-conformance/typescript-napi/runtime/streams/reader.ts";
 import type { readerDelivery } from "./node-reader-delivery.mts";
 import { assertNoUnhandledRejection } from "./node-support.mts";
 
@@ -8,9 +13,7 @@ export async function streamFailures(
   reopened: sdk.Client,
   { first, messageId }: Awaited<ReturnType<typeof readerDelivery>>,
 ): Promise<void> {
-  const callbackGroup = await reopened
-    .conversations()
-    .createGroup([], undefined);
+  const callbackGroup = await reopened.conversations.createGroup([]);
   const callbackId = await callbackGroup.sendText("callback acknowledgment");
   let releaseCallback!: () => void;
   const callbackGate = new Promise<void>((resolve) => {
@@ -20,10 +23,7 @@ export async function streamFailures(
   const entered = new Promise<void>((resolve) => {
     callbackEntered = resolve;
   });
-  const callbackStream = new sdk.MessageStream(
-    (signal) => callbackGroup.messageReader({ signal }),
-    reopened,
-  );
+  const callbackStream = sdk.MessageStream.openGroup(reopened, callbackGroup);
   const consumption = callbackStream.onValue(async (value) => {
     assert.equal(value.id.toString(), callbackId.toString());
     callbackEntered();
@@ -39,33 +39,23 @@ export async function streamFailures(
   await callbackReplay.end();
   releaseCallback();
   await consumption;
-  const conversationStream = new sdk.ConversationStream(
-    (signal) =>
-      reopened.conversations().conversationReader(undefined, { signal }),
-    reopened,
-  );
+  const conversationStream = sdk.ConversationStream.open(reopened);
   await conversationStream.ready();
-  await reopened.conversations().createGroup([], undefined);
+  await reopened.conversations.createGroup([]);
   assert.equal((await conversationStream.next()).done, false);
   await conversationStream.end();
   // verifies: CONS-030
   const consentReader = sdk.ConversationStream.open(reopened, {
-    consentStates: [sdk.ConsentState.Allowed],
+    consentStates: ["allowed"],
   });
-  const deniedConversation = await reopened
-    .conversations()
-    .createGroup([], undefined);
-  await reopened.raw.preferences().setConsentStates([
+  const deniedConversation = await reopened.conversations.createGroup([]);
+  await reopened.preferences.setConsentStates([
     {
-      entity: new sdk.ConsentEntity.Conversation({
-        conversationId: deniedConversation.id(),
-      }),
-      state: sdk.ConsentState.Denied,
+      entity: { kind: "conversation", conversationId: deniedConversation.id },
+      state: "denied",
     },
   ]);
-  const allowedConversation = await reopened
-    .conversations()
-    .createGroup([], undefined);
+  const allowedConversation = await reopened.conversations.createGroup([]);
   const selectedConversation = (
     await Promise.race([
       consentReader.next(),
@@ -77,23 +67,16 @@ export async function streamFailures(
       ),
     ])
   ).value;
-  assert.equal(selectedConversation?.tag, sdk.Conversation_Tags.Group);
-  assert.equal(
-    (
-      selectedConversation as InstanceType<typeof sdk.Conversation.Group>
-    ).inner.group
-      .id()
-      .toString(),
-    allowedConversation.id().toString(),
-  );
+  assert.ok(selectedConversation instanceof sdk.Group);
+  assert.equal(selectedConversation.id, allowedConversation.id);
   await consentReader.end();
   let markAbortReady!: () => void;
   const abortReady = new Promise<void>((resolve) => {
     markAbortReady = resolve;
   });
-  const rejectedOpening = new sdk.MessageStream(
+  const rejectedOpening = new HostMessageStream(
     (signal) =>
-      new Promise((_, reject) => {
+      new Promise<never>((_, reject) => {
         signal.addEventListener("abort", () =>
           reject(new DOMException("aborted", "AbortError")),
         );
@@ -108,8 +91,8 @@ export async function streamFailures(
   const creationFailure = Object.assign(new Error("reader creation failed"), {
     code: "Storage",
   });
-  const creationReasons: sdk.StreamCloseReason[] = [];
-  const failedOpening = new sdk.MessageStream(
+  const creationReasons: HostCloseReason[] = [];
+  const failedOpening = new HostMessageStream(
     async () => {
       throw creationFailure;
     },
@@ -125,7 +108,7 @@ export async function streamFailures(
   const openFailureWithCloseThrow = new Error("reader open failed");
   let failedOpenCloseCalls = 0;
   await assertNoUnhandledRejection(async () => {
-    const stream = new sdk.MessageStream(
+    const stream = new HostMessageStream(
       async () => {
         throw openFailureWithCloseThrow;
       },
@@ -146,7 +129,7 @@ export async function streamFailures(
 
   let readerLeaseHeld = false;
   const readFailure = new Error("injected reader failure");
-  const failedStream = new sdk.MessageStream(async () => {
+  const failedStream = new HostMessageStream(async () => {
     assert.equal(readerLeaseHeld, false);
     readerLeaseHeld = true;
     return {
@@ -162,12 +145,12 @@ export async function streamFailures(
   await assert.rejects(
     async () => {
       for await (const message of failedStream) {
-        assert.fail(`unexpected message: ${message.id}`);
+        assert.fail(`unexpected message: ${String(message)}`);
       }
     },
     (error) => error === readFailure,
   );
-  const replacementStream = new sdk.MessageStream(async () => {
+  const replacementStream = new HostMessageStream(async () => {
     assert.equal(readerLeaseHeld, false, "failed stream kept the reader lease");
     readerLeaseHeld = true;
     return {
@@ -183,7 +166,7 @@ export async function streamFailures(
   );
   await replacementStream.return();
   const endFailure = new Error("injected reader end failure");
-  const failedEndStream = new sdk.MessageStream(
+  const failedEndStream = new HostMessageStream(
     async () => ({
       next: async () => {
         throw readFailure;
