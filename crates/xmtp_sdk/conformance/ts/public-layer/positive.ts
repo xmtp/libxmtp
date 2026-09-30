@@ -24,6 +24,8 @@ type Point = { readonly x: number; readonly y: number };
 
 declare const pointCodec: ContentCodec<Point>;
 declare const textCodec: ContentCodec<string>;
+declare const literalCodec: ContentCodec<"a" | "b">;
+declare const anyText: string;
 declare const signer: Signer;
 
 export async function registerTypedCodecs(): Promise<Client> {
@@ -52,6 +54,11 @@ export async function typedCodecHooks(message: Message): Promise<Client> {
   await message.reply(pointCodec, { x: "1", y: 2 });
   // @ts-expect-error The reply value must be the codec's value type.
   await message.reply(textCodec, 1);
+  // @ts-expect-error A wider value must not widen the codec's value type.
+  await message.reply(literalCodec, anyText);
+  // @ts-expect-error A codec's value type does not widen.
+  const widened: ContentCodec<string | number> = textCodec;
+  void widened;
   // @ts-expect-error A fallback hook takes the codec's value type.
   const wrongHook: ContentCodec<Point> = { ...pointCodec, fallback: (text: string) => text };
   void wrongHook;

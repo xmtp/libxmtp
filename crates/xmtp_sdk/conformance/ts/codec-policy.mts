@@ -88,6 +88,7 @@ export async function replyPolicy(
   assert.equal((await nestedEnvelope(group, plain)).fallback, undefined);
 
   // A failed or invalid step fails the reply before any publish attempt.
+  process.on("unhandledRejection", recordUnhandled);
   const before = (await group.messages()).length;
   for (const [step, codec] of [
     ["encode", noteCodec({ encode: () => throwing("encode") })],
@@ -99,6 +100,41 @@ export async function replyPolicy(
     ],
     ["fallback", noteCodec({ fallback: () => throwing("fallback") })],
     ["fallback result", noteCodec({ fallback: () => 7 as unknown as string })],
+    [
+      "async encode",
+      noteCodec({
+        encode: (() =>
+          Promise.reject(new Error("async encode"))) as unknown as () => sdk.EncodedContent,
+      }),
+    ],
+    [
+      "async fallback",
+      noteCodec({
+        fallback: (() =>
+          Promise.reject(new Error("async fallback"))) as unknown as () => string,
+      }),
+    ],
+    [
+      "envelope fallback",
+      noteCodec({
+        encode: (value) =>
+          ({
+            type: noteType,
+            fallback: 7,
+            content: new TextEncoder().encode(value.text),
+          }) as unknown as sdk.EncodedContent,
+      }),
+    ],
+    [
+      "envelope type",
+      noteCodec({
+        encode: (value) =>
+          ({
+            type: { authorityId: "example.org", typeId: "note" },
+            content: new TextEncoder().encode(value.text),
+          }) as unknown as sdk.EncodedContent,
+      }),
+    ],
   ] as const) {
     await assert.rejects(
       parent.reply(codec, { text: step }),
@@ -111,4 +147,13 @@ export async function replyPolicy(
     before,
     "a failed codec step made a publish attempt",
   );
+  // A rejected async step is handled, not left to end the process.
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  assert.deepEqual(unhandled, [], "an async codec step rejection was unhandled");
+  process.off("unhandledRejection", recordUnhandled);
+}
+
+const unhandled: unknown[] = [];
+function recordUnhandled(reason: unknown): void {
+  unhandled.push(reason);
 }
