@@ -304,6 +304,11 @@ fn generate(
                 runtime.join("worker-message.ts"),
                 out.join("runtime/message.ts"),
             )?;
+            // The browser package has one Timestamp class: its pure module's.
+            fs::write(
+                out.join("runtime/ids.ts"),
+                "// The browser package shares one Timestamp class with its pure module.\nexport { Timestamp } from \"../../typescript-pure/runtime/ids.js\";\n",
+            )?;
         }
     }
     if !pure_only

@@ -8,6 +8,7 @@ import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_
 import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js";
 // @ts-ignore The browser fixture uses the published JavaScript build of viem.
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
+import * as pure from "../../../../target/sdk-generated/typescript-pure/public-api.gen";
 import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
 import { RemoteObject } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
@@ -277,6 +278,23 @@ export async function exercise(): Promise<string[]> {
         invalid.details.category === "input" &&
         !("tag" in invalid),
       "a malformed ID did not fail with the public error",
+    );
+    // The pure module shares the package's error and Timestamp classes.
+    await pure.initPureWasm();
+    check(pure.XmtpError === sdk.XmtpError, "two XmtpError classes");
+    check(pure.Timestamp === sdk.Timestamp, "two Timestamp classes");
+    check(message.sentAt instanceof pure.Timestamp, "sentAt is another class");
+    const pureError = await rejection(
+      Promise.resolve().then(() =>
+        pure.decodeStandard({
+          ...message.encoded,
+          content: new Uint8Array([0xff]),
+        }),
+      ),
+    );
+    check(
+      pureError instanceof sdk.XmtpError && isPublicError(pureError),
+      "a pure module error is not the package XmtpError",
     );
     const connected = await sdk.Backend.connect(backend);
     check(connected instanceof sdk.Backend, "Backend.connect failed");

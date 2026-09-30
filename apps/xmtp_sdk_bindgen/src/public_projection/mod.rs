@@ -84,7 +84,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
                 code.push_str(policy::CONVERSATION)
             }
             Metadata::Enum(value) if errors::is_details_error(value) => {
-                errors::error_class(&mut code, value)?;
+                errors::error_class(&mut code, value, target)?;
                 if target == Target::Browser && value.name == "XmtpError" {
                     errors::bridge_error(&mut code, value)?;
                 }

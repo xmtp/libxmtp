@@ -520,7 +520,13 @@ class Surface:
                 if name != "default":
                     result[name] = value
         for public, local in module.local_exports.items():
-            result[public] = (module, local)
+            # `import { X } from "..."; export { X };` exports the imported
+            # declaration.
+            if local in module.imports and local not in module.declarations:
+                specifier, original = module.imports[local]
+                result[public] = self.resolve(self.target(module, specifier), original)
+            else:
+                result[public] = (module, local)
         for public, (specifier, local) in module.reexports.items():
             result[public] = self.resolve(self.target(module, specifier), local)
         return result
