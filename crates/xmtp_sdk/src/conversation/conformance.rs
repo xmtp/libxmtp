@@ -19,6 +19,28 @@ impl Conversations {
         .await
     }
 
+    /// Bind the database to another deployment at another URL, so the next
+    /// offline build must re-check the backend before its first request.
+    pub async fn sdk_conformance_bind_other_deployment(&self) -> Result<(), XmtpError> {
+        use xmtp_db::prelude::QueryServerConfiguration;
+        let context = self.client.context.clone();
+        on_sdk_worker(self.client.context.clone(), async move {
+            let db = context.db();
+            let stored = db
+                .server_configuration()
+                .map_err(XmtpError::from_core)?
+                .ok_or_else(|| XmtpError::unknown("no stored server configuration"))?;
+            db.store_server_configuration(
+                "org.example.other-deployment",
+                "http://moved.example",
+                &stored.response,
+                stored.fetched_at_ns,
+            )
+            .map_err(XmtpError::from_core)
+        })
+        .await
+    }
+
     /// Set the fixed large cursor fixture before its first message is stored.
     pub async fn sdk_conformance_seed_delivery_cursor(&self) -> Result<(), XmtpError> {
         use xmtp_db::{

@@ -447,6 +447,58 @@ async fn offline_build_with_moved_url_uses_stored_copy() {
     std::fs::remove_file(path)?;
 }
 
+/// A real offline build whose database is bound to another deployment: the
+/// first request re-checks the backend (CONF-077), and the app gets the
+/// check's own code.
+// verifies: CONF-064, CONF-077
+#[xmtp_common::test(unwrap_try = true)]
+async fn offline_build_on_another_deployment_fails_its_first_request_with_backend_mismatch() {
+    use xmtp_db::prelude::QueryServerConfiguration;
+
+    let path = std::env::temp_dir().join(format!(
+        "sdk-other-deployment-{}-{}.db3",
+        std::process::id(),
+        xmtp_common::time::now_ns(),
+    ));
+    let signer = crate::generate_local_signer().await;
+    let mut settings = options();
+    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    let online = Client::create(signer.clone(), settings.clone()).await?;
+    let inbox_id = online.inbox_id();
+    bind_other_deployment(&online)?;
+    online.end().await?;
+
+    settings.allow_offline = true;
+    let identity = signer::identity(signer).await?;
+    let offline = Client::build(identity, settings, Some(inbox_id)).await?;
+    // A direct network read is the first request.
+    let error = offline.inbox_state(true).await.unwrap_err();
+    let XmtpError::BackendMismatch(details) = error else {
+        panic!("expected BackendMismatch, got {error:?}");
+    };
+    assert_eq!(details.code, "BackendMismatch");
+    assert!(!details.retryable);
+    offline.end().await?;
+    std::fs::remove_file(path)?;
+
+    /// Store the configuration of another deployment at another URL, so the
+    /// next offline build must re-check before its first request.
+    fn bind_other_deployment(client: &Client) -> Result<(), XmtpError> {
+        let db = client.inner.context.db();
+        let stored = db
+            .server_configuration()
+            .map_err(XmtpError::from_core)?
+            .expect("stored configuration");
+        db.store_server_configuration(
+            "org.example.other-deployment",
+            "http://moved.example",
+            &stored.response,
+            stored.fetched_at_ns,
+        )
+        .map_err(XmtpError::from_core)
+    }
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn concurrent_create_keeps_one_inbox_id() {
     let signer = crate::generate_local_signer().await;

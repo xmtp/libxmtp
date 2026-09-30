@@ -235,7 +235,87 @@ impl XmtpError {
     /// operation errors. A failure with no typed cause is `Unknown`.
     // implements: CONF-064
     pub(crate) fn from_core<E: std::error::Error + 'static>(error: E) -> Self {
-        Self::classify(&error).unwrap_or_else(|| Self::unknown(error))
+        Self::classify(&error).unwrap_or_else(|| Self::unclassified(&error))
+    }
+
+    /// `Unknown` keeps the retry policy of a typed core error; with none, it
+    /// is not retryable.
+    fn unclassified(error: &(dyn std::error::Error + 'static)) -> Self {
+        Self::Unknown(Self::details(
+            "Unknown",
+            ErrorCategory::Unknown,
+            Self::typed_retryable(error).unwrap_or(false),
+            error.to_string(),
+        ))
+    }
+
+    fn typed_retryable(error: &(dyn std::error::Error + 'static)) -> Option<bool> {
+        use xmtp_common::RetryableError;
+        use xmtp_mls::{
+            client::ClientError, groups::GroupError, identity::IdentityError,
+            mls_store::MlsStoreError,
+        };
+        if let Some(error) = error.downcast_ref::<GroupError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<ClientError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<IdentityError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<MlsStoreError>() {
+            return Some(error.is_retryable());
+        }
+        if let Some(error) = error.downcast_ref::<xmtp_api::ApiError>() {
+            return Some(error.is_retryable());
+        }
+        error
+            .downcast_ref::<xmtp_db::StorageError>()
+            .map(RetryableError::is_retryable)
+    }
+
+    /// The inner error of a core wrapper variant marked
+    /// `#[error(transparent)]`. Such a variant forwards `source()` to its
+    /// inner error's source, so a walk over `source()` alone skips the inner
+    /// error. Variants with their own message keep the inner error as their
+    /// source and need no entry.
+    fn wrapped<'a>(
+        error: &'a (dyn std::error::Error + 'static),
+    ) -> Option<&'a (dyn std::error::Error + 'static)> {
+        use xmtp_mls::{
+            builder::ClientBuilderError, groups::GroupError, groups::intents::IntentError,
+            identity::IdentityError, mls_store::MlsStoreError,
+        };
+        if let Some(GroupError::MlsStore(inner)) = error.downcast_ref::<GroupError>() {
+            return Some(inner);
+        }
+        if let Some(IntentError::Storage(inner)) = error.downcast_ref::<IntentError>() {
+            return Some(inner);
+        }
+        if let Some(error) = error.downcast_ref::<MlsStoreError>() {
+            return match error {
+                MlsStoreError::Storage(inner) => Some(inner),
+                MlsStoreError::Api(inner) => Some(inner),
+                _ => None,
+            };
+        }
+        if let Some(error) = error.downcast_ref::<IdentityError>() {
+            return match error {
+                IdentityError::StorageError(inner) => Some(inner),
+                IdentityError::ApiClient(inner) => Some(inner),
+                _ => None,
+            };
+        }
+        if let Some(error) = error.downcast_ref::<ClientBuilderError>() {
+            return match error {
+                ClientBuilderError::Identity(inner) => Some(inner),
+                ClientBuilderError::ClientError(inner) => Some(inner),
+                ClientBuilderError::WrappedApiError(inner) => Some(inner),
+                _ => None,
+            };
+        }
+        None
     }
 
     fn classify(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
@@ -250,7 +330,7 @@ impl XmtpError {
             if let Some(found) = Self::classify_one(error) {
                 return Some(found);
             }
-            current = error.source();
+            current = Self::wrapped(error).or_else(|| error.source());
         }
         None
     }
@@ -441,19 +521,7 @@ impl XmtpError {
     }
 
     pub(crate) fn from_client(error: xmtp_mls::client::ClientError) -> Self {
-        use xmtp_common::RetryableError;
-        use xmtp_mls::client::ClientError;
-        if let ClientError::Identity(identity) = error {
-            return Self::from_identity(identity);
-        }
-        Self::classify(&error).unwrap_or_else(|| {
-            Self::Unknown(Self::details(
-                "Unknown",
-                ErrorCategory::Unknown,
-                error.is_retryable(),
-                error.to_string(),
-            ))
-        })
+        Self::from_core(error)
     }
 
     pub(crate) fn from_auth(error: xmtp_proto::api::AuthError) -> Self {
@@ -494,21 +562,8 @@ impl XmtpError {
         Self::api_cause(&error)
     }
 
-    fn from_identity(error: xmtp_mls::identity::IdentityError) -> Self {
-        match error {
-            xmtp_mls::identity::IdentityError::ApiClient(api) => Self::from_api(api),
-            other => Self::unknown(other),
-        }
-    }
-
     pub(crate) fn from_builder(error: xmtp_mls::builder::ClientBuilderError) -> Self {
-        use xmtp_mls::builder::ClientBuilderError;
-        match error {
-            ClientBuilderError::WrappedApiError(api) => Self::from_api(api),
-            ClientBuilderError::ClientError(client) => Self::from_client(client),
-            ClientBuilderError::Identity(identity) => Self::from_identity(identity),
-            other => Self::unknown(other),
-        }
+        Self::from_core(error)
     }
 
     #[cfg(not(target_arch = "wasm32"))]

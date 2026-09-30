@@ -1,7 +1,7 @@
 use super::*;
 use std::sync::{
     Arc,
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use xmtp_common::time::{Duration, Instant, timeout};
 use xmtp_proto::{api::ApiClientError, api_client::XmtpBackendClient, backend_v1 as wire};
@@ -21,6 +21,8 @@ type StalledContext = Arc<
 enum StalledCall {
     TargetQuery,
     WelcomePublish,
+    /// Nothing stalls; publish counts the group-message and welcome envelopes.
+    Recorded,
 }
 
 #[derive(Clone)]
@@ -29,6 +31,8 @@ struct StalledApi {
     call: StalledCall,
     entered: Arc<AtomicBool>,
     cancelled: Arc<AtomicBool>,
+    group_messages: Arc<AtomicUsize>,
+    welcomes: Arc<AtomicUsize>,
 }
 
 impl StalledApi {
@@ -65,6 +69,20 @@ impl XmtpBackendClient for StalledApi {
                 self.never_reply().await
             }
             StalledCall::WelcomePublish => self.inner.publish(request).await,
+            StalledCall::Recorded => {
+                for envelope in &request.envelopes {
+                    match envelope.payload {
+                        Some(Payload::GroupMessage(_)) => {
+                            self.group_messages.fetch_add(1, Ordering::SeqCst);
+                        }
+                        Some(Payload::WelcomeMessage(_)) => {
+                            self.welcomes.fetch_add(1, Ordering::SeqCst);
+                        }
+                        _ => {}
+                    }
+                }
+                self.inner.publish(request).await
+            }
         }
     }
 
@@ -85,7 +103,9 @@ impl XmtpBackendClient for StalledApi {
     ) -> Result<wire::QueryNewestResponse, Self::Error> {
         match self.call {
             StalledCall::TargetQuery => self.never_reply().await,
-            StalledCall::WelcomePublish => self.inner.query_newest(request).await,
+            StalledCall::WelcomePublish | StalledCall::Recorded => {
+                self.inner.query_newest(request).await
+            }
         }
     }
 
@@ -142,6 +162,8 @@ async fn client_with_stalled_api(
         call,
         entered: Arc::new(AtomicBool::new(false)),
         cancelled: Arc::new(AtomicBool::new(false)),
+        group_messages: Arc::new(AtomicUsize::new(0)),
+        welcomes: Arc::new(AtomicUsize::new(0)),
     };
     let mut settings = tester.context.incoming_runtime().policy().clone();
     settings.barrier_timeout = BUDGET;
@@ -220,26 +242,20 @@ async fn intent_sync_deadline_bounds_a_stalled_welcome_publish() {
     );
 
     // The app's action for PublishedButUnconfirmed is the conversation's
-    // sync. It finishes the pending intent from the saved attempt: the member
-    // receives its welcome, and the commit is not published again.
-    let published = alix
-        .context
-        .api()
-        .query_group_messages(group.group_id)
-        .await?
-        .len();
-    let (original, _) = MlsGroup::new_cached(alix.context.clone(), &group.group_id)?;
-    original.sync().await?;
-    let finished: StoredGroupIntent = original.context.db().fetch(&intent.id)?.unwrap();
+    // sync. It finishes the pending intent from the saved attempt: it sends
+    // the welcome once and does not publish the commit again.
+    let recorded = client_with_stalled_api(&alix, StalledCall::Recorded).await;
+    let (resumed, _) = MlsGroup::new_cached(recorded.context.clone(), &group.group_id)?;
+    resumed.sync().await?;
+    let finished: StoredGroupIntent = resumed.context.db().fetch(&intent.id)?.unwrap();
     assert_eq!(finished.state, IntentState::Processed);
+    let api = recorded.context.api().api_client.raw_for_test();
     assert_eq!(
-        alix.context
-            .api()
-            .query_group_messages(group.group_id)
-            .await?
-            .len(),
-        published
+        api.group_messages.load(Ordering::SeqCst),
+        0,
+        "the commit was republished"
     );
+    assert_eq!(api.welcomes.load(Ordering::SeqCst), 1);
     bo.sync_welcomes().await?;
     bo.group(&group.group_id)?;
 }
