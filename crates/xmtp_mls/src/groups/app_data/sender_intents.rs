@@ -276,17 +276,31 @@ pub(crate) fn apply_app_data_update_intent(
 
 /// The operations of the commit that carries out `writes` by `own`, or
 /// `None` when no commit is needed. Field types and policies come from the
-/// committed registry; current values and membership from the committed
-/// dictionary with pending proposals applied. A write the policies deny is
-/// refused here, as every receiver would refuse it, so it is never
-/// published.
+/// committed registry. A write the policies deny fails `Denied` here, so it
+/// is never published. Each write is checked in one of two ways:
+///
+/// - A write that changes the values pending proposals leave is checked as
+///   the operations that carry it out, against the committed dictionary
+///   with pending proposals applied and its membership, as every receiver
+///   checks them.
+/// - A write that pending proposals already carry out adds no operation, so
+///   no receiver checks it. It is judged by its net change to the committed
+///   values, against those values and the membership before the commit,
+///   even when another write adds an operation. This can refuse a write
+///   that receivers would accept as an operation after the proposals: when
+///   only admins may insert an entry but anyone may update it, and an
+///   admin's pending proposal inserts a non-admin's entry, that non-admin
+///   writing the proposed value is refused, because its net change is the
+///   insert, while writing another value is an update and is accepted.
+///   When the committed values cannot take the write (a map update of an
+///   entry only a pending proposal inserted), it is checked as its
+///   operations after the pending proposals instead.
 ///
 /// The operations are empty when pending proposals already carry out the
 /// writes but the committed values do not: the value is then pending, not
 /// committed, and the commit of the pending proposals commits it. A write
 /// the committed values already carry out needs no commit, whatever other
-/// entries pending proposals change. A write that pending proposals carry
-/// out is authorized here even when another write adds an operation.
+/// entries pending proposals change.
 // implements: META-071, META-073
 pub(crate) fn field_writes_commit(
     openmls_group: &OpenMlsGroup,
