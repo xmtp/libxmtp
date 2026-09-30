@@ -114,6 +114,11 @@ pub enum XmtpError {
     /// The change would make the group larger than its member limit.
     #[error("user limit exceeded: {0:?}")]
     UserLimitExceeded(ErrorDetails),
+    /// The operation was cancelled before it finished, for example a browser
+    /// `Client.create` whose worker call was aborted. Nothing was opened; start
+    /// the operation again. The browser runtime returns it.
+    #[error("cancelled: {0:?}")]
+    Cancelled(ErrorDetails),
     #[error("unknown failure: {0:?}")]
     Unknown(ErrorDetails),
 }

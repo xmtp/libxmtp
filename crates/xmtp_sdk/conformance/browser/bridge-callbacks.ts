@@ -17,6 +17,32 @@ import {
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/host.js";
 import { pair, host, withoutUnhandledRejections } from "./bridge-support";
 export function registerCallbacksTests(): void {
+  it("keeps an app callback error named AbortError as an app failure", async () => {
+    const failure = Object.assign(new Error("callback failed"), {
+      name: "AbortError",
+    });
+    const { session } = host(async (_key, _args, context) =>
+      context.callbacks.invoke(1, "sign", []),
+    );
+    session.callbacks.register(
+      "Signer",
+      {
+        sign: () => {
+          throw failure;
+        },
+      },
+      ["sign"],
+    );
+    await session.ready();
+    await expect(session.call("sign", [])).rejects.toMatchObject({
+      variant: "AbortError",
+      code: "Unknown",
+      category: 10,
+      retryable: false,
+      message: "callback failed",
+    });
+  });
+
   it("reentrant_signer_completes", async () => {
     const { session, engine } = host(async (key, _args, context) => {
       if (key === "inner") return "inner result";

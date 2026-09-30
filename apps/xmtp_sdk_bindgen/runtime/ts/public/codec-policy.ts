@@ -109,11 +109,48 @@ function sameType(left: ContentTypeId, right: ContentTypeId): boolean {
   );
 }
 
+// Brand checks that work across realms, such as a value from an iframe or a
+// Node vm context, where `instanceof` fails.
+// Checked at run time: a caller outside TypeScript can pass anything.
+function isObject(value: unknown): value is object {
+  return (
+    value !== null && (typeof value === "object" || typeof value === "function")
+  );
+}
+
+// Brand-checking getters, read once. Each one throws for a value that lacks
+// the internal slot, whatever its prototype or `Symbol.toStringTag` says.
+function getter(owner: object, key: PropertyKey): unknown {
+  return Reflect.get(Reflect.getOwnPropertyDescriptor(owner, key) ?? {}, "get");
+}
+const typedArrayTag = getter(
+  Object.getPrototypeOf(Uint8Array.prototype) as object,
+  Symbol.toStringTag,
+);
+const mapSize = getter(Map.prototype, "size");
+function isBytes(value: unknown): value is Uint8Array {
+  return (
+    ArrayBuffer.isView(value) &&
+    typeof typedArrayTag === "function" &&
+    Reflect.apply(typedArrayTag, value, []) === "Uint8Array"
+  );
+}
+function isMap(value: unknown): value is Map<unknown, unknown> {
+  if (value === null || typeof value !== "object") return false;
+  if (typeof mapSize !== "function") return false;
+  try {
+    Reflect.apply(mapSize, value, []);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function parseParameters(
   value: unknown,
 ): ReadonlyMap<string, string> | undefined | typeof INVALID {
   if (value === undefined) return undefined;
-  if (!(value instanceof Map)) return INVALID;
+  if (!isMap(value)) return INVALID;
   const copy = new Map<string, string>();
   for (const [key, item] of value) {
     if (typeof key !== "string" || typeof item !== "string") return INVALID;
@@ -136,7 +173,7 @@ function parseEncodedContent(value: unknown): EncodedContent | typeof INVALID {
     type === INVALID ||
     parameters === INVALID ||
     (fallback !== undefined && typeof fallback !== "string") ||
-    !(content instanceof Uint8Array)
+    !isBytes(content)
   )
     return INVALID;
   return { type, parameters, fallback, content } as EncodedContent;
@@ -231,11 +268,14 @@ export function optionsForSend<T>(
   return { ...options, shouldPush };
 }
 
-// A codec has an `encode` member. The check does not call a getter, and a
-// check that throws (a Proxy trap) is a codec failure.
-function isCodec<T>(
-  content: EncodedContent | ContentCodec<T>,
+// A codec is an object or function with an `encode` member. The check does not call a
+// getter, and a check that throws (a Proxy trap) is a codec failure. A value
+// that is not an object, such as `null` or a string passed by mistake, is not
+// a codec, so the binding gives it the input error it had before.
+export function isCodec<T>(
+  content: EncodedContent | ContentCodec<T> | string,
 ): content is ContentCodec<T> {
+  if (!isObject(content)) return false;
   try {
     return "encode" in content;
   } catch (error) {

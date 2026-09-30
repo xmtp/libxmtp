@@ -384,7 +384,9 @@ export async function abortCreateWhileSigning(
     releaseFailureTermination();
   }
   // The delivered failure ends the session, and the session ends the worker.
-  await create;
+  // The cancelled create fails with the Cancelled code.
+  const code = await create;
+  if (code !== "Cancelled") return `failed with ${String(code)}`;
   return current.isTerminated ? "ended" : "running";
 }
 

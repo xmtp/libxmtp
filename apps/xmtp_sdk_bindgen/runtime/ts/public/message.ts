@@ -36,7 +36,7 @@ import type { LiftedCustomBody, LiftedCustomContent } from "../custom-lift";
 import type { Timestamp } from "../ids";
 import { publicClient, type Client } from "./client";
 import type { ContentCodec } from "./codec";
-import { encodeForSend } from "./codec-policy";
+import { encodeForSend, isCodec as isCodecContent } from "./codec-policy";
 import { encodeText, type BoundMessage } from "./host";
 
 // A host reply can carry a decoded custom body (browser); only its tag is used.
@@ -206,7 +206,8 @@ export class Message {
     valueOrOptions?: T | SendOptions,
     options?: SendOptions,
   ): Promise<MessageId> {
-    const isCodec = typeof content !== "string" && "encode" in content;
+    // The shared check turns a throwing check into CodecEncodeFailed.
+    const isCodec = isCodecContent(content);
     const encoded =
       typeof content === "string"
         ? encodedText(content)
