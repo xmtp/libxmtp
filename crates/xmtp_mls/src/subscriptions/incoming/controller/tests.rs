@@ -3300,6 +3300,15 @@ async fn scope_waits_for_the_welcome(scope: impl Fn(&Topic, &Topic) -> IncomingS
 
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
+async fn an_explicit_groups_scope_skips_a_restored_group_until_its_welcome() {
+    scope_waits_for_the_welcome(|topic, _| {
+        IncomingScope::Groups(vec![GroupId::try_from(topic.identifier()).unwrap()])
+    })
+    .await;
+}
+
+// verifies: PROC-051
+#[xmtp_common::test(unwrap_try = true)]
 async fn a_topics_scope_skips_a_restored_group_until_its_welcome() {
     scope_waits_for_the_welcome(|topic, welcome| {
         IncomingScope::Topics(vec![topic.clone(), welcome.clone()])
@@ -3367,92 +3376,26 @@ async fn releasing_a_scope_forgets_its_restored_groups_until_selected_again() {
     assert!(!controller.interested().contains(&topic));
 }
 
-/// A scope opened before its group is stored as Restored retires the topic
-/// when the archive import that stores it notifies the context's controller.
-async fn scope_retires_a_group_restored_later(scope: impl Fn(&Topic) -> IncomingScope, dm: bool) {
-    tester!(alix, disable_workers);
-    tester!(bo, disable_workers);
-    let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
-    *alix.context.incoming_runtime().coordinator.lock() = Some(coordinator.clone());
-    let group_id = GroupId::generate();
-    let topic = Topic::new_group_message(group_id);
-    let _lease = coordinator.acquire(scope(&topic));
-    while let Ok(command) = controller.commands.try_recv() {
-        controller.command(command);
+/// Queue `count` Wake commands the way callers send them.
+fn queue_wakes(coordinator: &IncomingCoordinator, count: usize) {
+    for _ in 0..count {
+        coordinator.wake();
     }
-    controller.reconcile().unwrap();
-    assert!(controller.interested().contains(&topic));
-
-    // Restored rows come from archive `group` elements.
-    use xmtp_proto::xmtp::device_sync::group_backup::{ConversationTypeSave, GroupSave};
-    let save = if dm {
-        let pair = xmtp_mls_common::group_metadata::DmMembers {
-            member_one_inbox_id: alix.inbox_id().to_string(),
-            member_two_inbox_id: bo.inbox_id().to_string(),
-        };
-        GroupSave {
-            id: group_id.to_vec(),
-            conversation_type: ConversationTypeSave::Dm as i32,
-            dm_id: Some(pair.to_string()),
-            ..Default::default()
-        }
-    } else {
-        GroupSave {
-            id: group_id.to_vec(),
-            conversation_type: ConversationTypeSave::Group as i32,
-            ..Default::default()
-        }
-    };
-    assert!(crate::groups::MlsGroup::restore_from_archive(&alix.context, &save).unwrap());
-    assert_eq!(
-        membership(&alix.context, &group_id),
-        GroupMembershipState::Restored
-    );
-    while let Ok(command) = controller.commands.try_recv() {
-        controller.command(command);
-    }
-    controller.reconcile().unwrap();
-    assert!(!controller.interested().contains(&topic));
-    assert!(controller.is_retired(&topic));
 }
 
-// verifies: PROC-051
-#[xmtp_common::test(unwrap_try = true)]
-async fn an_open_topics_scope_retires_a_group_restored_later() {
-    scope_retires_a_group_restored_later(|topic| IncomingScope::Topics(vec![topic.clone()]), false)
-        .await;
+fn queued<C: XmtpSharedContext + 'static>(controller: &mut Controller<C>) -> usize {
+    std::iter::from_fn(|| controller.commands.try_recv().ok()).count()
 }
 
-// verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
-async fn an_open_barrier_scope_retires_a_dm_restored_later() {
-    scope_retires_a_group_restored_later(
-        |topic| IncomingScope::Barrier {
-            targets: [(topic.clone(), Cursor(0))].into(),
-            deadline: Instant::now() + Duration::from_secs(60),
-            receive_policy: IncomingReceivePolicy::ImmediateQuery,
-        },
-        true,
-    )
-    .await;
-}
-
-// verifies: PROC-051
-#[xmtp_common::test(unwrap_try = true)]
-async fn a_burst_of_restored_notices_is_applied_before_one_pass() {
+async fn a_burst_of_commands_is_applied_before_one_pass() {
     tester!(alix, disable_workers);
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
-    *alix.context.incoming_runtime().coordinator.lock() = Some(coordinator);
-    let groups: Vec<_> = (0..100).map(|_| GroupId::generate()).collect();
-    // An import sends one notice for each group it stores.
-    for group in &groups {
-        IncomingCoordinator::groups_restored(&alix.context, &[*group]);
-    }
+    queue_wakes(&coordinator, 100);
     // The run loop receives one command, applies the burst, then runs one pass.
     let first = controller.commands.try_recv()?;
     controller.command_burst(first);
-    assert!(controller.commands.try_recv().is_err());
-    assert_eq!(controller.restored.len(), groups.len());
+    assert_eq!(queued(&mut controller), 0);
 }
 
 /// Write a raw membership state. A value outside the enum makes every lookup of
@@ -3476,25 +3419,33 @@ const UNDECODABLE: i32 = 99;
 
 // verifies: PROC-051
 #[xmtp_common::test(unwrap_try = true)]
-async fn a_failed_scope_entry_check_keeps_the_topic_closed_until_it_succeeds() {
+async fn a_failed_selection_check_selects_nothing_until_it_succeeds() {
     tester!(alix, disable_workers);
     let failing = GroupId::generate();
     insert_restored_placeholder(&alix.context, &failing, ConversationType::Group);
     set_membership_value(&alix.context, &failing, UNDECODABLE);
     assert!(alix.context.db().find_group(&failing).is_err());
+    let kept = alix.create_group(None, None)?;
+    let kept = Topic::new_group_message(kept.group_id);
     let topic = Topic::new_group_message(failing);
-    let other = Topic::new_group_message(GroupId::generate());
     let mut controller = controller(alix.context.clone());
     controller.command(Command::Acquire {
         id: 1,
-        scope: IncomingScope::Topics(vec![topic.clone(), other.clone()]),
+        scope: IncomingScope::Topics(vec![kept.clone()]),
     });
+    pass(&mut controller);
+    assert!(controller.transport.requested.contains(&kept));
 
-    // The pass continues for other groups and retries the failed one.
+    // The failed check fails the pass. It opens no new interest and runs again.
+    controller.command(Command::Acquire {
+        id: 2,
+        scope: IncomingScope::Topics(vec![topic.clone()]),
+    });
     for _ in 0..2 {
-        controller.reconcile()?;
-        assert!(!controller.interested().contains(&topic));
-        assert!(controller.interested().contains(&other));
+        pass(&mut controller);
+        assert!(controller.storage_error.is_some());
+        assert!(!controller.transport.requested.contains(&topic));
+        assert!(controller.transport.requested.contains(&kept));
     }
 
     set_membership_value(
@@ -3502,64 +3453,22 @@ async fn a_failed_scope_entry_check_keeps_the_topic_closed_until_it_succeeds() {
         &failing,
         GroupMembershipState::Restored as i32,
     );
-    controller.reconcile()?;
+    pass(&mut controller);
+    assert!(controller.storage_error.is_none());
     assert!(controller.is_retired(&topic));
-    assert!(!controller.interested().contains(&topic));
-    assert!(controller.unverified.is_empty() && controller.restored.is_empty());
-}
-
-// verifies: PROC-051
-#[xmtp_common::test(unwrap_try = true)]
-async fn a_failed_restored_notice_check_keeps_the_topic_closed_until_it_succeeds() {
-    tester!(alix, disable_workers);
-    let group = alix.create_group(None, None)?;
-    let topic = Topic::new_group_message(group.group_id);
-    let other = Topic::new_group_message(GroupId::generate());
-    let mut controller = controller(alix.context.clone());
-    controller.command(Command::Acquire {
-        id: 1,
-        scope: IncomingScope::Topics(vec![topic.clone(), other.clone()]),
-    });
-    controller.reconcile()?;
-    assert!(controller.interested().contains(&topic));
-
-    set_membership_value(&alix.context, &group.group_id, UNDECODABLE);
-    controller.command(Command::Restored(vec![group.group_id]));
-    controller.reconcile()?;
-    assert!(!controller.interested().contains(&topic));
-    assert!(controller.interested().contains(&other));
-
-    // A later check that finds the group not Restored reopens the topic.
-    set_membership_value(
-        &alix.context,
-        &group.group_id,
-        GroupMembershipState::Allowed as i32,
-    );
-    controller.reconcile()?;
-    assert!(!controller.is_retired(&topic));
-    assert!(controller.interested().contains(&topic));
-    assert!(controller.unverified.is_empty() && controller.restored.is_empty());
+    assert!(!controller.transport.requested.contains(&topic));
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_command_burst_applies_at_most_the_cap_per_step() {
     tester!(alix, disable_workers);
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
-    *alix.context.incoming_runtime().coordinator.lock() = Some(coordinator);
-    let queued = MAX_COMMANDS_PER_PASS + 44;
-    for _ in 0..queued {
-        IncomingCoordinator::groups_restored(&alix.context, &[GroupId::generate()]);
-    }
+    queue_wakes(&coordinator, MAX_COMMANDS_PER_PASS + 44);
 
     let first = controller.commands.try_recv()?;
     controller.command_burst(first);
-    assert_eq!(controller.restored.len(), MAX_COMMANDS_PER_PASS);
-
-    // The remainder applies on the next step.
-    let first = controller.commands.try_recv()?;
-    controller.command_burst(first);
-    assert_eq!(controller.restored.len(), queued);
-    assert!(controller.commands.try_recv().is_err());
+    // The remainder waits for the next step.
+    assert_eq!(queued(&mut controller), 44);
 }
 
 fn run_raw_sql<C: XmtpSharedContext>(context: &C, sql: &str) {
@@ -3574,37 +3483,6 @@ fn run_raw_sql<C: XmtpSharedContext>(context: &C, sql: &str) {
 fn pass<C: XmtpSharedContext + 'static>(controller: &mut Controller<C>) {
     controller.storage_error = controller.reconcile().err().map(Arc::new);
     controller.start_open();
-}
-
-// verifies: PROC-051
-#[xmtp_common::test(unwrap_try = true)]
-async fn a_failed_discovery_still_retires_a_queued_restored_notice() {
-    tester!(alix, disable_workers);
-    let group = alix.create_group(None, None)?;
-    let broken = alix.create_group(None, None)?;
-    let topic = Topic::new_group_message(group.group_id);
-    let mut controller = controller(alix.context.clone());
-    controller.command(Command::Acquire {
-        id: 1,
-        scope: IncomingScope::AllGroups,
-    });
-    pass(&mut controller);
-    assert!(controller.storage_error.is_none());
-    assert!(controller.transport.requested.contains(&topic));
-
-    // Discovery fails on another group while a Restored notice is queued.
-    set_membership_value(&alix.context, &broken.group_id, UNDECODABLE);
-    set_membership_value(
-        &alix.context,
-        &group.group_id,
-        GroupMembershipState::Restored as i32,
-    );
-    controller.command(Command::Restored(vec![group.group_id]));
-    pass(&mut controller);
-    assert!(controller.storage_error.is_some());
-    assert!(controller.is_retired(&topic));
-    assert!(!controller.interested().contains(&topic));
-    assert!(!controller.transport.requested.contains(&topic));
 }
 
 // verifies: PROC-051

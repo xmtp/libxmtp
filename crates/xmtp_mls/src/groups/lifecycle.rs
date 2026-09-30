@@ -404,39 +404,6 @@ where
         oneshot_message: Option<OneshotMessage>,
         emit_created_event: bool,
     ) -> Result<StoredGroup, GroupError> {
-        let stored_group = Self::insert_committed(
-            context,
-            existing_group_id,
-            membership_state,
-            conversation_type,
-            permissions_policy_set,
-            opts,
-            oneshot_message,
-            emit_created_event,
-        )?;
-        if stored_group.membership_state == GroupMembershipState::Restored {
-            crate::subscriptions::incoming::IncomingCoordinator::groups_restored(
-                context,
-                &[stored_group.id],
-            );
-        }
-        Ok(stored_group)
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "creation event mode keeps the write atomic"
-    )]
-    fn insert_committed(
-        context: &Context,
-        existing_group_id: Option<&[u8]>,
-        membership_state: GroupMembershipState,
-        conversation_type: ConversationType,
-        permissions_policy_set: PolicySet,
-        opts: GroupMetadataOptions,
-        oneshot_message: Option<OneshotMessage>,
-        emit_created_event: bool,
-    ) -> Result<StoredGroup, GroupError> {
         assert!(conversation_type != ConversationType::Dm);
 
         let creator_inbox_id = context.inbox_id();
@@ -754,12 +721,6 @@ where
             .into_continued()
             .0
         };
-        if stored_group.membership_state == GroupMembershipState::Restored {
-            crate::subscriptions::incoming::IncomingCoordinator::groups_restored(
-                context,
-                &[stored_group.id],
-            );
-        }
         let new_group = Self::new_from_arc(
             context.clone(),
             stored_group.id,
