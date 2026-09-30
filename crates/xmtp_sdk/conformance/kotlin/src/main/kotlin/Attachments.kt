@@ -398,5 +398,5 @@ suspend fun checkAttachmentEnd(backend: BackendOptions) =
         deleted.end()
         reopened.end()
         root.toFile().deleteRecursively()
-        println("Kotlin ATCH end: end waits for an upload; calls fail closed")
+        println("Kotlin attachments: end waits for an upload; calls fail closed")
     }

@@ -12,7 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, join, relative, sep } from "node:path";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 import { serve } from "./node-support.mts";
 
 const ATTACHMENT_KINDS: sdk.EventKind[] = [
@@ -649,5 +649,5 @@ export async function attachmentEnd(
   await deleted.return();
   await reopened.end();
   await rm(root, { recursive: true, force: true });
-  console.log("Node ATCH end: end waits for an upload; calls fail closed");
+  console.log("Node attachments: end waits for an upload; calls fail closed");
 }
