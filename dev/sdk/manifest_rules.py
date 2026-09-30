@@ -1416,10 +1416,18 @@ def binding_reexport_outcome(sdk: str, name: str) -> Decision | None:
     )
     if name in BINDING_REEXPORT_RENAMES:
         final, note = BINDING_REEXPORT_RENAMES[name]
-        return decision("generated", final, ref, f"Renamed in the facade package root. {note}".strip())
+        return decision(
+            "generated",
+            final,
+            ref,
+            f"Renamed in the facade package root. {note}".strip(),
+        )
     if name in BINDING_REEXPORT_REMOVALS:
         return decision(
-            "approved removal", "—", ref, f"Removed. Replacement: {BINDING_REEXPORT_REMOVALS[name]}"
+            "approved removal",
+            "—",
+            ref,
+            f"Removed. Replacement: {BINDING_REEXPORT_REMOVALS[name]}",
         )
     return None
 
