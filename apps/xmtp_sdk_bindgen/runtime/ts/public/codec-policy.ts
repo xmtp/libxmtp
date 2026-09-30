@@ -53,7 +53,12 @@ function runStep<R>(
 }
 
 function isUint(value: unknown): value is number {
-  return typeof value === "number" && Number.isInteger(value) && value >= 0;
+  return (
+    typeof value === "number" &&
+    Number.isInteger(value) &&
+    value >= 0 &&
+    value <= 0xffff_ffff
+  );
 }
 
 function isContentTypeId(value: unknown): value is ContentTypeId {
@@ -64,6 +69,15 @@ function isContentTypeId(value: unknown): value is ContentTypeId {
     typeof Reflect.get(value, "typeId") === "string" &&
     isUint(Reflect.get(value, "versionMajor")) &&
     isUint(Reflect.get(value, "versionMinor"))
+  );
+}
+
+function sameType(left: ContentTypeId, right: ContentTypeId): boolean {
+  return (
+    left.authorityId === right.authorityId &&
+    left.typeId === right.typeId &&
+    left.versionMajor === right.versionMajor &&
+    left.versionMinor === right.versionMinor
   );
 }
 
@@ -108,9 +122,21 @@ export function encodeForSend<T>(
     () => codec.encode(value),
     isEncodedContent,
   );
+  // CTYPE-007: the envelope type is the codec's type. A codec cannot send
+  // another type, so its push hook cannot steer catalogue dispatch.
+  if (!sameType(encoded.type, codec.type))
+    throw codecFailed(
+      "encode",
+      "the envelope type differs from the codec type",
+    );
   const hook = codec.fallback;
   if (encoded.fallback !== undefined || hook === undefined) return encoded;
-  const fallback = runStep("fallback", () => hook(value), isFallback);
+  // Call each hook on its codec, so a class codec can use `this`.
+  const fallback = runStep(
+    "fallback",
+    () => hook.call(codec, value),
+    isFallback,
+  );
   return fallback === undefined ? encoded : { ...encoded, fallback };
 }
 
@@ -129,6 +155,10 @@ export function optionsForSend<T>(
   const hook = codec.shouldPush;
   if (options?.shouldPush !== undefined || hook === undefined) return options;
   if (isCatalogue(codec.type)) return options;
-  const shouldPush = runStep("shouldPush", () => hook(value), isBoolean);
+  const shouldPush = runStep(
+    "shouldPush",
+    () => hook.call(codec, value),
+    isBoolean,
+  );
   return { ...options, shouldPush };
 }

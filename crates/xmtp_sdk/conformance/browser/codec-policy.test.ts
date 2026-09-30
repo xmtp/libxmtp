@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+
 import * as P from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
 import type { ContentCodec } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/codec";
 import {
@@ -81,6 +82,7 @@ describe("typed codec send policy", () => {
       envelope({ type: null }),
       envelope({ type: { authorityId: "example.org", typeId: "note" } }),
       envelope({ type: { ...noteType, versionMajor: -1 } }),
+      envelope({ type: { ...noteType, versionMajor: 2 ** 32 } }),
       envelope({ content: [1] }),
       envelope({ parameters: new Map([["k", 1]]) }),
       envelope({ parameters: { k: "v" } }),
@@ -89,6 +91,66 @@ describe("typed codec send policy", () => {
       codecEncodeFailed(() =>
         encodeForSend(codec({ encode: () => bad as P.EncodedContent }), "x"),
       );
+  });
+
+  it("rejects a content type version outside u32", () => {
+    // The codec and its envelope agree, so only the u32 bound rejects it.
+    const wide = { ...noteType, versionMajor: 2 ** 32 };
+    codecEncodeFailed(() =>
+      encodeForSend(
+        codec({ type: wide, encode: () => envelope({ type: wide }) }),
+        "x",
+      ),
+    );
+  });
+
+  it("rejects an envelope of another type than the codec", () => {
+    // A custom codec cannot send a catalogue type, so its push hook cannot
+    // steer catalogue dispatch.
+    const readReceipt = {
+      authorityId: "xmtp.org",
+      typeId: "readReceipt",
+      versionMajor: 1,
+      versionMinor: 0,
+    };
+    codecEncodeFailed(() =>
+      encodeForSend(
+        codec({ encode: () => envelope({ type: readReceipt }) }),
+        "x",
+      ),
+    );
+    codecEncodeFailed(() =>
+      encodeForSend(
+        codec({ encode: () => envelope({ type: { ...noteType, versionMinor: 1 } }) }),
+        "x",
+      ),
+    );
+  });
+
+  it("calls each step on its codec, so a class codec can use this", () => {
+    class NoteCodec implements ContentCodec<string> {
+      readonly type = noteType;
+      readonly prefix = "note";
+      encode(value: string): P.EncodedContent {
+        return envelope({
+          content: new TextEncoder().encode(`${this.prefix}:${value}`),
+        });
+      }
+      decode(): string {
+        return this.prefix;
+      }
+      fallback(value: string): string {
+        return `${this.prefix} ${value}`;
+      }
+      shouldPush(value: string): boolean {
+        return this.prefix === "note" && value === "loud";
+      }
+    }
+    const note = new NoteCodec();
+    expect(encodeForSend(note, "x").fallback).toBe("note x");
+    expect(optionsForSend(note, "loud", undefined, custom)).toEqual({
+      shouldPush: true,
+    });
   });
 
   it("chooses push: explicit option, then catalogue, then the hook", () => {

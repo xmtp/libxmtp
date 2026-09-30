@@ -83,6 +83,23 @@ export async function replyPolicy(
   );
   assert.equal((await nestedEnvelope(group, kept)).fallback, "own fallback");
 
+  // A class codec's hooks run on the codec, so they can use `this`.
+  class LabelledNotes implements sdk.ContentCodec<Note> {
+    readonly type = noteType;
+    readonly label = "labelled";
+    encode(value: Note): sdk.EncodedContent {
+      return noteCodec().encode(value);
+    }
+    decode(encoded: sdk.EncodedContent): Note {
+      return noteCodec().decode(encoded);
+    }
+    fallback(value: Note): string {
+      return `${this.label} ${value.text}`;
+    }
+  }
+  const labelled = await parent.reply(new LabelledNotes(), { text: "note" });
+  assert.equal((await nestedEnvelope(group, labelled)).fallback, "labelled note");
+
   // No hook: no fallback.
   const plain = await parent.reply(noteCodec(), { text: "plain" });
   assert.equal((await nestedEnvelope(group, plain)).fallback, undefined);
@@ -123,6 +140,15 @@ export async function replyPolicy(
             fallback: 7,
             content: new TextEncoder().encode(value.text),
           }) as unknown as sdk.EncodedContent,
+      }),
+    ],
+    [
+      "envelope of another type",
+      noteCodec({
+        encode: (value) => ({
+          type: { ...noteType, typeId: "other" },
+          content: new TextEncoder().encode(value.text),
+        }),
       }),
     ],
     [
