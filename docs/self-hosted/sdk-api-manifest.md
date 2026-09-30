@@ -3593,6 +3593,11 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/lib.rs` | `test_ffi_error_from_expired` | binding only: mobile FFI error and version wrappers; the façade has a separate error type |
 | `bindings/mobile/src/lib.rs` | `test_ffi_error_from_various_error_types` | binding only: mobile FFI error and version wrappers; the façade has a separate error type |
 | `bindings/mobile/src/lib.rs` | `auth_codes_reach_mobile_errors` | façade: `crates/xmtp_sdk/src/tests/error_records.rs::notification_and_auth_errors_keep_their_kinds` |
+| `bindings/mobile/src/lib.rs` | `direct_configuration_failures_keep_their_mobile_kind_and_fields` | binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails |
+| `bindings/mobile/src/lib.rs` | `group_configuration_failures_keep_their_mobile_kind_and_fields` | binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails |
+| `bindings/mobile/src/lib.rs` | `catch_up_configuration_failures_keep_their_mobile_kind_and_fields` | binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails |
+| `bindings/mobile/src/lib.rs` | `subscription_configuration_failures_keep_their_mobile_kind_and_fields` | binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails |
+| `bindings/mobile/src/lib.rs` | `conversation_stream_configuration_failures_keep_their_mobile_kind_and_fields` | binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails |
 | `bindings/mobile/src/logger/otlp_tests.rs` | `mobile_otlp_exports_identity_and_frees_slot` | binding only: mobile logger, file appender, or OTLP slot |
 | `bindings/mobile/src/logger.rs` | `ffi_config_maps_and_bad_dsn_errors` | binding only: mobile logger, file appender, or OTLP slot |
 | `bindings/mobile/src/logger.rs` | `test_file_appender` | binding only: mobile logger, file appender, or OTLP slot |

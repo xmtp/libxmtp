@@ -23,6 +23,11 @@ lib.rs	test_generic_error_from_error	binding only: mobile FFI error and version 
 lib.rs	test_ffi_error_from_expired	binding only: mobile FFI error and version wrappers; the façade has a separate error type
 lib.rs	test_ffi_error_from_various_error_types	binding only: mobile FFI error and version wrappers; the façade has a separate error type
 lib.rs	auth_codes_reach_mobile_errors	façade: `crates/xmtp_sdk/src/tests/error_records.rs::notification_and_auth_errors_keep_their_kinds`
+lib.rs	direct_configuration_failures_keep_their_mobile_kind_and_fields	binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails
+lib.rs	group_configuration_failures_keep_their_mobile_kind_and_fields	binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails
+lib.rs	catch_up_configuration_failures_keep_their_mobile_kind_and_fields	binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails
+lib.rs	subscription_configuration_failures_keep_their_mobile_kind_and_fields	binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails
+lib.rs	conversation_stream_configuration_failures_keep_their_mobile_kind_and_fields	binding only: mobile ConfigurationError wrappers keep the mobile kind and fields; the façade uses ErrorDetails
 logger/otlp_tests.rs	mobile_otlp_exports_identity_and_frees_slot	binding only: mobile logger, file appender, or OTLP slot
 logger.rs	ffi_config_maps_and_bad_dsn_errors	binding only: mobile logger, file appender, or OTLP slot
 logger.rs	test_file_appender	binding only: mobile logger, file appender, or OTLP slot
