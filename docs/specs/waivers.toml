@@ -282,6 +282,13 @@ issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The current reader does not expose a failed custom codec as a custom item with its error while keeping the stream open."
 
 [[waiver]]
+id = "SEND-019"
+kind = "gap"
+owner = "protocol"
+issue = "https://github.com/xmtp/libxmtp/issues/new"
+reason = "MlsGroup::publish_messages (SDK publishMessages) waits only for the last intent it selected and does not report an exact outcome for each earlier intent. The SDK also maps an ordered rejection to Unknown without the rejected intent's stable reason code; that mapping moves to a later SEND-019 change."
+
+[[waiver]]
 id = "SEND-016"
 kind = "gap"
 owner = "protocol"
@@ -500,13 +507,6 @@ kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
 reason = "The Node and browser SDKs accept no pre-authentication handler; the façade adds handlers.preAuthenticate."
-
-[[waiver]]
-id = "GMOD-035"
-kind = "gap"
-owner = "protocol"
-issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "The send path does not check the content type, so an app can publish an application message under the group_updated or group_membership_change type. A mobile binding test sends both types and expects success."
 
 [[waiver]]
 id = "EVENT-001"

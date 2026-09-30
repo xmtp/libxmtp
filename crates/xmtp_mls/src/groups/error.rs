@@ -42,6 +42,9 @@ impl std::fmt::Display for FailedInstallationIds {
 
 #[derive(Debug, Error, ErrorCode)]
 pub enum GroupError {
+    /// Application messages cannot use a reserved transcript content type. Not retryable.
+    #[error("reserved transcript content type")]
+    ReservedTranscriptContentType,
     #[error(transparent)]
     #[error_code(inherit)]
     OutgoingPreparation(#[from] super::mls_sync::publish::OutgoingPreparationError),
@@ -661,6 +664,7 @@ impl RetryableError for GroupError {
             | Self::AppDataSuperseded { .. }
             | Self::GroupPausedUntilUpdate(_)
             | Self::GroupInactive
+            | Self::ReservedTranscriptContentType
             | Self::FailedToVerifyInstallations(_)
             | Self::NoWelcomesToSend
             | Self::WelcomeDataNotFound(_)

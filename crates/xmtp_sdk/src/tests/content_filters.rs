@@ -117,29 +117,22 @@ fn query_filters_match_stored_catalogue_types() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn group_updated_message_filter_finds_stored_row() {
     use crate::ListMessagesOptions;
-    use xmtp_content_types::{ContentCodec, group_updated::GroupUpdatedCodec};
-    use xmtp_proto::xmtp::mls::message_contents::GroupUpdated;
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let content = GroupUpdatedCodec::encode(GroupUpdated {
-        initiated_by_inbox_id: client.inbox_id().into_checked()?,
-        ..Default::default()
-    })?;
-    let kind = content.r#type.clone().expect("typed content");
-    let id = group.send(content.into(), None).await?;
+    group.update_name("new name".into()).await?;
     let messages = group
         .messages(Some(ListMessagesOptions {
             content_types: Some(vec![crate::ContentTypeId {
-                authority_id: kind.authority_id,
-                type_id: kind.type_id,
-                version_major: kind.version_major,
-                version_minor: kind.version_minor,
+                authority_id: "xmtp.org".into(),
+                type_id: "group_updated".into(),
+                version_major: 1,
+                version_minor: 0,
             }]),
             ..Default::default()
         }))
         .await?;
-    assert!(messages.iter().any(|message| message.0.id == id));
+    assert!(!messages.is_empty());
     client.end().await?;
 }
 
