@@ -3376,26 +3376,24 @@ async fn releasing_a_scope_forgets_its_restored_groups_until_selected_again() {
     assert!(!controller.interested().contains(&topic));
 }
 
-/// Queue `count` Wake commands the way callers send them.
-fn queue_wakes(coordinator: &IncomingCoordinator, count: usize) {
-    for _ in 0..count {
-        coordinator.wake();
-    }
-}
-
-fn queued<C: XmtpSharedContext + 'static>(controller: &mut Controller<C>) -> usize {
-    std::iter::from_fn(|| controller.commands.try_recv().ok()).count()
+/// Queue `count` Acquire commands the way callers send them. Hold the leases:
+/// a dropped lease queues its Release.
+fn acquire_scopes(coordinator: &Arc<IncomingCoordinator>, count: usize) -> Vec<IncomingLease> {
+    (0..count)
+        .map(|_| coordinator.acquire(IncomingScope::Topics(Vec::new())))
+        .collect()
 }
 
 #[xmtp_common::test(unwrap_try = true)]
 async fn a_burst_of_commands_is_applied_before_one_pass() {
     tester!(alix, disable_workers);
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
-    queue_wakes(&coordinator, 100);
+    let _leases = acquire_scopes(&coordinator, 100);
     // The run loop receives one command, applies the burst, then runs one pass.
     let first = controller.commands.try_recv()?;
     controller.command_burst(first);
-    assert_eq!(queued(&mut controller), 0);
+    assert_eq!(controller.scopes.len(), 100);
+    assert!(controller.commands.try_recv().is_err());
 }
 
 /// Write a raw membership state. A value outside the enum makes every lookup of
@@ -3463,12 +3461,17 @@ async fn a_failed_selection_check_selects_nothing_until_it_succeeds() {
 async fn a_command_burst_applies_at_most_the_cap_per_step() {
     tester!(alix, disable_workers);
     let (coordinator, mut controller) = coordinated_controller(alix.context.clone());
-    queue_wakes(&coordinator, MAX_COMMANDS_PER_PASS + 44);
+    let _leases = acquire_scopes(&coordinator, MAX_COMMANDS_PER_PASS + 44);
 
     let first = controller.commands.try_recv()?;
     controller.command_burst(first);
-    // The remainder waits for the next step.
-    assert_eq!(queued(&mut controller), 44);
+    assert_eq!(controller.scopes.len(), MAX_COMMANDS_PER_PASS);
+
+    // The remainder applies on the next step.
+    let first = controller.commands.try_recv()?;
+    controller.command_burst(first);
+    assert_eq!(controller.scopes.len(), MAX_COMMANDS_PER_PASS + 44);
+    assert!(controller.commands.try_recv().is_err());
 }
 
 fn run_raw_sql<C: XmtpSharedContext>(context: &C, sql: &str) {
