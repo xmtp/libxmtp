@@ -164,11 +164,6 @@ pub(super) struct Controller<C: XmtpSharedContext> {
     /// would never reach their retention deadline.
     welcome_blocked_rescan_at: Option<Instant>,
     extra_topics: HashSet<Topic>,
-    /// Groups stored as Restored since the last pass; see `Command::Restored`.
-    restored: HashSet<GroupId>,
-    /// Selected topics whose Restored check failed. They stay out of network
-    /// interest until a later check of their group in `restored` succeeds.
-    unverified: HashSet<Topic>,
     topics: HashMap<Topic, TopicSchedule>,
     storage_error: Option<Arc<IncomingError>>,
     callbacks: HashMap<
@@ -207,8 +202,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             welcome_blocked_scan: Some(Cursor(0)),
             welcome_blocked_rescan_at: None,
             extra_topics: HashSet::new(),
-            restored: HashSet::new(),
-            unverified: HashSet::new(),
             topics: HashMap::new(),
             storage_error: None,
             callbacks: HashMap::new(),
@@ -345,12 +338,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                 self.clear_read_times();
                 self.transport.wake();
             }
-            Command::Restored(groups) => self.restored.extend(groups),
         }
     }
 
-    /// Apply queued commands before the next pass, so a burst, such as one
-    /// Restored notice per imported group, costs one pass. At most
+    /// Apply queued commands before the next pass, so a burst of scope changes
+    /// costs one pass. At most
     /// `MAX_COMMANDS_PER_PASS` apply in one step; the rest wait for the next one,
     /// so a steady stream of commands cannot starve transport and processing.
     fn command_burst(&mut self, first: Command) {
@@ -363,45 +355,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
         }
     }
 
-    /// Check groups stored as Restored since the last pass. This runs before any
-    /// reconcile step that can fail, so a later error cannot skip it.
-    fn check_restored_notices(&mut self) {
-        // A group stored as Restored after a scope selected its topic. The check is
-        // bounded by the changed groups, not by every selected topic.
-        // implements: PROC-051
-        // A failed check keeps the topic out of network interest and the group
-        // pending, and does not stop the pass for other groups.
-        let changed: Vec<_> = self.restored.iter().copied().collect();
-        for group_id in changed {
-            let topic = Topic::new_group_message(group_id);
-            let selected = self
-                .scopes
-                .values()
-                .any(|scope| scope.topics.contains(&topic));
-            if selected {
-                match is_restored(&self.context, &group_id) {
-                    Ok(true) => {
-                        self.topics
-                            .entry(topic.clone())
-                            .or_default()
-                            .processing
-                            .retired = true;
-                    }
-                    Ok(false) => {}
-                    Err(error) => {
-                        tracing::warn!(%group_id, %error, "Restored check failed");
-                        self.unverified.insert(topic);
-                        continue;
-                    }
-                }
-            }
-            self.unverified.remove(&topic);
-            self.restored.remove(&group_id);
-        }
-    }
-
     fn reconcile(&mut self) -> Result<(), IncomingError> {
-        self.check_restored_notices();
         let retired: Vec<_> = self
             .topics
             .iter()
@@ -533,7 +487,11 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     )))
                     .collect(),
             };
-            // Explicit groups check activity above, and discovery leaves out Restored groups.
+            // A group is Restored only when an import creates it, so a topic is
+            // checked when a scope selects it. Explicit groups check activity
+            // above, and discovery leaves out Restored groups. A lookup error
+            // fails the pass before this scope's new topics are selected; the
+            // next pass checks them again.
             // implements: PROC-051
             if !matches!(scope.scope, ScopeKind::Groups(_) | ScopeKind::AllGroups) {
                 for topic in topics.difference(&scope.topics) {
@@ -543,21 +501,12 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
                     let Ok(group_id) = GroupId::try_from(topic.identifier()) else {
                         continue;
                     };
-                    match is_restored(&self.context, &group_id) {
-                        Ok(true) => {
-                            self.topics
-                                .entry(topic.clone())
-                                .or_default()
-                                .processing
-                                .retired = true;
-                        }
-                        Ok(false) => {}
-                        // Fail closed; the check below retries it on each pass.
-                        Err(error) => {
-                            tracing::warn!(%group_id, %error, "Restored check failed");
-                            self.unverified.insert(topic.clone());
-                            self.restored.insert(group_id);
-                        }
+                    if is_restored(&self.context, &group_id)? {
+                        self.topics
+                            .entry(topic.clone())
+                            .or_default()
+                            .processing
+                            .retired = true;
                     }
                 }
             }
@@ -659,11 +608,7 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             .values()
             .flat_map(|scope| scope.topics.iter())
             .chain(self.extra_topics.iter())
-            .filter(|topic| {
-                !self.is_retired(topic)
-                    && !self.unverified.contains(*topic)
-                    && topic_key(topic).is_ok()
-            })
+            .filter(|topic| !self.is_retired(topic) && topic_key(topic).is_ok())
             .cloned()
             .collect()
     }
@@ -1105,7 +1050,6 @@ impl<C: XmtpSharedContext + 'static> Controller<C> {
             self.read_queue.push_back(topic.clone());
             if self.receipt(&topic).paused
                 || self.is_retired(&topic)
-                || self.unverified.contains(&topic)
                 || (self.storage_error.is_some() && !self.transport.requested.contains(&topic))
                 || (self.receipt(&topic).blocked() && self.receipt(&topic).rejected_at.is_none())
             {
