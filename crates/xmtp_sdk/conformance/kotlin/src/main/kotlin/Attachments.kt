@@ -22,7 +22,8 @@ private fun fileOptions(
 
 private fun bytesSource(text: String) = AttachmentSource.Bytes(text.toByteArray(), "note.txt", "text/plain")
 
-private fun attachmentsDir(databasePath: String?): Path = Path.of(checkNotNull(databasePath)).parent.resolve("attachments")
+private fun attachmentsDir(databasePath: String?): Path =
+    Path.of(checkNotNull(databasePath)).parent.resolve("attachments")
 
 private fun readText(path: String) = Files.readString(Path.of(path))
 
@@ -140,7 +141,10 @@ suspend fun checkAttachmentFlow(backend: BackendOptions) =
         check(readText(pathDownload.path) == "path bytes")
         check(
             receiving.listLocal().map { it.path }.sorted() ==
-                listOf(downloaded.path, pathDownload.path).map { directory.relativize(Path.of(it)).toString() }.sorted(),
+                listOf(
+                    downloaded.path,
+                    pathDownload.path,
+                ).map { directory.relativize(Path.of(it)).toString() }.sorted(),
         )
         receiving.deleteLocal(received)
         check(receiving.listLocal().size == 1)
@@ -195,7 +199,10 @@ suspend fun checkAttachmentFailures(backend: BackendOptions) =
         ) { "upload events $failed" }
         check(
             failed[1] ==
-                failed[0].copy(kind = EventKind.ATTACHMENT_UPLOAD_FAILED, cause = AttachmentFailureCause.STAGED_UNUSABLE),
+                failed[0].copy(
+                    kind = EventKind.ATTACHMENT_UPLOAD_FAILED,
+                    cause = AttachmentFailureCause.STAGED_UNUSABLE,
+                ),
         )
         check(failed[1].contentDigest == remote.contentDigest)
         // A source the SDK cannot read fails create.
@@ -391,7 +398,9 @@ suspend fun checkAttachmentEnd(backend: BackendOptions) =
         // The reader has both deletions, so a live listener had its turn.
         for (expected in listOf(remote, small.remoteAttachment())) {
             val next = deleted.next()
-            check(next is ClientEvent.AttachmentDeleted && next.attachment.url == expected.url) { "not a deletion: $next" }
+            check(
+                next is ClientEvent.AttachmentDeleted && next.attachment.url == expected.url,
+            ) { "not a deletion: $next" }
         }
         delay(200)
         check(deletions.get() == 1) { "a stopped listener saw a deletion" }
