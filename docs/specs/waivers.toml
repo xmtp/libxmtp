@@ -667,21 +667,21 @@ id = "STORE-019"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "STORE-020"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "STORE-021"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "EVENT-015"
@@ -702,7 +702,7 @@ id = "ATCH-009"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-072"
@@ -716,63 +716,63 @@ id = "ATCH-038"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-067"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-040"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-069"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-044"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-062"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-060"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-061"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "ATCH-079"
 kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
-reason = "Installed-package proof pending. The generated SDK meets this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
+reason = "Installed-package proof pending. The generated SDK is expected to meet this row on every host; Swift runs only in the macOS CI job, and the Android emulator and the installed-package check are not yet run."
 
 [[waiver]]
 id = "CONF-061"

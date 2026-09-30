@@ -99,7 +99,6 @@ fn is_storage_location(result: &Result<Client, XmtpError>) -> bool {
             && !details.retryable)
 }
 
-// verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn default_storage_requires_a_host_location() {
     let signer = crate::generate_local_signer().await;
@@ -115,6 +114,7 @@ async fn default_storage_requires_a_host_location() {
     ));
 }
 
+// verifies: STORE-009
 #[xmtp_common::test(unwrap_try = true)]
 async fn labelled_directory_opens_the_deployment_layout_offline_from_its_record() {
     let relay = CountingRelay::start().await?;
