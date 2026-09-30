@@ -1429,6 +1429,7 @@ where
         WelcomeService::new(self.context.clone())
             .sync_welcomes()
             .await
+            .map_err(|error| self.context.server_configuration().blocked_or(error))
     }
 
     /// Sync all groups for the current installation and return the number of groups that were synced.
@@ -1442,6 +1443,7 @@ where
         WelcomeService::new(self.context.clone())
             .sync_all_groups(groups)
             .await
+            .map_err(|error| self.context.server_configuration().blocked_or(error))
     }
 
     /// Sync all unread welcome messages and then sync all groups.
@@ -1455,6 +1457,7 @@ where
         WelcomeService::new(self.context.clone())
             .sync_all_welcomes_and_groups(consent_states)
             .await
+            .map_err(|error| self.context.server_configuration().blocked_or(error))
     }
 
     /// Sweep every group flagged `paused_for_version` and clear the
