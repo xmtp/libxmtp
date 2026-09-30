@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use prost::Message as _;
-use tls_codec::VLBytes;
+use tls_codec::{Serialize as _, VLBytes};
 use xmtp_configuration::ApplicationComponentDefinition;
 use xmtp_db::{
     Fetch,
@@ -47,6 +47,8 @@ const STATUS: u16 = 0xC001;
 const NICKNAME: u16 = 0xC002;
 /// A string field only admins may write.
 const TOPIC: u16 = 0xC003;
+/// A per-user string field only admins may write, outside `catalogue()`.
+const BADGE: u16 = 0xC004;
 
 fn status() -> MetadataFieldRef {
     MetadataFieldRef::new(ComponentId::new(STATUS))
@@ -902,13 +904,7 @@ async fn test_writes_carried_out_by_pending_proposals_are_authorized_beside_othe
     let epoch = bo_group.epoch().await?;
 
     let writes = vec![update(TOPIC, b"x"), update(STATUS, b"y")];
-    let intent = QueueIntent::app_data_update()
-        .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(
-            writes.clone(),
-        )))
-        .queue(&bo_group)?;
-    let error = bo_group
-        .publish_field_writes(intent.id, inbox(&bo), &writes)
+    let error = publish_writes(&bo_group, inbox(&bo), writes)
         .await
         .unwrap_err();
     assert!(matches!(
@@ -917,6 +913,105 @@ async fn test_writes_carried_out_by_pending_proposals_are_authorized_beside_othe
     ));
     assert_eq!(bo_group.epoch().await?, epoch);
     assert_eq!(bo_group.metadata_value(&status())?, None);
+}
+
+/// A user field entry that only an admin's pending proposal gives the
+/// caller is checked beside the caller's other user field writes, so a
+/// member who may not write the field is refused and commits none of them.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_user_data_carried_out_by_pending_proposals_is_authorized_beside_other_writes() {
+    tester!(alix, configured: |c| c.application_components = vec![definition(
+        BADGE,
+        ComponentType::TlsMapInboxIdString,
+        MetadataBasePolicy::AllowIfAdmin,
+        true,
+        false,
+    )]);
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let bo_inbox = inbox(&bo);
+    let delta = TlsMapDelta::new().insert(bo_inbox, VLBytes::new(b"gold".to_vec()));
+    let give_badge = vec![FieldWrite {
+        component_id: ComponentId::new(BADGE),
+        component_type: ComponentType::TlsMapInboxIdString,
+        operation: WriteOperation::Update(delta.tls_serialize_detached()?),
+    }];
+    publish_proposals(&group, inbox(&alix), give_badge).await?;
+    bo_group.sync().await?;
+    assert!(pending_proposals(&bo_group)? > 0);
+    let epoch = bo_group.epoch().await?;
+
+    let names = MetadataFieldRef::USER_DISPLAY_NAME;
+    let badge = MetadataFieldRef::new(ComponentId::new(BADGE));
+    let error = bo_group
+        .update_user_data(&[set(names.clone(), "Bo"), set(badge, "gold")])
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        field_error(error),
+        FieldError::Denied(id) if id.as_u16() == BADGE
+    ));
+    assert_eq!(bo_group.epoch().await?, epoch);
+    assert_eq!(
+        bo_group.map_value(&names, &FieldKey::InboxId(bo_inbox))?,
+        None
+    );
+}
+
+/// A map update of an entry that only a pending proposal holds is checked
+/// as that update after the proposal even when another write of the same
+/// call adds an operation: another member is refused, and the entry's owner
+/// commits the call.
+// verifies: META-071
+#[xmtp_common::test(unwrap_try = true)]
+async fn test_map_updates_of_pending_entries_are_authorized_beside_other_writes() {
+    tester!(alix, configured: |c| c.application_components = catalogue());
+    tester!(bo);
+    let group = alix
+        .create_group_with_members(&[bo.inbox_id()], None, None)
+        .await?;
+    let bo_group = bo.sync_welcomes().await?.pop()?;
+    let own = inbox(&alix);
+    let nickname_write = vec![FieldWrite {
+        component_id: ComponentId::new(NICKNAME),
+        component_type: ComponentType::TlsMapInboxIdString,
+        operation: WriteOperation::SetOwn(b"Al".to_vec()),
+    }];
+    publish_proposals(&group, own, nickname_write).await?;
+    group.sync().await?;
+    bo_group.sync().await?;
+    assert!(pending_proposals(&bo_group)? > 0);
+    let delta = TlsMapDelta::new().update(own, VLBytes::new(b"Al".to_vec()));
+    let writes = vec![
+        FieldWrite {
+            component_id: ComponentId::new(STATUS),
+            component_type: ComponentType::String,
+            operation: WriteOperation::Update(b"y".to_vec()),
+        },
+        FieldWrite {
+            component_id: ComponentId::new(NICKNAME),
+            component_type: ComponentType::TlsMapInboxIdString,
+            operation: WriteOperation::Update(delta.tls_serialize_detached()?),
+        },
+    ];
+
+    let bo_epoch = bo_group.epoch().await?;
+    let error = publish_writes(&bo_group, inbox(&bo), writes.clone())
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        field_error(error),
+        FieldError::Denied(id) if id.as_u16() == NICKNAME
+    ));
+    assert_eq!(bo_group.epoch().await?, bo_epoch);
+
+    let epoch = group.epoch().await?;
+    publish_writes(&group, own, writes).await?;
+    assert_eq!(group.epoch().await?, epoch + 1);
 }
 
 /// The number of proposals `group` holds pending.
@@ -931,6 +1026,21 @@ fn display_name(value: &str) -> Vec<FieldWrite> {
         component_type: ComponentType::TlsMapInboxIdString,
         operation: WriteOperation::SetOwn(value.as_bytes().to_vec()),
     }]
+}
+
+/// Queue `writes` by `own` as one intent and publish it, without the
+/// checks a public write makes first.
+async fn publish_writes<C: XmtpSharedContext>(
+    group: &MlsGroup<C>,
+    own: InboxId,
+    writes: Vec<FieldWrite>,
+) -> Result<(), GroupError> {
+    let intent = QueueIntent::app_data_update()
+        .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(
+            writes.clone(),
+        )))
+        .queue(group)?;
+    group.publish_field_writes(intent.id, own, &writes).await
 }
 
 /// Publish only the proposals of `writes` by `own`, so a member that syncs
