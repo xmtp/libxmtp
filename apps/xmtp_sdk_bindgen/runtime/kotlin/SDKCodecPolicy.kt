@@ -49,6 +49,12 @@ internal fun <T : Any> encodeForSend(
     if (encoded.type != codec.type) {
         throw codecEncodeFailed("encode", "the envelope type differs from the codec type")
     }
+    // implements: CTYPE-003
+    // An empty authority or type ID fails here, before the send, not in the
+    // binding.
+    if (encoded.type.authorityId.isEmpty() || encoded.type.typeId.isEmpty()) {
+        throw codecEncodeFailed("encode", "the envelope type has an empty authority or type ID")
+    }
     if (encoded.fallback != null) return encoded
     val fallback = codecStep("fallback") { codec.fallback(value) } ?: return encoded
     return encoded.copy(fallback = fallback)

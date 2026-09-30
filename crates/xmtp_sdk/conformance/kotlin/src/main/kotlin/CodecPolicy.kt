@@ -6,17 +6,23 @@ import uniffi.xmtp_sdk.*
 
 // The typed codec send policy (Ref Public surface, Host codecs; P9 and P10).
 
-/** A standard codec's bytes equal Rust's, and a decode round trip keeps them. */
+/**
+ * A standard codec's bytes equal Rust's, decoding them gives back an equal
+ * value, and re-encoding that value gives the same bytes.
+ */
 internal fun <T : Any> matchesRust(
     codec: ContentCodec<T>,
     value: T,
     expected: EncodedContent,
 ): Boolean {
     val encoded = codec.encode(value)
-    return sameEncoded(encoded, expected) && sameEncoded(codec.encode(codec.decode(encoded)), expected)
+    val decoded = codec.decode(encoded)
+    // The generated records compare every field, byte arrays by content.
+    return sameEncoded(encoded, expected) && decoded == value && sameEncoded(codec.encode(decoded), expected)
 }
 
 private val noteType = ContentTypeId("example.org", "note", 1u, 0u)
+private val emptyType = ContentTypeId("", "note", 1u, 0u)
 
 /** A note codec. Each step can fail, return its own fallback, or change type. */
 private class NoteCodec(
@@ -28,8 +34,9 @@ private class NoteCodec(
     val ownFallback: String? = null,
     val envelopeType: ContentTypeId = noteType,
     val push: Boolean = true,
+    val codecType: ContentTypeId = noteType,
 ) : ContentCodec<String> {
-    override val type = noteType
+    override val type = codecType
 
     override fun encode(value: String): EncodedContent {
         if (failEncode) throw IllegalStateException("encode must not run")
@@ -195,7 +202,7 @@ internal suspend fun customCodecPolicyAndIsolation(
     return parent
 }
 
-// verifies: CTYPE-007
+// verifies: CTYPE-003, CTYPE-007
 
 /**
  * codec_policy_failure_never_publishes: a skipped hook is not called, and a
@@ -223,6 +230,8 @@ internal suspend fun codecPolicyFailureNeverPublishes(
         NoteCodec(failFallback = true),
         NoteCodec(failPush = true),
         NoteCodec(envelopeType = TextCodec().type),
+        // The codec and its envelope agree; only the empty identifier fails.
+        NoteCodec(envelopeType = emptyType, codecType = emptyType),
     )) {
         expectCodecEncodeFailed("send") { group.send(codec, "x") }
         expectCodecEncodeFailed("prepareMessage") { group.prepareMessage(codec, "x") }
