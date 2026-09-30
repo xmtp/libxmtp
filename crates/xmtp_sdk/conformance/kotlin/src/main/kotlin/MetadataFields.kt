@@ -116,6 +116,7 @@ private fun checkKind(
     check(details.code == code && details.category == category && !details.retryable) { "$details" }
 }
 
+// verifies: META-069, META-070, META-071, META-072, META-073
 internal suspend fun metadataFields(options: ClientOptions) {
     val alix = clientWith(alixCatalogue, options)
     val bo = clientWith(boCatalogue, options)

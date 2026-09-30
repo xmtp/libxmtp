@@ -4,6 +4,7 @@ use super::*;
 
 /// Map and set deltas apply in one commit or not at all, and reads return
 /// their entries with bytes and inbox ID keys.
+// verifies: META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn collection_fields_apply_whole_deltas() {
     let alix = client_with(vec![

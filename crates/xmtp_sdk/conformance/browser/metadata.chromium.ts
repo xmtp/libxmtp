@@ -196,6 +196,7 @@ async function epoch(group: sdk.Group | sdk.Dm): Promise<bigint> {
 
 // `toStrictEqual` compares byte contents and record types; `toEqual` would
 // accept any two byte values.
+// verifies: META-069, META-070, META-071, META-072, META-073
 export async function checkMetadataFields(backendURL: string): Promise<void> {
   await Pure.initPureWasm();
   const worker = new Worker(new URL("./metadata.worker.ts", import.meta.url), {

@@ -111,6 +111,7 @@ async function epoch(group: sdk.Group | sdk.Dm): Promise<bigint> {
   return (await group.debugInfo()).epoch;
 }
 
+// verifies: META-069, META-070, META-071, META-072, META-073
 export async function metadataFields(
   options: sdk.ClientOptions,
 ): Promise<void> {

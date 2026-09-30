@@ -5,6 +5,7 @@ use super::*;
 /// Absent filters select every user field and every member; an empty field
 /// list gives each selected inbox an empty list, and an empty inbox list
 /// selects no inbox. A DM reads its pair's profiles.
+// verifies: META-072
 #[xmtp_common::test(unwrap_try = true)]
 async fn user_data_keeps_absent_and_empty_filters_apart() {
     let alix = client_with(alix_catalogue()).await;
@@ -72,6 +73,7 @@ async fn user_data_keeps_absent_and_empty_filters_apart() {
 /// delete and keeps the rest. Absent `inbox_ids` selects only current
 /// members, so a kept value shows only when its inbox is named. A named
 /// inbox appears once however often it is named, member or not.
+// verifies: META-072
 #[xmtp_common::test(unwrap_try = true)]
 async fn user_data_selects_named_inboxes_once() {
     let kept = ApplicationComponentDefinition {
@@ -119,6 +121,7 @@ async fn user_data_selects_named_inboxes_once() {
 /// One call writes several of the caller's own fields in one commit. A
 /// write that changes nothing makes no commit, a rejected batch commits
 /// nothing, and a denied write is a typed `PermissionDenied`.
+// verifies: META-073
 #[xmtp_common::test(unwrap_try = true)]
 async fn profile_writes_are_atomic_and_denials_are_typed() {
     let alix = client_with(alix_catalogue()).await;

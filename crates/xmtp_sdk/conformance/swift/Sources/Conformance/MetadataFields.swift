@@ -108,6 +108,7 @@ private func expectKind(
     throw ConformanceFailure("\(code) was not raised")
 }
 
+// verifies: META-069, META-070, META-071, META-072, META-073
 func metadataFields(_ options: ClientOptions) async throws {
     let alix = try await client(alixCatalogue, options)
     let bo = try await client(boCatalogue, options)

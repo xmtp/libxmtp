@@ -5,6 +5,7 @@ use super::*;
 /// Each reader lists the group's fields in component ID order, named by its
 /// own catalogue, with the committed type and policies. A name finds the
 /// reader's field, and a well-known name wins over a catalogue name.
+// verifies: META-069
 #[xmtp_common::test(unwrap_try = true)]
 async fn fields_are_identified_by_component_id() {
     let alix = client_with(alix_catalogue()).await;

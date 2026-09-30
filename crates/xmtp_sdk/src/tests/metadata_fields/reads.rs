@@ -4,6 +4,7 @@ use super::*;
 
 /// A batch read answers in request order from one snapshot, with each
 /// reader's label, and an absent value stays absent.
+// verifies: META-070, META-071
 #[xmtp_common::test(unwrap_try = true)]
 async fn batch_reads_keep_request_order() {
     let alix = client_with(alix_catalogue()).await;
