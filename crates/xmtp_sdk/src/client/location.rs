@@ -20,7 +20,7 @@ use crate::XmtpError;
 pub(super) fn core_location(storage: &StorageOptions) -> Result<Option<CoreLocation>, XmtpError> {
     let label = storage.label.as_deref().filter(|label| !label.is_empty());
     if let Some(label) = label
-        && (matches!(label, "." | "..") || label.contains(['/', '\\', ':', '\0']))
+        && !names_one_directory(label, cfg!(windows))
     {
         return Err(XmtpError::storage_location(
             "storage label must name one directory",
@@ -44,6 +44,16 @@ pub(super) fn core_location(storage: &StorageOptions) -> Result<Option<CoreLocat
             attachments_dir: host_path(attachments_dir, "attachmentsDir")?,
         })),
     }
+}
+
+/// Whether a storage label names one directory inside the root directory.
+/// Win32 drops a trailing dot or space from a path component, so on Windows
+/// such a label names another directory than its own, `".. "` perhaps the
+/// root's parent.
+fn names_one_directory(label: &str, windows: bool) -> bool {
+    !(matches!(label, "." | "..")
+        || label.contains(['/', '\\', ':', '\0'])
+        || (windows && label.ends_with(['.', ' '])))
 }
 
 // A relative native path resolves against the working directory at client
@@ -141,4 +151,20 @@ async fn open_new_store(
             })?;
     }
     open_store(storage, Some(&path_string(path)?)).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[xmtp_common::test(unwrap_try = true)]
+    fn windows_refuses_a_label_with_a_trailing_dot_or_space() {
+        for label in [".. ", ". ", "...", "name.", "name "] {
+            assert!(!names_one_directory(label, true), "label {label:?}");
+            assert!(names_one_directory(label, false), "label {label:?}");
+        }
+        for label in ["phone", ".name", " name", "na.me"] {
+            assert!(names_one_directory(label, true), "label {label:?}");
+        }
+    }
 }
