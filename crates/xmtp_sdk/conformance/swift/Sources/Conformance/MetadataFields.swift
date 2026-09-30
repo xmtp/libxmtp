@@ -111,12 +111,12 @@ private func expectKind(
 func metadataFields(_ options: ClientOptions) async throws {
     let alix = try await client(alixCatalogue, options)
     let bo = try await client(boCatalogue, options)
-    try expect(alix.raw.serverConfiguration().applicationComponents == alixCatalogue, "catalogue projection")
-    let alixId = alix.raw.inboxId()
-    let boId = bo.raw.inboxId()
-    let group = try await alix.raw.conversations().createGroup(members: [boId])
-    try await bo.raw.conversations().sync()
-    guard case let .group(group: boGroup)? = try await bo.raw.conversations().getById(id: group.id()) else {
+    try expect(alix.serverConfiguration().applicationComponents == alixCatalogue, "catalogue projection")
+    let alixId = alix.inboxId()
+    let boId = bo.inboxId()
+    let group = try await alix.conversations().createGroup(members: [boId])
+    try await bo.conversations().sync()
+    guard case let .group(group: boGroup)? = try await bo.conversations().getById(id: group.id()) else {
         throw ConformanceFailure("Bo does not have the group")
     }
 
@@ -135,7 +135,7 @@ func metadataFields(_ options: ClientOptions) async throws {
         (displayName, true),
         (field(0x800D, "GROUP_IMAGE"), false),
     ]
-    let described = alixFields.prefix(8).map { ($0.field, $0.isUserField) }
+    let described: [(MetadataFieldRef, Bool)] = alixFields.prefix(8).map { ($0.field, $0.isUserField) }
     try expect(
         described.elementsEqual(wellKnown) { $0.0 == $1.0 && $0.1 == $1.1 },
         "\(described)"
@@ -207,7 +207,7 @@ func metadataFields(_ options: ClientOptions) async throws {
     try await expect(boGroup.metadataValue(field: field(topic)) == nil, "denied value")
 
     // A DM holds the pair's profiles and its DM fields, never group-only ones.
-    let dm = try await alix.raw.conversations().createDm(peer: boId)
+    let dm = try await alix.conversations().createDm(peer: boId)
     let dmIds = try await dm.metadataFields().map(\.field.componentId)
     try expect(
         dmIds.contains(displayNameId) && dmIds.contains(nickname) && !dmIds.contains(avatar),
