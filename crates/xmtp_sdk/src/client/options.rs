@@ -3,6 +3,9 @@ pub enum StorageLocation {
     #[default]
     Default,
     InMemory,
+    /// A directory that holds a database for each deployment and inbox.
+    /// Create and build without an inbox ID fail `IdentityMismatch` when the
+    /// identity is not a member of the inbox they open.
     Directory {
         directory: String,
     },

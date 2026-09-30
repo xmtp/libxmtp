@@ -398,6 +398,46 @@ async fn explicit_storage_rejects_its_removed_creator() {
     std::fs::remove_dir_all(root)?;
 }
 
+// With no live inbox for the identifier, the build falls back to the inbox the
+// identifier created, whose directory holds the stored identity.
+#[xmtp_common::test(unwrap_try = true)]
+async fn directory_storage_rejects_its_removed_creator() {
+    let root = temp_root("directory-removed");
+    let mut settings = options();
+    settings.storage = directory(&root, None);
+    let creator_signer = crate::generate_local_signer().await;
+    let creator = signer::identity(creator_signer.clone()).await?;
+    let client = Client::create(creator_signer.clone(), settings.clone()).await?;
+    let database = client.storage().path().await?.expect("file database");
+    let recovery_signer = crate::generate_local_signer().await;
+    let recovery = signer::identity(recovery_signer.clone()).await?;
+    client
+        .unsafe_add_account(recovery_signer.clone(), false)
+        .await?;
+    client
+        .change_recovery_identifier(creator_signer.clone(), recovery)
+        .await?;
+    client
+        .remove_account(recovery_signer, creator.clone())
+        .await?;
+    assert_eq!(
+        creator.to_core()?.inbox_id(0)?,
+        client.inbox_id().checked()?
+    );
+    client.end().await?;
+
+    let built = Client::build(creator, settings.clone(), None).await;
+    assert!(is_identity_mismatch(&built), "build: {:?}", built.err());
+    let created = Client::create(creator_signer, settings).await;
+    assert!(
+        is_identity_mismatch(&created),
+        "create: {:?}",
+        created.err()
+    );
+    assert!(std::path::Path::new(&database).is_file());
+    std::fs::remove_dir_all(root)?;
+}
+
 #[xmtp_common::test(unwrap_try = true)]
 async fn explicit_storage_fetches_a_removal_made_on_another_installation() {
     let relay = CountingRelay::start().await?;
