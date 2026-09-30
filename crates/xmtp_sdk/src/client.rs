@@ -282,7 +282,7 @@ pub(crate) async fn open_store(
 }
 
 #[cfg(target_arch = "wasm32")]
-pub(crate) fn map_wasm_storage_error(error: impl std::error::Error + 'static) -> XmtpError {
+pub(crate) fn map_wasm_storage_error(error: impl crate::error::CoreError) -> XmtpError {
     use xmtp_db::{ConnectionError, OpfsSAHError, PlatformStorageError, StorageError};
 
     let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(&error);

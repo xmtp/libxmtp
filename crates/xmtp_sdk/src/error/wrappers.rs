@@ -70,4 +70,56 @@ transparent_wrappers! {
         LocalDelivery, Group(boxed), Storage, ApiClient, Db, Configuration(boxed),
     ],
     xmtp_archive::ArchiveError => [Storage],
+    xmtp_mls::subscriptions::catch_up::CatchUpError => [Group],
+}
+
+/// A core error type that `XmtpError::from_core` maps. Every type passed to
+/// `from_core` must implement it, so a new call-site type must be listed here,
+/// and the guard test starts its scan from this list (`CORE_ERROR_ROOTS`).
+pub(crate) trait CoreError: Error + 'static {}
+
+macro_rules! core_errors {
+    ($($(#[$meta:meta])* $ty:ty),* $(,)?) => {
+        $($(#[$meta])* impl CoreError for $ty {})*
+
+        /// The type names that implement `CoreError`, for the guard test.
+        #[cfg(all(test, not(feature = "pure-only")))]
+        pub(crate) const CORE_ERROR_ROOTS: &[&str] = &[$(stringify!($ty)),*];
+    };
+}
+
+// Wrapper types: the guard follows their variants.
+core_errors! {
+    xmtp_mls::groups::GroupError,
+    xmtp_mls::client::ClientError,
+    xmtp_mls::builder::ClientBuilderError,
+    xmtp_mls::identity::IdentityError,
+    xmtp_mls::mls_store::MlsStoreError,
+    xmtp_mls::subscriptions::SubscribeError,
+    xmtp_mls::subscriptions::catch_up::CatchUpError,
+    xmtp_mls::subscriptions::local_delivery::LocalDeliveryError,
+    xmtp_mls::worker::device_sync::DeviceSyncError,
+    xmtp_mls::messages::enrichment::EnrichMessageError,
+    xmtp_archive::ArchiveError,
+    // Classified at their own level.
+    xmtp_db::StorageError,
+    xmtp_db::ConnectionError,
+    xmtp_db::sql_key_store::SqlKeyStoreError,
+    #[cfg(target_arch = "wasm32")]
+    xmtp_db::PlatformStorageError,
+    // Leaf errors with no typed cause in the error table; the guard checks
+    // that none of them hides a classified type.
+    xmtp_mls::mls_common::app_data::component_source::ComponentSourceError,
+    xmtp_mls::mls_common::group_metadata::GroupMetadataError,
+    xmtp_id::associations::AssociationError,
+    xmtp_cryptography::signature::IdentifierValidationError,
+    xmtp_api_backend::MessageBackendBuilderError,
+    xmtp_common::StreamHandleError,
+    xmtp_content_types::CodecError,
+    xmtp_proto::ConversionError,
+    xmtp_logging::Error,
+    prost::DecodeError,
+    std::io::Error,
+    #[cfg(not(target_arch = "wasm32"))]
+    tokio::task::JoinError,
 }

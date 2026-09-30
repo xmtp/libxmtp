@@ -401,3 +401,37 @@ fn a_data_directory_of_another_deployment_is_backend_mismatch() {
         false,
     );
 }
+
+// Client.catchUpToLive returns a CatchUpError that wraps a GroupError
+// transparently.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_group_cause_in_a_catch_up_error_keeps_its_code() {
+    use xmtp_mls::{mls_store::MlsStoreError, subscriptions::catch_up::CatchUpError};
+    expect(
+        XmtpError::from_core(CatchUpError::Group(GroupError::MlsStore(
+            MlsStoreError::Storage(head_changed()),
+        ))),
+        "Storage",
+        ErrorCategory::Storage,
+        true,
+    );
+    expect(
+        XmtpError::from_core(CatchUpError::Group(GroupError::UserLimitExceeded)),
+        "UserLimitExceeded",
+        ErrorCategory::Input,
+        false,
+    );
+}
+
+// A sync that failed to wait keeps its storage cause.
+#[xmtp_common::test(unwrap_try = true)]
+fn a_storage_cause_in_a_failed_sync_wait_keeps_its_retry_policy() {
+    let mut summary = xmtp_mls::groups::summary::SyncSummary::default();
+    summary.add_other(GroupError::Storage(head_changed()));
+    expect(
+        XmtpError::from_group(GroupError::SyncFailedToWait(Box::new(summary))),
+        "Storage",
+        ErrorCategory::Storage,
+        true,
+    );
+}

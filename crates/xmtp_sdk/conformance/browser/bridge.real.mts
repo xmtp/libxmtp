@@ -171,7 +171,8 @@ try {
     ),
     (error: unknown) => {
       assert.ok(error instanceof Error);
-      assert.ok(B.XmtpError.Unknown.instanceOf(error));
+      // The platform storage failure keeps its typed Storage code.
+      assert.ok(B.XmtpError.Storage.instanceOf(error), String(error));
       assert.ok(!B.XmtpError.StorageLocationRequired.instanceOf(error));
       return true;
     },
@@ -227,7 +228,8 @@ try {
       },
     ),
     (error: unknown) => {
-      assert.ok(B.XmtpError.Unknown.instanceOf(error));
+      // An OPFS failure keeps its typed Storage code; it is not StorageBusy.
+      assert.ok(B.XmtpError.Storage.instanceOf(error), String(error));
       assert.ok(!B.XmtpError.StorageBusy.instanceOf(error));
       return true;
     },

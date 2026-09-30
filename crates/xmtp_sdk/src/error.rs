@@ -1,6 +1,7 @@
 mod wrappers;
+pub(crate) use wrappers::CoreError;
 #[cfg(all(test, not(feature = "pure-only")))]
-pub(crate) use wrappers::OPENED_WRAPPERS;
+pub(crate) use wrappers::{CORE_ERROR_ROOTS, OPENED_WRAPPERS};
 
 /// The kind of a façade failure.
 #[derive(Clone, Debug, uniffi::Enum)]
@@ -238,7 +239,7 @@ impl XmtpError {
     /// as a storage error, a configuration check, or a credential failure, in
     /// operation errors. A failure with no typed cause is `Unknown`.
     // implements: CONF-064
-    pub(crate) fn from_core<E: std::error::Error + 'static>(error: E) -> Self {
+    pub(crate) fn from_core<E: CoreError>(error: E) -> Self {
         Self::classify(&error).unwrap_or_else(|| Self::unclassified(&error))
     }
 
@@ -361,6 +362,15 @@ impl XmtpError {
                 ErrorCategory::Storage,
                 query.is_retryable(),
                 query.to_string(),
+            )));
+        }
+        if let Some(platform) = error.downcast_ref::<xmtp_db::PlatformStorageError>() {
+            use xmtp_common::RetryableError;
+            return Some(Self::Storage(Self::details(
+                "Storage",
+                ErrorCategory::Storage,
+                platform.is_retryable(),
+                platform.to_string(),
             )));
         }
         if let Some(connection) = error.downcast_ref::<xmtp_db::ConnectionError>() {
