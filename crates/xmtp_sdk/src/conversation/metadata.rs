@@ -67,7 +67,9 @@ macro_rules! metadata_conversation {
                 .await
             }
 
-            /// The value under `key` of the map `field`.
+            /// The value under `key` of the map `field`. An inbox ID key
+            /// must be lowercase hex; any other spelling fails
+            /// `InvalidArgument`.
             // implements: META-070
             pub async fn map_value(
                 &self,
@@ -90,6 +92,8 @@ macro_rules! metadata_conversation {
             /// the current members (the pair in a DM). Every selected
             /// inbox has an entry, empty when it holds no selected value.
             /// A field whose value does not decode contributes nothing.
+            /// Inbox IDs must be lowercase hex, the form the result is
+            /// keyed by; any other spelling fails `InvalidArgument`.
             // implements: META-072
             pub async fn user_data(
                 &self,
