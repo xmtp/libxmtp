@@ -1,9 +1,9 @@
-import type * as NodeHost from "../../../../target/sdk-generated/typescript-napi/index";
+import type * as NodeHost from "../../../../target/sdk-generated/typescript-napi/binding";
 // Compare public method parameters and returns, and record fields (plan P62).
 // check-parity-signatures.py compares every public declaration. SDK-037 is
 // the only removal list.
 import type * as Node from "../../../../target/sdk-generated/typescript-napi/xmtp_sdk";
-import type * as BrowserHost from "../../../../target/sdk-generated/typescript-wasm/index";
+import type * as BrowserHost from "../../../../target/sdk-generated/typescript-wasm/binding";
 import type * as Browser from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
 
 type Equal<Left, Right> =
@@ -159,7 +159,7 @@ type SameFields<Native, Web> =
 // and type-only, and holds the SDK-037 list. This type test compares method
 // and record shapes structurally.
 type PublicNodeExports =
-  keyof typeof import("../../../../target/sdk-generated/typescript-napi/index");
+  keyof typeof import("../../../../target/sdk-generated/typescript-napi/binding");
 export type QueuedLogSinkIsInternal = Assert<
   Equal<"setLogSinkQueued" extends PublicNodeExports ? true : false, false>
 >;

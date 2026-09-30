@@ -3,7 +3,7 @@ import { spawn } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 
 export async function logging(
   reopened: sdk.Client,

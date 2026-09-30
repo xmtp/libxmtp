@@ -8,8 +8,8 @@ import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_
 import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js";
 // @ts-ignore The browser fixture uses the published JavaScript build of viem.
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
-import * as pure from "../../../../target/sdk-generated/typescript-pure/public-api.gen";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
+import * as pure from "../../../../target/sdk-generated/typescript-pure/index";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { RemoteObject } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object";
 import { MainSession } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/session";
 import { BridgeError } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";

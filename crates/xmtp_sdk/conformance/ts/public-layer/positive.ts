@@ -18,7 +18,7 @@ import {
   type EncodedContent,
   type Message,
   type Signer,
-} from "../../../../../target/sdk-generated/typescript-napi/public-api.gen.ts";
+} from "../../../../../target/sdk-generated/typescript-napi/index.ts";
 
 type Point = { readonly x: number; readonly y: number };
 

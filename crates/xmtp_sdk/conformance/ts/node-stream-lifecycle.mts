@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 
 // The shared host reader stream that the public streams extend. These cases
 // drive it with fake readers, so they use its binding connection states.
-import type { Client } from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import type { Client } from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 import {
   ConversationStream,
   MessageStream,

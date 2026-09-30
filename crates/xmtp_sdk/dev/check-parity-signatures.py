@@ -642,18 +642,19 @@ def expected_exports(flavor: str, node_exports: set[str]) -> set[str]:
 
 
 def compare(out: Path) -> list[str]:
-    node_root = emit(NODE, out)
+    """Compare the private binding roots (`binding.ts`)."""
+    node_root = emit(NODE, out, "binding.ts")
     node = Surface(node_root)
-    node_exports = node.exports(node.module(node_root / "index.d.ts"))
+    node_exports = node.exports(node.module(node_root / "binding.d.ts"))
     errors = []
     for name in sorted(SDK_037_BROWSER_ONLY & node_exports.keys()):
         errors.append(f"{name}: SDK-037 permits it only in the browser")
     for name in sorted((PURE_ONLY | PURE_SHARED) - node_exports.keys()):
         errors.append(f"{name}: the pure list names it and Node does not export it")
     for flavor in BROWSER:
-        root = emit(flavor, out)
+        root = emit(flavor, out, "binding.ts")
         surface = Surface(root)
-        exports = surface.exports(surface.module(root / "index.d.ts"))
+        exports = surface.exports(surface.module(root / "binding.d.ts"))
         internal = {
             name
             for name, (owner, _reason) in INTERNAL_BROWSER_ONLY.items()
@@ -712,16 +713,16 @@ def compare(out: Path) -> list[str]:
 
 
 def compare_public(out: Path) -> list[str]:
-    """Compare the private public entries (`public-api.gen.ts`) of Node and the
-    browser worker bridge. The browser entry omits the SDK-037 and pure-module
+    """Compare the package roots (`index.ts`) of Node and the browser worker
+    bridge. The browser entry omits the SDK-037 and pure-module
     exports and adds the browser storage admin; every shared declaration must
     match, member for member."""
-    node_root = emit(NODE, out, "public-api.gen.ts")
+    node_root = emit(NODE, out, "index.ts")
     node = Surface(node_root)
-    node_exports = node.exports(node.module(node_root / "public-api.gen.d.ts"))
-    web_root = emit(WORKER, out, "public-api.gen.ts")
+    node_exports = node.exports(node.module(node_root / "index.d.ts"))
+    web_root = emit(WORKER, out, "index.ts")
     web = Surface(web_root)
-    web_exports = web.exports(web.module(web_root / "public-api.gen.d.ts"))
+    web_exports = web.exports(web.module(web_root / "index.d.ts"))
     errors = []
     expected = (
         node_exports.keys() - PUBLIC_NODE_ONLY.keys()
@@ -758,23 +759,21 @@ PURE_PUBLIC_ONLY = {"initPureWasm": "loads the main-thread pure module"}
 
 
 def compare_pure(out: Path) -> list[str]:
-    """Compare the pure module's public entry with the Node public entry.
+    """Compare the pure module's root with the Node root.
     Every pure export except its WASM loader is a Node public name, and each
     one must have the Node declaration."""
-    node_root = emit(NODE, out, "public-api.gen.ts")
+    node_root = emit(NODE, out, "index.ts")
     node = Surface(node_root)
-    node_exports = node.exports(node.module(node_root / "public-api.gen.d.ts"))
-    pure_root = emit(PURE, out, "public-api.gen.ts")
+    node_exports = node.exports(node.module(node_root / "index.d.ts"))
+    pure_root = emit(PURE, out, "index.ts")
     pure = Surface(pure_root)
-    pure_exports = pure.exports(pure.module(pure_root / "public-api.gen.d.ts"))
+    pure_exports = pure.exports(pure.module(pure_root / "index.d.ts"))
     errors = []
     for name in sorted(PURE_PUBLIC_ONLY.keys() - pure_exports.keys()):
         errors.append(f"{name}: the pure public entry does not export it")
     shared = pure_exports.keys() - PURE_PUBLIC_ONLY.keys()
     for name in sorted(shared - node_exports.keys()):
-        errors.append(
-            f"{name}: the pure public entry exports it and Node does not"
-        )
+        errors.append(f"{name}: the pure public entry exports it and Node does not")
     for name in sorted(PURE_ONLY - pure_exports.keys()):
         errors.append(f"{name}: a pure-module name is missing from the pure entry")
     for name in sorted(shared & node_exports.keys()):

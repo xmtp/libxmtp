@@ -15,7 +15,7 @@ import {
   type NotificationState,
   type PublicIdentity,
   type ServerConfiguration,
-  type SignatureRequestLike,
+  type SignatureRequest,
   type Signer,
   type BackendSource,
   encodeText,
@@ -28,26 +28,28 @@ export async function consumeClient(
   options: ClientOptions,
   identity: PublicIdentity,
   credential: Credential,
-  request: SignatureRequestLike,
+  request: SignatureRequest,
   filter: EventFilter,
   config: NotificationConfig,
 ): Promise<void> {
   const client = await Client.create(signer, options);
-  const built = await Client.build(identity, options, client.inboxId());
-  const inboxId: InboxId = client.inboxId();
-  const installationId: InstallationId = client.installationId();
-  const installationBytes: ArrayBuffer = client.installationIdBytes();
-  const clientIdentity: PublicIdentity = client.identity();
-  const inMemory: boolean = client.isInMemory();
-  const path: string | undefined = client.storagePath();
-  const version: string = client.libxmtpVersion();
-  const appVersion: string | undefined = client.appVersion();
-  const clientOptions: ClientOptions = client.options();
-  client.conversations();
-  client.preferences();
-  client.diagnostics();
-  client.archives();
-  client.storage();
+  const built = await Client.build(identity, options, client.inboxId);
+  const inboxId: InboxId = client.inboxId;
+  const installationId: InstallationId = client.installationId;
+  const installationBytes: Uint8Array = client.installationIdBytes;
+  const clientIdentity: PublicIdentity = client.identity;
+  const inMemory: boolean = client.isInMemory;
+  const path: string | undefined = client.storagePath;
+  const version: string = client.libxmtpVersion;
+  const appVersion: string | undefined = client.appVersion;
+  const clientOptions: ClientOptions = client.options;
+  const objects = [
+    client.conversations,
+    client.preferences,
+    client.diagnostics,
+    client.archives,
+    client.storage,
+  ];
   await client.register();
   const registered: boolean = await client.isRegistered();
   const state: InboxState = await client.inboxState(true);
@@ -61,11 +63,11 @@ export async function consumeClient(
   const own: bigint = await client.ownInboxUpdatesCount(false);
   const packages: Map<string, KeyPackageStatus> =
     await client.keyPackageStatuses([installationId]);
-  const configuration: ServerConfiguration = client.serverConfiguration();
+  const configuration: ServerConfiguration = client.serverConfiguration;
   const refreshed: ServerConfiguration =
     await client.refreshServerConfiguration();
   await client.setCredential(credential);
-  const signature: ArrayBuffer = await client.signWithInstallationKey("text");
+  const signature: Uint8Array = await client.signWithInstallationKey("text");
   const verified: boolean = await client.verifySignedWithInstallationKey(
     "text",
     signature,
@@ -75,17 +77,17 @@ export async function consumeClient(
   const decoded: MessageContent = await client.decodeContent(
     encodeText("text"),
   );
-  const createInbox: SignatureRequestLike | undefined =
+  const createInbox: SignatureRequest | undefined =
     await client.unsafeCreateInboxSignatureRequest();
-  const addAccount: SignatureRequestLike =
+  const addAccount: SignatureRequest =
     await client.unsafeAddAccountSignatureRequest(identity, false);
-  const removeAccount: SignatureRequestLike =
+  const removeAccount: SignatureRequest =
     await client.unsafeRemoveAccountSignatureRequest(identity);
-  const revoke: SignatureRequestLike =
+  const revoke: SignatureRequest =
     await client.unsafeRevokeInstallationsSignatureRequest([]);
-  const revokeOthers: SignatureRequestLike | undefined =
+  const revokeOthers: SignatureRequest | undefined =
     await client.unsafeRevokeAllOtherInstallationsSignatureRequest();
-  const recovery: SignatureRequestLike =
+  const recovery: SignatureRequest =
     await client.unsafeChangeRecoveryIdentifierSignatureRequest(identity);
   await client.unsafeApplySignatureRequest(request);
   await client.unsafeAddAccount(signer, false);
@@ -100,6 +102,7 @@ export async function consumeClient(
   const listener = await client.startListener(filter, () => undefined);
   await client.stopListener(listener);
   void [
+    objects,
     installationBytes,
     clientIdentity,
     inMemory,
@@ -165,8 +168,8 @@ export async function consumeStaticHelpers(
   );
   const verified: boolean = await Client.verifySignedWithPublicKey(
     "text",
-    new ArrayBuffer(0),
-    new ArrayBuffer(0),
+    new Uint8Array(0),
+    new Uint8Array(0),
   );
   void [
     configuration,

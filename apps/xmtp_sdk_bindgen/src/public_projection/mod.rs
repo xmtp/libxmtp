@@ -116,8 +116,8 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
     )?;
     let api = objects::public_api(&items, target);
     fs::write(
-        out.join("public-api.gen.ts"),
-        crate::format::typescript("public-api.gen.ts", &api)?,
+        out.join("index.ts"),
+        crate::format::typescript("index.ts", &api)?,
     )?;
     // Keep the projection's target import private. Package staging supplies the
     // final browser/node conditions when the public adapters are installed.

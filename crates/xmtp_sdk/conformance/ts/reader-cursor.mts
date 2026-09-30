@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 
 // verifies: PROC-033, PROC-034, PROC-050
 export async function checkReaderCursor(

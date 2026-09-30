@@ -12,7 +12,7 @@ import {
   Backend,
   Client as ProxyClient,
 } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/public-api.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { wrapClient } from "../../../../target/sdk-generated/typescript-wasm/public-client.gen";
 import {
   currentProjection,

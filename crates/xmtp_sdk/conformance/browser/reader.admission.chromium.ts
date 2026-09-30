@@ -13,7 +13,7 @@ import {
 import {
   Message,
   MessageStream,
-} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/index";
+} from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/binding";
 // Transport tests use the worker proxy Client with their own session.
 import { Client } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/proxy.gen";
 import { MainSession } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/main/session";
@@ -23,7 +23,7 @@ import type {
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/wire";
 import type { StreamCloseReason } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/streams/reader";
 import * as B from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/xmtp_sdk";
-import { encodeText } from "../../../../target/sdk-generated/typescript-pure/index";
+import { encodeText } from "../../../../target/sdk-generated/typescript-pure/binding";
 
 function latch() {
   let resolve!: () => void;

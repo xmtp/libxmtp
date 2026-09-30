@@ -1,17 +1,13 @@
-import { uniffiInitAsync } from "../../../target/sdk-generated/typescript-wasm/index.ts";
-import {
-  initPureWasm,
-  sdkVersion,
-} from "../../../target/sdk-generated/typescript-pure/index.ts";
-import * as PurePublic from "../../../target/sdk-generated/typescript-pure/public-api.gen.ts";
+import { uniffiInitAsync } from "../../../target/sdk-generated/typescript-wasm/binding.ts";
+import * as PurePublic from "../../../target/sdk-generated/typescript-pure/index.ts";
 
 const wasm = new URL(
   "../../../target/sdk-generated/typescript-wasm/xmtp_sdk.wasm",
   import.meta.url,
 );
 await uniffiInitAsync(wasm);
-await initPureWasm();
-if (!sdkVersion().startsWith("1.12.")) throw new Error("pure WASM did not initialize");
+await PurePublic.initPureWasm();
+if (!PurePublic.sdkVersion().startsWith("1.12.")) throw new Error("pure WASM did not initialize");
 // The pure public entry works over public values and throws public errors.
 const encoded = PurePublic.encodeText("pure public");
 if (!(encoded.content instanceof Uint8Array))

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-import * as sdk from "../../../../target/sdk-conformance/typescript-napi/public-api.gen.ts";
+import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
 // Fake-reader cases drive the shared host reader stream directly.
 import {
   MessageStream as HostMessageStream,

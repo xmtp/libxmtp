@@ -240,7 +240,10 @@ fn generate(
                 let exports = public_node_exports(&fs::read_to_string(&binding)?, &source);
                 source = source.replace("export * from './xmtp_sdk';", &exports);
             }
-            fs::write(index, source)?;
+            // The stock root loads and exports the binding. It stays private as
+            // `binding.ts`; the public projection writes the package root.
+            fs::write(out.join("binding.ts"), source)?;
+            fs::remove_file(index)?;
             if is_wasm && !pure_only {
                 bridge::generate(lib, out)?;
             }
