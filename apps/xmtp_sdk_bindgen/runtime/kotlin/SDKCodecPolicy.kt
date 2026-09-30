@@ -37,8 +37,8 @@ private inline fun <R> codecStep(
 private fun describe(error: Throwable): String =
     try {
         error.message ?: error.toString()
-    } catch (_: VirtualMachineError) {
-        throw error
+    } catch (fatal: VirtualMachineError) {
+        throw fatal
     } catch (_: Throwable) {
         "the failure has no readable description"
     }

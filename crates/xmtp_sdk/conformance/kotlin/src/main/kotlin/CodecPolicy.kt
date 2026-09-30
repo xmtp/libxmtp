@@ -128,6 +128,31 @@ private class RecordingCodec : ContentCodec<String> {
     }
 }
 
+/** A failure whose text is a fatal VM error. */
+private class FatalTextFailure : RuntimeException() {
+    override val message: String? get() = null
+
+    override fun toString(): String = throw InternalError("fatal while describing a codec failure")
+}
+
+/** A fatal VM error while describing a codec failure is not swallowed or replaced. */
+private suspend fun checkFatalDescription() {
+    val group = RecordingGroup()
+    val fatal =
+        object : ContentCodec<String> {
+            override val type = noteType
+
+            override fun encode(value: String): EncodedContent = throw FatalTextFailure()
+
+            override fun decode(encoded: EncodedContent) = encoded.content.decodeToString()
+        }
+    val error = runCatching { group.send(fatal, "x") }.exceptionOrNull()
+    check(error is InternalError) {
+        "a fatal error while describing a failure did not propagate: ${error?.javaClass?.name}"
+    }
+    check(group.sent.isEmpty()) { "a codec failure reached the send" }
+}
+
 /** A failure whose message and text cannot be read. */
 private class UnreadableFailure : RuntimeException() {
     override val message: String
@@ -297,6 +322,7 @@ internal suspend fun codecPolicyFailureNeverPublishes(
 ) {
     checkCallerCancellation()
     checkProbes()
+    checkFatalDescription()
     // An envelope's own fallback is kept, and its fallback hook is not called.
     val keptId = group.send(NoteCodec(failFallback = true, ownFallback = "own"), "kept")
     check(envelope(group.stored(keptId))?.fallback == "own") { "an envelope fallback was replaced" }
