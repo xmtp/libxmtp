@@ -27,6 +27,11 @@ const HOST_CLIENT_MEMBERS: &[&str] = &[
 /// Functions that the host runtime replaces.
 const HOST_FUNCTIONS: &[&str] = &["setLogSink", "setLogSinkQueued"];
 
+/// Functions that are synchronous in the Node binding and asynchronous in the
+/// browser worker. Their public form is asynchronous on both targets, so the
+/// two targets share one declaration.
+const ASYNC_PUBLIC_FUNCTIONS: &[&str] = &["clearLogSink"];
+
 /// Guards that route one membership parameter. An empty list uses inbox IDs.
 /// A list that mixes inbox IDs and account identities fails before any call.
 pub(super) const MEMBERSHIP_GUARDS: &str = r#"
@@ -331,17 +336,18 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
     if HOST_FUNCTIONS.contains(&name.as_str()) || !exported_function(function, target) {
         return Ok(());
     }
+    let asynchronous = function.is_async || ASYNC_PUBLIC_FUNCTIONS.contains(&name.as_str());
     let call = call(
         "",
         &name,
         &function.inputs,
         function.return_type.as_ref(),
-        function.is_async,
+        asynchronous,
     );
     writeln!(
         code,
         "export {}function {name}({}): {} {{",
-        if function.is_async { "async " } else { "" },
+        if asynchronous { "async " } else { "" },
         call.parameters,
         call.result_type
     )?;
@@ -349,7 +355,7 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
         Target::Node => format!("B.{name}({args})"),
         Target::Browser => format!("createInWorker((session) => P.{name}(session, {args}))"),
     };
-    render_body(code, &call, &callee, function.is_async)?;
+    render_body(code, &call, &callee, asynchronous)?;
     code.push_str("}\n");
     Ok(())
 }

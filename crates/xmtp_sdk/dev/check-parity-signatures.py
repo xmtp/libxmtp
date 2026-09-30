@@ -172,10 +172,7 @@ PUBLIC_NODE_ONLY = {
     **{name: "pure module" for name in PURE_ONLY},
 }
 # Members whose form depends on the target, skipped on both sides.
-PUBLIC_PLATFORM_SPECIFIC = {
-    # Node clears the process sink at once; the browser worker call is async.
-    "clearLogSink": "the browser clears the log sink in the worker",
-}
+PUBLIC_PLATFORM_SPECIFIC: dict[str, str] = {}
 PUBLIC_BROWSER_ONLY = {"StorageAdmin": "SDK-037 browser storage admin"}
 PUBLIC_NODE_ONLY_MEMBERS = {
     "Archives": {"exportToFile", "importFromFile", "metadataFromFile"},
