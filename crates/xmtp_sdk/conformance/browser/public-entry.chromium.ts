@@ -132,6 +132,26 @@ function checkOpaque(
   check(!reachesTransport(value), `${name} reaches the transport`);
 }
 
+// Fail when any string in `value`, at any depth, carries the secret.
+function assertNoSecret(
+  value: unknown,
+  secret: string,
+  path = "options",
+  seen = new Set<unknown>(),
+): void {
+  if (typeof value === "string") {
+    check(!value.includes(secret), `${path} exposes a secret`);
+    return;
+  }
+  if (value === null || typeof value !== "object" || seen.has(value)) return;
+  seen.add(value);
+  for (const key of Object.getOwnPropertyNames(value)) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (descriptor !== undefined && "value" in descriptor)
+      assertNoSecret(descriptor.value, secret, `${path}.${key}`, seen);
+  }
+}
+
 async function rejection(operation: Promise<unknown>): Promise<unknown> {
   try {
     await operation;
@@ -174,6 +194,30 @@ export async function exercise(): Promise<string[]> {
     check(dm instanceof sdk.Dm, "createDm did not return a Dm");
     check((await dm.peerInboxId()) === bob.inboxId, "wrong DM peer");
     results.push("objects and Group | Dm");
+
+    // The public options never return the backend token: the worker copies
+    // the redacted Rust options to the page, and the projection lifts them.
+    const token = `Bearer public-${crypto.randomUUID()}`;
+    const credentialed = await sdk.Client.create(signerFor(), {
+      ...options,
+      backend: {
+        ...backend,
+        credentials: { value: token, expiresAtSeconds: 9_007_199_254_740_993n },
+      },
+    });
+    try {
+      const saved = credentialed.options.backend;
+      check(
+        saved !== undefined &&
+          !(saved instanceof sdk.Backend) &&
+          saved.credentials === undefined,
+        "the public options return the backend credentials",
+      );
+      assertNoSecret(credentialed.options, token);
+    } finally {
+      await credentialed.end();
+    }
+    results.push("options without the backend token");
 
     // The host Message: public fields, actions, and the owner Client.
     const id = await group.sendText("public browser");
