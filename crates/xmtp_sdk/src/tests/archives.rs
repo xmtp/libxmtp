@@ -127,9 +127,9 @@ async fn archive_excludes_disappearing_messages_when_requested() {
     second.end().await?;
 }
 
-// verifies: ARCH-020, ARCH-024
+// verifies: ARCH-015, ARCH-020
 #[xmtp_common::test(unwrap_try = true)]
-async fn list_and_get_keep_restored_unknown_identity() {
+async fn list_and_get_keep_restored_groups_readable() {
     use xmtp_mls::groups::MlsGroup;
     use xmtp_mls::mls_common::group_metadata::DmMembers;
     use xmtp_proto::xmtp::device_sync::group_backup::{GroupSave, ImmutableMetadataSave};
@@ -137,6 +137,9 @@ async fn list_and_get_keep_restored_unknown_identity() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let own = client.inbox_id().into_checked()?;
     let live = client.conversations().create_group(vec![], None).await?;
+    let owner = Client::create(crate::generate_local_signer().await, options()).await?;
+    let foreign_creator = owner.inbox_id().into_checked()?;
+    let foreign_live = owner.conversations().create_group(vec![], None).await?;
     // Legacy version-0 shapes: no metadata message and no adder; a present
     // empty creator with a known adder; a DM with no metadata and no adder.
     let unknown = GroupSave {
@@ -165,16 +168,26 @@ async fn list_and_get_keep_restored_unknown_identity() {
         ),
         ..Default::default()
     };
-    for save in [&unknown, &empty, &dm] {
+    let known = GroupSave {
+        id: hex::decode(foreign_live.id().into_checked()?)?,
+        conversation_type: 1,
+        added_by_inbox_id: foreign_creator.clone(),
+        metadata: Some(ImmutableMetadataSave {
+            creator_inbox_id: foreign_creator.clone(),
+        }),
+        ..Default::default()
+    };
+    for save in [&unknown, &empty, &dm, &known] {
         MlsGroup::<xmtp_mls::MlsContext>::restore_from_archive(&client.inner.context, save)?;
     }
 
     let listed = client.conversations().list(None).await?;
-    assert_eq!(listed.len(), 4);
+    assert_eq!(listed.len(), 5);
     for (save, adder) in [
         (&unknown, None),
         (&empty, Some("archived-adder")),
         (&dm, None),
+        (&known, Some(foreign_creator.as_str())),
     ] {
         let conversation_id = ConversationId::try_from(hex::encode(&save.id))?;
         let fetched = client
@@ -185,15 +198,48 @@ async fn list_and_get_keep_restored_unknown_identity() {
         let listed = listed_conversation(&listed, &conversation_id);
         for conversation in [&fetched, listed] {
             let (creator, added_by, is_creator) = received_identity(conversation);
+            // Exact archived creator projection is deferred. The placeholder
+            // must not supply a creator; the archived adder is independent.
             assert_eq!(creator, None);
             assert!(!is_creator);
             assert_eq!(added_by.as_deref(), adder);
         }
         assert_eq!(conversation_messages_count(&fetched).await?, 0);
+        let result = match &fetched {
+            crate::Conversation::Group { group } => group.send_text("inactive".into(), None).await,
+            crate::Conversation::Dm { dm } => dm.send_text("inactive".into(), None).await,
+        };
+        assert!(
+            result.is_err(),
+            "a placeholder creator must not authorize a send"
+        );
     }
     let (creator, _, is_creator) = received_identity(listed_conversation(&listed, &live.id()));
     assert_eq!(creator.as_deref(), Some(own.as_str()));
     assert!(is_creator);
+    let captured = client
+        .conversations()
+        .get_by_id(foreign_live.id())
+        .await?
+        .expect("restored conversation before Welcome");
+    foreign_live.add_members(vec![client.inbox_id()]).await?;
+    client.conversations().sync().await?;
+    let activated = client
+        .conversations()
+        .get_by_id(foreign_live.id())
+        .await?
+        .expect("conversation after validated Welcome");
+    let listed = client.conversations().list(None).await?;
+    for conversation in [&activated, listed_conversation(&listed, &foreign_live.id())] {
+        let (creator, added_by, is_creator) = received_identity(conversation);
+        assert_eq!(creator.as_deref(), Some(foreign_creator.as_str()));
+        assert_eq!(added_by.as_deref(), Some(foreign_creator.as_str()));
+        assert!(!is_creator);
+    }
+    let (creator, _, is_creator) = received_identity(&captured);
+    assert_eq!(creator, None);
+    assert!(!is_creator);
+    owner.end().await?;
     client.end().await?;
 }
 

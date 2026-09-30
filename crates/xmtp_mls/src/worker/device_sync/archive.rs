@@ -771,16 +771,15 @@ mod tests {
         exporter::export(opts, charlie.db(), &key, &mut reexport)?;
         let reader = Box::pin(BufReader::new(Cursor::new(reexport)));
         let mut exported = ArchiveImporter::load(reader, &key).await?;
-        let mut found_group = false;
         while let Some(element) = exported.next().await {
-            if let Some(Element::Group(group)) = element?.element
-                && group.id == source.group_id.as_ref()
-            {
-                assert_eq!(group.dm_id.as_deref(), Some(archived_dm_id.as_str()));
-                found_group = true;
+            match element?.element {
+                Some(Element::Group(group)) => assert_ne!(group.id, source.group_id.as_ref()),
+                Some(Element::GroupMessage(message)) => {
+                    assert_ne!(message.group_id, source.group_id.as_ref());
+                }
+                _ => {}
             }
         }
-        assert!(found_group, "re-export must retain the archived DM pair");
 
         let reopened = crate::builder::ClientBuilder::from_client(charlie.client.clone())
             .with_disable_workers(true)

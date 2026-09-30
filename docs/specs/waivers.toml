@@ -307,7 +307,7 @@ id = "ARCH-020"
 kind = "gap"
 owner = "protocol"
 issue = "https://github.com/xmtp/libxmtp/issues/new"
-reason = "Core stores the archived record and exposes it while Restored, and the SDK list and lookup paths read it. The optional creator and adder host projections do not carry the unknown value yet."
+reason = "Restored conversations do not project the archived creator, arbitrary mutable attributes, or admin and super-admin lists. Their creator is unknown and their member and role lists are empty until validated activation. The group id, kind, DM pair, creation time, adder, disappearing scalar settings, and activity remain preserved. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
 
 [[waiver]]
 id = "CTYPE-001"
@@ -824,3 +824,31 @@ kind = "gap"
 owner = "attachments"
 issue = "https://github.com/xmtp/libxmtp/issues/4246"
 reason = "Client-level test proves streaming (at most 2 MiB process growth for a 64 MiB attachment); the per-attachment 1,048,576-byte bound is not attributable in a test."
+
+[[waiver]]
+id = "ARCH-017"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "The successful-import preservation clause has the historical-metadata gap described in ARCH-020 and ARCH-024. Export selection, defaults, windows, and failure on unreadable or unencodable selected records remain required. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "ARCH-022"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "The historical-metadata preservation clause has the gaps described in ARCH-020 and ARCH-024. Both version-0 nonce forms, group ids and DM pairs, message ids and bytes, and consent remain supported. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "ARCH-024"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Restored conversations report an unknown creator until validated activation, including when the archive supplied a creator. Legacy getters use empty text; the new SDK uses its optional unknown value. The archived adder remains exact or unknown independently. Exact archived creator projection is deferred. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."
+
+[[waiver]]
+id = "CTYPE-008"
+kind = "gap"
+owner = "protocol"
+issue = "https://plan.ref.tools/vRG5sTDlgoKQ911m"
+reason = "Legacy Swift and Kotlin V1 DecodedMessage paths retain a row with no decoded content after a decode failure, but do not expose the failure kind, diagnostics, or malformed envelope bytes to the app. Their history and delivery adapters retain the row, and delivery continues with normal acknowledgement timing. Core storage, V2 binding projections, and the new generated SDK remain subject to the requirement. The V1 gap ends when those SDKs are removed at cutover. Owner-approved scope: https://plan.ref.tools/vRG5sTDlgoKQ911m."

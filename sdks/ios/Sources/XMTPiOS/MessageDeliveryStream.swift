@@ -163,11 +163,9 @@ final class MessageDeliveryStream: @unchecked Sendable {
 				}
 				while let delivery = try await receiveNext() {
 					try Task.checkCancellation()
-					// Content that does not decode is handed off as an undecodable
-					// message with its exact bytes; the app's next request acknowledges
-					// it like any other item. Only an intentional filter, signalled by
-					// a nil result below, consumes the item without a handoff.
-					let decoded: DecodedMessage? = DecodedMessage.decodeForDelivery(
+					// Failed content still gets a handoff. Only forged membership
+					// content is consumed without a handoff.
+					let decoded: DecodedMessage? = try DecodedMessage.decodeForDelivery(
 						ffiMessage: delivery.message,
 						deliveryCursor: delivery.cursor
 					)
