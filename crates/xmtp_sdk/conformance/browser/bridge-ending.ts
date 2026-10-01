@@ -95,7 +95,10 @@ export function registerEndingTests(): void {
       return undefined;
     });
     await session.ready();
-    const owner = engine.registry.add({}, "Client");
+    const owner = engine.registry.add(
+      { end: () => Promise.resolve() },
+      "Client",
+    );
     const reader = new EventReaderProxy(
       session,
       engine.registry.add({}, "EventReader", owner.owner),
