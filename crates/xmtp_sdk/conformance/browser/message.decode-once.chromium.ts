@@ -234,6 +234,51 @@ export async function receivedStandardContentDecodesOnce(
       ),
       "reaction enrichment was lost",
     );
+    custom.fail = false;
+    const customParentId = await group.send(customEncoded);
+    const customParent =
+      await client.conversations.getMessageById(customParentId);
+    expect(customParent?.content.kind === "custom", "custom parent was lost");
+    const parentFailureReplyId = await client.conversations.replyToMessage(
+      customParentId,
+      new Pure.TextCodec().encode("valid child"),
+    );
+    custom.fail = true;
+    custom.calls = 0;
+    const parentFailed =
+      await client.conversations.getMessageById(parentFailureReplyId);
+    expect(custom.calls === 1, "failed custom parent did not decode once");
+    expect(
+      parentFailed?.content.kind === "reply" &&
+        parentFailed.replyContent?.kind === "text" &&
+        parentFailed.replyContent.value === "valid child",
+      "parent codec failure changed the child",
+    );
+    expect(
+      parentFailed.inReplyToContent?.kind === "custom" &&
+        parentFailed.inReplyToContent.error?.code === "CodecDecodeFailed" &&
+        parentFailed.inReplyToContent.error.category === "callback",
+      "parent codec failure was lost",
+    );
+    expect(
+      parentFailed.inReplyTo?.rawBytes.toString() ===
+        customParent.rawBytes.toString() &&
+        parentFailed.inReplyToContent.rawBytes.toString() ===
+          customParent.rawBytes.toString(),
+      "failed parent bytes changed",
+    );
+    await client.conversations.deleteMessage(textId);
+    await group.sync();
+    await session.call("__watchTextDecode", [text]);
+    const deleted = await client.conversations.getMessageById(textId);
+    expect(
+      deleted?.content.kind === "deletedMessage",
+      "deleted text was decoded as content",
+    );
+    expect(
+      deleted.rawBytes.length === 0 && deleted.encoded?.content.length === 0,
+      "deleted text bytes were exposed",
+    );
   } finally {
     await client?.end();
     worker.terminate();
