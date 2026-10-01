@@ -79,6 +79,7 @@ async fn discard_reports_store_left_open_when_disconnect_fails() {
 // report the store open. The browser worker then keeps its storage lock.
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_create_reports_store_left_open() {
+    use crate::client::build_task_probe::{BuildTaskProbe, CURRENT};
     use std::sync::atomic::Ordering;
 
     let kind_started = Arc::new(Notify::new());
@@ -95,7 +96,8 @@ async fn cancelled_create_reports_store_left_open() {
         xmtp_common::time::now_ns()
     ));
     settings.storage.location = explicit_location(&path);
-    let mut create = Box::pin(Client::create(signer, settings));
+    let probe = Arc::new(BuildTaskProbe::default());
+    let mut create = Box::pin(CURRENT.scope(probe.clone(), Client::create(signer, settings)));
     tokio::select! {
         _ = &mut create => panic!("create finished while its signer was pending"),
         _ = kind_started.notified() => {}
@@ -105,6 +107,11 @@ async fn cancelled_create_reports_store_left_open() {
         "the store was reported open before the create was cancelled"
     );
 
+    let core = probe
+        .client
+        .lock()
+        .take()
+        .expect("client awaiting registration");
     drop(create);
     // The foreign call runs on a blocking thread that the runtime waits for.
     kind_release.notify_one();
@@ -113,5 +120,12 @@ async fn cancelled_create_reports_store_left_open() {
         crate::client::STORE_LEFT_OPEN.load(Ordering::Relaxed),
         "a cancelled create did not report its open store"
     );
+    xmtp_common::time::timeout(Duration::from_secs(5), async {
+        while !core.context.shutdown_complete() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("cancelled registration left its client running");
     let _ = std::fs::remove_file(&path);
 }

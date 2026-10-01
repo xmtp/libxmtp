@@ -614,6 +614,7 @@ mod content_decode;
 mod content_filters;
 mod content_records;
 mod content_validation;
+mod create_adoption;
 mod create_cleanup;
 mod error_records;
 mod event_listeners;

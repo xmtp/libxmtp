@@ -65,10 +65,12 @@ impl OpenStoreGuard {
         }
     }
 
-    fn disarm(self) {
+    fn disarm(&self) {
         self.armed.store(false, Ordering::Relaxed);
     }
 }
+
+type BuildTaskOutput = (Result<Client, XmtpError>, OpenStoreGuard);
 
 impl Drop for OpenStoreGuard {
     fn drop(&mut self) {
@@ -83,30 +85,72 @@ impl Drop for OpenStoreGuard {
 
 /// Run a create or build on a runtime task. Swift polls a call on a
 /// cooperative thread whose small stack a debug core build overflows.
-/// Dropping the call aborts the task, as it would drop the work inline. On
-/// wasm32 the work runs inline.
+/// Dropping the call aborts the task. If the task has already finished, the
+/// cleanup task closes its unconsumed client. On wasm32 the work runs inline.
 #[cfg(not(target_arch = "wasm32"))]
 async fn on_build_task(
-    work: xmtp_common::BoxDynFuture<'static, Result<Client, XmtpError>>,
-) -> Result<Client, XmtpError> {
-    struct AbortOnDrop(tokio::task::AbortHandle);
+    work: xmtp_common::BoxDynFuture<'static, BuildTaskOutput>,
+) -> Result<BuildTaskOutput, XmtpError> {
+    #[cfg(test)]
+    let probe = build_task_probe::CURRENT.try_with(Arc::clone).ok();
+    #[cfg(test)]
+    let work = {
+        let probe = probe.clone();
+        Box::pin(async move {
+            let result = match &probe {
+                Some(probe) => build_task_probe::CURRENT.scope(probe.clone(), work).await,
+                None => work.await,
+            };
+            if let (Some(probe), Ok(client)) = (probe, &result.0) {
+                *probe.client.lock() = Some(client.inner.clone());
+            }
+            result
+        })
+    };
+    struct AbortOnDrop {
+        task: Option<tokio::task::JoinHandle<BuildTaskOutput>>,
+        runtime: tokio::runtime::Handle,
+    }
 
     impl Drop for AbortOnDrop {
         fn drop(&mut self) {
-            self.0.abort();
+            let Some(task) = self.task.take() else {
+                return;
+            };
+            task.abort();
+            // Abort does not remove an output that the task already returned.
+            // Keep ownership until that output has been closed or consumed.
+            self.runtime.spawn(async move {
+                if let Ok((Ok(client), _guard)) = task.await {
+                    let _ = client.discard().await;
+                }
+            });
         }
     }
 
     let task = tokio::task::spawn(work);
-    let _abort = AbortOnDrop(task.abort_handle());
-    task.await.map_err(XmtpError::unknown)?
+    #[cfg(test)]
+    if let Some(probe) = probe {
+        *probe.task.lock() = Some(task.abort_handle());
+        probe.started.notify_one();
+    }
+    let mut owner = AbortOnDrop {
+        task: Some(task),
+        runtime: tokio::runtime::Handle::current(),
+    };
+    let output = owner.task.as_mut().expect("build task").await;
+    owner.task.take();
+    output.map_err(XmtpError::unknown)
 }
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+pub(crate) mod build_task_probe;
 
 #[cfg(target_arch = "wasm32")]
 async fn on_build_task(
-    work: xmtp_common::BoxDynFuture<'static, Result<Client, XmtpError>>,
-) -> Result<Client, XmtpError> {
-    work.await
+    work: xmtp_common::BoxDynFuture<'static, BuildTaskOutput>,
+) -> Result<BuildTaskOutput, XmtpError> {
+    Ok(work.await)
 }
 
 /// @xmtp-worker Reports whether storage requires worker termination. A failed

@@ -1,6 +1,38 @@
 use super::*;
 use xmtp_mls::identity_updates::{identifier_membership, identifier_opens_inbox};
 
+/// Retain cleanup ownership while registration can be cancelled.
+struct RegisteringClient {
+    client: Option<Client>,
+    #[cfg(not(target_arch = "wasm32"))]
+    runtime: tokio::runtime::Handle,
+}
+
+impl RegisteringClient {
+    fn new(client: Client) -> Self {
+        Self {
+            client: Some(client),
+            #[cfg(not(target_arch = "wasm32"))]
+            runtime: tokio::runtime::Handle::current(),
+        }
+    }
+
+    fn take(mut self) -> Client {
+        self.client.take().expect("registering client")
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for RegisteringClient {
+    fn drop(&mut self) {
+        if let Some(client) = self.client.take() {
+            self.runtime.spawn(async move {
+                let _ = client.discard().await;
+            });
+        }
+    }
+}
+
 impl Client {
     /// End a client that a failed create does not return. The built client
     /// already runs background work on its store. The browser host releases
@@ -271,7 +303,13 @@ impl Client {
         options: ClientOptions,
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
-        let mut client = Self::build_inner(identity, options, None, false, guard).await?;
+        let client = Self::build_inner(identity, options, None, false, guard).await?;
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        let _ = build_task_probe::CURRENT.try_with(|probe| {
+            *probe.client.lock() = Some(client.inner.clone());
+        });
+        let mut registering = RegisteringClient::new(client);
+        let client = registering.client.as_mut().expect("registering client");
         if client.options.registration.auto {
             let registered = match signer::kind(signer.clone()).await {
                 Ok(kind) => client.register_with_signer(signer.clone(), kind).await,
@@ -281,11 +319,12 @@ impl Client {
                 // The caller gets the registration error. A store that stays
                 // open is reported through `storage_requires_worker_restart`.
                 let _ = client.discard().await;
+                registering.take();
                 return Err(error);
             }
         }
         client.signer = Some(signer);
-        Ok(client)
+        Ok(registering.take())
     }
 
     pub(crate) async fn register_with_signer(

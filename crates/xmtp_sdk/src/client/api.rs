@@ -9,13 +9,19 @@ impl Client {
         options.fork_recovery_opts()?;
         let guard = OpenStoreGuard::default();
         let mut task_guard = guard.share();
-        let created = on_build_task(Box::pin(async move {
-            let identity = signer::identity(signer.clone()).await?;
-            let created = Self::create_with_guard(signer, identity, options, &mut task_guard).await;
-            task_guard.disarm();
-            created
+        let (created, task_guard) = on_build_task(Box::pin(async move {
+            let created = async {
+                let identity = signer::identity(signer.clone()).await?;
+                Self::create_with_guard(signer, identity, options, &mut task_guard).await
+            }
+            .await;
+            if created.is_err() {
+                task_guard.disarm();
+            }
+            (created, task_guard)
         }))
-        .await;
+        .await?;
+        task_guard.disarm();
         drop(guard);
         created
     }
@@ -33,12 +39,15 @@ impl Client {
     ) -> Result<Self, XmtpError> {
         let guard = OpenStoreGuard::default();
         let mut task_guard = guard.share();
-        let built = on_build_task(Box::pin(async move {
+        let (built, task_guard) = on_build_task(Box::pin(async move {
             let built = Self::build_inner(identity, options, inbox_id, true, &mut task_guard).await;
-            task_guard.disarm();
-            built
+            if built.is_err() {
+                task_guard.disarm();
+            }
+            (built, task_guard)
         }))
-        .await;
+        .await?;
+        task_guard.disarm();
         drop(guard);
         built
     }
