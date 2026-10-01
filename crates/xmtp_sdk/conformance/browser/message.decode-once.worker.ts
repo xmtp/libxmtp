@@ -49,7 +49,7 @@ new WorkerHost(
       return undefined;
     }
     if (key === "__textDecodeCount") return sdkConformanceTextDecodeCount();
-    return dispatchGenerated(key, args, context);
+    return await dispatchGenerated(key, args, context);
   },
   browserPoolLocks(),
 );
