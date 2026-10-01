@@ -42,7 +42,7 @@ use xmtp_proto::xmtp::mls::message_contents::{
     metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
 };
 
-use super::{load_component_registry, pending_dictionary, stage_app_data_proposals_and_commit};
+use super::{pending_dictionary, stage_app_data_proposals_and_commit};
 use crate::groups::{
     AdminListActionType, GroupError,
     error::MetadataPermissionsError,
@@ -257,12 +257,12 @@ pub(crate) fn apply_app_data_update_intent(
             AppDataUpdateOperation::Update(payload.into()),
         )],
         AppDataUpdateIntentData::Fields(writes) => {
-            resolve_field_writes(openmls_group, own, &writes)?
+            let Some(updates) = field_writes_commit(openmls_group, own, &writes)? else {
+                return Ok(None);
+            };
+            updates
         }
     };
-    if updates.is_empty() {
-        return Ok(None);
-    }
     stage_updates(
         storage,
         openmls_group,
@@ -274,39 +274,96 @@ pub(crate) fn apply_app_data_update_intent(
     .map(Some)
 }
 
-/// The `AppDataUpdate` operations of `writes` by `own` in a commit built
-/// now. Field types and policies come from the committed registry; current
-/// values and membership from the committed dictionary with pending
-/// proposals applied. A write the policies deny is refused here, as every
-/// receiver would refuse it, so it is never published.
-pub(crate) fn resolve_field_writes(
+/// The operations of the commit that carries out `writes` by `own`, or
+/// `None` when no commit is needed. Field types and policies come from the
+/// committed registry. A write the policies deny fails `Denied` here, so it
+/// is never published. Each write is checked in one of two ways:
+///
+/// - A write that changes the values pending proposals leave is checked as
+///   the operations that carry it out, against the committed dictionary
+///   with pending proposals applied and its membership, as every receiver
+///   checks them.
+/// - A write that pending proposals already carry out adds no operation, so
+///   no receiver checks it. It is judged by its net change to the committed
+///   values, against those values and the membership before the commit,
+///   even when another write adds an operation. This can refuse a write
+///   that receivers would accept as an operation after the proposals: when
+///   only admins may insert an entry but anyone may update it, and an
+///   admin's pending proposal inserts a non-admin's entry, that non-admin
+///   writing the proposed value is refused, because its net change is the
+///   insert, while writing another value is an update and is accepted.
+///   When the committed values cannot take the write (a map update of an
+///   entry only a pending proposal inserted), it is checked as its
+///   operations after the pending proposals instead.
+///
+/// The operations are empty when pending proposals already carry out the
+/// writes but the committed values do not: the value is then pending, not
+/// committed, and the commit of the pending proposals commits it. A write
+/// the committed values already carry out needs no commit, whatever other
+/// entries pending proposals change.
+// implements: META-071, META-073
+pub(crate) fn field_writes_commit(
     openmls_group: &OpenMlsGroup,
     own: InboxId,
     writes: &[FieldWrite],
-) -> Result<Vec<(ComponentId, AppDataUpdateOperation)>, GroupError> {
+) -> Result<Option<Vec<(ComponentId, AppDataUpdateOperation)>>, GroupError> {
     let committed = openmls_group
         .extensions()
         .app_data_dictionary()
         .map(|extension| extension.dictionary());
+    let snapshot = FieldSnapshot::new(committed, &[])?;
     let values = pending_dictionary(openmls_group)?;
-    let updates = FieldSnapshot::new(committed, &[])?.resolve_writes(Some(&values), own, writes)?;
-    authorize_updates(openmls_group, &values, &updates)?;
-    Ok(updates)
+    let updates = snapshot.resolve_writes(Some(&values), own, writes)?;
+    authorize_updates(openmls_group, snapshot.registry(), &values, &updates)?;
+    let empty = AppDataDictionary::default();
+    let mut carried = false;
+    for write in writes.iter().map(std::slice::from_ref) {
+        if !snapshot
+            .resolve_writes(Some(&values), own, write)?
+            .is_empty()
+        {
+            continue;
+        }
+        // No operation of ours carries this write, so no receiver checks
+        // it: it is checked here as the change it makes to the committed
+        // values. When the committed values cannot take it (such as a map
+        // update of a key only a pending proposal inserted), it is checked
+        // as the operation that would carry it out after the pending
+        // proposals.
+        match snapshot.resolve_writes(committed, own, write) {
+            Ok(changes) if changes.is_empty() => continue,
+            Ok(changes) => authorize_updates(
+                openmls_group,
+                snapshot.registry(),
+                committed.unwrap_or(&empty),
+                &changes,
+            )?,
+            Err(_) => authorize_updates(
+                openmls_group,
+                snapshot.registry(),
+                &values,
+                &snapshot.write_operations(Some(&values), own, write)?,
+            )?,
+        }
+        carried = true;
+    }
+    Ok((carried || !updates.is_empty()).then_some(updates))
 }
 
-/// Check `updates` by this client, in order, against the committed
-/// registry's policies as a receiver would, starting from `values`.
-///
-/// The `GROUP_MEMBERSHIP` of `values` is the commit's post-commit
-/// membership: no field is `GROUP_MEMBERSHIP`, and membership upkeep only
-/// cleans up after removals already pending, never changing membership.
+/// Check `updates` by this client, in order, against `registry`'s policies
+/// as a receiver would, starting from `values` and reading membership from
+/// their `GROUP_MEMBERSHIP`. With pending proposals applied, that is the
+/// commit's post-commit membership: no field is `GROUP_MEMBERSHIP`, and
+/// membership upkeep only cleans up after removals already pending, never
+/// changing membership. With the committed values, it is the membership
+/// before the commit.
 // implements: META-071, META-073
 fn authorize_updates(
     openmls_group: &OpenMlsGroup,
+    registry: &ComponentRegistry,
     values: &AppDataDictionary,
     updates: &[(ComponentId, AppDataUpdateOperation)],
 ) -> Result<(), GroupError> {
-    let registry = load_component_registry(openmls_group)?;
     let (immutable, mutable) = read_committed_metadata(openmls_group)?;
     let own = extract_commit_participant(
         &openmls_group.own_leaf_index(),
@@ -329,7 +386,7 @@ fn authorize_updates(
         let post = validate_app_data_update_sequence(
             [update],
             |id| states.get(&id).cloned().unwrap_or_else(|| value(id)),
-            &registry,
+            registry,
             immutable.dm_members.as_ref(),
             members.as_ref(),
         )

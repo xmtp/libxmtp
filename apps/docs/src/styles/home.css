@@ -312,6 +312,10 @@ body:has(.home-header) .sl-container > * {
   color: var(--home-muted);
   margin: 0 0 10px;
 }
+.security-facts .home-link {
+  display: table;
+  margin-top: 10px;
+}
 .security-facts details {
   border-top: 1px solid var(--home-line);
   padding-top: 15px;
@@ -463,7 +467,7 @@ body:has(.home-header) .sl-container > * {
   margin-top: 12px;
 }
 .home .group-note {
-  color: #7b8493;
+  color: var(--home-muted);
   font-size: 12px;
   line-height: 1.65;
   max-width: 900px;

@@ -8,26 +8,18 @@
     <button
       type="button"
       role="tab"
-      id="agent-tab-two"
-      aria-controls="agent-panel-two"
-      aria-selected="true">Connect two agents</button
+      id="agent-tab-group"
+      aria-controls="agent-panel-group"
+      aria-selected="true">Create an agent group</button
     >
     <button
       type="button"
       role="tab"
-      id="agent-tab-group"
-      aria-controls="agent-panel-group"
+      id="agent-tab-two"
+      aria-controls="agent-panel-two"
       aria-selected="false"
-      tabindex="-1">Create an agent group</button
+      tabindex="-1">Connect two agents</button
     >
-  </div>
-  <div
-    id="agent-panel-two"
-    role="tabpanel"
-    aria-labelledby="agent-tab-two"
-    tabindex="0"
-  >
-    <slot name="two" />
   </div>
   <div
     id="agent-panel-group"
@@ -36,6 +28,14 @@
     tabindex="0"
   >
     <slot name="group" />
+  </div>
+  <div
+    id="agent-panel-two"
+    role="tabpanel"
+    aria-labelledby="agent-tab-two"
+    tabindex="0"
+  >
+    <slot name="two" />
   </div>
 </home-agent-examples>
 <script>

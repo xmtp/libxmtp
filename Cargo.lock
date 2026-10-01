@@ -13547,6 +13547,7 @@ dependencies = [
  "xmtp_api",
  "xmtp_api_backend",
  "xmtp_archive",
+ "xmtp_attachments",
  "xmtp_common",
  "xmtp_configuration",
  "xmtp_content_types",

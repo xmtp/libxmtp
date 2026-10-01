@@ -20,6 +20,7 @@ targets = [
 ]
 
 [features]
+conformance = []
 test-utils = [
   "tracing-subscriber",
   "xmtp_id/test-utils-anvil",

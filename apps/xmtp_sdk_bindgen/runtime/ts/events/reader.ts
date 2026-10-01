@@ -23,9 +23,11 @@ export class EventStream implements AsyncIterableIterator<ClientEvent> {
     this.pending = read;
     try {
       const value = await this.reader.next({ signal: read.signal });
-      return this.isClosed() || value === undefined
-        ? done
-        : { done: false, value };
+      if (this.isClosed() || value === undefined) {
+        this.closed = true;
+        return done;
+      }
+      return { done: false, value };
     } catch (error) {
       if (this.isClosed()) return done;
       throw error;

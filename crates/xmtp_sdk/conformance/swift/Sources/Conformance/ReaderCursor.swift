@@ -4,7 +4,7 @@ import XmtpSdk
 // verifies: PROC-033, PROC-034, PROC-050
 func checkReaderCursor(signer: Signer, backend: BackendOptions) async throws {
     let path = FileManager.default.temporaryDirectory.appendingPathComponent("f3-cursor-\(UUID().uuidString).db").path
-    let options = ClientOptions(backend: .options(options: backend), storage: StorageOptions(location: .path(path)), deviceSync: false)
+    let options = ClientOptions(backend: .options(options: backend), storage: StorageOptions(location: .explicit(dbPath: path, attachmentsDir: path + "-attachments")), deviceSync: false)
     var host = try await SDKClient.create(signer: signer, options: options)
     let identity = try await signer.identity()
     let inbox = host.inboxId()

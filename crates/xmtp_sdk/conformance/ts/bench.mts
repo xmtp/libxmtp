@@ -1,8 +1,8 @@
 import { existsSync, realpathSync } from "node:fs";
-import { copyFile, mkdtemp } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { performance } from "node:perf_hooks";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -100,7 +100,7 @@ const options = (directory: string) => ({
     },
   }),
   storage: {
-    location: new sdk.StorageLocation.Directory(directory),
+    location: new sdk.StorageLocation.Directory({ directory }),
     label: undefined,
     encryptionKey: undefined,
     pool: undefined,
@@ -117,8 +117,10 @@ const seededEmpty = await seedClient.conversations().createGroup([]);
 const pageId = seededPage.id().toString();
 const emptyId = seededEmpty.id().toString();
 const inboxId = seedClient.inboxId().toString();
-const dbName = `xmtp-${inboxId}.db3`;
-const dbPath = join(seedDirectory, dbName);
+const seedStorage = seedClient.storage();
+const dbPath = (await seedStorage.path())!;
+const dbName = relative(seedDirectory, dbPath);
+seedStorage.uniffiDestroy();
 await seedClient.end();
 seededPage.uniffiDestroy();
 seededEmpty.uniffiDestroy();
@@ -148,6 +150,7 @@ for (let i = 0; i < 10_000; i++) {
   if ((i + 1) % 1000 === 0) console.log(`Seeded ${i + 1}/10000 messages`);
 }
 const sdkDirectory = await mkdtemp(join(tmpdir(), "xmtp-sdk-bench-copy-"));
+await mkdir(dirname(join(sdkDirectory, dbName)), { recursive: true });
 for (const suffix of ["", "-wal", "-shm"]) {
   if (existsSync(dbPath + suffix)) {
     await copyFile(dbPath + suffix, join(sdkDirectory, dbName + suffix));

@@ -347,7 +347,7 @@ async fn storage_key_rejects_wrong_key_for_existing_database() {
     let signer = crate::generate_local_signer().await;
     let mut first_options = options();
     first_options.storage = StorageOptions {
-        location: StorageLocation::Path(path.to_string_lossy().into_owned()),
+        location: explicit_location(&path),
         encryption_key: Some(vec![7; 32]),
         ..Default::default()
     };

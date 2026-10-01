@@ -1,5 +1,4 @@
 use std::{collections::HashMap, future::Future, sync::Arc};
-#[cfg(not(target_arch = "wasm32"))]
 use xmtp_common::StreamHandle;
 use xmtp_content_types::{
     ContentCodec,
@@ -33,7 +32,7 @@ use crate::{
 // Keep these declarations in one module so generated binding paths stay stable.
 mod calls;
 use calls::deletion_group;
-pub(crate) use calls::{enter_call, on_sdk_worker};
+pub(crate) use calls::{enter_call, on_sdk_worker, on_settled_worker};
 include!("conversation/collection.rs");
 include!("conversation/identity.rs");
 mod content;
@@ -41,5 +40,6 @@ pub(crate) use content::{lift_history_messages, query_content_types};
 use content::{require_content_type, send_encoded, send_standard};
 include!("conversation/common.rs");
 include!("conversation/group.rs");
+include!("conversation/metadata.rs");
 
 include!("conversation/conformance.rs");

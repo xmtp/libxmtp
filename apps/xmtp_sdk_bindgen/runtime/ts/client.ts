@@ -66,7 +66,7 @@ function resolvedOptions(options: ClientOptions): ClientOptions {
     ...options,
     storage: {
       ...options.storage,
-      location: new StorageLocation.Directory(directory),
+      location: new StorageLocation.Directory({ directory }),
     },
   };
 }

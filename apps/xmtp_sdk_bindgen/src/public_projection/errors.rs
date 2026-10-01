@@ -1,26 +1,52 @@
 //! Public thrown errors (Decision 15).
 //!
-//! A binding error enum whose every variant carries one `ErrorDetails` becomes
-//! a public error class with plain `details` and one subclass per code, so
-//! `instanceof` still works. No binding error class reaches the public API.
+//! A binding error enum whose every variant carries `ErrorDetails` first
+//! becomes a public error class with plain `details` and one subclass per
+//! code, so `instanceof` still works. A variant can carry more unnamed fields
+//! after its details; its subclass exposes each one as a readonly property
+//! named after the field's type, for example `attachmentFailure`. No binding
+//! error class reaches the public API.
 
 use std::fmt::Write as _;
 
-use anyhow::Result;
-use uniffi_meta::{EnumMetadata, Type};
+use anyhow::{Result, bail};
+use heck::ToLowerCamelCase as _;
+use uniffi_meta::{EnumMetadata, FieldMetadata, Type, VariantMetadata};
 
-use super::Target;
+use super::{Target, convert, public_type};
 
 /// True for an error enum that the public layer throws as classes.
 pub(super) fn is_details_error(value: &EnumMetadata) -> bool {
-    value.shape.is_error()
-        && !value.variants.is_empty()
-        && value.variants.iter().all(|variant| {
-            matches!(
-                variant.fields.as_slice(),
-                [field] if matches!(&field.ty, Type::Record { name, .. } if name == "ErrorDetails")
-            )
+    value.shape.is_error() && !value.variants.is_empty() && value.variants.iter().all(|variant| {
+        matches!(
+            variant.fields.first(),
+            Some(field) if matches!(&field.ty, Type::Record { name, .. } if name == "ErrorDetails")
+        ) && variant.fields.iter().all(|field| field.name.is_empty())
+    })
+}
+
+/// The fields a variant carries after its details, with their public names.
+fn extra_fields(variant: &VariantMetadata) -> Result<Vec<(String, &FieldMetadata)>> {
+    let extras = variant
+        .fields
+        .iter()
+        .skip(1)
+        .map(|field| match &field.ty {
+            Type::Record { name, .. } | Type::Enum { name, .. } => {
+                Ok((name.to_lower_camel_case(), field))
+            }
+            other => bail!(
+                "{}: an error field after the details must be a record or enum, not {other:?}",
+                variant.name
+            ),
         })
+        .collect::<Result<Vec<_>>>()?;
+    for (index, (name, _)) in extras.iter().enumerate() {
+        if name == "details" || extras[..index].iter().any(|(other, _)| other == name) {
+            bail!("{}: two error fields share the name {name}", variant.name);
+        }
+    }
+    Ok(extras)
 }
 
 pub(super) fn error_class(code: &mut String, value: &EnumMetadata, target: Target) -> Result<()> {
@@ -57,10 +83,33 @@ fn class(code: &mut String, value: &EnumMetadata) -> Result<()> {
     }
     code.push_str("}\n");
     for variant in &value.variants {
+        let v = &variant.name;
         writeln!(
             code,
-            "class {name}{v} extends {name} {{\n  declare readonly details: ErrorDetails & {{ readonly code: \"{v}\" }};\n}}\nObject.defineProperty({name}, \"{v}\", {{ value: {name}{v} }});",
-            v = variant.name
+            "class {name}{v} extends {name} {{\n  declare readonly details: ErrorDetails & {{ readonly code: \"{v}\" }};"
+        )?;
+        let extras = extra_fields(variant)?;
+        if !extras.is_empty() {
+            for (field, metadata) in &extras {
+                writeln!(code, "  readonly {field}: {};", public_type(&metadata.ty))?;
+            }
+            let parameters = extras
+                .iter()
+                .map(|(field, metadata)| format!("{field}: {}", public_type(&metadata.ty)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            writeln!(
+                code,
+                "  constructor(details: ErrorDetails, {parameters}) {{\n    super(details);"
+            )?;
+            for (field, _) in &extras {
+                writeln!(code, "    this.{field} = {field};")?;
+            }
+            code.push_str("  }\n");
+        }
+        writeln!(
+            code,
+            "}}\nObject.defineProperty({name}, \"{v}\", {{ value: {name}{v} }});"
         )?;
     }
     Ok(())
@@ -74,9 +123,19 @@ fn conversions(code: &mut String, value: &EnumMetadata) -> Result<()> {
         "export function lift{name}(value: B.{name}, projection: ObjectProjection): {name} {{\n  const details = liftErrorDetails(value.inner[0], projection);\n  switch (value.tag) {{"
     )?;
     for variant in &value.variants {
+        let extras = extra_fields(variant)?
+            .iter()
+            .enumerate()
+            .map(|(index, (_, field))| {
+                format!(
+                    ", {}",
+                    convert(&field.ty, &format!("value.inner[{}]", index + 1), false)
+                )
+            })
+            .collect::<String>();
         writeln!(
             code,
-            "    case B.{name}_Tags.{v}: return new {name}.{v}(details);",
+            "    case B.{name}_Tags.{v}: return new {name}.{v}(details{extras});",
             v = variant.name
         )?;
     }
@@ -87,10 +146,27 @@ fn conversions(code: &mut String, value: &EnumMetadata) -> Result<()> {
         "export function lower{name}(value: {name}, projection: ObjectProjection): B.{name} {{\n  const details = lowerErrorDetails(value.details, projection);"
     )?;
     for variant in &value.variants {
+        let v = &variant.name;
+        let extras = extra_fields(variant)?;
+        if extras.is_empty() {
+            writeln!(
+                code,
+                "  if (value.constructor === {name}.{v}) return B.{name}.{v}.new(details);"
+            )?;
+            continue;
+        }
+        let arguments = extras
+            .iter()
+            .map(|(field, metadata)| {
+                format!(
+                    ", {}",
+                    convert(&metadata.ty, &format!("value.{field}"), true)
+                )
+            })
+            .collect::<String>();
         writeln!(
             code,
-            "  if (value.constructor === {name}.{v}) return B.{name}.{v}.new(details);",
-            v = variant.name
+            "  if (value instanceof {name}.{v} && value.constructor === {name}.{v}) return B.{name}.{v}.new(details{arguments});"
         )?;
     }
     writeln!(
@@ -115,7 +191,9 @@ pub(super) fn bridge_error(code: &mut String, value: &EnumMetadata) -> Result<()
         code,
         "const bindingCategories: ReadonlySet<unknown> = new Set(Object.values(B.ErrorCategory));\nfunction isBindingCategory(value: unknown): value is B.ErrorCategory {{\n  return typeof value === \"number\" && bindingCategories.has(value);\n}}\nfunction liftBridgeError(error: BridgeError, projection: ObjectProjection): {name} {{\n  const details: ErrorDetails = {{\n    code: error.code,\n    category: isBindingCategory(error.category) ? liftErrorCategory(error.category, projection) : \"unknown\",\n    retryable: error.retryable,\n    message: error.message,\n  }};\n  switch (error.code) {{"
     )?;
-    for variant in &value.variants {
+    // A variant with fields after its details has no public form without
+    // them, so its code takes the fallback.
+    for variant in value.variants.iter().filter(|v| v.fields.len() == 1) {
         writeln!(
             code,
             "    case \"{v}\": return new {name}.{v}(details);",

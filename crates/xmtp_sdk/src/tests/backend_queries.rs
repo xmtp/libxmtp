@@ -8,7 +8,7 @@ async fn backend_only_identity_and_message_queries() {
         xmtp_common::time::now_ns(),
     ));
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let client = Client::create(crate::generate_local_signer().await, settings.clone()).await?;
     let Some(BackendSource::Options {
         options: backend_options,

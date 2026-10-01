@@ -12,6 +12,10 @@
 use std::collections::BTreeMap;
 
 use openmls::group::MlsGroup as OpenMlsGroup;
+use xmtp_db::{
+    Fetch,
+    group_intent::{ID, IntentState, StoredGroupIntent},
+};
 use xmtp_mls_common::{
     app_data::fields::{
         ComponentMutation, FieldError, FieldKey, FieldSnapshot, FieldValue, FieldWrite,
@@ -23,7 +27,7 @@ use xmtp_mls_common::{
 
 use super::{
     GroupError, MlsGroup,
-    app_data::sender_intents::resolve_field_writes,
+    app_data::sender_intents::field_writes_commit,
     intents::{AppDataUpdateIntentData, QueueIntent},
 };
 use crate::context::XmtpSharedContext;
@@ -135,7 +139,10 @@ where
     /// call, so success is true at that point, and a commit that lands
     /// later is a later write, as it would be after a commit of ours. The
     /// publisher cannot make this call instead: it publishes before it
-    /// receives, so it sees the same local state.
+    /// receives, so it sees the same local state. A write that pending
+    /// proposals carry out but the committed values do not still commits
+    /// them, here and when it is published, so success never rests on an
+    /// uncommitted value.
     async fn write_fields(
         &self,
         plan: impl FnOnce(&FieldSnapshot<'_>) -> Result<Vec<FieldWrite>, FieldError>,
@@ -150,15 +157,49 @@ where
                 .app_data_dictionary()
                 .map(|extension| extension.dictionary());
             let writes = plan(&FieldSnapshot::new(committed, &[])?)?;
-            let changes = !resolve_field_writes(group, own, &writes)?.is_empty();
-            Ok(changes.then_some(writes))
+            Ok(field_writes_commit(group, own, &writes)?.map(|_| writes))
         })?;
         let Some(writes) = writes else {
             return Ok(());
         };
         let intent = QueueIntent::app_data_update()
-            .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(writes)))
+            .data(Vec::<u8>::from(AppDataUpdateIntentData::Fields(
+                writes.clone(),
+            )))
             .queue(self)?;
-        self.sync_until_intent_resolved(intent.id).await.map(drop)
+        self.publish_field_writes(intent.id, own, &writes).await
+    }
+
+    /// Publish `writes`, which `own` queued as `intent_id`. The publisher
+    /// resolves them again when it builds their commit, so a commit that
+    /// lands first and re-types a field or tightens its policy fails the
+    /// intent before it is published. That failure is stored without
+    /// details, and another sync or another queued write may be the one
+    /// that reports it, so a failed intent is resolved again here and its
+    /// own [`FieldError`] returned in place of the sync error. A write that
+    /// is still queued keeps the sync error: it has not failed yet.
+    pub(super) async fn publish_field_writes(
+        &self,
+        intent_id: ID,
+        own: InboxId,
+        writes: &[FieldWrite],
+    ) -> Result<(), GroupError> {
+        let Err(error) = self.sync_until_intent_resolved(intent_id).await else {
+            return Ok(());
+        };
+        let failed = matches!(
+            self.context.db().fetch(&intent_id),
+            Ok(Some(StoredGroupIntent {
+                state: IntentState::Error,
+                ..
+            }))
+        );
+        if failed
+            && let Err(field @ GroupError::MetadataField(_)) =
+                self.with_group_snapshot(|group| field_writes_commit(group, own, writes))
+        {
+            return Err(field);
+        }
+        Err(error)
     }
 }

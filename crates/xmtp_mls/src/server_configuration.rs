@@ -186,6 +186,18 @@ impl ServerConfigurationHandle {
         }
     }
 
+    /// Replace the test catalogue and keep resolved admission and preflight state.
+    #[cfg(any(test, feature = "test-utils", feature = "conformance"))]
+    pub(crate) fn with_application_components(
+        mut self,
+        components: Vec<xmtp_configuration::ApplicationComponentDefinition>,
+    ) -> Self {
+        let mut configuration = self.configuration().clone();
+        configuration.application_components = components;
+        self.provider = Arc::new(StoredConfigProvider::new(configuration));
+        self
+    }
+
     /// Restrict app-supplied smart contract wallet signatures to the chains the
     /// snapshot names. Skipped entirely when the app
     /// supplied its own verifier, which the chain restriction exempts.

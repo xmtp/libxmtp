@@ -94,7 +94,10 @@ export async function checkWorkerAdmission(
       },
     }),
     storage: {
-      location: B.StorageLocation.Path.new(path),
+      location: B.StorageLocation.Explicit.new({
+        dbPath: path,
+        attachmentsDir: `${path}-attachments`,
+      }),
       label: path,
       pool: undefined,
       singleConnection: false,
@@ -157,7 +160,10 @@ export async function checkWorkerAdmission(
             ...options,
             storage: {
               ...options.storage,
-              location: B.StorageLocation.Path.new(peerPath),
+              location: B.StorageLocation.Explicit.new({
+                dbPath: peerPath,
+                attachmentsDir: `${peerPath}-attachments`,
+              }),
               label: peerPath,
             },
           },

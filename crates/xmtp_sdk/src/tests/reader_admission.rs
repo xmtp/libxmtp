@@ -179,7 +179,7 @@ async fn cancelled_prepared_fallback_redelivers_after_reopen() {
         std::env::temp_dir().join(format!("sdk-prepared-{}.db3", xmtp_common::time::now_ns()));
     let signer = crate::generate_local_signer().await;
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let client = Client::create(signer.clone(), settings.clone()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let group_id = group.id();

@@ -13,7 +13,7 @@ suspend fun checkReaderCursor(
     val options =
         ClientOptions(
             backend = BackendSource.Options(backend),
-            storage = StorageOptions(location = StorageLocation.Path(path)),
+            storage = StorageOptions(location = StorageLocation.Explicit(path, "$path-attachments")),
             deviceSync = false,
         )
     var host = SDKClient.create(signer, options)

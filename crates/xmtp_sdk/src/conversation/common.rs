@@ -201,7 +201,7 @@ macro_rules! common_conversation {
                         group
                             .publish_messages()
                             .await
-                            .map_err(XmtpError::from_group)
+                            .map_err(XmtpError::from_group_write)
                     }),
                 )
                 .await
@@ -216,7 +216,7 @@ macro_rules! common_conversation {
                         group
                             .publish_stored_message(&bytes)
                             .await
-                            .map_err(XmtpError::from_group)
+                            .map_err(XmtpError::from_group_write)
                     }),
                 )
                 .await

@@ -7,24 +7,48 @@ impl Client {
     ) -> Result<Self, XmtpError> {
         // Check ID arguments before the signer callback runs.
         options.fork_recovery_opts()?;
-        let identity = signer::identity(signer.clone()).await?;
-        let mut guard = OpenStoreGuard::default();
-        let created = Self::create_with_guard(signer, identity, options, &mut guard).await;
-        guard.disarm();
+        let guard = OpenStoreGuard::default();
+        let mut task_guard = guard.share();
+        let (created, task_guard) = on_build_task(Box::pin(async move {
+            let created = async {
+                let identity = signer::identity(signer.clone()).await?;
+                Self::create_with_guard(signer, identity, options, &mut task_guard).await
+            }
+            .await;
+            if created.is_err() {
+                task_guard.disarm();
+            }
+            (created, task_guard)
+        }))
+        .await?;
+        task_guard.disarm();
+        drop(guard);
         created
     }
 
     /// Build requires a stored identity. It fetches server configuration by default.
-    /// Set `allowOffline` to true with a known inbox ID to use stored state offline.
+    /// Set `allowOffline` to true to use stored state offline; it needs a known
+    /// inbox ID unless the storage location is `Explicit`.
+    /// With an `inboxId`, build skips the `Explicit` identity check and trusts
+    /// the caller, as `Directory` storage does.
     #[uniffi::constructor]
     pub async fn build(
         identity: PublicIdentity,
         options: ClientOptions,
         inbox_id: Option<InboxId>,
     ) -> Result<Self, XmtpError> {
-        let mut guard = OpenStoreGuard::default();
-        let built = Self::build_inner(identity, options, inbox_id, true, &mut guard).await;
-        guard.disarm();
+        let guard = OpenStoreGuard::default();
+        let mut task_guard = guard.share();
+        let (built, task_guard) = on_build_task(Box::pin(async move {
+            let built = Self::build_inner(identity, options, inbox_id, true, &mut task_guard).await;
+            if built.is_err() {
+                task_guard.disarm();
+            }
+            (built, task_guard)
+        }))
+        .await?;
+        task_guard.disarm();
+        drop(guard);
         built
     }
 
@@ -67,6 +91,12 @@ impl Client {
             path: self.storage_path.clone(),
             listeners: self.listeners.clone(),
             event_readers: self.event_readers.clone(),
+        })
+    }
+
+    pub fn attachments(&self) -> Arc<Attachments> {
+        Arc::new(Attachments {
+            client: self.inner.clone(),
         })
     }
 

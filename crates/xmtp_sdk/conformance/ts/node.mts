@@ -14,14 +14,25 @@ import { checkConfigurationMismatch } from "./config-mismatch.mts";
 import { checkIdentityRoutes } from "./identity-routes.mts";
 import { checkOnValueFailure } from "./node-callback-failure.mts";
 import {
+  attachmentEnd,
+  attachmentFailures,
+  attachmentFlow,
+  attachmentRecords,
+  attachmentSettings,
+} from "./node-attachments.mts";
+import { checkOnValueFailure } from "./node-callback-failure.mts";
+import {
   assertEncodedEqual,
   checkStandardCodecs,
   isInvalidId,
 } from "./node-codecs.mts";
 import { logging } from "./node-logging.mts";
+import { metadataFields } from "./node-metadata.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
+import { storageLayout } from "./node-storage-layout.mts";
 import { streamFailures } from "./node-stream-failures.mts";
 import { streamLifecycle } from "./node-stream-lifecycle.mts";
+import { deploymentComponent } from "./node-support.mts";
 import { checkReaderCursor, checkRestoredPeer } from "./reader-cursor.mts";
 
 const viemRoot = realpathSync(
@@ -122,6 +133,12 @@ const options = {
 await checkReaderCursor(signer, backendOptions);
 await checkRestoredPeer(backendOptions);
 await checkIdentityRoutes(backendOptions);
+await storageLayout(backendOptions);
+await attachmentSettings(backendOptions);
+await attachmentFlow(backendOptions);
+await attachmentFailures(backendOptions);
+await attachmentRecords(backendOptions);
+await attachmentEnd(backendOptions);
 await checkConfigurationMismatch(signer, backendOptions);
 console.log(
   "Node offline build on another deployment fails with BackendMismatch",
@@ -230,7 +247,10 @@ try {
     ),
     (error) => error instanceof sdk.XmtpError.IdentityNotFound,
   );
-  assert.equal((await readdir(join(defaultRoot, "xmtp"))).length, 0);
+  const defaultFiles = await readdir(join(defaultRoot, "xmtp"), {
+    recursive: true,
+  }).catch(() => []);
+  assert.ok(!defaultFiles.some((file) => file.endsWith(".db3")));
   // verifies: STORE-004
   const defaultClient = await sdk.Client.create(signer, {
     ...options,
@@ -242,7 +262,9 @@ try {
   const defaultPath = join(
     defaultRoot,
     "xmtp",
-    `xmtp-${defaultClient.inboxId}.db3`,
+    deploymentComponent(defaultClient.serverConfiguration.identifier),
+    String(defaultClient.inboxId),
+    "xmtp.db3",
   );
   assert.equal(await defaultClient.storage.path(), realpathSync(defaultPath));
   assert.ok((await stat(defaultPath)).isFile());
@@ -445,6 +467,8 @@ await unsigned.unsafeApplySignatureRequest(request);
 assert.equal(await unsigned.isRegistered(), true);
 await unsigned.end();
 console.log("Node scenario 11: local signer and signature request passed");
+await metadataFields(options);
+console.log("Node metadata fields and profiles passed");
 
 // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
 function recordingSigner(calls: string[]): sdk.Signer {

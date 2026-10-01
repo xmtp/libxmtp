@@ -272,7 +272,7 @@ export enum StorageLocation_Tags {
 
 export type StorageLocation = { tag: StorageLocation_Tags };
 export declare const StorageLocation: {
-  Directory: new (directory: string) => StorageLocation;
+  Directory: new (inner: { directory: string }) => StorageLocation;
 };
 
 export type ClientOptions = {

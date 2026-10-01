@@ -53,7 +53,12 @@ async function options(
   const directory = await mkdtemp(join(tmpdir(), "xmtp-public-streams-"));
   return {
     backend,
-    storage: { location: { path: join(directory, "client.db") } },
+    storage: {
+      location: {
+        dbPath: join(directory, "client.db"),
+        attachmentsDir: join(directory, "attachments"),
+      },
+    },
     deviceSync: false,
     codecs,
   };

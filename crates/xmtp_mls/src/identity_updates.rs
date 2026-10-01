@@ -176,6 +176,34 @@ pub async fn get_association_state_with_verifier(
     Ok(association_state)
 }
 
+/// Whether the association state of the inbox in the database holds the
+/// identifier, or `None` when the database has no identity update of the
+/// inbox. Computing the state caches it in the database.
+pub async fn identifier_membership(
+    conn: &impl DbQuery,
+    inbox_id: &str,
+    identifier: &Identifier,
+    scw_verifier: &impl SmartContractSignatureVerifier,
+) -> Result<Option<bool>, ClientError> {
+    match get_association_state_with_verifier(conn, inbox_id, None, scw_verifier).await {
+        Ok(state) => Ok(Some(state.get(&identifier.clone().into()).is_some())),
+        Err(ClientError::Association(AssociationError::MissingIdentityUpdate)) => Ok(None),
+        Err(error) => Err(error),
+    }
+}
+
+/// Whether the identifier may open the database of the inbox, given its
+/// [`identifier_membership`]. Only the identity that creates an inbox belongs
+/// to it before its first identity update.
+pub fn identifier_opens_inbox(
+    membership: Option<bool>,
+    identifier: &Identifier,
+    nonce: u64,
+    inbox_id: &str,
+) -> bool {
+    membership.unwrap_or_else(|| identifier.inbox_id(nonce).is_ok_and(|own| own == inbox_id))
+}
+
 /// Revoke the given installations from the association state for the client's inbox
 pub fn revoke_installations_with_verifier(
     identifier: &Identifier,

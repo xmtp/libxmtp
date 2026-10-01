@@ -30,6 +30,31 @@ where
     while_open(context, work).await
 }
 
+/// Run work that must settle after the caller stops waiting. The task holds
+/// the call gate until the work settles, so end() waits for it on every
+/// target.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) async fn on_settled_worker<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
+where
+    T: Send + 'static,
+    F: Future<Output = Result<T, XmtpError>> + Send + 'static,
+{
+    on_sdk_worker(context, work).await
+}
+
+// A dropped wasm task handle detaches the task; it does not cancel it.
+#[cfg(target_arch = "wasm32")]
+pub(crate) async fn on_settled_worker<T, F>(context: MlsContext, work: F) -> Result<T, XmtpError>
+where
+    T: 'static,
+    F: Future<Output = Result<T, XmtpError>> + 'static,
+{
+    xmtp_common::spawn(None, while_open(context, work))
+        .join()
+        .await
+        .map_err(XmtpError::unknown)?
+}
+
 /// Enter the call gate, or fail with `ClientClosed` after end() has begun.
 /// Hold the guard until the call stops using the database, so end() does not
 /// disconnect the database under it. A call that holds the guard must not wait

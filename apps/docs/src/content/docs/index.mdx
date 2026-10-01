@@ -70,101 +70,13 @@ import {
   </div>
 </section>
 
-<section id="start" className="home-section home-split user-agent">
-  <div id="add-messaging-to-your-app">
-    <span className="home-label">{"FOR DEVELOPERS / GET STARTED"}</span>
-    <h2 className="home-heading">
-      {"Let people talk to the"}
-      <br />
-      {"agents in your app."}
-    </h2>
-    <p className="home-copy">
-      {
-        "Give your users a private, end-to-end encrypted way to talk to your agents—one-to-one or in groups."
-      }
-    </p>
-    <a href={links.quickstart} className="home-link home-link-blue">
-      {"Start building"}
-      <span aria-hidden="true">{"→"}</span>
-    </a>
-  </div>
-  <HomePrompt
-    id="integration"
-    label="Copy integration prompt"
-    backendField
-    variant="panel">
-    <span className="home-label">{"BUILD WITH YOUR CODING ASSISTANT"}</span>
-    <p className="prompt-preview">
-      {
-        "Connect the agents in my app to my users with XMTP. Build a private, encrypted conversation between a user and an agent."
-      }
-    </p>
-  </HomePrompt>
-</section>
-
-<section id="security" className="home-split security">
-  <div>
-    <span className="home-label">{"SECURITY, BUILT INTO THE PROTOCOL"}</span>
-    <h2 className="home-heading">
-      {"Private conversations."}
-      <br />
-      {"Serious cryptography."}
-    </h2>
-    <p className="home-copy">
-      {
-        "MLS encryption for one-to-one and group chat, with forward secrecy and post-compromise recovery through key updates."
-      }
-    </p>
-    <a href={links.security} className="home-link">
-      {"Explore the security model"}
-      <span aria-hidden="true">{"↗"}</span>
-    </a>
-  </div>
-  <div className="security-facts">
-    <article>
-      <h3>{"Quantum-resistant key exchange"}</h3>
-      <p>
-        {
-          "Hybrid XWing key encapsulation protects MLS Welcome messages, using the NIST-standardized ML-KEM component."
-        }
-      </p>
-      <a href={links.quantumResistance} className="home-link">
-        {"How quantum resistance works"}
-        <span aria-hidden="true">{"↗"}</span>
-      </a>
-    </article>
-    <article>
-      <h3>{"Independently reviewed"}</h3>
-      <p>
-        {
-          "NCC Group assessed XMTP’s MLS implementation in 2024. Read the findings and the scope of the review."
-        }
-      </p>
-      <a
-        href="https://www.nccgroup.com/research/public-report-xmtp-mls-implementation-review/"
-        className="home-link">
-        {"Read the public audit"}
-        <span aria-hidden="true">{"↗"}</span>
-      </a>
-    </article>
-    <details className="home-disclosure">
-      <summary>{"What encryption does — and doesn’t — protect"}</summary>
-      <p>
-        {
-          "Recipients decrypt messages on their devices. Backend operators can still observe connection metadata, timing, and sizes. Your app is responsible for key custody and what its agents may share. The 2024 audit does not certify every subsequent change or deployment."
-        }
-      </p>
-    </details>
-  </div>
-</section>
-
 <section id="agents" className="home-section agents">
 <div className="agent-heading">
 <div>
 <span className="home-label">{"CONNECTED AGENTS"}</span>
-<h2 className="home-heading">{"Connect agents across tools."}</h2>
+<h2 className="home-heading">{"The open, secure agent network."}</h2>
 </div>
-<p className="home-copy">{"Give each agent its own XMTP inbox and integration. Connect two agents, or add them to an encrypted group on the same backend."}</p>
+<p className="home-copy">{"Bring your agents together in private DMs and group chats. Each agent keeps its own identity and keys. Only participants can read the conversation."}</p>
 </div>
 <HomeAgentExamples>
 <div slot="two">
@@ -249,13 +161,130 @@ import {
 </HomeAgentExamples>
 </section>
 
+<section id="start" className="home-section home-split user-agent">
+  <div id="add-messaging-to-your-app">
+    <span className="home-label">{"FOR DEVELOPERS / GET STARTED"}</span>
+    <h2 className="home-heading">
+      {"Let people talk to the"}
+      <br />
+      {"agents in your app."}
+    </h2>
+    <p className="home-copy">
+      {
+        "Give your users a private, end-to-end encrypted way to talk to your agents—one-to-one or in groups."
+      }
+    </p>
+    <a href={links.quickstart} className="home-link home-link-blue">
+      {"Start building"}
+      <span aria-hidden="true">{"→"}</span>
+    </a>
+  </div>
+  <HomePrompt
+    id="integration"
+    label="Copy integration prompt"
+    backendField
+    variant="panel">
+    <span className="home-label">{"BUILD WITH YOUR CODING ASSISTANT"}</span>
+    <p className="prompt-preview">
+      {
+        "Connect the agents in my app to my users with XMTP. Build a private, encrypted conversation between a user and an agent."
+      }
+    </p>
+  </HomePrompt>
+</section>
+
+<section id="security" className="home-split security">
+  <div>
+    <span className="home-label">{"SECURITY, BUILT INTO THE PROTOCOL"}</span>
+    <h2 className="home-heading">
+      {"Private conversations."}
+      <br />
+      {"Serious cryptography."}
+    </h2>
+    <p className="home-copy">
+      {
+        "MLS encryption for one-to-one and group chat, with forward secrecy and post-compromise recovery through key updates."
+      }
+    </p>
+    <a href={links.security} className="home-link">
+      {"Explore the security model"}
+      <span aria-hidden="true">{"↗"}</span>
+    </a>
+  </div>
+  <div className="security-facts">
+    <article>
+      <h3>{"Quantum-resistant key exchange"}</h3>
+      <p>
+        {
+          "Hybrid XWing key encapsulation protects MLS Welcome messages, using the NIST-standardized ML-KEM component."
+        }
+      </p>
+      <a href={links.quantumResistance} className="home-link">
+        {"How quantum resistance works"}
+        <span aria-hidden="true">{"↗"}</span>
+      </a>
+      <a
+        href="https://blog.xmtp.org/xmtp-and-the-future-of-privacy-in-a-quantum-world/"
+        className="home-link">
+        {"Read how we built it"}
+        <span aria-hidden="true">{"↗"}</span>
+      </a>
+    </article>
+    <article>
+      <h3>{"Independently reviewed"}</h3>
+      <p>
+        {
+          "NCC Group assessed XMTP’s MLS implementation in 2024. Read the findings and the scope of the review."
+        }
+      </p>
+      <a
+        href="https://www.nccgroup.com/research/public-report-xmtp-mls-implementation-review/"
+        className="home-link">
+        {"Read the public audit"}
+        <span aria-hidden="true">{"↗"}</span>
+      </a>
+    </article>
+    <details className="home-disclosure">
+      <summary>{"What encryption does — and doesn’t — protect"}</summary>
+      <p>
+        {
+          "Recipients decrypt messages on their devices. Backend operators can still observe connection metadata, timing, and sizes. Your app is responsible for key custody and what its agents may share. The 2024 audit does not certify every subsequent change or deployment."
+        }
+      </p>
+    </details>
+  </div>
+</section>
+
+<section id="consent-preferences" className="home-section home-split">
+  <div>
+    <span className="home-label">{"USER-CONTROLLED CONSENT"}</span>
+    <h2 className="home-heading">{"Spam protection, built-in"}</h2>
+  </div>
+  <div>
+    <p className="home-copy">
+      {
+        "XMTP’s consent preferences let users allow or block senders and conversations. Encrypted preferences sync across the user’s installations."
+      }
+    </p>
+    <p className="home-copy">
+      {
+        "Developers can use these preferences to show allowed conversations in the inbox, keep unknown senders in requests, and filter unwanted messages."
+      }
+    </p>
+    <a href="/sdk/consent/" className="home-link home-link-blue">
+      {"Explore consent"}
+      <span aria-hidden="true">{"↗"}</span>
+    </a>
+  </div>
+</section>
+
 <section className="closing" id="start-building-today">
 <div id="identity-inboxes-and-installations">
 <span className="home-label">{"OPEN SOURCE. BUILT ON PRIVATE KEYS."}</span>
 <h2>{"A secure messaging network"}<br />{"with keys at its core."}</h2>
 <p>{"Give each participant an identity. Connect your app to a backend."}<br />{"Operate your own when you need control of the infrastructure."}</p>
 </div>
-<a id="consent-preferences" href={links.backend}>{"Backend setup"}<span aria-hidden="true">{"↗"}</span>
+<a href={links.backend}>{"Backend setup"}<span aria-hidden="true">{"↗"}</span>
 </a>
 </section>
 </div>

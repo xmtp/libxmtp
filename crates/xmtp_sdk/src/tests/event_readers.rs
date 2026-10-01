@@ -32,51 +32,89 @@ async fn events_registered_before_return() {
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn reader_skips_undelivered_attachment_events() {
+async fn reader_delivers_attachment_events_in_order_by_filter() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let filter = xmtp_events::EventFilter::new([
-        xmtp_events::EventKind::AttachmentUploadStarted,
-        xmtp_events::EventKind::HmacKeysUpdated,
-    ]);
-    let subscription = client.inner.context.events().subscribe_app(filter).unwrap();
-    let reader = crate::EventReader::new(subscription);
+    let other = Client::create(crate::generate_local_signer().await, options()).await?;
+    let mut kinds = ATTACHMENT_KINDS.to_vec();
+    kinds.push(EventKind::HmacKeysUpdated);
+    let reader = client.events(event_filter(kinds)).await?;
+    let deleted = client
+        .events(event_filter(vec![
+            EventKind::AttachmentDeleted,
+            EventKind::HmacKeysUpdated,
+        ]))
+        .await?;
 
-    emit_attachment(&client);
+    emit_attachment_kinds(&other);
+    emit_attachment_kinds(&client);
     emit_hmac(&client);
+    let mut events = Vec::new();
+    for _ in ATTACHMENT_KINDS {
+        events.push(
+            tokio::time::timeout(Duration::from_secs(2), reader.next())
+                .await??
+                .expect("attachment event"),
+        );
+    }
+    assert_attachment_kinds(&events);
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), reader.next()).await??,
         Some(ClientEvent::HmacKeysUpdated)
     ));
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), deleted.next()).await??,
+        Some(ClientEvent::AttachmentDeleted { attachment }) if attachment.attachment_key == "down"
+    ));
+    assert!(matches!(
+        tokio::time::timeout(Duration::from_secs(2), deleted.next()).await??,
+        Some(ClientEvent::HmacKeysUpdated)
+    ));
     reader.end().await?;
+    deleted.end().await?;
+    other.end().await?;
     client.end().await?;
 }
 
 #[xmtp_common::test(unwrap_try = true)]
-async fn listener_skips_undelivered_attachment_events() {
+async fn listener_delivers_attachment_events_in_order() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
-    let filter = xmtp_events::EventFilter::new([
-        xmtp_events::EventKind::AttachmentUploadStarted,
-        xmtp_events::EventKind::HmacKeysUpdated,
-    ]);
-    let subscription = client.inner.context.events().subscribe_app(filter).unwrap();
+    let mut kinds = ATTACHMENT_KINDS.to_vec();
+    kinds.push(EventKind::HmacKeysUpdated);
     let (sender, mut received) = tokio::sync::mpsc::unbounded_channel();
     let id = client
-        .listeners
-        .start(subscription, Arc::new(EventCapture(sender)))?;
+        .start_listener(event_filter(kinds), Arc::new(EventCapture(sender)))
+        .await?;
 
-    emit_attachment(&client);
+    emit_attachment_kinds(&client);
     emit_hmac(&client);
+    let mut events = Vec::new();
+    for _ in ATTACHMENT_KINDS {
+        events.push(
+            tokio::time::timeout(Duration::from_secs(2), received.recv())
+                .await?
+                .expect("attachment event"),
+        );
+    }
+    assert_attachment_kinds(&events);
     assert!(matches!(
         tokio::time::timeout(Duration::from_secs(2), received.recv()).await?,
         Some(ClientEvent::HmacKeysUpdated)
     ));
-    assert!(
-        tokio::time::timeout(Duration::from_millis(50), received.recv())
-            .await
-            .is_err()
-    );
     client.stop_listener(id).await;
     client.end().await?;
+}
+
+#[xmtp_common::test(unwrap_try = true)]
+fn unknown_attachment_event_cause_reports_local_storage() {
+    let event = ClientEvent::from_core(xmtp_events::ClientEvent::AttachmentDownloadFailed(
+        core_attachment_failed("odd", "no_such_cause"),
+    ));
+    assert!(matches!(
+        event,
+        ClientEvent::AttachmentDownloadFailed { attachment }
+            if attachment.cause == crate::AttachmentFailureCause::LocalStorage
+                && attachment.attachment_key == "odd"
+    ));
 }
 
 // verifies: EVENT-013
@@ -402,7 +440,7 @@ async fn event_filter_reports_storage_error_when_resolving_dm() {
         std::process::id(),
         xmtp_common::time::now_ns()
     ));
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let other = Client::create(crate::generate_local_signer().await, options()).await?;
     let dm = client
