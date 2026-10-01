@@ -62,6 +62,46 @@ class PackagingTests(unittest.TestCase):
             item.stop()
         self.temporary.cleanup()
 
+    def test_bridge_fixture_builds_use_rust_shell(self):
+        source = Path(__file__).with_name("run-bridge-conformance").read_text()
+        names = ("prepare-bridge-panic-fixture", "prepare-pure-codec-fixture")
+        commands = [
+            line
+            for line in source.splitlines()
+            if any("bash crates/xmtp_sdk/dev/" + name in line for name in names)
+        ]
+        self.assertEqual(len(commands), 2)
+        wrapper = self.root / "dev/nix-shell"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_text(
+            '#!/usr/bin/env bash\nset -euo pipefail\nexport XMTP_DEV_SHELL="$NIX_DEVSHELL"\nexec bash -euc "$1"\n'
+        )
+        wrapper.chmod(0o755)
+        trace = self.root / "fixture-shells.txt"
+        for name in names:
+            fixture = self.root / "crates/xmtp_sdk/dev" / name
+            fixture.parent.mkdir(parents=True, exist_ok=True)
+            fixture.write_text(
+                'printf "%s:%s\\n" "'
+                + name
+                + '" "$XMTP_DEV_SHELL" >> "$SDK_SHELL_TRACE"\n'
+            )
+        for command in commands:
+            subprocess.run(
+                ["bash", "-euc", command],
+                cwd=self.root,
+                check=True,
+                env=dict(
+                    os.environ,
+                    XMTP_DEV_SHELL="js",
+                    NIX_DEVSHELL="js",
+                    SDK_SHELL_TRACE=str(trace),
+                ),
+            )
+        self.assertEqual(
+            trace.read_text().splitlines(), [name + ":rust" for name in names]
+        )
+
     def command(self, command, **kwargs):
         self.calls.append(command)
         if command[0] == "dev/agent-run":
