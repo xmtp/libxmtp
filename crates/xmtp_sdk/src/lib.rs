@@ -32,8 +32,22 @@ mod diagnostics;
 mod error;
 #[cfg(not(feature = "pure-only"))]
 mod events;
+#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
+pub use client::SdkConformanceListenerCounts;
+#[cfg(all(
+    feature = "conformance",
+    not(feature = "pure-only"),
+    not(target_arch = "wasm32")
+))]
+pub use client::{SdkConformanceConstructorProbe, SdkConformanceConstructorState};
 #[cfg(not(feature = "pure-only"))]
 mod foreign;
+#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
+mod foreign_conformance;
+#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
+pub use foreign_conformance::{
+    SdkConformanceForeignCallCounts, sdk_conformance_foreign_call_counts,
+};
 #[cfg(not(feature = "pure-only"))]
 mod identity;
 mod ids;

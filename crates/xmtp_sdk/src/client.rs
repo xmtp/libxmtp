@@ -27,7 +27,7 @@ static NEXT_CLIENT_KEY: AtomicU64 = AtomicU64::new(1);
 /// create or build is cancelled after its store opened. The store
 /// can still hold OPFS access handles, so the browser worker must keep its
 /// storage lock and end. The flag stays set because the store stays open.
-#[cfg(any(test, target_arch = "wasm32"))]
+#[cfg(any(test, feature = "conformance", target_arch = "wasm32"))]
 pub(crate) static STORE_LEFT_OPEN: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
@@ -78,7 +78,7 @@ impl Drop for OpenStoreGuard {
             return;
         }
         tracing::error!("a cancelled client create or build can leave its store open");
-        #[cfg(any(test, target_arch = "wasm32"))]
+        #[cfg(any(test, feature = "conformance", target_arch = "wasm32"))]
         STORE_LEFT_OPEN.store(true, Ordering::Relaxed);
     }
 }
@@ -91,9 +91,9 @@ impl Drop for OpenStoreGuard {
 async fn on_build_task(
     work: xmtp_common::BoxDynFuture<'static, BuildTaskOutput>,
 ) -> Result<BuildTaskOutput, XmtpError> {
-    #[cfg(test)]
+    #[cfg(any(test, feature = "conformance"))]
     let probe = build_task_probe::CURRENT.try_with(Arc::clone).ok();
-    #[cfg(test)]
+    #[cfg(any(test, feature = "conformance"))]
     let work = {
         let probe = probe.clone();
         Box::pin(async move {
@@ -129,8 +129,8 @@ async fn on_build_task(
     }
 
     let task = tokio::task::spawn(work);
-    #[cfg(test)]
-    if let Some(probe) = probe {
+    #[cfg(any(test, feature = "conformance"))]
+    if let Some(probe) = &probe {
         *probe.task.lock() = Some(task.abort_handle());
         probe.started.notify_one();
     }
@@ -138,13 +138,23 @@ async fn on_build_task(
         task: Some(task),
         runtime: tokio::runtime::Handle::current(),
     };
+    #[cfg(feature = "conformance")]
+    if let Some(probe) = &probe {
+        if probe.hold_adoption.load(Ordering::SeqCst) {
+            probe.release_adoption.notified().await;
+        }
+    }
     let output = owner.task.as_mut().expect("build task").await;
     owner.task.take();
     output.map_err(XmtpError::unknown)
 }
 
-#[cfg(all(test, not(target_arch = "wasm32")))]
+#[cfg(all(any(test, feature = "conformance"), not(target_arch = "wasm32")))]
 pub(crate) mod build_task_probe;
+#[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
+mod constructor_conformance;
+#[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
+pub use constructor_conformance::{SdkConformanceConstructorProbe, SdkConformanceConstructorState};
 
 #[cfg(target_arch = "wasm32")]
 async fn on_build_task(
@@ -198,6 +208,10 @@ pub struct Client {
 }
 
 mod creation;
+#[cfg(feature = "conformance")]
+mod event_conformance;
+#[cfg(feature = "conformance")]
+pub use event_conformance::SdkConformanceListenerCounts;
 mod location;
 
 /// Open the database at `path` if its file exists, with the inbox ID of its
