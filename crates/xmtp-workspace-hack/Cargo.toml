@@ -48,9 +48,11 @@ either = { version = "1", features = ["serde", "use_std"] }
 elliptic-curve = { version = "0.13", default-features = false, features = ["ecdh", "hazmat", "jwk", "pem", "std"] }
 foldhash = { version = "0.2", default-features = false, features = ["std"] }
 form_urlencoded = { version = "1" }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
+futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17", features = ["serde"] }
@@ -146,9 +148,11 @@ either = { version = "1", features = ["serde", "use_std"] }
 elliptic-curve = { version = "0.13", default-features = false, features = ["ecdh", "hazmat", "jwk", "pem", "std"] }
 foldhash = { version = "0.2", default-features = false, features = ["std"] }
 form_urlencoded = { version = "1" }
+futures = { version = "0.3" }
 futures-channel = { version = "0.3", features = ["sink"] }
 futures-executor = { version = "0.3" }
 futures-io = { version = "0.3" }
+futures-task = { version = "0.3", default-features = false, features = ["std"] }
 futures-util = { version = "0.3", features = ["channel", "io", "sink"] }
 generic-array = { version = "0.14", default-features = false, features = ["more_lengths", "zeroize"] }
 hashbrown-9067fe90e8c1f593 = { package = "hashbrown", version = "0.17", features = ["serde"] }
@@ -217,7 +221,6 @@ alloy-provider = { version = "2", default-features = false, features = ["anvil-n
 bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
-futures = { version = "0.3" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
@@ -248,7 +251,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
-futures = { version = "0.3" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
@@ -279,7 +281,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
-futures = { version = "0.3" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
@@ -311,7 +312,6 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
-futures = { version = "0.3" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
@@ -342,7 +342,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
-futures = { version = "0.3" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
@@ -375,7 +374,6 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
-futures = { version = "0.3" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
@@ -407,7 +405,6 @@ bitflags = { version = "2", default-features = false, features = ["std"] }
 crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
-futures = { version = "0.3" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
@@ -439,7 +436,6 @@ crossbeam-utils = { version = "0.8" }
 diesel = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 diesel_derives = { git = "https://github.com/ephemerahq/diesel", branch = "coda/copy-to-sqlite", default-features = false, features = ["r2d2"] }
 errno = { version = "0.3" }
-futures = { version = "0.3" }
 getrandom-6f8ce4dd05d13bba = { package = "getrandom", version = "0.2", default-features = false, features = ["std"] }
 getrandom-9fbad63c4bcf4a8f = { package = "getrandom", version = "0.4", default-features = false, features = ["std", "sys_rng"] }
 hashbrown-986da7b5efc2b80e = { package = "hashbrown", version = "0.16" }
