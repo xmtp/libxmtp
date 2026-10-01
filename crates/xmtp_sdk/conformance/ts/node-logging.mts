@@ -4,6 +4,7 @@ import { realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.ts";
+import { waitForLog } from "./logging-wait.js";
 
 export async function logging(
   reopened: sdk.Client,
@@ -39,12 +40,7 @@ export async function logging(
     },
   });
   await assert.rejects(sdk.localSignerFromPrivateKey(new Uint8Array(31)));
-  await Promise.race([
-    sinkRecord,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("queued log sink did not run")), 3_000),
-    ),
-  ]);
+  await waitForLog(sinkRecord, "queued log sink did not run");
   await sdk.setLogSink(undefined);
   if (sinkError !== undefined) throw sinkError;
   console.log("Node logging: queued sink called Rust without a deadlock");
@@ -61,7 +57,7 @@ export async function logging(
     },
   });
   await assert.rejects(sdk.localSignerFromPrivateKey(new Uint8Array(31)));
-  await rejection;
+  await waitForLog(rejection, "failing log sink did not run");
   await sdk.setLogSink(undefined);
   assert.equal(sinkThrew, true, "failing sink was not called");
   assert.match(sdk.sdkVersion(), /^1\.12\.0/);
@@ -145,7 +141,7 @@ export async function loggingEnd(client: sdk.Client): Promise<void> {
     },
   });
   await sdk.sdkConformanceEmit(1);
-  await ended;
+  await waitForLog(ended, "log callback end did not complete");
   await assert.rejects(
     client.isRegistered(),
     (error) => error instanceof sdk.XmtpError.ClientClosed,
@@ -194,7 +190,7 @@ export async function loggingSecrets(): Promise<void> {
     }),
   );
   await sdk.sdkConformanceEmit(1);
-  await barrier;
+  await waitForLog(barrier, "secret log barrier did not run");
   await sdk.setLogSink();
   for (const secret of forbidden)
     assert.ok(

@@ -154,13 +154,13 @@ fun main() =
         val cancellingSink =
             SDKForeign.logSink(
                 object : LogSink {
-                    override suspend fun log(record: LogRecord): Unit = throw CancellationException("x")
+                    override suspend fun log(record: LogRecord): Unit = throw cancelled
                 },
             )
         check(
             runCatching {
                 cancellingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), Timestamp(0), 0uL))
-            }.exceptionOrNull() is LogSinkException.Failed,
+            }.exceptionOrNull() === cancelled,
         )
         println("Kotlin P37 foreign trait wrappers passed")
 

@@ -39,6 +39,7 @@ pub struct SinkDispatch<T: ?Sized> {
 pub struct SinkQueue<T: ?Sized> {
     state: Mutex<State<T>>,
     ready: AtomicWaker,
+    idle: AtomicWaker,
 }
 
 impl<T: ?Sized> Default for SinkQueue<T> {
@@ -54,6 +55,7 @@ impl<T: ?Sized> Default for SinkQueue<T> {
                 flight: None,
             }),
             ready: AtomicWaker::new(),
+            idle: AtomicWaker::new(),
         }
     }
 }
@@ -74,6 +76,7 @@ impl<T: ?Sized> SinkQueue<T> {
         // Foreign destructors can emit logs or replace the sink.
         drop(old);
         self.ready.wake();
+        self.idle.wake();
     }
 
     // implements: LOG-003, LOG-004, LOG-005
@@ -150,6 +153,23 @@ impl<T: ?Sized> SinkQueue<T> {
         drop(state);
         drop(dispatch);
         self.ready.wake();
+        self.idle.wake();
+    }
+
+    /// Poll the private worker retirement barrier. There is one idle waiter.
+    /// Its waker is separate from the drain waker.
+    pub fn poll_idle(&self, cx: &mut Context<'_>) -> Poll<()> {
+        self.idle.register(cx.waker());
+        let state = self.state.lock();
+        if state.queue.is_empty() && state.flight.is_none() {
+            Poll::Ready(())
+        } else {
+            Poll::Pending
+        }
+    }
+
+    pub fn has_sink(&self) -> bool {
+        self.state.lock().target.is_some()
     }
 
     pub fn dropped_count(&self) -> u64 {

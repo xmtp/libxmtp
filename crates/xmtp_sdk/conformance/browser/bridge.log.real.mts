@@ -6,12 +6,13 @@ import {
   PROTOCOL_VERSION,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/contract.gen.ts";
 import { METHOD_TABLE } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/dispatch.gen.ts";
+import { setLogSink as setWorkerLogSink } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/proxy.gen.ts";
+import { logSinkSetter } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/main/log-sink.ts";
 import { MainSession } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/main/session.ts";
 import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/bridge/wire.ts";
-import { FOREIGN_METHODS } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/wire.gen.ts";
 import {
   loggingContract,
   type ContractLogRecord,
@@ -90,20 +91,9 @@ try {
     },
   ]);
   const api = {
-    async setLogSink(sink?: {
+    setLogSink: logSinkSetter<{
       log(record: ContractLogRecord): Promise<void>;
-    }): Promise<void> {
-      session.callbacks.clearLogSink();
-      const wire =
-        sink === undefined
-          ? undefined
-          : session.callbacks.register(
-              "LogSink",
-              { log: (record) => sink.log(record as ContractLogRecord) },
-              Object.keys(FOREIGN_METHODS.LogSink),
-            );
-      await session.call("setLogSink", [wire]);
-    },
+    }>(async (update) => update(session), setWorkerLogSink),
     async emit(count: number): Promise<void> {
       await session.call("sdkConformanceEmit", [count]);
     },

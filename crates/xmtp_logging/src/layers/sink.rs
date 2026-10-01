@@ -1,6 +1,7 @@
 //! An event layer that sends records to a replaceable queue target.
 
 use parking_lot::RwLock;
+use std::cell::Cell;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
@@ -56,7 +57,36 @@ pub type SinkError = Box<dyn Error + Send + Sync>;
 /// A tracing event receiver. Application callbacks run in the SDK drain.
 /// Implementations must enqueue without waiting for application code.
 pub trait LogSinkTarget: Send + Sync + 'static {
+    /// Skip record construction when this target has no receiver.
+    fn enabled(&self) -> bool {
+        true
+    }
+
     fn on_record(&self, record: LogRecord) -> Result<(), SinkError>;
+}
+
+thread_local! {
+    static SINK_CALL_ACTIVE: Cell<bool> = const { Cell::new(false) };
+}
+
+struct SinkCallGuard;
+
+impl SinkCallGuard {
+    fn enter() -> Option<Self> {
+        SINK_CALL_ACTIVE.with(|active| {
+            if active.replace(true) {
+                None
+            } else {
+                Some(Self)
+            }
+        })
+    }
+}
+
+impl Drop for SinkCallGuard {
+    fn drop(&mut self) {
+        SINK_CALL_ACTIVE.with(|active| active.set(false));
+    }
 }
 
 const SINK_ERROR_TARGET: &str = "xmtp_common::log_sink";
@@ -125,6 +155,12 @@ impl<S: tracing::Subscriber> Layer<S> for SinkSlot {
         let Some(target) = self.0.target.read().clone() else {
             return;
         };
+        let Some(_guard) = SinkCallGuard::enter() else {
+            return;
+        };
+        if !target.enabled() {
+            return;
+        }
         let record = LogRecord::from_event(event);
         deliver(target.as_ref(), record, &self.0.errors);
     }
@@ -227,6 +263,57 @@ mod tests {
         assert_eq!(records[1].level, Level::Warn);
         assert_eq!(records[2].target, "xmtp_db");
         assert!(records.iter().all(|record| record.timestamp_ns > 0));
+    }
+
+    struct EmitsTwo(Arc<AtomicUsize>);
+
+    impl LogSinkTarget for EmitsTwo {
+        fn on_record(&self, _record: LogRecord) -> Result<(), SinkError> {
+            if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                tracing::info!(target: "xmtp_mls", "first nested sink event");
+                tracing::info!(target: "xmtp_mls", "second nested sink event");
+            }
+            Ok(())
+        }
+    }
+
+    // A scoped dispatch suppresses recursion itself. The fresh child tests the
+    // production global dispatch path with exactly one subscriber.
+    #[test]
+    fn sink_target_logging_does_not_reenter() {
+        const CHILD: &str = "XMTP_SINK_REENTRY_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let slot = SinkSlot::default();
+            slot.set_sink(Some(Arc::new(EmitsTwo(calls.clone()))));
+            tracing::subscriber::set_global_default(tracing_subscriber::registry().with(slot))
+                .expect("fresh child must have no subscriber");
+            tracing::info!(target: "xmtp_mls", "outer sink event");
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            return;
+        }
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "layers::sink::tests::sink_target_logging_does_not_reenter",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success(), "global sink child failed: {status}");
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("global sink child exceeded five seconds");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]

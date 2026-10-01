@@ -1855,12 +1855,12 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn rejects_returned_foreign_object_with_sync_method() {
-        let items = foreign_trait("LogSink", "log", true);
+        let items = foreign_trait("LogSink", "log", false);
         assert!(
             validate_bridge(&items)
                 .unwrap_err()
                 .to_string()
-                .contains("make: result can hold LogSink")
+                .contains("LogSink.log: synchronous foreign trait method")
         );
     }
 

@@ -214,3 +214,58 @@ async fn client_log_secrets_are_redacted() {
     queue.replace(None);
     let _ = task.end_and_wait().await;
 }
+
+struct UnusedHost;
+
+#[xmtp_common::async_trait]
+impl LogSink for UnusedHost {
+    async fn log(&self, _: LogRecord) -> Result<(), LogSinkError> {
+        panic!("this formatting test has no drain");
+    }
+}
+
+struct Formats(Arc<std::sync::atomic::AtomicUsize>);
+
+impl std::fmt::Debug for Formats {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        output.write_str("formatted field")
+    }
+}
+
+// verifies: LOG-001, LOG-011
+#[xmtp_common::test(unwrap_try = true)]
+fn cleared_sdk_sink_skips_record_formatting_but_retains_native_logs() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    struct Clear;
+    impl Drop for Clear {
+        fn drop(&mut self) {
+            queue().replace(None);
+        }
+    }
+    let _clear = Clear;
+    queue().replace(None);
+    let capture = xmtp_logging::test_logging::LogCapture::with_sink(
+        xmtp_logging::Level::Trace,
+        Some(Arc::new(SinkBridge)),
+    );
+    let count = Arc::new(AtomicUsize::new(0));
+    let field = Formats(count.clone());
+    tracing::dispatcher::with_default(&capture.dispatch(), || {
+        tracing::info!(target: "xmtp_sdk", formatted = tracing::field::debug(&field), "before install");
+        assert_eq!(count.swap(0, Ordering::SeqCst), 1);
+        queue().replace(Some(Arc::new(UnusedHost)));
+        tracing::info!(target: "xmtp_sdk", formatted = tracing::field::debug(&field), "installed");
+        assert_eq!(count.swap(0, Ordering::SeqCst), 2);
+        queue().replace(None);
+        tracing::info!(target: "xmtp_sdk", formatted = tracing::field::debug(&field), "cleared");
+        assert_eq!(count.swap(0, Ordering::SeqCst), 1);
+        queue().replace(Some(Arc::new(UnusedHost)));
+        tracing::info!(target: "xmtp_sdk", formatted = tracing::field::debug(&field), "replaced");
+        assert_eq!(count.swap(0, Ordering::SeqCst), 2);
+    });
+    let native = capture.output();
+    for message in ["before install", "installed", "cleared", "replaced"] {
+        assert!(native.contains(message), "native log missing: {message}");
+    }
+}

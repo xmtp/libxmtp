@@ -1,18 +1,53 @@
 import { expect, it, vi } from "vitest";
+import { waitForLog } from "../ts/logging-wait.js";
 
 import { MainCallbacks } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/callbacks.js";
 import { WorkerCallbacks } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/callback-stub.js";
 import { pair } from "./bridge-support.js";
+import { logSinkSetter } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/log-sink.js";
+import { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
+import type { CallbackTarget } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/callbacks.js";
+import type { CallbackWire } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire.js";
+
+async function install(callbacks: MainCallbacks, sink: CallbackTarget) {
+  let wire!: CallbackWire;
+  await callbacks.updateLogSink(async () => {
+    wire = callbacks.register("LogSink", sink, ["log"]);
+  });
+  return wire;
+}
+
+function gate() {
+  let release!: () => void;
+  const promise = new Promise<void>((resolve) => { release = resolve; });
+  return { promise, release: () => release() };
+}
+
 
 export function registerLoggingTests(): void {
+  it("fails a missing log handoff and clears the completed wait timer", async () => {
+    vi.useFakeTimers();
+    try {
+      const missing = waitForLog(new Promise<void>(() => {}), "missing callback");
+      const rejected = expect(missing).rejects.toThrow("missing callback");
+      await vi.advanceTimersByTimeAsync(3_000);
+      await rejected;
+      expect(vi.getTimerCount()).toBe(0);
+      expect(await waitForLog(Promise.resolve(7), "unexpected timeout")).toBe(7);
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // verifies: LOG-007, LOG-011
   it("log admission rejects a packet after replace or clear", async () => {
     const [main] = pair();
     const callbacks = new MainCallbacks(main);
     const old = vi.fn();
     const fresh = vi.fn();
-    const first = callbacks.register("LogSink", { log: old }, ["log"]);
-    const second = callbacks.register("LogSink", { log: fresh }, ["log"]);
+    const first = await install(callbacks, { log: old });
+    const second = await install(callbacks, { log: fresh });
     await callbacks.receive({
       t: "callback",
       id: 1,
@@ -42,6 +77,87 @@ export function registerLoggingTests(): void {
       args: [],
     });
     expect(fresh).toHaveBeenCalledTimes(1);
+  });
+
+  // verifies: LOG-007, LOG-009, LOG-012
+  it("keeps the old sink until ACK and rolls back only a rejected stage", async () => {
+    const [main] = pair();
+    const callbacks = new MainCallbacks(main);
+    const old = vi.fn();
+    const next = vi.fn();
+    const first = await install(callbacks, { log: old });
+    const accepted = gate();
+    let second!: CallbackWire;
+    const update = callbacks.updateLogSink(async () => {
+      second = callbacks.register("LogSink", { log: next }, ["log"]);
+      await accepted.promise;
+      throw new Error("setter rejected");
+    });
+    const rejected = expect(update).rejects.toThrow("setter rejected");
+    await callbacks.receive({ t: "callback", id: 1, cb: first.cb, method: "log", args: [] });
+    expect(old).toHaveBeenCalledTimes(1);
+    accepted.release();
+    await rejected;
+    await callbacks.receive({ t: "callback", id: 2, cb: first.cb, method: "log", args: [] });
+    await callbacks.receive({ t: "callback", id: 3, cb: second.cb, method: "log", args: [] });
+    expect(old).toHaveBeenCalledTimes(2);
+    expect(next).not.toHaveBeenCalled();
+    const third = await install(callbacks, { log: next });
+    await callbacks.receive({ t: "callback", id: 4, cb: first.cb, method: "log", args: [] });
+    await callbacks.receive({ t: "callback", id: 5, cb: third.cb, method: "log", args: [] });
+    expect(old).toHaveBeenCalledTimes(2);
+    expect(next).toHaveBeenCalledTimes(1);
+  });
+
+  it("counts a staged sink handoff before its setter ACK", async () => {
+    const [main] = pair();
+    const callbacks = new MainCallbacks(main);
+    const accepted = gate();
+    const released = gate();
+    let sink!: CallbackWire;
+    const update = callbacks.updateLogSink(async () => {
+      sink = callbacks.register("LogSink", { log: () => released.promise }, ["log"]);
+      await accepted.promise;
+    });
+    const delivery = callbacks.receive({ t: "callback", id: 1, cb: sink.cb, method: "log", args: [] });
+    expect(main.sent.at(-1)).toEqual({ t: "logHandoff", id: 1 });
+    expect(callbacks.hasActiveLog).toBe(true);
+    accepted.release();
+    await update;
+    released.release();
+    await delivery;
+    expect(callbacks.hasActiveLog).toBe(false);
+  });
+
+  it("orders concurrent public updates before session selection and recovers after failure", async () => {
+    const [main] = pair();
+    const session = new MainSession(main, 3, "setters");
+    main.emitRaw({ t: "ready", epoch: 1 });
+    await session.ready();
+    const held = gate();
+    const entered = gate();
+    const seen: number[] = [];
+    const select = vi.fn(async (call: (session: MainSession) => Promise<void>) => call(session));
+    const update = logSinkSetter<number>(select, async (_session, sink) => {
+      seen.push(sink!);
+      if (sink === 1) {
+        entered.release();
+        await held.promise;
+        throw new Error("first rejected");
+      }
+    });
+    const first = update(1);
+    const rejected = expect(first).rejects.toThrow("first rejected");
+    const second = update(2);
+    await entered.promise;
+    expect(select).toHaveBeenCalledTimes(1);
+    expect(seen).toEqual([1]);
+    held.release();
+    await rejected;
+    await second;
+    expect(select).toHaveBeenCalledTimes(2);
+    expect(seen).toEqual([1, 2]);
+    session.terminate();
   });
 
   // verifies: LOG-003, LOG-007, LOG-012

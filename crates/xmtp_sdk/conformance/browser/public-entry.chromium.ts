@@ -8,6 +8,7 @@ import { generatePrivateKey } from "../../../../sdks/browser/node_modules/viem/_
 import { privateKeyToAccount } from "../../../../sdks/browser/node_modules/viem/_esm/accounts/privateKeyToAccount.js";
 // @ts-ignore The browser fixture uses the published JavaScript build of viem.
 import { toBytes } from "../../../../sdks/browser/node_modules/viem/_esm/utils/encoding/toBytes.js";
+import { waitForLog } from "../ts/logging-wait.js";
 import * as pure from "../../../../target/sdk-generated/typescript-pure/index";
 import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 import { RemoteObject } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/main/remote-object";
@@ -784,7 +785,7 @@ export async function loggingEnd(): Promise<void> {
     },
   });
   await rejection(sdk.localSignerFromPrivateKey(new Uint8Array(31)));
-  await ended;
+  await waitForLog(ended, "browser log callback end did not complete");
   const error = await rejection(client.isRegistered());
   check(
     error instanceof sdk.XmtpError.ClientClosed,
@@ -793,7 +794,7 @@ export async function loggingEnd(): Promise<void> {
 }
 
 // verifies: LOG-010
-async function loggingSecrets(): Promise<void> {
+export async function loggingSecrets(): Promise<void> {
   const credential = "LOG_CREDENTIAL_SENTINEL_89d42";
   const signing = new TextEncoder().encode("LOG_SIGNING_KEY_SENTINEL_89d42!!!");
   const forbidden = [
@@ -825,7 +826,7 @@ async function loggingSecrets(): Promise<void> {
       },
     });
     await rejection(operation());
-    await received;
+    await waitForLog(received, "browser secret log did not run");
     await sdk.setLogSink();
     check(
       !forbidden.some((secret) => logs.some((log) => log.includes(secret))),

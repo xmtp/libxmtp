@@ -51,6 +51,8 @@ object SDKForeign {
             override suspend fun log(record: LogRecord) {
                 try {
                     host.log(record)
+                } catch (error: CancellationException) {
+                    throw error
                 } catch (_: Throwable) {
                     throw LogSinkException.Failed("log callback failed")
                 }

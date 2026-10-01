@@ -11,6 +11,7 @@ export type CallbackTarget = Partial<
 >;
 
 interface Registered {
+  type: string;
   target: CallbackTarget;
   // The method names that the worker can call. They come from the generated
   // callback interface of the registered type.
@@ -22,6 +23,7 @@ export class MainCallbacks {
   private nextId = 1;
   private logSink: number | undefined;
   private activeLogs = 0;
+  private logUpdate: { staged?: number } | undefined;
   // The ids registered by the `collect` call that is running.
   private scope: number[] | undefined;
   private closed = false;
@@ -49,10 +51,9 @@ export class MainCallbacks {
     if (type === "LogSink") {
       if (!methods.includes("log"))
         throw new TypeError("LogSink has no generated log method");
-      this.clearLogSink();
-      this.logSink = cb;
+      if (this.logUpdate) this.logUpdate.staged = cb;
     }
-    this.targets.set(cb, { target, methods: new Set(methods) });
+    this.targets.set(cb, { type, target, methods: new Set(methods) });
     this.scope?.push(cb);
     return { cb, type };
   }
@@ -73,6 +74,23 @@ export class MainCallbacks {
       throw error;
     } finally {
       this.scope = outer;
+    }
+  }
+
+  /** Commit callback replacement only after the worker accepts the setter. */
+  async updateLogSink(update: () => Promise<void>): Promise<void> {
+    if (this.logUpdate) throw new Error("log sink update is already active");
+    const pending: { staged?: number } = {};
+    this.logUpdate = pending;
+    try {
+      await update();
+      this.clearLogSink();
+      this.logSink = pending.staged;
+    } catch (error) {
+      if (pending.staged !== undefined) this.targets.delete(pending.staged);
+      throw error;
+    } finally {
+      this.logUpdate = undefined;
     }
   }
 
@@ -115,7 +133,7 @@ export class MainCallbacks {
           throw bridgeError("contractMismatch", { method: message.method });
         // The receipt and app call have no intervening await. A delayed
         // receipt holds queue credit longer; it cannot release it early.
-        if (message.cb === this.logSink && message.method === "log") {
+        if (registered.type === "LogSink" && message.method === "log") {
           this.activeLogs++;
           activeLog = true;
           this.post({ t: "logHandoff", id: message.id });

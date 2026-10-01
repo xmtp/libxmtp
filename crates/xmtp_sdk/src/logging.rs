@@ -224,8 +224,17 @@ mod sink {
         QUEUE.get_or_init(|| Arc::new(xmtp_logging::SinkQueue::default()))
     }
 
+    #[cfg(target_arch = "wasm32")]
+    pub(super) async fn wait_idle() {
+        futures::future::poll_fn(|cx| queue().poll_idle(cx)).await;
+    }
+
     struct SinkBridge;
     impl LogSinkTarget for SinkBridge {
+        fn enabled(&self) -> bool {
+            queue().has_sink()
+        }
+
         fn on_record(
             &self,
             record: xmtp_logging::LogRecord,
@@ -351,3 +360,10 @@ mod sink {
 #[cfg(not(target_arch = "wasm32"))]
 pub use sink::{LogProcessType, LogRotation};
 pub use sink::{LogRecord, LogSink, LogSinkError};
+
+// Worker retirement waits for queued and handed-off logs. Operation responses
+// and sink replacement do not wait for this barrier.
+#[cfg(target_arch = "wasm32")]
+pub(crate) async fn wait_for_worker_idle() {
+    sink::wait_idle().await;
+}
