@@ -43,6 +43,9 @@ jobs:
         with:
           filters: |
             backend_ci:
+              - 'dev/worktree-env'
+              - 'dev/docker/load-env'
+              - 'dev/agent-run'
               - 'dev/nix-shell'
               - 'justfile'
               - '.github/actions/setup-nix/**'
@@ -84,6 +87,8 @@ jobs:
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
             sdk:
+              - 'dev/worktree-env'
+              - 'dev/agent-run'
               - 'dev/check-apple-toolchain'
               - 'dev/backend/**'
               - 'dev/docker/s3/**'
@@ -117,6 +122,9 @@ jobs:
               - '.github/actions/setup-js/**'
               - '.github/workflows/test-sdk.yml'
             sdk_swift:
+              - 'dev/worktree-env'
+              - 'dev/docker/load-env'
+              - 'dev/agent-run'
               - 'dev/check-apple-toolchain'
               - 'nix/**'
               - 'dev/nix-shell'
@@ -221,6 +229,8 @@ jobs:
               - 'dev/docker/**'
               - '.github/workflows/test-agent-sdk*'
             ios:
+              - 'dev/worktree-env'
+              - 'dev/docker/load-env'
               - 'dev/check-apple-toolchain'
               - 'dev/nix-shell'
               - 'justfile'
@@ -249,6 +259,8 @@ jobs:
             # mobile sources or native CI setup; a crate change is caught by the
             # push run on merge, which uses the broad filter above.
             ios_direct:
+              - 'dev/worktree-env'
+              - 'dev/docker/load-env'
               - 'dev/check-apple-toolchain'
               - 'nix/**'
               - 'dev/nix-shell'
