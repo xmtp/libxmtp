@@ -43,22 +43,6 @@ class ReadReceiptCodec : ContentCodec<Unit> {
         }
 }
 
-data class ReactionV2Content(
-    val reference: MessageId,
-    val referenceInboxId: InboxId? = null,
-    val reaction: Reaction,
-)
-
-data class ReplyContent(
-    val reference: MessageId,
-    val referenceInboxId: InboxId? = null,
-    val content: EncodedContent,
-)
-
-data class DeleteMessageContent(
-    val messageId: MessageId,
-)
-
 class ReactionV2Codec : ContentCodec<ReactionV2Content> {
     override val type get() = standardContentType(StandardContentKind.REACTION)
 

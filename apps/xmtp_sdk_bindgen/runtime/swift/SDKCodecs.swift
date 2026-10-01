@@ -77,38 +77,6 @@ public struct ReadReceiptCodec: ContentCodec {
     }
 }
 
-public struct ReactionV2Content: Sendable {
-    public let reference: MessageId
-    public let referenceInboxId: InboxId?
-    public let reaction: Reaction
-
-    public init(reference: MessageId, referenceInboxId: InboxId? = nil, reaction: Reaction) {
-        self.reference = reference
-        self.referenceInboxId = referenceInboxId
-        self.reaction = reaction
-    }
-}
-
-public struct ReplyContent: Sendable {
-    public let reference: MessageId
-    public let referenceInboxId: InboxId?
-    public let content: EncodedContent
-
-    public init(reference: MessageId, referenceInboxId: InboxId? = nil, content: EncodedContent) {
-        self.reference = reference
-        self.referenceInboxId = referenceInboxId
-        self.content = content
-    }
-}
-
-public struct DeleteMessageContent: Sendable {
-    public let messageId: MessageId
-
-    public init(messageId: MessageId) {
-        self.messageId = messageId
-    }
-}
-
 public struct ReactionV2Codec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
