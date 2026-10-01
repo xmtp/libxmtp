@@ -5,6 +5,15 @@ import Foundation
 // must release the reader. The app error must not acknowledge the item.
 // verifies: PROC-028, PROC-031, PROC-041
 func checkReaderAppError(owner: SDKClient, group: Group, messageId: MessageId) async throws {
+    // Keep the raw handle alive so native destruction cannot hide a missing
+    // adapter end call.
+    let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
+    let previousOpenHook = SDKClient.readerOpenedForTest
+    SDKClient.readerOpenedForTest = { reader in
+        openedSignal.yield(reader)
+        openedSignal.finish()
+    }
+    defer { SDKClient.readerOpenedForTest = previousOpenHook }
     let (closed, closeSignal) = AsyncStream<SDKStreamCloseReason>.makeStream()
     let closeCount = TestCounter()
     let stream = try await owner.messages(in: group, onClose: { reason in
@@ -37,6 +46,10 @@ func checkReaderAppError(owner: SDKClient, group: Group, messageId: MessageId) a
     guard closeCount.value == 1 else {
         throw ConformanceFailure("app-error loop notified close more than once")
     }
+    var openedIterator = opened.makeAsyncIterator()
+    guard let rawReader = await openedIterator.next(), await rawReader.connectionState() == .closed else {
+        throw ConformanceFailure("app-error loop did not end the retained raw reader")
+    }
     let replay = try await group.messageReader()
     let replayDeadline = Task {
         do { try await Task.sleep(for: .seconds(10)) }
@@ -46,7 +59,7 @@ func checkReaderAppError(owner: SDKClient, group: Group, messageId: MessageId) a
     let repeated = try await replay.next()
     replayDeadline.cancel()
     try await replay.end()
-    withExtendedLifetime(stream) {}
+    withExtendedLifetime((stream, rawReader)) {}
     guard repeated?.id == messageId else {
         throw ConformanceFailure("app-error loop acknowledged the held item")
     }
