@@ -12,10 +12,10 @@ from unittest.mock import patch
 
 HOSTS = Path(__file__).parent / "hosts"
 sys.path.insert(0, str(HOSTS))
-import driver
-import ios
-from fixtures import canonical, digest
-from ios_identity import tree_identity
+import driver  # noqa: E402 - requires the path setup above
+import ios  # noqa: E402 - requires the path setup above
+from fixtures import canonical, digest  # noqa: E402 - requires the path setup above
+from ios_identity import tree_identity  # noqa: E402 - requires the path setup above
 
 
 spec = importlib.util.spec_from_file_location("ios_prepare", HOSTS / "ios/prepare.py")

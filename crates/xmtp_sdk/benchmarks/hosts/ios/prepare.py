@@ -12,9 +12,9 @@ from pathlib import Path
 
 HOSTS = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(HOSTS), str(HOSTS.parent)]
-from fixtures import digest
-from ios_identity import dependency_identity, tree_identity
-from packages import inventory
+from fixtures import digest  # noqa: E402 - requires the path setup above
+from ios_identity import dependency_identity, tree_identity  # noqa: E402 - requires the path setup above
+from packages import inventory  # noqa: E402 - requires the path setup above
 
 
 def project(package, product, bundle, sources):

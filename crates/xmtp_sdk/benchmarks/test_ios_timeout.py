@@ -17,7 +17,7 @@ from fixtures import canonical, digest
 
 BENCH = Path(__file__).resolve().parent
 sys.path.insert(0, str(BENCH / "hosts"))
-from ios_identity import tree_identity
+from ios_identity import tree_identity  # noqa: E402 - requires the path setup above
 
 
 def running(pid):
