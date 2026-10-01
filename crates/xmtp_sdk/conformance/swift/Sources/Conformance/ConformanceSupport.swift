@@ -151,7 +151,6 @@ final class RecordingPreAuthenticate: PreAuthenticate, @unchecked Sendable {
     }
 }
 
-
 actor EventSignal {
     private var seen = false
 

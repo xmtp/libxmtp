@@ -6,12 +6,17 @@ private actor LogMailbox<T: Sendable> {
     private var readers: [CheckedContinuation<T, Never>] = []
 
     func send(_ value: T) {
-        if readers.isEmpty { values.append(value) }
-        else { readers.removeFirst().resume(returning: value) }
+        if readers.isEmpty {
+            values.append(value)
+        } else {
+            readers.removeFirst().resume(returning: value)
+        }
     }
 
     func next() async -> T {
-        if !values.isEmpty { return values.removeFirst() }
+        if !values.isEmpty {
+            return values.removeFirst()
+        }
         return await withCheckedContinuation { readers.append($0) }
     }
 }
@@ -27,19 +32,28 @@ private actor HeldLogSink: LogSink {
         maximum = max(maximum, active)
         defer { active -= 1 }
         await records.send(record)
-        if !(await responses.next()) { throw LogSinkError.Failed(reason: "deliberate rejection") }
+        if !(await responses.next()) {
+            throw LogSinkError.Failed(reason: "deliberate rejection")
+        }
     }
 }
 
 private final class ClosureLogSink: LogSink, @unchecked Sendable {
     let callback: @Sendable (LogRecord) async throws -> Void
-    init(_ callback: @escaping @Sendable (LogRecord) async throws -> Void) { self.callback = callback }
-    func log(record: LogRecord) async throws { try await callback(record) }
+    init(_ callback: @escaping @Sendable (LogRecord) async throws -> Void) {
+        self.callback = callback
+    }
+
+    func log(record: LogRecord) async throws {
+        try await callback(record)
+    }
 }
 
 private actor LogCompletion {
     var finished = false
-    func finish() { finished = true }
+    func finish() {
+        finished = true
+    }
 }
 
 // verifies: LOG-002, LOG-003, LOG-004, LOG-005, LOG-007, LOG-008, LOG-009
@@ -154,7 +168,9 @@ private func loggingSecretsConformance(_ options: ClientOptions) async throws {
     while true {
         let (text, last) = await observed.next()
         guard !forbidden.contains(where: text.contains) else { throw ConformanceFailure("app log exposed a secret") }
-        if last { break }
+        if last {
+            break
+        }
     }
     try await setLogSink(sink: nil)
 }
