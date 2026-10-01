@@ -19,7 +19,7 @@ import {
   publicClient,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/public/client";
 import * as Pure from "../../../../target/sdk-generated/typescript-pure/index";
-import { expect, options, signer } from "./suite-support";
+import { expect, signer } from "./suite-support";
 
 // A real worker counts calls at the Rust text decoder. A standard host codec
 // throws if receive calls it. A custom reply body still calls its host codec.
@@ -76,8 +76,17 @@ export async function receivedStandardContentDecodesOnce(
     await Pure.initPureWasm();
     await session.ready();
     const projection = currentProjection();
+    const path = `decode-once-${crypto.randomUUID()}.db`;
     const configured: sdk.ClientOptions = {
-      ...options(`decode-once-${crypto.randomUUID()}.db`, backendURL),
+      backend: { url: backendURL },
+      storage: {
+        location: { dbPath: path, attachmentsDir: `${path}-attachments` },
+        label: path,
+        singleConnection: false,
+      },
+      deviceSync: false,
+      allowOffline: false,
+      registration: { auto: true },
       codecs: [
         poison("text"),
         poison("reply"),
@@ -104,6 +113,7 @@ export async function receivedStandardContentDecodesOnce(
       hostOptions(configured, projection),
     );
     client = publicClient(wrapClient(proxy));
+    expect(client instanceof sdk.Client, "worker client was not public");
     const group = await client.conversations.createGroup([]);
     const parentId = await group.sendText("parent");
     const textId = await group.sendText(text, { compression: "gzip" });
@@ -173,14 +183,13 @@ export async function receivedStandardContentDecodesOnce(
       "custom reply value was lost",
     );
     expect(
-      reply?.content.kind === "reply" &&
+      reply.content.kind === "reply" &&
         reply.content.body.kind === "custom" &&
         reply.content.body.value === "custom decoded",
       "public reply body lost its custom value",
     );
     expect(
-      reply?.encoded !== undefined &&
-        reply.replyContent?.kind === "custom" &&
+      reply.encoded !== undefined &&
         reply.replyContent.rawBytes.toString() ===
           reply.encoded.content.toString(),
       "nested raw bytes changed",
@@ -219,7 +228,7 @@ export async function receivedStandardContentDecodesOnce(
     const enriched = await parent.refresh();
     expect(enriched?.replyCount === 2n, "reply count enrichment was lost");
     expect(
-      enriched?.reactions.some(
+      enriched.reactions.some(
         (reaction) =>
           reaction.id === reactionId && reaction.reaction.content === "👍",
       ),
