@@ -1,4 +1,37 @@
 use super::*;
+use xmtp_mls::identity_updates::{identifier_membership, identifier_opens_inbox};
+
+/// Retain cleanup ownership while registration can be cancelled.
+struct RegisteringClient {
+    client: Option<Client>,
+    #[cfg(not(target_arch = "wasm32"))]
+    runtime: tokio::runtime::Handle,
+}
+
+impl RegisteringClient {
+    fn new(client: Client) -> Self {
+        Self {
+            client: Some(client),
+            #[cfg(not(target_arch = "wasm32"))]
+            runtime: tokio::runtime::Handle::current(),
+        }
+    }
+
+    fn take(mut self) -> Client {
+        self.client.take().expect("registering client")
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for RegisteringClient {
+    fn drop(&mut self) {
+        if let Some(client) = self.client.take() {
+            self.runtime.spawn(async move {
+                let _ = client.discard().await;
+            });
+        }
+    }
+}
 
 impl Client {
     /// End a client that a failed create does not return. The built client
@@ -60,39 +93,49 @@ impl Client {
 
     async fn build_client(
         identity: PublicIdentity,
-        mut options: ClientOptions,
+        options: ClientOptions,
         inbox_id: Option<InboxId>,
         require_stored_identity: bool,
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
+        use xmtp_mls::storage_location::StorageLocation as CoreLocation;
+
         let inbox_id = inbox_id.map(InboxId::into_checked).transpose()?;
         let fork_recovery = options.fork_recovery_opts()?;
-        if matches!(&options.storage.location, StorageLocation::Default) {
-            return Err(XmtpError::storage_location_required());
-        }
-        #[cfg(not(target_arch = "wasm32"))]
-        match &mut options.storage.location {
-            StorageLocation::Path(path) | StorageLocation::Directory(path) => {
-                *path = std::path::absolute(&*path)
-                    .map_err(XmtpError::from_core)?
-                    .to_string_lossy()
-                    .into_owned();
+        let location = super::location::core_location(&options.storage)?;
+        let identifier = identity.to_core()?;
+        let nonce = options.registration.nonce.unwrap_or(0);
+        // An explicit database holds its inbox ID. Open it before any request,
+        // so an offline reopen needs no inbox ID.
+        let mut opened = None;
+        let mut stored_inbox = None;
+        if let Some(CoreLocation::Explicit { db_path, .. }) = &location {
+            guard.arm(&options.storage);
+            match open_store_if_present(&options.storage, db_path).await? {
+                Some((store, stored)) => {
+                    if require_stored_identity && stored.is_none() {
+                        return Err(XmtpError::identity_not_found());
+                    }
+                    // A caller's inbox ID wins, and the core build rejects a
+                    // database of another inbox.
+                    if inbox_id.is_none() {
+                        stored_inbox = stored;
+                    }
+                    opened = Some(super::location::OpenedStore {
+                        path: db_path.clone(),
+                        store,
+                    });
+                }
+                None if require_stored_identity => return Err(XmtpError::identity_not_found()),
+                None => {}
             }
-            StorageLocation::Default | StorageLocation::InMemory => {}
         }
-        if options.allow_offline && inbox_id.is_none() {
+        if options.allow_offline && inbox_id.is_none() && stored_inbox.is_none() {
             return Err(XmtpError::invalid("allowOffline requires an inbox ID"));
         }
-        let identifier = identity.to_core()?;
-        // Check a known database before resolving the backend. Build must not
-        // fetch configuration or create an identity for an empty database.
-        let checked_store = match (require_stored_identity, inbox_id.as_ref()) {
-            (true, Some(inbox_id)) => {
-                guard.arm(&options.storage);
-                Some(open_existing_store(&options.storage, inbox_id).await?)
-            }
-            _ => None,
-        };
+        if require_stored_identity && location.is_none() {
+            return Err(XmtpError::identity_not_found());
+        }
         let backend = options
             .backend
             .clone()
@@ -100,68 +143,125 @@ impl Client {
             .resolve()
             .await?;
         let auth_handle = backend.auth_handle.clone();
-        let inbox_id = match inbox_id {
-            Some(value) => value,
-            None => {
-                let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
-                let found = api
-                    .get_inbox_ids(vec![identifier.clone().into()])
-                    .await
-                    .map_err(XmtpError::from_api)?;
-                match found.into_iter().next().flatten() {
-                    Some(value) => value,
-                    None => identifier
-                        .inbox_id(options.registration.nonce.unwrap_or(0))
-                        .map_err(XmtpError::from_core)?,
+        // Whether the build checks that the identifier belongs to the inbox it
+        // opens, after it has checked the deployment and before any worker.
+        let mut check_membership = false;
+        let strategy = |inbox_id| IdentityStrategy::new(inbox_id, identifier.clone(), nonce);
+        let strategy = match (inbox_id, stored_inbox.zip(opened.as_ref())) {
+            (Some(value), _) => strategy(value),
+            // The core build trusts a stored identity of the same inbox, so
+            // another identity must not open the database here.
+            (None, Some((stored, opened))) if options.allow_offline => {
+                use xmtp_id::associations::SignatureError;
+                use xmtp_mls::client::ClientError;
+                let membership = match identifier_membership(
+                    &opened.store.db(),
+                    &stored,
+                    &identifier,
+                    &NoRequestVerifier,
+                )
+                .await
+                {
+                    Ok(membership) => membership,
+                    // A state that needs a smart contract wallet check is
+                    // unknown offline. The identity may have been removed,
+                    // so none opens it, not even the creator.
+                    Err(ClientError::SignatureValidation(SignatureError::VerifierError(_))) => {
+                        return Err(XmtpError::identity_mismatch());
+                    }
+                    Err(error) => return Err(XmtpError::from_client(error)),
+                };
+                if !identifier_opens_inbox(membership, &identifier, nonce, &stored) {
+                    return Err(XmtpError::identity_mismatch());
                 }
+                strategy(stored)
+            }
+            // Online, the identity updates come from the backend, which the
+            // build checks against the stored deployment before any identity
+            // request. The build checks the identifier on them before it
+            // starts any worker.
+            (None, Some((stored, _))) => {
+                check_membership = true;
+                strategy(stored)
+            }
+            // The build looks up the identifier's inbox after it checks the
+            // deployment, because the request carries the identifier. With
+            // no live inbox, it falls back to the one the identifier created,
+            // which a data directory may already store. The core build
+            // trusts that stored identity, so it checks the identifier too.
+            (None, None) => {
+                check_membership = true;
+                IdentityStrategy::for_identifier(identifier.clone(), nonce)
             }
         };
-        guard.arm(&options.storage);
-        let store = match checked_store {
-            Some(store) => store,
-            None if require_stored_identity => {
-                open_existing_store(&options.storage, &inbox_id).await?
-            }
-            None => open_store(&options.storage, &inbox_id).await?,
-        };
-        #[cfg(not(target_arch = "wasm32"))]
-        let storage_path = native_storage_path(&options.storage, &inbox_id)?;
-        #[cfg(target_arch = "wasm32")]
-        let storage_path = wasm_storage_path(&options.storage, &inbox_id)?;
         let mode = if options.device_sync {
             DeviceSyncMode::Enabled
         } else {
             DeviceSyncMode::Disabled
         };
-        let mut builder = xmtp_mls::Client::builder(IdentityStrategy::new(
-            inbox_id,
-            identifier,
-            options.registration.nonce.unwrap_or(0),
-        ))
-        .api_client_with_streams(backend.api.clone())
-        .with_allow_offline(Some(options.allow_offline))
-        .with_remote_verifier()
-        .map_err(XmtpError::from_core)?
-        .store(store)
+        let builder = xmtp_mls::Client::builder(strategy)
+            .api_client_with_streams(backend.api.clone())
+            .with_allow_offline(Some(options.allow_offline))
+            .with_remote_verifier()
+            .map_err(XmtpError::from_core)?
+            .attachment_options(
+                options
+                    .attachments
+                    .clone()
+                    .map(Into::into)
+                    .unwrap_or_default(),
+            );
+        let outcome = Arc::new(parking_lot::Mutex::new(
+            super::location::OpenOutcome::default(),
+        ));
+        let mut builder = match location {
+            None => builder.store(open_store(&options.storage, None).await?),
+            Some(location) => {
+                guard.arm(&options.storage);
+                builder
+                    .data_location_with(
+                        location,
+                        super::location::store_opener(
+                            options.storage.clone(),
+                            opened,
+                            require_stored_identity,
+                            outcome.clone(),
+                        ),
+                    )
+                    .map_err(XmtpError::from_builder)?
+            }
+        }
         .device_sync_worker_mode(mode);
+        if check_membership {
+            builder = builder.require_identifier_in_inbox();
+        }
         if let Some(recovery) = fork_recovery {
             builder = builder.fork_recovery_opts(recovery);
         }
         if let Some(workers) = options.workers.clone() {
             builder = builder.worker_config(workers.into());
         }
-        let inner = builder
+        #[cfg(any(test, feature = "conformance"))]
+        if let Some(components) = crate::metadata::conformance::application_components() {
+            builder = builder.application_components_for_test(components);
+        }
+        let built = builder
             .default_mls_store()
             .map_err(XmtpError::from_core)?
             .build()
-            .await
-            .map_err(XmtpError::from_builder)?;
+            .await;
+        let (storage_path, open_error) = {
+            let mut outcome = outcome.lock();
+            (outcome.path.take(), outcome.error.take())
+        };
+        let inner =
+            built.map_err(|error| open_error.unwrap_or_else(|| XmtpError::from_builder(error)))?;
         let key = NEXT_CLIENT_KEY
             .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |key| {
                 key.checked_add(1)
             })
             .map_err(|_| XmtpError::unknown("client key space exhausted"))?;
-        Ok(Self {
+        let client = Self {
             inner: Arc::new(inner),
             key,
             identity,
@@ -173,16 +273,43 @@ impl Client {
             event_readers: Arc::new(parking_lot::Mutex::new(EventReaderRegistry::default())),
             #[cfg(test)]
             call_gate: parking_lot::Mutex::new(None),
-        })
+        };
+        Ok(client)
     }
+}
 
+/// Fails every smart contract wallet check, because an offline build sends no
+/// request.
+struct NoRequestVerifier;
+
+#[xmtp_common::async_trait]
+impl xmtp_id::scw_verifier::SmartContractSignatureVerifier for NoRequestVerifier {
+    async fn is_valid_signature(
+        &self,
+        _account_id: AccountId,
+        _hash: [u8; 32],
+        _signature: alloy::primitives::Bytes,
+        _block_number: Option<alloy::primitives::BlockNumber>,
+    ) -> Result<xmtp_id::scw_verifier::ValidationResponse, xmtp_id::scw_verifier::VerifierError>
+    {
+        Err(std::io::Error::other("an offline build checks no smart contract wallet").into())
+    }
+}
+
+impl Client {
     pub(super) async fn create_with_guard(
         signer: Arc<dyn Signer>,
         identity: PublicIdentity,
         options: ClientOptions,
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
-        let mut client = Self::build_inner(identity, options, None, false, guard).await?;
+        let client = Self::build_inner(identity, options, None, false, guard).await?;
+        #[cfg(all(test, not(target_arch = "wasm32")))]
+        let _ = build_task_probe::CURRENT.try_with(|probe| {
+            *probe.client.lock() = Some(client.inner.clone());
+        });
+        let mut registering = RegisteringClient::new(client);
+        let client = registering.client.as_mut().expect("registering client");
         if client.options.registration.auto {
             let registered = match signer::kind(signer.clone()).await {
                 Ok(kind) => client.register_with_signer(signer.clone(), kind).await,
@@ -192,11 +319,12 @@ impl Client {
                 // The caller gets the registration error. A store that stays
                 // open is reported through `storage_requires_worker_restart`.
                 let _ = client.discard().await;
+                registering.take();
                 return Err(error);
             }
         }
         client.signer = Some(signer);
-        Ok(client)
+        Ok(registering.take())
     }
 
     pub(crate) async fn register_with_signer(

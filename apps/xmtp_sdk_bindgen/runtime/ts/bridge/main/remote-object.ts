@@ -30,7 +30,20 @@ export class RemoteObject {
     args: unknown[] | (() => unknown[]),
     signal?: AbortSignal,
   ): Promise<unknown> {
-    this.check();
+    if (
+      (key === "EventReader.next" ||
+        key === "EventReader.end" ||
+        key === "Client.stopListener") &&
+      this.session.eventReaderEnded(this.handle)
+    )
+      return Promise.resolve(undefined);
+    if (
+      (key !== "EventReader.next" &&
+        key !== "EventReader.end" &&
+        key !== "Client.stopListener") ||
+      !this.session.eventReaderEnding(this.handle)
+    )
+      this.check();
     return this.session.call(key, args, this.handle, signal);
   }
 

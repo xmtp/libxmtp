@@ -9,6 +9,8 @@ extern crate uniffi_runtime_wasm as _;
 #[cfg(not(feature = "pure-only"))]
 mod archives;
 #[cfg(not(feature = "pure-only"))]
+mod attachments;
+#[cfg(not(feature = "pure-only"))]
 mod client;
 #[cfg(not(feature = "pure-only"))]
 mod client_identity;
@@ -39,6 +41,7 @@ mod ids;
 mod logging;
 #[cfg(not(feature = "pure-only"))]
 mod message;
+mod metadata;
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
@@ -57,14 +60,19 @@ mod storage_admin;
 #[cfg(not(feature = "pure-only"))]
 pub use archives::{ArchiveElement, ArchiveMetadata, ArchiveOptions, Archives};
 #[cfg(not(feature = "pure-only"))]
+pub use attachments::{
+    AttachmentSource, Attachments, DownloadedAttachment, LocalAttachment, PendingAttachment,
+    PendingAttachmentStatus,
+};
+#[cfg(not(feature = "pure-only"))]
 pub use client::{
-    Client, ClientHandlers, ClientOptions, PreAuthenticate, PreAuthenticateError, StorageLocation,
-    StorageOptions,
+    AttachmentOptions, Client, ClientHandlers, ClientOptions, PreAuthenticate,
+    PreAuthenticateError, StorageLocation, StorageOptions,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use configuration::{
-    AuthConfiguration, LimitsConfiguration, MlsConfiguration, RetentionConfiguration,
-    ServerConfiguration, SigningKeyDescription,
+    AttachmentsConfiguration, AuthConfiguration, LimitsConfiguration, MlsConfiguration,
+    RetentionConfiguration, ServerConfiguration, SigningKeyDescription,
 };
 #[cfg(feature = "conformance")]
 pub use content::StandardCodecSample;
@@ -96,10 +104,14 @@ use delivery as reader;
 pub use delivery::{ConnectionState, ConversationReader, MessageReader};
 #[cfg(not(feature = "pure-only"))]
 pub use diagnostics::{ApiStats, Diagnostics, IdentityStats};
-pub use error::{ErrorCategory, ErrorDetails, XmtpError};
+pub use error::{
+    AttachmentFailure, AttachmentFailureCause, CredentialFailureKind, ErrorCategory, ErrorDetails,
+    XmtpError,
+};
 #[cfg(not(feature = "pure-only"))]
 pub use events::{
-    ClientEvent, EventFilter, EventKind, EventListener, EventReader, ListenerError, ListenerId,
+    AttachmentFailed, AttachmentRef, ClientEvent, EventFilter, EventKind, EventListener,
+    EventReader, ListenerError, ListenerId,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use identity::{
@@ -116,6 +128,14 @@ pub use message::{
     ContentTypeId, DeliveryStatus, Message, MessageBody, MessageContent, MessageData, MessageKind,
     ReactionMessage, ReplyParent,
 };
+#[cfg(not(feature = "pure-only"))]
+pub use metadata::{
+    ApplicationComponentDefinition, ComponentMutation, ComponentPermissions, FieldKey, FieldValue,
+    MapEntry, MapMutation, MetadataBasePolicy, MetadataComponentType, MetadataFieldDescriptor,
+    MetadataFieldValue, MetadataKeyType, MetadataPolicy, MetadataScalarType, MetadataValue,
+    SetMutation, UserFieldUpdate, UserFieldValue,
+};
+pub use metadata::{MetadataFieldRef, WellKnownMetadataField, metadata_field_ref};
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
 pub use notifications::{
     NotificationChannel, NotificationConfig, NotificationFailure, NotificationState,

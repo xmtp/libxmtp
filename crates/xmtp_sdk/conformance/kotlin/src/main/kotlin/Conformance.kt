@@ -188,6 +188,12 @@ fun main() =
         checkReaderCursor(signer, backendOptions)
         checkRestoredPeer(backendOptions)
         checkIdentityRoutes(backendOptions)
+        checkStorageLayout(backendOptions)
+        checkAttachmentSettings(backendOptions)
+        checkAttachmentFlow(backendOptions)
+        checkAttachmentFailures(backendOptions)
+        checkAttachmentRecords(backendOptions)
+        checkAttachmentEnd(backendOptions)
         val host = SDKClient.create(signer, options)
         val client = host
         // Uppercase hex decodes, so only ID validation rejects it.
@@ -199,7 +205,8 @@ fun main() =
         val inboxId = client.inboxId()
         val storagePath = checkNotNull(host.storage().path())
         check(Files.isRegularFile(Path.of(storagePath))) { "storage path does not name the database file" }
-        check(storagePath == androidFiles.resolve("xmtp_db/xmtp-phone-$inboxId.db3").absolutePath)
+        val deployment = deploymentComponent(client.serverConfiguration().identifier)
+        check(storagePath == androidFiles.resolve("xmtp_db/phone/$deployment/$inboxId/xmtp.db3").absolutePath)
         val group = client.conversations().createGroup(emptyList(), null)
         var typedSends = 0
         for (sample in codecSamples) {
@@ -303,7 +310,7 @@ fun main() =
                 )
             }.exceptionOrNull() is XmtpException.IdentityNotFound,
         )
-        check(Files.list(defaultDirectory).use { paths -> paths.noneMatch { it.fileName.toString().endsWith(".db3") } })
+        check(Files.walk(defaultDirectory).use { paths -> paths.noneMatch { it.fileName.toString().endsWith(".db3") } })
         val (orphan, weak) = releasedMessage(signer.identity(), options, inboxId)
         // The run task uses SerialGC with explicit GC enabled, so System.gc() runs a full collection.
         repeat(50) {
@@ -659,6 +666,8 @@ fun main() =
         check(unsignedHost.isRegistered())
         unsignedHost.end()
         println("Kotlin scenario 11: local signer and signature request passed")
+        metadataFields(options)
+        println("Kotlin metadata fields and profiles passed")
 
         // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
         val preAuthCalls = java.util.Collections.synchronizedList(mutableListOf<String>())

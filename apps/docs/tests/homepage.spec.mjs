@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("homepage uses the approved hero, security link, and local agent avatars", async ({
+test("homepage uses the approved content order, security links, and local agent avatars", async ({
   page,
 }) => {
   const prototypeRequests = [];
@@ -20,6 +20,43 @@ test("homepage uses the approved hero, security link, and local agent avatars", 
     page.getByRole("link", { name: /How quantum resistance works/ }),
   ).toHaveAttribute("href", "/protocol/security/#quantum-resistance");
 
+  await expect(
+    page.getByRole("link", { name: "Read how we built it" }),
+  ).toHaveAttribute(
+    "href",
+    "https://blog.xmtp.org/xmtp-and-the-future-of-privacy-in-a-quantum-world/",
+  );
+  await expect(page.locator("#agents .agent-heading h2")).toHaveText(
+    "The open, secure agent network.",
+  );
+  await expect(page.locator("#consent-preferences h2")).toHaveText(
+    "Spam protection, built-in",
+  );
+  await expect(
+    page.getByRole("link", { name: "Explore consent" }),
+  ).toHaveAttribute("href", "/sdk/consent/");
+  expect(
+    await page
+      .locator(".home-content > section")
+      .evaluateAll((sections) => sections.map((section) => section.id)),
+  ).toEqual([
+    "",
+    "sdks",
+    "agents",
+    "start",
+    "security",
+    "consent-preferences",
+    "start-building-today",
+  ]);
+  await expect(page.getByRole("tab").first()).toHaveText(
+    "Create an agent group",
+  );
+  await expect(page.getByRole("tab").first()).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.locator("#agent-panel-two")).toBeHidden();
+  await expect(page.locator("#agent-panel-group")).toBeVisible();
   await page
     .getByRole("tab", { name: "Create an agent group", exact: true })
     .click();
@@ -42,21 +79,21 @@ test("homepage uses the approved hero, security link, and local agent avatars", 
   expect(prototypeRequests).toEqual([]);
 });
 
-test("homepage header opens the SDK guide and security docs", async ({
+test("homepage header scrolls to the SDK and security sections", async ({
   page,
 }) => {
-  for (const [name, path, heading] of [
-    ["SDKs", "/sdk/client/", "Client"],
-    ["Security", "/protocol/security/", "Messaging security"],
+  for (const [name, hash] of [
+    ["SDKs", "#sdks"],
+    ["Security", "#security"],
   ]) {
     await page.goto("/");
     const link = page
       .getByRole("navigation", { name: "Main navigation" })
       .getByRole("link", { name, exact: true });
-    await expect(link).toHaveAttribute("href", path);
+    await expect(link).toHaveAttribute("href", hash);
     await link.click();
-    await expect(page).toHaveURL(path);
-    await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
+    expect(new URL(page.url()).hash).toBe(hash);
+    await expect(page.locator(hash)).toBeInViewport();
   }
 });
 
@@ -133,9 +170,11 @@ test("homepage layout and agent tabs work with keyboard input", async ({
   await expect(page.locator("#agent-panel-two")).toBeHidden();
   await page.getByRole("button", { name: "Replay example" }).click();
   await page.getByRole("button", { name: "Replay example" }).click();
-  await group.press("Home");
+  await group.press("End");
   await expect(pair).toBeFocused();
-  await pair.press("End");
+  await expect(page.locator("#agent-panel-group")).toBeHidden();
+  await pair.press("Home");
+  await expect(group).toBeFocused();
   await expect(page.locator("example-transcript .message:visible")).toHaveCount(
     6,
   );
@@ -177,9 +216,12 @@ test("copy uses the same text as the preview and validates backend URLs", async 
   await input.fill("https://backend.example.com");
   await expect(input).not.toHaveAttribute("aria-invalid");
   for (const id of ["integration", "inbox", "group"]) {
-    if (id === "group")
+    if (id !== "integration")
       await page
-        .getByRole("tab", { name: "Create an agent group", exact: true })
+        .getByRole("tab", {
+          name: id === "group" ? "Create an agent group" : "Connect two agents",
+          exact: true,
+        })
         .click();
     const prompt = page.locator(`home-prompt[data-prompt="${id}"]`);
     await prompt.locator("button.copy").click();

@@ -53,6 +53,14 @@ pub struct MlsConfiguration {
     pub commit_log_enabled: Option<bool>,
 }
 
+/// The attachment service a deployment offers.
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct AttachmentsConfiguration {
+    pub base_url: String,
+    pub max_upload_bytes: u64,
+    pub retention_seconds: u64,
+}
+
 #[derive(Clone, Debug, uniffi::Record)]
 pub struct ServerConfiguration {
     pub identifier: String,
@@ -63,6 +71,10 @@ pub struct ServerConfiguration {
     pub limits: LimitsConfiguration,
     pub mls: MlsConfiguration,
     pub smart_contract_wallet_chains: Vec<String>,
+    /// Omitted when the deployment offers no attachment service.
+    pub attachments: Option<AttachmentsConfiguration>,
+    /// The fields a new conversation registers, in published order.
+    pub application_components: Vec<crate::ApplicationComponentDefinition>,
 }
 
 impl From<&config::ServerConfiguration> for ServerConfiguration {
@@ -120,6 +132,19 @@ impl From<&config::ServerConfiguration> for ServerConfiguration {
                 commit_log_enabled: value.mls.commit_log_enabled,
             },
             smart_contract_wallet_chains: value.smart_contract_wallet_chains.clone(),
+            attachments: value
+                .attachments
+                .as_ref()
+                .map(|attachments| AttachmentsConfiguration {
+                    base_url: attachments.base_url.clone(),
+                    max_upload_bytes: attachments.max_upload_bytes,
+                    retention_seconds: attachments.retention_seconds,
+                }),
+            application_components: value
+                .application_components
+                .iter()
+                .map(Into::into)
+                .collect(),
         }
     }
 }
@@ -197,9 +222,27 @@ mod tests {
                 commit_log_enabled: Some(false),
             },
             smart_contract_wallet_chains: vec!["eip155:1".into()],
+            attachments: Some(config::AttachmentsConfiguration {
+                base_url: "https://files.example/v1/".into(),
+                max_upload_bytes: (1 << 53) + 1,
+                retention_seconds: 604_800,
+            }),
             ..Default::default()
         };
         let public = ServerConfiguration::from(&core);
+        let attachments = public.attachments.as_ref().expect("attachments offered");
+        assert_eq!(attachments.base_url, "https://files.example/v1/");
+        assert_eq!(attachments.max_upload_bytes, 9_007_199_254_740_993);
+        assert_eq!(attachments.retention_seconds, 604_800);
+        let not_offered = config::ServerConfiguration {
+            attachments: None,
+            ..core.clone()
+        };
+        assert!(
+            ServerConfiguration::from(&not_offered)
+                .attachments
+                .is_none()
+        );
         assert_eq!(public.identifier, core.identifier);
         assert_eq!(public.server_version, core.server_version);
         assert_eq!(public.min_libxmtp_version, core.min_libxmtp_version);
@@ -268,5 +311,87 @@ mod tests {
             core.limits.max_ping_frames_per_second
         );
         assert_eq!(public.limits.max_ping_burst, core.limits.max_ping_burst);
+    }
+
+    /// Each definition keeps its ID, name, type, policy tree and conversation
+    /// kinds. A type or policy tag the SDK does not know keeps its tag, and a
+    /// missing policy reads as tag 0.
+    #[xmtp_common::test(unwrap_try = true)]
+    fn application_components_keep_every_definition_field() {
+        use crate::{
+            ApplicationComponentDefinition, ComponentPermissions, MetadataBasePolicy as B,
+            MetadataComponentType as T, MetadataKeyType, MetadataPolicy as P, MetadataScalarType,
+        };
+        use config::MetadataPolicy as C;
+        let core = config::ServerConfiguration {
+            application_components: vec![
+                config::ApplicationComponentDefinition {
+                    component_id: 0xC002,
+                    name: "nickname".into(),
+                    component_type: 7,
+                    permissions: config::ComponentPermissions {
+                        insert: Some(C::Base(5)),
+                        update: Some(C::And(vec![
+                            C::Base(3),
+                            C::Any(vec![C::Base(4), C::Base(77)]),
+                        ])),
+                        delete: None,
+                    },
+                    in_groups: true,
+                    in_dms: false,
+                },
+                config::ApplicationComponentDefinition {
+                    component_id: 0xC001,
+                    name: "later".into(),
+                    component_type: 99,
+                    permissions: config::ComponentPermissions {
+                        insert: Some(C::Base(1)),
+                        update: Some(C::Base(2)),
+                        delete: Some(C::Base(0)),
+                    },
+                    in_groups: false,
+                    in_dms: true,
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            ServerConfiguration::from(&core).application_components,
+            [
+                ApplicationComponentDefinition {
+                    component_id: 0xC002,
+                    name: "nickname".into(),
+                    component_type: T::Map {
+                        key_type: MetadataKeyType::InboxId,
+                        value_type: MetadataScalarType::String,
+                    },
+                    permissions: ComponentPermissions {
+                        insert: P::Base(B::AllowIfSelfOrNonMember),
+                        update: P::And(vec![
+                            P::Base(B::AllowIfAdmin),
+                            P::Any(vec![
+                                P::Base(B::AllowIfSuperAdmin),
+                                P::Base(B::Unknown { tag: 77 }),
+                            ]),
+                        ]),
+                        delete: P::Base(B::Unknown { tag: 0 }),
+                    },
+                    in_groups: true,
+                    in_dms: false,
+                },
+                ApplicationComponentDefinition {
+                    component_id: 0xC001,
+                    name: "later".into(),
+                    component_type: T::Unknown { tag: 99 },
+                    permissions: ComponentPermissions {
+                        insert: P::Base(B::Allow),
+                        update: P::Base(B::Deny),
+                        delete: P::Base(B::Unknown { tag: 0 }),
+                    },
+                    in_groups: false,
+                    in_dms: true,
+                },
+            ]
+        );
     }
 }

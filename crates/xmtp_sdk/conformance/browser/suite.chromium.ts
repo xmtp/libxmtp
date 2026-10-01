@@ -734,11 +734,15 @@ export async function runBrowserBridgeConformance(
     await unsigned.end();
     results.push("scenario 11: signature request through worker");
 
+    const secondId = crypto.randomUUID();
     const second = await create(session, mainSigner, {
       ...clientOptions,
       storage: {
         ...clientOptions.storage,
-        location: { path: `second-${crypto.randomUUID()}.db` },
+        location: {
+          dbPath: `second-${secondId}.db`,
+          attachmentsDir: `second-${secondId}-attachments`,
+        },
       },
     });
     // A second worker stands in for a second tab. While this worker holds

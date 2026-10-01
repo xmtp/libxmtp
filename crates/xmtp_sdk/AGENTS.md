@@ -25,6 +25,19 @@ Run commands from the repository root in the Nix shell. Run
   Chromium, then checks real OPFS and worker behavior. Its recipe builds the
   pure codec and panic fixtures in the Rust shell before the JS shell.
   Scenario 7 checks readers and streams. Scenario 8 checks events and listeners.
+  The browser run also checks storage layouts and attachments, with failure
+  records in the conformance-featured panic fixture. Worker death uses the
+  generated public package and its shared worker manager.
+  All host runs start `conformance/ts/object-store.mjs` for their
+  download fixtures; `SDK_OBJECT_STORE_PORT=9067` also makes it the upload
+  target of a backend with no S3 of its own, as in CI, where
+  `crates/xmtp_sdk/dev/deploy-fly-backend` deploys that backend to Fly for the
+  Swift run. Each run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a
+  small PUT response, count upload grants and object requests, and refuse
+  selected relayed backend URLs. It uses `protoc` from the Rust shell to
+  replace only the upload URL in a real backend response. Native clients use
+  the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
+  preserve gRPC status trailers.
 - `just sdk bench` compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It

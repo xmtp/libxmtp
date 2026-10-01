@@ -7,7 +7,10 @@ pub use filter::EventFilter;
 pub use listener::{EventListener, ListenerError};
 pub use reader::EventReader;
 
-use crate::{ConnectionState, ContentTypeId, ConversationId, InboxId, InstallationId, MessageId};
+use crate::{
+    AttachmentFailureCause, ConnectionState, ContentTypeId, ConversationId, InboxId,
+    InstallationId, MessageId,
+};
 use xmtp_events as core;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -36,6 +39,13 @@ pub enum EventKind {
     NotificationsFailed,
     ArchiveRestored,
     ConnectionStateChanged,
+    AttachmentUploadStarted,
+    AttachmentUploadCompleted,
+    AttachmentUploadFailed,
+    AttachmentDownloadStarted,
+    AttachmentDownloadCompleted,
+    AttachmentDownloadFailed,
+    AttachmentDeleted,
     Lagged,
 }
 
@@ -62,6 +72,13 @@ impl From<EventKind> for core::EventKind {
             EventKind::NotificationsFailed => Self::NotificationsFailed,
             EventKind::ArchiveRestored => Self::ArchiveRestored,
             EventKind::ConnectionStateChanged => Self::ConnectionStateChanged,
+            EventKind::AttachmentUploadStarted => Self::AttachmentUploadStarted,
+            EventKind::AttachmentUploadCompleted => Self::AttachmentUploadCompleted,
+            EventKind::AttachmentUploadFailed => Self::AttachmentUploadFailed,
+            EventKind::AttachmentDownloadStarted => Self::AttachmentDownloadStarted,
+            EventKind::AttachmentDownloadCompleted => Self::AttachmentDownloadCompleted,
+            EventKind::AttachmentDownloadFailed => Self::AttachmentDownloadFailed,
+            EventKind::AttachmentDeleted => Self::AttachmentDeleted,
             EventKind::Lagged => Self::Lagged,
         }
     }
@@ -96,6 +113,49 @@ impl From<core::ConnectionState> for ConnectionState {
             core::ConnectionState::Reconnecting => Self::Reconnecting,
             core::ConnectionState::Failed => Self::Failed,
             core::ConnectionState::Closed => Self::Closed,
+        }
+    }
+}
+
+/// The attachment an `attachment.*` event reports.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct AttachmentRef {
+    pub attachment_key: String,
+    pub url: String,
+    pub content_digest: String,
+}
+
+/// The attachment a failed transfer reports, with its failure cause.
+#[derive(Clone, Debug, PartialEq, Eq, uniffi::Record)]
+pub struct AttachmentFailed {
+    pub attachment_key: String,
+    pub url: String,
+    pub content_digest: String,
+    pub cause: AttachmentFailureCause,
+}
+
+impl From<core::AttachmentRef> for AttachmentRef {
+    fn from(value: core::AttachmentRef) -> Self {
+        Self {
+            attachment_key: value.attachment_key,
+            url: value.url,
+            content_digest: value.content_digest,
+        }
+    }
+}
+
+impl From<core::AttachmentFailed> for AttachmentFailed {
+    fn from(value: core::AttachmentFailed) -> Self {
+        let cause =
+            xmtp_attachments::AttachmentFailureCause::parse(&value.cause).unwrap_or_else(|| {
+                tracing::warn!(cause = %value.cause, "unknown attachment event failure cause");
+                xmtp_attachments::AttachmentFailureCause::LocalStorage
+            });
+        Self {
+            attachment_key: value.attachment_key,
+            url: value.url,
+            content_digest: value.content_digest,
+            cause: cause.into(),
         }
     }
 }
@@ -183,6 +243,27 @@ pub enum ClientEvent {
         previous: ConnectionState,
         current: ConnectionState,
     },
+    AttachmentUploadStarted {
+        attachment: AttachmentRef,
+    },
+    AttachmentUploadCompleted {
+        attachment: AttachmentRef,
+    },
+    AttachmentUploadFailed {
+        attachment: AttachmentFailed,
+    },
+    AttachmentDownloadStarted {
+        attachment: AttachmentRef,
+    },
+    AttachmentDownloadCompleted {
+        attachment: AttachmentRef,
+    },
+    AttachmentDownloadFailed {
+        attachment: AttachmentFailed,
+    },
+    AttachmentDeleted {
+        attachment: AttachmentRef,
+    },
     Lagged {
         discarded: u64,
     },
@@ -207,10 +288,8 @@ fn content_type(value: xmtp_events::ContentTypeId) -> ContentTypeId {
 }
 
 impl ClientEvent {
-    /// Converts a core event to its SDK form. Returns `None` for the `attachment.*` kinds, which the SDK does
-    /// not deliver yet: their binding and SDK exposure is pending (see the ATCH waivers in docs/specs/waivers.toml).
-    pub(crate) fn from_core(value: core::ClientEvent) -> Option<Self> {
-        Some(match value {
+    pub(crate) fn from_core(value: core::ClientEvent) -> Self {
+        match value {
             core::ClientEvent::ConversationJoined(v) => Self::ConversationJoined {
                 conversation_id: conversation_id(v.group_id),
                 conversation_type: v.conversation_type.into(),
@@ -308,16 +387,32 @@ impl ClientEvent {
                 previous: v.previous.into(),
                 current: v.current.into(),
             },
+            core::ClientEvent::AttachmentUploadStarted(v) => Self::AttachmentUploadStarted {
+                attachment: v.into(),
+            },
+            core::ClientEvent::AttachmentUploadCompleted(v) => Self::AttachmentUploadCompleted {
+                attachment: v.into(),
+            },
+            core::ClientEvent::AttachmentUploadFailed(v) => Self::AttachmentUploadFailed {
+                attachment: v.into(),
+            },
+            core::ClientEvent::AttachmentDownloadStarted(v) => Self::AttachmentDownloadStarted {
+                attachment: v.into(),
+            },
+            core::ClientEvent::AttachmentDownloadCompleted(v) => {
+                Self::AttachmentDownloadCompleted {
+                    attachment: v.into(),
+                }
+            }
+            core::ClientEvent::AttachmentDownloadFailed(v) => Self::AttachmentDownloadFailed {
+                attachment: v.into(),
+            },
+            core::ClientEvent::AttachmentDeleted(v) => Self::AttachmentDeleted {
+                attachment: v.into(),
+            },
             core::ClientEvent::Lagged(v) => Self::Lagged {
                 discarded: v.discarded,
             },
-            core::ClientEvent::AttachmentUploadStarted(_)
-            | core::ClientEvent::AttachmentUploadCompleted(_)
-            | core::ClientEvent::AttachmentUploadFailed(_)
-            | core::ClientEvent::AttachmentDownloadStarted(_)
-            | core::ClientEvent::AttachmentDownloadCompleted(_)
-            | core::ClientEvent::AttachmentDownloadFailed(_)
-            | core::ClientEvent::AttachmentDeleted(_) => return None,
-        })
+        }
     }
 }

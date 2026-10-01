@@ -3631,7 +3631,7 @@ Every mobile test has one row. Façade entries name the new or existing Rust tes
 | `bindings/mobile/src/mls/notifications.rs` | `notification_debug_redacts_credentials` | binding only: mobile debug formatting of the notification object |
 | `bindings/mobile/src/mls/tests/archive.rs` | `restored_identity_and_roles_are_unknown_until_activation` | binding only: legacy empty-text creator and direct role getters; the façade uses optional identity and views |
 | `bindings/mobile/src/mls/tests/archive.rs` | `test_archive_excludes_disappearing_messages` | façade: `crates/xmtp_sdk/src/tests/archives.rs::archive_excludes_disappearing_messages_when_requested` |
-| `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_storage` | façade: `crates/xmtp_sdk/src/tests/storage.rs::storage_default_requires_host_and_directory_names_are_unique` |
+| `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_storage` | façade: `crates/xmtp_sdk/src/tests/storage_layout.rs::labelled_directory_opens_the_deployment_layout_offline_from_its_record` |
 | `bindings/mobile/src/mls/tests/client.rs` | `test_create_client_with_key` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::storage_key_rejects_wrong_key_for_existing_database` |
 | `bindings/mobile/src/mls/tests/client.rs` | `test_can_message` | façade: `crates/xmtp_sdk/src/tests/binding_map/content.rs::can_message_changes_after_peer_registration` |
 | `bindings/mobile/src/mls/tests/client.rs` | `test_key_package_validation` | façade: `crates/xmtp_sdk/src/tests/backend_queries.rs::facade_key_package_statuses_keep_missing_entries` |

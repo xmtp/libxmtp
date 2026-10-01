@@ -29,20 +29,19 @@ export async function checkOnValueFailure(
   backend: sdk.BackendOptions,
 ): Promise<void> {
   for (const mode of ["throw", "reject"] as const) {
+    const root = await mkdtemp(join(tmpdir(), "f6-on-value-"));
     const client = await sdk.Client.create(signer, {
       backend,
       storage: {
         location: {
-          path: join(await mkdtemp(join(tmpdir(), "f6-on-value-")), "client.db"),
+          dbPath: join(root, "client.db"),
+          attachmentsDir: join(root, "attachments"),
         },
       },
       deviceSync: false,
     });
     const group = await client.conversations.createGroup([]);
-    const ids = [
-      await group.sendText("first"),
-      await group.sendText("second"),
-    ];
+    const ids = [await group.sendText("first"), await group.sendText("second")];
     // A third message makes an acknowledged second item fail fast instead of
     // waiting for a message that never comes.
     await group.sendText("third");
@@ -53,12 +52,15 @@ export async function checkOnValueFailure(
     const failure = new Error(`callback ${mode}`);
     const seen: sdk.MessageId[] = [];
     await assert.rejects(
-      within(stream.onValue((message) => {
-        seen.push(message.id);
-        if (seen.length < 2) return undefined;
-        if (mode === "throw") throw failure;
-        return Promise.reject(failure);
-      }), `${mode}: onValue`),
+      within(
+        stream.onValue((message) => {
+          seen.push(message.id);
+          if (seen.length < 2) return undefined;
+          if (mode === "throw") throw failure;
+          return Promise.reject(failure);
+        }),
+        `${mode}: onValue`,
+      ),
       (error: unknown) => error === failure,
     );
     assert.deepEqual(seen, ids, `${mode}: the callback did not see both items`);

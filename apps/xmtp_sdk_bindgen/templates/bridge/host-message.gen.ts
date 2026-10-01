@@ -48,7 +48,7 @@ export function resolveBrowserOptions(
     ...options,
     storage: {
       ...options.storage,
-      location: B.StorageLocation.Directory.new(directory),
+      location: B.StorageLocation.Directory.new({ directory }),
     },
   };
 }

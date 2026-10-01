@@ -2,27 +2,40 @@
 
 use std::collections::BTreeMap;
 
+use prost::Message as _;
+use tls_codec::{Serialize as _, VLBytes};
 use xmtp_configuration::ApplicationComponentDefinition;
-use xmtp_db::TransactionOutcome::Continue;
+use xmtp_db::{
+    Fetch,
+    TransactionOutcome::Continue,
+    group_intent::{ID, IntentState, QueryGroupIntent, StoredGroupIntent},
+};
 use xmtp_mls_common::{
     app_data::{
         component_id::ComponentId,
+        components::tls_map_components::ComponentRegistryComponent,
         fields::{
-            ComponentMutation, FieldError, FieldKey, FieldValue, FieldWrite, MapEntry,
+            ComponentMutation, FieldError, FieldKey, FieldValue, FieldWrite, MapEntry, MapMutation,
             MetadataComponentType, MetadataFieldRef, MetadataKeyType, MetadataScalarType,
             MetadataValue, UserFieldUpdate, UserFieldValue, WriteOperation,
         },
+        typed::Component,
     },
     inbox_id::InboxId,
+    tls_map::TlsMapDelta,
 };
-use xmtp_proto::xmtp::mls::message_contents::{ComponentType, metadata_policy::MetadataBasePolicy};
+use xmtp_proto::xmtp::mls::message_contents::{
+    ComponentMetadata, ComponentPermissions, ComponentType, MetadataPolicy,
+    metadata_policy::{Kind as MetadataPolicyKind, MetadataBasePolicy},
+};
 
 use super::test_dictionary_creation::definition;
 use crate::{
     context::XmtpSharedContext,
     groups::{
-        GroupError, MlsGroup, app_data::sender_intents::apply_app_data_update_intent,
-        intents::AppDataUpdateIntentData,
+        GroupError, MlsGroup,
+        app_data::{load_component_registry, sender_intents::apply_app_data_update_intent},
+        intents::{AppDataUpdateIntentData, QueueIntent},
     },
     state_tx::state_write,
     tester,
@@ -34,6 +47,8 @@ const STATUS: u16 = 0xC001;
 const NICKNAME: u16 = 0xC002;
 /// A string field only admins may write.
 const TOPIC: u16 = 0xC003;
+/// A per-user string field only admins may write, outside `catalogue()`.
+const BADGE: u16 = 0xC004;
 
 fn status() -> MetadataFieldRef {
     MetadataFieldRef::new(ComponentId::new(STATUS))
@@ -540,42 +555,11 @@ async fn test_reads_are_committed_and_writes_see_pending_proposals() {
         .await?;
     let bo_group = bo.sync_welcomes().await?.pop()?;
     let names = MetadataFieldRef::USER_DISPLAY_NAME;
-
-    // Publish only the proposals of a display-name write.
-    let writes = vec![FieldWrite {
-        component_id: ComponentId::USER_DISPLAY_NAME,
-        component_type: ComponentType::TlsMapInboxIdString,
-        operation: WriteOperation::SetOwn(b"Al".to_vec()),
-    }];
     let own = inbox(&alix);
-    let mut payloads = state_write(group.context.mls_storage(), |tx| {
-        tx.with_group(group.group_id, |mls_group, storage| {
-            let publish = apply_app_data_update_intent(
-                storage,
-                mls_group,
-                AppDataUpdateIntentData::Fields(writes),
-                own,
-                &[],
-                &group.context.identity().installation_keys,
-                false,
-            )?;
-            Ok::<_, GroupError>(Continue(publish?.payloads_to_publish))
-        })
-    })?
-    .into_continued();
-    payloads.pop()?;
-    let messages = group.prepare_group_messages(
-        payloads
-            .iter()
-            .map(|payload| (payload.as_slice(), false))
-            .collect(),
-    )?;
-    group.context.api().send_group_messages(messages).await?;
+    publish_proposals(&group, own, display_name("Al")).await?;
     group.sync().await?;
     bo_group.sync().await?;
-    let pending = group
-        .with_group_snapshot(|group| Ok::<_, GroupError>(group.pending_proposals().count()))?;
-    assert!(pending > 0);
+    assert!(pending_proposals(&group)? > 0);
     for member in [&group, &bo_group] {
         assert_eq!(member.metadata_value(&names)?, None);
         assert_eq!(
@@ -602,40 +586,8 @@ async fn test_reads_are_committed_and_writes_see_pending_proposals() {
     );
 }
 
-/// A queued field write is authorized again when its commit is built, so
-/// a write the committed policies deny by then fails its intent instead of
-/// publishing a commit every receiver rejects.
-// verifies: META-071
-#[xmtp_common::test(unwrap_try = true)]
-async fn test_denied_writes_fail_when_published() {
-    tester!(alix, configured: |c| c.application_components = catalogue());
-    tester!(bo);
-    alix.create_group_with_members(&[bo.inbox_id()], None, None)
-        .await?;
-    let bo_group = bo.sync_welcomes().await?.pop()?;
-    let writes = vec![FieldWrite {
-        component_id: ComponentId::new(TOPIC),
-        component_type: ComponentType::String,
-        operation: WriteOperation::Update(b"x".to_vec()),
-    }];
-    let own = inbox(&bo);
-    let error = state_write(bo_group.context.mls_storage(), |tx| {
-        tx.with_group(bo_group.group_id, |mls_group, storage| {
-            apply_app_data_update_intent(
-                storage,
-                mls_group,
-                AppDataUpdateIntentData::Fields(writes),
-                own,
-                &[],
-                &bo_group.context.identity().installation_keys,
-                false,
-            )
-            .map(|_| Continue(()))
-        })
-    })
-    .unwrap_err();
-    assert!(matches!(
-        field_error(error),
-        FieldError::Denied(id) if id.as_u16() == TOPIC
-    ));
-}
+mod fixtures;
+mod intent_publication;
+mod pending_proposals;
+
+use fixtures::*;

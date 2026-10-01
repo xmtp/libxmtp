@@ -3,8 +3,19 @@ pub enum StorageLocation {
     #[default]
     Default,
     InMemory,
-    Directory(String),
-    Path(String),
+    /// A directory that holds a database for each deployment and inbox.
+    /// Create and build without an inbox ID fail `IdentityMismatch` when the
+    /// identity is not a member of the inbox they open.
+    Directory {
+        directory: String,
+    },
+    /// A database file and an attachments directory the app names. Create
+    /// and build without an inbox ID use the inbox stored in the database,
+    /// and fail `IdentityMismatch` when the identity does not belong to it.
+    Explicit {
+        db_path: String,
+        attachments_dir: String,
+    },
 }
 
 #[derive(Clone, Debug, Default, uniffi::Record)]
@@ -95,6 +106,7 @@ pub enum WorkerKind {
     TaskRunner,
     ConfigurationRefresh,
     HmacEpoch,
+    AttachmentCleanup,
 }
 
 impl From<WorkerKind> for xmtp_mls::worker::WorkerKind {
@@ -107,6 +119,7 @@ impl From<WorkerKind> for xmtp_mls::worker::WorkerKind {
             WorkerKind::TaskRunner => CoreKind::TaskRunner,
             WorkerKind::ConfigurationRefresh => CoreKind::ConfigurationRefresh,
             WorkerKind::HmacEpoch => CoreKind::HmacEpoch,
+            WorkerKind::AttachmentCleanup => CoreKind::AttachmentCleanup,
         }
     }
 }
@@ -169,6 +182,35 @@ pub trait PreAuthenticate: MaybeSend + MaybeSync + 'static {
     async fn run(&self) -> Result<(), PreAuthenticateError>;
 }
 
+/// Limits for attachment downloads and for pending uploads.
+///
+/// The SDK does not retry a failed upload or download. The app calls the
+/// operation again.
+#[derive(Clone, Debug, Default, uniffi::Record)]
+pub struct AttachmentOptions {
+    /// Omission keeps the SDK's download limit.
+    #[uniffi(default = None)]
+    pub max_download_bytes: Option<u64>,
+    /// Omission keeps the SDK's pending upload age.
+    #[uniffi(default = None)]
+    pub max_pending_age_seconds: Option<u64>,
+    /// Permit uploads and downloads to private and loopback addresses.
+    #[uniffi(default = false)]
+    pub allow_private_network: bool,
+}
+
+impl From<AttachmentOptions> for xmtp_attachments::AttachmentOptions {
+    fn from(value: AttachmentOptions) -> Self {
+        Self {
+            max_download_bytes: value.max_download_bytes,
+            allow_private_network: value.allow_private_network,
+            max_pending_age: value
+                .max_pending_age_seconds
+                .map(std::time::Duration::from_secs),
+        }
+    }
+}
+
 #[derive(Clone, Default, uniffi::Record)]
 pub struct ClientHandlers {
     #[uniffi(default = None)]
@@ -194,6 +236,8 @@ pub struct ClientOptions {
     pub workers: Option<WorkerOptions>,
     #[uniffi(default = None)]
     pub handlers: Option<ClientHandlers>,
+    #[uniffi(default = None)]
+    pub attachments: Option<AttachmentOptions>,
 }
 
 impl Default for ClientOptions {
@@ -207,6 +251,7 @@ impl Default for ClientOptions {
             fork_recovery: None,
             workers: None,
             handlers: None,
+            attachments: None,
         }
     }
 }

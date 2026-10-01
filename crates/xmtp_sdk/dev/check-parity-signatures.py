@@ -67,6 +67,7 @@ PURE_ONLY = {
     "encodeStandard",
     "encodeText",
     "isCatalogueContentType",
+    "metadataFieldRef",
     "sdkVersion",
     "standardContentType",
 }

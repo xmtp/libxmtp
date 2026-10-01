@@ -59,12 +59,18 @@ struct Conformance {
         precondition(ClientOptions(storage: StorageOptions(location: .inMemory)).backend == nil)
         let options = ClientOptions(
             backend: .options(options: backendOptions),
-            storage: StorageOptions(location: .directory(directory.path)),
+            storage: StorageOptions(location: .directory(directory: directory.path)),
             deviceSync: false
         )
         try await checkReaderCursor(signer: signer, backend: backendOptions)
         try await checkRestoredPeer(backend: backendOptions)
         try await checkIdentityRoutes(backend: backendOptions)
+        try await checkStorageLayout(backend: backendOptions)
+        try await checkAttachmentSettings(backend: backendOptions)
+        try await checkAttachmentFlow(backend: backendOptions)
+        try await checkAttachmentFailures(backend: backendOptions)
+        try await checkAttachmentRecords(backend: backendOptions)
+        try await checkAttachmentEnd(backend: backendOptions)
         let host = try await SDKClient.create(signer: signer, options: options)
         let client = host
         do {
@@ -142,7 +148,7 @@ struct Conformance {
             throw ConformanceFailure("build opened a database with no identity")
         } catch XmtpError.IdentityNotFound {}
         let defaultFolder = appFolder.appendingPathComponent("xmtp")
-        let defaultFiles = try FileManager.default.contentsOfDirectory(atPath: defaultFolder.path)
+        let defaultFiles = FileManager.default.enumerator(atPath: defaultFolder.path)?.allObjects as? [String] ?? []
         guard !defaultFiles.contains(where: { $0.hasSuffix(".db3") }) else {
             throw ConformanceFailure("build created a new database")
         }
@@ -154,8 +160,10 @@ struct Conformance {
                 deviceSync: false
             )
         )
-        let expectedDefaultPath = defaultFolder
-            .appendingPathComponent("xmtp-\(defaultHost.inboxId()).db3").path
+        let expectedDefaultPath = try defaultFolder
+            .appendingPathComponent(deploymentComponent(defaultHost.serverConfiguration().identifier))
+            .appendingPathComponent(defaultHost.inboxId())
+            .appendingPathComponent("xmtp.db3").path
         guard try await defaultHost.storage().path() == expectedDefaultPath,
               FileManager.default.fileExists(atPath: expectedDefaultPath)
         else { throw ConformanceFailure("default storage path is incorrect") }
@@ -633,6 +641,8 @@ struct Conformance {
         }
         try await unsignedHost.end()
         print("Swift scenario 11: local signer and signature request passed")
+        try await metadataFields(options)
+        print("Swift metadata fields and profiles passed")
 
         // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
         let preAuthLog = CallLog()

@@ -4,7 +4,7 @@
 
 This document lists all error codes defined in LibXMTP, the core library underlying the XMTP SDKs. Each error code is a unique identifier returned to help diagnose issues.
 
-**39 error types** across **12 crates** with **419 total error codes**.
+**39 error types** across **12 crates** with **420 total error codes**.
 
 ## mobile
 
@@ -571,6 +571,7 @@ Stable storage failures that preserve receipt, processing, and delivery invarian
 | `IdentityError::OpenMls` | OpenMLS error. OpenMLS library error. Not retryable. |
 | `IdentityError::KeyPackageGenerationError` | Key package generation error. Failed to generate MLS key package. Not retryable. |
 | `IdentityError::InboxIdMismatch` | Inbox ID mismatch. Associated InboxID does not match stored value. Not retryable. |
+| `IdentityError::IdentifierNotInInbox` | Identifier not in inbox. The identifier does not belong to the inbox of the stored identity. Not retryable. |
 | `IdentityError::NoAssociatedInboxId` | No associated Inbox ID. Address has no associated InboxID. Not retryable. |
 | `IdentityError::RequiredIdentityNotFound` | Required identity not found. Identity was not found in cache. Not retryable. |
 | `IdentityError::NewIdentity` | New identity creation error. Error creating a new identity. Not retryable. |
