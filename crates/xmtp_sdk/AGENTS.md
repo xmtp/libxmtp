@@ -81,6 +81,18 @@ Run commands from the repository root in the Nix shell. Run
   `docs/self-hosted/sdk-api-manifest.md` is public in each installed product,
   in the static or instance placement that the manifest names.
   Run `just sdk generate` first.
+- `just sdk codec-author types` stages independent Node and browser codec
+  packages and checks valid calls plus six wrong-value rejections per target.
+  `just sdk codec-author node` and `just sdk codec-author browser` also run
+  encode/send/receive/reply checks against this worktree's backend; the browser
+  run uses Chromium and the real package worker. Both read this worktree's
+  Docker backend to check published push flags. Run SDK generation first.
+  `XMTP_SDK_GENERATED_DIR` can select a separate generated input directory.
+  For final package checks, `XMTP_SDK_PACKAGES_DIR` selects staged `node` and
+  `browser` package folders and preserves their manifests, bundled dependencies,
+  and assets.
+  The proof installs local copies under `target/sdk-codec-author/` and uses
+  only the supported ESM roots in the codec package.
 - `just sdk manifest-check` compares `docs/self-hosted/sdk-api-manifest.md`
   with the old SDK sources, then checks that each Node and browser binding
   re-export row names a real export of the generated package roots. A rename
