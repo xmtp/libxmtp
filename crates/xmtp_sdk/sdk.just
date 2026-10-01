@@ -121,6 +121,16 @@ cutover-bench target config output:
 cutover-bench-check:
     cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
 
+# Use the ios Nix shell. The product is an installed public Swift package.
+cutover-bench-ios-prepare config output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/hosts/ios/prepare.py prepare "{{ config }}" "{{ output }}"
+
+cutover-bench-ios-controls config output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/ios_controls.py "{{ config }}" "{{ output }}"
+
+cutover-bench-ios-build output udid derived:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/hosts/ios/prepare.py build "{{ output }}" "{{ udid }}" "{{ derived }}"
+
 cutover-bench-baselines output:
     cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/baselines.py "{{ output }}"
 

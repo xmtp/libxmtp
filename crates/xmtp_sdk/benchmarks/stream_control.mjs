@@ -84,6 +84,8 @@ export async function runStreamControls(fixture, target, measured = measure) {
       "change_reply",
       "change_attachment",
       "change_reaction",
+      "duplicate_expected",
+      "missing_expected",
       "good",
     ]) {
       const live = structuredClone(events);
@@ -108,6 +110,9 @@ export async function runStreamControls(fixture, target, measured = measure) {
         (modern ? event.content.reaction : event.content).content =
           "corrupt live reaction";
       }
+      if (fault === "duplicate_expected")
+        live.splice(1, 0, structuredClone(live[0]));
+      if (fault === "missing_expected") live.shift();
       let historyReads = 0;
       const api = {
         ...publicApi(

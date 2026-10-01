@@ -18,7 +18,7 @@ final class BenchSigner: SigningKey {
         clock.mark(); if delay > 0 {
             try await Task.sleep(nanoseconds: delay * 1_000_000)
         }
-        return try SignedData(rawData: unhex(signerHelper(config, ["key": key, "text": message])["signature"]!))
+        return try await SignedData(rawData: unhex(signerHelper(config, ["key": key, "text": message])["signature"]!))
     }
 }
 

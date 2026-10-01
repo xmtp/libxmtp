@@ -20,7 +20,7 @@ data class LiveEvent(
     val attachment: LiveAttachment? = null,
     val reaction: LiveReaction? = null,
     val eagerParentText: String? = null,
-    val eagerReactions: List<LiveReaction> = emptyList(),
+    val eagerReactions: List<LiveReaction>? = null,
 )
 
 data class LiveRow(
@@ -31,6 +31,27 @@ data class LiveRow(
     val attachment: LiveAttachment?,
     val reactions: List<LiveReaction>,
 )
+
+// The collector rejects duplicate expected IDs before it changes live state.
+fun appendLiveEvent(
+    id: String,
+    expected: Set<String>,
+    seen: MutableSet<String>,
+    events: MutableList<LiveEvent>,
+    decode: () -> LiveEvent,
+) {
+    if (id !in expected) return
+    check(id !in seen) { "Duplicate expected stream event" }
+    events += decode()
+    seen += id
+}
+
+fun requireLiveComplete(
+    seen: Set<String>,
+    expected: Set<String>,
+) {
+    check(seen == expected) { "Stream ended with missing fixture messages" }
+}
 
 // Both SDKs produce this rich result from actual delivered values inside timing.
 fun enrichLive(
@@ -65,7 +86,12 @@ fun enrichLive(
         check(event.kind == "attachment" || event.text != null) { "Missing live text or reply body" }
         check(event.kind != "attachment" || event.attachment != null) { "Missing live attachment" }
         val delivered = reactions.getValue(id)
-        check(event.eagerReactions.all { it in delivered }) { "Eager reaction differs from the delivered reactions" }
+        event.eagerReactions?.let { eager ->
+            val counts = delivered.groupingBy { it }.eachCount()
+            check(eager.groupingBy { it }.eachCount().all { (value, count) -> (counts[value] ?: 0) >= count }) {
+                "Eager reaction is absent from the delivered reactions"
+            }
+        }
         LiveRow(
             keys.getValue(id),
             if (event.kind == "attachment") null else event.text,

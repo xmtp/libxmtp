@@ -235,7 +235,7 @@ class ReceiptTests(unittest.TestCase):
                 "observed_messages": list(reversed(dataset()["messages"][:1000]))
             }
             record_observation(response, dataset(), "page", path)
-            self.assertEqual(
+            self.assertNotEqual(
                 response["observation"], expected_observation(dataset(), "page")
             )
             self.assertNotIn("observed_messages", response)

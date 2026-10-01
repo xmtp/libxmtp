@@ -111,7 +111,9 @@ export async function measure(api, fixture, state, workload, coldPath) {
     const publisher = api.publish(group);
     const consumer = (async () => {
       for await (const message of stream) {
-        if (expectedEvents.has(message.id) && !seen.has(message.id)) {
+        if (expectedEvents.has(message.id)) {
+          if (seen.has(message.id))
+            throw new Error("Duplicate expected stream event");
           live.push(api.live(message));
           seen.add(message.id);
         }
@@ -127,6 +129,15 @@ export async function measure(api, fixture, state, workload, coldPath) {
     return {
       duration_ms: performance.now() - start,
       observed_messages: messages,
+      eager_snapshots: live
+        .filter((event) => event.kind !== "reaction")
+        .map((event) => ({
+          id: event.id,
+          reactions: event.eager_reactions ?? null,
+          parent_text: event.eager_parent_text ?? null,
+        })),
+      eager_snapshot_validation:
+        "PENDING: reaction snapshot completeness has no public boundary",
       streamed_events: seen.size,
       streamed_primary: state.ids.length,
     };

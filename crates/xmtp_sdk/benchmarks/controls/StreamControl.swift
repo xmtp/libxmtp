@@ -8,6 +8,20 @@ struct ControlFixture: Decodable { let messages: [FixtureMessage] }
         let fixture = try JSONDecoder().decode(ControlFixture.self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[1])))
         controlHistory = fixture.messages
         let ids = fixture.messages.map { "p" + $0.key }
+        let expected: Set = ["first", "last"]
+        var seen = Set<String>(); var live: [LiveEvent] = []
+        try appendLiveEvent("unrelated", expected, &seen, &live) { throw LiveFailure(message: "Unrelated event was decoded") }
+        try appendLiveEvent("first", expected, &seen, &live) { LiveEvent(id: "first", kind: "text", text: "value") }
+        var duplicateFailed = false
+        do { try appendLiveEvent("first", expected, &seen, &live) { LiveEvent(id: "first", kind: "text", text: "value") } }
+        catch { duplicateFailed = true }
+        try liveRequire(duplicateFailed && live.count == 1, "Duplicate collector control did not fail")
+        var missingFailed = false
+        do { try requireLiveComplete(seen, expected) } catch { missingFailed = true }
+        try liveRequire(missingFailed, "Missing collector control did not fail")
+        try appendLiveEvent("last", expected, &seen, &live) { LiveEvent(id: "last", kind: "text", text: "value") }
+        try requireLiveComplete(seen, expected)
+        print("PASS swift collector duplicate, missing, unrelated, complete")
         for eager in [false, true] {
             var source: [LiveEvent] = []
             for row in fixture.messages {
@@ -22,7 +36,7 @@ struct ControlFixture: Decodable { let messages: [FixtureMessage] }
                     source.append(LiveEvent(id: "r" + row.key, kind: "reaction", reference: id, reaction: reaction))
                 }
             }
-            let faults = ["drop_content", "change_text", "change_reply", "change_attachment", "change_reaction"] + (eager ? ["change_eager_parent"] : []) + ["good"]
+            let faults = ["drop_content", "change_text", "change_reply", "change_attachment", "change_reaction"] + (eager ? ["change_eager_parent", "extra_eager", "duplicate_eager", "future_reaction"] : []) + ["good"]
             for fault in faults {
                 var events = source
                 if fault == "drop_content" {
@@ -45,6 +59,17 @@ struct ControlFixture: Decodable { let messages: [FixtureMessage] }
                 if fault == "change_eager_parent" {
                     events[1].eager_parent_text = "corrupt eager parent"
                 }
+                if fault == "extra_eager" {
+                    events[0].eager_reactions = [FixtureReaction(content: "+1", schema: "unicode", action: "added")]
+                }
+                if fault == "duplicate_eager" {
+                    let index = events.firstIndex { !($0.eager_reactions ?? []).isEmpty }!
+                    events[index].eager_reactions!.append(events[index].eager_reactions![0])
+                }
+                if fault == "future_reaction" {
+                    let index = events.firstIndex { !($0.eager_reactions ?? []).isEmpty }!
+                    events[index].eager_reactions = []
+                }
                 var failure: String?
                 do {
                     let result = try enrichLive(events, ids)
@@ -53,7 +78,7 @@ struct ControlFixture: Decodable { let messages: [FixtureMessage] }
                 let record: [String: Any] = ["target": "swift", "eager": eager, "fault": fault,
                                              "rejected": failure != nil, "failure": failure as Any? ?? NSNull(), "correct_history_messages": controlHistory.count]
                 try print(String(data: JSONSerialization.data(withJSONObject: record, options: [.sortedKeys]), encoding: .utf8)!)
-                try liveRequire((fault == "good") == (failure == nil), "Live control did not detect the fault")
+                try liveRequire((["good", "future_reaction"].contains(fault)) == (failure == nil), "Live control did not detect the fault")
             }
         }
     }

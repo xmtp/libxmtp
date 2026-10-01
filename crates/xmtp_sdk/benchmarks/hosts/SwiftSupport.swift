@@ -40,17 +40,15 @@ final class CallbackClock: @unchecked Sendable {
     }
 }
 
-struct HostConfig: Decodable { let backend_url: String; let signer_command: [String] }
-func signerHelper(_ config: HostConfig, _ input: [String: String]) throws -> [String: String] {
-    let task = Process(); task.executableURL = URL(fileURLWithPath: config.signer_command[0])
-    task.arguments = Array(config.signer_command.dropFirst())
-    let incoming = Pipe(); let outgoing = Pipe()
-    task.standardInput = incoming; task.standardOutput = outgoing; task.standardError = FileHandle.standardError
-    try task.run()
-    try incoming.fileHandleForWriting.write(JSONSerialization.data(withJSONObject: input))
-    try incoming.fileHandleForWriting.close()
-    let bytes = outgoing.fileHandleForReading.readDataToEndOfFile(); task.waitUntilExit()
-    try require(task.terminationStatus == 0, "Signer helper failed")
+struct HostConfig: Decodable { let backend_url: String; let signer_url: String }
+func signerHelper(_ config: HostConfig, _ input: [String: String]) async throws -> [String: String] {
+    guard let url = URL(string: config.signer_url) else { throw BenchFailure(message: "Invalid signer URL") }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONSerialization.data(withJSONObject: input)
+    let (bytes, response) = try await URLSession.shared.data(for: request)
+    try require((response as? HTTPURLResponse)?.statusCode == 200, "Signer request failed")
     return try JSONDecoder().decode([String: String].self, from: bytes)
 }
 
@@ -67,7 +65,7 @@ func load<T: Decodable>(_ type: T.Type, _ path: URL) throws -> T {
 }
 
 func seed(_ config: HostConfig, _ fixture: Fixture, _ root: URL, _ prefix: String, _ streaming: Bool) async throws -> Saved {
-    let sender = try signerHelper(config, [:]); let receiver = try signerHelper(config, [:])
+    let sender = try await signerHelper(config, [:]); let receiver = try await signerHelper(config, [:])
     var state = Saved(senderKey: sender["key"]!, senderAddress: sender["address"]!,
                       senderPath: root.appendingPathComponent(prefix + "-sender").path, senderInbox: "",
                       receiverKey: receiver["key"]!, receiverAddress: receiver["address"]!,
@@ -107,74 +105,72 @@ func seed(_ config: HostConfig, _ fixture: Fixture, _ root: URL, _ prefix: Strin
     }
 }
 
-@main struct SwiftBenchmark {
-    static func main() async throws {
-        let config = try load(HostConfig.self, URL(fileURLWithPath: CommandLine.arguments[1]))
-        let request = try JSONSerialization.jsonObject(with: FileHandle.standardInput.readDataToEndOfFile()) as! [String: Any]
-        let root = URL(fileURLWithPath: request["state_directory"] as! String)
-        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        let fixture = try load(Fixture.self, root.appendingPathComponent("fixture.json"))
-        let phase = request["phase"] as! String; let workload = request["workload"] as? String ?? ""
-        let pair = request["pair"] as? Int ?? 0
-        var result: [String: Any] = ["ready": true]
-        if phase == "setup" {
-            try await save(seed(config, fixture, root, "page", false), root.appendingPathComponent("page.json"))
-        } else if phase == "reset" {
-            if workload == "stream" {
-                try await save(seed(config, fixture, root, "stream-\(pair)", true), root.appendingPathComponent("stream-\(pair).json"))
-            }
-        } else if workload == "cold_start" || workload.hasPrefix("callback_") {
-            let account = try signerHelper(config, [:]); let clock = CallbackClock()
-            let start = now()
-            let client = try await benchCreate(config, account["key"]!, account["address"]!,
-                                               root.appendingPathComponent("\(workload)-\(pair)").path,
-                                               workload == "callback_slow" ? fixture.callback_delay_ms : 0, clock)
-            let finished = now(); try await benchClose(client)
-            let (entered, count) = clock.result()
-            try require(!workload.hasPrefix("callback_") || count > 0, "Signer callback did not run")
-            result = ["completed": true, "callback_count": count,
-                      "duration_ms": finished - (workload.hasPrefix("callback_") ? entered! : start)]
-        } else {
-            let state = try load(Saved.self, root.appendingPathComponent(workload == "stream" ? "stream-\(pair).json" : "page.json"))
-            let sender = try await benchOpen(config, state.senderAddress, state.senderPath, state.senderInbox)
-            let group = try await benchGroup(sender, state.groupId)
-            let keys = Dictionary(uniqueKeysWithValues: state.ids.enumerated().map { ($0.element, String($0.offset)) })
-            if workload == "page" {
-                let start = now(); let page = try await benchPage(group, 1000, keys)
-                result = ["duration_ms": now() - start, "observed_messages": page]
-
-            } else if workload == "mobile_lift" {
-                guard let lift = try await benchLift(group, pair) else { throw BenchFailure(message: "Missing mobile converter") }
-                result = ["mobile_lift": lift, "completed": true]
-            } else {
-                let receiver = try await benchOpen(config, state.receiverAddress, state.receiverPath, state.receiverInbox)
-                let receivedGroup = try await benchGroup(receiver, state.groupId)
-                let stream = try await benchStream(receiver, receivedGroup)
-                // Same untimed subscription grace on each installed package.
-                try await Task.sleep(nanoseconds: 1_000_000_000)
-                let start = now(); let publishing = Task { try await benchPublish(group) }
-                var seen = Set<String>(); let expected = Set(state.eventIds)
-                var live: [LiveEvent] = []
-                for try await message in stream {
-                    if expected.contains(message.id), !seen.contains(message.id) {
-                        try live.append(benchLive(message)); seen.insert(message.id)
-                    }
-                    if seen.count == expected.count {
-                        break
-                    }
-                }
-                try await publishing.value
-                try require(seen == expected, "Stream ended with missing fixture messages")
-                let page = try enrichLive(live, state.ids).map(jsonRow)
-                result = ["duration_ms": now() - start, "observed_messages": page,
-                          "streamed_events": seen.count, "streamed_primary": state.ids.count]
-                try await benchClose(receiver)
-            }
-            try await benchClose(sender)
+func runBenchmark(_ config: HostConfig, _ request: [String: Any], _ root: URL) async throws -> [String: Any] {
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    let fixture = try load(Fixture.self, root.appendingPathComponent("fixture.json"))
+    let phase = request["phase"] as! String; let workload = request["workload"] as? String ?? ""
+    let pair = request["pair"] as? Int ?? 0
+    var result: [String: Any] = ["ready": true]
+    if phase == "setup" {
+        try await save(seed(config, fixture, root, "page", false), root.appendingPathComponent("page.json"))
+    } else if phase == "reset" {
+        if workload == "stream" {
+            try await save(seed(config, fixture, root, "stream-\(pair)", true), root.appendingPathComponent("stream-\(pair).json"))
         }
-        result["source"] = ["fixture_sha256": request["fixture_sha256"]!, "package_sha256": request["package_sha256"]!]
-        try FileHandle.standardOutput.write(JSONSerialization.data(withJSONObject: result, options: [.sortedKeys]))
+    } else if workload == "cold_start" || workload.hasPrefix("callback_") {
+        let account = try await signerHelper(config, [:]); let clock = CallbackClock()
+        let start = now()
+        let client = try await benchCreate(config, account["key"]!, account["address"]!,
+                                           root.appendingPathComponent("\(workload)-\(pair)").path,
+                                           workload == "callback_slow" ? fixture.callback_delay_ms : 0, clock)
+        let finished = now(); try await benchClose(client)
+        let (entered, count) = clock.result()
+        try require(!workload.hasPrefix("callback_") || count > 0, "Signer callback did not run")
+        result = ["completed": true, "callback_count": count,
+                  "duration_ms": finished - (workload.hasPrefix("callback_") ? entered! : start)]
+    } else {
+        let state = try load(Saved.self, root.appendingPathComponent(workload == "stream" ? "stream-\(pair).json" : "page.json"))
+        let sender = try await benchOpen(config, state.senderAddress, state.senderPath, state.senderInbox)
+        let group = try await benchGroup(sender, state.groupId)
+        let keys = Dictionary(uniqueKeysWithValues: state.ids.enumerated().map { ($0.element, String($0.offset)) })
+        if workload == "page" {
+            let start = now(); let page = try await benchPage(group, 1000, keys)
+            result = ["duration_ms": now() - start, "observed_messages": page]
+
+        } else if workload == "mobile_lift" {
+            guard let lift = try await benchLift(group, pair) else { throw BenchFailure(message: "Missing mobile converter") }
+            result = ["mobile_lift": lift, "completed": true]
+        } else {
+            let receiver = try await benchOpen(config, state.receiverAddress, state.receiverPath, state.receiverInbox)
+            let receivedGroup = try await benchGroup(receiver, state.groupId)
+            let stream = try await benchStream(receiver, receivedGroup)
+            // Same untimed subscription grace on each installed package.
+            try await Task.sleep(nanoseconds: 1_000_000_000)
+            let start = now(); let publishing = Task { try await benchPublish(group) }
+            var seen = Set<String>(); let expected = Set(state.eventIds)
+            var live: [LiveEvent] = []
+            for try await message in stream {
+                try appendLiveEvent(message.id, expected, &seen, &live) { try benchLive(message) }
+                if seen.count == expected.count {
+                    break
+                }
+            }
+            try await publishing.value
+            try requireLiveComplete(seen, expected)
+            let page = try enrichLive(live, state.ids).map(jsonRow)
+            result = try ["duration_ms": now() - start, "observed_messages": page,
+                          "streamed_events": seen.count, "streamed_primary": state.ids.count,
+                          "eager_snapshots": live.filter { $0.kind != "reaction" }.map { event -> [String: Any] in
+                              try ["id": event.id, "reactions": event.eager_reactions.map { try jsonObject($0) } ?? NSNull(),
+                                   "parent_text": event.eager_parent_text as Any? ?? NSNull()]
+                          },
+                          "eager_snapshot_validation": "PENDING: reaction snapshot completeness has no public boundary"]
+            try await benchClose(receiver)
+        }
+        try await benchClose(sender)
     }
+    result["source"] = ["fixture_sha256": request["fixture_sha256"]!, "package_sha256": request["package_sha256"]!]
+    return result
 }
 
 func jsonRow(_ row: FixtureMessage) throws -> [String: Any] {

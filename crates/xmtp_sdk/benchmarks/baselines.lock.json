@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "resolved_at": "2026-10-01T02:31:05.637627+00:00",
+  "resolved_at": "2026-10-01T18:50:22.977293+00:00",
   "rule": "Latest stable published package; no dev, nightly, rc, or prerelease",
   "packages": {
     "node": {
@@ -40,7 +40,21 @@
       "pom_url": "https://repo.maven.apache.org/maven2/org/xmtp/android/4.11.0/android-4.11.0.pom",
       "pom_sha256": "3c3461181bc74a8cbb723656d516bc14eaf4bf925aae163f98faf37f9a2c782a",
       "archive_url": "https://repo.maven.apache.org/maven2/org/xmtp/android/4.11.0/android-4.11.0.aar",
-      "archive_sha256": "6a8b9bc025c5c58cbd54da22e0ce767c597c18a5a49ab1389fadff19bc889435"
+      "archive_sha256": "6a8b9bc025c5c58cbd54da22e0ce767c597c18a5a49ab1389fadff19bc889435",
+      "checksum_url": "https://repo.maven.apache.org/maven2/org/xmtp/android/4.11.0/android-4.11.0.aar.sha256",
+      "tag": "android-4.11.0",
+      "commit": "6a8e969785c62e0923cf3d8531aff4eaac3c91b7",
+      "tag_url": "https://api.github.com/repos/xmtp/libxmtp/git/ref/tags/android-4.11.0",
+      "tag_sha256": "1e4719ec77e5d7d5a32ac6f0665e731c0478e0df244c01b1375bdd67d796abc1",
+      "source_url": "https://raw.githubusercontent.com/xmtp/libxmtp/6a8e969785c62e0923cf3d8531aff4eaac3c91b7/sdks/android/gradle.properties",
+      "source_sha256": "cdf32d1f30fc763f4b093d0878cc16143480275afe40c533edb68002f69a50df",
+      "published": "2026-07-29T16:00:50+00:00",
+      "publication_evidence": {
+        "url": "https://repo.maven.apache.org/maven2/org/xmtp/android/4.11.0/android-4.11.0.aar",
+        "header": "Last-Modified",
+        "value": "Wed, 29 Jul 2026 16:00:50 GMT",
+        "meaning": "Maven artifact upload date; GitHub release date is unavailable"
+      }
     },
     "swift": {
       "name": "XMTPiOS",

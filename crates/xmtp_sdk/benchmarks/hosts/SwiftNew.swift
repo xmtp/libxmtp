@@ -22,7 +22,7 @@ final class BenchSigner: Signer, @unchecked Sendable {
         clock.mark(); if delay > 0 {
             try await Task.sleep(nanoseconds: delay * 1_000_000)
         }
-        return try .ecdsa(unhex(signerHelper(config, ["key": key, "text": request.text])["signature"]!))
+        return try await .ecdsa(unhex(signerHelper(config, ["key": key, "text": request.text])["signature"]!))
     }
 }
 

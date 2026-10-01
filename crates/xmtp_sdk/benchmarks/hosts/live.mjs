@@ -41,16 +41,25 @@ export function enrichLive(events, ids) {
     if (event.kind === "attachment" && !event.attachment)
       throw new Error("Missing live attachment");
     const deliveredReactions = reactions.get(id);
-    for (const reaction of event.eager_reactions ?? []) {
-      if (
-        !deliveredReactions.some(
-          (value) =>
-            value.content === reaction.content &&
-            value.schema === reaction.schema &&
-            value.action === reaction.action,
-        )
-      )
-        throw new Error("Eager reaction differs from the delivered reactions");
+    if (event.eager_reactions !== undefined) {
+      const counts = (values) => {
+        const result = new Map();
+        for (const value of values) {
+          const key = JSON.stringify([
+            value.content,
+            value.schema,
+            value.action,
+          ]);
+          result.set(key, (result.get(key) ?? 0) + 1);
+        }
+        return result;
+      };
+      const eager = counts(event.eager_reactions);
+      const delivered = counts(deliveredReactions);
+      if ([...eager].some(([key, count]) => (delivered.get(key) ?? 0) < count))
+        throw new Error(
+          "Eager reaction is absent from the delivered reactions",
+        );
     }
     return {
       key: keys.get(id),

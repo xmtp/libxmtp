@@ -240,9 +240,10 @@ export function publicApi(sdk, pure, side, target, backend, accounts) {
       event.reference = content.reference;
       event.reaction = reaction(modern ? content.reaction : content);
     } else throw new Error("Missing or unsupported live content");
-    event.eager_reactions = (message.reactions ?? []).map((entry) =>
-      reaction(modern ? entry.reaction : entry.content),
-    );
+    if (message.reactions !== undefined && message.reactions !== null)
+      event.eager_reactions = message.reactions.map((entry) =>
+        reaction(modern ? entry.reaction : entry.content),
+      );
     return event;
   }
   return {

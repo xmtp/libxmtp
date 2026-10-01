@@ -42,6 +42,13 @@ Run commands from the repository root in the Nix shell. Run
   the installed release benchmark. See `benchmarks/README.md` for the package
   closure, adapters, metadata, and required checks. It records 20 or more
   pairs. The release gate stays pending until package and callback review.
+- `just sdk cutover-bench-ios-prepare <config> <output>` prepares a Release
+  UIKit app for the installed old or new public Swift product. Then run
+  `just sdk cutover-bench-ios-build <output> <simulator-udid> <derived-data>`
+  through `NIX_DEVSHELL=ios dev/nix-shell`. Use separate side directories.
+  `just sdk cutover-bench-ios-controls <host-config> <output>` checks real app
+  memory, signer HTTP, identity rejection, timing scope, and timeout cleanup.
+  See `benchmarks/README.md` for the HTTP signer and app launch configuration.
 - `just sdk cutover-bench-check` checks the statistical gates and receipt rules.
 - `just sdk cutover-bench-stream-check <output> <browser-node_modules>` checks
   live stream content in Node, Chromium, and compiled Swift/Kotlin helpers.

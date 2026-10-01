@@ -21,6 +21,20 @@ func liveRequire(_ value: Bool, _ message: String) throws {
     }
 }
 
+/// The collector rejects duplicate expected IDs before it changes live state.
+func appendLiveEvent(_ id: String, _ expected: Set<String>, _ seen: inout Set<String>,
+                     _ events: inout [LiveEvent], _ decode: () throws -> LiveEvent) throws
+{
+    guard expected.contains(id) else { return }
+    try liveRequire(!seen.contains(id), "Duplicate expected stream event")
+    try events.append(decode())
+    seen.insert(id)
+}
+
+func requireLiveComplete(_ seen: Set<String>, _ expected: Set<String>) throws {
+    try liveRequire(seen == expected, "Stream ended with missing fixture messages")
+}
+
 /// Both SDKs produce this rich result from actual delivered values inside timing.
 func enrichLive(_ events: [LiveEvent], _ ids: [String]) throws -> [FixtureMessage] {
     var byId: [String: LiveEvent] = [:]
@@ -54,8 +68,14 @@ func enrichLive(_ events: [LiveEvent], _ ids: [String]) throws -> [FixtureMessag
         try liveRequire(event.kind == "attachment" || event.text != nil, "Missing live text or reply body")
         try liveRequire(event.kind != "attachment" || event.attachment != nil, "Missing live attachment")
         let delivered = reactions[id]!
-        for reaction in event.eager_reactions ?? [] {
-            try liveRequire(delivered.contains(reaction), "Eager reaction differs from the delivered reactions")
+        if let eager = event.eager_reactions {
+            var remaining = delivered
+            for reaction in eager {
+                guard let index = remaining.firstIndex(of: reaction) else {
+                    throw LiveFailure(message: "Eager reaction is absent from the delivered reactions")
+                }
+                remaining.remove(at: index)
+            }
         }
         return FixtureMessage(key: keys[id]!, text: event.kind == "attachment" ? nil : event.text,
                               reply_to: parent, parent_text: parentText, reactions: delivered, attachment: event.attachment)

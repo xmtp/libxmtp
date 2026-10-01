@@ -1,7 +1,8 @@
-import { readFile, writeFile, mkdir, realpath } from "node:fs/promises";
-import { relative, isAbsolute, resolve, join } from "node:path";
+import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { admitEntries } from "./entries.mjs";
 import { publicApi } from "./sdk.mjs";
 import { seed, measure } from "./workload.mjs";
 
@@ -12,14 +13,7 @@ let input = "";
 for await (const part of process.stdin) input += part;
 const request = JSON.parse(input);
 const root = request.state_directory;
-for (const entry of [config.sdk_entry, config.pure_entry].filter(Boolean)) {
-  const path = relative(
-    await realpath(request.package_root),
-    await realpath(entry),
-  );
-  if (path.startsWith("..") || isAbsolute(path))
-    throw new Error("SDK entry is outside the recorded package closure");
-}
+await admitEntries(config, request, "node");
 
 const load = async (name) =>
   JSON.parse(await readFile(join(root, name), "utf8"));

@@ -262,10 +262,7 @@ suspend fun perform(
                     async {
                         benchStream(receiver, receivedGroup)
                             .takeWhile { message ->
-                                if (message.id in expected && message.id !in seen) {
-                                    live += benchLive(message)
-                                    seen += message.id
-                                }
+                                appendLiveEvent(message.id, expected, seen, live) { benchLive(message) }
                                 seen.size != expected.size
                             }.collect { }
                     }
@@ -273,11 +270,35 @@ suspend fun perform(
                 val start = now()
                 benchPublish(group)
                 collecting.await()
-                check(seen == expected) { "Stream ended with missing fixture messages" }
+                requireLiveComplete(seen, expected)
                 val page = enrichLive(live, (0 until ids.length()).map { ids.getString(it) }).map(::liveJson)
                 obj(
                     "duration_ms" to now() - start,
                     "observed_messages" to JSONArray(page),
+                    "eager_snapshots" to
+                        JSONArray(
+                            live.filter { it.kind != "reaction" }.map { event ->
+                                obj(
+                                    "id" to event.id,
+                                    "reactions" to (
+                                        event.eagerReactions?.let { values ->
+                                            JSONArray(
+                                                values.map {
+                                                    obj(
+                                                        "content" to it.content,
+                                                        "schema" to it.schema,
+                                                        "action" to it.action,
+                                                    )
+                                                },
+                                            )
+                                        } ?: JSONObject.NULL
+                                    ),
+                                    "parent_text" to (event.eagerParentText ?: JSONObject.NULL),
+                                )
+                            },
+                        ),
+                    "eager_snapshot_validation" to
+                        "PENDING: reaction snapshot completeness has no public boundary",
                     "streamed_events" to seen.size,
                     "streamed_primary" to keys.size,
                 )

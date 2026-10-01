@@ -13,14 +13,30 @@ from processes import execute
 
 
 def command(argv, request, log):
-    code, stdout, stderr, _, memory = execute(argv, json.dumps(request))
+    if request["target"] == "swift":
+        run = subprocess.run(
+            argv, input=json.dumps(request), capture_output=True, text=True
+        )
+        code, stdout, stderr, memory = run.returncode, run.stdout, run.stderr, 0
+    else:
+        code, stdout, stderr, _, memory = execute(argv, json.dumps(request))
     log.with_suffix(".stderr").write_text(stderr)
     log.with_suffix(".stdout").write_text(stdout)
     if code:
         raise RuntimeError(f"Host exited {code}: {log}")
     response = json.loads(stdout)
     if request["phase"] == "measure":
-        if request["target"] != "kotlin":
+        if request["target"] == "swift":
+            peak = response.get("peak_memory_bytes")
+            if (
+                type(peak) is not int
+                or peak <= 0
+                or response.get("memory_scope") != "ios-app-resident-high-water"
+            ):
+                raise ValueError(
+                    "Swift measurement requires the app resident high-water mark"
+                )
+        elif request["target"] != "kotlin":
             response["peak_memory_bytes"] = max(
                 memory, response.get("peak_memory_bytes", 0)
             )
@@ -32,7 +48,6 @@ def record_observation(response, fixture, workload, log):
         raise ValueError("Page and stream measurements require observed public values")
     if "observed_messages" in response:
         values = response.pop("observed_messages")
-        values.sort(key=lambda item: int(item["key"]))
         response["observation"] = {
             "count": len(values),
             "semantic_sha256": digest(values),
@@ -102,12 +117,14 @@ def main():
             response["long_tasks_ms"] = []
         # These flags cover this timed operation only. The separate callback
         # matrix must establish retained-work and lifetime behavior across cycles.
-        response["safety"] = {
-            "correctness": True,
-            "deadlock": False,
-            "use_after_end": None,
-            "retained_growth": None,
-        }
+        safety = response.setdefault("safety", {})
+        # Exact page or stream observations establish content correctness only.
+        observed = response["observation"] == expected_observation(fixture, workload)
+        safety.setdefault(
+            "correctness", observed if workload in {"page", "stream"} else None
+        )
+        for outcome in ("deadlock", "use_after_end", "retained_growth"):
+            safety.setdefault(outcome, None)
     print(json.dumps(response))
 
 

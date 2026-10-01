@@ -2,7 +2,11 @@
 
 This suite implements the Task 10 release measurements and the P26/V14 gate.
 The checked-in baseline lock pins published Node 6.1.0, browser 7.1.0, Android
-4.11.0, and Swift 4.11.0 packages. It records registry and release provenance.
+4.11.0, and Swift 4.11.0 packages. It records registry and release provenance. The resolver verifies each selected
+archive against its published checksum before it writes the lock. Android source
+provenance uses the exact release tag and its version file. Its publication
+evidence is the AAR Last-Modified header from Maven, recorded as an artifact
+upload date. No GitHub Android release date is available.
 It is not a complete package inventory or a performance result.
 
 **Release status: PENDING.** Run the suite again after the final integrated head
@@ -30,7 +34,7 @@ performance report does not close either check.
   Read the same 1,000 rich messages, serialize outside timing, then perform
   10,000 conversions per run. This check does not enter page memory samples.
 - Report correctness, deadlock, use-after-end, and retained growth separately.
-  The host reports only what the timed operation establishes. Unknown lifetime
+  The host reports only what the timed operation establishes. Unknown correctness, deadlock, and lifetime
   results stay `null`; the independent callback matrix must resolve them.
 
 The former private-binding Node microbenchmark remains an internal diagnostic.
@@ -62,9 +66,14 @@ readiness API. A missing event causes failure or timeout. All four adapters reta
 actual live text, reply bodies, attachment bytes, and reaction bodies. A common
 host accumulator joins reply parents and reactions from those delivered values
 inside the timer. Both old and new packages perform that work. When an SDK also
-supplies eager parent or reaction values, the accumulator checks those values
-against the live events. Native legacy streams therefore include the required
-host enrichment cost. Stream observations never come from a history query.
+supplies eager parent or reaction values, the accumulator preserves those values
+and checks their content and duplicate counts against the live events. Eager
+reaction completeness stays PENDING: the reader queries stored reactions when
+it lifts each item. That database snapshot can differ from stream arrival order
+and from the final collection. A missing eager reaction is not proved by this
+workload. A separate deterministic eager snapshot check is required. Native legacy streams have no eager reaction children. The Android raw reply
+has no eager parent. Both packages include the same host enrichment cost. Stream observations never come from a history query. The accumulator emits
+primary values in fixture ID order. It does not prove stream arrival order.
 
 Node, Swift, and browser memory is the largest sampled RSS sum of the host
 process tree during the complete invocation. The driver samples every 10 ms.
@@ -108,7 +117,7 @@ the runner deletes only the declared cache. Builds must not modify the frozen
 installed closure.
 
 For Node, `host_command` is `node hosts/node.mjs /absolute/path/node-host.json`.
-The host file names `sdk_entry`, `pure_entry` for the new `./pure` export,
+The host file names `sdk_entry`, optional `pure_entry` for the public root,
 `accounts_entry` for viem accounts, and `backend_url`. SDK entry files must
 resolve inside the recorded installed closure. Use `node --conditions=production`
 if the package has production export conditions. The runner sets
@@ -117,21 +126,63 @@ if the package has production export conditions. The runner sets
 For browser, use `node hosts/browser.mjs /absolute/path/browser-host.json`.
 The host file has the Node fields plus `vite_entry`, `playwright_entry`,
 `chromium_executable`, `browser_port`, `package_root`, and `tools_root`.
-The entry files must be the installed public exports. The new `pure_entry`
-must resolve to its public WASM codec export. Vite serves the installed release
+The entry files must match the installed manifest public ESM exports. The new
+browser `pure_entry` must match `./pure`. Node codecs use the public root; Node
+has no `./pure` export. Private in-closure overrides are rejected. Vite serves the installed release
 code, and Chromium uses a persistent profile per side. Keep `browser_port`
 fixed. COOP and COEP headers allow the real worker to run.
 
-For Swift, copy `SwiftPackage.swift` to an isolated host directory as
-`Package.swift`, with `SwiftSupport.swift`, `SwiftLive.swift`, `SwiftOld.swift`, and `SwiftNew.swift`.
-Set `BENCHMARK_SIDE=old|new` and `BENCHMARK_SDK_PACKAGE` to the local installed
-SwiftPM product. Resolve its complete pinned dependencies before timing.
-Build with `NIX_DEVSHELL=ios dev/nix-shell 'swift build -c release ...'`.
-The executable accepts a host JSON file with `backend_url` and
-`signer_command`, such as `["/absolute/node", "/absolute/hosts/signer.mjs",
-"/absolute/viem/_esm/accounts/index.js"]`. Use the same signer helper on both
-sides. The new module name is `XmtpSdk`; the old module name is `XMTPiOS`.
-The host uses no `@testable` imports.
+For Swift, use a Release UIKit app on one fixed arm64 iOS Simulator. Both
+installed public products run on this target: old `XMTPiOS` and new `XmtpSdk`.
+The app uses no `@testable` imports. A macOS executable cannot link the new
+XCFramework. Prepare a JSON file with `side`, `package_root`, and `assets`
+(the same public/native asset map used by the runner). Run once per side:
+
+```sh
+NIX_DEVSHELL=ios dev/nix-shell 'just sdk cutover-bench-ios-prepare /absolute/ios-prepare.json /absolute/old-host'
+NIX_DEVSHELL=ios dev/nix-shell 'just sdk cutover-bench-ios-build /absolute/old-host SIMULATOR-UDID /absolute/old-derived'
+```
+
+The build receipt binds the app bytes, source identity, public product, package
+closure, Xcode version, simulator, and resolved dependency bytes. For a package
+with transitive Swift dependencies, set `dependency_root` to a directory inside
+`package_root`. It must contain the resolved `Package.resolved`, `checkouts`,
+and `artifacts` from a prior package resolution. Copy these files, omit `.git`,
+and materialize symlinks before freezing the complete installed closure. The
+build uses the frozen pins and requires the resolved source and binary bytes to
+match this snapshot. Keep each side's resolution and derived data separate.
+Start the existing `hosts/signer-server.mjs` with the installed viem accounts
+module and a fixed port. Use the same server for both sides.
+
+Use `python3 hosts/ios.py /absolute/ios-host.json` as `host_command`. This JSON
+needs `build_receipt` (the generated `build-receipt.json`), `simulator_udid`,
+`backend_url`, `signer_url`, and `timeout_seconds`. Boot this explicit simulator
+before running. The adapter timeout bounds its operation. If the outer runner
+timeout kills the launcher, the runner independently terminates the registered
+app and saves `runner-cleanup.json`. This cleanup has a separate 15-second
+limit. A cleanup failure fails the run. Loopback URLs reach the Mac from the
+simulator. Physical devices need a separate bridge.
+The adapter verifies the app bytes, stages the original request in an envelope,
+starts a fresh app process, validates the response, and terminates the app.
+The app keeps its page state under its Application Support directory.
+
+Swift workload `peak_memory_bytes` is the app's positive resident high-water
+mark from process start through the operation. It includes startup, fixture,
+Swift runtime, and native SDK memory. A failed memory query fails the sample.
+The driver never replaces this value with Mac launcher RSS. Build workloads
+retain the declared command's wall time and Mac process-tree memory. Declare
+whether the build command measures SDK production, app compilation, or both;
+app compilation alone does not prove the SDK/CI build-cost gate. SDK duration
+fields exclude app installation, launch, file transport, and response writing.
+
+Run `just sdk cutover-bench-ios-controls <host-config> <output>` in the iOS
+Nix shell with the signer running. This command runs real bridge controls.
+Bridge probes use `phase: "probe"` and are excluded from benchmark samples.
+They can test `probe: "signer"`, `probe: "error"`, `allocate_bytes`, and separate
+`transport_delay_ms`/`operation_delay_ms` values. Save their request and response
+artifacts. Run a large touched allocation followed by a fresh empty process to
+prove the memory source. Probe results do not replace public SDK workload,
+callback lifetime, or the 20 paired performance runs.
 
 For Android, `hosts/android` builds a separate release APK per side. Its main
 instrumentation code uses the installed public SDK. The package closure must
@@ -196,6 +247,9 @@ remains PENDING in every case until the separate reviews are complete.
 dev/nix-shell 'just sdk cutover-bench-check'
 python3 crates/xmtp_sdk/benchmarks/prove_gates.py /absolute/mutation-proofs
 python3 crates/xmtp_sdk/benchmarks/control.py /absolute/four-target-controls
+python3 crates/xmtp_sdk/benchmarks/prove_repairs.py /absolute/repair-controls
+node crates/xmtp_sdk/benchmarks/entry_controls.mjs
+node crates/xmtp_sdk/benchmarks/reaction_controls.mjs
 dev/nix-shell 'just sdk cutover-bench-stream-check /absolute/stream-controls /absolute/browser-node_modules'
 ```
 
@@ -219,12 +273,13 @@ an earlier committed JavaScript helper exactly, run `stream_controls.py` with
 restored pass. These are boundary controls; final installed SDK runtime checks
 remain separate release gates.
 
-## Accepted benchmark security risks
+## Known limitations
 
 The owner accepts the security risks of this benchmark harness. Benchmark
 signing keys are disposable. The harness can retain these keys in benchmark
 state and send them to the configured signer service. Key storage and signer
-endpoint hardening are outside the cutover scope.
+endpoint hardening are outside the cutover scope. The resolver trusts configured
+registry and release URLs and their redirects. These are accepted harness risks.
 
 Correctness, measured safety results, observed order, artifact checksums,
 workloads and the 20% thresholds remain required.

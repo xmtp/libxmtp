@@ -14,6 +14,7 @@ from pathlib import Path
 
 from fixtures import canonical, dataset, digest, expected_observation
 from packages import inventory
+from ios_cleanup import terminate_registered
 from benchmark_stats import LIMIT, MIN_PAIRS, paired_summary, percentile
 
 TARGETS = ("swift", "kotlin", "node", "browser")
@@ -98,10 +99,15 @@ def invoke(config, side, request, output):
             json.dumps(request), timeout=config["timeout_seconds"]
         )
     except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
         stdout, stderr = process.communicate()
         output.with_suffix(".stdout").write_text(stdout)
         output.with_suffix(".stderr").write_text(stderr)
+        if request["target"] == "swift":
+            terminate_registered(request)
         raise ValueError(
             f"Adapter timeout: {side} {request['phase']} {request.get('workload')}"
         )
@@ -177,7 +183,7 @@ def summarize(ledger):
     safety_failures = []
     for row in rows:
         flags = row["response"]["safety"]
-        if not flags["correctness"] or any(flags[k] for k in SAFETY[1:]):
+        if flags["correctness"] is False or any(flags[k] is True for k in SAFETY[1:]):
             safety_failures.append(
                 {
                     "workload": row["workload"],
@@ -245,6 +251,14 @@ def summarize(ledger):
             }
         )
     failed = safety_failures or any(r["decision"] == "FAIL" for r in results)
+    unmeasured = sorted(
+        {
+            key
+            for row in rows
+            for key, value in row["response"]["safety"].items()
+            if value is None
+        }
+    )
     report = {
         "schema": 1,
         "target": config["target"],
@@ -253,8 +267,16 @@ def summarize(ledger):
         "release_gate": "PENDING",
         "results": results,
         "safety_failures": safety_failures,
+        "safety_decision": "FAIL"
+        if safety_failures
+        else "PENDING"
+        if unmeasured
+        else "PASS",
+        "unmeasured_safety": unmeasured,
+        "eager_snapshot_gate": "PENDING",
         "pending": [
             "Independent callback matrix and installed-package proof review",
+            "Eager reaction snapshot completeness needs a deterministic public boundary",
             "Review matched package hashes and integrated source provenance",
         ],
         "method": {
