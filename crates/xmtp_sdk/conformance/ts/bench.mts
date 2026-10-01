@@ -200,4 +200,4 @@ console.log(
 );
 await nativeClient.close();
 await client.end();
-if (sdkPage > 2 * nativePage) process.exitCode = 2;
+console.log("Diagnostic only. Use just sdk cutover-bench for the release gate.");
