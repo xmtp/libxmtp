@@ -152,15 +152,7 @@ impl Client {
         }
         #[cfg(any(test, feature = "conformance"))]
         if let Some(components) = crate::metadata::conformance::application_components() {
-            let api = xmtp_api::ApiClientWrapper::new(backend.api.clone(), Default::default());
-            let mut configuration =
-                xmtp_mls::server_configuration::fetch_server_configuration(&api)
-                    .await
-                    .map_err(XmtpError::from_client)?;
-            configuration.application_components = components;
-            builder = builder.config_provider(Arc::new(
-                xmtp_configuration::StaticConfigProvider::new(configuration),
-            ));
+            builder = builder.application_components_for_test(components);
         }
         let inner = builder
             .default_mls_store()

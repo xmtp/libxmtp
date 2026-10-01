@@ -218,6 +218,8 @@ fn expect_kind(error: XmtpError, name: &str, category: ErrorCategory) {
 
 mod calls;
 mod collections;
+#[cfg(not(target_arch = "wasm32"))]
+mod conformance_creation;
 mod descriptors;
 mod profiles;
 mod reads;
