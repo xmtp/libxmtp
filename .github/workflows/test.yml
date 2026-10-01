@@ -84,6 +84,7 @@ jobs:
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
             sdk:
+              - 'dev/check-apple-toolchain'
               - 'dev/backend/**'
               - 'dev/docker/s3/**'
               - 'nix/package/backend-ci.nix'
@@ -116,6 +117,7 @@ jobs:
               - '.github/actions/setup-js/**'
               - '.github/workflows/test-sdk.yml'
             sdk_swift:
+              - 'dev/check-apple-toolchain'
               - 'nix/**'
               - 'dev/nix-shell'
               - 'justfile'
@@ -219,6 +221,7 @@ jobs:
               - 'dev/docker/**'
               - '.github/workflows/test-agent-sdk*'
             ios:
+              - 'dev/check-apple-toolchain'
               - 'dev/nix-shell'
               - 'justfile'
               - '.github/actions/setup-nix/**'
@@ -246,6 +249,7 @@ jobs:
             # mobile sources or native CI setup; a crate change is caught by the
             # push run on merge, which uses the broad filter above.
             ios_direct:
+              - 'dev/check-apple-toolchain'
               - 'nix/**'
               - 'dev/nix-shell'
               - 'justfile'
