@@ -337,6 +337,38 @@ const assets = Object.fromEntries(
     )
       throw new Error(`SDK package omits runtime: ${name}`);
     const runtimeFiles = [...shipped].filter((path) => path.startsWith(prefix));
+    const runtimeManifest = JSON.parse(
+      readFileSync(join(destination, prefix, "package.json")),
+    );
+    const entries = [];
+    function collectEntries(value) {
+      if (typeof value === "string") entries.push(value);
+      else if (Array.isArray(value)) value.forEach(collectEntries);
+      else if (value && typeof value === "object") {
+        for (const [condition, entry] of Object.entries(value)) {
+          if (condition !== "types" && condition !== "require")
+            collectEntries(entry);
+        }
+      }
+    }
+    if (runtimeManifest.exports !== undefined)
+      collectEntries(runtimeManifest.exports);
+    else
+      entries.push(
+        runtimeManifest.module ?? runtimeManifest.main ?? "index.js",
+      );
+    if (entries.length === 0)
+      throw new Error(`SDK package has no runtime entry: ${name}`);
+    for (const entry of entries) {
+      const required = relative(
+        destination,
+        resolve(destination, prefix, entry),
+      ).replaceAll("\\", "/");
+      if (!required.startsWith(prefix) || !shipped.has(required))
+        throw new Error(
+          `SDK package omits required runtime entry: ${required}`,
+        );
+    }
     if (!runtimeFiles.some((path) => path.endsWith(".js")))
       throw new Error(`SDK package omits runtime loader: ${name}`);
     if (name === "node" && !runtimeFiles.some((path) => path.endsWith(".node")))
