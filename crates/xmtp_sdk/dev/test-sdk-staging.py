@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[3]
 class StagingTests(unittest.TestCase):
     def setUp(self):
         self.temporary = tempfile.TemporaryDirectory()
-        self.root = Path(self.temporary.name)
+        self.root = Path(self.temporary.name).resolve()
 
     def tearDown(self):
         self.temporary.cleanup()
@@ -25,10 +25,17 @@ class StagingTests(unittest.TestCase):
         folder.mkdir(parents=True)
         (folder / "package.json").write_text(
             json.dumps(
-                {"name": "@ubjs/" + name, "version": "0.0.0", "module": "index.js"}
+                {
+                    "name": "@ubjs/" + name,
+                    "version": "0.0.0",
+                    "module": "index.js",
+                    "files": ["index.js", "binding.node"],
+                }
             )
         )
         (folder / "index.js").write_text("export const marker = 'runtime';")
+        (folder / "package-lock.json").write_text('{"lockfileVersion":3}')
+        (folder / "not-shipped.txt").write_text("excluded runtime build input")
         if name == "node":
             (folder / "binding.node").write_bytes(b"fixture native asset")
 
@@ -87,6 +94,95 @@ class StagingTests(unittest.TestCase):
                     ],
                     ["@ubjs/core", "@ubjs/node"],
                 )
+                metadata = json.loads((out / "node/sdk-contract.json").read_text())
+                self.assertNotIn(
+                    "node_modules/@ubjs/core/package-lock.json", metadata["assets"]
+                )
+                self.assertNotIn(
+                    "node_modules/@ubjs/core/not-shipped.txt", metadata["assets"]
+                )
+                consumer = self.root / (layout + "-consumer")
+                consumer.mkdir()
+                (consumer / "package.json").write_text(
+                    '{"private":true,"type":"module"}'
+                )
+                packed = json.loads(
+                    subprocess.check_output(
+                        [
+                            "npm",
+                            "pack",
+                            str(out / "node"),
+                            "--pack-destination",
+                            str(consumer),
+                            "--json",
+                            "--ignore-scripts",
+                        ],
+                        cwd=out / "node",
+                        text=True,
+                    )
+                )[0]
+                self.assertEqual(set(packed["bundled"]), {"@ubjs/core", "@ubjs/node"})
+                subprocess.run(
+                    [
+                        "npm",
+                        "install",
+                        "--ignore-scripts",
+                        "--no-audit",
+                        "--no-fund",
+                        "--package-lock=false",
+                        str(consumer / packed["filename"]),
+                    ],
+                    cwd=consumer,
+                    check=True,
+                    capture_output=True,
+                )
+                installed = consumer / "node_modules/xmtp-sdk"
+                check = [
+                    "node",
+                    "--input-type=module",
+                    "-e",
+                    "import './sdk-contract-check.js';",
+                ]
+                subprocess.run(check, cwd=installed, check=True, capture_output=True)
+                for filename in (
+                    "node_modules/@ubjs/core/index.js",
+                    "node_modules/@ubjs/node/binding.node",
+                ):
+                    runtime = installed / filename
+                    original = runtime.read_bytes()
+                    runtime.write_bytes(original + b"changed")
+                    failed = subprocess.run(
+                        check, cwd=installed, capture_output=True, text=True
+                    )
+                    self.assertNotEqual(failed.returncode, 0)
+                    self.assertIn("SDK asset mismatch: " + filename, failed.stderr)
+                    runtime.write_bytes(original)
+                subprocess.run(check, cwd=installed, check=True, capture_output=True)
+                for name, allowed, message in (
+                    ("core", ["package.json"], "omits runtime loader: core"),
+                    ("node", ["index.js"], "omits native runtime binary"),
+                ):
+                    runtime_manifest = products / name / "package.json"
+                    original_manifest = runtime_manifest.read_text()
+                    changed_manifest = json.loads(original_manifest)
+                    changed_manifest["files"] = allowed
+                    if name == "core":
+                        changed_manifest.pop("module", None)
+                        changed_manifest.pop("main", None)
+                    runtime_manifest.write_text(json.dumps(changed_manifest))
+                    omitted = subprocess.run(
+                        [
+                            "node",
+                            str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"),
+                            "node",
+                        ],
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    runtime_manifest.write_text(original_manifest)
+                    self.assertNotEqual(omitted.returncode, 0)
+                    self.assertIn(message, omitted.stderr)
 
 
 if __name__ == "__main__":

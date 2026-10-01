@@ -10,12 +10,13 @@ import {
   symlinkSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   copyFileSync,
   cpSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve, relative } from "node:path";
+import { dirname, join, resolve, relative, delimiter } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -292,11 +293,56 @@ const assets = Object.fromEntries(
     .map((path) => [relative(destination, path), hash(path)]),
 );
 {
-  // Include the native or browser runtime and its loader in the installed integrity check.
+  // npm removes files such as package-lock.json from bundled dependencies.
+  // Check the runtime files that npm ships, including its loaders and binaries.
+  const npmCandidates = [
+    process.env.XMTP_SDK_NPM_CLI
+      ? resolve(process.env.XMTP_SDK_NPM_CLI)
+      : undefined,
+    join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
+    resolve(
+      dirname(process.execPath),
+      "../lib/node_modules/npm/bin/npm-cli.js",
+    ),
+  ];
+  for (const directory of (process.env.PATH ?? "").split(delimiter)) {
+    const link = join(directory, "npm");
+    if (existsSync(link)) {
+      const cli = realpathSync(link);
+      if (cli.endsWith("npm-cli.js")) npmCandidates.push(cli);
+    }
+  }
+  const npmCli = npmCandidates.find((path) => path && existsSync(path));
+  if (!npmCli) throw new Error("SDK package staging cannot find npm-cli.js");
+  const packed = JSON.parse(
+    execFileSync(
+      process.execPath,
+      [
+        npmCli,
+        "pack",
+        realpathSync(destination),
+        "--dry-run",
+        "--json",
+        "--ignore-scripts",
+      ],
+      { cwd: realpathSync(destination), encoding: "utf8" },
+    ),
+  )[0];
+  const shipped = new Set(packed.files.map((file) => file.path));
   for (const name of runtimes) {
-    for (const path of files(join(destination, "node_modules/@ubjs", name))) {
-      if (!path.endsWith(".d.ts"))
-        assets[relative(destination, path)] = hash(path);
+    const prefix = `node_modules/@ubjs/${name}/`;
+    if (
+      !packed.bundled.includes(`@ubjs/${name}`) ||
+      !shipped.has(prefix + "package.json")
+    )
+      throw new Error(`SDK package omits runtime: ${name}`);
+    const runtimeFiles = [...shipped].filter((path) => path.startsWith(prefix));
+    if (!runtimeFiles.some((path) => path.endsWith(".js")))
+      throw new Error(`SDK package omits runtime loader: ${name}`);
+    if (name === "node" && !runtimeFiles.some((path) => path.endsWith(".node")))
+      throw new Error("SDK package omits native runtime binary");
+    for (const path of runtimeFiles) {
+      if (!path.endsWith(".d.ts")) assets[path] = hash(join(destination, path));
     }
   }
 }
