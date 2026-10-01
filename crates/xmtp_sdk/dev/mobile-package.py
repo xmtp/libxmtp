@@ -123,6 +123,7 @@ def preflight(generated_dir, artifact_dir, target):
             or item["generator"] != generated["generator"]
             or item["features"]
             or item["profile"] != "release"
+            or item["target"] != triple
         ):
             raise ValueError(f"mobile binding contract mismatch: {triple}")
         native[triple] = item
