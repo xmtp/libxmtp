@@ -79,21 +79,25 @@ test("homepage uses the approved content order, security links, and local agent 
   expect(prototypeRequests).toEqual([]);
 });
 
-test("homepage header scrolls to the SDK and security sections", async ({
+test("homepage links open the install, security, and client guides", async ({
   page,
 }) => {
-  for (const [name, hash] of [
-    ["SDKs", "#sdks"],
-    ["Security", "#security"],
+  for (const [scope, name, path, heading] of [
+    [".home-header", "SDKs", "/get-started/install/", "Install the XMTP SDK"],
+    [".home-header", "Security", "/protocol/security/", "Messaging security"],
+    [
+      ".home-hero",
+      "Build with your coding assistant",
+      "/sdk/client/",
+      "Client",
+    ],
   ]) {
     await page.goto("/");
-    const link = page
-      .getByRole("navigation", { name: "Main navigation" })
-      .getByRole("link", { name, exact: true });
-    await expect(link).toHaveAttribute("href", hash);
+    const link = page.locator(scope).getByRole("link", { name });
+    await expect(link).toHaveAttribute("href", path);
     await link.click();
-    expect(new URL(page.url()).hash).toBe(hash);
-    await expect(page.locator(hash)).toBeInViewport();
+    await expect(page).toHaveURL(new RegExp(`${path.replace(/\/$/, "")}/?$`));
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText(heading);
   }
 });
 
