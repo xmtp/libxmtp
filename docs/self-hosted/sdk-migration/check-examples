@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Compile guide examples against the staged public products in this worktree.
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+guide=docs/self-hosted/sdk-migration
+fixtures=crates/xmtp_sdk/conformance/public
+stage=target/sdk-public
+case "${1:-}" in
+  node|browser)
+    host="$1"
+    consumer="$stage/$host-consumer"
+    test -d "$consumer/node_modules" || {
+      echo "Missing staged $host product. Run the package staging gate first." >&2
+      exit 1
+    }
+    source="$consumer/src/migration.ts"
+    test ! -e "$source" || { echo "Refusing to overwrite $source" >&2; exit 1; }
+    trap 'rm -f "$source"' EXIT
+    cp "$guide/$host.ts" "$source"
+    compiler_types=()
+    if [[ "$host" == node ]]; then
+      compiler_types=(--types node --typeRoots sdks/node/node_modules/@types)
+    fi
+    node_modules/.bin/tsc "${compiler_types[@]}" --noEmit --strict --skipLibCheck --target es2022 \
+      --module esnext --moduleResolution bundler --allowImportingTsExtensions "$source"
+    ;;
+  swift)
+    test -d "$stage/XmtpSdk" || { echo "Missing staged XmtpSdk product." >&2; exit 1; }
+    source="$fixtures/swift/Sources/PublicConsumer/Migration.swift"
+    test ! -e "$source" || { echo "Refusing to overwrite $source" >&2; exit 1; }
+    trap 'rm -f "$source"' EXIT
+    cp "$guide/Migration.swift" "$source"
+    NIX_DEVSHELL=ios dev/nix-shell "swift build --package-path $fixtures/swift -Xswiftc -strict-concurrency=complete"
+    ;;
+  kotlin)
+    test -d "$stage/kotlin" || { echo "Missing staged Kotlin product." >&2; exit 1; }
+    source="$fixtures/kotlin/consumer/src/main/kotlin/Migration.kt"
+    test ! -e "$source" || { echo "Refusing to overwrite $source" >&2; exit 1; }
+    trap 'rm -f "$source"' EXIT
+    cp "$guide/Migration.kt" "$source"
+    NIX_DEVSHELL=android dev/nix-shell "sdks/android/gradlew -p $fixtures/kotlin :consumer:compileDebugKotlin --no-daemon -q"
+    ;;
+  *)
+    echo "Expected node, browser, swift, or kotlin" >&2
+    exit 2
+    ;;
+esac
+printf '%s\n' "Guide example compiled: $1"
