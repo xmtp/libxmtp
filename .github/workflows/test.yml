@@ -352,7 +352,6 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.backend_ci == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     uses: ./.github/workflows/test-native-backend.yml
-    secrets: inherit
 
   test-validation:
     needs: detect-changes
