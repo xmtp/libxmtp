@@ -5,6 +5,7 @@ import argparse
 import importlib.util
 import json
 import os
+import signal
 from pathlib import Path
 import tempfile
 import subprocess
@@ -181,6 +182,108 @@ class PackagingTests(unittest.TestCase):
                     self.assertEqual(artifacts.digest(output / name), expected)
                 self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
 
+    def test_mobile_interruptions_preserve_prior_bytes(self):
+        replace = os.replace
+        for target in ("ios", "android"):
+            for kind in ("sigint", "exit"):
+                for phase in ("before-backup", "after-backup", "after-promotion"):
+                    with self.subTest(target=target, kind=kind, phase=phase):
+                        output = self.prepare_mobile_stage(target).resolve()
+                        before = self.product_files(output)
+                        fired = False
+
+                        def interrupt(source, destination):
+                            nonlocal fired
+                            backup = Path(source) == output
+                            promotion = Path(source).name == "product"
+                            selected = (backup and phase != "after-promotion") or (
+                                promotion and phase == "after-promotion"
+                            )
+                            if not fired and selected and phase == "before-backup":
+                                fired = True
+                                if kind == "sigint":
+                                    os.kill(os.getpid(), signal.SIGINT)
+                                raise SystemExit(71)
+                            replace(source, destination)
+                            if not fired and selected:
+                                fired = True
+                                if kind == "sigint":
+                                    os.kill(os.getpid(), signal.SIGINT)
+                                raise SystemExit(71)
+
+                        expected = KeyboardInterrupt if kind == "sigint" else SystemExit
+                        with patch.object(mobile.os, "replace", side_effect=interrupt):
+                            with self.assertRaises(expected) as error:
+                                self.assemble_mobile(target)
+                        self.assertTrue(fired)
+                        if kind == "exit":
+                            self.assertEqual(error.exception.code, 71)
+                        self.assertEqual(self.product_files(output), before)
+                        self.assertEqual(
+                            list(output.parent.glob(".sdk-mobile-stage-*")), []
+                        )
+
+    def test_mobile_interrupted_rollback_preserves_original_failure(self):
+        replace = os.replace
+        for target in ("ios", "android"):
+            for kind in ("sigint", "exit"):
+                for phase in ("before-rollback", "after-rollback"):
+                    with self.subTest(target=target, kind=kind, phase=phase):
+                        output = self.prepare_mobile_stage(target).resolve()
+                        before = self.product_files(output)
+
+                        def invoke():
+                            self.assemble_mobile(target)
+
+                        files = self.product_files
+                        prefix = ".sdk-mobile-stage-*"
+                        failure = OSError("promotion failed")
+                        fired = False
+
+                        def interrupt(source, destination):
+                            nonlocal fired
+                            if Path(source).name == "product":
+                                raise failure
+                            rollback = Path(source).name == "previous"
+                            if rollback and phase == "before-rollback":
+                                fired = True
+                                if kind == "sigint":
+                                    os.kill(os.getpid(), signal.SIGINT)
+                                raise SystemExit(71)
+                            replace(source, destination)
+                            if rollback and phase == "after-rollback":
+                                fired = True
+                                if kind == "sigint":
+                                    os.kill(os.getpid(), signal.SIGINT)
+                                raise SystemExit(71)
+
+                        with patch.object(os, "replace", side_effect=interrupt):
+                            with self.assertRaises(BaseException) as error:
+                                invoke()
+                        self.assertTrue(fired)
+                        self.assertIs(error.exception, failure)
+                        stages = list(output.parent.glob(prefix))
+                        if phase == "before-rollback":
+                            self.assertFalse(output.exists())
+                            backup = Path(
+                                error.exception.__notes__[0].split("preserved at ", 1)[
+                                    1
+                                ]
+                            )
+                            self.assertTrue(backup.is_absolute())
+                            self.assertEqual(files(backup), before)
+                            invoke()
+                            self.assertEqual(files(backup), before)
+                            recovery = self.root / "manual-recovery"
+                            if recovery.exists():
+                                shutil.rmtree(recovery)
+                            os.replace(backup, recovery)
+                            self.assertEqual(files(recovery), before)
+                            shutil.rmtree(stages[0])
+                        else:
+                            self.assertEqual(files(output), before)
+                            self.assertEqual(stages, [])
+
     def test_mobile_promotion_failures_restore_or_preserve_prior_bytes(self):
         replace = os.replace
         for target in ("ios", "android"):
@@ -206,7 +309,7 @@ class PackagingTests(unittest.TestCase):
                         stages = list(output.parent.glob(".sdk-mobile-stage-*"))
                         self.assertEqual(len(stages), 1)
                         self.assertEqual(
-                            str(error.exception),
+                            error.exception.__notes__[0],
                             f"previous product preserved at {(stages[0] / 'previous').resolve()}",
                         )
                         self.assertEqual(

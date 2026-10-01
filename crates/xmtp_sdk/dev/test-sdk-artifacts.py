@@ -5,6 +5,8 @@ import argparse
 import importlib.util
 import json
 import os
+import signal
+import shutil
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -151,6 +153,110 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual(self.tree_bytes(self.args.out), before)
         self.assertTrue(self.args.out.is_dir())
 
+    def test_render_interruptions_preserve_previous_tree(self):
+        replace = os.replace
+        for kind in ("sigint", "exit"):
+            for phase in ("before-backup", "after-backup", "after-promotion"):
+                with self.subTest(kind=kind, phase=phase):
+                    artifacts.build(self.args)
+                    artifacts.render(self.args)
+                    output = self.args.out.resolve()
+                    (output / "previous.bin").write_bytes(b"prior valid output")
+                    before = self.tree_bytes(output)
+                    fired = False
+
+                    def interrupt(source, destination):
+                        nonlocal fired
+                        backup = Path(source) == output
+                        promotion = Path(source).name == "product"
+                        selected = (backup and phase != "after-promotion") or (
+                            promotion and phase == "after-promotion"
+                        )
+                        if not fired and selected and phase == "before-backup":
+                            fired = True
+                            if kind == "sigint":
+                                os.kill(os.getpid(), signal.SIGINT)
+                            raise SystemExit(71)
+                        replace(source, destination)
+                        if not fired and selected:
+                            fired = True
+                            if kind == "sigint":
+                                os.kill(os.getpid(), signal.SIGINT)
+                            raise SystemExit(71)
+
+                    expected = KeyboardInterrupt if kind == "sigint" else SystemExit
+                    with patch.object(artifacts.os, "replace", side_effect=interrupt):
+                        with self.assertRaises(expected) as error:
+                            artifacts.render(self.args)
+                    self.assertTrue(fired)
+                    if kind == "exit":
+                        self.assertEqual(error.exception.code, 71)
+                    self.assertEqual(self.tree_bytes(output), before)
+                    self.assertEqual(
+                        list(output.parent.glob(".sdk-render-stage-*")), []
+                    )
+
+    def test_render_interrupted_rollback_preserves_original_failure(self):
+        replace = os.replace
+        for kind in ("sigint", "exit"):
+            for phase in ("before-rollback", "after-rollback"):
+                with self.subTest(kind=kind, phase=phase):
+                    artifacts.build(self.args)
+                    artifacts.render(self.args)
+                    output = self.args.out.resolve()
+                    (output / "previous.bin").write_bytes(b"prior valid output")
+                    before = self.tree_bytes(output)
+
+                    def invoke():
+                        artifacts.render(self.args)
+
+                    files = self.tree_bytes
+                    prefix = ".sdk-render-stage-*"
+                    failure = OSError("promotion failed")
+                    fired = False
+
+                    def interrupt(source, destination):
+                        nonlocal fired
+                        if Path(source).name == "product":
+                            raise failure
+                        rollback = Path(source).name == "previous"
+                        if rollback and phase == "before-rollback":
+                            fired = True
+                            if kind == "sigint":
+                                os.kill(os.getpid(), signal.SIGINT)
+                            raise SystemExit(71)
+                        replace(source, destination)
+                        if rollback and phase == "after-rollback":
+                            fired = True
+                            if kind == "sigint":
+                                os.kill(os.getpid(), signal.SIGINT)
+                            raise SystemExit(71)
+
+                    with patch.object(os, "replace", side_effect=interrupt):
+                        with self.assertRaises(BaseException) as error:
+                            invoke()
+                    self.assertTrue(fired)
+                    self.assertIs(error.exception, failure)
+                    stages = list(output.parent.glob(prefix))
+                    if phase == "before-rollback":
+                        self.assertFalse(output.exists())
+                        backup = Path(
+                            error.exception.__notes__[0].split("preserved at ", 1)[1]
+                        )
+                        self.assertTrue(backup.is_absolute())
+                        self.assertEqual(files(backup), before)
+                        invoke()
+                        self.assertEqual(files(backup), before)
+                        recovery = self.root / "manual-recovery"
+                        if recovery.exists():
+                            shutil.rmtree(recovery)
+                        os.replace(backup, recovery)
+                        self.assertEqual(files(recovery), before)
+                        shutil.rmtree(stages[0])
+                    else:
+                        self.assertEqual(files(output), before)
+                        self.assertEqual(stages, [])
+
     def test_render_first_rename_failure_preserves_previous_tree(self):
         artifacts.build(self.args)
         artifacts.render(self.args)
@@ -175,10 +281,10 @@ class ArtifactTests(unittest.TestCase):
 
         with patch.object(artifacts.os, "replace", side_effect=fail):
             with self.assertRaisesRegex(
-                OSError, "previous product preserved at"
+                OSError, "promotion or rollback failed"
             ) as error:
                 artifacts.render(self.args)
-        backup = Path(str(error.exception).split("preserved at ", 1)[1])
+        backup = Path(error.exception.__notes__[0].split("preserved at ", 1)[1])
         self.assertTrue(backup.is_absolute())
         self.assertEqual(self.tree_bytes(backup), before)
         artifacts.render(self.args)

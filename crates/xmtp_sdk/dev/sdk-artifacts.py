@@ -265,18 +265,22 @@ def staged_output(output, prefix=".sdk-mobile-stage-"):
         yield product
         if output.exists():
             os.replace(output, previous)
-        try:
-            os.replace(product, output)
-        except OSError:
-            if previous.exists():
-                try:
-                    os.replace(previous, output)
-                except OSError as rollback:
-                    preserve_backup = True
-                    raise OSError(
-                        f"previous product preserved at {previous}"
-                    ) from rollback
-            raise
+        os.replace(product, output)
+    except BaseException as error:
+        if previous.exists():
+            try:
+                # A rename can finish before an interrupt reaches Python.
+                if output.exists():
+                    os.replace(output, product)
+                os.replace(previous, output)
+            except BaseException as rollback:
+                preserve_backup = previous.exists()
+                if preserve_backup:
+                    note = f"previous product preserved at {previous}"
+                    error.__notes__ = [*getattr(error, "__notes__", []), note]
+                    print(note, file=sys.stderr)
+                raise error from rollback
+        raise
     finally:
         if not preserve_backup:
             shutil.rmtree(stage)
