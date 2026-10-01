@@ -95,6 +95,7 @@ package-smoke target="node":
 
 check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
 
 # Use the matching ios or android Nix shell. This does not switch a shipped SDK.
 mobile-build target:
@@ -102,3 +103,7 @@ mobile-build target:
 
 mobile-stage target:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"
+
+# Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
+check-android-toolchain:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py

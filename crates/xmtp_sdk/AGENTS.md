@@ -141,3 +141,14 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
 The old SDK packages, binding outputs, release jobs, and version numbers stay
 in place until their owning Phase 2 switches. New package preparation does not
 publish a product. All switched SDKs will use the approved 8.0.0 version line.
+
+Package review checks:
+- `just sdk check-package-scripts` also checks both provenance producers,
+  config-only changes, default mobile features, and all four NDK target tools.
+- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
+  for small C probes. The output records ELF class and machine for each ABI.
+  These probes do not prove an installed Android SDK.
+- The private compiler input is `XMTP_SDK_TSDOWN_CLI`. It names tsdown's
+  `dist/run.mjs`, which the stager runs through Node on every platform.
+  Windows CI stages with a supported compiler Node version and runs the
+  installed smoke on the minimum SDK Node version, 22.12.0.

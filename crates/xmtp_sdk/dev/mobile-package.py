@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -62,6 +63,72 @@ def record(output, generated, native):
     )
 
 
+def android_environment(triple):
+    """Select the API 23 NDK compiler and archiver for one Rust target."""
+    ndk = (
+        os.environ.get("ANDROID_NDK_HOME")
+        or os.environ.get("ANDROID_NDK_ROOT")
+        or os.environ.get("NDK_HOME")
+    )
+    if not ndk:
+        raise ValueError("Android build requires the android Nix shell and its NDK")
+    host = (
+        "darwin"
+        if sys.platform == "darwin"
+        else "windows"
+        if sys.platform == "win32"
+        else "linux"
+    )
+    candidates = sorted((Path(ndk) / "toolchains/llvm/prebuilt").glob(host + "-*"))
+    if len(candidates) != 1:
+        raise ValueError("Android NDK has no unique host toolchain")
+    tools = candidates[0] / "bin"
+    clang_target = (
+        "armv7a-linux-androideabi" if triple == "armv7-linux-androideabi" else triple
+    )
+    suffix = ".cmd" if sys.platform == "win32" else ""
+    cc = tools / (clang_target + "23-clang" + suffix)
+    cxx = tools / (clang_target + "23-clang++" + suffix)
+    ar = tools / ("llvm-ar.exe" if sys.platform == "win32" else "llvm-ar")
+    for tool in (cc, cxx, ar):
+        if not tool.is_file():
+            raise ValueError(f"Android NDK missing target tool: {tool}")
+    target = triple.replace("-", "_")
+    env = dict(os.environ)
+    env["CARGO_TARGET_" + target.upper() + "_LINKER"] = str(cc)
+    env["CC_" + target] = str(cc)
+    env["CXX_" + target] = str(cxx)
+    env["AR_" + target] = str(ar)
+    return env
+
+
+def preflight(generated_dir, artifact_dir, target):
+    """Reject unmatched binding features and receipts before assembly."""
+    language = "swift" if target == "ios" else "kotlin"
+    generated = json.loads((generated_dir / language / "sdk-contract.json").read_text())
+    binding = generated["artifact"]
+    if binding["features"]:
+        raise ValueError("mobile binding feature mismatch: expected default bindings")
+    for name, expected in generated["files"].items():
+        if artifacts.digest(generated_dir / language / name) != expected:
+            raise ValueError(f"generated mobile artifact mismatch: {name}")
+    native = {}
+    for triple in IOS if target == "ios" else tuple(ANDROID.values()):
+        item = json.loads((artifact_dir / triple / "artifacts.json").read_text())[
+            "artifacts"
+        ]["native"]
+        artifacts.verify(item)
+        if (
+            item["source"] != binding["source"]
+            or item["generator"] != generated["generator"]
+            or item["features"]
+            or item["profile"] != "release"
+        ):
+            raise ValueError(f"mobile binding contract mismatch: {triple}")
+        native[triple] = item
+    return generated, native
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("build", "stage"))
@@ -83,6 +150,11 @@ def main():
     triples = IOS if args.target == "ios" else tuple(ANDROID.values())
     if args.action == "build":
         for triple in triples:
+            env = (
+                android_environment(triple)
+                if args.target == "android"
+                else dict(os.environ)
+            )
             run(
                 [
                     "python3",
@@ -97,29 +169,12 @@ def main():
                     "--skip-bindgen",
                     "--artifacts",
                     str(args.artifacts / triple),
-                ]
+                ],
+                env=env,
             )
         return
     language = "swift" if args.target == "ios" else "kotlin"
-    generated = json.loads(
-        (args.generated / language / "sdk-contract.json").read_text()
-    )
-    for name, expected in generated["files"].items():
-        if artifacts.digest(args.generated / language / name) != expected:
-            raise ValueError(f"generated mobile artifact mismatch: {name}")
-    native = {}
-    for triple in triples:
-        item = json.loads((args.artifacts / triple / "artifacts.json").read_text())[
-            "artifacts"
-        ]["native"]
-        artifacts.verify(item)
-        if (
-            item["source"] != generated["artifact"]["source"]
-            or item["features"]
-            or item["profile"] != "release"
-        ):
-            raise ValueError(f"mobile binding contract mismatch: {triple}")
-        native[triple] = item
+    generated, native = preflight(args.generated, args.artifacts, args.target)
     output = args.out.resolve() / args.target
     if output.exists():
         shutil.rmtree(output)

@@ -1,55 +1,103 @@
 #!/usr/bin/env python3
-"""Record the generator, bindings, and copied assets in a generated tree."""
+"""Record bindings with the same provenance schema as the CLI renderer."""
 
 import argparse
 import hashlib
+import importlib.util
 import json
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[3]
-parser = argparse.ArgumentParser(description=__doc__)
-parser.add_argument("generated", type=Path)
-parser.add_argument("--artifact", action="append", default=[])
-args = parser.parse_args()
+spec = importlib.util.spec_from_file_location(
+    "artifacts", Path(__file__).with_name("sdk-artifacts.py")
+)
+artifacts = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(artifacts)
 
 
-def checksum(path):
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-generator = {
-    str(path.relative_to(root)): checksum(path)
-    for path in sorted((root / "apps/xmtp_sdk_bindgen").rglob("*"))
-    if path.is_file()
-}
-binaries = {
-    Path(path).name + ":" + str(i): checksum(Path(path))
-    for i, path in enumerate(args.artifact)
-}
-contract = hashlib.sha256(
-    json.dumps([generator, binaries], sort_keys=True).encode()
-).hexdigest()
-for tree in args.generated.iterdir():
-    if not tree.is_dir() or tree.name == "runtimes":
-        continue
-    files = {
-        str(path.relative_to(tree)): checksum(path)
-        for path in sorted(tree.rglob("*"))
-        if path.is_file()
-        and path.name != "sdk-contract.json"
-        and "node_modules" not in path.parts
+def record(generated, binaries, profile="release", features="", target=""):
+    source = artifacts.source_hash()
+    generator = artifacts.source_hash(True)
+    records = {
+        role: {
+            "source": source,
+            "generator": generator,
+            "features": features
+            if role == "native"
+            else "pure-only"
+            if role == "pure"
+            else "",
+            "profile": profile,
+            "target": target if role == "native" else "",
+            "files": {str(path.resolve()): artifacts.digest(path)},
+        }
+        for role, path in binaries.items()
+        if path
     }
-    (tree / "sdk-contract.json").write_text(
+    contract = hashlib.sha256(
         json.dumps(
             {
-                "contract": contract,
-                "generator": hashlib.sha256(
-                    json.dumps(generator, sort_keys=True).encode()
-                ).hexdigest(),
-                "artifacts": binaries,
-                "files": files,
+                role: {
+                    "files": {
+                        Path(path).name: checksum
+                        for path, checksum in item["files"].items()
+                    },
+                    "generator": generator,
+                }
+                for role, item in records.items()
             },
-            indent=2,
+            sort_keys=True,
+        ).encode()
+    ).hexdigest()
+    for tree in generated.iterdir():
+        if not tree.is_dir() or tree.name == "runtimes":
+            continue
+        role = (
+            "pure"
+            if tree.name == "typescript-pure"
+            else "wasm"
+            if tree.name == "typescript-wasm"
+            else "native"
         )
-        + "\n"
+        files = {
+            str(path.relative_to(tree)): artifacts.digest(path)
+            for path in sorted(tree.rglob("*"))
+            if path.is_file()
+            and path.name != "sdk-contract.json"
+            and "node_modules" not in path.parts
+        }
+        (tree / "sdk-contract.json").write_text(
+            json.dumps(
+                {
+                    "contract": contract,
+                    "generator": generator,
+                    "artifact": records[role],
+                    "files": files,
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("generated", type=Path)
+    for role in ("native", "bindgen", "wasm", "pure"):
+        parser.add_argument(
+            "--" + role, type=Path, required=role in ("native", "bindgen")
+        )
+    parser.add_argument("--profile", choices=("debug", "release"), default="release")
+    parser.add_argument("--features", default="")
+    parser.add_argument("--target", default="")
+    args = parser.parse_args()
+    record(
+        args.generated,
+        {role: getattr(args, role) for role in ("native", "bindgen", "wasm", "pure")},
+        args.profile,
+        args.features,
+        args.target,
     )
+
+
+if __name__ == "__main__":
+    main()

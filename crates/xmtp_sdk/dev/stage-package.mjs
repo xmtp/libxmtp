@@ -61,7 +61,8 @@ const destination = join(output, target);
 rmSync(destination, { recursive: true, force: true });
 mkdirSync(destination, { recursive: true });
 const compiler = resolve(
-  process.env.XMTP_SDK_TSDOWN_BIN ?? join(root, "node_modules/.bin/tsdown"),
+  process.env.XMTP_SDK_TSDOWN_CLI ??
+    join(root, "node_modules/tsdown/dist/run.mjs"),
 );
 const runtimes = target === "node" ? ["core", "node"] : ["core", "wasm"];
 // The pinned runtime includes the host .node binary. Copy it into the npm
@@ -143,7 +144,7 @@ try {
       config,
       `export default { ...${JSON.stringify({ entry: entries, unbundle: true, root: source, cwd: source, fixedExtension: false, format: "esm", platform: target === "node" ? "node" : "browser", outDir: dest, dts: true, tsconfig, clean: false, deps: { neverBundle: ["@ubjs/core", "@ubjs/node", "@ubjs/wasm", "@ubjs/wasm/core", "@ubjs/wasm/browser", "#xmtp/binding"], onlyBundle: false } })}, inputOptions: { external: (id) => id.endsWith("xmtp_sdk_bg.js") || id.includes("/snippets/") || id.startsWith("@ubjs/") || id === "#xmtp/binding" || (${JSON.stringify(tree === "typescript-wasm")} && id.includes("typescript-pure")) } };\n`,
     );
-    execFileSync(compiler, ["--config", config], {
+    execFileSync(process.execPath, [compiler, "--config", config], {
       cwd: source,
       stdio: "inherit",
     });
