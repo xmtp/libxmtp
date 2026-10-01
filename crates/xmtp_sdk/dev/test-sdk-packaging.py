@@ -44,6 +44,7 @@ class PackagingTests(unittest.TestCase):
             patch.object(receipt.artifacts, "ROOT", self.root),
             patch.object(artifacts, "build_context", return_value="fixture compiler"),
             patch.object(artifacts, "run", side_effect=self.command),
+            patch.object(mobile.artifacts, "ROOT", self.root),
         ]
         for item in self.patches:
             item.start()
@@ -277,7 +278,9 @@ class PackagingTests(unittest.TestCase):
         else:
             folder = Path(command[command.index("--out") + 1])
             folder.mkdir(parents=True, exist_ok=True)
-            (folder / "xmtp_sdk.swift").write_text("fixture binding")
+            language = command[command.index("--language") + 1]
+            name = "xmtp_sdk.kt" if language == "kotlin" else "xmtp_sdk.swift"
+            (folder / name).write_text("fixture binding")
 
     def native_receipts(self, target="ios"):
         native = json.loads((self.args.artifacts / "artifacts.json").read_text())[
@@ -424,6 +427,54 @@ class PackagingTests(unittest.TestCase):
                         self.assertEqual(len(self.calls), calls + 2)
         finally:
             self.patches[2].start()
+
+    def test_actual_mobile_stage_rejects_stale_binding_generator(self):
+        def host_inputs():
+            swift = self.args.out / "swift"
+            (swift / "xmtp_sdkFFI.h").write_text("fixture header")
+            (swift / "xmtp_sdkFFI.modulemap").write_text("fixture module")
+            (swift / "runtime").mkdir(exist_ok=True)
+            (swift / "runtime/Client.swift").write_text("fixture runtime")
+
+        self.args.targets = ("swift", "kotlin")
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        host_inputs()
+        for platform in ("ios", "android"):
+            for triple in (
+                mobile.IOS if platform == "ios" else tuple(mobile.ANDROID.values())
+            ):
+                args = argparse.Namespace(**vars(self.args))
+                args.artifacts = self.root / "mobile" / triple
+                args.rust_target = triple
+                args.skip_bindgen = True
+                artifacts.build(args)
+            output = self.root / "products" / platform
+            output.mkdir(parents=True)
+            (output / "previous.bin").write_bytes(b"previous product")
+        original_receipts = {
+            path: path.read_bytes()
+            for path in (self.root / "mobile").rglob("artifacts.json")
+        }
+        self.assertEqual(len(original_receipts), 6)
+        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
+        for platform in ("ios", "android"):
+            output = self.root / "products" / platform
+            before = self.product_files(output)
+            with self.subTest(platform=platform):
+                with self.assertRaisesRegex(ValueError, "binding generator mismatch"):
+                    self.assemble_mobile(platform)
+                self.assertEqual(self.product_files(output), before)
+        before_calls = len(self.calls)
+        artifacts.build(self.args)
+        self.assertEqual(len(self.calls), before_calls + 1)
+        self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
+        artifacts.render(self.args)
+        host_inputs()
+        for platform in ("ios", "android"):
+            self.assemble_mobile(platform)
+        for path, original in original_receipts.items():
+            self.assertEqual(path.read_bytes(), original)
 
     def test_generator_only_change_reuses_verified_native_provenance(self):
         self.args.targets = ("swift", "kotlin")

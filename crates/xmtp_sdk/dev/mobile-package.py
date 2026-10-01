@@ -2,7 +2,6 @@
 """Build and stage the new mobile SDK without changing the old SDK packages."""
 
 import argparse
-from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
@@ -11,7 +10,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -108,6 +106,8 @@ def preflight(generated_dir, artifact_dir, target):
     """Reject unmatched binding features and receipts before assembly."""
     language = "swift" if target == "ios" else "kotlin"
     generated = json.loads((generated_dir / language / "sdk-contract.json").read_text())
+    if generated["generator"] != artifacts.source_hash(True):
+        raise ValueError("mobile binding generator mismatch")
     binding = generated["artifact"]
     if binding["features"]:
         raise ValueError("mobile binding feature mismatch: expected default bindings")
@@ -132,34 +132,7 @@ def preflight(generated_dir, artifact_dir, target):
     return generated, native
 
 
-@contextmanager
-def staged_output(output):
-    """Build a sibling product and preserve the old product on failure."""
-    output.parent.mkdir(parents=True, exist_ok=True)
-    stage = Path(tempfile.mkdtemp(prefix=".sdk-mobile-stage-", dir=output.parent))
-    product = stage / "product"
-    previous = stage / "previous"
-    product.mkdir()
-    preserve_backup = False
-    try:
-        yield product
-        if output.exists():
-            os.replace(output, previous)
-        try:
-            os.replace(product, output)
-        except OSError:
-            if previous.exists():
-                try:
-                    os.replace(previous, output)
-                except OSError as rollback:
-                    preserve_backup = True
-                    raise OSError(
-                        f"previous product preserved at {previous}"
-                    ) from rollback
-            raise
-    finally:
-        if not preserve_backup:
-            shutil.rmtree(stage)
+staged_output = artifacts.staged_output
 
 
 def main():

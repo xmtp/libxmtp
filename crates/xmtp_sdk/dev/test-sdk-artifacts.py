@@ -4,6 +4,7 @@
 import argparse
 import importlib.util
 import json
+import os
 from pathlib import Path
 import tempfile
 from unittest.mock import patch
@@ -106,6 +107,99 @@ class ArtifactTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         self.assertEqual(len(self.calls), before + 1)
         self.assertEqual(self.calls[-1][1], "generate")
+
+    def tree_bytes(self, root):
+        return {
+            str(p.relative_to(root)): p.read_bytes()
+            for p in root.rglob("*")
+            if p.is_file()
+        }
+
+    def test_render_generation_failure_preserves_previous_tree(self):
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        before = self.tree_bytes(self.args.out)
+        with patch.object(
+            artifacts, "run", side_effect=RuntimeError("generation failed")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "generation failed"):
+                artifacts.render(self.args)
+        self.assertEqual(self.tree_bytes(self.args.out), before)
+
+    def test_render_promotion_failure_preserves_previous_tree(self):
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        before = self.tree_bytes(self.args.out)
+        replace = os.replace
+
+        def fail(source, destination):
+            if (
+                Path(destination) == self.args.out.resolve()
+                and Path(source).name != "previous"
+            ):
+                raise OSError("promotion failed")
+            return replace(source, destination)
+
+        with (
+            patch.object(artifacts.os, "replace", side_effect=fail),
+            patch.object(
+                artifacts.shutil, "move", side_effect=OSError("promotion failed")
+            ),
+        ):
+            with self.assertRaisesRegex(OSError, "promotion failed"):
+                artifacts.render(self.args)
+        self.assertEqual(self.tree_bytes(self.args.out), before)
+        self.assertTrue(self.args.out.is_dir())
+
+    def test_render_first_rename_failure_preserves_previous_tree(self):
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        before = self.tree_bytes(self.args.out)
+        with patch.object(
+            artifacts.os, "replace", side_effect=OSError("backup failed")
+        ):
+            with self.assertRaisesRegex(OSError, "backup failed"):
+                artifacts.render(self.args)
+        self.assertEqual(self.tree_bytes(self.args.out), before)
+
+    def test_render_failed_rollback_preserves_named_backup_across_success(self):
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        before = self.tree_bytes(self.args.out)
+        replace = os.replace
+
+        def fail(source, destination):
+            if Path(source) == self.args.out.resolve():
+                return replace(source, destination)
+            raise OSError("promotion or rollback failed")
+
+        with patch.object(artifacts.os, "replace", side_effect=fail):
+            with self.assertRaisesRegex(
+                OSError, "previous product preserved at"
+            ) as error:
+                artifacts.render(self.args)
+        backup = Path(str(error.exception).split("preserved at ", 1)[1])
+        self.assertTrue(backup.is_absolute())
+        self.assertEqual(self.tree_bytes(backup), before)
+        artifacts.render(self.args)
+        self.assertEqual(self.tree_bytes(backup), before)
+        restored = self.root / "manual-recovery"
+        os.replace(backup, restored)
+        self.assertEqual(self.tree_bytes(restored), before)
+
+    def test_render_fresh_promotion_failure_leaves_no_product(self):
+        artifacts.build(self.args)
+        with (
+            patch.object(
+                artifacts.os, "replace", side_effect=OSError("promotion failed")
+            ),
+            patch.object(
+                artifacts.shutil, "move", side_effect=OSError("promotion failed")
+            ),
+        ):
+            with self.assertRaisesRegex(OSError, "promotion failed"):
+                artifacts.render(self.args)
+        self.assertFalse(self.args.out.exists())
 
     def test_asset_mismatch_rejected_before_generator_runs(self):
         artifacts.build(self.args)

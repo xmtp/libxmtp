@@ -2,6 +2,7 @@
 """Build each artifact once, then render only the selected targets."""
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import json
 import os
@@ -251,6 +252,36 @@ def build(args):
         print(f"SDK built {kind} {key}", flush=True)
 
 
+@contextmanager
+def staged_output(output, prefix=".sdk-mobile-stage-"):
+    """Build a sibling product and preserve the old product on failure."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=prefix, dir=output.parent))
+    product = stage / "product"
+    previous = stage / "previous"
+    product.mkdir()
+    preserve_backup = False
+    try:
+        yield product
+        if output.exists():
+            os.replace(output, previous)
+        try:
+            os.replace(product, output)
+        except OSError:
+            if previous.exists():
+                try:
+                    os.replace(previous, output)
+                except OSError as rollback:
+                    preserve_backup = True
+                    raise OSError(
+                        f"previous product preserved at {previous}"
+                    ) from rollback
+            raise
+    finally:
+        if not preserve_backup:
+            shutil.rmtree(stage)
+
+
 def render(args):
     index = json.loads((args.artifacts / "artifacts.json").read_text())["artifacts"]
     selected = {kind: index[kind] for kind in required(args.targets)}
@@ -286,11 +317,7 @@ def render(args):
     )
     destination = args.out.resolve()
     destination.parent.mkdir(parents=True, exist_ok=True)
-    with tempfile.TemporaryDirectory(
-        prefix="sdk-render-", dir=destination.parent
-    ) as temporary:
-        fresh = Path(temporary) / "generated"
-        fresh.mkdir()
+    with staged_output(destination, prefix=".sdk-render-stage-") as fresh:
         for target in args.targets:
             languages = (
                 ["typescript-wasm", "typescript-pure"]
@@ -349,10 +376,6 @@ def render(args):
                     )
                     + "\n"
                 )
-        # Replace the tree only after every selected target was rendered.
-        if destination.exists():
-            shutil.rmtree(destination)
-        shutil.move(fresh, destination)
     print(f"SDK rendered {','.join(args.targets)} contract {contract}")
 
 
