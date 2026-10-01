@@ -147,7 +147,8 @@ publish a product. All switched SDKs will use the approved 8.0.0 version line.
 Package review checks:
 
 - `just sdk check-package-scripts` also checks both provenance producers,
-  config-only changes, default mobile features, and all four NDK target tools.
+  config-only changes, default mobile features, all four NDK target tools,
+  and both flat and prebuilt runtime directory layouts.
 - Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
   for small C probes. The output records ELF class and machine for each ABI.
   These probes do not prove an installed Android SDK.
