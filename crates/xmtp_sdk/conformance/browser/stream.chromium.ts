@@ -8,6 +8,7 @@ import type {
   WireEndpoint,
   WireMessage,
 } from "../../../../target/sdk-generated/typescript-wasm/runtime/bridge/wire";
+import { checkReaderLoopExit } from "../ts/reader-loop-exit";
 import { create, options, signer } from "./suite-support";
 
 function live(state: sdk.ConnectionState, label: string): void {
@@ -69,6 +70,16 @@ export async function checkMessageStream(backendURL: string): Promise<void> {
     clients.push(alice);
     const bob = await createClient(session, backendURL);
     clients.push(bob);
+
+    step = "public reader loop exits";
+    await checkReaderLoopExit(
+      async () => {
+        const group = await alice.conversations.createGroup([]);
+        return { group, id: await group.sendText("held loop item") };
+      },
+      (group, options) =>
+        sdk.MessageStream.openGroup(alice, group, undefined, options),
+    );
 
     step = "create group";
     const group = await alice.conversations.createGroup([bob.inboxId]);
