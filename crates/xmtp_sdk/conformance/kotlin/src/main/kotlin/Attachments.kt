@@ -320,6 +320,7 @@ suspend fun checkAttachmentRecords(backend: BackendOptions) =
         check(failureTable.mapNotNull { it.credentialKind }.toSet() == CredentialFailureKind.entries.toSet())
 
         // A terminal backend rejection is not sent again.
+        held.command("release")
         val events = EventQueue.open(this, client)
         val rejected = attachments.create(bytesSource("rejected"))
         rejected.sdkConformanceFail(failure(AttachmentFailureCause.BACKEND_REJECTED))

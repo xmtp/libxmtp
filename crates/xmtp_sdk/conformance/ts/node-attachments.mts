@@ -542,6 +542,7 @@ export async function attachmentRecords(
   assert.equal(kinds.size, 4);
 
   // A terminal backend rejection is not sent again.
+  await held.command("release");
   const events = await client.events(attachmentFilter());
   const rejected = await attachments.create(bytesSource("rejected"));
   await rejected.sdkConformanceFail(failure("backendRejected"));

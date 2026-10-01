@@ -398,6 +398,7 @@ func checkAttachmentRecords(backend: BackendOptions) async throws {
     }
 
     // A terminal backend rejection is not sent again.
+    try await held.command("release")
     let events = try await EventQueue(client)
     let rejected = try await attachments.create(source: bytesSource("rejected"))
     try await rejected.sdkConformanceFail(failure: failure(.backendRejected))
