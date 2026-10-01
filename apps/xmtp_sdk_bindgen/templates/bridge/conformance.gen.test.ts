@@ -348,8 +348,30 @@ describe("generated bridge value conformance", () => {
       set: Set<RecursiveSample>;
       map: Map<string, RecursiveSample>;
     };
+    function isRecursiveSample(value: unknown): value is RecursiveSample {
+      if (value === null || typeof value !== "object") return false;
+      const label = Reflect.get(value, "label");
+      const children = Reflect.get(value, "children");
+      const option = Reflect.get(value, "option");
+      const set = Reflect.get(value, "set");
+      const map = Reflect.get(value, "map");
+      return (
+        typeof label === "string" &&
+        Array.isArray(children) &&
+        children.every(isRecursiveSample) &&
+        (option === undefined || isRecursiveSample(option)) &&
+        set instanceof Set &&
+        Array.from(set).every(isRecursiveSample) &&
+        map instanceof Map &&
+        Array.from(map).every(
+          ([key, item]) => typeof key === "string" && isRecursiveSample(item),
+        )
+      );
+    }
     try {
-      const value = sample(shape, 0) as RecursiveSample;
+      const value = sample(shape, 0);
+      if (!isRecursiveSample(value))
+        throw new Error("invalid recursive sample");
       expect(value.label).toBe("sample-0");
       expect(value.children).toHaveLength(2);
       expect(value.children[0].children).toHaveLength(2);
