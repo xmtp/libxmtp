@@ -116,6 +116,7 @@ jobs:
               - '.github/actions/setup-js/**'
               - '.github/workflows/test-sdk.yml'
             sdk_swift:
+              - 'nix/**'
               - 'dev/nix-shell'
               - 'justfile'
               - '.github/actions/setup-nix/**'
@@ -245,6 +246,7 @@ jobs:
             # mobile sources or native CI setup; a crate change is caught by the
             # push run on merge, which uses the broad filter above.
             ios_direct:
+              - 'nix/**'
               - 'dev/nix-shell'
               - 'justfile'
               - '.github/actions/setup-nix/**'
