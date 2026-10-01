@@ -140,6 +140,21 @@ export async function receivedStandardContentDecodesOnce(
         );
       }
     }
+    await session.call("__watchTextDecode", ["parent"]);
+    const withParent = await client.conversations.getMessageById(replyId);
+    expect(
+      withParent?.inReplyToContent?.kind === "text" &&
+        withParent.inReplyToContent.value === "parent",
+      "worker parent was lost",
+    );
+    expect(
+      (await session.call("__textDecodeCount", [])) === 1n,
+      "enriched parent decoded more than once",
+    );
+    expect(
+      standardCalls === 0,
+      "receive used a standard host decoder for the parent",
+    );
     custom.calls = 0;
     const reply = await client.conversations.getMessageById(customReplyId);
     expect(custom.calls === 1, "nested custom body did not decode once");
@@ -166,16 +181,24 @@ export async function receivedStandardContentDecodesOnce(
     const failed = await client.conversations.getMessageById(customReplyId);
     expect(custom.calls === 1, "failed nested custom body did not decode once");
     expect(
-      failed?.replyContent?.kind === "custom" &&
-        failed.replyContent.error?.code === "CodecDecodeFailed" &&
-        failed.replyContent.encoded.content.toString() === "7,8,9",
-      "nested custom failure evidence was lost",
+      failed?.content.kind === "unknown" &&
+        failed.content.error.code === "CodecDecodeFailed" &&
+        failed.content.error.category === "callback" &&
+        failed.content.error.retryable === false,
+      "outer reply did not keep the custom failure",
     );
     expect(
-      failed?.content.kind === "reply" &&
-        failed.content.body.kind === "custom" &&
-        failed.content.body.error?.code === "CodecDecodeFailed",
-      "public reply lost the custom failure",
+      failed.replyContent === undefined,
+      "failed reply exposed a decoded body",
+    );
+    expect(
+      failed.content.rawBytes.toString() === reply.rawBytes.toString() &&
+        failed.rawBytes.toString() === reply.rawBytes.toString(),
+      "failed outer reply bytes changed",
+    );
+    expect(
+      failed.encoded?.content.toString() === reply.encoded.content.toString(),
+      "failed outer reply envelope changed",
     );
     const parent = await reply.parent();
     expect(parent?.id === parentId, "parent action was lost");
