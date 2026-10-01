@@ -43,6 +43,9 @@ jobs:
         with:
           filters: |
             backend_ci:
+              - 'dev/nix-shell'
+              - 'justfile'
+              - '.github/actions/setup-nix/**'
               - 'dev/backend/**'
               - 'dev/docker/s3/**'
               - 'apps/backend/**'
@@ -113,6 +116,9 @@ jobs:
               - '.github/actions/setup-js/**'
               - '.github/workflows/test-sdk.yml'
             sdk_swift:
+              - 'dev/nix-shell'
+              - 'justfile'
+              - '.github/actions/setup-nix/**'
               - 'dev/backend/**'
               - 'dev/docker/s3/**'
               - 'nix/package/backend-ci.nix'
@@ -212,6 +218,9 @@ jobs:
               - 'dev/docker/**'
               - '.github/workflows/test-agent-sdk*'
             ios:
+              - 'dev/nix-shell'
+              - 'justfile'
+              - '.github/actions/setup-nix/**'
               - 'dev/backend/**'
               - 'dev/docker/s3/**'
               - 'nix/package/backend-ci.nix'
@@ -236,6 +245,9 @@ jobs:
             # mobile sources or native CI setup; a crate change is caught by the
             # push run on merge, which uses the broad filter above.
             ios_direct:
+              - 'dev/nix-shell'
+              - 'justfile'
+              - '.github/actions/setup-nix/**'
               - 'dev/backend/**'
               - 'dev/docker/s3/**'
               - 'nix/package/backend-ci.nix'
