@@ -103,6 +103,18 @@ pub enum XmtpError {
     InvalidCursor(ErrorDetails),
     #[error("foreign cursor: {0:?}")]
     ForeignCursor(ErrorDetails),
+    #[error("unknown metadata field: {0:?}")]
+    UnknownField(ErrorDetails),
+    #[error("not a user field: {0:?}")]
+    NotUserField(ErrorDetails),
+    #[error("metadata field repeated: {0:?}")]
+    DuplicateField(ErrorDetails),
+    #[error("unsupported metadata field type: {0:?}")]
+    UnsupportedType(ErrorDetails),
+    #[error("metadata value type mismatch: {0:?}")]
+    TypeMismatch(ErrorDetails),
+    #[error("metadata field type changed: {0:?}")]
+    TypeChanged(ErrorDetails),
     /// A host content codec, or its fallback or push hook, failed before the
     /// send. The SDK made no publish attempt. The host runtime returns it.
     #[error("codec encode failed: {0:?}")]
@@ -198,11 +210,10 @@ impl XmtpError {
     }
 
     fn storage_cause(error: &xmtp_db::StorageError) -> Self {
-        use xmtp_common::RetryableError;
         Self::Storage(Self::details(
             "Storage",
             ErrorCategory::Storage,
-            error.is_retryable(),
+            Self::storage_retryable(error),
             error.to_string(),
         ))
     }
@@ -235,14 +246,7 @@ impl XmtpError {
         })
     }
 
-    pub(crate) fn from_group(error: xmtp_mls::groups::GroupError) -> Self {
-        Self::from_core(error)
-    }
-
-    /// Map a core failure to the public code of its recovery action. The
-    /// search follows the source chain, because core wraps a typed cause, such
-    /// as a storage error, a configuration check, or a credential failure, in
-    /// operation errors. A failure with no typed cause is `Unknown`.
+    /// Map a core failure to the public code of its recovery action.
     // implements: CONF-064
     pub(crate) fn from_core<E: CoreError>(error: E) -> Self {
         Self::classify(&error).unwrap_or_else(|| Self::unclassified(&error))
@@ -312,6 +316,8 @@ impl XmtpError {
         use xmtp_mls::groups::GroupError;
         if let Some(group) = error.downcast_ref::<GroupError>() {
             return match group {
+                GroupError::MetadataField(field) => Some(Self::from_field(field)),
+                GroupError::ComponentSource(source) => Some(Self::from_component_source(source)),
                 GroupError::ReservedTranscriptContentType => {
                     Some(Self::InvalidInput(Self::details(
                         "ReservedTranscriptContentType",
@@ -367,31 +373,42 @@ impl XmtpError {
             )));
         }
         if let Some(query) = error.downcast_ref::<xmtp_db::diesel::result::Error>() {
-            use xmtp_common::RetryableError;
             return Some(Self::Storage(Self::details(
                 "Storage",
                 ErrorCategory::Storage,
-                query.is_retryable(),
+                Self::query_retryable(query),
                 query.to_string(),
             )));
         }
         if let Some(platform) = error.downcast_ref::<xmtp_db::PlatformStorageError>() {
-            use xmtp_common::RetryableError;
             return Some(Self::Storage(Self::details(
                 "Storage",
                 ErrorCategory::Storage,
-                platform.is_retryable(),
+                Self::platform_retryable(platform),
                 platform.to_string(),
             )));
         }
         if let Some(connection) = error.downcast_ref::<xmtp_db::ConnectionError>() {
-            use xmtp_common::RetryableError;
             return Some(Self::Storage(Self::details(
                 "Storage",
                 ErrorCategory::Storage,
-                connection.is_retryable(),
+                Self::connection_retryable(connection),
                 connection.to_string(),
             )));
+        }
+        if let Some(key_store) = error.downcast_ref::<xmtp_db::sql_key_store::SqlKeyStoreError>() {
+            use xmtp_db::sql_key_store::SqlKeyStoreError;
+            return match key_store {
+                SqlKeyStoreError::Storage(_) | SqlKeyStoreError::Connection(_) => {
+                    Some(Self::Storage(Self::details(
+                        "Storage",
+                        ErrorCategory::Storage,
+                        Self::key_store_retryable(key_store),
+                        key_store.to_string(),
+                    )))
+                }
+                _ => None,
+            };
         }
         None
     }
@@ -587,6 +604,134 @@ impl XmtpError {
         Self::from_core(error)
     }
 
+    /// Maps a group error from a read. A database failure keeps its typed
+    /// cause's retry policy, except that a missing row or a value that
+    /// cannot be encoded, decoded or built into a query is not retryable. A
+    /// group error without a typed source is `Unknown` and not retryable.
+    /// Core's retry hint is for its own sync loop, not a promise that
+    /// repeating the call is safe.
+    pub(crate) fn from_group(error: xmtp_mls::groups::GroupError) -> Self {
+        Self::classify(&error).unwrap_or_else(|| Self::unknown(error))
+    }
+
+    /// Maps a group error from a send or commit. The message or intent may
+    /// already be stored, queued or published when the call fails, so
+    /// repeating the call can send it or apply its delta twice. A database
+    /// failure or an unknown failure is therefore not retryable here.
+    /// Typed credential, configuration and notification failures keep their
+    /// recovery hints. A credential recovery hint does not permit the app
+    /// to repeat a send that may already be queued.
+    pub(crate) fn from_group_write(error: xmtp_mls::groups::GroupError) -> Self {
+        match Self::from_group(error) {
+            Self::Storage(details) => Self::Storage(ErrorDetails {
+                retryable: false,
+                ..details
+            }),
+            Self::Unknown(details) => Self::Unknown(ErrorDetails {
+                retryable: false,
+                ..details
+            }),
+            other => other,
+        }
+    }
+
+    /// Diesel marks every query error it does not list as retryable. A missing
+    /// row, or a value that cannot be encoded, decoded or built into a query,
+    /// fails the same way on every attempt, so a read does not retry it.
+    fn query_fails_again(error: &xmtp_db::diesel::result::Error) -> bool {
+        use xmtp_db::diesel::result::Error;
+        matches!(
+            error,
+            Error::NotFound
+                | Error::DeserializationError(_)
+                | Error::SerializationError(_)
+                | Error::QueryBuilderError(_)
+        )
+    }
+
+    fn query_retryable(error: &xmtp_db::diesel::result::Error) -> bool {
+        use xmtp_common::RetryableError;
+        !Self::query_fails_again(error) && error.is_retryable()
+    }
+
+    /// Any other query error keeps the platform's own policy.
+    fn platform_retryable(error: &xmtp_db::PlatformStorageError) -> bool {
+        use xmtp_common::RetryableError;
+        match error {
+            xmtp_db::PlatformStorageError::DieselResult(query)
+                if Self::query_fails_again(query) =>
+            {
+                false
+            }
+            other => other.is_retryable(),
+        }
+    }
+
+    fn connection_retryable(error: &xmtp_db::ConnectionError) -> bool {
+        use xmtp_common::RetryableError;
+        use xmtp_db::ConnectionError;
+        match error {
+            ConnectionError::Database(query) => Self::query_retryable(query),
+            ConnectionError::Platform(platform) => Self::platform_retryable(platform),
+            other => other.is_retryable(),
+        }
+    }
+
+    fn storage_retryable(error: &xmtp_db::StorageError) -> bool {
+        use xmtp_common::RetryableError;
+        use xmtp_db::StorageError;
+        match error {
+            StorageError::DieselResult(query) => Self::query_retryable(query),
+            StorageError::Connection(connection) => Self::connection_retryable(connection),
+            StorageError::Platform(platform) => Self::platform_retryable(platform),
+            StorageError::OpenMlsStorage(key_store) => Self::key_store_retryable(key_store),
+            other => other.is_retryable(),
+        }
+    }
+
+    fn key_store_retryable(error: &xmtp_db::sql_key_store::SqlKeyStoreError) -> bool {
+        use xmtp_common::RetryableError;
+        use xmtp_db::sql_key_store::SqlKeyStoreError;
+        match error {
+            SqlKeyStoreError::Storage(query) => Self::query_retryable(query),
+            SqlKeyStoreError::Connection(connection) => Self::connection_retryable(connection),
+            other => other.is_retryable(),
+        }
+    }
+
+    /// A field error keeps its kind. A denied write is the conversation's
+    /// `PermissionDenied`.
+    fn from_field(error: &xmtp_mls::mls_common::app_data::fields::FieldError) -> Self {
+        use xmtp_mls::mls_common::app_data::fields::FieldError;
+        let message = error.to_string();
+        let input = |code| Self::details(code, ErrorCategory::Input, false, message.clone());
+        let conversation =
+            |code| Self::details(code, ErrorCategory::Conversation, false, message.clone());
+        match error {
+            FieldError::UnknownField(_) => Self::UnknownField(input("UnknownField")),
+            FieldError::NotUserField(_) => Self::NotUserField(input("NotUserField")),
+            FieldError::DuplicateField(_) => Self::DuplicateField(input("DuplicateField")),
+            FieldError::TypeMismatch(_) => Self::TypeMismatch(input("TypeMismatch")),
+            FieldError::UnsupportedType { .. } => {
+                Self::UnsupportedType(conversation("UnsupportedType"))
+            }
+            FieldError::TypeChanged { .. } => Self::TypeChanged(conversation("TypeChanged")),
+            FieldError::Denied(_) => Self::conversation_permission_denied(message.clone()),
+            FieldError::Component(source) => Self::from_component_source(source),
+        }
+    }
+
+    fn from_component_source(
+        error: &xmtp_mls::mls_common::app_data::component_source::ComponentSourceError,
+    ) -> Self {
+        Self::Unknown(Self::details(
+            "Unknown",
+            ErrorCategory::Conversation,
+            false,
+            error.to_string(),
+        ))
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn from_notification(
         error: xmtp_mls::client::notifications::NotificationError,
@@ -682,31 +827,4 @@ impl XmtpError {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{ErrorCategory, XmtpError};
-
-    #[xmtp_common::test(unwrap_try = true)]
-    fn storage_busy_matches_browser_bridge_fields() {
-        let XmtpError::StorageBusy(details) = XmtpError::storage_busy("busy") else {
-            panic!("expected StorageBusy");
-        };
-        assert_eq!(details.code, "StorageBusy");
-        assert!(matches!(details.category, ErrorCategory::Storage));
-        assert!(details.retryable);
-    }
-
-    // verifies: GMOD-035
-    #[xmtp_common::test(unwrap_try = true)]
-    fn reserved_transcript_type_is_a_stable_input_error() {
-        use xmtp_mls::groups::GroupError;
-
-        let XmtpError::InvalidInput(refused) =
-            XmtpError::from_group(GroupError::ReservedTranscriptContentType)
-        else {
-            panic!("expected InvalidInput");
-        };
-        assert_eq!(refused.code, "ReservedTranscriptContentType");
-        assert!(matches!(refused.category, ErrorCategory::Input));
-        assert!(!refused.retryable);
-    }
-}
+mod tests;

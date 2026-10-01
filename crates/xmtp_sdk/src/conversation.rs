@@ -41,5 +41,6 @@ pub(crate) use content::{lift_history_messages, query_content_types};
 use content::{require_content_type, send_encoded, send_standard};
 include!("conversation/common.rs");
 include!("conversation/group.rs");
+include!("conversation/metadata.rs");
 
 include!("conversation/conformance.rs");

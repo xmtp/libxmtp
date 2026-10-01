@@ -150,6 +150,10 @@ impl Client {
         if let Some(workers) = options.workers.clone() {
             builder = builder.worker_config(workers.into());
         }
+        #[cfg(any(test, feature = "conformance"))]
+        if let Some(components) = crate::metadata::conformance::application_components() {
+            builder = builder.application_components_for_test(components);
+        }
         let inner = builder
             .default_mls_store()
             .map_err(XmtpError::from_core)?

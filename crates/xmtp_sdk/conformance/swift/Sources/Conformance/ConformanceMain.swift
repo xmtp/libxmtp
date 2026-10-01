@@ -633,6 +633,8 @@ struct Conformance {
         }
         try await unsignedHost.end()
         print("Swift scenario 11: local signer and signature request passed")
+        try await metadataFields(options)
+        print("Swift metadata fields and profiles passed")
 
         // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
         let preAuthLog = CallLog()

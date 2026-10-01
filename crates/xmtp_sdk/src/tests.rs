@@ -518,6 +518,7 @@ mod history_errors;
 mod identity_routes;
 mod lifecycle;
 mod message_actions;
+mod metadata_fields;
 mod permissions;
 mod public_error_actions;
 mod query_costs;
@@ -527,6 +528,7 @@ mod reserved_transcript_sends;
 mod signers;
 mod standard_sends;
 mod storage;
+mod storage_retry;
 mod transparent_wrappers;
 
 mod reader_cursor;

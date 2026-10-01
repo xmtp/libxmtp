@@ -19,6 +19,7 @@ import {
   isInvalidId,
 } from "./node-codecs.mts";
 import { logging } from "./node-logging.mts";
+import { metadataFields } from "./node-metadata.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
 import { streamFailures } from "./node-stream-failures.mts";
 import { streamLifecycle } from "./node-stream-lifecycle.mts";
@@ -443,6 +444,8 @@ await unsigned.unsafeApplySignatureRequest(request);
 assert.equal(await unsigned.isRegistered(), true);
 await unsigned.end();
 console.log("Node scenario 11: local signer and signature request passed");
+await metadataFields(options);
+console.log("Node metadata fields and profiles passed");
 
 // verifies: IDENT-073, IDENT-074, IDENT-075, IDENT-076
 function recordingSigner(calls: string[]): sdk.Signer {

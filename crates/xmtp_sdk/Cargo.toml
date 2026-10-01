@@ -15,7 +15,7 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 [features]
 bench = []
-conformance = []
+conformance = ["xmtp_mls/conformance"]
 bridge-panic-test = []
 pure-only = []
 

@@ -39,6 +39,7 @@ mod ids;
 mod logging;
 #[cfg(not(feature = "pure-only"))]
 mod message;
+mod metadata;
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
@@ -116,6 +117,14 @@ pub use message::{
     ContentTypeId, DeliveryStatus, Message, MessageBody, MessageContent, MessageData, MessageKind,
     ReactionMessage, ReplyParent,
 };
+#[cfg(not(feature = "pure-only"))]
+pub use metadata::{
+    ApplicationComponentDefinition, ComponentMutation, ComponentPermissions, FieldKey, FieldValue,
+    MapEntry, MapMutation, MetadataBasePolicy, MetadataComponentType, MetadataFieldDescriptor,
+    MetadataFieldValue, MetadataKeyType, MetadataPolicy, MetadataScalarType, MetadataValue,
+    SetMutation, UserFieldUpdate, UserFieldValue,
+};
+pub use metadata::{MetadataFieldRef, WellKnownMetadataField, metadata_field_ref};
 #[cfg(all(not(feature = "pure-only"), not(target_arch = "wasm32")))]
 pub use notifications::{
     NotificationChannel, NotificationConfig, NotificationFailure, NotificationState,

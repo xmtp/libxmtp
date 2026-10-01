@@ -453,6 +453,11 @@ impl<'a> FieldSnapshot<'a> {
             .find(|f| f.field.name.as_deref() == Some(name))
     }
 
+    /// The registry the fields come from.
+    pub fn registry(&self) -> &ComponentRegistry {
+        &self.registry
+    }
+
     /// The listed field with `field`'s ID; its name is ignored.
     pub fn resolve(
         &self,
@@ -729,13 +734,36 @@ impl<'a> FieldSnapshot<'a> {
         own: InboxId,
         writes: &[FieldWrite],
     ) -> Result<Vec<(ComponentId, AppDataUpdateOperation)>, FieldError> {
+        self.operations(values, own, writes, false)
+    }
+
+    /// The operations of `writes` as [`Self::resolve_writes`] gives them,
+    /// keeping an update whose result equals the current bytes: the
+    /// operations a receiver would check if they were published.
+    // implements: META-071
+    pub fn write_operations(
+        &self,
+        values: Option<&AppDataDictionary>,
+        own: InboxId,
+        writes: &[FieldWrite],
+    ) -> Result<Vec<(ComponentId, AppDataUpdateOperation)>, FieldError> {
+        self.operations(values, own, writes, true)
+    }
+
+    fn operations(
+        &self,
+        values: Option<&AppDataDictionary>,
+        own: InboxId,
+        writes: &[FieldWrite],
+        keep_unchanged: bool,
+    ) -> Result<Vec<(ComponentId, AppDataUpdateOperation)>, FieldError> {
         if let Some(id) = first_duplicate(writes.iter().map(|w| w.component_id)) {
             return Err(FieldError::DuplicateField(id));
         }
         writes
             .iter()
             .filter_map(|write| {
-                self.resolve_write(values, own, write)
+                self.resolve_write(values, own, write, keep_unchanged)
                     .map(|op| op.map(|op| (write.component_id, op)))
                     .transpose()
             })
@@ -747,6 +775,7 @@ impl<'a> FieldSnapshot<'a> {
         values: Option<&AppDataDictionary>,
         own: InboxId,
         write: &FieldWrite,
+        keep_unchanged: bool,
     ) -> Result<Option<AppDataUpdateOperation>, FieldError> {
         let id = write.component_id;
         let descriptor = self.resolve_id(id)?;
@@ -787,7 +816,7 @@ impl<'a> FieldSnapshot<'a> {
             WriteOperation::ClearOwn => return Ok(None),
         };
         let next = apply_app_data_update_payload(id, &payload, current, &self.registry)?;
-        Ok((current != Some(next.as_slice()))
+        Ok((keep_unchanged || current != Some(next.as_slice()))
             .then(|| AppDataUpdateOperation::Update(payload.into())))
     }
 
@@ -1854,7 +1883,8 @@ mod tests {
 
     /// A write whose result equals the current value is dropped, so an
     /// unchanged field never costs a commit or an epoch. The comparison is
-    /// on the applied bytes: an empty delta creates an absent map.
+    /// on the applied bytes: an empty delta creates an absent map. The
+    /// operations that would carry the writes out keep them.
     // verifies: META-071
     #[xmtp_common::test(unwrap_try = true)]
     fn unchanged_writes_are_dropped() {
@@ -1905,6 +1935,30 @@ mod tests {
                     AppDataUpdateOperation::Update(b"Teams".to_vec().into())
                 ),
                 (LINKS, AppDataUpdateOperation::Update(empty_links.into())),
+            ]
+        );
+        assert_eq!(
+            fields.write_operations(
+                Some(&dictionary),
+                inbox(0xA),
+                &[
+                    name(b"Team"),
+                    own_write(
+                        ComponentId::USER_DISPLAY_NAME,
+                        ComponentType::TlsMapInboxIdString,
+                        WriteOperation::SetOwn(b"Alix".to_vec()),
+                    ),
+                ]
+            )?,
+            vec![
+                (
+                    ComponentId::GROUP_NAME,
+                    AppDataUpdateOperation::Update(b"Team".to_vec().into())
+                ),
+                (
+                    ComponentId::USER_DISPLAY_NAME,
+                    map_delta(TlsMapDelta::new().update(inbox(0xA), b"Alix".as_slice().into()))
+                ),
             ]
         );
     }
