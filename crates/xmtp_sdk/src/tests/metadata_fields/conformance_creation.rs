@@ -11,7 +11,13 @@ async fn stored_client() -> (Client, ClientOptions, std::path::PathBuf) {
         xmtp_common::time::now_ns(),
     ));
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = StorageLocation::Explicit {
+        db_path: path.to_string_lossy().into_owned(),
+        attachments_dir: path
+            .with_extension("attachments")
+            .to_string_lossy()
+            .into_owned(),
+    };
     let client = Client::create(crate::generate_local_signer().await, settings.clone())
         .await
         .expect("stored client");
@@ -38,7 +44,8 @@ async fn catalogue_override_rejects_recorded_backend_conflict() {
     if let Ok(client) = &result {
         client.end().await?;
     }
-    std::fs::remove_file(path)?;
+    std::fs::remove_file(&path)?;
+    std::fs::remove_dir_all(path.with_extension("attachments"))?;
     assert!(
         matches!(result, Err(XmtpError::BackendMismatch(_))),
         "{:?}",
@@ -70,7 +77,8 @@ async fn catalogue_override_rejects_another_backend() {
     if let Ok(client) = &result {
         client.end().await?;
     }
-    std::fs::remove_file(path)?;
+    std::fs::remove_file(&path)?;
+    std::fs::remove_dir_all(path.with_extension("attachments"))?;
     assert!(
         matches!(result, Err(XmtpError::BackendMismatch(_))),
         "{:?}",
@@ -117,7 +125,8 @@ async fn catalogue_override_keeps_offline_configuration() {
     assert_eq!(retained.backend_url, stored.backend_url);
     assert_eq!(retained.fetched_at_ns, stored.fetched_at_ns);
     offline.end().await?;
-    std::fs::remove_file(path)?;
+    std::fs::remove_file(&path)?;
+    std::fs::remove_dir_all(path.with_extension("attachments"))?;
 }
 
 // verifies: CONF-064, CONF-077
@@ -144,6 +153,7 @@ async fn catalogue_override_keeps_offline_backend_preflight() {
     let offline = Client::build(identity, settings, Some(inbox_id)).await?;
     let error = offline.inbox_state(true).await.unwrap_err();
     offline.end().await?;
-    std::fs::remove_file(path)?;
+    std::fs::remove_file(&path)?;
+    std::fs::remove_dir_all(path.with_extension("attachments"))?;
     assert!(matches!(error, XmtpError::BackendMismatch(_)), "{error:?}");
 }
