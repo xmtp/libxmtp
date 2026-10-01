@@ -230,14 +230,15 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: "24"
-      - name: Install package compiler
+      - uses: pnpm/action-setup@v6
+      - name: Install locked package compiler
         shell: bash
-        run: npm install --prefix target/sdk-package-tools --ignore-scripts tsdown@0.23.0 typescript@7.0.2
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter @xmtp/workspace
       - name: Stage Windows ESM package
         shell: bash
         env:
           XMTP_SDK_RUNTIME_DIR: target/sdk-generated/typescript-napi/node_modules/@ubjs
-          XMTP_SDK_TSDOWN_CLI: target/sdk-package-tools/node_modules/tsdown/dist/run.mjs
+          XMTP_SDK_TSDOWN_CLI: node_modules/tsdown/dist/run.mjs
         run: |
           python crates/xmtp_sdk/dev/record-generated.py target/sdk-generated --native target/debug/xmtp_sdk.dll --bindgen target/debug/xmtp-sdk-bindgen.exe --profile debug
           node crates/xmtp_sdk/dev/stage-package.mjs node
