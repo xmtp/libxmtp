@@ -1,12 +1,13 @@
 //! Native callback streams over the backend subscription router.
 //!
 //! Clients share a wire only when they share an API client Arc and host.
-//! The registry retains the API client, so its address cannot be reused.
+//! Each client factory owns its transport. The registry keeps only weak handles.
+//! A live transport retains the API client, so its address cannot be reused.
 //! Retryable wire failures keep leases alive and reconnect with backoff.
 //! Each callback stream reports close on terminal failure or explicit close.
 
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Weak};
 
 use parking_lot::Mutex;
 
@@ -45,7 +46,7 @@ impl<C: ?Sized> ApiClientIdentity for Arc<C> {
 type WireKey = (String, usize);
 
 struct SharedWires {
-    transports: HashMap<WireKey, BidiTransport<BackendBinding>>,
+    transports: HashMap<WireKey, Weak<BidiTransport<BackendBinding>>>,
     suspend_requested: bool,
 }
 
@@ -63,7 +64,11 @@ pub(crate) fn bidi_streams_suspended() -> bool {
 
 #[cfg(test)]
 pub(crate) fn shared_transport_count() -> usize {
-    SHARED_WIRES.lock().transports.len()
+    let mut wires = SHARED_WIRES.lock();
+    wires
+        .transports
+        .retain(|_, transport| transport.strong_count() > 0);
+    wires.transports.len()
 }
 
 /// The shared transport for the destination `api` dials, created at that
@@ -74,7 +79,7 @@ pub(crate) fn shared_transport_count() -> usize {
 /// agents. A process that tears its runtime down and starts another (some
 /// non-`nextest` test harnesses) would find the cached transport dead;
 /// `nextest`'s process-per-test model keeps tests clear of that.
-pub(crate) fn shared_transport<C>(api: C) -> BidiTransport<BackendBinding>
+pub(crate) fn shared_transport<C>(api: C) -> Arc<BidiTransport<BackendBinding>>
 where
     C: XmtpMlsBidiStreams + ApiClientIdentity + Clone + Send + Sync + 'static,
     C::SubscribeStream: 'static,
@@ -91,29 +96,29 @@ where
     let born_suspended = wires.suspend_requested;
     wires
         .transports
-        .entry(key)
-        .or_insert_with_key(|(host, _)| {
-            // Whoever streams to this destination first donates their api
-            // client for the life of the process.
-            tracing::info!(
-                %host,
-                suspended = born_suspended,
-                "bidi: initializing the shared transport for a destination"
-            );
-            BidiTransport::new_within(
-                move |initial| {
-                    let api = api.clone();
-                    async move {
-                        BidiConnection::open(&api, initial)
-                            .await
-                            .map_err(OpenError::new)
-                    }
-                },
-                born_suspended,
-                mutate,
-            )
-        })
-        .clone()
+        .retain(|_, transport| transport.strong_count() > 0);
+    if let Some(transport) = wires.transports.get(&key).and_then(Weak::upgrade) {
+        return transport;
+    }
+    tracing::info!(
+        host = %key.0,
+        suspended = born_suspended,
+        "bidi: initializing the shared transport for a destination"
+    );
+    let transport = Arc::new(BidiTransport::new_within(
+        move |initial| {
+            let api = api.clone();
+            async move {
+                BidiConnection::open(&api, initial)
+                    .await
+                    .map_err(OpenError::new)
+            }
+        },
+        born_suspended,
+        mutate,
+    ));
+    wires.transports.insert(key, Arc::downgrade(&transport));
+    transport
 }
 
 /// Suspend every shared wire and remember the intent for new wires.
@@ -129,7 +134,12 @@ pub async fn suspend_bidi_streams() -> Result<()> {
         shared
             .transports
             .iter()
-            .map(|(host, t)| ((host.clone(), t.clone()), t.enqueue_suspend()))
+            .filter_map(|(host, weak)| {
+                weak.upgrade().map(|transport| {
+                    let pending = transport.enqueue_suspend();
+                    ((host.clone(), transport), pending)
+                })
+            })
             .unzip()
     };
     settle_lifecycle(&wires, await_lifecycle_acks(pending).await)
@@ -144,9 +154,14 @@ pub async fn resume_bidi_streams() -> Result<()> {
     // permanently off the network is vacuously resumed.
     let mut shared = SHARED_WIRES.lock();
     shared.suspend_requested = false;
-    for t in shared.transports.values() {
-        let _ = t.enqueue_resume();
-    }
+    shared.transports.retain(|_, weak| {
+        if let Some(transport) = weak.upgrade() {
+            let _ = transport.enqueue_resume();
+            true
+        } else {
+            false
+        }
+    });
     Ok(())
 }
 
@@ -168,7 +183,7 @@ async fn await_lifecycle_acks(
 
 /// Wait for every wire before reporting a lifecycle failure.
 fn settle_lifecycle(
-    wires: &[(WireKey, BidiTransport<BackendBinding>)],
+    wires: &[(WireKey, Arc<BidiTransport<BackendBinding>>)],
     results: Vec<std::result::Result<(), TransportError>>,
 ) -> Result<()> {
     let mut first_error = None;

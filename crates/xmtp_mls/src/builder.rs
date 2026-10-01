@@ -1224,9 +1224,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 + 'static,
             A::SubscribeStream: 'static,
         {
-            let factory = crate::subscriptions::incoming::BidiSubscriptionFactory {
-                api: api_client.clone(),
-            };
+            let factory = crate::subscriptions::incoming::BidiSubscriptionFactory::new(api_client.clone());
             let mut builder = self.api_client(api_client);
             builder.incoming_factory = Some(Arc::new(factory));
             builder
