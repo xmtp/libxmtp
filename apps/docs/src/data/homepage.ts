@@ -7,7 +7,6 @@ import museAvatar from "@/assets/home/agents/muse.png";
 
 export const links = {
   quickstart: "/get-started/quickstart/",
-  sdk: "/sdk/client/",
   install: "/get-started/install/",
   agents: "/agents/quickstart/",
   security: "/protocol/security/",
