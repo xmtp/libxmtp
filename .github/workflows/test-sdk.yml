@@ -35,14 +35,30 @@ jobs:
         run: just sdk check-isolation
       - name: Start backend
         run: just backend up
-      - name: Generate SDK bindings
-        run: just sdk generate
+      - name: Check package scripts
+        run: just sdk check-package-scripts
+      - name: Build SDK artifacts once
+        run: just sdk build
+      - name: Render SDK bindings
+        run: just sdk render
       - name: Lint generated SDK bindings
         run: just sdk lint
       - name: Check clean SDK generation
         run: just sdk check-clean-generate
       - name: Initialize generated SDK WASM
         run: just sdk wasm-init
+      - name: Check SDK manifest roots
+        run: just sdk manifest-check
+      - name: Installed Node ESM package smoke
+        run: just sdk package-smoke node
+      - name: Installed browser pure and worker package smoke
+        env:
+          NIX_DEVSHELL: js
+        run: just sdk package-smoke browser
+      - name: Bridge conformance
+        env:
+          NIX_DEVSHELL: js
+        run: just sdk conformance-bridge
       - name: Test SDK crate
         run: just test crate xmtp_sdk
       - name: Node conformance
@@ -131,7 +147,7 @@ jobs:
           xcode-version: "26"
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - run: just sdk generate
+      - run: just sdk generate swift
       - run: just sdk conformance swift
         env:
           XMTP_BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
@@ -166,7 +182,7 @@ jobs:
           workspaces: .
       - uses: actions/setup-node@v6
         with:
-          node-version-file: .node-version
+          node-version: "22.12.0"
       - name: Disable usePackageExitCodes feature
         uses: crazy-max/ghaction-chocolatey@v4
         with:
@@ -210,3 +226,15 @@ jobs:
           cp -R ubrn/runtimes/napi target/sdk-generated/typescript-napi/node_modules/@ubjs/node
       - name: Conformance scenario 1
         run: npx --yes tsx crates/xmtp_sdk/conformance/ts/load.mts
+      - name: Install package compiler
+        shell: bash
+        run: npm install --prefix target/sdk-package-tools --ignore-scripts tsdown@0.23.0 typescript@7.0.2
+      - name: Stage and install Windows ESM package
+        shell: bash
+        env:
+          XMTP_SDK_RUNTIME_DIR: target/sdk-generated/typescript-napi/node_modules/@ubjs
+          XMTP_SDK_TSDOWN_BIN: target/sdk-package-tools/node_modules/.bin/tsdown
+        run: |
+          python crates/xmtp_sdk/dev/record-generated.py target/sdk-generated --artifact target/debug/xmtp_sdk.dll --artifact target/debug/xmtp-sdk-bindgen.exe
+          node crates/xmtp_sdk/dev/stage-package.mjs node
+          node crates/xmtp_sdk/dev/package-smoke.mjs node

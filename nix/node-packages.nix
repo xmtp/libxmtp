@@ -48,6 +48,10 @@
         };
       }
       // lib.mapAttrs' (target: crossPkgs: {
+        name = "xmtp-sdk-node-${pkgs.xmtp.toNapiTarget target}";
+        value = crossPkgs.callPackage ./package/xmtp-sdk-native.nix { };
+      }) crossPkgs
+      // lib.mapAttrs' (target: crossPkgs: {
         name = "node-bindings-${pkgs.xmtp.toNapiTarget target}";
         value = mkNodeBindings crossPkgs { };
       }) crossPkgs;
