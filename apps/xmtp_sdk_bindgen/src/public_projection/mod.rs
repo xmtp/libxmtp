@@ -27,6 +27,11 @@ pub(crate) enum Target {
     Pure,
 }
 
+#[cfg(test)]
+pub(crate) fn public_api_for_test(items: &[&Metadata], target: Target) -> String {
+    objects::public_api(items, target)
+}
+
 pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target) -> Result<()> {
     let items = groups
         .values()

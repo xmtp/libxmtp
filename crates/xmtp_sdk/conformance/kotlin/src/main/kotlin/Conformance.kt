@@ -21,6 +21,10 @@ import java.util.concurrent.atomic.AtomicReference
 
 fun main() =
     runBlocking {
+        if (System.getenv("SDK_CALLBACK_LIFETIME") == "1") {
+            callbackLifetime(BackendOptions(url = System.getenv("XMTP_BACKEND_URL")))
+            return@runBlocking
+        }
         check(sdkVersion().startsWith("1.12.0"))
         val messageId: MessageId = "a".repeat(64)
         check(messageId.length == 64)

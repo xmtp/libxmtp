@@ -49,6 +49,15 @@ conformance target: (_browser-pure-fixture target) (_browser-panic-fixture targe
       *) echo "Expected swift, kotlin, node, browser, or bridge" >&2; exit 2 ;; \
     esac
 
+# Repeat held callback and constructor adoption probes on a native host.
+# browser-transport checks the real worker transport without a generated SDK.
+callback-lifetime target:
+    {{ _env }} && cd "{{ root }}" && case "{{ target }}" in \
+      swift|kotlin|node) SDK_CALLBACK_LIFETIME=1 SDK_CALLBACK_SOURCE_SHA="$(git rev-parse HEAD)" bash "crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
+      browser-transport) bash crates/xmtp_sdk/dev/callback-lifetime-browser ;; \
+      *) echo "Expected swift, kotlin, node, or browser-transport" >&2; exit 2 ;; \
+    esac
+
 conformance-bridge:
     bash "{{ root }}/crates/xmtp_sdk/dev/run-bridge-conformance"
 
@@ -108,6 +117,10 @@ mobile-stage target:
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
+
+# Check selected-host counter injection with generated bindings and no Rust build.
+check-conformance-targets generated="target/sdk-generated":
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-conformance-targets.py "{{ generated }}"
 
 # Check nonthrowing, pending and READY reader cancellation through real native calls.
 caller-cancellation-swift:

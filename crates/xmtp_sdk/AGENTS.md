@@ -53,6 +53,9 @@ Run commands from the repository root in the Nix shell. Run
   reviewed content: a listed file passes only while it hashes to its pin.
   After the last reviewed change to a listed file, run
   `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with it.
+  One build-only diagnostic exception pins `bindings/wasm/wasm.just` with
+  `--print-build-logs` on the existing test derivation. It keeps the same tests,
+  timeout, retries, and file mode.
   The gate rejects code, scripts, generated output, and file-mode changes.
   Locally, pass the base branch (`just sdk check-isolation self-hosted`): a
   branch tip that merges trunk otherwise looks like a pull request merge commit.
@@ -60,6 +63,17 @@ Run commands from the repository root in the Nix shell. Run
 - `just sdk caller-cancellation-swift` checks cancelled nonthrowing calls and
   real reader pre-poll, pending and READY handoff. It counts native cancel/free
   calls in generated conformance copies and requires the prior item to replay.
+- `just sdk callback-lifetime <swift|kotlin|node>` runs 20 held callback
+  and constructor adoption cycles against fresh conformance bindings. Set
+  `SDK_CALLBACK_LIFETIME_FAMILY` to select one family. These bindings expose
+  real foreign task and callback handle counts only for conformance.
+  `just sdk callback-lifetime browser-transport` runs 20 real-worker cycles
+  for completion, session close, and worker death. It proves transport behavior;
+  it does not replace a generated browser SDK proof. Install JS dependencies
+  first with `just install-js`.
+- `just sdk check-conformance-targets` checks Swift, Kotlin, Node, browser, mixed,
+  and default target selection with the real counter injector. It uses generated
+  bindings and a renderer fixture. It does not build Rust libraries.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
   It also checks the public log setter, the real Rust queue, and final managed

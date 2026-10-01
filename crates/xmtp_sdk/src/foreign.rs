@@ -7,6 +7,8 @@ where
     T: Send + 'static,
     F: Future<Output = T> + Send + 'static,
 {
+    #[cfg(all(feature = "conformance", not(feature = "pure-only")))]
+    let future = crate::foreign_conformance::track(future);
     let runtime = tokio::runtime::Handle::current();
     tokio::task::spawn_blocking(move || runtime.block_on(future))
         .await
@@ -20,6 +22,8 @@ where
     T: 'static,
     F: Future<Output = T> + 'static,
 {
+    #[cfg(all(feature = "conformance", not(feature = "pure-only")))]
+    let future = crate::foreign_conformance::track(future);
     let (sender, receiver) = futures::channel::oneshot::channel();
     wasm_bindgen_futures::spawn_local(async move {
         let _ = sender.send(future.await);

@@ -607,6 +607,7 @@ async fn assert_undecodable_standard_read_paths(
 mod archives;
 mod attachment_flows;
 mod backend_queries;
+mod callback_lifetime;
 mod client_setup;
 mod connections;
 mod content_decode;

@@ -304,7 +304,7 @@ impl Client {
         guard: &mut OpenStoreGuard,
     ) -> Result<Self, XmtpError> {
         let client = Self::build_inner(identity, options, None, false, guard).await?;
-        #[cfg(all(test, not(target_arch = "wasm32")))]
+        #[cfg(all(any(test, feature = "conformance"), not(target_arch = "wasm32")))]
         let _ = build_task_probe::CURRENT.try_with(|probe| {
             *probe.client.lock() = Some(client.inner.clone());
         });
