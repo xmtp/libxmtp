@@ -6,8 +6,17 @@ import {
   MessageStream as HostMessageStream,
   type StreamCloseReason as HostCloseReason,
 } from "../../../../target/sdk-conformance/typescript-napi/runtime/streams/reader.ts";
+import { checkReaderLoopExit } from "./reader-loop-exit.ts";
 
 export async function readerDelivery(reopened: sdk.Client) {
+  await checkReaderLoopExit(
+    async () => {
+      const group = await reopened.conversations.createGroup([]);
+      return { group, id: await group.sendText("held loop item") };
+    },
+    (group, options) =>
+      sdk.MessageStream.openGroup(reopened, group, undefined, options),
+  );
   const reopenedGroup = await reopened.conversations.createGroup([]);
   const reader = await reopenedGroup.messageReader();
   const messageId = await reopenedGroup.sendText("durable stream");

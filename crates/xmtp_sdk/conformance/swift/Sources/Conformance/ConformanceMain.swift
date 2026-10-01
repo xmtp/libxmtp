@@ -301,6 +301,7 @@ struct Conformance {
             throw ConformanceFailure("break acknowledged the last message")
         }
         try await breakReplay.end()
+        try await checkReaderAppError(owner: reopenedHost, group: breakGroup, messageId: breakId)
         let (opened, openedSignal) = AsyncStream<MessageReader>.makeStream()
         let (release, releaseSignal) = AsyncStream<Void>.makeStream()
         SDKClient.readerOpenedForTest = { reader in
