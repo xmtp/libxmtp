@@ -68,6 +68,10 @@ conformance-bridge-unit *args: wasm-init
 public-consumer:
     bash "{{ root }}/crates/xmtp_sdk/dev/public-consumer"
 
+# Compile or run an independent codec package through the Node/browser ESM roots.
+codec-author target="types":
+    {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/codec-author" {{ target }}
+
 # Run `just sdk generate` first: the root check reads the generated roots.
 manifest-check:
     cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
