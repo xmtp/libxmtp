@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / "dev/backend/ci").read_text()
 PORTS = (5050, 9464, 55432, 9067)
 
-STUB = r"""import json, os, signal, socket, sys, time
+STUB = r"""import json, os, select, signal, socket, stat, subprocess, sys, time, tomllib
 from pathlib import Path
 root = Path(__file__).resolve().parent
 mode = (root / "mode").read_text()
@@ -39,10 +39,24 @@ def listen(ports):
     for port in ports:
         s = socket.socket()
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.bind(("127.0.0.1", port)); s.listen()
+        address = "127.0.0.1"
+        if (mode == "backend-wildcard" and port == 5050) or (
+            mode == "metrics-wildcard" and port == 9464
+        ): address = "0.0.0.0"
+        s.bind((address, port)); s.listen()
         sockets.append(s)
     (root / (name + "-started")).touch()
-    while True: time.sleep(.1)
+    while True:
+        readable, _, _ = select.select(sockets, [], [], .1)
+        for listener in readable:
+            connection, _ = listener.accept()
+            with connection:
+                if listener.getsockname()[1] == 9464:
+                    connection.settimeout(1)
+                    request = connection.recv(4096)
+                    if request:
+                        status = "500 Error" if mode == "metrics-error" else "200 OK"
+                        connection.sendall(f"HTTP/1.1 {status}\r\nContent-Length: 2\r\n\r\nok".encode())
 if name == "initdb":
     Path(sys.argv[sys.argv.index("-D") + 1]).mkdir()
     if mode == "setup-term":
@@ -61,8 +75,22 @@ elif name == "aws":
         json.loads(Path(sys.argv[sys.argv.index("--policy") + 1][7:]).read_text())
     print("S3 setup", sys.argv, flush=True)
 elif name == "backend":
+    config = Path(sys.argv[sys.argv.index("--config-file") + 1])
+    assert config.parent.parent == Path(os.environ["RUNNER_TEMP"])
+    assert config.parent.name.startswith("backend-ci.")
+    assert stat.S_IMODE(config.stat().st_mode) == 0o600
+    assert stat.S_IMODE(config.parent.stat().st_mode) == 0o700
+    expected = tomllib.loads((root / "source-config.toml").read_text())
+    expected["server"]["listen"] = "127.0.0.1:5050"
+    expected.setdefault("telemetry", {})["metrics_listen"] = "127.0.0.1:9464"
+    assert tomllib.loads(config.read_text()) == expected, "derived config changed other fields"
+    (root / "config-path").write_text(str(config))
     if mode == "backend-exit": sys.exit(42)
+    if mode == "listener-owner":
+        subprocess.Popen([sys.executable, str(root / "other-listener")])
+        while True: time.sleep(.1)
     listen([5050, 9464])
+elif name == "other-listener": listen([5050, 9464])
 elif name == "grpc-health-probe":
     sys.exit(0 if mode != "unhealthy" and connect(5050) else 1)
 """
@@ -127,6 +155,7 @@ def check(mode, mutation=None):
         run.mkdir()
         tools = root / "tools"
         tools.mkdir()
+        (tools / "python3").symlink_to(sys.executable)
         (tools / "mode").write_text(mode)
         stub = tools / "stub"
         stub.write_text(f"#!{sys.executable}\n" + private_ports(STUB))
@@ -140,17 +169,27 @@ def check(mode, mutation=None):
             "aws",
             "backend",
             "grpc-health-probe",
+            "other-listener",
         ):
             (tools / name).symlink_to(stub)
         child = tools / "child.py"
         child.write_text(private_ports(CHILD))
         policy = root / "policy.json"
         policy.write_text("invalid" if mode == "bucket-failure" else "{}")
+        shared = (ROOT / "dev/backend/local-s3.toml").read_bytes()
+        config_text = shared.decode()
+        if mode == "telemetry":
+            config_text += (
+                '\n[telemetry]\nmetrics_listen = "0.0.0.0:9464"\nsample_ratio = 0.5\n'
+            )
+        config = tools / "source-config.toml"
+        config.write_text(private_ports(config_text))
+        config_before = config.read_bytes()
         source = SOURCE.replace("sleep 120;", "sleep 5;")
         for key, value in {
             "tools": tools,
             "backend": tools / "backend",
-            "config": ROOT / "dev/backend/local-s3.toml",
+            "config": config,
             "policy": policy,
             "cors": ROOT / "dev/docker/s3/cors.json",
         }.items():
@@ -196,6 +235,9 @@ def check(mode, mutation=None):
             try:
                 if mode == "setup-term":
                     wait_file(tools / "setup-started", process)
+                    derived = list(run.glob("backend-ci.*/config.toml"))
+                    assert len(derived) == 1, "private config missing during setup"
+                    assert derived[0].stat().st_mode & 0o777 == 0o600
                     process.send_signal(signal.SIGTERM)
                 elif mode in ("child-term", "child-int"):
                     wait_file(tools / "descendant", process)
@@ -214,6 +256,7 @@ def check(mode, mutation=None):
                 text = output.read_text()
                 expected = {
                     "success": 0,
+                    "telemetry": 0,
                     "exit23": 23,
                     "setup-term": 143,
                     "child-term": 143,
@@ -221,7 +264,8 @@ def check(mode, mutation=None):
                 }.get(mode)
                 if expected is not None:
                     assert status == expected, (
-                        f"exit {status}, expected {expected}\n{text}"
+                        f"exit {status}, expected {expected}\n{text}\n"
+                        + (run / "backend-ci-logs/backend.log").read_text()
                     )
                 else:
                     assert status != 0, "unexpected success"
@@ -241,6 +285,18 @@ def check(mode, mutation=None):
                     assert "startup exceeded 120 seconds" in text, text
                 if mode == "backend-exit":
                     assert "service exited during startup" in text, text
+                if mode in ("backend-wildcard", "metrics-wildcard"):
+                    assert "Unexpected backend listeners" in text, text
+                if mode == "listener-owner":
+                    assert "CalledProcessError" in text, text
+                if mode == "metrics-error":
+                    assert "HTTP Error 500" in text, text
+                assert config.read_bytes() == config_before, "config source changed"
+                assert (ROOT / "dev/backend/local-s3.toml").read_bytes() == shared
+                if (tools / "config-path").exists():
+                    assert not Path((tools / "config-path").read_text()).exists(), (
+                        "derived config remains"
+                    )
                 assert not list(run.glob("backend-ci.*")), "runtime data remains"
                 for name in ("postgres", "s3", "backend"):
                     assert (run / "backend-ci-logs" / f"{name}.log").exists(), (
@@ -301,6 +357,11 @@ def main():
     args = parser.parse_args()
     cases = (
         "success",
+        "telemetry",
+        "backend-wildcard",
+        "metrics-wildcard",
+        "listener-owner",
+        "metrics-error",
         "exit23",
         "occupied",
         "bucket-failure",
@@ -346,6 +407,64 @@ def main():
             ),
             ("child-int", ("trap 'exit 130' INT", "trap 'groups=(); exit 130' INT")),
         ]
+        # Corrupt the generated file after its runtime equality check. The
+        # backend stub independently compares the actual file with its source.
+        for old, new in (
+            ("max_upload_bytes = 104857600", "max_upload_bytes = 1"),
+            ("max_query_limit = 50", "max_query_limit = 51"),
+            (
+                'metrics_listen = "127.0.0.1:9464"',
+                'metrics_listen = "127.0.0.1:9464"\nsample_ratio = 0.5',
+            ),
+            ('listen = "127.0.0.1:5050"', 'listen = "0.0.0.0:5050"'),
+            ('metrics_listen = "127.0.0.1:9464"', 'metrics_listen = "0.0.0.0:9464"'),
+        ):
+            mutations.append(
+                (
+                    "success",
+                    (
+                        "out.write(text)",
+                        f"out.write(text.replace({old!r}, {new!r}))",
+                    ),
+                )
+            )
+        mutations.extend(
+            [
+                ("success", ('"$state/config.toml"', '"$RUNNER_TEMP/config.toml"')),
+                (
+                    "success",
+                    ("    out.write(text)", "    out.write(text)\ntarget.chmod(0o644)"),
+                ),
+                (
+                    "backend-wildcard",
+                    (
+                        'setup python3 - "${services[2]}"',
+                        'true || setup python3 - "${services[2]}"',
+                    ),
+                ),
+                (
+                    "metrics-wildcard",
+                    (
+                        'setup python3 - "${services[2]}"',
+                        'true || setup python3 - "${services[2]}"',
+                    ),
+                ),
+                (
+                    "listener-owner",
+                    (
+                        'setup python3 - "${services[2]}"',
+                        'true || setup python3 - "${services[2]}"',
+                    ),
+                ),
+                (
+                    "metrics-error",
+                    (
+                        'setup python3 - "${services[2]}"',
+                        'true || setup python3 - "${services[2]}"',
+                    ),
+                ),
+            ]
+        )
         for case, mutation in mutations:
             if case == "child-term":
                 # Keep the KILL fallback from hiding the same group defect.
@@ -353,7 +472,7 @@ def main():
             try:
                 check(case, mutation)
             except (AssertionError, OSError) as error:
-                print(f"DETECTED {case}: {error}", flush=True)
+                print(f"DETECTED {case}: {mutation!r}: {error}", flush=True)
             else:
                 raise AssertionError(f"mutation survived: {case}: {mutation[0]}")
 

@@ -75,6 +75,41 @@ for port in (5050, 9464, 55432, 9067):
         sockets.append(s)
 PORTS
 
+# Derive only the two CI listeners. Parse both files to reject any other change.
+python3 - '@config@' "$state/config.toml" <<'CONFIG'
+from pathlib import Path
+import re
+import sys
+import tomllib
+
+source, target = map(Path, sys.argv[1:])
+text = source.read_text()
+expected = tomllib.loads(text)
+for table, key, address in (
+    ("server", "listen", "127.0.0.1:5050"),
+    ("telemetry", "metrics_listen", "127.0.0.1:9464"),
+):
+    expected.setdefault(table, {})[key] = address
+    header = re.search(rf"(?m)^\[{table}\][ \t]*(?:#.*)?$", text)
+    if header is None:
+        text += f'\n[{table}]\n{key} = "{address}"\n'
+    else:
+        start = header.end()
+        next_table = re.search(r"(?m)^\[", text[start:])
+        end = start + next_table.start() if next_table else len(text)
+        section, count = re.subn(
+            rf"(?m)^[ \t]*{key}[ \t]*=.*$",
+            f'{key} = "{address}"', text[start:end],
+        )
+        if count == 0:
+            section = f'\n{key} = "{address}"' + section
+        text = text[:start] + section + text[end:]
+if tomllib.loads(text) != expected:
+    raise SystemExit("CI configuration changed fields other than listeners")
+with target.open("x") as out:
+    out.write(text)
+CONFIG
+
 export XMTP_BACKEND_URL=http://127.0.0.1:5050
 export DATABASE_URL=postgres://xmtp:xmtp@127.0.0.1:55432/xmtp_backend
 export XMTP_DATABASE_URL="$DATABASE_URL" XMTP_REPLICA_URL="$DATABASE_URL"
@@ -134,13 +169,31 @@ done
   setup aws_local s3api put-bucket-cors --bucket attachments --cors-configuration file://@cors@
 } >>"$logs/s3.log" 2>&1
 check_services
-@backend@ --config-file @config@ >>"$logs/backend.log" 2>&1 &
+@backend@ --config-file "$state/config.toml" >>"$logs/backend.log" 2>&1 &
 groups+=("$!"); services+=("$!")
 until setup grpc-health-probe -addr=127.0.0.1:5050 -connect-timeout=1s -rpc-timeout=1s >>"$logs/backend.log" 2>&1; do
   check_services
   sleep 0.1
 done
 check_services
+# Check sockets on the owned backend, then request its loopback metrics endpoint.
+setup python3 - "${services[2]}" <<'LISTENERS'
+import subprocess
+import sys
+import urllib.request
+
+sockets = subprocess.check_output(
+    ["lsof", "-nP", "-a", "-p", sys.argv[1], "-iTCP", "-sTCP:LISTEN", "-Fn"], text=True,
+)
+addresses = [line[1:] for line in sockets.splitlines() if line.startswith("n")]
+if sorted(addresses) != sorted(["127.0.0.1:5050", "127.0.0.1:9464"]):
+    raise SystemExit(f"Unexpected backend listeners: {addresses}")
+request = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+with request.open("http://127.0.0.1:9464/metrics", timeout=2) as response:
+    if response.status != 200:
+        raise SystemExit("Backend metrics request failed")
+print("Owned backend listeners and loopback metrics verified", flush=True)
+LISTENERS
 kill -TERM -- "-$watchdog" 2>/dev/null || true
 wait "$watchdog" 2>/dev/null || true
 watchdog=

@@ -45,9 +45,19 @@ jobs:
             backend_ci:
               - 'dev/backend/**'
               - 'dev/docker/s3/**'
-              - 'nix/package/backend-ci.nix'
-              - 'nix/package/backend.nix'
-              - 'apps/backend/backend.just'
+              - 'apps/backend/**'
+              - 'crates/**'
+              - 'proto/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - '.cargo/**'
+              - 'rust-toolchain.toml'
+              - 'apps/**/Cargo.toml'
+              - 'apps/**/build.rs'
+              - 'bindings/**/Cargo.toml'
+              - 'bindings/**/build.rs'
+              - 'docs/schemas/backend-v1.json'
+              - 'nix/**'
               - 'flake.nix'
               - 'flake.lock'
               - '.github/workflows/test.yml'
@@ -445,6 +455,7 @@ jobs:
     needs:
       - test-validation
       - test-backend
+      - test-native-backend
       - test-workspace
       - test-xdbg
       - test-keepalive-probe

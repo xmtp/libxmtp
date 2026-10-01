@@ -4,6 +4,7 @@
   bash,
   coreutils,
   python3,
+  lsof,
   postgresql_18,
   versitygw,
   awscli2,
@@ -19,6 +20,7 @@ writeShellScriptBin "backend-ci" (
         bash
         coreutils
         python3
+        lsof
         postgresql_18
         versitygw
         awscli2

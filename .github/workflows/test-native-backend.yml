@@ -12,13 +12,18 @@ jobs:
       SQLX_OFFLINE: "true"
     steps:
       - uses: actions/checkout@v6
+      # Prove public cache substitution without a cache-write token.
       - uses: ./.github/actions/setup-nix
         with:
           github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
       - uses: taiki-e/install-action@just
       - name: Check wrapper processes
         run: dev/nix-shell 'shellcheck dev/backend/ci && python3.11 dev/backend/check-ci.py'
+      - name: Check cache reader environment
+        run: |
+          test -z "${CACHIX_AUTH_TOKEN:-}"
+          test -z "${CACHIX_SIGNING_KEY:-}"
+          echo "Cache writer environment absent"
       - name: Build native service package
         run: time nix build --no-link .#backend-ci
       - name: Record service versions and published configuration

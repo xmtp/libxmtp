@@ -10,4 +10,7 @@ Validate workflow edits with `dev/nix-shell 'just lint-config'`.
   and S3 bucket. Failed-job-only reruns do not need a deployment job.
 - Keep both Swift job filters current when native setup inputs change.
   `test-native-backend.yml` checks wrapper cleanup and the real S3 contract.
+  It also checks the owned loopback listeners and metrics endpoint. Backend
+  source and build-input changes select this job, and it gates aggregate
+  `Test`. The native acceptance job has no cache-write token.
   Service logs are retained for 7 days.
