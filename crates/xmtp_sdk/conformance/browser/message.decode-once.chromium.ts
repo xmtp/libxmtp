@@ -19,6 +19,8 @@ import {
   publicClient,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/public/client";
 import * as Pure from "../../../../target/sdk-generated/typescript-pure/index";
+import * as RawPure from "../../../../target/sdk-generated/typescript-pure/xmtp_sdk";
+import nativePureModule from "../../../../target/sdk-generated/typescript-pure/xmtp_sdk-ffi";
 import { expect, signer } from "./suite-support";
 
 // A real worker counts calls at the Rust text decoder. A standard host codec
@@ -49,6 +51,8 @@ export async function receivedStandardContentDecodesOnce(
   const session = new MainSession(endpoint, PROTOCOL_VERSION, CONTRACT_HASH);
   let client: sdk.Client | undefined;
   let standardCalls = 0;
+  const standalone = { calls: 0 };
+  let restoreStandalone: (() => void) | undefined;
   const custom = { calls: 0, fail: false };
   const text = `decode-once-${crypto.randomUUID()}`;
   const customType: sdk.ContentTypeId = {
@@ -74,6 +78,36 @@ export async function receivedStandardContentDecodesOnce(
   });
   try {
     await Pure.initPureWasm();
+    // Guard the actual standalone decoder used by the host. Registry codecs
+    // do not detect a direct call to Pure.decodeStandard.
+    const native = nativePureModule();
+    const entry = "uniffi_xmtp_sdk_fn_func_decode_standard";
+    const decode = Object.getOwnPropertyDescriptor(native, entry);
+    expect(decode !== undefined, "standalone decoder entry was not found");
+    Object.defineProperty(native, entry, {
+      ...decode,
+      value: () => {
+        standalone.calls++;
+        throw new Error("second standard host decode");
+      },
+    });
+    restoreStandalone = () => {
+      Object.defineProperty(native, entry, decode);
+    };
+    let guardError: unknown;
+    try {
+      RawPure.decodeStandard(RawPure.encodeText("host decoder guard"));
+    } catch (error) {
+      guardError = error;
+    }
+    expect(
+      guardError instanceof Error &&
+        guardError.message === "second standard host decode" &&
+        standalone.calls === 1,
+      "standalone host decoder guard was not armed",
+    );
+    standalone.calls = 0;
+    console.log("actual standalone host decoder guard is armed");
     await session.ready();
     const projection = currentProjection();
     const path = `decode-once-${crypto.randomUUID()}.db`;
@@ -279,7 +313,9 @@ export async function receivedStandardContentDecodesOnce(
       deleted.rawBytes.length === 0 && deleted.encoded?.content.length === 0,
       "deleted text bytes were exposed",
     );
+    expect(standalone.calls === 0, "receive used the standalone host decoder");
   } finally {
+    restoreStandalone?.();
     await client?.end();
     worker.terminate();
   }
