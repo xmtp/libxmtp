@@ -29,11 +29,12 @@ class StagingTests(unittest.TestCase):
                     "name": "@ubjs/" + name,
                     "version": "0.0.0",
                     "module": "index.js",
-                    "files": ["index.js", "binding.node"],
+                    "files": ["index.js", "other.js", "binding.node"],
                 }
             )
         )
         (folder / "index.js").write_text("export const marker = 'runtime';")
+        (folder / "other.js").write_text("export const other = 'runtime';")
         (folder / "package-lock.json").write_text('{"lockfileVersion":3}')
         (folder / "not-shipped.txt").write_text("excluded runtime build input")
         if name == "node":
@@ -158,8 +159,34 @@ class StagingTests(unittest.TestCase):
                     self.assertIn("SDK asset mismatch: " + filename, failed.stderr)
                     runtime.write_bytes(original)
                 subprocess.run(check, cwd=installed, check=True, capture_output=True)
+                for name in ("core", "node"):
+                    entry = products / name / "index.js"
+                    original_entry = entry.read_bytes()
+                    entry.unlink()
+                    omitted_entry = subprocess.run(
+                        [
+                            "node",
+                            str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"),
+                            "node",
+                        ],
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                    )
+                    entry.write_bytes(original_entry)
+                    self.assertNotEqual(omitted_entry.returncode, 0)
+                    self.assertIn(
+                        "omits required runtime entry: node_modules/@ubjs/"
+                        + name
+                        + "/index.js",
+                        omitted_entry.stderr,
+                    )
                 for name, allowed, message in (
-                    ("core", ["package.json"], "omits runtime loader: core"),
+                    (
+                        "core",
+                        ["package.json"],
+                        "omits required runtime entry: node_modules/@ubjs/core/index.js",
+                    ),
                     ("node", ["index.js"], "omits native runtime binary"),
                 ):
                     runtime_manifest = products / name / "package.json"
