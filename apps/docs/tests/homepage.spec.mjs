@@ -84,7 +84,7 @@ test("homepage links open the install, security, and client guides", async ({
 }) => {
   for (const [scope, name, path, heading] of [
     [".home-header", "SDKs", "/get-started/install/", "Install the XMTP SDK"],
-    [".home-header", "Security", "/protocol/security", "Messaging security"],
+    [".home-header", "Security", "/protocol/security/", "Messaging security"],
     [
       ".home-hero",
       "Build with your coding assistant",
