@@ -124,9 +124,13 @@ export async function receivedStandardContentDecodesOnce(
         body?.kind === "text" && body.value === text,
         "worker text was lost",
       );
+      const count = await session.call("__textDecodeCount", []);
       expect(
-        (await session.call("__textDecodeCount", [])) === 1n,
-        "standard content decoded more than once",
+        count === 1n,
+        `expected one standard decode, got ${String(count)}`,
+      );
+      console.log(
+        `worker ${id === textId ? "text" : "reply"} decode count: ${String(count)}; standard host calls: ${standardCalls}`,
       );
       expect(standardCalls === 0, "receive used a standard host decoder");
       if (id === replyId) {
@@ -148,9 +152,13 @@ export async function receivedStandardContentDecodesOnce(
         withParent.inReplyToContent.value === "parent",
       "worker parent was lost",
     );
+    const parentCount = await session.call("__textDecodeCount", []);
     expect(
-      (await session.call("__textDecodeCount", [])) === 1n,
-      "enriched parent decoded more than once",
+      parentCount === 1n,
+      `expected one parent decode, got ${String(parentCount)}`,
+    );
+    console.log(
+      `worker parent decode count: ${String(parentCount)}; standard host calls: ${standardCalls}`,
     );
     expect(
       standardCalls === 0,
