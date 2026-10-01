@@ -6,13 +6,13 @@ import { describe, expect, it } from "vitest";
 
 import { mainDecoder, mainEncoder } from "./codec.main.gen.js";
 import { workerDecoder, workerEncoder } from "./codec.worker.gen.js";
+import { dispatchGenerated } from "./dispatch.gen.js";
 import * as P from "./proxy.gen.js";
 import { registerForeign } from "./reverse.gen.js";
 import { enumFactory, type Shape } from "./runtime/bridge/codec.js";
 import { RemoteObject } from "./runtime/bridge/main/remote-object.js";
 import { MainSession } from "./runtime/bridge/main/session.js";
 import type { WireEndpoint, WireMessage } from "./runtime/bridge/wire.js";
-import { dispatchGenerated } from "./dispatch.gen.js";
 import {
   PoolLocks,
   RUST_PANIC_PREFIX,
@@ -46,7 +46,55 @@ function endpoints(): [Endpoint, Endpoint] {
   return [main, worker];
 }
 
-function sample(shape: Shape, seed: number): unknown {
+const SAMPLE_DEPTH = 4;
+
+// Containers can end a recursive value. Required fields need a finite path.
+function minimumSampleDepth(shape: Shape, seen = new Set<string>()): number {
+  switch (shape.kind) {
+    case "value":
+    case "object":
+    case "foreign":
+    case "callback":
+    case "optional":
+    case "sequence":
+    case "set":
+    case "map":
+      return 0;
+    case "custom":
+      return 1 + minimumSampleDepth(shape.inner, seen);
+    case "record":
+    case "enum": {
+      const key = `${shape.kind}:${shape.name}`;
+      if (seen.has(key)) return Infinity;
+      const next = new Set(seen).add(key);
+      const fieldsDepth = (fields: Record<string, Shape> | Shape[]): number =>
+        Math.max(
+          0,
+          ...Object.values(fields).map((field) =>
+            minimumSampleDepth(field, next),
+          ),
+        );
+      if (shape.kind === "record") {
+        const layout = LAYOUTS.records[shape.name];
+        if (!layout) throw new Error(`unknown record ${shape.name}`);
+        return 1 + fieldsDepth(layout.fields);
+      }
+      const layout = LAYOUTS.enums[shape.name];
+      if (!layout) throw new Error(`unknown enum ${shape.name}`);
+      if (layout.flat) return 0;
+      return (
+        1 +
+        Math.min(
+          ...Object.values(layout.variants).map((fields) =>
+            fieldsDepth(fields!),
+          ),
+        )
+      );
+    }
+  }
+}
+
+function sample(shape: Shape, seed: number, depth = 0): unknown {
   switch (shape.kind) {
     case "value":
       switch (shape.type) {
@@ -69,7 +117,7 @@ function sample(shape: Shape, seed: number): unknown {
           return seed + 17;
       }
     case "custom": {
-      const inner = sample(shape.inner, seed);
+      const inner = sample(shape.inner, seed, depth + 1);
       const value = enumFactory(B).custom?.(shape.name, inner);
       if (value === undefined)
         throw new Error(`missing ${shape.name} custom factory`);
@@ -82,32 +130,68 @@ function sample(shape: Shape, seed: number): unknown {
     case "record": {
       const layout = LAYOUTS.records[shape.name];
       if (!layout) throw new Error(`unknown record ${shape.name}`);
+      if (depth >= SAMPLE_DEPTH && !Number.isFinite(minimumSampleDepth(shape)))
+        throw new Error(`no finite sample for record ${shape.name}`);
       const result: Record<string, unknown> = {};
       for (const [index, [name, field]] of Object.entries(
         layout.fields,
       ).entries())
-        result[name] = sample(field, seed + index);
+        result[name] = sample(field, seed + index, depth + 1);
       return result;
     }
     case "enum": {
       const layout = LAYOUTS.enums[shape.name];
       if (!layout) throw new Error(`unknown enum ${shape.name}`);
       const variants = Object.entries(layout.variants);
-      const entry = variants[seed % variants.length];
+      let entry = variants[seed % variants.length];
+      if (depth >= SAMPLE_DEPTH && !layout.flat) {
+        const seen = new Set([`enum:${shape.name}`]);
+        const ranked = variants.map((candidate) => ({
+          candidate,
+          depth: Math.max(
+            0,
+            ...Object.values(candidate[1]!).map((field) =>
+              minimumSampleDepth(field, seen),
+            ),
+          ),
+        }));
+        ranked.sort((a, b) => a.depth - b.depth);
+        if (!ranked[0] || !Number.isFinite(ranked[0].depth))
+          throw new Error(`no finite sample for enum ${shape.name}`);
+        entry = ranked[0].candidate;
+      }
       if (!entry) throw new Error(`empty enum ${shape.name}`);
       if (layout.flat) return seed % variants.length;
-      return enumSample(shape.name, entry[0], entry[1], seed);
+      return enumSample(shape.name, entry[0], entry[1]!, seed, depth);
     }
     case "optional":
       if (shape.inner.kind === "foreign" || shape.inner.kind === "callback")
         return undefined;
-      return seed % 2 === 0 ? sample(shape.inner, seed) : undefined;
+      return depth < SAMPLE_DEPTH && seed % 2 === 0
+        ? sample(shape.inner, seed, depth + 1)
+        : undefined;
     case "sequence":
-      return [sample(shape.inner, seed), sample(shape.inner, seed + 2)];
+      return depth >= SAMPLE_DEPTH
+        ? []
+        : [
+            sample(shape.inner, seed, depth + 1),
+            sample(shape.inner, seed + 2, depth + 1),
+          ];
     case "set":
-      return new Set([sample(shape.inner, seed)]);
+      return new Set(
+        depth >= SAMPLE_DEPTH ? [] : [sample(shape.inner, seed, depth + 1)],
+      );
     case "map":
-      return new Map([[sample(shape.key, seed), sample(shape.value, seed)]]);
+      return new Map(
+        depth >= SAMPLE_DEPTH
+          ? []
+          : [
+              [
+                sample(shape.key, seed, depth + 1),
+                sample(shape.value, seed, depth + 1),
+              ],
+            ],
+      );
   }
 }
 
@@ -116,17 +200,18 @@ function enumSample(
   tag: string,
   fields: Record<string, Shape> | Shape[],
   seed: number,
+  depth: number,
 ): unknown {
   if (Array.isArray(fields))
     return enumFactory(B)(
       name,
       tag,
-      fields.map((field) => sample(field, seed)),
+      fields.map((field) => sample(field, seed, depth + 1)),
     );
   if (Object.keys(fields).length === 0) return enumFactory(B)(name, tag, []);
   const inner: Record<string, unknown> = {};
   for (const [field, shape] of Object.entries(fields))
-    inner[field] = sample(shape, seed);
+    inner[field] = sample(shape, seed, depth + 1);
   return enumFactory(B)(name, tag, inner);
 }
 
@@ -241,6 +326,69 @@ function containsForeign(shape: Shape, value: unknown): boolean {
 }
 
 describe("generated bridge value conformance", () => {
+  it("samples recursive records with nonempty options and collections", () => {
+    const shape: Shape = { kind: "record", name: "RecursiveSample" };
+    LAYOUTS.records.RecursiveSample = {
+      fields: {
+        label: { kind: "value", type: "String" },
+        children: { kind: "sequence", inner: shape },
+        option: { kind: "optional", inner: shape },
+        set: { kind: "set", inner: shape },
+        map: {
+          kind: "map",
+          key: { kind: "value", type: "String" },
+          value: shape,
+        },
+      },
+    };
+    type RecursiveSample = {
+      label: string;
+      children: RecursiveSample[];
+      option?: RecursiveSample;
+      set: Set<RecursiveSample>;
+      map: Map<string, RecursiveSample>;
+    };
+    try {
+      const value = sample(shape, 0) as RecursiveSample;
+      expect(value.label).toBe("sample-0");
+      expect(value.children).toHaveLength(2);
+      expect(value.children[0].children).toHaveLength(2);
+      expect(value.children[0].children[0].children).toEqual([]);
+      expect(value.option?.label).toBe("sample-2");
+      expect(value.set.size).toBe(1);
+      expect(value.map.get("sample-4")?.label).toBe("sample-4");
+    } finally {
+      delete LAYOUTS.records.RecursiveSample;
+    }
+  });
+  it("reports a recursive record with no finite sample", () => {
+    const shape: Shape = { kind: "record", name: "RequiredRecursiveSample" };
+    LAYOUTS.records.RequiredRecursiveSample = { fields: { child: shape } };
+    try {
+      expect(() => sample(shape, 0)).toThrow(
+        "no finite sample for record RequiredRecursiveSample",
+      );
+    } finally {
+      delete LAYOUTS.records.RequiredRecursiveSample;
+    }
+  });
+  it("finds a finite path through required recursive enums", () => {
+    const shape: Shape = { kind: "enum", name: "RecursiveEnumSample" };
+    LAYOUTS.enums.RecursiveEnumSample = {
+      flat: false,
+      error: false,
+      variants: { Recur: [shape], Leaf: [{ kind: "value", type: "String" }] },
+    };
+    try {
+      expect(minimumSampleDepth(shape)).toBe(1);
+      expect(
+        minimumSampleDepth(shape, new Set(["enum:RecursiveEnumSample"])),
+      ).toBe(Infinity);
+    } finally {
+      delete LAYOUTS.enums.RecursiveEnumSample;
+    }
+  });
+
   it("matches the pinned WASM panic fallback prefix", () => {
     const source = readFileSync(
       new URL(
@@ -468,7 +616,9 @@ describe("generated bridge value conformance", () => {
     );
     const session = new MainSession(main, 1, "end");
     await session.ready();
-    const handle = host.registry.add({}, "Client", undefined, () => ({ clientKey: 1n }));
+    const handle = host.registry.add({}, "Client", undefined, () => ({
+      clientKey: 1n,
+    }));
     const client = new P.Client(session, handle);
     const ending = client.end();
     expect(() => session.checkHandle(handle)).toThrow("clientClosed");
