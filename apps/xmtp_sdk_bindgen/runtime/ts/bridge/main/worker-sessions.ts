@@ -19,6 +19,7 @@ export class WorkerSessions {
     private readonly createEndpoint: () => WireEndpoint,
     private readonly version: number,
     private readonly hash: string,
+    private readonly initialize?: (session: MainSession) => Promise<void>,
   ) {}
 
   get(): Promise<MainSession> {
@@ -81,7 +82,18 @@ export class WorkerSessions {
           () => this.retireIfIdle(generation),
         );
         generation.session = session;
-        void session.ready().then(() => resolveOpening(session), rejectOpening);
+        void session
+          .ready()
+          .then(async () => {
+            await this.initialize?.(session);
+            if (generation.cancelled || session.isTerminated)
+              throw bridgeError("workerTerminated");
+            resolveOpening(session);
+          })
+          .catch((error: unknown) => {
+            session.terminate(error);
+            rejectOpening(error);
+          });
       } catch (error) {
         rejectOpening(error);
       }

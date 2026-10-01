@@ -94,6 +94,14 @@ try {
   console.log(
     "Chromium public setter, real Rust backlog, independent end, and managed retirement passed",
   );
+  await bounded(
+    page.evaluate(async () =>
+      (await import("./logging.chromium.ts")).managedRestart(),
+    ),
+  );
+  console.log(
+    "Chromium accepted logging settings survive retirement; clear stays cleared",
+  );
 } finally {
   await browser.close();
   await server.close();

@@ -1,7 +1,12 @@
 import { CONTRACT_HASH, PROTOCOL_VERSION } from "./contract.gen.js";
+import { setLogSink as setWorkerLogSink } from "./proxy.gen.js";
+import { logSinkSetter } from "./runtime/bridge/main/log-sink.js";
 import type { MainSession } from "./runtime/bridge/main/session.js";
 import { WorkerSessions } from "./runtime/bridge/main/worker-sessions.js";
 import type { WireMessage } from "./runtime/bridge/wire.js";
+import type { LogSink } from "./xmtp_sdk.js";
+
+const updateLogSink = logSinkSetter<LogSink>(loggingInWorker, setWorkerLogSink);
 
 // One worker generation for all package client and admin factories.
 const sessions = new WorkerSessions(
@@ -33,6 +38,7 @@ const sessions = new WorkerSessions(
   },
   PROTOCOL_VERSION,
   CONTRACT_HASH,
+  (session) => updateLogSink.initialize(session),
 );
 
 export function createInWorker<T>(
@@ -46,4 +52,15 @@ export async function loggingInWorker<T>(
   call: (session: MainSession) => Promise<T>,
 ): Promise<T> {
   return call(await sessions.get());
+}
+
+/** Keep accepted logging configuration separate from worker ownership. */
+export function initLoggingInWorker(
+  configure: (session: MainSession) => Promise<void>,
+): Promise<void> {
+  return updateLogSink.configure(configure);
+}
+
+export function setPackageLogSink(sink?: LogSink): Promise<void> {
+  return updateLogSink(sink);
 }

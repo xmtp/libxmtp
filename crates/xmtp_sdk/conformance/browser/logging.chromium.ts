@@ -86,3 +86,62 @@ export async function managedQueue(): Promise<void> {
     await admin.end();
   }
 }
+
+// verifies: LOG-002, LOG-007
+export async function managedRestart(): Promise<void> {
+  const before = terminated;
+  let calls = 0;
+  let delivered: (() => void) | undefined;
+  const emit = () =>
+    loggingInWorker((session) => session.call("sdkConformanceEmit", [1]));
+  async function retire(
+    admin: Awaited<ReturnType<typeof sdk.Storage.admin>>,
+  ): Promise<void> {
+    const retired = new Promise<void>((resolve) => {
+      notifyTermination = resolve;
+    });
+    await admin.end();
+    await waitForLog(retired, "worker did not retire with its sink retained");
+    notifyTermination = undefined;
+  }
+  let admin = await sdk.Storage.admin();
+  try {
+    const options: { level: sdk.LogLevel } = { level: "error" };
+    await sdk.initLogging(options);
+    options.level = "off";
+    await sdk.setLogSink({
+      log() {
+        calls++;
+        delivered?.();
+        return Promise.resolve();
+      },
+    });
+    for (let index = 0; index < 2; index++) {
+      const received = new Promise<void>((resolve) => {
+        delivered = resolve;
+      });
+      await emit();
+      await waitForLog(
+        received,
+        "accepted sink was lost across worker retirement",
+      );
+      check(
+        calls === index + 1,
+        "restored sink did not receive one Rust record",
+      );
+      await retire(admin);
+      admin = await sdk.Storage.admin();
+    }
+    await sdk.setLogSink();
+    await retire(admin);
+    admin = await sdk.Storage.admin();
+    await emit();
+    await retire(admin);
+    check(calls === 2, "cleared sink returned in a replacement worker");
+    check(terminated === before + 4, "a sink kept a retired worker alive");
+  } finally {
+    delivered = undefined;
+    notifyTermination = undefined;
+    await admin.end();
+  }
+}

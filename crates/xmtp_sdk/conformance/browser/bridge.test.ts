@@ -5,6 +5,7 @@ import { registerCallbacksTests } from "./bridge-callbacks";
 import { registerCreateTests } from "./bridge-create";
 import { registerEndingTests } from "./bridge-ending";
 import { registerIdentityTests } from "./bridge-identity";
+import { registerLogRestartTests } from "./bridge-log-restart";
 import { registerLoggingTests } from "./bridge-logging";
 import { registerOwnershipTests } from "./bridge-ownership";
 import { registerPackageLifetimeTests } from "./bridge-package-lifetime";
@@ -20,6 +21,7 @@ describe("browser bridge transport", () => {
   registerIdentityTests();
   registerCallbacksTests();
   registerLoggingTests();
+  registerLogRestartTests();
   registerAdminTests();
   registerWorkerSessionTests();
   registerPackageLifetimeTests();
