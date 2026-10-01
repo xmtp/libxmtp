@@ -18,6 +18,7 @@ import {
   hostOptions,
   publicClient,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/public/client";
+import * as Pure from "../../../../target/sdk-generated/typescript-pure/index";
 import { expect, options, signer } from "./suite-support";
 
 // A real worker counts calls at the Rust text decoder. A standard host codec
@@ -72,7 +73,7 @@ export async function receivedStandardContentDecodesOnce(
     },
   });
   try {
-    await sdk.initPureWasm();
+    await Pure.initPureWasm();
     await session.ready();
     const projection = currentProjection();
     const configured: sdk.ClientOptions = {
@@ -108,7 +109,7 @@ export async function receivedStandardContentDecodesOnce(
     const textId = await group.sendText(text, { compression: "gzip" });
     const replyId = await client.conversations.replyToMessage(
       parentId,
-      new sdk.TextCodec().encode(text),
+      new Pure.TextCodec().encode(text),
       { compression: "deflate" },
     );
     const customReplyId = await client.conversations.replyToMessage(
