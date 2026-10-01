@@ -231,6 +231,76 @@ class PackagingTests(unittest.TestCase):
             (artifacts.source_hash(), artifacts.source_hash(True)), expected
         )
 
+    def test_unqualified_compiler_inputs_change_native_cache_admission(self):
+        names = ("CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "LDFLAGS")
+        environment = {
+            key: value for key, value in os.environ.items() if key not in names
+        }
+        self.patches[2].stop()
+        try:
+            with patch.object(
+                artifacts.subprocess, "check_output", return_value=b"fixture rustc"
+            ):
+                for name in names:
+                    with (
+                        self.subTest(input=name),
+                        patch.dict(os.environ, environment, clear=True),
+                    ):
+                        self.args.artifacts = self.root / name
+                        baseline = artifacts.build_context()
+                        artifacts.build(self.args)
+                        before = json.loads(
+                            (self.args.artifacts / "artifacts.json").read_text()
+                        )
+                        calls = len(self.calls)
+                        os.environ[name] = "changed compiler input"
+                        self.assertNotEqual(artifacts.build_context(), baseline)
+                        artifacts.build(self.args)
+                        after = json.loads(
+                            (self.args.artifacts / "artifacts.json").read_text()
+                        )
+                        self.assertNotEqual(
+                            before["artifacts"]["native"]["key"],
+                            after["artifacts"]["native"]["key"],
+                        )
+                        self.assertEqual(len(self.calls), calls + 2)
+        finally:
+            self.patches[2].start()
+
+    def test_generator_only_change_reuses_verified_native_provenance(self):
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        manifest = self.args.artifacts / "artifacts.json"
+        native = json.loads(manifest.read_text())["artifacts"]["native"]
+        source = artifacts.source_hash()
+        (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text(
+            "changed generator only"
+        )
+        self.assertEqual(artifacts.source_hash(), source)
+        calls = len(self.calls)
+        with self.assertRaisesRegex(ValueError, "generator contract mismatch"):
+            artifacts.render(self.args)
+        self.assertEqual(len(self.calls), calls)
+        artifacts.build(self.args)
+        self.assertEqual(len(self.calls), calls + 1)
+        self.assertIn("xmtp-sdk-bindgen", self.calls[-1])
+        self.assertEqual(
+            json.loads(manifest.read_text())["artifacts"]["native"], native
+        )
+        artifacts.render(self.args)
+        binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
+        self.assertEqual(binding["artifact"], native)
+        self.assertEqual(binding["generator"], artifacts.source_hash(True))
+        library = Path(next(iter(native["files"])))
+        original = library.read_bytes()
+        library.write_bytes(original + b"tampered native")
+        calls = len(self.calls)
+        with self.assertRaisesRegex(ValueError, "artifact mismatch"):
+            artifacts.render(self.args)
+        self.assertEqual(len(self.calls), calls)
+        library.write_bytes(original)
+        artifacts.render(self.args)
+
     def test_configuration_source_invalidates_cached_generator(self):
         path = self.root / "crates/xmtp_configuration/src/lib.rs"
         path.parent.mkdir(parents=True)

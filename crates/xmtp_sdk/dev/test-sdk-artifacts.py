@@ -130,9 +130,12 @@ class ArtifactTests(unittest.TestCase):
     def test_generator_mismatch_rejected_before_generator_runs(self):
         artifacts.build(self.args)
         before = len(self.calls)
-        with patch.object(artifacts, "source_hash", return_value="wrong generator"):
-            with self.assertRaisesRegex(ValueError, "generator contract mismatch"):
-                artifacts.render(self.args)
+        manifest = self.args.artifacts / "artifacts.json"
+        record = json.loads(manifest.read_text())
+        record["artifacts"]["bindgen"]["generator"] = "wrong generator"
+        manifest.write_text(json.dumps(record))
+        with self.assertRaisesRegex(ValueError, "generator contract mismatch"):
+            artifacts.render(self.args)
         self.assertEqual(len(self.calls), before)
 
 

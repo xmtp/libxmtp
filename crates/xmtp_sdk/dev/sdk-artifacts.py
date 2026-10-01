@@ -86,7 +86,18 @@ def build_context():
     flags = {
         name: value
         for name, value in os.environ.items()
-        if name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "SDKROOT")
+        if name
+        in (
+            "RUSTFLAGS",
+            "CARGO_ENCODED_RUSTFLAGS",
+            "SDKROOT",
+            "CC",
+            "CXX",
+            "AR",
+            "CFLAGS",
+            "CXXFLAGS",
+            "LDFLAGS",
+        )
         or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_"))
     }
     return hashlib.sha256(
@@ -247,10 +258,9 @@ def render(args):
     source = source_hash()
     for record in selected.values():
         verify(record)
-        if record["generator"] != generator:
-            raise ValueError(
-                "generator contract mismatch; build matched artifacts first"
-            )
+    if selected["bindgen"]["generator"] != generator:
+        raise ValueError("generator contract mismatch; build matched artifacts first")
+    for record in selected.values():
         if record["source"] != source:
             raise ValueError("source contract mismatch; build matched artifacts first")
     contract = hashlib.sha256(
