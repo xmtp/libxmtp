@@ -24,6 +24,7 @@ pub struct SdkConformanceForeignCallCounts {
     pub polls_on_caller_thread: u64,
 }
 
+/// Private host counter. @xmtp-worker @xmtp-internal
 /// Read at a host barrier or after all calls have drained. Fields are atomic,
 /// but the snapshot is not a transaction across a running callback.
 #[uniffi::export]
