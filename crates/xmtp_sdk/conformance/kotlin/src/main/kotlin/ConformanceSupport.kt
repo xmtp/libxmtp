@@ -127,15 +127,6 @@ internal class RecordingPreAuthenticate(
     }
 }
 
-internal class OrderedLogSink : LogSink {
-    val sequence = mutableListOf<String>()
-
-    override fun log(record: LogRecord) {
-        if (record.target == "xmtp_sdk::conformance") {
-            sequence.add(record.fields["sequence"] ?: "")
-        }
-    }
-}
 
 internal class SampleCodec : ContentCodec<String> {
     override val type = ContentTypeId("example.org", "sample", 1u, 0u)

@@ -2,21 +2,25 @@ import * as raw from "../xmtp_sdk";
 import type { LogRecord } from "../xmtp_sdk";
 
 export interface LogSink {
-  log(record: LogRecord): void;
+  log(record: LogRecord): Promise<void>;
 }
 
-// JavaScript callbacks run on the bounded sink thread. Rust calls never wait for them.
-export function setLogSink(sink?: LogSink): void {
-  const queued = (
-    raw as unknown as {
-      setLogSinkQueued?: (sink: unknown) => void;
-      clearLogSink?: () => void;
-    }
-  ).setLogSinkQueued;
-  if (sink === undefined) {
-    (raw as unknown as { clearLogSink?: () => void }).clearLogSink?.();
-    return;
-  }
-  if (queued === undefined) throw new Error("log sinks need a native host");
-  queued(sink);
+/** Install or clear the single asynchronous process sink. */
+export async function setLogSink(sink?: LogSink): Promise<void> {
+  await raw.setLogSink(
+    sink === undefined
+      ? undefined
+      : {
+          async log(record: LogRecord): Promise<void> {
+            if (!raw.sdkLogSinkHandoff()) return;
+            try {
+              await sink.log(record);
+            } catch {
+              throw new raw.LogSinkError.Failed({
+                reason: "log callback failed",
+              });
+            }
+          },
+        },
+  );
 }

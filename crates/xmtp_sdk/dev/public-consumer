@@ -117,6 +117,7 @@ if swift_build >"$log" 2>&1; then
   echo "Swift raw-access probe compiled" >&2
   exit 1
 fi
+grep -q "cannot find 'sdkLogSinkHandoff' in scope" "$log"
 grep -q "'raw' is inaccessible due to 'internal' protection level" "$log"
 grep -q "'create' is inaccessible due to 'internal' protection level" "$log"
 grep -q "'createGroupWithIdentities' is inaccessible due to 'internal' protection level" "$log"
@@ -144,6 +145,7 @@ if kotlin_build >"$log" 2>&1; then
   echo "Kotlin raw-access probe compiled" >&2
   exit 1
 fi
+grep -Eqi "(Cannot access|Unresolved reference).*sdkLogSinkHandoff" "$log"
 grep -q "Cannot access 'val raw: Client': it is internal" "$log"
 grep -q "Cannot access 'suspend fun create(" "$log"
 grep -q "Cannot access 'suspend fun createGroupWithIdentities" "$log"
@@ -178,7 +180,8 @@ grep -q "Module '\"xmtp-sdk\"' has no exported member 'bindingClient'" "$log"
 grep -q "TS2307: Cannot find module 'xmtp-sdk/xmtp_sdk'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
 grep -q "Property 'createGroupWithIdentities' does not exist on type 'Conversations'" "$log"
-echo "Node public consumer cannot reach the binding Client"
+grep -q "has no exported member 'sdkLogSinkHandoff'" "$log"
+echo "Node public consumer cannot reach the binding Client or log admission helper"
 if node_build "$node_consumer/negative/codecs.ts" >"$log" 2>&1; then
   echo "Node typed codec probe compiled" >&2
   exit 1
@@ -212,7 +215,8 @@ grep -q "has no exported member 'wrapClient'" "$log"
 grep -q "TS2307: Cannot find module 'xmtp-sdk-browser/typescript-wasm/runtime/bridge/main/session'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
 grep -q "Property 'createGroupWithIdentities' does not exist on type 'Conversations'" "$log"
-echo "Browser public consumer cannot reach the worker proxy or its session"
+grep -q "has no exported member 'sdkLogSinkHandoff'" "$log"
+echo "Browser public consumer cannot reach the worker proxy, its session, or log admission helper"
 if browser_build "$browser_consumer/negative/codecs.ts" >"$log" 2>&1; then
   echo "Browser typed codec probe compiled" >&2
   exit 1

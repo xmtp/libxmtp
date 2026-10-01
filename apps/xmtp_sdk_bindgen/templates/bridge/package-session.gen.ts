@@ -40,3 +40,10 @@ export function createInWorker<T>(
 ): Promise<T> {
   return sessions.create(create);
 }
+
+/** Logging setup does not own a client. Keep the initial worker for its first create. */
+export async function loggingInWorker<T>(
+  call: (session: MainSession) => Promise<T>,
+): Promise<T> {
+  return call(await sessions.get());
+}

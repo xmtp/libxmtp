@@ -469,16 +469,16 @@ export async function exercise(): Promise<string[]> {
         alice.inboxId,
       "a static call with a connected Backend failed",
     );
-    // clearLogSink returns a Promise on both targets; here it runs in the
+    // setLogSink returns a Promise on both targets; here it runs in the
     // package worker. Before initLogging it rejects with the public
     // InvalidInput, as on Node.
-    const cleared = sdk.clearLogSink();
-    check(cleared instanceof Promise, "clearLogSink did not return a Promise");
+    const cleared = sdk.setLogSink();
+    check(cleared instanceof Promise, "setLogSink did not return a Promise");
     const clearError = await rejection(cleared);
     check(
       clearError instanceof sdk.XmtpError.InvalidInput &&
         isPublicError(clearError),
-      `clearLogSink before initLogging: ${String(clearError)}`,
+      `setLogSink before initLogging: ${String(clearError)}`,
     );
     const configuration = await sdk.fetchServerConfiguration(backend);
     check(isPublic(configuration), "configuration is not a public value");
@@ -754,5 +754,82 @@ export async function restored(): Promise<string[]> {
     await a.end();
     await b.end();
     await c.end();
+  }
+}
+
+// verifies: LOG-008
+export async function loggingEnd(): Promise<void> {
+  const client = await sdk.Client.create(signerFor(), {
+    backend: { url: `${location.origin}/backend` },
+    storage: { location: "inMemory" },
+    deviceSync: false,
+  });
+  await sdk.initLogging({ level: "error" });
+  await loggingSecrets();
+  let resolve!: () => void;
+  let reject!: (error: unknown) => void;
+  const ended = new Promise<void>((ok, fail) => {
+    resolve = ok;
+    reject = fail;
+  });
+  await sdk.setLogSink({
+    async log() {
+      try {
+        await client.end();
+        await sdk.setLogSink();
+        resolve();
+      } catch (error) {
+        reject(error);
+      }
+    },
+  });
+  await rejection(sdk.localSignerFromPrivateKey(new Uint8Array(31)));
+  await ended;
+  const error = await rejection(client.isRegistered());
+  check(
+    error instanceof sdk.XmtpError.ClientClosed,
+    "log callback left the client open",
+  );
+}
+
+// verifies: LOG-010
+async function loggingSecrets(): Promise<void> {
+  const credential = "LOG_CREDENTIAL_SENTINEL_89d42";
+  const signing = new TextEncoder().encode("LOG_SIGNING_KEY_SENTINEL_89d42!!!");
+  const forbidden = [
+    credential,
+    new TextDecoder().decode(signing),
+    [...signing].map((byte) => byte.toString(16).padStart(2, "0")).join(""),
+    `[${[...signing].join(", ")}]`,
+  ];
+  for (const operation of [
+    () =>
+      sdk.Backend.connect({
+        url: `${location.origin}/backend`,
+        credentials: {
+          value: `Bearer ${credential}\n`,
+          expiresAtSeconds: 0n,
+        },
+      }),
+    () => sdk.localSignerFromPrivateKey(signing),
+  ]) {
+    let delivered!: () => void;
+    const received = new Promise<void>((resolve) => {
+      delivered = resolve;
+    });
+    const logs: string[] = [];
+    await sdk.setLogSink({
+      async log(record) {
+        logs.push(record.message, ...record.fields.values());
+        delivered();
+      },
+    });
+    await rejection(operation());
+    await received;
+    await sdk.setLogSink();
+    check(
+      !forbidden.some((secret) => logs.some((log) => log.includes(secret))),
+      "browser app log exposed a secret",
+    );
   }
 }

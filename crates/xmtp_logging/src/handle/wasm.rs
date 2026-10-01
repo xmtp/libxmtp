@@ -44,9 +44,4 @@ impl LoggingHandle {
     pub fn sink_error_count(&self) -> u64 {
         self.sink.error_count()
     }
-
-    /// Count records rejected by a full browser delivery window.
-    pub fn sink_dropped_count(&self) -> u64 {
-        self.sink.dropped_count()
-    }
 }

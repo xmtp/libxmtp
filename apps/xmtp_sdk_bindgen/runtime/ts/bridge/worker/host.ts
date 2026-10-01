@@ -389,6 +389,9 @@ export class WorkerHost {
           });
         break;
       }
+      case "logHandoff":
+        this.callbacks.receiveHandoff(message.id);
+        break;
       case "callbackResult":
         this.callbacks.receive(message);
         break;

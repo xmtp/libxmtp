@@ -20,11 +20,20 @@ interface Registered {
 export class MainCallbacks {
   private readonly targets = new Map<number, Registered>();
   private nextId = 1;
+  private logSink: number | undefined;
+  private activeLogs = 0;
   // The ids registered by the `collect` call that is running.
   private scope: number[] | undefined;
   private closed = false;
 
-  constructor(private readonly endpoint: WireEndpoint) {}
+  constructor(
+    private readonly endpoint: WireEndpoint,
+    private readonly onLogFinished?: () => void,
+  ) {}
+
+  get hasActiveLog(): boolean {
+    return this.activeLogs !== 0;
+  }
 
   /**
    * Registers a callback object. `methods` is the method list of the
@@ -40,20 +49,10 @@ export class MainCallbacks {
     if (type === "LogSink") {
       if (!methods.includes("log"))
         throw new TypeError("LogSink has no generated log method");
-      // The worker sends LogSink.log records in batches.
-      this.targets.set(cb, {
-        methods: new Set(["logBatch"]),
-        target: {
-          logBatch: async (records: unknown) => {
-            if (!Array.isArray(records))
-              throw new TypeError("invalid log batch");
-            for (const record of records) await target.log?.(record);
-          },
-        },
-      });
-    } else {
-      this.targets.set(cb, { target, methods: new Set(methods) });
+      this.clearLogSink();
+      this.logSink = cb;
     }
+    this.targets.set(cb, { target, methods: new Set(methods) });
     this.scope?.push(cb);
     return { cb, type };
   }
@@ -75,6 +74,11 @@ export class MainCallbacks {
     } finally {
       this.scope = outer;
     }
+  }
+
+  clearLogSink(): void {
+    if (this.logSink !== undefined) this.targets.delete(this.logSink);
+    this.logSink = undefined;
   }
 
   drop(cb: number): void {
@@ -99,25 +103,41 @@ export class MainCallbacks {
     message: Extract<WireMessage, { t: "callback" }>,
   ): Promise<void> {
     const registered = this.targets.get(message.cb);
-    let value: unknown;
+    let activeLog = false;
     try {
-      if (!registered) throw new Error("callback was released");
-      const method = registered.methods.has(message.method)
-        ? registered.target[message.method]
-        : undefined;
-      if (typeof method !== "function")
-        throw bridgeError("contractMismatch", { method: message.method });
-      value = await method(...message.args);
-    } catch (error) {
-      this.replyError(message.id, error);
-      return;
-    }
-    try {
-      this.post({ t: "callbackResult", id: message.id, value });
-    } catch (error) {
-      // Only a value that cannot be cloned gets a second send. Any other
-      // failure means that the endpoint is closed, so the reply is dropped.
-      if (isDataCloneError(error)) this.replyError(message.id, error);
+      let value: unknown;
+      try {
+        if (!registered) throw new Error("callback was released");
+        const method = registered.methods.has(message.method)
+          ? registered.target[message.method]
+          : undefined;
+        if (typeof method !== "function")
+          throw bridgeError("contractMismatch", { method: message.method });
+        // The receipt and app call have no intervening await. A delayed
+        // receipt holds queue credit longer; it cannot release it early.
+        if (message.cb === this.logSink && message.method === "log") {
+          this.activeLogs++;
+          activeLog = true;
+          this.post({ t: "logHandoff", id: message.id });
+        }
+        value = await method(...message.args);
+      } catch (error) {
+        this.replyError(
+          message.id,
+          activeLog ? new Error("log callback failed") : error,
+        );
+        return;
+      }
+      try {
+        this.post({ t: "callbackResult", id: message.id, value });
+      } catch (error) {
+        if (isDataCloneError(error)) this.replyError(message.id, error);
+      }
+    } finally {
+      if (activeLog) {
+        this.activeLogs--;
+        this.onLogFinished?.();
+      }
     }
   }
 

@@ -75,8 +75,6 @@ PURE_ONLY = {
 # split these names from the browser worker entry, each with its reason.
 PUBLIC_NODE_ONLY = {
     **SDK_037_NODE_ONLY,
-    "setLogSink": "F7 adds the asynchronous browser log sink",
-    "LogSink": "F7 adds the asynchronous browser log sink",
     **{name: "pure module" for name in PURE_ONLY},
 }
 # Members whose form depends on the target, skipped on both sides.

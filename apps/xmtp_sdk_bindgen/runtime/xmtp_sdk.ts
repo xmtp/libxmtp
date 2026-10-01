@@ -325,6 +325,13 @@ export type LogRecord = {
   timestamp: Timestamp;
   droppedRecords: bigint;
 };
+export declare function setLogSink(sink?: {
+  log(record: LogRecord): Promise<void>;
+}): Promise<void>;
+export declare function sdkLogSinkHandoff(): boolean;
+export declare const LogSinkError: {
+  Failed: new (fields: { reason: string }) => Error;
+};
 export type ClientEvent = object;
 export type EventFilter = object;
 export declare const ListenerError: { Failed: new () => Error };
