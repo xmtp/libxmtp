@@ -211,6 +211,67 @@ class ArtifactTests(unittest.TestCase):
                 self.assertFalse(tree.exists())
                 self.assertTrue((self.args.out / "swift/index.ts").exists())
 
+    def test_partial_render_rejects_malformed_unselected_artifact_files(self):
+        languages = (
+            "swift",
+            "kotlin",
+            "typescript-napi",
+            "typescript-wasm",
+            "typescript-pure",
+        )
+        for language in languages:
+            for malformed in (None, [], ["invalid"], {}, "invalid", False):
+                with self.subTest(language=language, files=malformed):
+                    self.render_all_targets()
+                    tree = self.args.out / language
+                    metadata = tree / "sdk-contract.json"
+                    record = json.loads(metadata.read_text())
+                    record["artifact"]["files"] = malformed
+                    metadata.write_text(json.dumps(record))
+                    rejected = (
+                        {"typescript-wasm", "typescript-pure"}
+                        if language in ("typescript-wasm", "typescript-pure")
+                        else {language}
+                    )
+                    self.args.targets = ("node" if language == "swift" else "swift",)
+                    selected = set(artifacts.target_languages(self.args.targets[0]))
+                    preserved = {
+                        path.name: self.tree_bytes(path)
+                        for path in self.args.out.iterdir()
+                        if path.name not in rejected | selected
+                    }
+                    calls = len(self.calls)
+                    artifacts.render(self.args)
+                    for name in rejected:
+                        self.assertFalse((self.args.out / name).exists())
+                    for name in selected:
+                        self.assertTrue((self.args.out / name / "index.ts").is_file())
+                    for name, files in preserved.items():
+                        self.assertEqual(self.tree_bytes(self.args.out / name), files)
+                    self.assertFalse(
+                        any(
+                            command[0] == "dev/agent-run"
+                            for command in self.calls[calls:]
+                        )
+                    )
+
+    def test_malformed_unselected_metadata_preserves_prior_output_on_render_failure(
+        self,
+    ):
+        self.render_all_targets()
+        metadata = self.args.out / "typescript-napi/sdk-contract.json"
+        record = json.loads(metadata.read_text())
+        record["artifact"]["files"] = None
+        metadata.write_text(json.dumps(record))
+        before = self.tree_bytes(self.args.out)
+        self.args.targets = ("swift",)
+        with patch.object(
+            artifacts, "run", side_effect=RuntimeError("generation failed")
+        ):
+            with self.assertRaisesRegex(RuntimeError, "generation failed"):
+                artifacts.render(self.args)
+        self.assertEqual(self.tree_bytes(self.args.out), before)
+
     def test_partial_render_preserves_reused_native_generator_provenance(self):
         self.render_all_targets()
         tree = self.args.out / "typescript-napi"

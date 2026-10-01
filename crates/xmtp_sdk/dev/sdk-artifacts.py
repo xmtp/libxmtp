@@ -312,6 +312,9 @@ def preserved_tree(tree, args, language, rust_source, generator):
         or artifact["target"] != (args.rust_target if native else "")
     ):
         raise ValueError("unselected generated identity mismatch")
+    artifact_files = artifact["files"]
+    if not isinstance(artifact_files, dict) or not artifact_files:
+        raise ValueError("unselected artifact file metadata mismatch")
     verify(artifact)
     files = record["files"]
     paths = list(tree.rglob("*"))
