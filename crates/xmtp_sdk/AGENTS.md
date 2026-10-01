@@ -51,6 +51,10 @@ Run commands from the repository root in the Nix shell. Run
   (retained undecodable content; the foreign Restored DM peer getter), pinned
   in `crates/xmtp_sdk/dev/isolation-pins.tsv` to the git blob hash of their
   reviewed content: a listed file passes only while it hashes to its pin.
+  The native CI update to `sdks/ios/VALIDATION.md` is also pinned. The gate
+  permits deletion of the three retired `sdks/ios/dev/fly/` files only when
+  their base contents match the reviewed blob hashes. It still rejects changes
+  to those scripts and deletion of other scripts.
   After the last reviewed change to a listed file, run
   `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with it.
   The gate rejects code, scripts, generated output, and file-mode changes.
