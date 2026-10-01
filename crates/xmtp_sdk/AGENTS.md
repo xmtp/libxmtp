@@ -78,7 +78,8 @@ Run commands from the repository root in the Nix shell. Run
   isolated wrong-value probes for encode, send, and reply. Negative probes check that the
   binding Client, its factories, the generated identity routes, the browser
   worker session, and private package paths stay private. The Node root must
-  export exactly the public names through both `import` and `require`. Before it compiles them,
+  export exactly the public names through ESM imports. It has no CJS or
+  `require` entry point. Its engine floor is Node 22.12. Before it compiles them,
   `dev/check-public-members.py` checks that every retained Client member in
   `docs/self-hosted/sdk-api-manifest.md` is public in each installed product,
   in the static or instance placement that the manifest names.
@@ -107,3 +108,62 @@ The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 
 Content and conversation exports use named `include!` files to keep UniFFI
 module paths stable. Use ordinary modules for helpers without exported metadata.
+
+## Matched package preparation
+
+- `just sdk build [swift,kotlin,node,browser]` builds selected artifacts once.
+  It records file hashes under `target/sdk-artifacts/`. Native targets do not
+  build WASM. Full and pure WASM use separate output directories.
+- `just sdk render [swift,kotlin,node,browser]` uses those artifacts. It rejects
+  a changed binary or generator contract before it replaces generated output.
+  It replaces only selected targets and keeps valid unselected targets with
+  their original receipts. It removes stale unselected targets and unknown roots.
+  `just sdk generate [targets]` runs both steps. Use `--profile release` on the
+  build recipe for release proofs. Conformance shares the bindgen artifact.
+- `just sdk check-package-scripts` checks reuse, mismatch rejection, and cleanup
+  with a small fixture. `just sdk check-clean-generate` adds one real Swift
+  render. It uses existing artifacts and does not rebuild Rust.
+- `just sdk stage node` and `just sdk stage browser` compile ESM products with
+  tsdown. They copy the pinned runtimes, native library, worker, pure WASM,
+  loaders, and snippets. `just sdk package-smoke node|browser` packs each product
+  and installs it in an empty consumer. It checks a codec round trip and rejects
+  a changed contract before an operation. Browser smoke also loads its worker.
+- Use `NIX_DEVSHELL=ios dev/nix-shell 'just sdk mobile-build ios'` for the iOS
+  device and simulator libraries. Then use the same shell for
+  `just sdk mobile-stage ios` to assemble `XmtpSdkFFI.xcframework` and SwiftPM
+  sources. These commands require Xcode.
+- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk mobile-build android'` for
+  arm64-v8a, armeabi-v7a, x86_64, and x86. Then use the same shell for
+  `just sdk mobile-stage android` to assemble the AAR. Its Kotlin compiler uses
+  `-Xjvm-default=all`. Final device and emulator runtime proofs use the matched
+  products. A source-only consumer does not replace those proofs.
+- Private proof inputs can use `XMTP_SDK_GENERATED_DIR` and
+  `XMTP_SDK_PACKAGES_DIR`. Prebuilt runtime inputs can use
+  `XMTP_SDK_RUNTIME_DIR` (a directory with core/node or core/wasm products).
+  These variables configure build tools. They add no SDK runtime option.
+
+The old SDK packages, binding outputs, release jobs, and version numbers stay
+in place until their owning Phase 2 switches. New package preparation does not
+publish a product. All switched SDKs will use the approved 8.0.0 version line.
+
+Package review checks:
+
+- `just sdk check-package-scripts` also checks both provenance producers,
+  config-only changes, default mobile features, all four NDK target tools,
+  and both flat and prebuilt runtime directory layouts.
+- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
+  for small C probes. The output records ELF class and machine for each ABI.
+  These probes do not prove an installed Android SDK.
+- The private compiler input is `XMTP_SDK_TSDOWN_CLI`. It names tsdown's
+  `dist/run.mjs`, which the stager runs through Node on every platform.
+  Windows CI stages with a supported compiler Node version and runs the
+  installed smoke on the minimum SDK Node version, 22.12.0.
+
+Residual package review checks:
+
+- Build provenance includes the live address registry, chain URL map, and
+  signature validation bytecode. The common receipt producer uses the same
+  fingerprint. Mobile preflight requires each native receipt's exact triple.
+- Installed smoke runs `npm-cli.js` through Node. `XMTP_SDK_NPM_CLI` is a
+  private path override for the launcher proof. The normal path comes from
+  the selected Node installation, including the Windows installation.

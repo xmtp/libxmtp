@@ -74,6 +74,7 @@
               ffi-uniffi-bindgen
               ;
             xmtp-sdk-libs = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).libs;
+            xmtp-sdk-pure-wasm = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).pureWasm;
             xmtp-sdk-wasm = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).wasm;
             xmtp-sdk-bindgen = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).bindgen;
             xmtp-sdk-generated = (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).generated;
@@ -89,6 +90,10 @@
             wasm-bindings-test = (pkgs.callPackage ./nix/package/wasm.nix { test = true; }).bin;
           }
           // lib.optionalAttrs pkgs.stdenv.isDarwin {
+            xmtp-sdk-ios-device =
+              (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).iosTargets.aarch64-apple-ios;
+            xmtp-sdk-ios-simulator =
+              (pkgs.callPackage ./nix/package/xmtp-sdk.nix { }).iosTargets.aarch64-apple-ios-sim;
             # stdenvNoCC is passed to callPackage (for the aggregate derivation).
             # This avoids Nix's apple-sdk and cc-wrapper,
             # which inject -mmacos-version-min flags that

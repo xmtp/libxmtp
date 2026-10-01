@@ -1,47 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-
-dev/agent-run cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen
-wasm_profile="${XMTP_SDK_WASM_PROFILE:-release}"
-case "$wasm_profile" in
-  release) dev/agent-run cargo build --locked --release -p xmtp_sdk --target wasm32-unknown-unknown ;;
-  debug) dev/agent-run cargo build --locked -p xmtp_sdk --target wasm32-unknown-unknown ;;
-  *) echo "expected XMTP_SDK_WASM_PROFILE=debug or release" >&2; exit 2 ;;
-esac
-
-case "$(uname -s)" in
-  Darwin) native=target/debug/libxmtp_sdk.dylib ;;
-  Linux) native=target/debug/libxmtp_sdk.so ;;
-  *) echo "unsupported host for SDK generation" >&2; exit 1 ;;
-esac
-
-generated=target/sdk-generated
-config=apps/xmtp_sdk_bindgen/uniffi-global.toml
-raw_wasm="target/wasm32-unknown-unknown/$wasm_profile/xmtp_sdk.wasm"
-rm -rf -- "$generated"
-mkdir -p "$generated"
-for language in swift kotlin typescript-napi; do
-  target/debug/xmtp-sdk-bindgen generate \
-    --lib "$native" --language "$language" \
-    --out "$generated/$language" --config "$config"
-done
-cp "$native" "$generated/typescript-napi/"
-target/debug/xmtp-sdk-bindgen generate \
-  --lib "$raw_wasm" --language typescript-wasm \
-  --out "$generated/typescript-wasm" --config "$config"
-target/debug/xmtp-sdk-bindgen stage-wasm \
-  --lib "$raw_wasm" --out "$generated/typescript-wasm"
-
-# The page loads a separate module with only synchronous pure exports.
-case "$wasm_profile" in
-  release) dev/agent-run cargo build --locked --release -p xmtp_sdk --target wasm32-unknown-unknown --features pure-only ;;
-  debug) dev/agent-run cargo build --locked -p xmtp_sdk --target wasm32-unknown-unknown --features pure-only ;;
-esac
-target/debug/xmtp-sdk-bindgen generate \
-  --lib "$raw_wasm" --language typescript-wasm --pure-only \
-  --out "$generated/typescript-pure" --config "$config"
-target/debug/xmtp-sdk-bindgen stage-wasm \
-  --lib "$raw_wasm" --out "$generated/typescript-pure"
+# Use build and render separately when a job needs several target sets.
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py build "$@"
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py render "$@"
