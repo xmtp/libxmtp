@@ -1,6 +1,8 @@
 //! Admission must finish before a data directory looks up its inbox.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+
+use parking_lot::Mutex;
 
 use prost::Message;
 use xmtp_configuration::{ServerConfiguration, StaticConfigProvider};
@@ -16,7 +18,7 @@ use crate::{
 async fn rejected_directory_build(
     mut response: backend_v1::GetConfigurationResponse,
     use_provider: bool,
-) -> ClientBuilderError {
+) -> Result<ClientBuilderError, xmtp_common::BoxDynError> {
     let requests = Arc::new(Mutex::new(Vec::new()));
     let observed = requests.clone();
     let configuration = ServerConfiguration::from(response.clone());
@@ -31,7 +33,7 @@ async fn rejected_directory_build(
         .expect_host()
         .return_const("http://admission.test".to_owned());
     network.expect_request().returning(move |_, path, body| {
-        observed.lock().unwrap().push(path.as_str().to_owned());
+        observed.lock().push(path.as_str().to_owned());
         let bytes = match path.as_str() {
             "/xmtp.backend.v1.ConfigurationService/GetConfiguration" => response.encode_to_vec(),
             "/xmtp.backend.v1.IdentityService/GetInboxIds" => {
@@ -53,11 +55,11 @@ async fn rejected_directory_build(
         };
         Ok(http::Response::new(bytes.into()))
     });
-    let dir = tempfile::tempdir().unwrap();
+    let dir = tempfile::tempdir()?;
     let mut version = VersionInfo::default();
     version.test_update_version("1.2.3");
     let mut builder = Client::builder(IdentityStrategy::for_identifier(
-        generate_local_wallet().get_identifier().unwrap(),
+        generate_local_wallet().get_identifier()?,
         1,
     ))
     .api_client_with_streams(Arc::new(xmtp_api_backend::BackendClient::new(network)))
@@ -72,21 +74,19 @@ async fn rejected_directory_build(
             StorageLocation::DataDir(dir.path().to_path_buf()),
             [0u8; 32].into(),
         )
-        .await
-        .unwrap()
-        .default_mls_store()
-        .unwrap()
+        .await?
+        .default_mls_store()?
         .build()
         .await
         .err()
         .expect("the deployment must refuse the build");
     assert_eq!(
-        requests.lock().unwrap().as_slice(),
+        requests.lock().as_slice(),
         ["/xmtp.backend.v1.ConfigurationService/GetConfiguration"],
         "admission must refuse the build before any inbox request"
     );
-    assert!(std::fs::read_dir(dir.path()).unwrap().next().is_none());
-    error
+    assert!(std::fs::read_dir(dir.path())?.next().is_none());
+    Ok(error)
 }
 
 // verifies: CONF-026, CONF-051, CONF-064
@@ -105,7 +105,7 @@ async fn directory_admission_requires_credentials_before_inbox_lookup() {
             },
             use_provider,
         )
-        .await;
+        .await?;
         assert!(matches!(
             error,
             ClientBuilderError::ClientError(ClientError::AuthRequired { required_scopes })
@@ -126,7 +126,7 @@ async fn directory_admission_checks_minimum_version_before_inbox_lookup() {
             },
             use_provider,
         )
-        .await;
+        .await?;
         assert!(matches!(
             error,
             ClientBuilderError::ClientError(ClientError::ClientVersionTooOld { client, minimum })
