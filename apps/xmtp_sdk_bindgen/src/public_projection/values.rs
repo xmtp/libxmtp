@@ -105,7 +105,16 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
             } else {
                 camel(&field.name)
             };
-            writeln!(code, "readonly {field_name}: {};", public_type(&field.ty))?;
+            let optional = if matches!(field.ty, Type::Optional { .. }) {
+                "?"
+            } else {
+                ""
+            };
+            writeln!(
+                code,
+                "readonly {field_name}{optional}: {};",
+                public_type(&field.ty)
+            )?;
         }
         code.push_str(super::policy::extra_variant_fields(name, &variant.name));
         code.push_str("}\n");

@@ -42,12 +42,15 @@ sealed class SDKMessageContent {
 
     data class Custom(
         val encoded: EncodedContent,
+        val rawBytes: ByteArray,
         val value: Any?,
-        val error: Throwable?,
+        val error: ErrorDetails?,
     ) : SDKMessageContent()
 
     data class Unknown(
-        val encoded: EncodedContent,
+        val encoded: EncodedContent?,
+        val rawBytes: ByteArray,
+        val error: ErrorDetails,
     ) : SDKMessageContent()
 }
 
@@ -58,20 +61,28 @@ sealed class SDKReplyContent {
 
     data class Custom(
         val encoded: EncodedContent,
+        val rawBytes: ByteArray,
         val value: Any?,
-        val error: Throwable?,
+        val error: ErrorDetails?,
     ) : SDKReplyContent()
 
     data class Unknown(
-        val encoded: EncodedContent,
+        val encoded: EncodedContent?,
+        val rawBytes: ByteArray,
+        val error: ErrorDetails,
     ) : SDKReplyContent()
 }
 
-private fun EncodedContent.deepEquals(other: EncodedContent): Boolean =
-    type == other.type && parameters == other.parameters && fallback == other.fallback &&
-        content.contentEquals(other.content)
+private fun EncodedContent?.deepEquals(other: EncodedContent?): Boolean =
+    if (this == null || other == null) {
+        this == null && other == null
+    } else {
+        type == other.type && parameters == other.parameters && fallback == other.fallback &&
+            content.contentEquals(other.content)
+    }
 
-private fun EncodedContent.deepHashCode(): Int {
+private fun EncodedContent?.deepHashCode(): Int {
+    if (this == null) return 0
     var result = type.hashCode()
     result = 31 * result + parameters.hashCode()
     result = 31 * result + (fallback?.hashCode() ?: 0)
@@ -94,15 +105,32 @@ private fun decodeReplyBody(
 ): SDKReplyContent =
     when (body) {
         is MessageBody.Custom -> {
-            when (val decoded = ClientRegistry.get(clientKey)?.decodeCustom(body.encoded)) {
-                is SDKMessageContent.Custom -> SDKReplyContent.Custom(body.encoded, decoded.value, decoded.error)
-                is SDKMessageContent.Unknown -> SDKReplyContent.Unknown(body.encoded)
-                else -> SDKReplyContent.Custom(body.encoded, null, clientClosedError())
+            when (val decoded = ClientRegistry.get(clientKey)?.decodeCustom(body.encoded, body.rawBytes)) {
+                is SDKMessageContent.Custom -> {
+                    SDKReplyContent.Custom(
+                        body.encoded,
+                        body.rawBytes,
+                        decoded.value,
+                        decoded.error,
+                    )
+                }
+
+                is SDKMessageContent.Unknown -> {
+                    SDKReplyContent.Unknown(
+                        decoded.encoded,
+                        decoded.rawBytes,
+                        decoded.error,
+                    )
+                }
+
+                else -> {
+                    SDKReplyContent.Custom(body.encoded, body.rawBytes, null, closedContentDetails())
+                }
             }
         }
 
         is MessageBody.Unknown -> {
-            SDKReplyContent.Unknown(body.encoded)
+            SDKReplyContent.Unknown(body.encoded, body.rawBytes, body.error)
         }
 
         else -> {
@@ -113,27 +141,29 @@ private fun decodeReplyBody(
 class Message(
     val data: MessageData,
 ) {
-    val content: SDKMessageContent =
-        when (val body = data.content) {
-            is MessageContent.Custom -> {
-                ClientRegistry.get(data.clientKey)?.decodeCustom(body.encoded)
-                    ?: SDKMessageContent.Custom(
-                        body.encoded,
-                        null,
-                        XmtpException.ClientClosed(
-                            ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
-                        ),
-                    )
-            }
-
-            else -> {
-                SDKMessageContent.Standard(body)
-            }
-        }
     val inReplyToContent: SDKReplyContent? =
         data.inReplyTo?.let { decodeReplyBody(it.content, data.clientKey) }
     val replyContent: SDKReplyContent? =
         (data.content as? MessageContent.Reply)?.let { decodeReplyBody(it.body, data.clientKey) }
+    val content: SDKMessageContent =
+        if (replyContent is SDKReplyContent.Custom && replyContent.error?.code == "CodecDecodeFailed") {
+            SDKMessageContent.Unknown(data.encoded, data.rawBytes, checkNotNull(replyContent.error))
+        } else {
+            when (val body = data.content) {
+                is MessageContent.Custom -> {
+                    ClientRegistry.get(data.clientKey)?.decodeCustom(body.encoded, body.rawBytes)
+                        ?: SDKMessageContent.Custom(body.encoded, body.rawBytes, null, closedContentDetails())
+                }
+
+                is MessageContent.Unknown -> {
+                    SDKMessageContent.Unknown(body.encoded, body.rawBytes, body.error)
+                }
+
+                else -> {
+                    SDKMessageContent.Standard(body)
+                }
+            }
+        }
     val deliveryCursor: String? get() = data.deliveryCursor
     val id get() = data.id
     val conversationId get() = data.conversationId
@@ -142,6 +172,7 @@ class Message(
     val sentAt get() = data.sentAt
     val kind get() = data.kind
     val deliveryStatus get() = data.deliveryStatus
+    val rawBytes get() = data.rawBytes
     val contentType get() = data.contentType
     val fallback get() = data.fallback
     val encoded get() = data.encoded
@@ -203,6 +234,7 @@ class Message(
             data.insertedAt == other.data.insertedAt && data.expiresAt == other.data.expiresAt &&
             data.replyCount == other.data.replyCount && data.reactions == other.data.reactions &&
             data.inReplyTo.deepEquals(other.data.inReplyTo) &&
+            data.rawBytes.contentEquals(other.data.rawBytes) &&
             data.encoded.deepEquals(other.data.encoded) &&
             when (val value = data.content) {
                 is MessageContent.Text -> {
@@ -222,7 +254,9 @@ class Message(
                 }
 
                 is MessageContent.Reply -> {
-                    value == other.data.content
+                    val otherContent = other.data.content
+                    otherContent is MessageContent.Reply && value.referenceId == otherContent.referenceId &&
+                        value.body.deepEquals(otherContent.body)
                 }
 
                 is MessageContent.Custom -> {
@@ -236,7 +270,7 @@ class Message(
                     val otherContent = other.data.content
                     otherContent is MessageContent.Unknown &&
                         value.encoded.deepEquals(otherContent.encoded) &&
-                        value.rawBytes.contentEquals(otherContent.rawBytes)
+                        value.rawBytes.contentEquals(otherContent.rawBytes) && value.error == otherContent.error
                 }
 
                 else -> {
@@ -260,6 +294,7 @@ class Message(
         result = 31 * result + data.replyCount.hashCode()
         result = 31 * result + data.reactions.hashCode()
         result = 31 * result + data.inReplyTo.deepHashCode()
+        result = 31 * result + data.rawBytes.contentHashCode()
         result = 31 * result + data.encoded.deepHashCode()
         result = 31 * result +
             when (val value = data.content) {
@@ -280,7 +315,7 @@ class Message(
                 }
 
                 is MessageContent.Reply -> {
-                    value.hashCode()
+                    31 * value.referenceId.hashCode() + value.body.deepHashCode()
                 }
 
                 is MessageContent.Custom -> {
@@ -288,7 +323,7 @@ class Message(
                 }
 
                 is MessageContent.Unknown -> {
-                    31 * value.encoded.deepHashCode() + value.rawBytes.contentHashCode()
+                    31 * (31 * value.encoded.deepHashCode() + value.rawBytes.contentHashCode()) + value.error.hashCode()
                 }
 
                 else -> {
@@ -299,6 +334,8 @@ class Message(
     }
 }
 
+private fun closedContentDetails() = ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed")
+
 private fun clientClosedError() =
     XmtpException.ClientClosed(
         ErrorDetails("ClientClosed", ErrorCategory.LIFECYCLE, false, "client is closed"),
@@ -306,15 +343,26 @@ private fun clientClosedError() =
 
 private fun MessageBody.deepEquals(other: MessageBody): Boolean =
     when {
-        this is MessageBody.Custom && other is MessageBody.Custom -> encoded.deepEquals(other.encoded)
-        this is MessageBody.Unknown && other is MessageBody.Unknown -> encoded.deepEquals(other.encoded)
-        else -> this == other
+        this is MessageBody.Custom && other is MessageBody.Custom -> {
+            encoded.deepEquals(other.encoded) &&
+                rawBytes.contentEquals(other.rawBytes)
+        }
+
+        this is MessageBody.Unknown && other is MessageBody.Unknown -> {
+            encoded.deepEquals(other.encoded) &&
+                rawBytes.contentEquals(other.rawBytes) &&
+                error == other.error
+        }
+
+        else -> {
+            this == other
+        }
     }
 
 private fun MessageBody.deepHashCode(): Int =
     when (this) {
-        is MessageBody.Custom -> encoded.deepHashCode()
-        is MessageBody.Unknown -> encoded.deepHashCode()
+        is MessageBody.Custom -> 31 * encoded.deepHashCode() + rawBytes.contentHashCode()
+        is MessageBody.Unknown -> 31 * (31 * encoded.deepHashCode() + rawBytes.contentHashCode()) + error.hashCode()
         else -> hashCode()
     }
 
@@ -328,7 +376,7 @@ private fun ReplyParent?.deepEquals(other: ReplyParent?): Boolean =
             id == other.id && senderInboxId == other.senderInboxId && sentAt == other.sentAt &&
                 kind == other.kind && deliveryStatus == other.deliveryStatus &&
                 contentType == other.contentType && fallback == other.fallback &&
-                content.deepEquals(other.content) &&
+                rawBytes.contentEquals(other.rawBytes) && content.deepEquals(other.content) &&
                 encoded.deepEquals(other.encoded)
         }
     }
@@ -342,6 +390,7 @@ private fun ReplyParent?.deepHashCode(): Int {
     result = 31 * result + deliveryStatus.hashCode()
     result = 31 * result + contentType.hashCode()
     result = 31 * result + (fallback?.hashCode() ?: 0)
+    result = 31 * result + rawBytes.contentHashCode()
     result = 31 * result + content.deepHashCode()
     return 31 * result + encoded.deepHashCode()
 }

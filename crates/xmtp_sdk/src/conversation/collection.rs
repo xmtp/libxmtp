@@ -482,7 +482,7 @@ impl Conversations {
                     reaction.into_proto(id.into_checked()?, reference_inbox_id),
                 )
                 .map_err(XmtpError::from_core)?;
-                send_encoded(group, content.into(), options.unwrap_or_default()).await
+                send_encoded(group, content.try_into()?, options.unwrap_or_default()).await
             })
             .await
         })
@@ -506,7 +506,7 @@ impl Conversations {
                     content: content.into(),
                 };
                 let encoded = ReplyCodec::encode(reply).map_err(XmtpError::from_core)?;
-                send_encoded(group, encoded.into(), options.unwrap_or_default()).await
+                send_encoded(group, encoded.try_into()?, options.unwrap_or_default()).await
             })
             .await
         })

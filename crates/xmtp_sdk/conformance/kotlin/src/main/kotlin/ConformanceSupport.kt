@@ -62,11 +62,15 @@ internal suspend fun consumeOmittedTypedSendOptions(
 }
 
 internal fun sameEncoded(
-    actual: EncodedContent,
-    expected: EncodedContent,
+    actual: EncodedContent?,
+    expected: EncodedContent?,
 ): Boolean =
-    actual.type == expected.type && actual.parameters == expected.parameters &&
-        actual.fallback == expected.fallback && actual.content.contentEquals(expected.content)
+    if (actual == null || expected == null) {
+        actual == null && expected == null
+    } else {
+        actual.type == expected.type && actual.parameters == expected.parameters &&
+            actual.fallback == expected.fallback && actual.content.contentEquals(expected.content)
+    }
 
 internal fun signCommand(
     action: String,
@@ -159,4 +163,23 @@ internal suspend fun releasedMessage(
     val id = group.sendText("weak owner", null)
     val message = group.messages(null).first { it.id == id }
     return message to WeakReference(host)
+}
+
+internal suspend fun checkArchiveBytesAndFile(host: SDKClient) {
+    val archive = host.archives().exportToBytes(ByteArray(32) { 7 }, null)
+    check(archive.isNotEmpty())
+    check(host.archives().metadataFromBytes(archive, ByteArray(32) { 7 }).backupVersion == 0u.toUShort())
+    val archiveFolder = Files.createTempDirectory("xmtp-sdk-archive-")
+    val archivePath = archiveFolder.resolve("snapshot.xmtp")
+    try {
+        host.archives().exportToFile(archivePath.toString(), ByteArray(32) { 7 }, null)
+        check(
+            host.archives().metadataFromFile(archivePath.toString(), ByteArray(32) { 7 }).backupVersion ==
+                0u.toUShort(),
+        )
+    } finally {
+        Files.deleteIfExists(archivePath)
+        Files.deleteIfExists(archiveFolder)
+    }
+    println("Kotlin scenario 9: archive bytes and file passed")
 }

@@ -176,7 +176,17 @@ export class Message extends B.Message {
     private readonly session: MainSession,
   ) {
     super(data);
-    this.content = decodeContent(session, data.clientKey, data.content);
+    const content = decodeContent(session, data.clientKey, data.content);
+    this.content =
+      content.tag === B.MessageContent_Tags.Reply &&
+      content.inner.body.tag === B.MessageBody_Tags.Custom &&
+      content.inner.body.inner.error?.code === "CodecDecodeFailed"
+        ? B.MessageContent.Unknown.new({
+            encoded: data.encoded,
+            rawBytes: data.rawBytes,
+            error: content.inner.body.inner.error,
+          })
+        : content;
     this.inReplyToContent = data.inReplyTo
       ? decodeBody(session, data.clientKey, data.inReplyTo.content)
       : undefined;
@@ -202,8 +212,11 @@ export class Message extends B.Message {
   get sentAt(): B.Timestamp {
     return this.data.sentAt;
   }
-  get contentType(): B.ContentTypeId {
+  get contentType(): B.ContentTypeId | undefined {
     return this.data.contentType;
+  }
+  get rawBytes(): ArrayBuffer {
+    return this.data.rawBytes;
   }
   get fallback(): string | undefined {
     return this.data.fallback;

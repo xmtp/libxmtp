@@ -93,7 +93,7 @@ for name in ("UndecodableContent", "ContentDecodeFailureKind"):
         "generated",
         "11.4 Swift, Messages, codecs, preferences, values; 11.1-11.2",
         finals="MessageContent.Unknown",
-        note="Retained undecodable content under the design SDK-040 exception: exact received bytes, received identifier and fallback, and the typed cause.",
+        note="Retained undecodable content under the design SDK-040 exception: exact received bytes, optional received type and uncompressed envelope, received fallback, and ErrorDetails (MalformedEnvelope or CodecDecodeFailed).",
     )
 add(
     "Kotlin",
@@ -102,7 +102,7 @@ add(
     "generated",
     "11.4 Kotlin, Messages, codecs, preferences, values; 11.1-11.2",
     finals="MessageContent.Unknown",
-    note="Retained undecodable content on the V2 route under the design SDK-040 exception; content() is null for it.",
+    note="Retained undecodable content on the V2 route under the design SDK-040 exception; the new SDK retains original bytes and typed ErrorDetails, with optional type and uncompressed envelope.",
 )
 
 
@@ -2454,6 +2454,9 @@ def _classify(entry: object) -> Decision:
             "static runtime",
             spelling("Message" + ("." + field if name != "DecodedMessageV2" else "")),
             f"11.4 {sdk}, Messages, codecs, preferences, values; 11.7",
+            "The received type is optional. It is absent when the type field cannot be read. Original serialization is available as `Message.rawBytes`."
+            if field == "contentType"
+            else "",
         )
     if name.startswith("DecodedMessage.") or name == "DecodedMessage":
         if name == "DecodedMessage":

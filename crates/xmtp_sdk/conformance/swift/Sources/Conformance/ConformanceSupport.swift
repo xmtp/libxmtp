@@ -9,8 +9,9 @@ struct ConformanceFailure: LocalizedError {
     }
 }
 
-func sameEncoded(_ lhs: EncodedContent, _ rhs: EncodedContent) -> Bool {
-    lhs.type.authorityId == rhs.type.authorityId &&
+func sameEncoded(_ lhs: EncodedContent?, _ rhs: EncodedContent?) -> Bool {
+    guard let lhs, let rhs else { return lhs == nil && rhs == nil }
+    return lhs.type.authorityId == rhs.type.authorityId &&
         lhs.type.typeId == rhs.type.typeId &&
         lhs.type.versionMajor == rhs.type.versionMajor &&
         lhs.type.versionMinor == rhs.type.versionMinor &&

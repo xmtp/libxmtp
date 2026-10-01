@@ -12,6 +12,7 @@ import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typ
 import { EventStream as HostEventStream } from "../../../../target/sdk-conformance/typescript-napi/runtime/events/reader.ts";
 import { checkConfigurationMismatch } from "./config-mismatch.mts";
 import { checkIdentityRoutes } from "./identity-routes.mts";
+import { checkOnValueFailure } from "./node-callback-failure.mts";
 import {
   attachmentEnd,
   attachmentFailures,
@@ -647,7 +648,7 @@ if (undecoded?.content.kind !== "unknown")
 if (decoded?.content.kind !== "custom")
   throw new Error("custom message was not decoded");
 assert.ok(
-  undecoded.content.rawBytes.byteLength > undecoded.encoded.content.byteLength,
+  undecoded.content.rawBytes.byteLength > undecoded.encoded!.content.byteLength,
 );
 assert.deepEqual(undecoded.content.rawBytes, decoded.content.rawBytes);
 assert.equal(decoded.content.value, "codec value");
@@ -670,12 +671,61 @@ const failedDecode =
   await ownerWithFailingCodec.conversations.getMessageById(customId);
 if (failedDecode?.content.kind !== "custom")
   throw new Error("failed custom decode did not keep its content");
-assert.match(String(failedDecode.content.error), /codec decode failed/);
+assert.match(failedDecode.content.error?.message ?? "", /codec decode failed/);
+assert.equal(failedDecode.content.error?.code, "CodecDecodeFailed");
+assert.equal(failedDecode.content.error?.category, "callback");
+assert.equal(failedDecode.content.error?.retryable, false);
+assert.deepEqual(failedDecode.content.rawBytes, decoded.content.rawBytes);
+// verifies: CTYPE-008, CTYPE-009, CTYPE-029
+const failedNestedReply =
+  await ownerWithFailingCodec.conversations.getMessageById(customReplyId);
+if (failedNestedReply?.content.kind !== "unknown")
+  throw new Error("nested Node host failure did not retain the outer reply");
+assert.equal(failedNestedReply.content.error.code, "CodecDecodeFailed");
+assert.equal(failedNestedReply.content.error.category, "callback");
+assert.equal(failedNestedReply.content.error.retryable, false);
+assert.deepEqual(failedNestedReply.content.rawBytes, customReply.rawBytes);
+assert.equal(failedNestedReply.content.encoded?.fallback, customReply.fallback);
+assert.ok(customReply.fallback);
+const normalReplyId = await ownerWithFailingCodec.conversations.replyToMessage(
+  customId,
+  sdk.encodeText("valid reply with failed parent"),
+);
+const replyWithFailedParent =
+  await ownerWithFailingCodec.conversations.getMessageById(normalReplyId);
+assert.equal(replyWithFailedParent?.content.kind, "reply");
+assert.equal(replyWithFailedParent?.replyContent?.kind, "text");
+if (replyWithFailedParent?.inReplyToContent?.kind !== "custom")
+  throw new Error("Node parent custom failure missing");
+assert.equal(
+  replyWithFailedParent.inReplyToContent.error?.code,
+  "CodecDecodeFailed",
+);
+assert.equal(
+  replyWithFailedParent.inReplyToContent.error?.category,
+  "callback",
+);
+assert.deepEqual(
+  replyWithFailedParent.inReplyToContent.rawBytes,
+  decoded.content.rawBytes,
+);
+console.log(
+  "Node retained outer reply and isolated parent host failure passed",
+);
 await ownerWithFailingCodec.end();
 const throwingCodec: sdk.ContentCodec<string> = {
   ...customCodec,
-  decode() {
-    throw new Error("codec exploded");
+  decode(encoded) {
+    const value = new TextDecoder().decode(encoded.content);
+    if (value === "null prototype") throw Object.create(null);
+    if (value === "throwing toString")
+      throw {
+        toString() {
+          throw new Error("diagnostic failed");
+        },
+      };
+    if (value === "bad decode") throw new Error("codec exploded");
+    return value;
   },
 };
 const ownerWithThrowingCodec = await sdk.Client.build(
@@ -696,9 +746,36 @@ const broken = (await codecStream.next()).value;
 assert.equal(broken?.id, brokenId);
 if (broken?.content.kind !== "custom")
   throw new Error("a failed decode did not keep its custom content");
-assert.match(broken.content.error ?? "", /codec exploded/);
+assert.match(broken.content.error?.message ?? "", /codec exploded/);
+assert.equal(broken.content.error?.code, "CodecDecodeFailed");
+assert.equal(broken.content.error?.category, "callback");
+assert.ok(broken.content.rawBytes.byteLength > 0);
 const continuedId = await throwingGroup.sendText("after codec error");
 assert.equal((await codecStream.next()).value?.id, continuedId);
+for (const hostile of ["null prototype", "throwing toString"]) {
+  const failedId = await throwingGroup.send(customCodec.encode(hostile));
+  const failed = (await codecStream.next()).value;
+  assert.equal(failed?.id, failedId);
+  if (failed?.content.kind !== "custom")
+    throw new Error("hostile codec failure lost its custom content");
+  assert.equal(failed.content.error?.code, "CodecDecodeFailed");
+  assert.equal(failed.content.error?.category, "callback");
+  assert.equal(failed.content.error?.retryable, false);
+  assert.equal(failed.content.error?.message, "custom content codec failed");
+  assert.equal(failed.content.value, undefined);
+  assert.ok(failed.content.rawBytes.byteLength > 0);
+  const goodId = await throwingGroup.send(
+    customCodec.encode("after hostile failure"),
+  );
+  const good = (await codecStream.next()).value;
+  assert.equal(good?.id, goodId);
+  if (good?.content.kind !== "custom")
+    throw new Error("valid item after hostile failure lost its custom content");
+  assert.equal(good.content.value, "after hostile failure");
+}
+console.log(
+  "Node stream delivered both hostile codec failures and the next valid items",
+);
 await codecStream.end();
 await ownerWithThrowingCodec.end();
 await ownerWithCodec.end();

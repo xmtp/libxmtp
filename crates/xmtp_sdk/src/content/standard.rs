@@ -265,11 +265,25 @@ pub fn encode_standard(value: StandardContent) -> Result<EncodedContent, crate::
         }
     }
     .map_err(codec_error)?;
-    Ok(encoded.into())
+    encoded.try_into()
 }
 
 #[xmtp_macro::sdk_export(pure)]
 pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate::XmtpError> {
+    decode_standard_inner(encoded).map_err(|error| match error {
+        crate::XmtpError::CodecDecodeFailed(_)
+        | crate::XmtpError::CodecNotFound(_)
+        | crate::XmtpError::MalformedEnvelope(_) => error,
+        error => crate::XmtpError::codec_decode_failed(error.to_string()),
+    })
+}
+
+fn decode_standard_inner(encoded: EncodedContent) -> Result<StandardContent, crate::XmtpError> {
+    if encoded.r#type.authority_id.is_empty() || encoded.r#type.type_id.is_empty() {
+        return Err(crate::XmtpError::malformed_envelope(
+            "content type identifier is absent or incomplete",
+        ));
+    }
     use xmtp_content_types::ContentCodec;
     let kind = [
         StandardContentKind::Text,
@@ -295,23 +309,25 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
             && encoded.r#type.type_id == expected.type_id
             && encoded.r#type.version_major == expected.version_major
     })
-    .ok_or_else(|| crate::XmtpError::invalid("unsupported standard content type"))?;
+    .ok_or_else(|| crate::XmtpError::codec_not_found("unsupported standard content type"))?;
     let encoded: ProtoEncodedContent = encoded.into();
     Ok(match kind {
         StandardContentKind::Text => StandardContent::Text(
-            xmtp_content_types::text::TextCodec::decode(encoded).map_err(codec_error)?,
+            xmtp_content_types::text::TextCodec::decode(encoded)
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?,
         ),
         StandardContentKind::Markdown => StandardContent::Markdown(
-            xmtp_content_types::markdown::MarkdownCodec::decode(encoded).map_err(codec_error)?,
+            xmtp_content_types::markdown::MarkdownCodec::decode(encoded)
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?,
         ),
         StandardContentKind::ReadReceipt => {
             xmtp_content_types::read_receipt::ReadReceiptCodec::decode(encoded)
-                .map_err(codec_error)?;
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
             StandardContent::ReadReceipt
         }
         StandardContentKind::Reaction => {
             let value = xmtp_content_types::reaction::ReactionCodec::decode(encoded)
-                .map_err(codec_error)?;
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
             let reaction = Reaction::from_proto(value.clone());
             StandardContent::Reaction {
                 reference: crate::MessageId::try_from(value.reference)?,
@@ -324,76 +340,76 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
         }
         StandardContentKind::Attachment => StandardContent::Attachment(
             xmtp_content_types::attachment::AttachmentCodec::decode(encoded)
-                .map_err(codec_error)?
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
                 .into(),
         ),
         StandardContentKind::RemoteAttachment => StandardContent::RemoteAttachment(
             xmtp_content_types::remote_attachment::RemoteAttachmentCodec::decode(encoded)
-                .map_err(codec_error)?
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
                 .into(),
         ),
         StandardContentKind::MultiRemoteAttachment => StandardContent::MultiRemoteAttachment(
             xmtp_content_types::multi_remote_attachment::MultiRemoteAttachmentCodec::decode(
                 encoded,
             )
-            .map_err(codec_error)?
+            .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
             .into(),
         ),
         StandardContentKind::TransactionReference => StandardContent::TransactionReference(
             xmtp_content_types::transaction_reference::TransactionReferenceCodec::decode(encoded)
-                .map_err(codec_error)?
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
                 .into(),
         ),
         StandardContentKind::WalletSendCalls => StandardContent::WalletSendCalls(
             xmtp_content_types::wallet_send_calls::WalletSendCallsCodec::decode(encoded)
-                .map_err(codec_error)?
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
                 .into(),
         ),
         StandardContentKind::Actions => StandardContent::Actions(
             xmtp_content_types::actions::ActionsCodec::decode(encoded)
-                .map_err(codec_error)?
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
                 .try_into()?,
         ),
         StandardContentKind::Intent => StandardContent::Intent(
             xmtp_content_types::intent::IntentCodec::decode(encoded)
-                .map_err(codec_error)?
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
                 .into(),
         ),
         StandardContentKind::Reply => {
-            let value =
-                xmtp_content_types::reply::ReplyCodec::decode(encoded).map_err(codec_error)?;
+            let value = xmtp_content_types::reply::ReplyCodec::decode(encoded)
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
             let nested_type = value.content.r#type.as_ref().ok_or_else(|| {
-                crate::XmtpError::invalid("nested reply content has no content type")
+                crate::XmtpError::malformed_envelope("nested reply content has no content type")
             })?;
             if nested_type.authority_id.is_empty() || nested_type.type_id.is_empty() {
-                return Err(crate::XmtpError::invalid(
+                return Err(crate::XmtpError::malformed_envelope(
                     "nested reply content has an empty content type",
                 ));
             }
             // implements: CTYPE-024
             // implements: CTYPE-025
-            let nested =
-                xmtp_content_types::compression::decompress(value.content).map_err(codec_error)?;
+            let nested = xmtp_content_types::compression::decompress(value.content)
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
             xmtp_mls::messages::decoded_message::MessageBody::try_from(nested.clone())
-                .map_err(|error| crate::XmtpError::invalid(error.to_string()))?;
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?;
             StandardContent::Reply {
                 reference: crate::MessageId::try_from(value.reference)?,
                 reference_inbox_id: value
                     .reference_inbox_id
                     .map(crate::InboxId::try_from)
                     .transpose()?,
-                content: nested.into(),
+                content: nested.try_into()?,
             }
         }
         StandardContentKind::GroupUpdated => StandardContent::GroupUpdated(
             xmtp_content_types::group_updated::GroupUpdatedCodec::decode(encoded)
-                .map_err(codec_error)?
+                .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
                 .try_into()?,
         ),
         StandardContentKind::DeleteMessage => StandardContent::DeleteMessage {
             message_id: crate::MessageId::try_from(
                 xmtp_content_types::delete_message::DeleteMessageCodec::decode(encoded)
-                    .map_err(codec_error)?
+                    .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
                     .message_id,
             )?,
         },
@@ -401,7 +417,7 @@ pub fn decode_standard(encoded: EncodedContent) -> Result<StandardContent, crate
             authenticated_note: xmtp_content_types::leave_request::LeaveRequestCodec::decode(
                 encoded,
             )
-            .map_err(codec_error)?
+            .map_err(|error| crate::XmtpError::codec_decode_failed(error.to_string()))?
             .authenticated_note,
         }),
     })

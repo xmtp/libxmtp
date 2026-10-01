@@ -100,7 +100,7 @@ export function lowerConversation(value: Conversation, projection: ObjectProject
 pub(super) fn extra_variant_fields(owner: &str, variant: &str) -> &'static str {
     match (owner, variant) {
         ("MessageContent" | "MessageBody", "Custom") => {
-            "readonly value?: unknown;\nreadonly error?: string;\n"
+            "readonly value?: unknown;\nreadonly error?: ErrorDetails;\n"
         }
         _ => "",
     }

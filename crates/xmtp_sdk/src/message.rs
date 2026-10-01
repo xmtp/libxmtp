@@ -1,12 +1,12 @@
 use prost::Message as _;
-use xmtp_content_types::{ContentCodec, reply::ReplyCodec};
 use xmtp_db::group_message::{
     DeliveryStatus as StoredDeliveryStatus, GroupMessageKind, StoredGroupMessage,
 };
 use xmtp_proto::xmtp::mls::message_contents::EncodedContent;
 
 use crate::{
-    ConversationId, EncodedContent as SdkEncodedContent, InboxId, MessageId, Timestamp, XmtpError,
+    ConversationId, EncodedContent as SdkEncodedContent, ErrorDetails, InboxId, MessageId,
+    Timestamp, XmtpError,
 };
 
 #[derive(Clone, Debug, uniffi::Enum)]
@@ -59,8 +59,9 @@ pub enum MessageContent {
         raw_bytes: Vec<u8>,
     },
     Unknown {
-        encoded: SdkEncodedContent,
+        encoded: Option<SdkEncodedContent>,
         raw_bytes: Vec<u8>,
+        error: ErrorDetails,
     },
 }
 
@@ -79,41 +80,63 @@ pub enum MessageBody {
     GroupUpdated(crate::GroupUpdated),
     LeaveRequest(crate::LeaveRequest),
     DeletedMessage(crate::DeletedMessage),
-    Custom { encoded: SdkEncodedContent },
-    Unknown { encoded: SdkEncodedContent },
+    Custom {
+        encoded: SdkEncodedContent,
+        raw_bytes: Vec<u8>,
+    },
+    Unknown {
+        encoded: Option<SdkEncodedContent>,
+        raw_bytes: Vec<u8>,
+        error: ErrorDetails,
+    },
 }
 
-fn has_complete_type(content: &EncodedContent) -> bool {
-    content
-        .r#type
-        .as_ref()
-        .is_some_and(|kind| !kind.authority_id.is_empty() && !kind.type_id.is_empty())
+fn received_encoded(content: Option<EncodedContent>) -> Option<SdkEncodedContent> {
+    content.and_then(|content| content.try_into().ok())
+}
+
+fn failure_details(
+    failure: xmtp_mls::messages::decoded_message::ContentDecodeFailure,
+) -> ErrorDetails {
+    use xmtp_mls::messages::decoded_message::ContentDecodeFailureKind;
+    match failure.kind {
+        ContentDecodeFailureKind::MalformedEnvelope => {
+            XmtpError::malformed_envelope(failure.message)
+        }
+        ContentDecodeFailureKind::CodecDecodeFailed => {
+            XmtpError::codec_decode_failed(failure.message)
+        }
+    }
+    .content_details()
 }
 
 impl MessageContent {
     pub(crate) fn decode(encoded: Vec<u8>) -> Result<Self, XmtpError> {
-        let content = EncodedContent::decode(encoded.as_slice()).map_err(XmtpError::from_core)?;
+        let content = EncodedContent::decode(encoded.as_slice())
+            .map_err(|error| XmtpError::malformed_envelope(error.to_string()))?;
         Self::decode_proto(content, &encoded)
     }
 
     fn decode_proto(content: EncodedContent, raw_bytes: &[u8]) -> Result<Self, XmtpError> {
+        use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
         // The shared bounded decoder validates nested content before any standard codec runs.
-        let body = xmtp_mls::messages::decoded_message::MessageBody::try_from(content.clone())
-            .map_err(XmtpError::from_core)?;
-        Self::from_core(body, content, raw_bytes)
+        let body = CoreBody::from_received_bytes(raw_bytes);
+        if let CoreBody::Undecodable(value) = body {
+            let details = failure_details(value.failure);
+            return Err(if details.code == "MalformedEnvelope" {
+                XmtpError::MalformedEnvelope(details)
+            } else {
+                XmtpError::CodecDecodeFailed(details)
+            });
+        }
+        Self::from_core(body, Some(content), raw_bytes)
     }
 
     fn from_core(
         body: xmtp_mls::messages::decoded_message::MessageBody,
-        content: EncodedContent,
+        content: Option<EncodedContent>,
         raw_bytes: &[u8],
     ) -> Result<Self, XmtpError> {
-        if !has_complete_type(&content) {
-            return Ok(Self::Unknown {
-                encoded: content.into(),
-                raw_bytes: raw_bytes.to_vec(),
-            });
-        }
         use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
         match body {
             CoreBody::Text(value) => Ok(Self::Text(value.content)),
@@ -130,13 +153,20 @@ impl MessageContent {
                     reaction: crate::Reaction::from_proto(value),
                 })
             }
-            CoreBody::Reply(value) => Ok(Self::Reply {
-                reference_id: MessageId::try_from(value.reference_id)?,
-                body: MessageBody::from_core(
-                    *value.content,
-                    nested_reply_content(content.into())?,
-                )?,
-            }),
+            CoreBody::Reply(value) => {
+                let outer: SdkEncodedContent = content
+                    .ok_or_else(|| XmtpError::malformed_envelope("reply has no envelope"))?
+                    .try_into()?;
+                let nested = EncodedContent::decode(outer.content.as_slice()).ok();
+                Ok(Self::Reply {
+                    reference_id: MessageId::try_from(value.reference_id)?,
+                    body: MessageBody::from_core(
+                        *value.content,
+                        received_encoded(nested),
+                        &outer.content,
+                    )?,
+                })
+            }
             CoreBody::Attachment(value) => Ok(Self::Attachment(value.into())),
             CoreBody::RemoteAttachment(value) => Ok(Self::RemoteAttachment(value.into())),
             CoreBody::MultiRemoteAttachment(value) => Ok(Self::MultiRemoteAttachment(value.into())),
@@ -154,12 +184,19 @@ impl MessageContent {
                 }))
             }
             CoreBody::Custom(value) => Ok(Self::Custom {
-                encoded: value.encoded.into(),
-                raw_bytes: raw_bytes.to_vec(),
+                encoded: value.encoded.try_into()?,
+                raw_bytes: value.raw_bytes,
+            }),
+            CoreBody::Undecodable(value) => Ok(Self::Unknown {
+                encoded: received_encoded(value.encoded),
+                raw_bytes: value.raw_bytes,
+                error: failure_details(value.failure),
             }),
             _ => Ok(Self::Unknown {
-                encoded: content.into(),
+                encoded: received_encoded(content),
                 raw_bytes: raw_bytes.to_vec(),
+                error: XmtpError::codec_not_found("content type has no SDK decoder")
+                    .content_details(),
             }),
         }
     }
@@ -168,7 +205,8 @@ impl MessageContent {
 impl MessageBody {
     fn from_core(
         body: xmtp_mls::messages::decoded_message::MessageBody,
-        encoded: SdkEncodedContent,
+        encoded: Option<SdkEncodedContent>,
+        raw_bytes: &[u8],
     ) -> Result<Self, XmtpError> {
         use xmtp_mls::messages::decoded_message::MessageBody as CoreBody;
         Ok(match body {
@@ -194,17 +232,22 @@ impl MessageBody {
             // Core returns Custom only for a complete typed, decompressed
             // envelope; a nested failure makes the outer body undecodable.
             CoreBody::Custom(value) => Self::Custom {
-                encoded: value.encoded.into(),
+                encoded: value.encoded.try_into()?,
+                raw_bytes: value.raw_bytes,
             },
-            _ => Self::Unknown { encoded },
+            CoreBody::Undecodable(value) => Self::Unknown {
+                encoded: received_encoded(value.encoded),
+                raw_bytes: value.raw_bytes,
+                error: failure_details(value.failure),
+            },
+            _ => Self::Unknown {
+                encoded,
+                raw_bytes: raw_bytes.to_vec(),
+                error: XmtpError::codec_not_found("content type has no SDK reply-body decoder")
+                    .content_details(),
+            },
         })
     }
-}
-
-fn nested_reply_content(encoded: SdkEncodedContent) -> Result<SdkEncodedContent, XmtpError> {
-    ReplyCodec::decode(encoded.into())
-        .map(|reply| reply.content.into())
-        .map_err(XmtpError::from_core)
 }
 
 impl TryFrom<xmtp_mls::messages::decoded_message::DeletedBy> for crate::DeletedBy {
@@ -236,9 +279,13 @@ pub struct MessageData {
     pub expires_at: Option<Timestamp>,
     pub kind: MessageKind,
     pub delivery_status: DeliveryStatus,
-    pub content_type: ContentTypeId,
+    /// The original received serialization. Empty after deletion.
+    pub raw_bytes: Vec<u8>,
+    /// The received type, when the envelope has a readable type field.
+    pub content_type: Option<ContentTypeId>,
     pub fallback: Option<String>,
-    pub encoded: SdkEncodedContent,
+    /// Uncompressed codec input. Absent if conversion or decompression fails.
+    pub encoded: Option<SdkEncodedContent>,
     pub content: MessageContent,
     pub reply_count: u64,
     pub reactions: Vec<ReactionMessage>,
@@ -261,9 +308,13 @@ pub struct ReplyParent {
     pub sent_at: Timestamp,
     pub kind: MessageKind,
     pub delivery_status: DeliveryStatus,
-    pub content_type: ContentTypeId,
+    /// The original received serialization. Empty after deletion.
+    pub raw_bytes: Vec<u8>,
+    /// The received type, when the envelope has a readable type field.
+    pub content_type: Option<ContentTypeId>,
     pub fallback: Option<String>,
-    pub encoded: SdkEncodedContent,
+    /// Uncompressed codec input. Absent if conversion or decompression fails.
+    pub encoded: Option<SdkEncodedContent>,
     pub content: MessageBody,
 }
 
@@ -311,39 +362,26 @@ impl Message {
         } else {
             EncodedContent::decode(message_bytes).ok()
         };
-        let raw_fallback = encoded.is_none().then(|| SdkEncodedContent {
-            r#type: ContentTypeId {
-                authority_id: String::new(),
-                type_id: String::new(),
-                version_major: 0,
-                version_minor: 0,
-            },
-            parameters: Default::default(),
-            fallback: None,
-            content: message_bytes.to_vec(),
-        });
         let content_type = encoded
             .as_ref()
             .and_then(|content| content.r#type.clone())
-            .unwrap_or_default();
+            .map(|kind| ContentTypeId {
+                authority_id: kind.authority_id,
+                type_id: kind.type_id,
+                version_major: kind.version_major,
+                version_minor: kind.version_minor,
+            });
         let fallback = encoded
             .as_ref()
             .and_then(|content| content.fallback.clone());
-        let content = encoded
-            .clone()
-            .map(|content| match decoded {
-                Some(body) => MessageContent::from_core(body, content, message_bytes),
-                None => MessageContent::decode_proto(content, message_bytes),
-            })
-            .transpose()
-            .unwrap_or(None)
-            .unwrap_or_else(|| MessageContent::Unknown {
-                encoded: encoded
-                    .clone()
-                    .map(Into::into)
-                    .or_else(|| raw_fallback.clone())
-                    .expect("parsed or raw content"),
+        let body = decoded.unwrap_or_else(|| {
+            xmtp_mls::messages::decoded_message::MessageBody::from_received_bytes(message_bytes)
+        });
+        let content = MessageContent::from_core(body, encoded.clone(), message_bytes)
+            .unwrap_or_else(|error| MessageContent::Unknown {
+                encoded: received_encoded(encoded.clone()),
                 raw_bytes: message_bytes.to_vec(),
+                error: error.content_details(),
             });
         let kind = match value.kind {
             GroupMessageKind::Application => MessageKind::Application,
@@ -366,17 +404,10 @@ impl Message {
             expires_at: value.expire_at_ns.map(Timestamp),
             kind,
             delivery_status,
-            content_type: ContentTypeId {
-                authority_id: content_type.authority_id,
-                type_id: content_type.type_id,
-                version_major: content_type.version_major,
-                version_minor: content_type.version_minor,
-            },
+            raw_bytes: message_bytes.to_vec(),
+            content_type,
             fallback,
-            encoded: encoded
-                .map(Into::into)
-                .or(raw_fallback)
-                .expect("parsed or raw content"),
+            encoded: received_encoded(encoded),
             content,
             reply_count: 0,
             reactions: Vec::new(),
@@ -438,17 +469,23 @@ impl Message {
                     }
                 }
             }) {
-                let parent_content =
-                    MessageBody::from_core(parent.content.clone(), parent_data.encoded.clone())
-                        .unwrap_or_else(|_| MessageBody::Unknown {
-                            encoded: parent_data.encoded.clone(),
-                        });
+                let parent_content = MessageBody::from_core(
+                    parent.content.clone(),
+                    parent_data.encoded.clone(),
+                    &parent_data.raw_bytes,
+                )
+                .unwrap_or_else(|error| MessageBody::Unknown {
+                    encoded: parent_data.encoded.clone(),
+                    raw_bytes: parent_data.raw_bytes.clone(),
+                    error: error.content_details(),
+                });
                 message.0.in_reply_to = Some(ReplyParent {
                     id: parent_data.id,
                     sender_inbox_id: parent_data.sender_inbox_id,
                     sent_at: parent_data.sent_at,
                     kind: parent_data.kind,
                     delivery_status: parent_data.delivery_status,
+                    raw_bytes: parent_data.raw_bytes,
                     content_type: parent_data.content_type,
                     fallback: parent_data.fallback,
                     encoded: parent_data.encoded.clone(),

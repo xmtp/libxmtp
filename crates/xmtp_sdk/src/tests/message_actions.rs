@@ -29,7 +29,7 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
             client.inbox_id().into_checked()?,
         ),
     )?
-    .into();
+    .try_into()?;
     let reply_id = client
         .conversations()
         .reply_to_message(reference.clone(), nested, None)
@@ -37,12 +37,15 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
     let stored = client.inner.message(reply_id.to_bytes()?)?;
     let decoded = client
         .decode_content(
-            ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?.into(),
+            ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?.try_into()?,
         )
         .await?;
     let MessageContent::Reply {
         reference_id,
-        body: MessageBody::Unknown { encoded },
+        body: MessageBody::Unknown {
+            encoded: Some(encoded),
+            ..
+        },
     } = decoded
     else {
         panic!("expected an unknown nested reaction body");
@@ -58,7 +61,10 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
         .expect("reply in history");
     let MessageContent::Reply {
         reference_id,
-        body: MessageBody::Unknown { encoded },
+        body: MessageBody::Unknown {
+            encoded: Some(encoded),
+            ..
+        },
     } = reply.0.content
     else {
         panic!("expected an unknown nested reaction body in history");
@@ -86,7 +92,10 @@ async fn nested_reaction_reply_body_keeps_nested_envelope() {
     })?;
     let MessageContent::Reply {
         reference_id,
-        body: MessageBody::Unknown { encoded },
+        body: MessageBody::Unknown {
+            encoded: Some(encoded),
+            ..
+        },
     } = MessageContent::decode(outer.encode_to_vec())?
     else {
         panic!("expected unknown nested compressed reaction");
@@ -109,7 +118,7 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
 
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
-    let text: EncodedContent = TextCodec::encode("plain".into())?.into();
+    let text: EncodedContent = TextCodec::encode("plain".into())?.try_into()?;
     let plain = group.send(text, None).await?;
     let stored = client.inner.message(plain.to_bytes()?)?;
     assert_eq!(
@@ -117,7 +126,7 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
         None
     );
 
-    let compressed: EncodedContent = TextCodec::encode("compressed".into())?.into();
+    let compressed: EncodedContent = TextCodec::encode("compressed".into())?.try_into()?;
     let compressed_id = group
         .send(
             compressed,
@@ -163,7 +172,7 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
             None,
         )
         .await?;
-    let reply: EncodedContent = TextCodec::encode("answer".into())?.into();
+    let reply: EncodedContent = TextCodec::encode("answer".into())?.try_into()?;
     let reply_id = client
         .conversations()
         .reply_to_message(plain.clone(), reply, None)
@@ -206,6 +215,8 @@ async fn message_actions_use_ids_and_compression_is_opt_in() {
             .as_ref()
             .expect("parent")
             .encoded
+            .as_ref()
+            .expect("parent encoded content")
             .content
             .is_empty()
     );
@@ -236,7 +247,9 @@ async fn unknown_message_bytes_remain_available_to_the_host() {
         panic!("untyped bytes must remain unknown");
     };
     assert_eq!(raw_bytes, &original);
-    assert_eq!(message.0.encoded.content, original);
+    assert!(message.0.encoded.is_none());
+    assert!(message.0.content_type.is_none());
+    assert_eq!(message.0.raw_bytes, original);
 
     let mut stored = client.inner.message(id.to_bytes()?)?;
     let mut proto = ProtoEncodedContent::decode(stored.decrypted_message_bytes.as_slice())?;
@@ -245,12 +258,15 @@ async fn unknown_message_bytes_remain_available_to_the_host() {
     let original_bytes = proto.encode_to_vec();
     stored.decrypted_message_bytes = original_bytes.clone();
     let message = crate::Message::from_stored(stored, client.client_key())?;
-    let MessageContent::Unknown { encoded, raw_bytes } = &message.0.content else {
+    let MessageContent::Unknown {
+        encoded, raw_bytes, ..
+    } = &message.0.content
+    else {
         panic!("unknown compression must remain unknown");
     };
     assert_eq!(raw_bytes, &original_bytes);
-    assert!(encoded.content.is_empty());
-    assert!(message.0.encoded.content.is_empty());
+    assert!(encoded.is_none());
+    assert!(message.0.encoded.is_none());
     assert!(!original_content.is_empty());
     client.end().await?;
 }

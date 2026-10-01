@@ -14,7 +14,7 @@ pub fn sdk_conformance_standard_samples() -> Vec<StandardCodecSample> {
         .into_iter()
         .map(|(value, expected)| StandardCodecSample {
             value,
-            expected: expected.into(),
+            expected: expected.try_into().expect("fixed standard codec envelope"),
         })
         .collect()
 }

@@ -2,12 +2,12 @@ import {
   ErrorCategory,
   MessageBody_Tags,
   MessageContent_Tags,
+  MessageContent,
   XmtpError,
   encodeText,
   type EncodedContent,
   type Conversation,
   type MessageBody,
-  type MessageContent,
   type MessageData,
   type MessageId,
   type ConversationId,
@@ -40,7 +40,14 @@ function decodeReplyBody(
 
 export class Message {
   readonly content:
-    | Exclude<MessageContent, { tag: MessageContent_Tags.Custom }>
+    | Exclude<
+        MessageContent,
+        { tag: MessageContent_Tags.Custom | MessageContent_Tags.Reply }
+      >
+    | {
+        tag: MessageContent_Tags.Reply;
+        inner: { referenceId: MessageId; body: LiftedReplyBody };
+      }
     | LiftedCustomContent;
   readonly inReplyToContent?: LiftedReplyBody;
   readonly replyContent?: LiftedReplyBody;
@@ -56,6 +63,27 @@ export class Message {
       content.tag === MessageContent_Tags.Reply
         ? decodeReplyBody(content.inner.body, data.clientKey)
         : undefined;
+    if (
+      this.replyContent?.tag === MessageBody_Tags.Custom &&
+      this.replyContent.inner.error?.code === "CodecDecodeFailed"
+    ) {
+      this.content = MessageContent.Unknown.new({
+        encoded: data.encoded,
+        rawBytes: data.rawBytes,
+        error: this.replyContent.inner.error,
+      });
+      return;
+    }
+    if (content.tag === MessageContent_Tags.Reply) {
+      this.content = {
+        tag: content.tag,
+        inner: {
+          referenceId: content.inner.referenceId,
+          body: this.replyContent!,
+        },
+      };
+      return;
+    }
     if (content.tag !== MessageContent_Tags.Custom) {
       this.content = content;
       return;
@@ -103,6 +131,10 @@ export class Message {
 
   get fallback() {
     return this.data.fallback;
+  }
+
+  get rawBytes() {
+    return this.data.rawBytes;
   }
 
   get encoded() {

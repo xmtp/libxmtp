@@ -11,12 +11,36 @@ private class CodecRegistry(
 ) {
     private val codecs = codecs.associateBy { ContentCodecKey(it.type) }
 
-    fun decode(encoded: EncodedContent): SDKMessageContent {
-        val codec = codecs[ContentCodecKey(encoded.type)] ?: return SDKMessageContent.Unknown(encoded)
+    fun decode(
+        encoded: EncodedContent,
+        rawBytes: ByteArray,
+    ): SDKMessageContent {
+        val codec =
+            codecs[ContentCodecKey(encoded.type)]
+                ?: return SDKMessageContent.Unknown(
+                    encoded,
+                    rawBytes,
+                    ErrorDetails(
+                        "CodecNotFound",
+                        ErrorCategory.INPUT,
+                        false,
+                        "content type has no registered host codec",
+                    ),
+                )
         return try {
-            SDKMessageContent.Custom(encoded, codec.decode(encoded), null)
+            SDKMessageContent.Custom(encoded, rawBytes, codec.decode(encoded), null)
         } catch (error: Throwable) {
-            SDKMessageContent.Custom(encoded, null, error)
+            SDKMessageContent.Custom(
+                encoded,
+                rawBytes,
+                null,
+                ErrorDetails(
+                    "CodecDecodeFailed",
+                    ErrorCategory.CALLBACK,
+                    false,
+                    runCatching { error.toString() }.getOrDefault("custom content codec failed"),
+                ),
+            )
         }
     }
 }
@@ -35,7 +59,10 @@ class SDKClient private constructor(
 
     fun storage(): Storage = raw.storage()
 
-    fun decodeCustom(encoded: EncodedContent): SDKMessageContent = codecs.decode(encoded)
+    internal fun decodeCustom(
+        encoded: EncodedContent,
+        rawBytes: ByteArray,
+    ): SDKMessageContent = codecs.decode(encoded, rawBytes)
 
     companion object {
         private fun resolved(

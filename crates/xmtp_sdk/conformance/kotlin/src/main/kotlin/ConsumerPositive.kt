@@ -37,3 +37,15 @@ fun consumeStandardIds(content: StandardContent): MessageId? =
             null
         }
     }
+
+fun receivedDetails(message: Message): String? {
+    val raw: ByteArray = message.rawBytes
+    val encoded: EncodedContent? = message.encoded
+    val type: ContentTypeId? = message.contentType
+    check(raw.isNotEmpty() || encoded == null || type != null)
+    return when (val content = message.content) {
+        is SDKMessageContent.Unknown -> content.error.code
+        is SDKMessageContent.Custom -> content.error?.code
+        is SDKMessageContent.Standard -> null
+    }
+}

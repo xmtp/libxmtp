@@ -27,11 +27,12 @@ export function checkCustomMessageLift(): void {
   const rawBytes = new Uint8Array([10, 3, 1, 2, 3]).buffer;
   const data = {
     clientKey,
+    rawBytes,
     encoded,
     content: B.MessageContent.Custom.new({ encoded, rawBytes }),
     inReplyTo: {
       encoded,
-      content: B.MessageBody.Custom.new({ encoded }),
+      content: B.MessageBody.Custom.new({ encoded, rawBytes }),
     },
   } as B.MessageData;
   const noCodec = { clientKey: () => clientKey } as Client;
@@ -86,7 +87,7 @@ export function checkCustomMessageLift(): void {
     "closed client changed tag",
   );
   expect(
-    closed.content.inner.error === "clientClosed",
+    closed.content.inner.error?.code === "ClientClosed",
     "closed client error was lost",
   );
   expect(

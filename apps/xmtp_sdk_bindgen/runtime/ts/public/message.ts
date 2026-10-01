@@ -3,6 +3,7 @@ import {
   liftContentTypeId,
   liftDeliveryStatus,
   liftEncodedContent,
+  liftErrorDetails,
   liftMessageBody,
   liftMessageContent,
   liftMessageKind,
@@ -32,6 +33,7 @@ import {
   type MessageBody as BoundBody,
   type MessageContent as BoundContent,
 } from "../../xmtp_sdk";
+import type { ErrorDetails as BoundErrorDetails } from "../../xmtp_sdk";
 import type { LiftedCustomBody, LiftedCustomContent } from "../custom-lift";
 import type { Timestamp } from "../ids";
 import { publicClient, type Client } from "./client";
@@ -45,19 +47,27 @@ type HostContent =
       BoundContent,
       { tag: MessageContent_Tags.Custom | MessageContent_Tags.Reply }
     >
-  | { readonly tag: MessageContent_Tags.Reply }
+  | {
+      readonly tag: MessageContent_Tags.Reply;
+      readonly inner: {
+        readonly referenceId: MessageId;
+        readonly body: HostBody;
+      };
+    }
   | LiftedCustomContent;
 type HostBody =
   | Exclude<BoundBody, { tag: MessageBody_Tags.Custom }>
   | LiftedCustomBody;
 
-function decoded(inner: { value?: unknown; error?: string }): {
-  value?: unknown;
-  error?: string;
-} {
+function decoded(
+  inner: { value?: unknown; error?: BoundErrorDetails },
+  projection: ObjectProjection,
+) {
   return {
     ...("value" in inner ? { value: inner.value } : {}),
-    ...(inner.error === undefined ? {} : { error: inner.error }),
+    ...(inner.error === undefined
+      ? {}
+      : { error: liftErrorDetails(inner.error, projection) }),
   };
 }
 
@@ -68,9 +78,12 @@ function liftContent(
   projection: ObjectProjection,
 ): MessageContent {
   const content: HostContent = bound.content;
-  // A public reply keeps the envelope body; `replyContent` has the decoded one.
   if (content.tag === MessageContent_Tags.Reply)
-    return liftMessageContent(bound.data.content, projection);
+    return {
+      kind: "reply",
+      referenceId: content.inner.referenceId,
+      body: liftBody(content.inner.body, projection),
+    };
   if (content.tag !== MessageContent_Tags.Custom)
     return liftMessageContent(content, projection);
   const { encoded, rawBytes } = content.inner;
@@ -78,7 +91,7 @@ function liftContent(
     kind: "custom",
     encoded: liftEncodedContent(encoded, projection),
     rawBytes: new Uint8Array(rawBytes),
-    ...decoded(content.inner),
+    ...decoded(content.inner, projection),
   };
 }
 
@@ -88,7 +101,8 @@ function liftBody(body: HostBody, projection: ObjectProjection): MessageBody {
   return {
     kind: "custom",
     encoded: liftEncodedContent(body.inner.encoded, projection),
-    ...decoded(body.inner),
+    rawBytes: new Uint8Array(body.inner.rawBytes),
+    ...decoded(body.inner, projection),
   };
 }
 
@@ -118,9 +132,10 @@ export class Message {
   readonly expiresAt?: Timestamp;
   readonly kind: MessageKind;
   readonly deliveryStatus: DeliveryStatus;
-  readonly contentType: ContentTypeId;
+  readonly rawBytes: Uint8Array;
+  readonly contentType?: ContentTypeId;
   readonly fallback?: string;
-  readonly encoded: EncodedContent;
+  readonly encoded?: EncodedContent;
   readonly content: MessageContent;
   readonly replyCount: bigint;
   readonly reactions: ReactionMessage[];
@@ -149,9 +164,12 @@ export class Message {
     if (data.expiresAt !== undefined) this.expiresAt = data.expiresAt;
     this.kind = liftMessageKind(data.kind, projection);
     this.deliveryStatus = liftDeliveryStatus(data.deliveryStatus, projection);
-    this.contentType = liftContentTypeId(data.contentType, projection);
+    this.rawBytes = new Uint8Array(data.rawBytes);
+    if (data.contentType !== undefined)
+      this.contentType = liftContentTypeId(data.contentType, projection);
     if (data.fallback !== undefined) this.fallback = data.fallback;
-    this.encoded = liftEncodedContent(data.encoded, projection);
+    if (data.encoded !== undefined)
+      this.encoded = liftEncodedContent(data.encoded, projection);
     this.content = liftContent(bound, projection);
     this.replyCount = data.replyCount;
     this.reactions = data.reactions.map((reaction) =>

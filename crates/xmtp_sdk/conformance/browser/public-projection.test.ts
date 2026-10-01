@@ -47,7 +47,11 @@ describe("shared public value projection", () => {
     const value: P.MessageContent = {
       kind: "reply",
       referenceId: "message-id",
-      body: { kind: "custom", encoded: encoded(padded.subarray(1, 4)) },
+      body: {
+        kind: "custom",
+        encoded: encoded(padded.subarray(1, 4)),
+        rawBytes: padded.subarray(1, 4),
+      },
     };
     const raw = P.lowerMessageContent(value, projection);
     expect(raw.tag).toBe(B.MessageContent_Tags.Reply);

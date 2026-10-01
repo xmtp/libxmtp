@@ -1,14 +1,20 @@
 import * as Pure from "../../../../target/sdk-generated/typescript-pure/index";
 import { CONTRACT_HASH } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import { Message as HostMessage } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 // These scenarios run clients in their own worker session, so they can check
 // the transport. Each client is used through the public layer over the
 // session's worker proxy; `Client` here is the proxy, only for the stale-handle
 // check at the end.
-import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
+import {
+  Backend as ProxyBackend,
+  Client,
+} from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import { currentProjection } from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
 import { boundMessage } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/message";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
+import { controlPackageWorker } from "./attachment-worker-control";
+import { within } from "./attachments-support";
 import {
   build,
   checkError,
@@ -157,6 +163,7 @@ export async function runBrowserBridgeConformance(
     expect(reply, "reply message was not read");
     expect(parent instanceof sdk.Message, "list message was not public");
     expect(reply instanceof sdk.Message, "optional message was not public");
+    expect(parent.encoded, "text codec input was not retained");
     equal(
       (await reopened.decodeContent(parent.encoded)).kind,
       "text",
@@ -221,7 +228,15 @@ export async function runBrowserBridgeConformance(
       type: failingType,
       encode: (value) =>
         encodedOf(failingType, new TextEncoder().encode(value)),
-      decode() {
+      decode(encoded) {
+        const value = new TextDecoder().decode(encoded.content);
+        if (value === "null prototype") throw Object.create(null);
+        if (value === "throwing toString")
+          throw {
+            toString() {
+              throw new Error("diagnostic failed");
+            },
+          };
         throw new Error("bad custom payload");
       },
     };
@@ -249,10 +264,10 @@ export async function runBrowserBridgeConformance(
     );
     const custom = await customOwner.conversations.getMessageById(customId);
     expect(custom instanceof sdk.Message, "custom message was not public");
-    equal(custom.encoded.fallback, "custom", "custom fallback was lost");
-    equal(custom.encoded.parameters?.get("source"), "browser", "map was lost");
+    equal(custom.encoded!.fallback, "custom", "custom fallback was lost");
+    equal(custom.encoded!.parameters?.get("source"), "browser", "map was lost");
     equal(
-      new TextDecoder().decode(custom.encoded.content),
+      new TextDecoder().decode(custom.encoded!.content),
       "custom browser value",
       "custom bytes changed",
     );
@@ -327,7 +342,7 @@ export async function runBrowserBridgeConformance(
     // same bytes that a decoded custom item keeps.
     expect(unknown.content.rawBytes.byteLength > 0, "unknown raw bytes empty");
     expect(
-      unknown.content.rawBytes.byteLength > unknown.encoded.content.byteLength,
+      unknown.content.rawBytes.byteLength > unknown.encoded!.content.byteLength,
       "unknown raw bytes are not the serialized envelope",
     );
     const unknownReplyId = await unknown.reply(
@@ -347,7 +362,7 @@ export async function runBrowserBridgeConformance(
     if (failed.content.kind !== "custom")
       throw new Error("failed custom content changed kind");
     expect(
-      failed.content.error?.includes("bad custom payload"),
+      failed.content.error?.message.includes("bad custom payload"),
       "codec error was lost",
     );
     const collisionId = await customGroup.send(
@@ -362,6 +377,113 @@ export async function runBrowserBridgeConformance(
       collision.content.rawBytes.byteLength > 0,
       "colliding raw bytes were empty",
     );
+    // verifies: PROC-045, CTYPE-009
+    const codecStream = sdk.MessageStream.openGroup(customOwner, customGroup);
+    const streamFailureId = await customGroup.send(
+      failingCodec.encode("stream failure"),
+    );
+    const streamGoodId = await customGroup.send(
+      customCodec.encode("after codec failure"),
+    );
+    let sawCodecFailure = false;
+    for (;;) {
+      const item = (await codecStream.next()).value;
+      expect(
+        item instanceof sdk.Message,
+        "codec stream ended before a valid item",
+      );
+      if (item.id === streamFailureId) {
+        expect(
+          item.content.kind === "custom",
+          "failed codec stream item lost custom content",
+        );
+        if (item.content.kind !== "custom")
+          throw new Error("custom stream failure missing");
+        equal(
+          item.content.error?.code,
+          "CodecDecodeFailed",
+          "codec stream error code",
+        );
+        equal(
+          item.content.error?.category,
+          "callback",
+          "codec stream error category",
+        );
+        expect(
+          item.content.rawBytes.byteLength > 0,
+          "codec stream lost failed bytes",
+        );
+        sawCodecFailure = true;
+      }
+      if (item.id === streamGoodId) {
+        expect(
+          item.content.kind === "custom",
+          "next custom stream item changed kind",
+        );
+        if (item.content.kind !== "custom")
+          throw new Error("next custom stream item missing");
+        equal(
+          item.content.value,
+          "after codec failure",
+          "stream stopped after codec failure",
+        );
+        break;
+      }
+    }
+    expect(sawCodecFailure, "codec stream hid the failed content item");
+    for (const hostile of ["null prototype", "throwing toString"]) {
+      const failedId = await customGroup.send(failingCodec.encode(hostile));
+      const failed = (await codecStream.next()).value;
+      expect(failed instanceof sdk.Message, "hostile failure ended the stream");
+      equal(failed.id, failedId, "hostile failure item missing");
+      if (failed.content.kind !== "custom")
+        throw new Error("hostile failure lost custom content");
+      equal(
+        failed.content.error?.code,
+        "CodecDecodeFailed",
+        "hostile error code",
+      );
+      equal(
+        failed.content.error?.category,
+        "callback",
+        "hostile error category",
+      );
+      equal(failed.content.error?.retryable, false, "hostile error retry flag");
+      equal(
+        failed.content.error?.message,
+        "custom content codec failed",
+        "hostile diagnostic fallback",
+      );
+      equal(
+        failed.content.value,
+        undefined,
+        "hostile failure produced a value",
+      );
+      expect(
+        failed.content.rawBytes.byteLength > 0,
+        "hostile failure lost raw bytes",
+      );
+      const goodId = await customGroup.send(
+        customCodec.encode("after hostile failure"),
+      );
+      const good = (await codecStream.next()).value;
+      expect(
+        good instanceof sdk.Message,
+        "valid item after hostile failure missing",
+      );
+      equal(good.id, goodId, "valid item after hostile failure missing");
+      if (good.content.kind !== "custom")
+        throw new Error("valid item after hostile failure lost custom content");
+      equal(
+        good.content.value,
+        "after hostile failure",
+        "stream stopped after hostile failure",
+      );
+    }
+    console.log(
+      "Browser stream delivered both hostile codec failures and the next valid items",
+    );
+    await codecStream.return();
     await customOwner.end();
     // A Message of an ended client keeps its fields; its actions fail.
     equal(custom.content.value, "custom browser value", "content changed");
@@ -376,8 +498,8 @@ export async function runBrowserBridgeConformance(
     );
     if (closedMessage.content.tag === B.MessageContent_Tags.Custom) {
       equal(
-        closedMessage.content.inner.error,
-        "clientClosed",
+        closedMessage.content.inner.error?.code,
+        "ClientClosed",
         "closed client error was lost",
       );
       expect(
@@ -556,9 +678,19 @@ export async function runBrowserBridgeConformance(
     equal(again.messages, 0n, "second catch-up counted the messages again");
     await peer.end();
     // The public constructor runs in the package worker, not this session.
-    const backend = await sdk.Backend.connect({ url: backendURL });
-    expect(backend instanceof sdk.Backend, "Backend.connect failed");
-    expect(!("handle" in backend), "the public Backend exposes a handle");
+    const backendControl = controlPackageWorker();
+    try {
+      const backend = await sdk.Backend.connect({ url: backendURL });
+      expect(backend instanceof sdk.Backend, "Backend.connect failed");
+      expect(!("handle" in backend), "the public Backend exposes a handle");
+      // The transport fixture releases its root without waiting for collection.
+      const backendProxy = currentProjection().lowerBackend(backend);
+      expect(backendProxy instanceof ProxyBackend, "not a worker Backend");
+      backendProxy.release();
+      await within(backendControl.terminated, "Backend worker termination");
+    } finally {
+      backendControl.restore();
+    }
     const sameText = "1111111111111111111111111111111111111111";
     const mixedIdentities: sdk.PublicIdentity[] = [
       { identifier: sameText, kind: "ethereum" },

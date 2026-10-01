@@ -284,7 +284,7 @@ async fn facade_message_counts_and_last_read_times() {
     let receipt = xmtp_content_types::read_receipt::ReadReceiptCodec::encode(
         xmtp_content_types::read_receipt::ReadReceipt {},
     )?;
-    b_dm.send(receipt.into(), None).await?;
+    b_dm.send(receipt.try_into()?, None).await?;
     a.conversations().sync_all(None).await?;
     let times = a_dm.last_read_times().await?;
     assert_eq!(times.len(), 1);

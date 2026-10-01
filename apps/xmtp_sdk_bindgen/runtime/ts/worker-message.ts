@@ -26,7 +26,7 @@ export class Message {
     return this.data.deliveryStatus;
   }
 
-  get encoded(): EncodedContent {
+  get encoded(): EncodedContent | undefined {
     return this.data.encoded;
   }
 }

@@ -127,6 +127,17 @@ pub enum XmtpError {
     /// send. The SDK made no publish attempt. The host runtime returns it.
     #[error("codec encode failed: {0:?}")]
     CodecEncodeFailed(ErrorDetails),
+    /// The received type has no decoder. Input error; not retryable.
+    #[error("content codec not found: {0:?}")]
+    CodecNotFound(ErrorDetails),
+    /// Content or decompression failed. A core failure is Input; a host
+    /// decoder failure is Callback. Not retryable. Receive paths keep bytes.
+    #[error("content decode failed: {0:?}")]
+    CodecDecodeFailed(ErrorDetails),
+    /// The serialization or type is incomplete or invalid. Input error;
+    /// not retryable. Receive paths keep the original bytes.
+    #[error("malformed content envelope: {0:?}")]
+    MalformedEnvelope(ErrorDetails),
     /// The send was published, but the SDK could not confirm its processing.
     /// Run the conversation's sync to finish it; do not send it again.
     #[error("published but unconfirmed: {0:?}")]
@@ -134,9 +145,8 @@ pub enum XmtpError {
     /// The change would make the group larger than its member limit.
     #[error("user limit exceeded: {0:?}")]
     UserLimitExceeded(ErrorDetails),
-    /// The operation was cancelled before it finished, for example a browser
-    /// `Client.create` whose worker call was aborted. Nothing was opened; start
-    /// the operation again. The browser runtime returns it.
+    /// A binding operation was cancelled before it finished. Partial effects and
+    /// retry safety depend on the operation. The browser runtime returns it.
     #[error("cancelled: {0:?}")]
     Cancelled(ErrorDetails),
     #[error("unknown failure: {0:?}")]
@@ -175,6 +185,47 @@ impl XmtpError {
             false,
             message,
         ))
+    }
+
+    pub(crate) fn codec_not_found(message: impl Into<String>) -> Self {
+        Self::CodecNotFound(Self::details(
+            "CodecNotFound",
+            ErrorCategory::Input,
+            false,
+            message,
+        ))
+    }
+
+    pub(crate) fn codec_decode_failed(message: impl Into<String>) -> Self {
+        Self::CodecDecodeFailed(Self::details(
+            "CodecDecodeFailed",
+            ErrorCategory::Input,
+            false,
+            message,
+        ))
+    }
+
+    pub(crate) fn malformed_envelope(message: impl Into<String>) -> Self {
+        Self::MalformedEnvelope(Self::details(
+            "MalformedEnvelope",
+            ErrorCategory::Input,
+            false,
+            message,
+        ))
+    }
+
+    pub(crate) fn content_details(self) -> ErrorDetails {
+        match self {
+            Self::CodecNotFound(details)
+            | Self::CodecDecodeFailed(details)
+            | Self::MalformedEnvelope(details) => details,
+            error => Self::details(
+                "CodecDecodeFailed",
+                ErrorCategory::Input,
+                false,
+                error.to_string(),
+            ),
+        }
     }
 
     pub(crate) fn closed() -> Self {

@@ -44,3 +44,14 @@ suspend fun consumeTypedCodecs(
     client.end()
     println("$sent $text $prepared $markdown $reply $encoded")
 }
+
+fun receivedDetails(message: Message): String? {
+    val encoded: EncodedContent? = message.encoded
+    val type: ContentTypeId? = message.contentType
+    check(message.rawBytes.isNotEmpty() || encoded == null || type != null)
+    return when (val content = message.content) {
+        is SDKMessageContent.Unknown -> content.error.code
+        is SDKMessageContent.Custom -> content.error?.code
+        is SDKMessageContent.Standard -> null
+    }
+}

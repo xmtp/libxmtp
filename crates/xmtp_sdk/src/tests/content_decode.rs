@@ -19,7 +19,8 @@ async fn encoded_sends_use_catalogue_push_defaults_and_explicit_override() {
             parent.checked()?.to_owned(),
             client.inbox_id().into_checked()?,
         ))
-        .map(Into::into)
+        .map_err(XmtpError::from_core)
+        .and_then(crate::EncodedContent::try_from)
     };
     let stored_push = |id: &MessageId| {
         client
@@ -108,7 +109,7 @@ async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
     }
     for actions in [top_level_only, actions, action_only] {
         let encoded = ActionsCodec::encode(actions)?;
-        let id = group.send(encoded.into(), None).await?;
+        let id = group.send(encoded.try_into()?, None).await?;
         let stored = client.inner.message(id.to_bytes()?)?;
         let raw = stored.decrypted_message_bytes.clone();
         let direct = crate::Message::from_stored(stored, client.client_key())?;
@@ -125,7 +126,7 @@ async fn actions_with_out_of_range_expiry_stay_unknown_on_all_read_paths() {
             .expect("message in history");
         for (path, message) in [("stored", direct), ("by ID", by_id), ("history", history)] {
             assert!(
-                matches!(message.0.content, MessageContent::Unknown { encoded, raw_bytes }
+                matches!(message.0.content, MessageContent::Unknown { encoded: Some(encoded), raw_bytes, .. }
                     if encoded.r#type.type_id == "actions" && raw_bytes == raw),
                 "{path} changed an out-of-range Actions expiry"
             );
@@ -184,7 +185,7 @@ async fn invalid_reply_parent_body_does_not_break_reads() {
             stored.store(&db)?;
             MessageId::from_bytes(&stored.id)?
         } else {
-            group.send(content.into(), None).await?
+            group.send(content.try_into()?, None).await?
         };
         let reply_id = client
             .conversations()
@@ -216,7 +217,7 @@ async fn invalid_reply_parent_body_does_not_break_reads() {
                 "{path} changed the reply body for {kind}"
             );
             assert!(
-                matches!(message.0.in_reply_to.as_ref().map(|parent| &parent.content), Some(MessageBody::Unknown { encoded }) if encoded.r#type.type_id == kind),
+                matches!(message.0.in_reply_to.as_ref().map(|parent| &parent.content), Some(MessageBody::Unknown { encoded: Some(encoded), .. }) if encoded.r#type.type_id == kind),
                 "{path} did not keep the failed {kind} parent body as Unknown"
             );
         }
@@ -338,17 +339,79 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
             matches!(message.0.content, MessageContent::DeletedMessage(_)),
             "{path} did not show deletion"
         );
-        assert_eq!(message.0.content_type.authority_id, "xmtp.org", "{path}");
-        assert_eq!(message.0.content_type.type_id, "deletedMessage", "{path}");
-        assert_eq!(message.0.content_type.version_major, 1, "{path}");
-        assert_eq!(message.0.content_type.version_minor, 0, "{path}");
+        assert_eq!(
+            message
+                .0
+                .content_type
+                .as_ref()
+                .expect("content type")
+                .authority_id,
+            "xmtp.org",
+            "{path}"
+        );
+        assert_eq!(
+            message
+                .0
+                .content_type
+                .as_ref()
+                .expect("content type")
+                .type_id,
+            "deletedMessage",
+            "{path}"
+        );
+        assert_eq!(
+            message
+                .0
+                .content_type
+                .as_ref()
+                .expect("content type")
+                .version_major,
+            1,
+            "{path}"
+        );
+        assert_eq!(
+            message
+                .0
+                .content_type
+                .as_ref()
+                .expect("content type")
+                .version_minor,
+            0,
+            "{path}"
+        );
+        assert!(message.0.raw_bytes.is_empty(), "{path} kept original bytes");
         assert!(message.0.fallback.is_none(), "{path} kept the fallback");
         assert!(
-            message.0.encoded.content.is_empty(),
+            message
+                .0
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .content
+                .is_empty(),
             "{path} kept the payload"
         );
-        assert_eq!(message.0.encoded.r#type.type_id, "deletedMessage", "{path}");
-        assert!(message.0.encoded.parameters.is_empty(), "{path}");
+        assert_eq!(
+            message
+                .0
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .r#type
+                .type_id,
+            "deletedMessage",
+            "{path}"
+        );
+        assert!(
+            message
+                .0
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .parameters
+                .is_empty(),
+            "{path}"
+        );
         assert!(
             !format!("{:?}", message.0).contains("secret-deleted"),
             "{path}"
@@ -370,14 +433,41 @@ async fn deleted_messages_and_reply_parents_hide_original_content() {
             matches!(parent.content, MessageBody::DeletedMessage(_)),
             "{path}"
         );
-        assert_eq!(parent.content_type.type_id, "deletedMessage", "{path}");
+        assert_eq!(
+            parent.content_type.as_ref().expect("content type").type_id,
+            "deletedMessage",
+            "{path}"
+        );
+        assert!(parent.raw_bytes.is_empty(), "{path} kept parent bytes");
         assert!(parent.fallback.is_none(), "{path} kept the parent fallback");
         assert!(
-            parent.encoded.content.is_empty(),
+            parent
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .content
+                .is_empty(),
             "{path} kept the parent payload"
         );
-        assert_eq!(parent.encoded.r#type.type_id, "deletedMessage", "{path}");
-        assert!(parent.encoded.parameters.is_empty(), "{path}");
+        assert_eq!(
+            parent
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .r#type
+                .type_id,
+            "deletedMessage",
+            "{path}"
+        );
+        assert!(
+            parent
+                .encoded
+                .as_ref()
+                .expect("usable encoded content")
+                .parameters
+                .is_empty(),
+            "{path}"
+        );
         assert!(!format!("{parent:?}").contains("secret-deleted"), "{path}");
     }
     client.end().await?;
@@ -422,7 +512,7 @@ async fn failed_standard_reply_parent_decode_stays_unknown() {
     for (path, message) in [("by ID", &by_id), ("history", listed)] {
         let parent = message.0.in_reply_to.as_ref().expect("reply parent");
         assert!(
-            matches!(&parent.content, MessageBody::Unknown { encoded }
+            matches!(&parent.content, MessageBody::Unknown { encoded: Some(encoded), .. }
                 if encoded.r#type.type_id == "text" && encoded.content == vec![0xff, 0xfe]),
             "{path} treated a failed text decode as a custom codec"
         );

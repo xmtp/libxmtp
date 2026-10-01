@@ -37,3 +37,33 @@ export function browserDefaults(conversations: Browser.Conversations) {
 export function nodeDefaults(conversations: Node.Conversations) {
   return conversations.createDm("inbox");
 }
+
+export type ReceivedBytes = Assert<
+  Equal<Browser.MessageData["rawBytes"], Uint8Array>
+>;
+export type ReceivedEnvelope = Assert<
+  Equal<Browser.MessageData["encoded"], Browser.EncodedContent | undefined>
+>;
+export type ReceivedType = Assert<
+  Equal<Browser.MessageData["contentType"], Browser.ContentTypeId | undefined>
+>;
+export type UnknownDetails = Assert<
+  Equal<
+    Extract<Browser.MessageContent, { kind: "unknown" }>["error"],
+    Browser.ErrorDetails
+  >
+>;
+export type CustomDetails = Assert<
+  Equal<
+    Extract<Browser.MessageBody, { kind: "custom" }>["error"],
+    Browser.ErrorDetails | undefined
+  >
+>;
+
+export function receivedDetails(
+  value: Browser.MessageContent,
+): string | undefined {
+  return value.kind === "unknown" || value.kind === "custom"
+    ? value.error?.code
+    : undefined;
+}
