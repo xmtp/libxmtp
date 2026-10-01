@@ -233,7 +233,10 @@ async function workerFailure(operation: Promise<unknown>, label: string) {
 }
 
 /** Worker death releases the actual package reservation, without replay. */
-export async function checkAttachmentWorkerDeath(store: string): Promise<void> {
+export async function checkAttachmentWorkerDeath(
+  store: string,
+  terminate = true,
+): Promise<void> {
   const held = await heldTransfer(store);
   const owner = signer();
   const options = fileOptions(
@@ -262,7 +265,7 @@ export async function checkAttachmentWorkerDeath(store: string): Promise<void> {
     );
     const waiting = events.next();
     void waiting.catch(() => {});
-    control.worker.fail();
+    control.worker.fail(terminate);
     await workerFailure(inFlight, "download in flight");
     await workerFailure(waiting, "waiting event reader");
     for (const [label, call] of [
@@ -276,6 +279,7 @@ export async function checkAttachmentWorkerDeath(store: string): Promise<void> {
     equal(attachments.offered, true, "offered after worker death");
     equal(client.attachments.offered, true, "attachments after worker death");
     same(pending.remoteAttachment, remote, "record after worker death");
+    equal(control.worker.terminationCalls, 1, "package worker termination");
     await within(control.terminated, "package terminates worker");
     control.restore();
     // No manual session or storage release occurs before this package call.
@@ -301,6 +305,7 @@ export async function checkAttachmentWorkerDeath(store: string): Promise<void> {
       replacementControl.restore();
     }
   } finally {
+    control.terminateFixture();
     control.restore();
     await held.command("release");
     await client?.end().catch(() => {});

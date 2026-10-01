@@ -18,6 +18,7 @@ export function controlPackageWorker() {
   };
   class ControlledWorker extends OriginalWorker {
     attachmentCreates = 0;
+    terminationCalls = 0;
     private eventRead?: number;
     private holdRead = false;
     private holdCallback = false;
@@ -96,15 +97,19 @@ export function controlPackageWorker() {
         this.releasing = false;
       }
     }
-    fail(): void {
-      // Kill the actual worker, then deliver the platform error notification.
-      // The package manager must perform its own reservation cleanup.
-      super.terminate();
+    fail(terminate = true): void {
+      // Keep the worker alive for the package cleanup case. The package must
+      // terminate it before another worker can acquire its OPFS lock.
+      if (terminate) super.terminate();
       this.dispatchEvent(new Event("error"));
     }
     override terminate(): void {
+      this.terminationCalls++;
       super.terminate();
       terminated.resolve();
+    }
+    terminateFixture(): void {
+      super.terminate();
     }
   }
   globalThis.Worker = ControlledWorker;
@@ -114,6 +119,9 @@ export function controlPackageWorker() {
       return worker;
     },
     terminated: terminated.promise,
+    terminateFixture(): void {
+      worker?.terminateFixture();
+    },
     restore(): void {
       globalThis.Worker = OriginalWorker;
     },

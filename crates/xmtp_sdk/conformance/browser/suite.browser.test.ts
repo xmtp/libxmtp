@@ -118,6 +118,11 @@ test(
   90_000,
 );
 test(
+  "attachments: package failure terminates the worker before reopening storage",
+  () => checkAttachmentWorkerDeath(__SDK_FIXTURE_URL__, false),
+  90_000,
+);
+test(
   "attachments: malformed sources have no OPFS side effects",
   () => checkAttachmentSourceShape(__XMTP_BACKEND_URL__),
   60_000,
