@@ -92,7 +92,8 @@ elif name == "backend":
     listen([5050, 9464])
 elif name == "other-listener": listen([5050, 9464])
 elif name == "grpc-health-probe":
-    sys.exit(0 if mode != "unhealthy" and connect(5050) else 1)
+    if mode == "unhealthy-blocked": time.sleep(10)
+    sys.exit(0 if mode not in ("unhealthy", "unhealthy-blocked") and connect(5050) else 1)
 """
 
 CHILD = r"""import json, os, signal, subprocess, sys, time
@@ -281,8 +282,13 @@ def check(mode, mutation=None):
                         pass
                     sentinel.close()
                     sentinel = None
-                if mode == "unhealthy":
-                    assert "startup exceeded 120 seconds" in text, text
+                if mode in ("unhealthy", "unhealthy-blocked"):
+                    # A signal trap inherits an active setup command's redirection.
+                    diagnostics = text + "\n".join(
+                        path.read_text()
+                        for path in (run / "backend-ci-logs").glob("*.log")
+                    )
+                    assert "startup exceeded 120 seconds" in diagnostics, diagnostics
                 if mode == "backend-exit":
                     assert "service exited during startup" in text, text
                 if mode in ("backend-wildcard", "metrics-wildcard"):
@@ -366,6 +372,7 @@ def main():
         "occupied",
         "bucket-failure",
         "unhealthy",
+        "unhealthy-blocked",
         "backend-exit",
         "setup-term",
         "child-term",
@@ -399,6 +406,13 @@ def main():
                 ),
             ),
             ("unhealthy", ("sleep 5;", "sleep 120;")),
+            (
+                "unhealthy-blocked",
+                (
+                    'echo "Backend CI startup exceeded 120 seconds" >&2',
+                    ":",
+                ),
+            ),
             ("backend-exit", ('kill -0 "$pid" 2>/dev/null ||', "true ||")),
             ("setup-term", ("trap 'exit 143' TERM", "trap 'groups=(); exit 143' TERM")),
             (
