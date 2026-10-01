@@ -7,6 +7,7 @@ All fault controls apply to a private wrapper copy, never to the public app.
 """
 
 import argparse
+from contextlib import ExitStack
 import os
 import re
 from pathlib import Path
@@ -22,9 +23,14 @@ ROOT = Path(__file__).resolve().parents[2]
 SOURCE = (ROOT / "dev/backend/ci").read_text()
 PORTS = (5050, 9464, 55432, 9067)
 
-STUB = r"""import json, os, select, signal, socket, stat, subprocess, sys, time, tomllib
+STUB = r"""import json, os, select, signal, socket, stat, subprocess, sys, threading, time, tomllib
 from pathlib import Path
 root = Path(__file__).resolve().parent
+cleanup_fd = @cleanup_fd@
+def contain_on_eof():
+    os.read(cleanup_fd, 1)
+    os.kill(os.getpid(), signal.SIGKILL)
+threading.Thread(target=contain_on_eof, daemon=True).start()
 mode = (root / "mode").read_text()
 name = Path(sys.argv[0]).name
 with (root / "pids").open("a") as out:
@@ -87,7 +93,7 @@ elif name == "backend":
     (root / "config-path").write_text(str(config))
     if mode == "backend-exit": sys.exit(42)
     if mode == "listener-owner":
-        subprocess.Popen([sys.executable, str(root / "other-listener")])
+        subprocess.Popen([sys.executable, str(root / "other-listener")], pass_fds=(cleanup_fd,))
         while True: time.sleep(.1)
     listen([5050, 9464])
 elif name == "other-listener": listen([5050, 9464])
@@ -96,9 +102,14 @@ elif name == "grpc-health-probe":
     sys.exit(0 if mode not in ("unhealthy", "unhealthy-blocked") and connect(5050) else 1)
 """
 
-CHILD = r"""import json, os, signal, subprocess, sys, time
+CHILD = r"""import json, os, signal, subprocess, sys, threading, time
 from pathlib import Path
 root = Path(sys.argv[1])
+cleanup_fd = @cleanup_fd@
+def contain_on_eof():
+    os.read(cleanup_fd, 1)
+    os.kill(os.getpid(), signal.SIGKILL)
+threading.Thread(target=contain_on_eof, daemon=True).start()
 assert sys.argv[2:] == ["one argument", "", "$literal; no shell"]
 expected = {
     "XMTP_BACKEND_URL": "http://127.0.0.1:5050",
@@ -112,7 +123,10 @@ assert "OTEL_EXPORTER_OTLP_ENDPOINT" not in os.environ
 (root / "child-started").touch()
 mode = (root / "mode").read_text()
 if mode in ("child-term", "child-int", "success"):
-    descendant = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(300)"])
+    descendant = subprocess.Popen(
+        [sys.executable, "-c", f"import os; os.read({cleanup_fd}, 1)"],
+        pass_fds=(cleanup_fd,),
+    )
     (root / "descendant").write_text(str(descendant.pid))
 if mode in ("child-term", "child-int"):
     while True: time.sleep(.1)
@@ -137,8 +151,16 @@ def process_alive(pid):
 
 
 def check(mode, mutation=None):
-    with tempfile.TemporaryDirectory(prefix="backend-ci-check-") as directory:
+    with (
+        tempfile.TemporaryDirectory(prefix="backend-ci-check-") as directory,
+        ExitStack() as resources,
+    ):
         root = Path(directory)
+        # Only controlled processes inherit the read end. EOF contains leaks
+        # without signalling a recorded PID that the OS could have reused.
+        read_fd, write_fd = os.pipe()
+        cleanup_reader = resources.enter_context(os.fdopen(read_fd, "rb"))
+        cleanup_writer = resources.enter_context(os.fdopen(write_fd, "wb"))
         # Use private ports when the developer has the local Docker stack up.
         # The installed wrapper still has the four fixed CI ports.
         reservations = [socket.socket() for _ in PORTS]
@@ -159,7 +181,10 @@ def check(mode, mutation=None):
         (tools / "python3").symlink_to(sys.executable)
         (tools / "mode").write_text(mode)
         stub = tools / "stub"
-        stub.write_text(f"#!{sys.executable}\n" + private_ports(STUB))
+        stub.write_text(
+            f"#!{sys.executable}\n"
+            + private_ports(STUB).replace("@cleanup_fd@", str(read_fd))
+        )
         stub.chmod(0o755)
         for name in (
             "initdb",
@@ -174,7 +199,7 @@ def check(mode, mutation=None):
         ):
             (tools / name).symlink_to(stub)
         child = tools / "child.py"
-        child.write_text(private_ports(CHILD))
+        child.write_text(private_ports(CHILD).replace("@cleanup_fd@", str(read_fd)))
         policy = root / "policy.json"
         policy.write_text("invalid" if mode == "bucket-failure" else "{}")
         shared = (ROOT / "dev/backend/local-s3.toml").read_bytes()
@@ -230,6 +255,7 @@ def check(mode, mutation=None):
                     "$literal; no shell",
                 ],
                 env=env,
+                pass_fds=(cleanup_reader.fileno(),),
                 stdout=log,
                 stderr=subprocess.STDOUT,
             )
@@ -339,18 +365,9 @@ def check(mode, mutation=None):
                         process.wait()
                 if sentinel is not None:
                     sentinel.close()
-                # Contain deliberately broken cleanup mutations in the harness.
-                if (tools / "pids").exists():
-                    for pid in (tools / "pids").read_text().splitlines():
-                        try:
-                            os.kill(int(pid), signal.SIGKILL)
-                        except ProcessLookupError:
-                            pass
-                if (tools / "descendant").exists():
-                    try:
-                        os.kill(int((tools / "descendant").read_text()), signal.SIGKILL)
-                    except ProcessLookupError:
-                        pass
+                # The controlled processes stop themselves on EOF. Never send
+                # a signal using a PID recovered from a previous process log.
+                cleanup_writer.close()
 
 
 def main():
