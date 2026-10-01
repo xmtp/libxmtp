@@ -108,3 +108,7 @@ mobile-stage target:
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
+
+# Check nonthrowing, pending and READY reader cancellation through real native calls.
+caller-cancellation-swift:
+    {{ _env }} && SDK_SWIFT_CALLER_CANCELLATION=1 bash "{{ root }}/crates/xmtp_sdk/dev/conformance-swift"
