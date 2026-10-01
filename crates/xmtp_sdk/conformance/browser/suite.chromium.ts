@@ -1,14 +1,20 @@
 import * as Pure from "../../../../target/sdk-generated/typescript-pure/index";
 import { CONTRACT_HASH } from "../../../../target/sdk-generated/typescript-wasm/contract.gen";
 import { Message as HostMessage } from "../../../../target/sdk-generated/typescript-wasm/host-message.gen";
+import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
 // These scenarios run clients in their own worker session, so they can check
 // the transport. Each client is used through the public layer over the
 // session's worker proxy; `Client` here is the proxy, only for the stale-handle
 // check at the end.
-import { Client } from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
-import * as sdk from "../../../../target/sdk-generated/typescript-wasm/index";
+import {
+  Backend as ProxyBackend,
+  Client,
+} from "../../../../target/sdk-generated/typescript-wasm/proxy.gen";
+import { currentProjection } from "../../../../target/sdk-generated/typescript-wasm/public-values.gen";
 import { boundMessage } from "../../../../target/sdk-generated/typescript-wasm/runtime/public/message";
 import * as B from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk";
+import { controlPackageWorker } from "./attachment-worker-control";
+import { within } from "./attachments-support";
 import {
   build,
   checkError,
@@ -373,24 +379,54 @@ export async function runBrowserBridgeConformance(
     );
     // verifies: PROC-045, CTYPE-009
     const codecStream = sdk.MessageStream.openGroup(customOwner, customGroup);
-    const streamFailureId = await customGroup.send(failingCodec.encode("stream failure"));
-    const streamGoodId = await customGroup.send(customCodec.encode("after codec failure"));
+    const streamFailureId = await customGroup.send(
+      failingCodec.encode("stream failure"),
+    );
+    const streamGoodId = await customGroup.send(
+      customCodec.encode("after codec failure"),
+    );
     let sawCodecFailure = false;
     for (;;) {
       const item = (await codecStream.next()).value;
-      expect(item instanceof sdk.Message, "codec stream ended before a valid item");
+      expect(
+        item instanceof sdk.Message,
+        "codec stream ended before a valid item",
+      );
       if (item.id === streamFailureId) {
-        expect(item.content.kind === "custom", "failed codec stream item lost custom content");
-        if (item.content.kind !== "custom") throw new Error("custom stream failure missing");
-        equal(item.content.error?.code, "CodecDecodeFailed", "codec stream error code");
-        equal(item.content.error?.category, "callback", "codec stream error category");
-        expect(item.content.rawBytes.byteLength > 0, "codec stream lost failed bytes");
+        expect(
+          item.content.kind === "custom",
+          "failed codec stream item lost custom content",
+        );
+        if (item.content.kind !== "custom")
+          throw new Error("custom stream failure missing");
+        equal(
+          item.content.error?.code,
+          "CodecDecodeFailed",
+          "codec stream error code",
+        );
+        equal(
+          item.content.error?.category,
+          "callback",
+          "codec stream error category",
+        );
+        expect(
+          item.content.rawBytes.byteLength > 0,
+          "codec stream lost failed bytes",
+        );
         sawCodecFailure = true;
       }
       if (item.id === streamGoodId) {
-        expect(item.content.kind === "custom", "next custom stream item changed kind");
-        if (item.content.kind !== "custom") throw new Error("next custom stream item missing");
-        equal(item.content.value, "after codec failure", "stream stopped after codec failure");
+        expect(
+          item.content.kind === "custom",
+          "next custom stream item changed kind",
+        );
+        if (item.content.kind !== "custom")
+          throw new Error("next custom stream item missing");
+        equal(
+          item.content.value,
+          "after codec failure",
+          "stream stopped after codec failure",
+        );
         break;
       }
     }
@@ -642,9 +678,19 @@ export async function runBrowserBridgeConformance(
     equal(again.messages, 0n, "second catch-up counted the messages again");
     await peer.end();
     // The public constructor runs in the package worker, not this session.
-    const backend = await sdk.Backend.connect({ url: backendURL });
-    expect(backend instanceof sdk.Backend, "Backend.connect failed");
-    expect(!("handle" in backend), "the public Backend exposes a handle");
+    const backendControl = controlPackageWorker();
+    try {
+      const backend = await sdk.Backend.connect({ url: backendURL });
+      expect(backend instanceof sdk.Backend, "Backend.connect failed");
+      expect(!("handle" in backend), "the public Backend exposes a handle");
+      // The transport fixture releases its root without waiting for collection.
+      const backendProxy = currentProjection().lowerBackend(backend);
+      expect(backendProxy instanceof ProxyBackend, "not a worker Backend");
+      backendProxy.release();
+      await within(backendControl.terminated, "Backend worker termination");
+    } finally {
+      backendControl.restore();
+    }
     const sameText = "1111111111111111111111111111111111111111";
     const mixedIdentities: sdk.PublicIdentity[] = [
       { identifier: sameText, kind: "ethereum" },
