@@ -127,7 +127,6 @@ internal class RecordingPreAuthenticate(
     }
 }
 
-
 internal class SampleCodec : ContentCodec<String> {
     override val type = ContentTypeId("example.org", "sample", 1u, 0u)
 
