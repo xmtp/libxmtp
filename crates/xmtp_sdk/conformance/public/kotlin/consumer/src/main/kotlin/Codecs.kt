@@ -55,3 +55,28 @@ fun receivedDetails(message: Message): String? {
         is SDKMessageContent.Standard -> null
     }
 }
+
+suspend fun consumeCodecRecords(
+    group: Group,
+    message: Message,
+) {
+    val reference: MessageId = "a".repeat(64)
+    val inbox: InboxId = "b".repeat(64)
+    val reaction = Reaction("👍", ReactionAction.ADDED, ReactionSchema.UNICODE)
+    val reactionValue = ReactionV2Content(reference, reaction = reaction)
+    val withInbox: ReactionV2Content = ReactionV2Content(reference, inbox, reaction)
+    val nested = TextCodec().encode("reply")
+    val replyValue = ReplyContent(reference, content = nested)
+    val replyWithInbox: ReplyContent = ReplyContent(reference, inbox, nested)
+    val deleteValue = DeleteMessageContent(reference)
+    ReactionV2Codec().encode(reactionValue)
+    ReplyCodec().encode(replyValue)
+    DeleteMessageCodec().encode(deleteValue)
+    group.send(ReactionV2Codec(), reactionValue)
+    group.send(ReplyCodec(), replyValue)
+    group.send(DeleteMessageCodec(), deleteValue)
+    message.reply(ReactionV2Codec(), reactionValue)
+    message.reply(ReplyCodec(), replyValue)
+    message.reply(DeleteMessageCodec(), deleteValue)
+    println("$withInbox $replyWithInbox")
+}

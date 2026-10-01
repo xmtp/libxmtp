@@ -66,19 +66,19 @@ for sdk in ("Swift", "Kotlin"):
         sdk,
         "Reaction",
         "reference",
-        "generated",
+        "static runtime",
         ref,
-        finals="MessageContent.Reaction.reference",
-        note="The message content keeps the target message ID.",
+        finals="ReactionV2Content.reference",
+        note="The codec value keeps the target message ID.",
     )
     add(
         sdk,
         "Reaction",
         "referenceInboxId",
-        "generated",
+        "static runtime",
         ref,
-        finals="MessageContent.Reaction.referenceInboxID",
-        note="The message content keeps the optional target sender inbox ID.",
+        finals="ReactionV2Content.referenceInboxId",
+        note="The codec value keeps the optional target sender inbox ID.",
     )
 
 
@@ -2287,6 +2287,15 @@ def _classify(entry: object) -> Decision:
         and (name.endswith(".key") or ".Companion" in name)
     ):
         return Decision("generated", name, "open", "Not covered by the design.", True)
+    if sdk in {"Swift", "Kotlin"} and (
+        name == "DeleteMessageRequest" or name.startswith("DeleteMessageRequest.")
+    ):
+        return decision(
+            "static runtime",
+            name.replace("DeleteMessageRequest", "DeleteMessageContent", 1),
+            f"11.4 {sdk}, Messages, codecs, preferences, values; 4, Host codecs",
+            "The typed delete codec uses DeleteMessageContent.",
+        )
     if sdk in {"Swift", "Kotlin"} and (name == "Reply" or name.startswith("Reply.")):
         member = name.split(".", 1)[1] if "." in name else ""
         if member in {"contentType", "init", "Companion", "Companion.create"}:
@@ -2294,18 +2303,18 @@ def _classify(entry: object) -> Decision:
                 "approved removal",
                 "—",
                 f"11.4 {sdk}, Messages, codecs, preferences, values; 11.2, MessageContent.reply",
-                "The old Any/contentType constructor and FFI factory are replaced by the typed reply body.",
+                "The old Any/contentType constructor and FFI factory are replaced by ReplyContent with an EncodedContent body.",
             )
         targets = {
-            "": "MessageContent.Reply",
-            "reference": "MessageContent.Reply.referenceID",
-            "referenceId": "MessageContent.Reply.referenceID",
-            "content": "MessageContent.Reply.body",
+            "": "ReplyContent",
+            "reference": "ReplyContent.reference",
+            "referenceId": "ReplyContent.reference",
+            "content": "ReplyContent.content",
             "inReplyTo": "Message.inReplyTo",
         }
         if member in targets:
             return decision(
-                "generated",
+                "generated" if member == "inReplyTo" else "static runtime",
                 targets[member],
                 f"11.4 {sdk}, Messages, codecs, preferences, values",
             )
