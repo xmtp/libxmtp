@@ -21,21 +21,19 @@ def digest(path):
 
 
 def source_hash(generator=False):
-    paths = (
-        subprocess.check_output(
-            [
-                "git",
-                "ls-files",
-                "-z",
-                "--cached",
-                "--others",
-                "--exclude-standard",
-            ],
-            cwd=ROOT,
+    if (ROOT / ".git").exists():
+        paths = (
+            subprocess.check_output(
+                ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                cwd=ROOT,
+            )
+            .decode()
+            .split("\0")
         )
-        .decode()
-        .split("\0")
-    )
+    else:
+        paths = [
+            str(path.relative_to(ROOT)) for path in ROOT.rglob("*") if path.is_file()
+        ]
     selected = []
     for name in paths:
         if not name:
@@ -47,14 +45,22 @@ def source_hash(generator=False):
             keep = name.startswith("apps/xmtp_sdk_bindgen/") or name in (
                 "Cargo.lock",
                 "Cargo.toml",
+                "crates/xmtp_sdk/uniffi.toml",
             )
         else:
-            keep = path.suffix in (".rs", ".proto", ".sql") or path.name in (
+            keep = (
+                name.split("/")[0] in ("crates", "apps", "bindings", "proto")
+                and (
+                    path.suffix in (".rs", ".proto", ".sql")
+                    or path.name == "Cargo.toml"
+                )
+            ) or name in (
                 "Cargo.toml",
                 "Cargo.lock",
                 "flake.lock",
-                "config.toml",
                 "rust-toolchain.toml",
+                ".cargo/config.toml",
+                "crates/xmtp_sdk/uniffi.toml",
             )
         if keep:
             selected.append((name, digest(path)))
@@ -68,7 +74,7 @@ def build_context():
         name: value
         for name, value in os.environ.items()
         if name in ("RUSTFLAGS", "CARGO_ENCODED_RUSTFLAGS", "SDKROOT")
-        or name.startswith(("CARGO_TARGET_", "CC_", "CFLAGS_", "AR_"))
+        or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_"))
     }
     return hashlib.sha256(
         json.dumps([compiler, flags], sort_keys=True).encode()

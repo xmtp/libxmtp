@@ -16,6 +16,29 @@ let
     # workspace so the filtered source does not change the lock file.
     fileset = lib.fileset.unions [
       xmtp.filesets.workspace
+      (lib.fileset.fileFilter (
+        file:
+        (
+          lib.hasSuffix ".rs" file.name || lib.hasSuffix ".proto" file.name || lib.hasSuffix ".sql" file.name
+        )
+        || file.name == "Cargo.toml"
+      ) (root + /crates))
+      (lib.fileset.fileFilter (
+        file:
+        (
+          lib.hasSuffix ".rs" file.name || lib.hasSuffix ".proto" file.name || lib.hasSuffix ".sql" file.name
+        )
+        || file.name == "Cargo.toml"
+      ) (root + /apps))
+      (lib.fileset.fileFilter (
+        file:
+        (
+          lib.hasSuffix ".rs" file.name || lib.hasSuffix ".proto" file.name || lib.hasSuffix ".sql" file.name
+        )
+        || file.name == "Cargo.toml"
+      ) (root + /bindings))
+      (root + /flake.lock)
+      (root + /rust-toolchain.toml)
       (root + /crates/xmtp_sdk)
       (root + /apps/xmtp_sdk_bindgen)
     ];
@@ -154,9 +177,9 @@ let
         --out "$out/typescript-pure"
       cp ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} $out/typescript-napi/
       python3 crates/xmtp_sdk/dev/record-generated.py "$out" \
-        --artifact ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
-        --artifact ${wasm}/lib/xmtp_sdk.wasm --artifact ${pureWasm}/lib/xmtp_sdk.wasm \
-        --artifact ${bindgen}/bin/xmtp-sdk-bindgen
+        --native ${native}/lib/libxmtp_sdk.${if pkgs.stdenv.isDarwin then "dylib" else "so"} \
+        --wasm ${wasm}/lib/xmtp_sdk.wasm --pure ${pureWasm}/lib/xmtp_sdk.wasm \
+        --bindgen ${bindgen}/bin/xmtp-sdk-bindgen
       mkdir -p $out/runtimes
       ln -s ${ubrn.core} $out/runtimes/core
       ln -s ${ubrn.node} $out/runtimes/node
