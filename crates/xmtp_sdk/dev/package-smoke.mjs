@@ -13,7 +13,9 @@ import { tmpdir } from "node:os";
 import { join, resolve, dirname, delimiter } from "node:path";
 // Windows npm.cmd is a shell entry. Run npm's JavaScript CLI through Node.
 const npmCandidates = [
-  process.env.XMTP_SDK_NPM_CLI,
+  process.env.XMTP_SDK_NPM_CLI
+    ? resolve(process.env.XMTP_SDK_NPM_CLI)
+    : undefined,
   join(dirname(process.execPath), "node_modules/npm/bin/npm-cli.js"),
   resolve(dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js"),
 ];
