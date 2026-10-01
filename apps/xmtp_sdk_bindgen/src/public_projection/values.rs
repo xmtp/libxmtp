@@ -129,6 +129,9 @@ pub(super) fn enumeration(code: &mut String, value: &EnumMetadata) -> Result<()>
             code,
             "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection;"
         )?;
+        if lower && name == "AttachmentSource" {
+            code.push_str(super::policy::ATTACHMENT_SOURCE_GUARD);
+        }
         if !single {
             writeln!(code, "switch ({discriminant}) {{")?;
         }

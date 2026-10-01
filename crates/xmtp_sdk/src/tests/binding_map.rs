@@ -20,7 +20,7 @@ async fn build_on_new_database_fails_identity_not_found(
         xmtp_common::time::now_ns(),
     ));
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     settings.allow_offline = allow_offline;
     settings.backend = Some(BackendSource::Options {
         options: BackendOptions {
@@ -37,7 +37,7 @@ async fn build_on_new_database_fails_identity_not_found(
             && !details.retryable)
     );
     assert!(!path.exists(), "build created a new database");
-    let store = crate::client::open_store(&settings.storage, inbox_id.checked()?).await?;
+    let store = crate::client::open_store(&settings.storage, Some(&path.to_string_lossy())).await?;
     let stored: Option<StoredIdentity> = store.db().fetch(&()).map_err(XmtpError::unknown)?;
     assert!(stored.is_none(), "build registered a new identity");
     drop(store);

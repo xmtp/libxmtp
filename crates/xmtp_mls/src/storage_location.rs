@@ -519,3 +519,6 @@ async fn write_file_with_guard(
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod admission_tests;

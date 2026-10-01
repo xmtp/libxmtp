@@ -170,7 +170,7 @@ describe("shared public value projection", () => {
       "default",
       "inMemory",
       { directory: "folder" },
-      { path: "db.sqlite3" },
+      { dbPath: "db.sqlite3", attachmentsDir: "attachments" },
     ] satisfies P.StorageLocation[]) {
       expect(
         P.liftStorageLocation(
@@ -178,6 +178,98 @@ describe("shared public value projection", () => {
           projection,
         ),
       ).toEqual(location);
+    }
+  });
+
+  // verifies: ATCH-082
+  it("rejects an incomplete storage location with a storage-location error", () => {
+    // Plain JavaScript callers can pass any value, so these skip the type.
+    const malformed: unknown[] = [
+      { dbPath: "db.sqlite3" },
+      { attachmentsDir: "attachments" },
+      { dbPath: "", attachmentsDir: "attachments" },
+      { dbPath: "db.sqlite3", attachmentsDir: "" },
+      { dbPath: "db.sqlite3", attachmentsDir: 7 },
+      { directory: "" },
+      { directory: undefined },
+      { directory: "folder", dbPath: "db.sqlite3" },
+      {},
+      null,
+      "folder",
+    ];
+    for (const location of malformed) {
+      let failure: unknown;
+      try {
+        P.lowerStorageLocation(location as P.StorageLocation, projection);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure, JSON.stringify(location)).toBeInstanceOf(
+        P.XmtpError.StorageLocation,
+      );
+      expect((failure as P.XmtpError).details).toMatchObject({
+        code: "StorageLocation",
+        category: "storage",
+        retryable: false,
+      });
+    }
+  });
+  it("rejects malformed attachment sources before field conversion", () => {
+    for (const source of [
+      null,
+      undefined,
+      {},
+      { kind: "unknown" },
+      { kind: "path" },
+      { kind: "path", path: undefined },
+      { kind: "path", path: 7 },
+      { kind: "path", path: "source", bytes: undefined },
+      { kind: "bytes" },
+      { kind: "bytes", bytes: undefined },
+      { kind: "bytes", bytes: [1, 2] },
+      { kind: "bytes", bytes: new Uint8Array([1]), path: undefined },
+    ]) {
+      let failure: unknown;
+      try {
+        P.lowerAttachmentSource(source as P.AttachmentSource, projection);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(P.XmtpError.Attachment);
+      const error = failure as InstanceType<typeof P.XmtpError.Attachment>;
+      expect(error.details).toMatchObject({
+        code: "Attachment",
+        category: "input",
+        retryable: false,
+      });
+      expect(error.attachmentFailure).toEqual({
+        cause: "malformed",
+        credentialKind: undefined,
+        retryable: false,
+        missingScope: false,
+        httpStatus: undefined,
+      });
+    }
+    for (const source of [
+      {
+        kind: "bytes",
+        bytes: new Uint8Array(),
+        filename: undefined,
+        mimeType: "text/plain",
+      },
+      {
+        kind: "path",
+        path: "source",
+        filename: "name",
+        mimeType: "text/plain",
+      },
+    ] satisfies P.AttachmentSource[]) {
+      expect(
+        P.liftAttachmentSource(
+          P.lowerAttachmentSource(source, projection),
+          projection,
+        ),
+      ).toEqual(source);
     }
   });
 });

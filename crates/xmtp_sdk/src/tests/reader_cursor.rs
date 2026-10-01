@@ -70,7 +70,7 @@ async fn delivery_cursor_preserves_large_position_across_full_results() {
     ));
     let signer = crate::generate_local_signer().await;
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = explicit_location(&path);
     let client = Client::create(signer.clone(), settings.clone()).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let group_id = group.id();

@@ -11,8 +11,15 @@ import * as sdk from "../../../../target/sdk-conformance/typescript-napi/index.t
 import { setEventStartHookForTest } from "../../../../target/sdk-conformance/typescript-napi/runtime/client.ts";
 import { EventStream as HostEventStream } from "../../../../target/sdk-conformance/typescript-napi/runtime/events/reader.ts";
 import { checkConfigurationMismatch } from "./config-mismatch.mts";
-import { checkOnValueFailure } from "./node-callback-failure.mts";
 import { checkIdentityRoutes } from "./identity-routes.mts";
+import {
+  attachmentEnd,
+  attachmentFailures,
+  attachmentFlow,
+  attachmentRecords,
+  attachmentSettings,
+} from "./node-attachments.mts";
+import { checkOnValueFailure } from "./node-callback-failure.mts";
 import {
   assertEncodedEqual,
   checkStandardCodecs,
@@ -21,8 +28,10 @@ import {
 import { logging } from "./node-logging.mts";
 import { metadataFields } from "./node-metadata.mts";
 import { readerDelivery } from "./node-reader-delivery.mts";
+import { storageLayout } from "./node-storage-layout.mts";
 import { streamFailures } from "./node-stream-failures.mts";
 import { streamLifecycle } from "./node-stream-lifecycle.mts";
+import { deploymentComponent } from "./node-support.mts";
 import { checkReaderCursor, checkRestoredPeer } from "./reader-cursor.mts";
 
 const viemRoot = realpathSync(
@@ -123,8 +132,16 @@ const options = {
 await checkReaderCursor(signer, backendOptions);
 await checkRestoredPeer(backendOptions);
 await checkIdentityRoutes(backendOptions);
+await storageLayout(backendOptions);
+await attachmentSettings(backendOptions);
+await attachmentFlow(backendOptions);
+await attachmentFailures(backendOptions);
+await attachmentRecords(backendOptions);
+await attachmentEnd(backendOptions);
 await checkConfigurationMismatch(signer, backendOptions);
-console.log("Node offline build on another deployment fails with BackendMismatch");
+console.log(
+  "Node offline build on another deployment fails with BackendMismatch",
+);
 await checkOnValueFailure(signer, backendOptions);
 console.log("Node on_value_failure_is_failed_and_unacked passed");
 const client = await sdk.Client.create(signer, options);
@@ -229,7 +246,10 @@ try {
     ),
     (error) => error instanceof sdk.XmtpError.IdentityNotFound,
   );
-  assert.equal((await readdir(join(defaultRoot, "xmtp"))).length, 0);
+  const defaultFiles = await readdir(join(defaultRoot, "xmtp"), {
+    recursive: true,
+  }).catch(() => []);
+  assert.ok(!defaultFiles.some((file) => file.endsWith(".db3")));
   // verifies: STORE-004
   const defaultClient = await sdk.Client.create(signer, {
     ...options,
@@ -241,7 +261,9 @@ try {
   const defaultPath = join(
     defaultRoot,
     "xmtp",
-    `xmtp-${defaultClient.inboxId}.db3`,
+    deploymentComponent(defaultClient.serverConfiguration.identifier),
+    String(defaultClient.inboxId),
+    "xmtp.db3",
   );
   assert.equal(await defaultClient.storage.path(), realpathSync(defaultPath));
   assert.ok((await stat(defaultPath)).isFile());

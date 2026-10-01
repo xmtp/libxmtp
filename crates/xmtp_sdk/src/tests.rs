@@ -22,12 +22,22 @@ use crate::{
     BackendOptions, BackendSource, Client, ClientOptions, ConversationId, Credential,
     CredentialError, CredentialSource, InboxId, MessageContent, MessageId, PublicIdentity,
     PublicIdentityKind, Signature, Signer, SignerError, SignerKind, SigningRequest,
-    StorageLocation, StorageOptions, XmtpError, client::native_storage_path,
-    credentials::AuthBridge, reader, signer,
+    StorageLocation, StorageOptions, XmtpError, credentials::AuthBridge, reader, signer,
 };
 
 use crate::{ClientEvent, EventFilter, EventKind, EventListener, ListenerError};
 use xmtp_events::{EventWriter, HmacKeysUpdated};
+
+/// A database file with its attachments directory beside it.
+fn explicit_location(path: &std::path::Path) -> StorageLocation {
+    StorageLocation::Explicit {
+        db_path: path.to_string_lossy().into_owned(),
+        attachments_dir: path
+            .with_extension("attachments")
+            .to_string_lossy()
+            .into_owned(),
+    }
+}
 
 fn event_filter(kinds: Vec<EventKind>) -> EventFilter {
     EventFilter {
@@ -43,17 +53,112 @@ fn emit_hmac(client: &Client) {
     );
 }
 
-fn emit_attachment(client: &Client) {
-    client.inner.context.events().emit(
-        Some(xmtp_events::ClientEvent::AttachmentUploadStarted(
-            xmtp_events::AttachmentRef {
-                attachment_key: "key".into(),
-                url: "https://example.com/attachment".into(),
-                content_digest: "digest".into(),
-            },
-        )),
-        None,
+/// A directory name no other test run uses. The test creates it.
+fn temp_root(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "xmtp-sdk-{name}-{}-{}",
+        std::process::id(),
+        xmtp_common::time::now_ns()
+    ))
+}
+
+const ATTACHMENT_KINDS: [EventKind; 7] = [
+    EventKind::AttachmentUploadStarted,
+    EventKind::AttachmentUploadCompleted,
+    EventKind::AttachmentUploadFailed,
+    EventKind::AttachmentDownloadStarted,
+    EventKind::AttachmentDownloadCompleted,
+    EventKind::AttachmentDownloadFailed,
+    EventKind::AttachmentDeleted,
+];
+
+fn core_attachment(key: &str) -> xmtp_events::AttachmentRef {
+    xmtp_events::AttachmentRef {
+        attachment_key: key.into(),
+        url: format!("https://example.com/{key}"),
+        content_digest: format!("digest-{key}"),
+    }
+}
+
+fn core_attachment_failed(key: &str, cause: &str) -> xmtp_events::AttachmentFailed {
+    xmtp_events::AttachmentFailed {
+        attachment_key: key.into(),
+        url: format!("https://example.com/{key}"),
+        content_digest: format!("digest-{key}"),
+        cause: cause.into(),
+    }
+}
+
+/// Emit one event of each attachment kind: an upload of `up`, a failed
+/// upload of `rejected`, a download and deletion of `down`, and a failed
+/// download of `corrupt`.
+fn emit_attachment_kinds(client: &Client) {
+    use xmtp_events::ClientEvent as Core;
+    for event in [
+        Core::AttachmentUploadStarted(core_attachment("up")),
+        Core::AttachmentUploadCompleted(core_attachment("up")),
+        Core::AttachmentUploadFailed(core_attachment_failed("rejected", "backend_rejected")),
+        Core::AttachmentDownloadStarted(core_attachment("down")),
+        Core::AttachmentDownloadCompleted(core_attachment("down")),
+        Core::AttachmentDownloadFailed(core_attachment_failed("corrupt", "digest_mismatch")),
+        Core::AttachmentDeleted(core_attachment("down")),
+    ] {
+        client.inner.context.events().emit(Some(event), None);
+    }
+}
+
+fn assert_attachment_kinds(events: &[ClientEvent]) {
+    use crate::{AttachmentFailed, AttachmentFailureCause, AttachmentRef};
+    let reference = |key: &str| AttachmentRef {
+        attachment_key: key.into(),
+        url: format!("https://example.com/{key}"),
+        content_digest: format!("digest-{key}"),
+    };
+    let failed = |key: &str, cause| AttachmentFailed {
+        attachment_key: key.into(),
+        url: format!("https://example.com/{key}"),
+        content_digest: format!("digest-{key}"),
+        cause,
+    };
+    let [
+        ClientEvent::AttachmentUploadStarted {
+            attachment: started,
+        },
+        ClientEvent::AttachmentUploadCompleted {
+            attachment: uploaded,
+        },
+        ClientEvent::AttachmentUploadFailed {
+            attachment: upload_failed,
+        },
+        ClientEvent::AttachmentDownloadStarted {
+            attachment: downloading,
+        },
+        ClientEvent::AttachmentDownloadCompleted {
+            attachment: downloaded,
+        },
+        ClientEvent::AttachmentDownloadFailed {
+            attachment: download_failed,
+        },
+        ClientEvent::AttachmentDeleted {
+            attachment: deleted,
+        },
+    ] = events
+    else {
+        panic!("expected the seven attachment kinds in order, got {events:?}");
+    };
+    assert_eq!(started, &reference("up"));
+    assert_eq!(uploaded, &reference("up"));
+    assert_eq!(
+        upload_failed,
+        &failed("rejected", AttachmentFailureCause::BackendRejected)
     );
+    assert_eq!(downloading, &reference("down"));
+    assert_eq!(downloaded, &reference("down"));
+    assert_eq!(
+        download_failed,
+        &failed("corrupt", AttachmentFailureCause::DigestMismatch)
+    );
+    assert_eq!(deleted, &reference("down"));
 }
 
 struct EventCapture(tokio::sync::mpsc::UnboundedSender<ClientEvent>);
@@ -501,6 +606,7 @@ async fn assert_undecodable_standard_read_paths(
 }
 
 mod archives;
+mod attachment_flows;
 mod backend_queries;
 mod client_setup;
 mod connections;
@@ -508,6 +614,7 @@ mod content_decode;
 mod content_filters;
 mod content_records;
 mod content_validation;
+mod create_adoption;
 mod create_cleanup;
 mod error_records;
 mod event_listeners;
@@ -528,6 +635,7 @@ mod reserved_transcript_sends;
 mod signers;
 mod standard_sends;
 mod storage;
+mod storage_layout;
 mod storage_retry;
 mod transparent_wrappers;
 

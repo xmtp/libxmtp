@@ -10,11 +10,13 @@ export async function checkReaderCursor(
   signer: sdk.Signer,
   backend: sdk.BackendOptions,
 ): Promise<void> {
+  const directory = await mkdtemp(join(tmpdir(), "f3-cursor-"));
   const options: sdk.ClientOptions = {
     backend,
     storage: {
       location: {
-        path: join(await mkdtemp(join(tmpdir(), "f3-cursor-")), "client.db"),
+        dbPath: join(directory, "client.db"),
+        attachmentsDir: join(directory, "attachments"),
       },
     },
     deviceSync: false,

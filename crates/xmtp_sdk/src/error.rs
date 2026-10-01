@@ -103,6 +103,14 @@ pub enum XmtpError {
     InvalidCursor(ErrorDetails),
     #[error("foreign cursor: {0:?}")]
     ForeignCursor(ErrorDetails),
+    #[error("storage location unusable: {0:?}")]
+    StorageLocation(ErrorDetails),
+    #[error("attachment failed: {0:?}")]
+    Attachment(ErrorDetails, AttachmentFailure),
+    /// The identity does not belong to the inbox stored in an `Explicit`
+    /// database, so the SDK opened no client.
+    #[error("identity mismatch: {0:?}")]
+    IdentityMismatch(ErrorDetails),
     #[error("unknown metadata field: {0:?}")]
     UnknownField(ErrorDetails),
     #[error("not a user field: {0:?}")]
@@ -227,6 +235,15 @@ impl XmtpError {
         ))
     }
 
+    pub(crate) fn identity_mismatch() -> Self {
+        Self::IdentityMismatch(Self::details(
+            "IdentityMismatch",
+            ErrorCategory::Identity,
+            false,
+            "the identity is not a member of the database's inbox",
+        ))
+    }
+
     #[cfg(any(target_arch = "wasm32", test))]
     pub(crate) fn storage_busy(message: impl Into<String>) -> Self {
         Self::StorageBusy(Self::details(
@@ -314,6 +331,21 @@ impl XmtpError {
 
     fn classify_one(error: &(dyn std::error::Error + 'static)) -> Option<Self> {
         use xmtp_mls::groups::GroupError;
+        if let Some(xmtp_mls::identity::IdentityError::IdentifierNotInInbox { .. }) =
+            error.downcast_ref::<xmtp_mls::identity::IdentityError>()
+        {
+            return Some(Self::identity_mismatch());
+        }
+        if let Some(xmtp_mls::builder::ClientBuilderError::Attachment(attachment)) =
+            error.downcast_ref::<xmtp_mls::builder::ClientBuilderError>()
+        {
+            // The build prepares the attachments directory. Its failure means
+            // the selected storage location cannot be used.
+            return Some(Self::storage_location(format!(
+                "attachments directory is unusable: {}",
+                xmtp_attachments::AttachmentFailureCause::as_str(attachment.cause)
+            )));
+        }
         if let Some(group) = error.downcast_ref::<GroupError>() {
             return match group {
                 GroupError::MetadataField(field) => Some(Self::from_field(field)),
@@ -371,6 +403,11 @@ impl XmtpError {
                 false,
                 error.to_string(),
             )));
+        }
+        if let Some(location) =
+            error.downcast_ref::<xmtp_mls::storage_location::StorageLocationError>()
+        {
+            return Some(Self::storage_location(location));
         }
         if let Some(query) = error.downcast_ref::<xmtp_db::diesel::result::Error>() {
             return Some(Self::Storage(Self::details(
@@ -825,6 +862,9 @@ impl XmtpError {
         }
     }
 }
+
+// Keep exported module paths stable for generated bindings.
+include!("error/attachment.rs");
 
 #[cfg(test)]
 mod tests;

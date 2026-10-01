@@ -350,3 +350,42 @@ fn reserved_transcript_type_is_a_stable_input_error() {
     assert!(matches!(refused.category, ErrorCategory::Input));
     assert!(!refused.retryable);
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+fn construction_causes_keep_their_typed_action() {
+    use xmtp_mls::{
+        attachments::AttachmentClientError, builder::ClientBuilderError, identity::IdentityError,
+        storage_location::StorageLocationError,
+    };
+    let error = XmtpError::from_builder(ClientBuilderError::Identity(
+        IdentityError::IdentifierNotInInbox {
+            inbox_id: "12".repeat(32),
+        },
+    ));
+    let XmtpError::IdentityMismatch(details) = error else {
+        panic!("expected IdentityMismatch, got {error:?}");
+    };
+    assert_eq!(details.code, "IdentityMismatch");
+    assert!(matches!(details.category, ErrorCategory::Identity));
+    assert!(!details.retryable);
+
+    for error in [
+        ClientBuilderError::StorageLocation(StorageLocationError::MissingPath { field: "db_path" }),
+        ClientBuilderError::StorageLocation(StorageLocationError::Opfs),
+        ClientBuilderError::Attachment(AttachmentClientError {
+            cause: xmtp_attachments::AttachmentFailureCause::LocalStorage,
+            credential_kind: None,
+            retryable: false,
+            missing_scope: false,
+            http_status: None,
+        }),
+    ] {
+        let error = XmtpError::from_builder(error);
+        let XmtpError::StorageLocation(details) = error else {
+            panic!("expected StorageLocation, got {error:?}");
+        };
+        assert_eq!(details.code, "StorageLocation");
+        assert!(matches!(details.category, ErrorCategory::Storage));
+        assert!(!details.retryable);
+    }
+}

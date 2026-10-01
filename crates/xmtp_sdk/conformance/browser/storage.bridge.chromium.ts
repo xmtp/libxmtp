@@ -209,7 +209,10 @@ export async function open(path: string): Promise<string> {
         },
       }),
       storage: {
-        location: B.StorageLocation.Path.new(path),
+        location: B.StorageLocation.Explicit.new({
+          dbPath: path,
+          attachmentsDir: `${path}-attachments`,
+        }),
         label: path,
         encryptionKey: undefined,
         pool: undefined,
@@ -256,7 +259,10 @@ export async function failRegistration(path: string): Promise<unknown> {
           },
         }),
         storage: {
-          location: B.StorageLocation.Path.new(path),
+          location: B.StorageLocation.Explicit.new({
+            dbPath: path,
+            attachmentsDir: `${path}-attachments`,
+          }),
           label: path,
           encryptionKey: undefined,
           pool: undefined,
@@ -339,7 +345,10 @@ export async function abortCreateWhileSigning(
           },
         }),
         storage: {
-          location: B.StorageLocation.Path.new(path),
+          location: B.StorageLocation.Explicit.new({
+            dbPath: path,
+            attachmentsDir: `${path}-attachments`,
+          }),
           label: path,
           encryptionKey: undefined,
           pool: undefined,
@@ -430,7 +439,10 @@ export async function rejectBuildWithoutStoredIdentity(
           },
         }),
         storage: {
-          location: B.StorageLocation.Path.new(path),
+          location: B.StorageLocation.Explicit.new({
+            dbPath: path,
+            attachmentsDir: `${path}-attachments`,
+          }),
           label: path,
           encryptionKey: undefined,
           pool: undefined,

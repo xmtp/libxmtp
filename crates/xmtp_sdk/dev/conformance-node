@@ -16,7 +16,8 @@ ln -sfn "$node/lib/node_modules/@ubjs/node" "$package_dir/node"
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--preserve-symlinks"
 node --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/timestamp.test.mts
-node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
+SDK_RELAY_TARGET="$XMTP_BACKEND_URL" bash crates/xmtp_sdk/dev/with-object-store \
+  node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/node.mts
 node --expose-gc --import "$(realpath sdks/node/node_modules/tsx/dist/loader.mjs)" \
   crates/xmtp_sdk/conformance/ts/public-layer.mts

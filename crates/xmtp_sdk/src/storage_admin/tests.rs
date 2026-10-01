@@ -1,5 +1,5 @@
 use super::*;
-use crate::{StorageLocation, StorageOptions, client};
+use crate::{StorageOptions, client};
 use futures::FutureExt;
 
 #[xmtp_common::test(unwrap_try = true)]
@@ -30,14 +30,7 @@ async fn admin_uses_guarded_file_operations() {
     let admin = StorageAdmin::open().await?;
     let source = "admin-source.db".to_owned();
     let target = "admin-restored.db".to_owned();
-    let store = client::open_store(
-        &StorageOptions {
-            location: StorageLocation::Path(source.clone()),
-            ..Default::default()
-        },
-        "unused",
-    )
-    .await?;
+    let store = client::open_store(&StorageOptions::default(), Some(&source)).await?;
     let before = admin.list_files().await?;
     assert!(before.contains(&source));
     assert_eq!(admin.file_count().await? as usize, before.len());

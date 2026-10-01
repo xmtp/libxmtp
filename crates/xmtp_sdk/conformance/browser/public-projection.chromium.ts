@@ -43,7 +43,11 @@ export async function exercise(path: string): Promise<void> {
   };
   const options: Public.ClientOptions = {
     backend: { url: `${location.origin}/backend` },
-    storage: { location: { path }, label: path, singleConnection: false },
+    storage: {
+      location: { dbPath: path, attachmentsDir: `${path}-attachments` },
+      label: path,
+      singleConnection: false,
+    },
     deviceSync: false,
     allowOffline: false,
     registration: { auto: true },

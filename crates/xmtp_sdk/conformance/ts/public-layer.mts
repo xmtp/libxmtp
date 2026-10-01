@@ -49,7 +49,12 @@ async function options(): Promise<sdk.ClientOptions> {
   const directory = await mkdtemp(join(tmpdir(), "xmtp-public-layer-"));
   return {
     backend,
-    storage: { location: { path: join(directory, "client.db") } },
+    storage: {
+      location: {
+        dbPath: join(directory, "client.db"),
+        attachmentsDir: join(directory, "attachments"),
+      },
+    },
     deviceSync: false,
   };
 }

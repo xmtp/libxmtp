@@ -35,11 +35,21 @@ use xmtp_proto::xmtp::mls::database::{
 };
 
 type ContextParts<Api, S, Db> = Arc<XmtpMlsLocalContext<Api, Db, S>>;
-type LocationStoreOpener<Db> =
-    fn(
+/// Opens the store at the paths `build` resolves for a storage location.
+#[cfg(not(target_arch = "wasm32"))]
+type LocationStoreOpener<Db> = Box<
+    dyn FnOnce(
+            crate::storage_location::ResolvedPaths,
+        ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>
+        + Send
+        + Sync,
+>;
+#[cfg(target_arch = "wasm32")]
+type LocationStoreOpener<Db> = Box<
+    dyn FnOnce(
         crate::storage_location::ResolvedPaths,
-        xmtp_db::EncryptionKey,
-    ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>;
+    ) -> xmtp_common::BoxDynFuture<'static, Result<Db, ClientBuilderError>>,
+>;
 
 fn open_location_store(
     paths: crate::storage_location::ResolvedPaths,
@@ -70,6 +80,28 @@ fn open_location_store(
         let _ = key;
         Ok(xmtp_db::EncryptedMessageStore::new(db)?)
     })
+}
+
+// Every identity request uses an admitted snapshot, including the lookup
+// needed to find a data directory's database.
+fn admit_configuration<ApiClient: XmtpBackendClient>(
+    api_client: &mut ApiClientWrapper<ApiClient>,
+    configuration: &xmtp_configuration::ServerConfiguration,
+    client_version: &semver::Version,
+) -> Result<(), ClientError> {
+    crate::server_configuration::check_minimum_version(configuration, client_version)?;
+    // implements: CONF-051
+    if configuration.auth.enabled && !api_client.has_credential_source() {
+        return Err(ClientError::AuthRequired {
+            required_scopes: configuration.auth.required_scopes.clone(),
+        });
+    }
+    let snapshot = Arc::new(configuration.clone());
+    api_client
+        .api_client
+        .set_limits(Arc::new(snapshot.limits.clone()));
+    api_client.set_configuration(snapshot);
+    Ok(())
 }
 
 #[derive(Error, Debug, ErrorCode)]
@@ -143,10 +175,7 @@ impl From<crate::groups::GroupError> for ClientBuilderError {
 
 pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
     pub(crate) deployment_recorder: Option<crate::storage_location::DeploymentRecorder>,
-    pub(crate) data_location: Option<(
-        crate::storage_location::StorageLocation,
-        xmtp_db::EncryptionKey,
-    )>,
+    pub(crate) data_location: Option<crate::storage_location::StorageLocation>,
     pub(crate) location_store_opener: Option<LocationStoreOpener<Db>>,
     pub(crate) mls_storage_factory: Option<fn(&Db) -> S>,
     pub(crate) storage_location_selected: bool,
@@ -169,6 +198,9 @@ pub struct ClientBuilder<ApiClient, S, Db = xmtp_db::DefaultStore> {
         Option<Arc<dyn crate::subscriptions::incoming::SubscriptionFactory>>,
     pub(crate) version_info: VersionInfo,
     pub(crate) allow_offline: bool,
+    /// Whether the strategy's identifier must belong to the inbox of the
+    /// identity the build loads.
+    pub(crate) require_identifier_in_inbox: bool,
     pub(crate) disable_commit_log_worker: bool,
     pub(crate) mls_storage: Option<S>,
     pub(crate) disable_workers: bool,
@@ -256,6 +288,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             incoming_factory: None,
             version_info: VersionInfo::default(),
             allow_offline: false,
+            require_identifier_in_inbox: false,
             disable_commit_log_worker: false,
             mls_storage: None,
             disable_workers: false,
@@ -300,6 +333,7 @@ where
             incoming_factory: client.context.incoming_runtime.original_factory.clone(),
             version_info: client.context.version_info.clone(),
             allow_offline: false,
+            require_identifier_in_inbox: false,
             disable_commit_log_worker: false,
             mls_storage: Some(client.context.mls_storage.clone()),
             disable_workers: false,
@@ -383,7 +417,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             mut api_client,
             identity,
             mut store,
-            identity_strategy,
+            mut identity_strategy,
             mut scw_verifier,
             custom_scw_verifier,
 
@@ -394,6 +428,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             incoming_factory,
             version_info,
             allow_offline,
+            require_identifier_in_inbox,
             disable_commit_log_worker,
             mut mls_storage,
             disable_workers,
@@ -421,21 +456,28 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             })?;
 
         let mut api_client = ApiClientWrapper::new(api_client, Retry::default());
+        let config_provider = config_provider.map(ServerConfigurationHandle::new);
         let mut data_dir_opened_identifier = None;
-        if let Some((location, key)) = data_location {
+        if let Some(location) = data_location {
             use crate::storage_location::StorageLocationError;
-            let inbox_id = match location {
-                crate::storage_location::StorageLocation::DataDir(_) => identity_strategy
-                    .inbox_id()
-                    .ok_or(StorageLocationError::InboxId)?,
-                crate::storage_location::StorageLocation::Explicit { .. } => "",
-            };
-            let backend_url = api_client.backend_url().unwrap_or_default().to_owned();
-            if matches!(
+            let data_dir = matches!(
                 location,
                 crate::storage_location::StorageLocation::DataDir(_)
-            ) && backend_url.trim_end_matches('/').is_empty()
+            );
+            // A data directory's path holds the inbox. Only an online build
+            // can look up an unknown one.
+            let look_up_inbox = data_dir && identity_strategy.inbox_id().is_none();
+            if look_up_inbox
+                && (allow_offline
+                    || !matches!(
+                        identity_strategy,
+                        IdentityStrategy::CreateForIdentifier { .. }
+                    ))
             {
+                return Err(StorageLocationError::InboxId.into());
+            }
+            let backend_url = api_client.backend_url().unwrap_or_default().to_owned();
+            if data_dir && backend_url.trim_end_matches('/').is_empty() {
                 return Err(StorageLocationError::BackendUrl.into());
             }
             let recorder = location.recorder(&backend_url);
@@ -444,53 +486,83 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 None => None,
             };
             let mut fetched = None;
-            let (paths, opened_identifier) = if let Some(identifier) = recorded {
-                (
-                    location.resolve_identifier(inbox_id, &identifier)?,
-                    Some(identifier),
-                )
-            } else if matches!(
-                location,
-                crate::storage_location::StorageLocation::Explicit { .. }
-            ) {
-                (location.resolve_identifier(inbox_id, "")?, None)
-            } else {
-                if allow_offline {
-                    return Err(StorageLocationError::OfflineMissingDeployment.into());
+            // The request that looks up an inbox carries the identifier, and
+            // the database it finds may hold no configuration. So that build
+            // asks the deployment for its configuration first, even for a
+            // recorded URL.
+            let opened_identifier = match recorded {
+                Some(identifier) if !look_up_inbox => Some(identifier),
+                _ if !data_dir => None,
+                recorded => {
+                    if allow_offline {
+                        return Err(StorageLocationError::OfflineMissingDeployment.into());
+                    }
+                    let response = api_client.get_configuration().await.map_err(|error| {
+                        ClientBuilderError::ClientError(ClientError::ConfigurationUnavailable(
+                            Box::new(crate::server_configuration::ConfigurationFetchError::Api(
+                                error,
+                            )),
+                        ))
+                    })?;
+                    let configuration = crate::server_configuration::validated(&response)
+                        .map_err(ClientError::from)?;
+                    let identifier = configuration.identifier.clone();
+                    if let Some(recorded) = recorded
+                        && recorded != identifier
+                    {
+                        return Err(ClientError::BackendMismatch {
+                            stored: recorded,
+                            received: identifier,
+                        }
+                        .into());
+                    }
+                    if look_up_inbox {
+                        let admission = config_provider
+                            .as_ref()
+                            .map(ServerConfigurationHandle::configuration)
+                            .unwrap_or(&configuration);
+                        if admission.identifier != identifier {
+                            return Err(StorageLocationError::DeploymentMismatch.into());
+                        }
+                        admit_configuration(
+                            &mut api_client,
+                            admission,
+                            version_info.pkg_semver().semver(),
+                        )?;
+                    }
+                    fetched = Some((identifier.clone(), response));
+                    Some(identifier)
                 }
-                let response = api_client.get_configuration().await.map_err(|error| {
-                    ClientBuilderError::ClientError(ClientError::ConfigurationUnavailable(
-                        Box::new(crate::server_configuration::ConfigurationFetchError::Api(
-                            error,
-                        )),
-                    ))
-                })?;
-                let configuration =
-                    crate::server_configuration::validated(&response).map_err(ClientError::from)?;
-                let paths = location.resolve_identifier(inbox_id, &configuration.identifier)?;
-                let identifier = configuration.identifier;
-                fetched = Some((identifier.clone(), response));
-                (paths, Some(identifier))
             };
+            // An explicit database is opened first, and its build looks up
+            // an unknown inbox after the configuration checks below.
+            if look_up_inbox {
+                identity_strategy = identity_strategy.with_inbox(&api_client).await?;
+            }
+            let paths = location.resolve_identifier(
+                identity_strategy.inbox_id().unwrap_or_default(),
+                opened_identifier.as_deref().unwrap_or_default(),
+            )?;
             let opener = location_store_opener.ok_or(StorageLocationError::ConflictingStore)?;
-            let opened = opener(paths.clone(), key).await?;
+            let opened = opener(paths.clone()).await?;
             if let Some((identifier, response)) = fetched {
-                opened.db().store_server_configuration(
-                    &identifier,
-                    backend_url.trim_end_matches('/'),
-                    &response.encode_to_vec(),
-                    xmtp_common::time::now_ns(),
-                )?;
+                // A stored configuration stays, and the checks below compare
+                // it with this backend.
+                if opened.db().server_configuration()?.is_none() {
+                    opened.db().store_server_configuration(
+                        &identifier,
+                        backend_url.trim_end_matches('/'),
+                        &response.encode_to_vec(),
+                        xmtp_common::time::now_ns(),
+                    )?;
+                }
                 if let Some(recorder) = &recorder {
                     recorder.record(&identifier).await?;
                 }
             }
             store = Some(opened);
             attachments_dir = Some(paths.attachments_dir);
-            if matches!(
-                location,
-                crate::storage_location::StorageLocation::DataDir(_)
-            ) {
+            if data_dir {
                 data_dir_opened_identifier = opened_identifier.clone();
             }
             deployment_recorder = recorder.map(|recorder| match opened_identifier {
@@ -517,7 +589,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         // keeps `build_offline` free of a pending future.
         let has_config_provider = config_provider.is_some();
         let server_configuration = match config_provider {
-            Some(provider) => ServerConfigurationHandle::new(provider),
+            Some(provider) => provider,
             None => crate::server_configuration::resolve(&api_client, &conn, allow_offline).await?,
         };
 
@@ -557,34 +629,23 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             server_configuration.set_deployment_recorder(recorder);
         }
 
-        // A deployment that requires a newer client refuses this build,
-        // whether the snapshot came from the backend or from a provider.
-        crate::server_configuration::check_minimum_version(
+        admit_configuration(
+            &mut api_client,
             server_configuration.configuration(),
             version_info.pkg_semver().semver(),
         )?;
 
-        // A deployment that requires a credential refuses a client
-        // that has no way to produce one.
-        let configuration = server_configuration.configuration();
-        // implements: CONF-051
-        if configuration.auth.enabled && !api_client.has_credential_source() {
-            return Err(ClientBuilderError::ClientError(ClientError::AuthRequired {
-                required_scopes: configuration.auth.required_scopes.clone(),
-            }));
-        }
-
-        // Install the snapshot before any request is made,
-        // so even the identity work below chunks and pre-validates against the
-        // shapes this deployment publishes. The transport is told separately,
-        // because stream and interest-update chunking happens below the
-        // wrapper and never sees the wrapper's copy.
-        let snapshot = Arc::new(configuration.clone());
-        api_client
-            .api_client
-            .set_limits(Arc::new(snapshot.limits.clone()));
-        api_client.set_configuration(snapshot);
-
+        let identifier_check = match &identity_strategy {
+            IdentityStrategy::CreateIfNotFound {
+                identifier, nonce, ..
+            }
+            | IdentityStrategy::CreateForIdentifier { identifier, nonce }
+                if require_identifier_in_inbox =>
+            {
+                Some((identifier.clone(), *nonce))
+            }
+            _ => None,
+        };
         let mut identity = if let Some(identity) = identity {
             identity
         } else {
@@ -613,6 +674,30 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
                 vec![identity.inbox_id.as_str()].as_slice(),
             )
             .await?;
+        }
+        // The identity store trusts a stored identity of the same inbox. The
+        // check runs on the identity updates loaded above and before any
+        // worker, so a rejected identifier makes no request as the stored
+        // installation.
+        if let Some((identifier, nonce)) = identifier_check {
+            let membership = crate::identity_updates::identifier_membership(
+                &conn,
+                &identity.inbox_id,
+                &identifier,
+                &scw_verifier,
+            )
+            .await?;
+            if !crate::identity_updates::identifier_opens_inbox(
+                membership,
+                &identifier,
+                nonce,
+                &identity.inbox_id,
+            ) {
+                return Err(crate::identity::IdentityError::IdentifierNotInInbox {
+                    inbox_id: identity.inbox_id.clone(),
+                }
+                .into());
+            }
         }
 
         // Fold the legacy single-worker toggles into the unified enable map so
@@ -844,6 +929,23 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         location: crate::storage_location::StorageLocation,
         key: xmtp_db::EncryptionKey,
     ) -> Result<ClientBuilder<ApiClient, S, xmtp_db::DefaultStore>, ClientBuilderError> {
+        self.data_location_with(location, move |paths| open_location_store(paths, key))
+    }
+
+    /// Save a deployment-scoped location that `opener` opens. `build` resolves
+    /// the paths after all options are set and passes them to `opener`, so a
+    /// host can open the store with its own connection options.
+    pub fn data_location_with<NewDb>(
+        self,
+        location: crate::storage_location::StorageLocation,
+        opener: impl FnOnce(
+            crate::storage_location::ResolvedPaths,
+        )
+            -> xmtp_common::BoxDynFuture<'static, Result<NewDb, ClientBuilderError>>
+        + xmtp_common::MaybeSend
+        + xmtp_common::MaybeSync
+        + 'static,
+    ) -> Result<ClientBuilder<ApiClient, S, NewDb>, ClientBuilderError> {
         location.validate()?;
         let conflict = self.storage_location_conflict
             || self.store.is_some()
@@ -853,8 +955,8 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             || self.attachments_dir.is_some();
         Ok(ClientBuilder {
             deployment_recorder: None,
-            data_location: Some((location, key)),
-            location_store_opener: Some(open_location_store),
+            data_location: Some(location),
+            location_store_opener: Some(Box::new(opener)),
             mls_storage_factory: None,
             storage_location_selected: true,
             storage_location_conflict: conflict,
@@ -874,6 +976,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -921,6 +1024,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -962,6 +1066,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self
                 .store
                 .as_ref()
@@ -1001,6 +1106,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: Some(mls_storage),
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1093,6 +1199,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1176,6 +1283,20 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
         }
     }
 
+    /// Require the identity strategy's identifier to belong to the inbox of
+    /// the identity the build loads, including a stored one. The build checks
+    /// the association state after it loads the inbox's identity updates and
+    /// before it starts any worker. Before the inbox's first identity update,
+    /// only the identifier whose inbox at the strategy's nonce is that inbox
+    /// belongs to it. A failure is
+    /// [`IdentityError::IdentifierNotInInbox`](crate::identity::IdentityError::IdentifierNotInInbox).
+    pub fn require_identifier_in_inbox(self) -> Self {
+        Self {
+            require_identifier_in_inbox: true,
+            ..self
+        }
+    }
+
     /// Control whether the CommitLogWorker background task is enabled.
     /// Useful for tests that need deterministic commit log operations.
     #[cfg(any(test, feature = "test-utils"))]
@@ -1231,6 +1352,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1268,6 +1390,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
@@ -1316,6 +1439,7 @@ impl<ApiClient, S, Db> ClientBuilder<ApiClient, S, Db> {
             version_info: self.version_info,
             allow_offline: self.allow_offline,
             disable_commit_log_worker: self.disable_commit_log_worker,
+            require_identifier_in_inbox: self.require_identifier_in_inbox,
             mls_storage: self.mls_storage,
             disable_workers: self.disable_workers,
             worker_config: self.worker_config,
