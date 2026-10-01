@@ -57,6 +57,9 @@ Run commands from the repository root in the Nix shell. Run
   Locally, pass the base branch (`just sdk check-isolation self-hosted`): a
   branch tip that merges trunk otherwise looks like a pull request merge commit.
   Tests and changelogs remain outside the shipped-code guard.
+- `just sdk caller-cancellation-swift` checks cancelled nonthrowing calls and
+  real reader pre-poll, pending and READY handoff. It counts native cancel/free
+  calls in generated conformance copies and requires the prior item to replay.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
 - `just sdk conformance-storage` runs the real-worker OPFS proof against the
