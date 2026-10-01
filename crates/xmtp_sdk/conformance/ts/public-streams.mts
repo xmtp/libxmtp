@@ -85,10 +85,10 @@ function publicError(
 // Before initLogging, installing or clearing a log sink fails with the public
 // error, not the binding class.
 for (const install of [
-  () => sdk.setLogSink({ log: () => undefined }),
+  () => sdk.setLogSink({ log: async () => {} }),
   () => sdk.setLogSink(),
 ])
-  assert.throws(
+  await assert.rejects(
     install,
     publicError(sdk.XmtpError.InvalidInput, "InvalidInput", "input"),
   );
@@ -304,7 +304,7 @@ let logged!: (record: sdk.LogRecord) => void;
 const record = new Promise<sdk.LogRecord>((resolve) => {
   logged = resolve;
 });
-sdk.setLogSink({ log: (entry) => logged(entry) });
+await sdk.setLogSink({ log: async (entry) => { logged(entry); } });
 await assert.rejects(
   sdk.localSignerFromPrivateKey(new Uint8Array(31)),
   (error: unknown) => error instanceof sdk.XmtpError,
@@ -315,7 +315,7 @@ const entry = await Promise.race([
     setTimeout(() => reject(new Error("log sink did not run")), 3_000),
   ),
 ]);
-sdk.setLogSink(undefined);
+await sdk.setLogSink(undefined);
 assert.equal(typeof entry.level, "string");
 assert.ok(entry.fields instanceof Map);
 

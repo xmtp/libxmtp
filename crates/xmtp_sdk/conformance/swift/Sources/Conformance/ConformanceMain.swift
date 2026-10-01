@@ -63,6 +63,7 @@ struct Conformance {
             storage: StorageOptions(location: .directory(directory: directory.path)),
             deviceSync: false
         )
+        try await within(seconds: 30) { try await loggingConformance(options) }
         try await checkReaderCursor(signer: signer, backend: backendOptions)
         try await checkRestoredPeer(backend: backendOptions)
         try await checkIdentityRoutes(backend: backendOptions)
@@ -693,15 +694,6 @@ struct Conformance {
         } catch XmtpError.InvalidArgument {}
         print("Swift scenario 12: notification state and typed error passed")
 
-        try await initLogging(options: LoggingOptions(level: .error))
-        let orderedSink = OrderedLogSink()
-        try setLogSink(sink: orderedSink)
-        try await sdkConformanceEmit(count: 32)
-        guard orderedSink.sequence() == (0 ..< 32).map(String.init) else {
-            throw ConformanceFailure("inline log sink changed record order")
-        }
-        try clearLogSink()
-        print("Swift logging: inline records stayed in order")
 
         let family = try await reopened.conversations().createGroup(
             members: [InboxId](), options: CreateGroupOptions(name: "family group")

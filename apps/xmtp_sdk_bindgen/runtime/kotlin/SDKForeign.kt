@@ -48,11 +48,11 @@ object SDKForeign {
 
     fun logSink(host: LogSink): LogSink =
         object : LogSink {
-            override fun log(record: LogRecord) {
+            override suspend fun log(record: LogRecord) {
                 try {
                     host.log(record)
-                } catch (error: Throwable) {
-                    throw LogSinkException.Failed(error.message ?: "log callback failed")
+                } catch (_: Throwable) {
+                    throw LogSinkException.Failed("log callback failed")
                 }
             }
         }

@@ -26,12 +26,7 @@ const HOST_CLIENT_MEMBERS: &[&str] = &[
 ];
 
 /// Functions that the host runtime replaces.
-const HOST_FUNCTIONS: &[&str] = &["setLogSink", "setLogSinkQueued"];
-
-/// Functions that are synchronous in the Node binding and asynchronous in the
-/// browser worker. Their public form is asynchronous on both targets, so the
-/// two targets share one declaration.
-const ASYNC_PUBLIC_FUNCTIONS: &[&str] = &["clearLogSink"];
+const HOST_FUNCTIONS: &[&str] = &["setLogSink"];
 
 /// Guards that route one membership parameter. An empty list uses inbox IDs.
 /// A list that mixes inbox IDs and account identities fails before any call.
@@ -70,7 +65,11 @@ export function currentProjection(): ObjectProjection {
 /// The browser public layer calls functions in the package worker, so it has
 /// only the asynchronous ones; the synchronous ones belong to the pure module.
 fn exported_function(function: &FnMetadata, target: Target) -> bool {
-    target != Target::Browser || function.is_async
+    !function
+        .docstring
+        .as_deref()
+        .is_some_and(|doc| doc.contains("@xmtp-internal"))
+        && (target != Target::Browser || function.is_async)
 }
 
 /// Objects that the browser public layer takes from its package templates.
@@ -408,7 +407,7 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
     if HOST_FUNCTIONS.contains(&name.as_str()) || !exported_function(function, target) {
         return Ok(());
     }
-    let asynchronous = function.is_async || ASYNC_PUBLIC_FUNCTIONS.contains(&name.as_str());
+    let asynchronous = function.is_async;
     let call = call(
         "",
         &name,
@@ -425,7 +424,14 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
     )?;
     let callee = |args: &str| match target {
         Target::Node | Target::Pure => format!("B.{name}({args})"),
-        Target::Browser => format!("createInWorker((session) => P.{name}(session, {args}))"),
+        Target::Browser => {
+            let run = if name == "initLogging" {
+                "loggingInWorker"
+            } else {
+                "createInWorker"
+            };
+            format!("{run}((session) => P.{name}(session, {args}))")
+        }
     };
     render_body(code, &call, &callee, asynchronous)?;
     code.push_str("}\n");
@@ -496,7 +502,7 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
             _ => {}
         }
     }
-    // The runtime exports its own synchronous log sink until F7.
+    // The runtime adds the final host admission check to the async log sink.
     types.remove("LogSink");
     types.insert("DeliveryCursor".to_owned());
     let join = |names: BTreeSet<String>| names.into_iter().collect::<Vec<_>>().join(", ");
@@ -507,7 +513,9 @@ pub(super) fn public_api(items: &[&Metadata], target: Target) -> String {
         Target::Node => {
             "export { setLogSink, type LogSink } from \"./runtime/public/logging.js\";\nexport { ActionsCodec, AttachmentCodec, DeleteMessageCodec, GroupUpdatedCodec, IntentCodec, LeaveRequestCodec, MarkdownCodec, MultiRemoteAttachmentCodec, ReactionV2Codec, ReadReceiptCodec, RemoteAttachmentCodec, ReplyCodec, TextCodec, TransactionReferenceCodec, WalletSendCallsCodec } from \"./runtime/public/codecs.js\";\n"
         }
-        Target::Browser => "export type { StorageAdmin } from \"./storage-admin.gen.js\";\n",
+        Target::Browser => {
+            "export { setLogSink, type LogSink } from \"./runtime/public/logging.js\";\nexport type { StorageAdmin } from \"./storage-admin.gen.js\";\n"
+        }
         Target::Pure => unreachable!("the pure module has its own entry"),
     };
     format!(

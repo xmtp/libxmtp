@@ -1,3 +1,4 @@
+import { sdkLogSinkHandoff } from "xmtp-sdk";
 import { Client, type PublicIdentity, bindingClient } from "xmtp-sdk";
 import { Client as BindingClient } from "xmtp-sdk/xmtp_sdk";
 
@@ -13,3 +14,5 @@ export async function consumeRaw(
   void bindingClient;
   void BindingClient;
 }
+
+void sdkLogSinkHandoff;

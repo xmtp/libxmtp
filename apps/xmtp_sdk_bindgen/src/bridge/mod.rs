@@ -139,13 +139,11 @@ fn validate_bridge(items: &[Metadata]) -> Result<()> {
                 }
             }
             Metadata::TraitMethod(method) if !method.is_async => {
-                if method.trait_name != "LogSink" || method.name != "log" {
-                    bail!(
-                        "{}.{}: synchronous foreign trait method",
-                        method.trait_name,
-                        method.name
-                    );
-                }
+                bail!(
+                    "{}.{}: synchronous foreign trait method",
+                    method.trait_name,
+                    method.name
+                );
             }
             Metadata::Constructor(method) if !method.is_async => {
                 bail!(
@@ -1857,7 +1855,7 @@ mod tests {
 
     #[xmtp_common::test(unwrap_try = true)]
     fn rejects_returned_foreign_object_with_sync_method() {
-        let items = foreign_trait("LogSink", "log", false);
+        let items = foreign_trait("LogSink", "log", true);
         assert!(
             validate_bridge(&items)
                 .unwrap_err()

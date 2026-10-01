@@ -99,10 +99,7 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                 if method.name == "close" {
                     bail!("{item_name}: exported object close method is not supported");
                 }
-                if foreign_traits.contains(method.self_name.as_str())
-                    && !method.is_async
-                    && item_name != "LogSink.log"
-                {
+                if foreign_traits.contains(method.self_name.as_str()) && !method.is_async {
                     bail!("{item_name}: synchronous foreign-trait method is not supported");
                 }
                 check_error_type(&item_name, method.throws.as_ref())?;
@@ -120,10 +117,7 @@ fn validate_items<'a>(items: impl IntoIterator<Item = &'a Metadata>) -> Result<(
                 if method.name == "close" {
                     bail!("{item_name}: exported object close method is not supported");
                 }
-                if foreign_traits.contains(method.trait_name.as_str())
-                    && !method.is_async
-                    && item_name != "LogSink.log"
-                {
+                if foreign_traits.contains(method.trait_name.as_str()) && !method.is_async {
                     bail!("{item_name}: synchronous foreign-trait method is not supported");
                 }
                 check_error_type(&item_name, method.throws.as_ref())?;
@@ -447,7 +441,7 @@ mod tests {
         );
         let allowed = [
             object("LogSink", ObjectImpl::Trait(TraitKind::Both)),
-            trait_method("LogSink", "log", false),
+            trait_method("LogSink", "log", true),
         ];
         validate_items(&allowed)?;
     }

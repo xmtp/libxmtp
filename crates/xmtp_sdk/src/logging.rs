@@ -98,8 +98,6 @@ mod sink {
     use super::{LOGGING, LogLevel, XmtpError};
     use crate::Timestamp;
     use std::sync::Arc;
-    #[cfg(not(target_arch = "wasm32"))]
-    use xmtp_logging::BoundedSink;
     use xmtp_logging::LogSinkTarget;
 
     #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
@@ -150,19 +148,19 @@ mod sink {
     #[cfg(all(feature = "conformance", not(target_arch = "wasm32")))]
     #[xmtp_macro::sdk_export]
     pub fn sdk_conformance_sink_error_count() -> Result<u64, XmtpError> {
-        Ok(handle()?.sink_error_count())
+        Ok(queue().error_count())
     }
 
     #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub async fn sdk_conformance_sink_error_count() -> Result<u64, XmtpError> {
-        Ok(handle()?.sink_error_count())
+        Ok(queue().error_count())
     }
 
     #[cfg(all(feature = "conformance", target_arch = "wasm32"))]
     #[xmtp_macro::sdk_export]
     pub async fn sdk_conformance_sink_dropped_count() -> Result<u64, XmtpError> {
-        Ok(handle()?.sink_dropped_count())
+        Ok(queue().dropped_count())
     }
 
     #[derive(Clone, Debug, uniffi::Record)]
@@ -193,8 +191,6 @@ mod sink {
     pub enum LogSinkError {
         #[error("log sink failed: {reason}")]
         Failed { reason: String },
-        #[error("log sink is busy")]
-        Busy,
     }
 
     impl From<uniffi::UnexpectedUniFFICallbackError> for LogSinkError {
@@ -207,21 +203,61 @@ mod sink {
 
     // Foreign traits need `with_foreign`, which `sdk_export` cannot emit.
     #[uniffi::export(with_foreign)]
+    #[xmtp_common::async_trait]
     pub trait LogSink: Send + Sync + 'static {
-        fn log(&self, record: LogRecord) -> Result<(), LogSinkError>;
+        async fn log(&self, record: LogRecord) -> Result<(), LogSinkError>;
     }
 
-    struct SinkBridge(Arc<dyn LogSink>);
+    static QUEUE: std::sync::OnceLock<Arc<xmtp_logging::SinkQueue<dyn LogSink>>> =
+        std::sync::OnceLock::new();
+
+    #[cfg(not(target_arch = "wasm32"))]
+    static DRAIN: std::sync::OnceLock<Box<dyn xmtp_common::StreamHandle<StreamOutput = ()>>> =
+        std::sync::OnceLock::new();
+
+    #[cfg(target_arch = "wasm32")]
+    thread_local! {
+        static DRAIN: std::cell::RefCell<Option<Box<dyn xmtp_common::StreamHandle<StreamOutput = ()>>>> = const { std::cell::RefCell::new(None) };
+    }
+
+    fn queue() -> &'static Arc<xmtp_logging::SinkQueue<dyn LogSink>> {
+        QUEUE.get_or_init(|| Arc::new(xmtp_logging::SinkQueue::default()))
+    }
+
+    struct SinkBridge;
     impl LogSinkTarget for SinkBridge {
         fn on_record(
             &self,
             record: xmtp_logging::LogRecord,
         ) -> Result<(), xmtp_logging::SinkError> {
-            self.0.log(record.into()).map_err(|error| match error {
-                LogSinkError::Busy => Box::new(xmtp_logging::SinkBusy) as xmtp_logging::SinkError,
-                other => Box::new(other) as xmtp_logging::SinkError,
-            })
+            queue().push(record);
+            Ok(())
         }
+    }
+
+    async fn drain(queue: Arc<xmtp_logging::SinkQueue<dyn LogSink>>) {
+        loop {
+            let dispatch = futures::future::poll_fn(|cx| queue.poll_next(cx)).await;
+            let sink = dispatch.target.clone();
+            let record = dispatch.record.clone().into();
+            // One foreign call outlives replacement and completes before the next starts.
+            let success = matches!(
+                crate::foreign::call(async move { sink.log(record).await }).await,
+                Ok(Ok(()))
+            );
+            queue.complete(dispatch, success);
+        }
+    }
+
+    fn start_drain() {
+        #[cfg(not(target_arch = "wasm32"))]
+        DRAIN.get_or_init(|| Box::new(xmtp_common::spawn(None, drain(queue().clone()))));
+        #[cfg(target_arch = "wasm32")]
+        DRAIN.with_borrow_mut(|handle| {
+            if handle.is_none() {
+                *handle = Some(Box::new(xmtp_common::spawn(None, drain(queue().clone()))));
+            }
+        });
     }
 
     fn handle() -> Result<&'static xmtp_logging::LoggingHandle, XmtpError> {
@@ -230,40 +266,20 @@ mod sink {
             .ok_or_else(|| XmtpError::invalid("init_logging must be called first"))
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_macro::sdk_export]
-    pub fn set_log_sink(sink: Option<Arc<dyn LogSink>>) -> Result<(), XmtpError> {
-        handle()?.set_sink(sink.map(|sink| Arc::new(SinkBridge(sink)) as Arc<dyn LogSinkTarget>));
-        Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
+    /// Install or clear the optional asynchronous app sink.
     #[xmtp_macro::sdk_export]
     pub async fn set_log_sink(sink: Option<Arc<dyn LogSink>>) -> Result<(), XmtpError> {
-        handle()?.set_sink(sink.map(|sink| Arc::new(SinkBridge(sink)) as Arc<dyn LogSinkTarget>));
+        let handle = handle()?;
+        start_drain();
+        queue().replace(sink);
+        handle.set_sink(Some(Arc::new(SinkBridge)));
         Ok(())
     }
 
-    #[cfg(not(target_arch = "wasm32"))]
+    /// Private host admission receipt. @xmtp-worker @xmtp-internal
     #[xmtp_macro::sdk_export]
-    pub fn set_log_sink_queued(sink: Arc<dyn LogSink>) -> Result<(), XmtpError> {
-        let queue = BoundedSink::new(Arc::new(SinkBridge(sink))).map_err(XmtpError::from_core)?;
-        handle()?.set_sink(Some(Arc::new(queue) as Arc<dyn LogSinkTarget>));
-        Ok(())
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    #[xmtp_macro::sdk_export]
-    pub fn clear_log_sink() -> Result<(), XmtpError> {
-        handle()?.set_sink(None);
-        Ok(())
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    #[xmtp_macro::sdk_export]
-    pub async fn clear_log_sink() -> Result<(), XmtpError> {
-        handle()?.set_sink(None);
-        Ok(())
+    pub fn sdk_log_sink_handoff() -> bool {
+        queue().handoff()
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -329,27 +345,7 @@ mod sink {
     }
 
     #[cfg(all(test, not(target_arch = "wasm32")))]
-    mod tests {
-        use super::*;
-
-        struct Throwing;
-        impl LogSink for Throwing {
-            fn log(&self, _: LogRecord) -> Result<(), LogSinkError> {
-                Err(LogSinkError::Failed {
-                    reason: "test failure".into(),
-                })
-            }
-        }
-
-        #[xmtp_common::test]
-        fn sink_throw_does_not_panic() {
-            let bridge = Arc::new(SinkBridge(Arc::new(Throwing))) as Arc<dyn LogSinkTarget>;
-            let errors = xmtp_logging::test_logging::sink_errors_from_tracing(bridge, || {
-                tracing::error!(target: "xmtp_sdk::sink_test", "foreign sink error");
-            });
-            assert_eq!(errors, 1);
-        }
-    }
+    mod tests;
 }
 
 #[cfg(not(target_arch = "wasm32"))]

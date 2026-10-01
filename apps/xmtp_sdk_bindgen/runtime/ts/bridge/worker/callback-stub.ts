@@ -8,6 +8,7 @@ import {
 interface Pending {
   resolve(value: unknown): void;
   reject(error: Error): void;
+  handoff?: () => void;
 }
 
 export class WorkerCallbacks {
@@ -18,11 +19,16 @@ export class WorkerCallbacks {
 
   constructor(private readonly endpoint: WireEndpoint) {}
 
-  invoke(cb: number, method: string, args: unknown[]): Promise<unknown> {
+  invoke(
+    cb: number,
+    method: string,
+    args: unknown[],
+    handoff?: () => void,
+  ): Promise<unknown> {
     this.onInvoke?.(cb);
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
-      this.pending.set(id, { resolve, reject });
+      this.pending.set(id, { resolve, reject, handoff });
       try {
         this.endpoint.postMessage({ t: "callback", id, cb, method, args });
       } catch (error) {
@@ -40,6 +46,14 @@ export class WorkerCallbacks {
     else pending.resolve(message.value);
   }
 
+  receiveHandoff(id: number): void {
+    const pending = this.pending.get(id);
+    const handoff = pending?.handoff;
+    if (!pending || !handoff) return;
+    pending.handoff = undefined;
+    handoff();
+  }
+
   drop(cb: number): void {
     try {
       this.endpoint.postMessage({ t: "callbackDrop", cb });
@@ -52,46 +66,5 @@ export class WorkerCallbacks {
     for (const pending of this.pending.values())
       pending.reject(bridgeError("workerTerminated"));
     this.pending.clear();
-  }
-}
-
-export class LogWindow {
-  private unacknowledged = 0;
-  private readonly limit = 4096;
-  private queued: unknown[] = [];
-  private scheduled = false;
-
-  constructor(
-    private readonly callbacks: WorkerCallbacks,
-    private readonly cb: number,
-  ) {}
-
-  log(record: unknown): "accepted" | "busy" {
-    if (this.unacknowledged >= this.limit) return "busy";
-    this.unacknowledged++;
-    this.queued.push(record);
-    if (!this.scheduled) {
-      this.scheduled = true;
-      queueMicrotask(() => this.flush());
-    }
-    return "accepted";
-  }
-
-  private flush(): void {
-    this.scheduled = false;
-    const batch = this.queued;
-    this.queued = [];
-    void this.callbacks.invoke(this.cb, "logBatch", [batch]).then(
-      () => {
-        this.unacknowledged -= batch.length;
-      },
-      () => {
-        this.unacknowledged -= batch.length;
-      },
-    );
-  }
-
-  get outstanding(): number {
-    return this.unacknowledged;
   }
 }
