@@ -188,17 +188,12 @@ export function registerLoggingTests(): void {
     const held = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const sink = callbacks.register(
-      "LogSink",
-      {
-        log: async () => {
-          expect(main.sent.at(-1)).toEqual({ t: "logHandoff", id: 1 });
-          callbacks.clearLogSink();
-          await held;
-        },
-      },
-      ["log"],
-    );
+    const log = vi.fn(async () => {
+      expect(main.sent.at(-1)).toEqual({ t: "logHandoff", id: 1 });
+      callbacks.clearLogSink();
+      await held;
+    });
+    const sink = await install(callbacks, { log });
     const delivery = callbacks.receive({
       t: "callback",
       id: 1,
@@ -206,6 +201,17 @@ export function registerLoggingTests(): void {
       method: "log",
       args: [],
     });
+    await callbacks.receive({
+      t: "callback",
+      id: 2,
+      cb: sink.cb,
+      method: "log",
+      args: [],
+    });
+    expect(log).toHaveBeenCalledTimes(1);
+    expect(main.sent.filter((message) => message.t === "logHandoff")).toEqual([
+      { t: "logHandoff", id: 1 },
+    ]);
     expect(callbacks.hasActiveLog).toBe(true);
     expect(finished).not.toHaveBeenCalled();
     release();
