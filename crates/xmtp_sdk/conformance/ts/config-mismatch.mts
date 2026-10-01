@@ -15,11 +15,13 @@ export async function checkConfigurationMismatch(
   signer: sdk.Signer,
   backend: sdk.BackendOptions,
 ): Promise<void> {
+  const root = await mkdtemp(join(tmpdir(), "f6-mismatch-"));
   const options: sdk.ClientOptions = {
     backend,
     storage: {
       location: {
-        path: join(await mkdtemp(join(tmpdir(), "f6-mismatch-")), "client.db"),
+        dbPath: join(root, "client.db"),
+        attachmentsDir: join(root, "attachments"),
       },
     },
     deviceSync: false,

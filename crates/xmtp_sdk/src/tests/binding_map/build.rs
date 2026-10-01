@@ -467,7 +467,13 @@ async fn offline_build_on_another_deployment_fails_its_first_request_with_backen
     ));
     let signer = crate::generate_local_signer().await;
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = StorageLocation::Explicit {
+        db_path: path.to_string_lossy().into_owned(),
+        attachments_dir: path
+            .with_extension("attachments")
+            .to_string_lossy()
+            .into_owned(),
+    };
     let online = Client::create(signer.clone(), settings.clone()).await?;
     let inbox_id = online.inbox_id();
     bind_other_deployment(&online)?;
@@ -518,7 +524,13 @@ async fn a_blocked_connection_keeps_its_code_on_sync_and_later_calls() {
     ));
     let signer = crate::generate_local_signer().await;
     let mut settings = options();
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = StorageLocation::Explicit {
+        db_path: path.to_string_lossy().into_owned(),
+        attachments_dir: path
+            .with_extension("attachments")
+            .to_string_lossy()
+            .into_owned(),
+    };
     let online = Client::create(signer.clone(), settings.clone()).await?;
     let inbox_id = online.inbox_id();
     {

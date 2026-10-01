@@ -59,6 +59,8 @@ const TERMINAL: &[&str] = &[
 /// Types that the walk classifies. A transparent variant whose inner type is
 /// one of these, or hides one, must be opened.
 const CLASSIFIED: &[&str] = &[
+    "IdentityError",
+    "ClientBuilderError",
     "PlatformStorageError",
     "GroupError",
     "ClientError",

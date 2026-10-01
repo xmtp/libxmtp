@@ -36,7 +36,13 @@ async fn storage_failures_are_retryable_on_reads_only() {
         std::process::id(),
         xmtp_common::time::now_ns()
     ));
-    settings.storage.location = StorageLocation::Path(path.to_string_lossy().into_owned());
+    settings.storage.location = StorageLocation::Explicit {
+        db_path: path.to_string_lossy().into_owned(),
+        attachments_dir: path
+            .with_extension("attachments")
+            .to_string_lossy()
+            .into_owned(),
+    };
     let client = Client::create(crate::generate_local_signer().await, settings).await?;
     let group = client.conversations().create_group(vec![], None).await?;
     let text = || crate::encode_standard(StandardContent::Text("hi".into()));
