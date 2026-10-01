@@ -6,6 +6,7 @@ mod kotlin_callbacks;
 mod kotlin_records;
 mod logging_admission;
 mod public_projection;
+mod swift_async;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -136,6 +137,13 @@ fn generate(
                 crate_filter: Some("xmtp_sdk".into()),
                 metadata_no_deps: true,
             })?;
+            if matches!(language, Language::Swift) {
+                let binding = out.join("xmtp_sdk.swift");
+                fs::write(
+                    &binding,
+                    swift_async::rewrite(&fs::read_to_string(&binding)?)?,
+                )?;
+            }
             if matches!(language, Language::Kotlin) {
                 let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
                 let callbacks = kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?;
