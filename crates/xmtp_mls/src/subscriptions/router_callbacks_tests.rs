@@ -645,6 +645,29 @@ async fn transport_registry_reuses_only_the_same_api_client() {
     );
 }
 
+/// The registry must not keep credentials through a captured API after its owners drop.
+#[xmtp_common::test(unwrap_try = true)]
+async fn transport_registry_releases_api_after_last_owner() {
+    let before = shared_transport_count();
+    let api = Arc::new(FixedHostApi("test://released-backend"));
+    let observed = Arc::downgrade(&api);
+    let first = shared_transport(api.clone());
+    let second = shared_transport(api);
+    assert!(Arc::ptr_eq(&first, &second));
+    drop(first);
+    assert!(observed.upgrade().is_some());
+    assert_eq!(shared_transport_count(), before + 1);
+    drop(second);
+    tokio::time::timeout(WAIT, async {
+        while observed.upgrade().is_some() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the transport registry retained the API after the last owner dropped");
+    assert_eq!(shared_transport_count(), before);
+}
+
 // verifies: PROC-021, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn cached_factory_opens_a_new_stream_after_a_nonretryable_reconnect() {
@@ -702,7 +725,7 @@ async fn cached_factory_opens_a_new_stream_after_a_nonretryable_reconnect() {
         calls: Arc::new(AtomicUsize::new(0)),
         first: Arc::new(parking_lot::Mutex::new(Some(receiver))),
     });
-    let factory = BidiSubscriptionFactory { api: api.clone() };
+    let factory = BidiSubscriptionFactory::new(api.clone());
     let cursors: TopicCursor = [(Topic::new_group_message([7; 16]), Cursor(0))].into();
     let limits = IncomingBatchLimits {
         max_rows: 8,
