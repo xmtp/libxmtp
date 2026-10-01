@@ -1,5 +1,9 @@
 import { expect, it, vi } from "vitest";
 
+import {
+  LogCallbackQueue,
+  MainCallbacks,
+} from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/callbacks.js";
 import { logSinkSetter } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/log-sink.js";
 import type { MainSession } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/session.js";
 import { WorkerSessions } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/main/worker-sessions.js";
@@ -26,6 +30,130 @@ function gate() {
 }
 
 export function registerLogRestartTests(): void {
+  // verifies: LOG-002, LOG-004, LOG-008, LOG-011
+  it("logging-restart: shares callback credit across sessions and cancels closed waiters", async () => {
+    const queue = new LogCallbackQueue();
+    const endpoints = [pair()[0], pair()[0], pair()[0]];
+    const callbacks = endpoints.map(
+      (endpoint) => new MainCallbacks(endpoint, undefined, queue),
+    );
+    const held = gate();
+    const calls: number[] = [];
+    const wires = callbacks.map((table, index) =>
+      table.register(
+        "LogSink",
+        {
+          log: async () => {
+            calls.push(index);
+            if (index === 0) await held.promise;
+            if (index === 2) throw new Error("app log failed");
+          },
+        },
+        ["log"],
+      ),
+    );
+    const receive = (index: number) =>
+      callbacks[index].receive({
+        t: "callback",
+        id: index + 1,
+        cb: wires[index].cb,
+        method: "log",
+        args: [],
+      });
+    const first = receive(0);
+    const abandoned = receive(1);
+    const last = receive(2);
+    try {
+      expect(calls).toEqual([0]);
+      expect(endpoints[1].sent).toEqual([]);
+      expect(endpoints[2].sent).toEqual([]);
+      callbacks[0].close();
+      callbacks[1].close();
+      await waitForLog(abandoned, "closed callback did not leave the queue");
+      expect(calls).toEqual([0]);
+      held.release();
+      await Promise.all([first, last]);
+      expect(calls).toEqual([0, 2]);
+      expect(endpoints[2].sent[0]).toEqual({ t: "logHandoff", id: 3 });
+      await receive(2);
+      expect(calls).toEqual([0, 2, 2]);
+    } finally {
+      held.release();
+      callbacks.forEach((table) => table.close());
+      await Promise.all([first, abandoned, last]);
+    }
+  });
+
+  // verifies: LOG-011
+  it("logging-restart: rejects a cleared sink while it waits for another session", async () => {
+    const queue = new LogCallbackQueue();
+    const endpoints = [pair()[0], pair()[0]];
+    const callbacks = endpoints.map(
+      (endpoint) => new MainCallbacks(endpoint, undefined, queue),
+    );
+    const held = gate();
+    const stale = vi.fn(() => Promise.resolve());
+    let first!: CallbackWire;
+    let second!: CallbackWire;
+    await callbacks[0].updateLogSink(() => {
+      first = callbacks[0].register("LogSink", { log: () => held.promise }, [
+        "log",
+      ]);
+      return Promise.resolve();
+    });
+    await callbacks[1].updateLogSink(() => {
+      second = callbacks[1].register("LogSink", { log: stale }, ["log"]);
+      return Promise.resolve();
+    });
+    const active = callbacks[0].receive({
+      t: "callback",
+      id: 1,
+      cb: first.cb,
+      method: "log",
+      args: [],
+    });
+    const waiting = callbacks[1].receive({
+      t: "callback",
+      id: 2,
+      cb: second.cb,
+      method: "log",
+      args: [],
+    });
+    try {
+      expect(endpoints[1].sent).toEqual([]);
+      callbacks[1].clearLogSink();
+      held.release();
+      await Promise.all([active, waiting]);
+      expect(stale).not.toHaveBeenCalled();
+      expect(
+        endpoints[1].sent.some((message) => message.t === "logHandoff"),
+      ).toBe(false);
+    } finally {
+      held.release();
+      callbacks.forEach((table) => table.close());
+      await Promise.all([active, waiting]);
+    }
+  });
+
+  it("logging-restart: cancels a waiter after credit moves but before the app call", async () => {
+    const queue = new LogCallbackQueue();
+    const firstSignal = new AbortController();
+    const secondSignal = new AbortController();
+    const held = gate();
+    const call = vi.fn(() => Promise.resolve());
+    const first = queue.run(firstSignal.signal, () => held.promise);
+    const second = queue.run(secondSignal.signal, call);
+    const rejected = expect(second).rejects.toThrow("callback was released");
+    held.release();
+    queueMicrotask(() =>
+      secondSignal.abort(new Error("callback was released")),
+    );
+    await Promise.all([first, rejected]);
+    expect(call).not.toHaveBeenCalled();
+    await queue.run(firstSignal.signal, call);
+    expect(call).toHaveBeenCalledTimes(1);
+  });
+
   for (const change of ["accepted", "rejected", "cleared", "held"] as const) {
     // verifies: LOG-002, LOG-007, LOG-009
     it(`logging-restart: restores the committed package sink after worker retirement (${change})`, async () => {

@@ -18,6 +18,44 @@ interface Registered {
   methods: ReadonlySet<string>;
 }
 
+/** One app log callback across worker generations. Closed sessions cancel waiters. */
+export class LogCallbackQueue {
+  private active = false;
+  private readonly waiting = new Set<() => void>();
+
+  async run<T>(
+    signal: AbortSignal,
+    call: () => T | PromiseLike<T>,
+  ): Promise<T> {
+    if (signal.aborted) throw new Error("callback was released");
+    if (this.active) {
+      await new Promise<void>((resolve, reject) => {
+        const ready = () => {
+          signal.removeEventListener("abort", abort);
+          resolve();
+        };
+        const abort = () => {
+          this.waiting.delete(ready);
+          reject(new Error("callback was released"));
+        };
+        this.waiting.add(ready);
+        signal.addEventListener("abort", abort, { once: true });
+      });
+    } else this.active = true;
+    try {
+      // A close can occur after a waiter receives its turn but before it resumes.
+      signal.throwIfAborted();
+      return await call();
+    } finally {
+      const next = this.waiting.values().next().value;
+      if (next) {
+        this.waiting.delete(next);
+        next();
+      } else this.active = false;
+    }
+  }
+}
+
 export class MainCallbacks {
   private readonly targets = new Map<number, Registered>();
   private nextId = 1;
@@ -27,10 +65,12 @@ export class MainCallbacks {
   // The ids registered by the `collect` call that is running.
   private scope: number[] | undefined;
   private closed = false;
+  private readonly logWait = new AbortController();
 
   constructor(
     private readonly endpoint: WireEndpoint,
     private readonly onLogFinished?: () => void,
+    private readonly logQueue = new LogCallbackQueue(),
   ) {}
 
   get hasActiveLog(): boolean {
@@ -110,6 +150,7 @@ export class MainCallbacks {
   /** Drops every callback. Replies to calls that are still running go nowhere. */
   close(): void {
     this.closed = true;
+    this.logWait.abort(new Error("callback was released"));
     this.targets.clear();
   }
 
@@ -131,14 +172,19 @@ export class MainCallbacks {
           : undefined;
         if (typeof method !== "function")
           throw bridgeError("contractMismatch", { method: message.method });
-        // The receipt and app call have no intervening await. A delayed
-        // receipt holds queue credit longer; it cannot release it early.
+        // A queued log keeps credit while another generation calls the app.
+        // The receipt and app call below have no intervening await.
         if (registered.type === "LogSink" && message.method === "log") {
           this.activeLogs++;
           activeLog = true;
-          this.post({ t: "logHandoff", id: message.id });
-        }
-        value = await method(...message.args);
+          value = await this.logQueue.run(this.logWait.signal, () => {
+            if (this.targets.get(message.cb) !== registered)
+              throw new Error("callback was released");
+            // Grant credit only when this generation can enter the app callback.
+            this.post({ t: "logHandoff", id: message.id });
+            return method(...message.args);
+          });
+        } else value = await method(...message.args);
       } catch (error) {
         this.replyError(
           message.id,

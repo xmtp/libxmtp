@@ -9,7 +9,7 @@ import {
   type WireMessage,
 } from "../wire.js";
 import type { ErrorWire } from "../wire.js";
-import { MainCallbacks } from "./callbacks.js";
+import { type LogCallbackQueue, MainCallbacks } from "./callbacks.js";
 import type { RemoteObject } from "./remote-object.js";
 
 interface Pending {
@@ -64,9 +64,14 @@ export class MainSession {
     version: number,
     hash: string,
     private readonly onIdle?: () => void,
+    logQueue?: LogCallbackQueue,
   ) {
     void this.stoppedPromise.catch(() => {});
-    this.callbacks = new MainCallbacks(endpoint, () => this.notifyIdle());
+    this.callbacks = new MainCallbacks(
+      endpoint,
+      () => this.notifyIdle(),
+      logQueue,
+    );
     this.readyPromise = new Promise<void>((resolve, reject) => {
       this.readyResolve = resolve;
       this.readyReject = reject;

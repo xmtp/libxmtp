@@ -1,4 +1,5 @@
 import { bridgeError, type WireEndpoint } from "../wire.js";
+import { LogCallbackQueue } from "./callbacks.js";
 import { MainSession } from "./session.js";
 
 interface Generation {
@@ -14,6 +15,7 @@ interface Generation {
 export class WorkerSessions {
   private current?: Generation;
   private retiring?: MainSession;
+  private readonly logQueue = new LogCallbackQueue();
 
   constructor(
     private readonly createEndpoint: () => WireEndpoint,
@@ -80,6 +82,7 @@ export class WorkerSessions {
           this.version,
           this.hash,
           () => this.retireIfIdle(generation),
+          this.logQueue,
         );
         generation.session = session;
         void session

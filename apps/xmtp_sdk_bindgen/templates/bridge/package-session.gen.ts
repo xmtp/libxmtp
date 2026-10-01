@@ -55,10 +55,12 @@ export async function loggingInWorker<T>(
 }
 
 /** Keep accepted logging configuration separate from worker ownership. */
-export function initLoggingInWorker(
-  configure: (session: MainSession) => Promise<void>,
+export function initLoggingInWorker<Options>(
+  options: Options,
+  configure: (session: MainSession, options: Options) => Promise<void>,
 ): Promise<void> {
-  return updateLogSink.configure(configure);
+  const snapshot = structuredClone(options);
+  return updateLogSink.configure((session) => configure(session, snapshot));
 }
 
 export function setPackageLogSink(sink?: LogSink): Promise<void> {

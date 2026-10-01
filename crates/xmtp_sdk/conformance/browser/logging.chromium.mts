@@ -102,6 +102,14 @@ try {
   console.log(
     "Chromium accepted logging settings survive retirement; clear stays cleared",
   );
+  await bounded(
+    page.evaluate(async () =>
+      (await import("./logging.chromium.ts")).managedFailureRestart(),
+    ),
+  );
+  console.log(
+    "Chromium failed-worker restart preserves one app callback and independent creation",
+  );
 } finally {
   await browser.close();
   await server.close();

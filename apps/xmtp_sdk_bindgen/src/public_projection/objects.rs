@@ -422,18 +422,16 @@ pub(super) fn function(code: &mut String, function: &FnMetadata, target: Target)
         call.parameters,
         call.result_type
     )?;
-    if name == "initLogging" && target == Target::Browser {
-        code.push_str("  options = structuredClone(options);\n");
-    }
     let callee = |args: &str| match target {
         Target::Node | Target::Pure => format!("B.{name}({args})"),
         Target::Browser => {
-            let run = if name == "initLogging" {
-                "initLoggingInWorker"
+            if name == "initLogging" {
+                format!(
+                    "initLoggingInWorker({args}, (session, options) => P.{name}(session, options))"
+                )
             } else {
-                "createInWorker"
-            };
-            format!("{run}((session) => P.{name}(session, {args}))")
+                format!("createInWorker((session) => P.{name}(session, {args}))")
+            }
         }
     };
     render_body(code, &call, &callee, asynchronous)?;
