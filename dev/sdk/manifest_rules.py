@@ -66,7 +66,7 @@ for sdk in ("Swift", "Kotlin"):
         sdk,
         "Reaction",
         "reference",
-        "static runtime",
+        "generated",
         ref,
         finals="ReactionV2Content.reference",
         note="The codec value keeps the target message ID.",
@@ -75,7 +75,7 @@ for sdk in ("Swift", "Kotlin"):
         sdk,
         "Reaction",
         "referenceInboxId",
-        "static runtime",
+        "generated",
         ref,
         finals="ReactionV2Content.referenceInboxId",
         note="The codec value keeps the optional target sender inbox ID.",
@@ -2291,7 +2291,7 @@ def _classify(entry: object) -> Decision:
         name == "DeleteMessageRequest" or name.startswith("DeleteMessageRequest.")
     ):
         return decision(
-            "static runtime",
+            "generated",
             name.replace("DeleteMessageRequest", "DeleteMessageContent", 1),
             f"11.4 {sdk}, Messages, codecs, preferences, values; 4, Host codecs",
             "The typed delete codec uses DeleteMessageContent.",
@@ -2314,7 +2314,7 @@ def _classify(entry: object) -> Decision:
         }
         if member in targets:
             return decision(
-                "generated" if member == "inReplyTo" else "static runtime",
+                "generated",
                 targets[member],
                 f"11.4 {sdk}, Messages, codecs, preferences, values",
             )
