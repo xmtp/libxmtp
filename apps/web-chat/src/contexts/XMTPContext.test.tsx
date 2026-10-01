@@ -1,13 +1,22 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, cleanup, renderHook } from "@testing-library/react";
 import type { Client } from "@xmtp/browser-sdk";
 import { generatePrivateKey } from "viem/accounts";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createEphemeralSigner } from "@/helpers/createSigner";
 
 import { XMTPProvider, useXMTP } from "./XMTPContext";
 
 describe("XMTPProvider", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
+
   it("initializes an ephemeral client against XMTP_BACKEND_URL", async () => {
     const backendUrl = import.meta.env.XMTP_BACKEND_URL;
     if (!backendUrl) {
