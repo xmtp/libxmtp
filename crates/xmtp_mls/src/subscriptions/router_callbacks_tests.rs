@@ -668,6 +668,80 @@ async fn transport_registry_releases_api_after_last_owner() {
     assert_eq!(shared_transport_count(), before);
 }
 
+/// Returned subscriptions keep one shared wire alive after their factories drop.
+#[xmtp_common::test(unwrap_try = true)]
+async fn subscription_keeps_transport_shared_after_factory_drop() {
+    use crate::subscriptions::incoming::{BidiSubscriptionFactory, SubscriptionFactory};
+    use futures::{StreamExt, stream::BoxStream};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use xmtp_proto::{
+        api::ApiClientError,
+        backend_v1::{SubscribeRequest, SubscribeResponse},
+        types::{Cursor, IncomingBatchLimits, Topic, TopicCursor},
+    };
+
+    struct ScriptedApi {
+        calls: AtomicUsize,
+    }
+
+    #[xmtp_common::async_trait]
+    impl xmtp_proto::api_client::XmtpMlsBidiStreams for ScriptedApi {
+        type SubscribeStream = BoxStream<'static, Result<SubscribeResponse, ApiClientError>>;
+        type Error = ApiClientError;
+
+        fn host(&self) -> &str {
+            "test://subscription-owned-transport"
+        }
+
+        async fn subscribe_bidi(
+            &self,
+            requests: BoxStream<'static, SubscribeRequest>,
+        ) -> Result<Self::SubscribeStream, Self::Error> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            // Keep the request side open until this scripted wire drops.
+            Ok(Box::pin(futures::stream::pending().map(move |event| {
+                let _requests = &requests;
+                event
+            })))
+        }
+    }
+
+    let api = Arc::new(ScriptedApi {
+        calls: AtomicUsize::new(0),
+    });
+    let observed = Arc::downgrade(&api);
+    let cursors: TopicCursor = [(Topic::new_group_message([8; 16]), Cursor(0))].into();
+    let limits = IncomingBatchLimits {
+        max_rows: 8,
+        max_bytes: 1024,
+    };
+    let first_factory = BidiSubscriptionFactory::new(api.clone());
+    let first = first_factory.open(cursors.clone(), limits).await?;
+    xmtp_common::wait_for_eq(|| async { api.calls.load(Ordering::SeqCst) }, 1).await?;
+    drop(first_factory);
+
+    let second_factory = BidiSubscriptionFactory::new(api.clone());
+    let second = second_factory.open(cursors, limits).await?;
+    assert_eq!(
+        api.calls.load(Ordering::SeqCst),
+        1,
+        "a returned subscription must keep the same API client's shared transport"
+    );
+    drop(second_factory);
+
+    // Only the subscriptions own the shared transport during the lifecycle round trip.
+    suspend_bidi_streams().await?;
+    assert_eq!(api.calls.load(Ordering::SeqCst), 1);
+    resume_bidi_streams().await?;
+    xmtp_common::wait_for_eq(|| async { api.calls.load(Ordering::SeqCst) }, 2).await?;
+
+    drop(first);
+    drop(second);
+    drop(api);
+    xmtp_common::wait_for_eq(|| async { observed.strong_count() }, 0).await?;
+    assert!(observed.upgrade().is_none());
+}
+
 // verifies: PROC-021, PROC-039
 #[xmtp_common::test(unwrap_try = true)]
 async fn cached_factory_opens_a_new_stream_after_a_nonretryable_reconnect() {

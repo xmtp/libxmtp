@@ -153,7 +153,7 @@ where
 {
     fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture {
         // Keep the shared transport alive between this client's receiving calls.
-        // The process registry must not keep its credentials after this factory drops.
+        // The process registry must not keep credentials after factories and subscriptions drop.
         let transport = self.transport.get_or_init(|| {
             super::router_callbacks::shared_transport(self.api.clone())
         }).clone();
@@ -169,9 +169,11 @@ where
                 )
                 .await
                 .map(|lease| {
-                    lease
-                        .into_incoming_subscription()
-                        .map_error(NetworkError::new)
+                    lease.into_incoming_subscription().map_error(move |error| {
+                        // The event stream retains this exact shared transport until it drops.
+                        let _owner = &transport;
+                        NetworkError::new(error)
+                    })
                 })
                 .map_err(NetworkError::new)
         })
