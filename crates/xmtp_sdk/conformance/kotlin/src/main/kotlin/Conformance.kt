@@ -929,22 +929,7 @@ fun main() =
         withoutCodec.end()
         println("Kotlin scenario 6: custom codec stayed with its client")
 
-        val archive = reopened.archives().exportToBytes(ByteArray(32) { 7 }, null)
-        check(archive.isNotEmpty())
-        check(reopened.archives().metadataFromBytes(archive, ByteArray(32) { 7 }).backupVersion == 0u.toUShort())
-        val archiveFolder = Files.createTempDirectory("xmtp-sdk-archive-")
-        val archivePath = archiveFolder.resolve("snapshot.xmtp")
-        try {
-            reopened.archives().exportToFile(archivePath.toString(), ByteArray(32) { 7 }, null)
-            check(
-                reopened.archives().metadataFromFile(archivePath.toString(), ByteArray(32) { 7 }).backupVersion ==
-                    0u.toUShort(),
-            )
-        } finally {
-            Files.deleteIfExists(archivePath)
-            Files.deleteIfExists(archiveFolder)
-        }
-        println("Kotlin scenario 9: archive bytes and file passed")
+        checkArchiveBytesAndFile(reopened)
 
         // verifies: EVENT-014
         // verifies: EVENT-050

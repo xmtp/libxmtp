@@ -164,3 +164,22 @@ internal suspend fun releasedMessage(
     val message = group.messages(null).first { it.id == id }
     return message to WeakReference(host)
 }
+
+internal suspend fun checkArchiveBytesAndFile(host: SDKClient) {
+    val archive = host.archives().exportToBytes(ByteArray(32) { 7 }, null)
+    check(archive.isNotEmpty())
+    check(host.archives().metadataFromBytes(archive, ByteArray(32) { 7 }).backupVersion == 0u.toUShort())
+    val archiveFolder = Files.createTempDirectory("xmtp-sdk-archive-")
+    val archivePath = archiveFolder.resolve("snapshot.xmtp")
+    try {
+        host.archives().exportToFile(archivePath.toString(), ByteArray(32) { 7 }, null)
+        check(
+            host.archives().metadataFromFile(archivePath.toString(), ByteArray(32) { 7 }).backupVersion ==
+                0u.toUShort(),
+        )
+    } finally {
+        Files.deleteIfExists(archivePath)
+        Files.deleteIfExists(archiveFolder)
+    }
+    println("Kotlin scenario 9: archive bytes and file passed")
+}
