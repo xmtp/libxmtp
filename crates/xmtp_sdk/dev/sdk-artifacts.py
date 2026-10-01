@@ -48,7 +48,9 @@ def source_hash(generator=False):
         if not path.is_file():
             continue
         if generator:
-            keep = name.startswith("apps/xmtp_sdk_bindgen/") or name in (
+            keep = name.startswith(
+                ("apps/xmtp_sdk_bindgen/", "crates/xmtp_configuration/")
+            ) or name in (
                 "Cargo.lock",
                 "Cargo.toml",
                 "crates/xmtp_sdk/uniffi.toml",

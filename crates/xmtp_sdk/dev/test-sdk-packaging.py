@@ -191,6 +191,20 @@ class PackagingTests(unittest.TestCase):
             (artifacts.source_hash(), artifacts.source_hash(True)), expected
         )
 
+    def test_configuration_source_invalidates_cached_generator(self):
+        path = self.root / "crates/xmtp_configuration/src/lib.rs"
+        path.parent.mkdir(parents=True)
+        path.write_text('pub const WASM_VFS_DIRECTORY: &str = "original";')
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        before = artifacts.source_hash(True)
+        path.write_text('pub const WASM_VFS_DIRECTORY: &str = "changed";')
+        self.assertNotEqual(artifacts.source_hash(True), before)
+        with self.assertRaisesRegex(ValueError, "generator contract mismatch"):
+            artifacts.render(self.args)
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+
     def test_config_only_change_invalidates_cli_and_recorded_contract(self):
         artifacts.build(self.args)
         artifacts.render(self.args)

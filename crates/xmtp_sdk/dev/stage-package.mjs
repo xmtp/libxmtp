@@ -4,6 +4,7 @@ import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import {
   chmodSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   symlinkSync,
@@ -80,13 +81,16 @@ for (const name of runtimes) {
         cwd: root,
         encoding: "utf8",
       }).trim();
-  cpSync(
-    store
-      ? join(store, `lib/node_modules/@ubjs/${name}`)
-      : join(resolve(process.env.XMTP_SDK_RUNTIME_DIR), name),
-    join(destination, "node_modules/@ubjs", name),
-    { recursive: true, dereference: true },
-  );
+  const input = store ?? resolve(process.env.XMTP_SDK_RUNTIME_DIR);
+  const flat = join(input, name);
+  const runtimeSource =
+    !store && existsSync(join(flat, "package.json"))
+      ? flat
+      : join(input, `lib/node_modules/@ubjs/${name}`);
+  cpSync(runtimeSource, join(destination, "node_modules/@ubjs", name), {
+    recursive: true,
+    dereference: true,
+  });
   const runtime = join(destination, "node_modules/@ubjs", name);
   for (const path of files(runtime)) chmodSync(path, 0o644);
   rmSync(join(runtime, "dist/cjs"), { recursive: true, force: true });
