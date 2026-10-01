@@ -127,3 +127,11 @@ test(
   () => checkAttachmentSourceShape(__XMTP_BACKEND_URL__),
   60_000,
 );
+
+import { receivedStandardContentDecodesOnce } from "./message.decode-once.chromium";
+
+test(
+  "received_standard_content_decodes_once",
+  () => receivedStandardContentDecodesOnce(__XMTP_BACKEND_URL__),
+  90_000,
+);

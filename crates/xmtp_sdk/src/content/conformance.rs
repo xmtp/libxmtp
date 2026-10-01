@@ -18,3 +18,16 @@ pub fn sdk_conformance_standard_samples() -> Vec<StandardCodecSample> {
         })
         .collect()
 }
+
+// These exports are absent from the default SDK and the pure codec module.
+#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
+#[xmtp_macro::sdk_export]
+pub async fn sdk_conformance_watch_text_decode(text: String) {
+    xmtp_mls::messages::decoded_message::decode_counter::watch(text);
+}
+
+#[cfg(all(feature = "conformance", not(feature = "pure-only")))]
+#[xmtp_macro::sdk_export]
+pub async fn sdk_conformance_text_decode_count() -> u64 {
+    xmtp_mls::messages::decoded_message::decode_counter::count()
+}
