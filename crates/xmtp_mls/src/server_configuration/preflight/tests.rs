@@ -63,9 +63,9 @@ async fn fixture_options(streams: bool, remote: bool) -> (TestClient, Arc<Script
     .unwrap();
     if streams {
         builder.incoming_factory = Some(Arc::new(
-            crate::subscriptions::incoming::BidiSubscriptionFactory {
-                api: builder.api_client.as_ref().unwrap().clone(),
-            },
+            crate::subscriptions::incoming::BidiSubscriptionFactory::new(
+                builder.api_client.as_ref().unwrap().clone(),
+            ),
         ));
     }
     if remote {

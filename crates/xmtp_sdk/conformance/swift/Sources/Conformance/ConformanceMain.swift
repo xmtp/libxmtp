@@ -5,6 +5,14 @@ import Foundation
 struct Conformance {
     static func main() async throws {
         setbuf(stdout, nil)
+        if ProcessInfo.processInfo.environment["SDK_SWIFT_CALLER_CANCELLATION"] == "1" {
+            try await checkSwiftCallerCancellation(backend: BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!))
+            return
+        }
+        if ProcessInfo.processInfo.environment["SDK_CALLBACK_LIFETIME"] == "1" {
+            try await checkCallbackLifetime(backend: BackendOptions(url: ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"]!))
+            return
+        }
         if CommandLine.arguments.contains("--missing-bundle") {
             guard Bundle.main.bundleIdentifier == nil else {
                 throw ConformanceFailure("bare executable unexpectedly has a bundle identifier")
@@ -63,6 +71,7 @@ struct Conformance {
             storage: StorageOptions(location: .directory(directory: directory.path)),
             deviceSync: false
         )
+        try await within(seconds: 30) { try await loggingConformance(options) }
         try await checkReaderCursor(signer: signer, backend: backendOptions)
         try await checkRestoredPeer(backend: backendOptions)
         try await checkIdentityRoutes(backend: backendOptions)
@@ -692,16 +701,6 @@ struct Conformance {
             throw ConformanceFailure("invalid notification key was accepted")
         } catch XmtpError.InvalidArgument {}
         print("Swift scenario 12: notification state and typed error passed")
-
-        try await initLogging(options: LoggingOptions(level: .error))
-        let orderedSink = OrderedLogSink()
-        try setLogSink(sink: orderedSink)
-        try await sdkConformanceEmit(count: 32)
-        guard orderedSink.sequence() == (0 ..< 32).map(String.init) else {
-            throw ConformanceFailure("inline log sink changed record order")
-        }
-        try clearLogSink()
-        print("Swift logging: inline records stayed in order")
 
         let family = try await reopened.conversations().createGroup(
             members: [InboxId](), options: CreateGroupOptions(name: "family group")

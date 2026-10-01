@@ -4,7 +4,9 @@ mod format;
 mod forwarding;
 mod kotlin_callbacks;
 mod kotlin_records;
+mod logging_admission;
 mod public_projection;
+mod swift_async;
 mod validate;
 
 use std::{collections::BTreeSet, fs, path::Path};
@@ -135,10 +137,24 @@ fn generate(
                 crate_filter: Some("xmtp_sdk".into()),
                 metadata_no_deps: true,
             })?;
+            if matches!(language, Language::Swift) {
+                let binding = out.join("xmtp_sdk.swift");
+                fs::write(
+                    &binding,
+                    swift_async::rewrite(&fs::read_to_string(&binding)?)?,
+                )?;
+            }
             if matches!(language, Language::Kotlin) {
                 let binding = out.join("uniffi/xmtp_sdk/xmtp_sdk.kt");
                 let callbacks = kotlin_callbacks::rewrite(&fs::read_to_string(&binding)?)?;
+                let callbacks = logging_admission::kotlin(&callbacks)?;
                 fs::write(&binding, kotlin_records::rewrite(&callbacks, &metadata)?)?;
+            } else {
+                let binding = out.join("xmtp_sdk.swift");
+                fs::write(
+                    &binding,
+                    logging_admission::swift(&fs::read_to_string(&binding)?)?,
+                )?;
             }
         }
         Language::TypescriptNapi | Language::TypescriptWasm => {
@@ -297,7 +313,10 @@ fn generate(
                 out.join("runtime/index.ts"),
             )?;
             fs::remove_file(out.join("runtime/codecs.ts"))?;
-            fs::remove_file(out.join("runtime/logging.ts"))?;
+            fs::write(
+                out.join("runtime/logging.ts"),
+                include_str!("../templates/bridge/logging.ts"),
+            )?;
             fs::copy(
                 runtime.join("worker-message.ts"),
                 out.join("runtime/message.ts"),
@@ -320,15 +339,13 @@ fn generate(
             public_projection::Target::Node
         } else {
             // The browser target module uses the worker proxies. The browser
-            // has no process log sink or runtime codecs in this tree.
+            // uses the process log sink through the worker bridge.
             let public = out.join("runtime/public");
             fs::write(
                 public.join("host.ts"),
                 include_str!("../templates/bridge/public-host.ts"),
             )?;
-            for name in ["logging.ts", "codecs.ts"] {
-                fs::remove_file(public.join(name))?;
-            }
+            fs::remove_file(public.join("codecs.ts"))?;
             public_projection::Target::Browser
         };
         public_projection::generate(&metadata, out, target)?;
@@ -433,7 +450,7 @@ fn public_node_exports(binding: &str, index: &str) -> String {
                 .split(|ch: char| !ch.is_ascii_alphanumeric() && ch != '_')
                 .next()
                 .unwrap_or("");
-            if name != "setLogSinkQueued" && !overrides.contains(name) {
+            if name != "sdkLogSinkHandoff" && !overrides.contains(name) {
                 if matches!(kind, Some("interface" | "type")) {
                     types.insert(name.to_owned());
                 } else {
@@ -509,9 +526,9 @@ mod tests {
     }
 
     #[test]
-    fn queued_log_sink_is_internal_to_node_runtime() {
+    fn log_admission_is_internal_to_node_runtime() {
         let exports = public_node_exports(
-            "export function setLogSinkQueued() {}\nexport async function create() {}\nexport type Entry = string;",
+            "export function sdkLogSinkHandoff() {}\nexport async function create() {}\nexport type Entry = string;",
             "",
         );
         assert_eq!(

@@ -337,6 +337,7 @@ export class WorkerHost {
   private initialized = false;
   private revision = 0;
   private idleRevision = -1;
+  private idlePreparing = false;
   private releasesPending = 0;
   private failed = false;
   private restorePanicLogger?: () => void;
@@ -349,7 +350,7 @@ export class WorkerHost {
     private readonly initialize: (lifetimeLock?: string) => Promise<void>,
     private readonly dispatch: Dispatch,
     private readonly locks?: PoolLocks,
-    private readonly prepareIdle: () => void = () => {},
+    private readonly prepareIdle: () => void | Promise<void> = () => {},
   ) {
     const random = crypto.getRandomValues(new Uint32Array(2));
     this.registry = new WorkerRegistry(
@@ -389,6 +390,9 @@ export class WorkerHost {
           });
         break;
       }
+      case "logHandoff":
+        this.callbacks.receiveHandoff(message.id);
+        break;
       case "callbackResult":
         this.callbacks.receive(message);
         break;
@@ -543,23 +547,35 @@ export class WorkerHost {
     }
   }
 
+  private canReportIdle(): boolean {
+    return (
+      this.initialized &&
+      !this.failed &&
+      this.active.size === 0 &&
+      this.releasesPending === 0 &&
+      this.registry.size === 0 &&
+      this.idleRevision !== this.revision
+    );
+  }
+
   private reportIdle(): void {
-    if (
-      !this.initialized ||
-      this.failed ||
-      this.active.size !== 0 ||
-      this.releasesPending !== 0 ||
-      this.registry.size !== 0 ||
-      this.idleRevision === this.revision
-    )
-      return;
-    try {
-      this.prepareIdle();
-      this.idleRevision = this.revision;
-      this.endpoint.postMessage({ t: "idle", revision: this.revision });
-    } catch (error) {
-      this.fatal(error);
-    }
+    if (this.idlePreparing || !this.canReportIdle()) return;
+    const revision = this.revision;
+    this.idlePreparing = true;
+    // Preparation can wait for Rust log delivery. Keep it off every operation
+    // response path so a log callback can call or end SDK objects.
+    void Promise.resolve()
+      .then(() => this.prepareIdle())
+      .then(() => {
+        if (revision !== this.revision || !this.canReportIdle()) return;
+        this.idleRevision = revision;
+        this.endpoint.postMessage({ t: "idle", revision });
+      })
+      .catch((error: unknown) => this.fatal(error))
+      .finally(() => {
+        this.idlePreparing = false;
+        this.reportIdle();
+      });
   }
 
   fatal(error: unknown): void {

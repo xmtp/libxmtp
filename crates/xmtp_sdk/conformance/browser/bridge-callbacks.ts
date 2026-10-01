@@ -6,7 +6,6 @@ import {
   encodeError,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/wire.js";
 import {
-  LogWindow,
   WorkerCallbacks,
 } from "../../../../apps/xmtp_sdk_bindgen/runtime/ts/bridge/worker/callback-stub.js";
 import {
@@ -160,17 +159,6 @@ export function registerCallbacksTests(): void {
     await expect(session.ready()).rejects.toMatchObject({
       code: "ContractMismatch",
     });
-  });
-
-  it("log_window_busy_at_4096", () => {
-    const [main, worker] = pair();
-    const callbacks = new WorkerCallbacks(worker);
-    const sink = new LogWindow(callbacks, 1);
-    for (let index = 0; index < 4096; index++)
-      expect(sink.log(index)).toBe("accepted");
-    expect(sink.outstanding).toBe(4096);
-    expect(sink.log(4096)).toBe("busy");
-    main.exit();
   });
 
   it("storage_busy_second_tab", async () => {

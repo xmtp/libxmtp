@@ -27,7 +27,7 @@ test *args="":
 
 # Run WASM tests through the Nix cache.
 nix-test:
-    nix build --no-link .#wasm-nextest.{{ nix_system }} --option sandbox relaxed
+    nix build --print-build-logs --no-link .#wasm-nextest.{{ nix_system }} --option sandbox relaxed
 
 # Run and cache the WASM test dependencies in CI.
 test-ci: nix-test

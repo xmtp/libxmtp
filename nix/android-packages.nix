@@ -102,6 +102,10 @@
       packages = {
         inherit android-libs android-libs-fast kotlin-bindings;
       }
+      // lib.mapAttrs' (config: crossPkgs: {
+        name = "xmtp-sdk-android-${configToAbi.${config}}";
+        value = crossPkgs.callPackage ./package/xmtp-sdk-native.nix { android = true; };
+      }) crossPkgs
       // lib.mapAttrs' (config: dylib: {
         name = "android-bindings-${configToAbi.${config}}";
         value = dylib;

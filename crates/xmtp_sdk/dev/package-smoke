@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root="$(cd "$(dirname "$0")/../../.." && pwd)"
+cd "$root"
+target="${1:-node}"
+case "$target" in
+  node|browser) ;;
+  *) echo 'expected node or browser' >&2; exit 2 ;;
+esac
+node crates/xmtp_sdk/dev/stage-package.mjs "$target"
+node crates/xmtp_sdk/dev/package-smoke.mjs "$target"

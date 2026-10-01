@@ -1,0 +1,50 @@
+import * as accounts from "@bench/accounts";
+import * as pure from "@bench/pure";
+import * as sdk from "@bench/sdk";
+
+import { publicApi } from "./sdk.mjs";
+import { seed, measure } from "./workload.mjs";
+
+window.benchmark = async (request, fixture, state, backend) => {
+  const api = publicApi(sdk, pure, request.side, "browser", backend, accounts);
+  const prefix = `${request.side}-${request.pair ?? "setup"}`;
+  if (
+    request.phase === "setup" ||
+    (request.phase === "reset" && request.workload === "stream")
+  ) {
+    const seeded = await seed(
+      api,
+      fixture,
+      { sender: `${prefix}-sender.db`, receiver: `${prefix}-receiver.db` },
+      request.phase === "reset",
+    );
+    return { ready: true, state: seeded };
+  }
+  if (request.phase === "reset") return { ready: true };
+  const tasks = [];
+  const observer = new PerformanceObserver((entries) => {
+    for (const entry of entries.getEntries())
+      if (entry.duration > 50) tasks.push(entry.duration);
+  });
+  observer.observe({ type: "longtask", buffered: false });
+  const result = await measure(
+    api,
+    fixture,
+    state,
+    request.workload,
+    `${prefix}-${request.workload}.db`,
+  );
+  // Deliver observer records for the completed timed work before teardown.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (const entry of observer.takeRecords())
+    if (entry.duration > 50) tasks.push(entry.duration);
+  observer.disconnect();
+  return {
+    ...result,
+    long_tasks_ms: tasks,
+    source: {
+      fixture_sha256: request.fixture_sha256,
+      package_sha256: request.package_sha256,
+    },
+  };
+};

@@ -31,14 +31,31 @@ Run commands from the repository root in the Nix shell. Run
   All host runs start `conformance/ts/object-store.mjs` for their
   download fixtures. The default ephemeral fixture port keeps `SDK_FIXTURE_URL`
   separate from native S3 on port 9067. Swift CI uses
-  `dev/nix-shell 'just sdk generate'`, then
+  `dev/nix-shell 'just sdk generate swift'`, then
   `dev/nix-shell 'just backend ci just sdk conformance swift'`. Each run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a
   small PUT response, count upload grants and object requests, and refuse
   selected relayed backend URLs. It uses `protoc` from the Rust shell to
   replace only the upload URL in a real backend response. Native clients use
   the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
   preserve gRPC status trailers.
-- `dev/nix-shell 'just sdk bench'` compares 20 release-profile Node calls for a zero-row page
+- `dev/nix-shell 'just sdk cutover-bench <swift|kotlin|node|browser> <config> <output>'` runs
+  the installed release benchmark. See `benchmarks/README.md` for the package
+  closure, adapters, metadata, and required checks. It records 20 or more
+  pairs. The release gate stays pending until package and callback review.
+- `dev/nix-shell 'just sdk cutover-bench-ios-prepare <config> <output>'` prepares a Release
+  UIKit app for the installed old or new public Swift product. Then run
+  `NIX_DEVSHELL=ios dev/nix-shell 'just sdk cutover-bench-ios-build <output> <simulator-udid> <derived-data>'`.
+  Use separate side directories.
+  `dev/nix-shell 'just sdk cutover-bench-ios-controls <host-config> <output>'` checks real app
+  memory, signer HTTP, identity rejection, timing scope, and timeout cleanup.
+  See `benchmarks/README.md` for the HTTP signer and app launch configuration.
+- `dev/nix-shell 'just sdk cutover-bench-check'` checks the statistical gates and receipt rules.
+- `dev/nix-shell 'just sdk cutover-bench-stream-check <output> <browser-node_modules>'` checks
+  live stream content in Node, Chromium, and compiled Swift/Kotlin helpers.
+  It requires missing or changed live content to fail with correct history.
+- `dev/nix-shell 'just sdk cutover-bench-baselines <output>'` resolves published baseline
+  versions and records source and artifact hashes.
+- `dev/nix-shell 'just sdk bench'` is an internal diagnostic. It compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
   enables the off-by-default `bench` feature and writes separate bindings to
@@ -57,12 +74,31 @@ Run commands from the repository root in the Nix shell. Run
   to those scripts and deletion of other scripts.
   After the last reviewed change to a listed file, run
   `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with it.
+  One build-only diagnostic exception pins `bindings/wasm/wasm.just` with
+  `--print-build-logs` on the existing test derivation. It keeps the same tests,
+  timeout, retries, and file mode.
   The gate rejects code, scripts, generated output, and file-mode changes.
   Locally, pass the base branch (`dev/nix-shell 'just sdk check-isolation self-hosted'`): a
   branch tip that merges trunk otherwise looks like a pull request merge commit.
   Tests and changelogs remain outside the shipped-code guard.
+- `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
+  real reader pre-poll, pending and READY handoff. It counts native cancel/free
+  calls in generated conformance copies and requires the prior item to replay.
+- `dev/nix-shell 'just sdk callback-lifetime <swift|kotlin|node>'` runs 20 held callback
+  and constructor adoption cycles against fresh conformance bindings. Set
+  `SDK_CALLBACK_LIFETIME_FAMILY` to select one family. These bindings expose
+  real foreign task and callback handle counts only for conformance.
+  `dev/nix-shell 'just sdk callback-lifetime browser-transport'` runs 20 real-worker cycles
+  for completion, session close, and worker death. It proves transport behavior;
+  it does not replace a generated browser SDK proof. Install JS dependencies
+  first with `dev/nix-shell 'just install-js'`.
+- `dev/nix-shell 'just sdk check-conformance-targets'` checks Swift, Kotlin, Node, browser, mixed,
+  and default target selection with the real counter injector. It uses generated
+  bindings and a renderer fixture. It does not build Rust libraries.
 - `dev/nix-shell 'just sdk conformance-bridge'` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
+  It also checks the public log setter, the real Rust queue, and final managed
+  worker retirement with held app callbacks.
 - `dev/nix-shell 'just sdk conformance-storage'` runs the real-worker OPFS proof against the
   staged SDK. Run `dev/nix-shell 'just sdk generate'` first after SDK or runtime changes.
 - `dev/nix-shell 'just sdk conformance-package'` checks package creation reservations, shared
@@ -80,7 +116,8 @@ Run commands from the repository root in the Nix shell. Run
   isolated wrong-value probes for encode, send, and reply. Negative probes check that the
   binding Client, its factories, the generated identity routes, the browser
   worker session, and private package paths stay private. The Node root must
-  export exactly the public names through both `import` and `require`. Before it compiles them,
+  export exactly the public names through ESM imports. It has no CJS or
+  `require` entry point. Its engine floor is Node 22.12. Before it compiles them,
   `dev/check-public-members.py` checks that every retained Client member in
   `docs/self-hosted/sdk-api-manifest.md` is public in each installed product,
   in the static or instance placement that the manifest names.
@@ -109,3 +146,62 @@ The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 
 Content and conversation exports use named `include!` files to keep UniFFI
 module paths stable. Use ordinary modules for helpers without exported metadata.
+
+## Matched package preparation
+
+- `dev/nix-shell 'just sdk build [swift,kotlin,node,browser]'` builds selected artifacts once.
+  It records file hashes under `target/sdk-artifacts/`. Native targets do not
+  build WASM. Full and pure WASM use separate output directories.
+- `dev/nix-shell 'just sdk render [swift,kotlin,node,browser]'` uses those artifacts. It rejects
+  a changed binary or generator contract before it replaces generated output.
+  It replaces only selected targets and keeps valid unselected targets with
+  their original receipts. It removes stale unselected targets and unknown roots.
+  `dev/nix-shell 'just sdk generate [targets]'` runs both steps. Use `--profile release` on the
+  build recipe for release proofs. Conformance shares the bindgen artifact.
+- `dev/nix-shell 'just sdk check-package-scripts'` checks reuse, mismatch rejection, and cleanup
+  with a small fixture. `dev/nix-shell 'just sdk check-clean-generate'` adds one real Swift
+  render. It uses existing artifacts and does not rebuild Rust.
+- `dev/nix-shell 'just sdk stage node'` and `dev/nix-shell 'just sdk stage browser'` compile ESM products with
+  tsdown. They copy the pinned runtimes, native library, worker, pure WASM,
+  loaders, and snippets. `dev/nix-shell 'just sdk package-smoke node|browser'` packs each product
+  and installs it in an empty consumer. It checks a codec round trip and rejects
+  a changed contract before an operation. Browser smoke also loads its worker.
+- Use `NIX_DEVSHELL=ios dev/nix-shell 'just sdk mobile-build ios'` for the iOS
+  device and simulator libraries. Then use the same shell for
+  `dev/nix-shell 'just sdk mobile-stage ios'` to assemble `XmtpSdkFFI.xcframework` and SwiftPM
+  sources. These commands require Xcode.
+- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk mobile-build android'` for
+  arm64-v8a, armeabi-v7a, x86_64, and x86. Then use the same shell for
+  `dev/nix-shell 'just sdk mobile-stage android'` to assemble the AAR. Its Kotlin compiler uses
+  `-Xjvm-default=all`. Final device and emulator runtime proofs use the matched
+  products. A source-only consumer does not replace those proofs.
+- Private proof inputs can use `XMTP_SDK_GENERATED_DIR` and
+  `XMTP_SDK_PACKAGES_DIR`. Prebuilt runtime inputs can use
+  `XMTP_SDK_RUNTIME_DIR` (a directory with core/node or core/wasm products).
+  These variables configure build tools. They add no SDK runtime option.
+
+The old SDK packages, binding outputs, release jobs, and version numbers stay
+in place until their owning Phase 2 switches. New package preparation does not
+publish a product. All switched SDKs will use the approved 8.0.0 version line.
+
+Package review checks:
+
+- `dev/nix-shell 'just sdk check-package-scripts'` also checks both provenance producers,
+  config-only changes, default mobile features, all four NDK target tools,
+  and both flat and prebuilt runtime directory layouts.
+- Use `NIX_DEVSHELL=android dev/nix-shell 'just sdk check-android-toolchain'`
+  for small C probes. The output records ELF class and machine for each ABI.
+  These probes do not prove an installed Android SDK.
+- The private compiler input is `XMTP_SDK_TSDOWN_CLI`. It names tsdown's
+  `dist/run.mjs`, which the stager runs through Node on every platform.
+  Windows CI stages with a supported compiler Node version and runs the
+  installed smoke on the minimum SDK Node version, 22.12.0.
+
+Residual package review checks:
+
+- Build provenance includes the live address registry, chain URL map, and
+  signature validation bytecode. The common receipt producer uses the same
+  fingerprint. Mobile preflight requires each native receipt's exact triple.
+- Installed smoke runs `npm-cli.js` through Node. `XMTP_SDK_NPM_CLI` is a
+  private path override for the launcher proof. The normal path comes from
+  the selected Node installation, including the Windows installation.

@@ -4,9 +4,9 @@ set shell := ["../../dev/nix-shell"]
 root := justfile_directory()
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Build both libraries and write four bindings trees inside the Nix shell.
-generate:
-    bash "{{ root }}/crates/xmtp_sdk/dev/generate"
+# Build selected artifacts, then render only the selected target roots.
+generate targets="swift,kotlin,node,browser":
+    bash "{{ root }}/crates/xmtp_sdk/dev/generate" --targets "{{ targets }}"
 
 check-clean-generate:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-generate-cleans-stale"
@@ -49,6 +49,15 @@ conformance target: (_browser-pure-fixture target) (_browser-panic-fixture targe
       *) echo "Expected swift, kotlin, node, browser, or bridge" >&2; exit 2 ;; \
     esac
 
+# Repeat held callback and constructor adoption probes on a native host.
+# browser-transport checks the real worker transport without a generated SDK.
+callback-lifetime target:
+    {{ _env }} && cd "{{ root }}" && case "{{ target }}" in \
+      swift|kotlin|node) SDK_CALLBACK_LIFETIME=1 SDK_CALLBACK_SOURCE_SHA="$(git rev-parse HEAD)" bash "crates/xmtp_sdk/dev/conformance-{{ target }}" ;; \
+      browser-transport) bash crates/xmtp_sdk/dev/callback-lifetime-browser ;; \
+      *) echo "Expected swift, kotlin, node, or browser-transport" >&2; exit 2 ;; \
+    esac
+
 conformance-bridge:
     bash "{{ root }}/crates/xmtp_sdk/dev/run-bridge-conformance"
 
@@ -79,3 +88,64 @@ manifest-check:
 
 bench:
     {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/bench"
+
+# Build once. Later render calls reuse the recorded artifact hashes.
+build targets="swift,kotlin,node,browser" *args:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --targets "{{ targets }}" {{ args }}
+
+render targets="swift,kotlin,node,browser" *args:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py render --targets "{{ targets }}" {{ args }}
+
+stage target:
+    cd "{{ root }}" && node crates/xmtp_sdk/dev/stage-package.mjs "{{ target }}"
+
+package-smoke target="node":
+    cd "{{ root }}" && bash crates/xmtp_sdk/dev/package-smoke "{{ target }}"
+
+check-package-scripts:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-staging.py
+
+# Use the matching ios or android Nix shell. This does not switch a shipped SDK.
+mobile-build target:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py build "{{ target }}"
+
+mobile-stage target:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"
+
+# Compare complete installed release packages with the approved paired gates.
+cutover-bench target config output:
+    {{ _env }} && cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/runner.py {{ target }} "{{ config }}" "{{ output }}"
+
+cutover-bench-check:
+    cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
+
+# Use the ios Nix shell. The product is an installed public Swift package.
+cutover-bench-ios-prepare config output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/hosts/ios/prepare.py prepare "{{ config }}" "{{ output }}"
+
+cutover-bench-ios-controls config output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/ios_controls.py "{{ config }}" "{{ output }}"
+
+cutover-bench-ios-build output udid derived:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/hosts/ios/prepare.py build "{{ output }}" "{{ udid }}" "{{ derived }}"
+
+cutover-bench-baselines output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/baselines.py "{{ output }}"
+
+# Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
+check-android-toolchain:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
+
+# Run live-content regressions in Node, Chromium, and compiled mobile helpers.
+cutover-bench-stream-check output browser_tools:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/stream_controls.py "{{ output }}" --browser-tools "{{ browser_tools }}"
+
+# Check selected-host counter injection with generated bindings and no Rust build.
+check-conformance-targets generated="target/sdk-generated":
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-conformance-targets.py "{{ generated }}"
+
+# Check nonthrowing, pending and READY reader cancellation through real native calls.
+caller-cancellation-swift:
+    {{ _env }} && SDK_SWIFT_CALLER_CANCELLATION=1 bash "{{ root }}/crates/xmtp_sdk/dev/conformance-swift"

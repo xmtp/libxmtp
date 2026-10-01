@@ -23,6 +23,11 @@ pub struct LogCapture {
 impl LogCapture {
     /// Create an isolated capture at the same level used by the production pipeline.
     pub fn new(level: Level) -> Self {
+        Self::with_sink(level, None)
+    }
+
+    /// Capture the production JSON and optional app-sink destinations together.
+    pub fn with_sink(level: Level, sink: Option<Arc<dyn crate::LogSinkTarget>>) -> Self {
         let output = Buffer::default();
         let layer = fmt::layer()
             .json()
@@ -30,7 +35,13 @@ impl LogCapture {
             .with_ansi(false)
             .with_writer(output.clone())
             .with_filter(filter_directive(level.as_str()));
-        let dispatch = Dispatch::new(tracing_subscriber::registry().with(layer));
+        let slot = crate::layers::sink::SinkSlot::default();
+        slot.set_sink(sink);
+        let dispatch = Dispatch::new(
+            tracing_subscriber::registry()
+                .with(layer)
+                .with(slot.with_filter(filter_directive(level.as_str()))),
+        );
         Self { output, dispatch }
     }
 

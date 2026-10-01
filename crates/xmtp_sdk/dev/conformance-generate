@@ -1,23 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
-
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-
-dev/agent-run cargo build --locked -p xmtp_sdk -p xmtp-sdk-bindgen --features xmtp_sdk/conformance
-case "$(uname -s)" in
-  Darwin) native=target/debug/libxmtp_sdk.dylib ;;
-  Linux) native=target/debug/libxmtp_sdk.so ;;
-  *) echo "unsupported host for SDK conformance" >&2; exit 1 ;;
-esac
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --features conformance --artifacts target/sdk-conformance-artifacts "$@"
+python3 crates/xmtp_sdk/dev/sdk-artifacts.py render --artifacts target/sdk-conformance-artifacts --out target/sdk-conformance "$@"
 
 generated=target/sdk-conformance
-config=apps/xmtp_sdk_bindgen/uniffi-global.toml
-rm -rf -- "$generated"
-mkdir -p "$generated"
-for language in swift kotlin typescript-napi; do
-  target/debug/xmtp-sdk-bindgen generate \
-    --lib "$native" --language "$language" \
-    --out "$generated/$language" --config "$config"
-done
-cp "$native" "$generated/typescript-napi/"
+# The renderer writes only the selected target directories.
+# Read real foreign callback tables only in these conformance copies.
+if [[ -d "$generated/swift" ]]; then
+  python3 crates/xmtp_sdk/conformance/inject_callback_counts.py swift \
+    "$generated/swift/xmtp_sdk.swift"
+fi
+if [[ -d "$generated/kotlin" ]]; then
+  python3 crates/xmtp_sdk/conformance/inject_callback_counts.py kotlin \
+    "$generated/kotlin/uniffi/xmtp_sdk/xmtp_sdk.kt"
+fi
+if [[ -d "$generated/typescript-napi" ]]; then
+  python3 crates/xmtp_sdk/conformance/inject_callback_counts.py typescript \
+    "$generated/typescript-napi/xmtp_sdk.ts"
+fi

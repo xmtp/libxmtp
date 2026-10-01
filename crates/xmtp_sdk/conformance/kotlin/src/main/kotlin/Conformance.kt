@@ -21,6 +21,10 @@ import java.util.concurrent.atomic.AtomicReference
 
 fun main() =
     runBlocking {
+        if (System.getenv("SDK_CALLBACK_LIFETIME") == "1") {
+            callbackLifetime(BackendOptions(url = System.getenv("XMTP_BACKEND_URL")))
+            return@runBlocking
+        }
         check(sdkVersion().startsWith("1.12.0"))
         val messageId: MessageId = "a".repeat(64)
         check(messageId.length == 64)
@@ -143,7 +147,7 @@ fun main() =
         val failingSink =
             SDKForeign.logSink(
                 object : LogSink {
-                    override fun log(record: LogRecord): Unit = throw AssertionError("host failure")
+                    override suspend fun log(record: LogRecord): Unit = throw AssertionError("host failure")
                 },
             )
         check(
@@ -154,13 +158,13 @@ fun main() =
         val cancellingSink =
             SDKForeign.logSink(
                 object : LogSink {
-                    override fun log(record: LogRecord): Unit = throw CancellationException("x")
+                    override suspend fun log(record: LogRecord): Unit = throw cancelled
                 },
             )
         check(
             runCatching {
                 cancellingSink.log(LogRecord(LogLevel.ERROR, "test", "message", emptyMap(), Timestamp(0), 0uL))
-            }.exceptionOrNull() is LogSinkException.Failed,
+            }.exceptionOrNull() === cancelled,
         )
         println("Kotlin P37 foreign trait wrappers passed")
 
@@ -181,6 +185,7 @@ fun main() =
                 storage = androidStorage,
                 deviceSync = false,
             )
+        loggingConformance(options)
         checkReaderCursor(signer, backendOptions)
         checkRestoredPeer(backendOptions)
         checkIdentityRoutes(backendOptions)
@@ -702,30 +707,6 @@ fun main() =
             }.exceptionOrNull() is XmtpException.InvalidArgument,
         )
         println("Kotlin scenario 12: notification state and typed error passed")
-
-        initLogging(LoggingOptions(level = LogLevel.ERROR))
-        val orderedSink = OrderedLogSink()
-        setLogSink(orderedSink)
-        sdkConformanceEmit(32u)
-        check(orderedSink.sequence == (0 until 32).map(Int::toString)) { "inline log sink changed record order" }
-        for (failure in listOf<Throwable>(Error("foreign log sink failed"), Exception("foreign log sink failed"))) {
-            var throwingSinkCalled = false
-            val before = sdkConformanceSinkErrorCount()
-            setLogSink(
-                object : LogSink {
-                    override fun log(record: LogRecord) {
-                        throwingSinkCalled = true
-                        throw failure
-                    }
-                },
-            )
-            sdkConformanceEmit(1u)
-            check(throwingSinkCalled) { "foreign log sink was not called" }
-            check(sdkConformanceSinkErrorCount() == before + 1uL) { "Rust did not observe the foreign sink error" }
-        }
-        clearLogSink()
-        check(sdkVersion().startsWith("1.12.0"))
-        println("Kotlin logging: ordered records and throwing foreign sink passed")
 
         val fresh = generateLocalSigner()
         val errorSigner =

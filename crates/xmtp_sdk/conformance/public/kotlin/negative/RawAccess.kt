@@ -9,6 +9,7 @@ suspend fun consumeRaw(
     group: Group,
     identity: PublicIdentity,
 ) {
+    println(sdkLogSinkHandoff())
     println(client.raw)
     println(Client.create(signer, options))
     println(client.conversations().createGroupWithIdentities(listOf(identity), null))

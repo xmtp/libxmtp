@@ -131,7 +131,14 @@ where
 
 xmtp_common::if_native! {
 pub(crate) struct BidiSubscriptionFactory<A> {
-    pub(crate) api: A,
+    api: A,
+    transport: std::sync::OnceLock<Arc<xmtp_api_backend::BidiTransport<xmtp_api_backend::BackendBinding>>>,
+}
+
+impl<A> BidiSubscriptionFactory<A> {
+    pub(crate) fn new(api: A) -> Self {
+        Self { api, transport: std::sync::OnceLock::new() }
+    }
 }
 
 impl<A> SubscriptionFactory for BidiSubscriptionFactory<A>
@@ -145,9 +152,13 @@ where
     A::SubscribeStream: 'static,
 {
     fn open(&self, cursors: TopicCursor, limits: IncomingBatchLimits) -> SubscriptionFuture {
-        let api = self.api.clone();
+        // Keep the shared transport alive between this client's receiving calls.
+        // The process registry must not keep credentials after factories and subscriptions drop.
+        let transport = self.transport.get_or_init(|| {
+            super::router_callbacks::shared_transport(self.api.clone())
+        }).clone();
         Box::pin(async move {
-            super::router_callbacks::shared_transport(api)
+            transport
                 .lease_ordered(
                     cursors
                         .into_iter()
@@ -158,9 +169,11 @@ where
                 )
                 .await
                 .map(|lease| {
-                    lease
-                        .into_incoming_subscription()
-                        .map_error(NetworkError::new)
+                    lease.into_incoming_subscription().map_error(move |error| {
+                        // The event stream retains this exact shared transport until it drops.
+                        let _owner = &transport;
+                        NetworkError::new(error)
+                    })
                 })
                 .map_err(NetworkError::new)
         })

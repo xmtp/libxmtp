@@ -24,3 +24,12 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 `backend-ci` packages disposable PostgreSQL, VersityGW, and the native backend.
 It supports one command on an isolated macOS runner. It does not add services
 to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
+
+## Generated SDK preparation
+
+`xmtp-sdk-generated` includes the native, worker, and pure roots with matched
+contract records. `xmtp-sdk-pure-wasm` is a separate artifact and shares the
+worker dependency cache. The Node and Android package sets retain old outputs
+and add `xmtp-sdk-node-<platform>` and `xmtp-sdk-android-<abi>` library outputs.
+Darwin adds `xmtp-sdk-ios-device` and `xmtp-sdk-ios-simulator`. These outputs
+prepare the new SDK. They do not switch a shipped package or publish it.

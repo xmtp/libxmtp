@@ -6,7 +6,7 @@ set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"
 cd "$root"
-generated=target/sdk-generated
+generated="${XMTP_SDK_GENERATED_DIR:-target/sdk-generated}"
 stage=target/sdk-public
 fixtures=crates/xmtp_sdk/conformance/public
 for language in swift kotlin typescript-napi typescript-wasm; do
@@ -47,46 +47,18 @@ for part in uniffi runtime android; do
   cp -R "$generated/kotlin/$part" "$stage/kotlin/$part"
 done
 
-# Node: install the package into a consumer's node_modules. Its exports map
-# names only the root, so the binding and runtime files stay private. The root
-# load check below runs, so the native library is copied there.
+# TypeScript consumers use the same compiled products as package smoke.
+node crates/xmtp_sdk/dev/stage-package.mjs node
+node crates/xmtp_sdk/dev/stage-package.mjs browser
+packages="${XMTP_SDK_PACKAGES_DIR:-target/sdk-packages}"
 node_consumer="$stage/node-consumer"
 node_package="$node_consumer/node_modules/xmtp-sdk"
-mkdir -p "$node_package/node_modules/@ubjs"
-(cd "$generated/typescript-napi" && find . -name '*.ts' -not -path './node_modules/*') |
-  while IFS= read -r file; do
-    mkdir -p "$node_package/$(dirname "$file")"
-    cp "$generated/typescript-napi/$file" "$node_package/$file"
-  done
-cat > "$node_package/package.json" <<'JSON'
-{"name":"xmtp-sdk","private":true,"type":"module","exports":{".":"./index.ts"},"imports":{"#xmtp/binding":"./xmtp_sdk.ts"}}
-JSON
-nix build --no-link .#ubjs-core .#ubjs-node
-ln -sfn "$(nix path-info .#ubjs-core)/lib/node_modules/@ubjs/core" "$node_package/node_modules/@ubjs/core"
-ln -sfn "$(nix path-info .#ubjs-node)/lib/node_modules/@ubjs/node" "$node_package/node_modules/@ubjs/node"
-cp -R "$fixtures/node/src" "$fixtures/node/negative" "$fixtures/node/root" "$node_consumer/"
-
-# Browser: install the worker package and its pure module side by side, as the
-# package imports the pure module from a sibling directory. The exports map
-# names only the root. The compile gate does not load WASM, so it is not copied.
 browser_consumer="$stage/browser-consumer"
 browser_package="$browser_consumer/node_modules/xmtp-sdk-browser"
-for part in typescript-wasm typescript-pure; do
-  (cd "$generated/$part" && find . \( -name '*.ts' -o -name '*.js' \) -not -path './node_modules/*') |
-    while IFS= read -r file; do
-      mkdir -p "$browser_package/$part/$(dirname "$file")"
-      cp "$generated/$part/$file" "$browser_package/$part/$file"
-    done
-  # Each tree maps its own `#xmtp/binding` import to its binding.
-  cp "$generated/$part/package.json" "$browser_package/$part/package.json"
-done
-cat > "$browser_package/package.json" <<'JSON'
-{"name":"xmtp-sdk-browser","private":true,"type":"module","exports":{".":"./typescript-wasm/index.ts","./pure":"./typescript-pure/index.ts"}}
-JSON
-nix build --no-link .#ubjs-wasm
-mkdir -p "$browser_package/node_modules/@ubjs"
-ln -sfn "$(nix path-info .#ubjs-core)/lib/node_modules/@ubjs/core" "$browser_package/node_modules/@ubjs/core"
-ln -sfn "$(nix path-info .#ubjs-wasm)/lib/node_modules/@ubjs/wasm" "$browser_package/node_modules/@ubjs/wasm"
+mkdir -p "$node_consumer/node_modules" "$browser_consumer/node_modules"
+cp -R "$packages/node" "$node_package"
+cp -R "$packages/browser" "$browser_package"
+cp -R "$fixtures/node/src" "$fixtures/node/negative" "$fixtures/node/root" "$node_consumer/"
 cp -R "$fixtures/browser/src" "$fixtures/browser/negative" "$browser_consumer/"
 
 # The retained Client members come from the SDK API manifest, not from the
@@ -117,6 +89,7 @@ if swift_build >"$log" 2>&1; then
   echo "Swift raw-access probe compiled" >&2
   exit 1
 fi
+grep -q "cannot find 'sdkLogSinkHandoff' in scope" "$log"
 grep -q "'raw' is inaccessible due to 'internal' protection level" "$log"
 grep -q "'create' is inaccessible due to 'internal' protection level" "$log"
 grep -q "'createGroupWithIdentities' is inaccessible due to 'internal' protection level" "$log"
@@ -144,6 +117,7 @@ if kotlin_build >"$log" 2>&1; then
   echo "Kotlin raw-access probe compiled" >&2
   exit 1
 fi
+grep -Eqi "(Cannot access|Unresolved reference).*sdkLogSinkHandoff" "$log"
 grep -q "Cannot access 'val raw: Client': it is internal" "$log"
 grep -q "Cannot access 'suspend fun create(" "$log"
 grep -q "Cannot access 'suspend fun createGroupWithIdentities" "$log"
@@ -178,7 +152,8 @@ grep -q "Module '\"xmtp-sdk\"' has no exported member 'bindingClient'" "$log"
 grep -q "TS2307: Cannot find module 'xmtp-sdk/xmtp_sdk'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
 grep -q "Property 'createGroupWithIdentities' does not exist on type 'Conversations'" "$log"
-echo "Node public consumer cannot reach the binding Client"
+grep -q "has no exported member 'sdkLogSinkHandoff'" "$log"
+echo "Node public consumer cannot reach the binding Client or log admission helper"
 if node_build "$node_consumer/negative/codecs.ts" >"$log" 2>&1; then
   echo "Node typed codec probe compiled" >&2
   exit 1
@@ -188,11 +163,10 @@ fi
 test "$(grep -E "codecs\.ts\([0-9]+,[0-9]+\): error TS(2345|2769)" "$log" | grep -oE "codecs\.ts\([0-9]+," | sort -u | wc -l | tr -d ' ')" -eq 7
 echo "Node codec_typed_consumers passed (positive src/codecs.ts, negative negative/codecs.ts)"
 
-# The package root exports the public names, whether an app imports it or
-# requires it. This runs, so the package needs its native library.
-cp "$generated/typescript-napi/libxmtp_sdk."* "$node_package/"
-node_build --types node --typeRoots sdks/node/node_modules/@types "$node_consumer/root/load-twice.mts"
-(cd "$node_consumer" && NODE_OPTIONS=--preserve-symlinks node --import "$(realpath "$root/sdks/node/node_modules/tsx/dist/loader.mjs")" root/load-twice.mts)
+# The ESM package root exports the public names. This check loads the
+# package, so the package needs its native library.
+node_build --types node --typeRoots sdks/node/node_modules/@types "$node_consumer/root/load-esm.mts"
+(cd "$node_consumer" && SDK_EXPECTED_NODE_PATH="$(realpath "$generated/typescript-napi")" NODE_OPTIONS=--preserve-symlinks node --import "$(realpath "$root/sdks/node/node_modules/tsx/dist/loader.mjs")" root/load-esm.mts)
 
 browser_build() {
   node_modules/.bin/tsc --noEmit --strict --skipLibCheck --target es2022 --module esnext \
@@ -212,7 +186,8 @@ grep -q "has no exported member 'wrapClient'" "$log"
 grep -q "TS2307: Cannot find module 'xmtp-sdk-browser/typescript-wasm/runtime/bridge/main/session'" "$log"
 grep -q "TS2339: Property 'raw' does not exist on type 'Client'" "$log"
 grep -q "Property 'createGroupWithIdentities' does not exist on type 'Conversations'" "$log"
-echo "Browser public consumer cannot reach the worker proxy or its session"
+grep -q "has no exported member 'sdkLogSinkHandoff'" "$log"
+echo "Browser public consumer cannot reach the worker proxy, its session, or log admission helper"
 if browser_build "$browser_consumer/negative/codecs.ts" >"$log" 2>&1; then
   echo "Browser typed codec probe compiled" >&2
   exit 1

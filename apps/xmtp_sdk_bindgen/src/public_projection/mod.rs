@@ -27,6 +27,11 @@ pub(crate) enum Target {
     Pure,
 }
 
+#[cfg(test)]
+pub(crate) fn public_api_for_test(items: &[&Metadata], target: Target) -> String {
+    objects::public_api(items, target)
+}
+
 pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target) -> Result<()> {
     let items = groups
         .values()
@@ -48,7 +53,7 @@ pub(crate) fn generate(groups: &MetadataGroupMap, out: &Utf8Path, target: Target
     if target == Target::Browser {
         // The binding runs in the package worker: constructors and functions
         // go through its proxies, and storage admin through its template.
-        code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
+        code.push_str("import * as P from './proxy.gen.js';\nimport { createInWorker, initLoggingInWorker } from './package-session.gen.js';\nimport { openStorageAdmin, type StorageAdmin } from './storage-admin.gen.js';\nimport { BridgeError } from './runtime/bridge/wire.js';\n");
     }
     if target != Target::Pure {
         code.push_str("import type { ContentCodec } from './runtime/public/codec.js';\nimport { contentForSend } from './runtime/public/codec-policy.js';\n");

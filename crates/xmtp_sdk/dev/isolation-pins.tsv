@@ -17,3 +17,4 @@ bindings/node/src/conversation/dm.rs	50cbe167fc9c23ecf2b8a90da03143e282930737
 bindings/wasm/src/conversation.rs	f3ce8529205c0a19a87200e36f263522bb642e1a
 bindings/node/src/client/identity.rs	888d39134a90f615c35b76c134ae964763dc35e2
 sdks/ios/VALIDATION.md	f4b7def1af650319a5e182dd0d420dca0235b368
+bindings/wasm/wasm.just	a1c580aa4e35653dd7fb890f9ed154c00756df5f

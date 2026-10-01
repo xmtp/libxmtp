@@ -4,8 +4,7 @@ import PackageDescription
 
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
 let workspace = (0 ..< 4).reduce(packageRoot) { path, _ in path.deletingLastPathComponent() }
-let profile = ProcessInfo.processInfo.environment["SDK_NATIVE_PROFILE"] ?? "debug"
-let staticLibrary = workspace.appendingPathComponent("target/\(profile)/libxmtp_sdk.a").path
+let staticLibrary = workspace.appendingPathComponent("target/sdk-conformance-artifacts/native/libxmtp_sdk.a").path
 let opensslLibrary = ProcessInfo.processInfo.environment["SDK_OPENSSL_LIB_DIR"] ?? ""
 
 let package = Package(

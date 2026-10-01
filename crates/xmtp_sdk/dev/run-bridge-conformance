@@ -7,7 +7,7 @@ dev/worktree-env
 . dev/docker/load-env
 
 bash crates/xmtp_sdk/dev/check-wasm-init
-bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture
+NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-bridge-panic-fixture'
 NODE_OPTIONS=--preserve-symlinks \
   sdks/browser/node_modules/.bin/vitest run \
   --config crates/xmtp_sdk/conformance/browser/vitest.config.mts \
@@ -30,7 +30,7 @@ NODE_OPTIONS="--preserve-symlinks --expose-gc" \
 NODE_OPTIONS=--preserve-symlinks \
   sdks/node/node_modules/.bin/tsx \
   crates/xmtp_sdk/conformance/browser/bridge.log.real.mts
-bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture
+NIX_DEVSHELL=rust dev/nix-shell 'bash crates/xmtp_sdk/dev/prepare-pure-codec-fixture'
 NODE_OPTIONS= \
   sdks/node/node_modules/.bin/tsx \
   crates/xmtp_sdk/conformance/browser/bridge.chromium.mts
@@ -40,3 +40,6 @@ NODE_OPTIONS= \
 NODE_OPTIONS= \
   sdks/node/node_modules/.bin/tsx \
   crates/xmtp_sdk/conformance/browser/package.chromium.mts
+NODE_OPTIONS= \
+  sdks/node/node_modules/.bin/tsx \
+  crates/xmtp_sdk/conformance/browser/logging.chromium.mts
