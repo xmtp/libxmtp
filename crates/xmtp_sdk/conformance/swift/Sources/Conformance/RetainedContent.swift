@@ -14,7 +14,7 @@ func checkRetainedContent(_ failed: Message, nestedFailure: Message) throws {
           outerDetails.code == "CodecDecodeFailed", outerDetails.category == .callback, !outerDetails.retryable
     else { throw ConformanceFailure("nested host failure did not retain the outer reply") }
 
-    let raw = Data([0xff, 0x80])
+    let raw = Data([0xFF, 0x80])
     let details = ErrorDetails(code: "MalformedEnvelope", category: .input, retryable: false, message: "invalid protobuf")
     var data = failed.data
     data.rawBytes = raw

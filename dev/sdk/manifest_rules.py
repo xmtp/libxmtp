@@ -2455,7 +2455,8 @@ def _classify(entry: object) -> Decision:
             spelling("Message" + ("." + field if name != "DecodedMessageV2" else "")),
             f"11.4 {sdk}, Messages, codecs, preferences, values; 11.7",
             "The received type is optional. It is absent when the type field cannot be read. Original serialization is available as `Message.rawBytes`."
-            if field == "contentType" else "",
+            if field == "contentType"
+            else "",
         )
     if name.startswith("DecodedMessage.") or name == "DecodedMessage":
         if name == "DecodedMessage":

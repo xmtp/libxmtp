@@ -65,9 +65,12 @@ internal fun sameEncoded(
     actual: EncodedContent?,
     expected: EncodedContent?,
 ): Boolean =
-    if (actual == null || expected == null) actual == null && expected == null
-    else actual.type == expected.type && actual.parameters == expected.parameters &&
-        actual.fallback == expected.fallback && actual.content.contentEquals(expected.content)
+    if (actual == null || expected == null) {
+        actual == null && expected == null
+    } else {
+        actual.type == expected.type && actual.parameters == expected.parameters &&
+            actual.fallback == expected.fallback && actual.content.contentEquals(expected.content)
+    }
 
 internal fun signCommand(
     action: String,

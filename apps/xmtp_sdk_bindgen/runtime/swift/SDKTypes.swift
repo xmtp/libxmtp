@@ -139,7 +139,9 @@ public final class Message: Identifiable, Hashable, Sendable {
         data.deliveryStatus
     }
 
-    public var rawBytes: Data { data.rawBytes }
+    public var rawBytes: Data {
+        data.rawBytes
+    }
 
     public var contentType: ContentTypeId? {
         data.contentType

@@ -74,9 +74,12 @@ sealed class SDKReplyContent {
 }
 
 private fun EncodedContent?.deepEquals(other: EncodedContent?): Boolean =
-    if (this == null || other == null) this == null && other == null
-    else type == other.type && parameters == other.parameters && fallback == other.fallback &&
-        content.contentEquals(other.content)
+    if (this == null || other == null) {
+        this == null && other == null
+    } else {
+        type == other.type && parameters == other.parameters && fallback == other.fallback &&
+            content.contentEquals(other.content)
+    }
 
 private fun EncodedContent?.deepHashCode(): Int {
     if (this == null) return 0
@@ -103,9 +106,26 @@ private fun decodeReplyBody(
     when (body) {
         is MessageBody.Custom -> {
             when (val decoded = ClientRegistry.get(clientKey)?.decodeCustom(body.encoded, body.rawBytes)) {
-                is SDKMessageContent.Custom -> SDKReplyContent.Custom(body.encoded, body.rawBytes, decoded.value, decoded.error)
-                is SDKMessageContent.Unknown -> SDKReplyContent.Unknown(decoded.encoded, decoded.rawBytes, decoded.error)
-                else -> SDKReplyContent.Custom(body.encoded, body.rawBytes, null, closedContentDetails())
+                is SDKMessageContent.Custom -> {
+                    SDKReplyContent.Custom(
+                        body.encoded,
+                        body.rawBytes,
+                        decoded.value,
+                        decoded.error,
+                    )
+                }
+
+                is SDKMessageContent.Unknown -> {
+                    SDKReplyContent.Unknown(
+                        decoded.encoded,
+                        decoded.rawBytes,
+                        decoded.error,
+                    )
+                }
+
+                else -> {
+                    SDKReplyContent.Custom(body.encoded, body.rawBytes, null, closedContentDetails())
+                }
             }
         }
 
@@ -128,11 +148,21 @@ class Message(
     val content: SDKMessageContent =
         if (replyContent is SDKReplyContent.Custom && replyContent.error?.code == "CodecDecodeFailed") {
             SDKMessageContent.Unknown(data.encoded, data.rawBytes, checkNotNull(replyContent.error))
-        } else when (val body = data.content) {
-            is MessageContent.Custom -> ClientRegistry.get(data.clientKey)?.decodeCustom(body.encoded, body.rawBytes)
-                ?: SDKMessageContent.Custom(body.encoded, body.rawBytes, null, closedContentDetails())
-            is MessageContent.Unknown -> SDKMessageContent.Unknown(body.encoded, body.rawBytes, body.error)
-            else -> SDKMessageContent.Standard(body)
+        } else {
+            when (val body = data.content) {
+                is MessageContent.Custom -> {
+                    ClientRegistry.get(data.clientKey)?.decodeCustom(body.encoded, body.rawBytes)
+                        ?: SDKMessageContent.Custom(body.encoded, body.rawBytes, null, closedContentDetails())
+                }
+
+                is MessageContent.Unknown -> {
+                    SDKMessageContent.Unknown(body.encoded, body.rawBytes, body.error)
+                }
+
+                else -> {
+                    SDKMessageContent.Standard(body)
+                }
+            }
         }
     val deliveryCursor: String? get() = data.deliveryCursor
     val id get() = data.id
@@ -225,7 +255,8 @@ class Message(
 
                 is MessageContent.Reply -> {
                     val otherContent = other.data.content
-                    otherContent is MessageContent.Reply && value.referenceId == otherContent.referenceId && value.body.deepEquals(otherContent.body)
+                    otherContent is MessageContent.Reply && value.referenceId == otherContent.referenceId &&
+                        value.body.deepEquals(otherContent.body)
                 }
 
                 is MessageContent.Custom -> {
@@ -312,9 +343,20 @@ private fun clientClosedError() =
 
 private fun MessageBody.deepEquals(other: MessageBody): Boolean =
     when {
-        this is MessageBody.Custom && other is MessageBody.Custom -> encoded.deepEquals(other.encoded) && rawBytes.contentEquals(other.rawBytes)
-        this is MessageBody.Unknown && other is MessageBody.Unknown -> encoded.deepEquals(other.encoded) && rawBytes.contentEquals(other.rawBytes) && error == other.error
-        else -> this == other
+        this is MessageBody.Custom && other is MessageBody.Custom -> {
+            encoded.deepEquals(other.encoded) &&
+                rawBytes.contentEquals(other.rawBytes)
+        }
+
+        this is MessageBody.Unknown && other is MessageBody.Unknown -> {
+            encoded.deepEquals(other.encoded) &&
+                rawBytes.contentEquals(other.rawBytes) &&
+                error == other.error
+        }
+
+        else -> {
+            this == other
+        }
     }
 
 private fun MessageBody.deepHashCode(): Int =
