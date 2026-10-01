@@ -909,6 +909,7 @@ fun main() =
         )
         check((codecItems[1].content as? SDKMessageContent.Standard)?.value == MessageContent.Text("after codec error"))
         println("Kotlin codec_failure_keeps_stream_open passed")
+        checkHostileCodecStream(signer.identity(), options, inboxId)
         failingHost.end()
         println("Kotlin codec_scoped_to_client passed")
         val typedParent = customCodecPolicyAndIsolation(family, withoutCodec)

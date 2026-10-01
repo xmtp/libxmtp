@@ -34,7 +34,12 @@ private class CodecRegistry(
                 encoded,
                 rawBytes,
                 null,
-                ErrorDetails("CodecDecodeFailed", ErrorCategory.CALLBACK, false, error.toString()),
+                ErrorDetails(
+                    "CodecDecodeFailed",
+                    ErrorCategory.CALLBACK,
+                    false,
+                    runCatching { error.toString() }.getOrDefault("custom content codec failed"),
+                ),
             )
         }
     }
