@@ -57,66 +57,9 @@ jobs:
         if: failure()
         uses: jwalton/gh-docker-logs@v2
 
-  wait-backend:
-    if: inputs.run_swift && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    runs-on: ubuntu-latest
-    timeout-minutes: 65
-    steps:
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Wait for the commit image
-        env:
-          BACKEND_IMAGE: ghcr.io/xmtp/backend:sha-${{ github.sha }}
-        run: |
-          for i in $(seq 1 240); do
-            if docker manifest inspect "$BACKEND_IMAGE" > /dev/null 2>&1; then exit 0; fi
-            sleep 15
-          done
-          exit 1
-
-  deploy-backend:
-    if: inputs.run_swift && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    needs: wait-backend
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    outputs:
-      backend_url: ${{ steps.deploy.outputs.backend_url }}
-      app_name: ${{ steps.deploy.outputs.app_name }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
-      - uses: ./.github/actions/setup-nix
-        with:
-          nix-disk: "false"
-          github-token: ${{ github.token }}
-          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
-      - name: Deploy test infrastructure
-        id: deploy
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          APP_NAME="libxmtp-sdk-test-${{ github.run_id }}-${{ github.run_attempt }}"
-          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
-          ./crates/xmtp_sdk/dev/deploy-fly-backend "$APP_NAME" "ghcr.io/xmtp/backend:sha-${{ github.sha }}"
-          echo "backend_url=https://${APP_NAME}.fly.dev" >> "$GITHUB_OUTPUT"
-      - name: Wait for services
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          BACKEND_HOST="${{ steps.deploy.outputs.app_name }}.fly.dev"
-          for i in $(seq 1 60); do
-            if nix run nixpkgs#grpc-health-probe -- -addr="${BACKEND_HOST}:443" -tls; then exit 0; fi
-            sleep 5
-          done
-          exit 1
-
   swift:
     name: Swift conformance
     if: inputs.run_swift && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
-    needs: deploy-backend
     runs-on: warp-macos-15-arm64-6x
     timeout-minutes: 60
     steps:
@@ -131,24 +74,17 @@ jobs:
           xcode-version: "26"
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
-      - run: just sdk generate
-      - run: just sdk conformance swift
-        env:
-          XMTP_BACKEND_URL: ${{ needs.deploy-backend.outputs.backend_url }}
-          SDK_OBJECT_STORE_PORT: "9067"
-
-  cleanup-backend:
-    needs: [deploy-backend, swift]
-    if: always() && needs.deploy-backend.result != 'skipped'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
-      - name: Destroy app
-        env:
-          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
-        run: |
-          APP_NAME="${{ needs.deploy-backend.outputs.app_name }}"
-          [ -n "$APP_NAME" ] && flyctl apps destroy "$APP_NAME" --yes || true
+      - name: Check native Apple toolchain
+        run: dev/nix-shell 'bash dev/check-apple-toolchain'
+      - run: dev/nix-shell 'just sdk generate'
+      - run: dev/nix-shell 'just backend ci just sdk conformance swift'
+      - name: Retain native service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: swift-backend-ci-logs
+          path: ${{ runner.temp }}/backend-ci-logs
+          retention-days: 7
 
   windows-load:
     name: Windows SDK load (win32-x64)

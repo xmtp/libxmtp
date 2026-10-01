@@ -24,7 +24,7 @@ The VersityGW target uses the worktree port shown by `just backend status`.
 for signed PUT and GET requests. The S3 integration test needs both services.
 Compose uses `dev/backend/local-s3.toml` to offer attachments. The
 `dev/backend/local.toml` file starts without storage target settings or S3
-environment variables, including on the iOS Fly test backend.
+environment variables, including in the disposable native macOS CI backend.
 Set `DATABASE_URL` to select a different test database. The test user must be able
 to create and delete databases. Each service test uses a separate database.
 Tests live beside the modules they exercise and share one test-support module.

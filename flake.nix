@@ -57,6 +57,12 @@
         }:
         {
           _module.args.pkgs = lib.mkForce (self.lib.mkXmtpPkgs { inherit system; });
+          apps = lib.optionalAttrs pkgs.stdenv.isDarwin {
+            backend-ci = {
+              type = "app";
+              program = "${self'.packages.backend-ci}/bin/backend-ci";
+            };
+          };
           devShells = {
             rust = pkgs.callPackage ./nix/shells/rust.nix { };
             default = pkgs.callPackage ./nix/shells/local.nix { };
@@ -94,6 +100,9 @@
             # which inject -mmacos-version-min flags that
             # conflict with iOS cross-compilation. The builds are impure (__noChroot)
             # and use the system Xcode SDK directly via ios-env.nix paths.
+            backend-ci = pkgs.callPackage ./nix/package/backend-ci.nix {
+              backend = self'.packages.xmtp-backend;
+            };
             ios-libs =
               (pkgs.callPackage ./nix/package/ios.nix {
                 stdenv = pkgs.stdenvNoCC;

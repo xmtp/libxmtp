@@ -1,26 +1,26 @@
 # XMTP SDK façade
 
 Run commands from the repository root in the Nix shell. Run
-`just backend status` to find this worktree's backend ports.
+`dev/nix-shell 'just backend status'` to find this worktree's backend ports.
 
-- `just sdk generate` builds the SDK libraries and writes Swift, Kotlin, Node,
+- `dev/nix-shell 'just sdk generate'` builds the SDK libraries and writes Swift, Kotlin, Node,
   worker WASM, and pure browser WASM bindings to `target/sdk-generated/`. In
   each TypeScript tree, `index.ts` is the package root: the public layer that
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
   the worker, the benchmark, and transport tests import it.
-- `just sdk check-file-sizes` checks the 1,000-line limit for every SDK source
+- `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
-- `just sdk lint` checks file sizes, generated names, and TypeScript source.
+- `dev/nix-shell 'just sdk lint'` checks file sizes, generated names, and TypeScript source.
   It checks shared public value types on Node and browser, including negative
   consumers for readonly records, transport fields, credentials, and bytes. It also
   rejects test-only hooks (`*ForTest`, `*_for_test`, `bridge_test_panic`) and
   benchmark exports in the default bindings and in
   `apps/xmtp_sdk_bindgen/runtime/`. Keep test hooks in test source sets.
-- `just sdk wasm-init` loads the staged WASM package in Node.
-- `just sdk conformance <swift|kotlin|node>` runs scenarios against this
-  worktree's backend. `just sdk conformance browser` runs scenarios 1-11
+- `dev/nix-shell 'just sdk wasm-init'` loads the staged WASM package in Node.
+- `dev/nix-shell 'just sdk conformance <swift|kotlin|node>'` runs scenarios against this
+  worktree's backend. `dev/nix-shell 'just sdk conformance browser'` runs scenarios 1-11
   plus a real WASM trap from a test-only panic fixture in Vitest Playwright
   Chromium, then checks real OPFS and worker behavior. Its recipe builds the
   pure codec and panic fixtures in the Rust shell before the JS shell.
@@ -29,21 +29,21 @@ Run commands from the repository root in the Nix shell. Run
   records in the conformance-featured panic fixture. Worker death uses the
   generated public package and its shared worker manager.
   All host runs start `conformance/ts/object-store.mjs` for their
-  download fixtures; `SDK_OBJECT_STORE_PORT=9067` also makes it the upload
-  target of a backend with no S3 of its own, as in CI, where
-  `crates/xmtp_sdk/dev/deploy-fly-backend` deploys that backend to Fly for the
-  Swift run. Each run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a
+  download fixtures. The default ephemeral fixture port keeps `SDK_FIXTURE_URL`
+  separate from native S3 on port 9067. Swift CI uses
+  `dev/nix-shell 'just sdk generate'`, then
+  `dev/nix-shell 'just backend ci just sdk conformance swift'`. Each run sets `SDK_RELAY_TARGET` to the backend. The fixture can hold a
   small PUT response, count upload grants and object requests, and refuse
   selected relayed backend URLs. It uses `protoc` from the Rust shell to
   replace only the upload URL in a real backend response. Native clients use
   the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
   preserve gRPC status trailers.
-- `just sdk bench` compares 20 release-profile Node calls for a zero-row page
+- `dev/nix-shell 'just sdk bench'` compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
   enables the off-by-default `bench` feature and writes separate bindings to
   `target/sdk-bench/`.
-- `just sdk check-isolation` rejects shipped-code changes in `sdks/` or
+- `dev/nix-shell 'just sdk check-isolation'` rejects shipped-code changes in `sdks/` or
   `bindings/` on a façade branch. Its Task 1 exception accepts only the reviewed
   PROC-032 backlink removal in four named SDK source files, checked against
   their full base content. Later backlink changes need a reviewed gate update.
@@ -54,19 +54,19 @@ Run commands from the repository root in the Nix shell. Run
   After the last reviewed change to a listed file, run
   `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with it.
   The gate rejects code, scripts, generated output, and file-mode changes.
-  Locally, pass the base branch (`just sdk check-isolation self-hosted`): a
+  Locally, pass the base branch (`dev/nix-shell 'just sdk check-isolation self-hosted'`): a
   branch tip that merges trunk otherwise looks like a pull request merge commit.
   Tests and changelogs remain outside the shipped-code guard.
-- `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
+- `dev/nix-shell 'just sdk conformance-bridge'` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
-- `just sdk conformance-storage` runs the real-worker OPFS proof against the
-  staged SDK. Run `just sdk generate` first after SDK or runtime changes.
-- `just sdk conformance-package` checks package creation reservations, shared
+- `dev/nix-shell 'just sdk conformance-storage'` runs the real-worker OPFS proof against the
+  staged SDK. Run `dev/nix-shell 'just sdk generate'` first after SDK or runtime changes.
+- `dev/nix-shell 'just sdk conformance-package'` checks package creation reservations, shared
   client/admin workers, final worker termination, and collection in Chromium.
-  Run `just sdk generate` first after SDK or runtime changes.
-- `just sdk conformance-bridge-unit <vitest arguments>` runs focused bridge
+  Run `dev/nix-shell 'just sdk generate'` first after SDK or runtime changes.
+- `dev/nix-shell 'just sdk conformance-bridge-unit <vitest arguments>'` runs focused bridge
   unit tests against the staged SDK.
-- `just sdk public-consumer` stages the generated Swift, Kotlin, Node, and
+- `dev/nix-shell 'just sdk public-consumer'` stages the generated Swift, Kotlin, Node, and
   browser SDKs as separate public products under `target/sdk-public/`. It then
   compiles separate consumers in `conformance/public/`: a SwiftPM package, an
   Android library that uses a real `Context`, and TypeScript projects that
@@ -80,10 +80,10 @@ Run commands from the repository root in the Nix shell. Run
   `dev/check-public-members.py` checks that every retained Client member in
   `docs/self-hosted/sdk-api-manifest.md` is public in each installed product,
   in the static or instance placement that the manifest names.
-  Run `just sdk generate` first.
-- `just sdk codec-author types` stages independent Node and browser codec
+  Run `dev/nix-shell 'just sdk generate'` first.
+- `dev/nix-shell 'just sdk codec-author types'` stages independent Node and browser codec
   packages and checks valid calls plus six wrong-value rejections per target.
-  `just sdk codec-author node` and `just sdk codec-author browser` also run
+  `dev/nix-shell 'just sdk codec-author node'` and `dev/nix-shell 'just sdk codec-author browser'` also run
   encode/send/receive/reply checks against this worktree's backend; the browser
   run uses Chromium and the real package worker. Both read this worktree's
   Docker backend to check published push flags. Run SDK generation first.
@@ -93,12 +93,12 @@ Run commands from the repository root in the Nix shell. Run
   and assets.
   The proof installs local copies under `target/sdk-codec-author/` and uses
   only the supported ESM roots in the codec package.
-- `just sdk manifest-check` compares `docs/self-hosted/sdk-api-manifest.md`
+- `dev/nix-shell 'just sdk manifest-check'` compares `docs/self-hosted/sdk-api-manifest.md`
   with the old SDK sources, then checks that each Node and browser binding
   re-export row names a real export of the generated package roots. A rename
   names the new export; a removal names its replacement. Run
-  `just sdk generate` first.
-- `just test crate xmtp_sdk` runs the façade tests against the local backend.
+  `dev/nix-shell 'just sdk generate'` first.
+- `dev/nix-shell 'just test crate xmtp_sdk'` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
 `xmtp_sdk` to this crate root so Swift and Kotlin load `uniffi.toml`.

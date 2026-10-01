@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run a command with the loopback object store at SDK_FIXTURE_URL.
-# SDK_OBJECT_STORE_PORT picks its port. CI sets the port the backend presigns
-# uploads for, so the same store also takes the uploads.
+# SDK_OBJECT_STORE_PORT can select a port. The default is an ephemeral port,
+# separate from the native S3 service used for real backend-signed uploads.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/../../.." && pwd)"

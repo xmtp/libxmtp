@@ -22,6 +22,7 @@ jobs:
       workspace: ${{ steps.filter.outputs.workspace }}
       sdk: ${{ steps.filter.outputs.sdk }}
       sdk_swift: ${{ steps.filter.outputs.sdk_swift }}
+      backend_ci: ${{ steps.filter.outputs.backend_ci }}
       wasm: ${{ steps.filter.outputs.wasm }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       node: ${{ steps.filter.outputs.node }}
@@ -41,6 +42,16 @@ jobs:
         id: filter
         with:
           filters: |
+            backend_ci:
+              - 'dev/backend/**'
+              - 'dev/docker/s3/**'
+              - 'nix/package/backend-ci.nix'
+              - 'nix/package/backend.nix'
+              - 'apps/backend/backend.just'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-native-backend.yml'
             workspace:
               - 'proto/**'
               - 'crates/**'
@@ -60,6 +71,15 @@ jobs:
               - '.github/workflows/test.yml'
               - '.github/workflows/test-workspace*'
             sdk:
+              - 'dev/backend/**'
+              - 'dev/docker/s3/**'
+              - 'nix/package/backend-ci.nix'
+              - 'nix/package/backend.nix'
+              - 'apps/backend/backend.just'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-native-backend.yml'
               - 'crates/**'
               - 'apps/xmtp_sdk_bindgen/**'
               - 'apps/backend/**'
@@ -82,12 +102,19 @@ jobs:
               - '.github/actions/setup-nix/**'
               - '.github/actions/setup-js/**'
               - '.github/workflows/test-sdk.yml'
-              - '.github/workflows/test.yml'
             sdk_swift:
+              - 'dev/backend/**'
+              - 'dev/docker/s3/**'
+              - 'nix/package/backend-ci.nix'
+              - 'nix/package/backend.nix'
+              - 'apps/backend/backend.just'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-native-backend.yml'
               - 'crates/xmtp_sdk/**'
               - 'apps/xmtp_sdk_bindgen/**'
               - '.github/workflows/test-sdk.yml'
-              - '.github/workflows/test.yml'
             wasm:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -175,22 +202,39 @@ jobs:
               - 'dev/docker/**'
               - '.github/workflows/test-agent-sdk*'
             ios:
+              - 'dev/backend/**'
+              - 'dev/docker/s3/**'
+              - 'nix/package/backend-ci.nix'
+              - 'nix/package/backend.nix'
+              - 'apps/backend/backend.just'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-native-backend.yml'
               - 'apps/backend/**'
               - 'sdks/ios/**'
               - 'bindings/mobile/**'
               - 'proto/**'
               - 'crates/**'
               - 'nix/**'
-              - 'flake.lock'
               - 'Package.swift'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - '.github/workflows/test-ios*'
             # The mobile suites do not gate merge (see the `test` job's needs
             # list). On a pull request they run only for a direct change to
-            # mobile sources; a crate change that breaks them is caught by the
+            # mobile sources or native CI setup; a crate change is caught by the
             # push run on merge, which uses the broad filter above.
             ios_direct:
+              - 'dev/backend/**'
+              - 'dev/docker/s3/**'
+              - 'nix/package/backend-ci.nix'
+              - 'nix/package/backend.nix'
+              - 'apps/backend/backend.just'
+              - 'flake.nix'
+              - 'flake.lock'
+              - '.github/workflows/test.yml'
+              - '.github/workflows/test-native-backend.yml'
               - 'sdks/ios/**'
               - 'bindings/mobile/**'
               - 'Package.swift'
@@ -276,6 +320,12 @@ jobs:
               - '.github/workflows/test.yml'
               - '.github/workflows/test-backend.yml'
 
+  test-native-backend:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.backend_ci == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    uses: ./.github/workflows/test-native-backend.yml
+    secrets: inherit
+
   test-validation:
     needs: detect-changes
     if: needs.detect-changes.outputs.validation == 'true'
@@ -295,10 +345,6 @@ jobs:
     secrets: inherit
 
   test-sdk:
-    # wait-backend reads the backend image from ghcr.io with GITHUB_TOKEN.
-    permissions:
-      contents: read
-      packages: read
     needs: detect-changes
     if: needs.detect-changes.outputs.sdk == 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/self-hosted')
     uses: ./.github/workflows/test-sdk.yml
@@ -358,9 +404,6 @@ jobs:
     secrets: inherit
 
   test-ios:
-    permissions:
-      contents: read
-      packages: write
     needs: detect-changes
     if: |
       (
