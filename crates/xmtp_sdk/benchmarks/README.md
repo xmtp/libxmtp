@@ -218,3 +218,16 @@ an earlier committed JavaScript helper exactly, run `stream_controls.py` with
 `--before-commit <commit>`. Logs and command receipts identify each failure and
 restored pass. These are boundary controls; final installed SDK runtime checks
 remain separate release gates.
+
+## Accepted benchmark security risks
+
+The owner accepts the security risks of this benchmark harness. Benchmark
+signing keys are disposable. The harness can retain these keys in benchmark
+state and send them to the configured signer service. Key storage and signer
+endpoint hardening are outside the cutover scope.
+
+Correctness, measured safety results, observed order, artifact checksums,
+workloads and the 20% thresholds remain required.
+
+Owner decision: [Phase 1 plan](https://plan.ref.tools/vRG5sTDlgoKQ911m) and
+[finish plan](https://plan.ref.tools/TiFDtuzx3U19olnv).
