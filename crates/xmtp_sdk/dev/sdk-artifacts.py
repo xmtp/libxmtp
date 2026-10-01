@@ -14,6 +14,12 @@ import time
 
 ROOT = Path(__file__).resolve().parents[3]
 TARGETS = ("swift", "kotlin", "node", "browser")
+# Live data embedded by the SDK dependency graph through include_str!.
+COMPILE_INPUTS = (
+    "crates/xmtp_attachments/src/address-registry.txt",
+    "crates/xmtp_id/src/scw_verifier/chain_urls_default.json",
+    "crates/xmtp_id/src/scw_verifier/signature_validation.hex",
+)
 
 
 def digest(path):
@@ -49,18 +55,23 @@ def source_hash(generator=False):
             )
         else:
             keep = (
-                name.split("/")[0] in ("crates", "apps", "bindings", "proto")
-                and (
-                    path.suffix in (".rs", ".proto", ".sql")
-                    or path.name == "Cargo.toml"
+                (
+                    name.split("/")[0] in ("crates", "apps", "bindings", "proto")
+                    and (
+                        path.suffix in (".rs", ".proto", ".sql")
+                        or path.name == "Cargo.toml"
+                    )
                 )
-            ) or name in (
-                "Cargo.toml",
-                "Cargo.lock",
-                "flake.lock",
-                "rust-toolchain.toml",
-                ".cargo/config.toml",
-                "crates/xmtp_sdk/uniffi.toml",
+                or name in COMPILE_INPUTS
+                or name
+                in (
+                    "Cargo.toml",
+                    "Cargo.lock",
+                    "flake.lock",
+                    "rust-toolchain.toml",
+                    ".cargo/config.toml",
+                    "crates/xmtp_sdk/uniffi.toml",
+                )
             )
         if keep:
             selected.append((name, digest(path)))

@@ -81,17 +81,106 @@ class PackagingTests(unittest.TestCase):
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "xmtp_sdk.swift").write_text("fixture binding")
 
-    def native_receipts(self):
+    def native_receipts(self, target="ios"):
         native = json.loads((self.args.artifacts / "artifacts.json").read_text())[
             "artifacts"
         ]["native"]
         native["features"] = ""
-        for triple in mobile.IOS:
+        for triple in mobile.IOS if target == "ios" else tuple(mobile.ANDROID.values()):
             folder = self.root / "mobile" / triple
             folder.mkdir(parents=True, exist_ok=True)
             (folder / "artifacts.json").write_text(
-                json.dumps({"artifacts": {"native": native}})
+                json.dumps({"artifacts": {"native": dict(native, target=triple)}})
             )
+
+    def test_live_compile_inputs_invalidate_build_and_recorded_source(self):
+        for name in artifacts.COMPILE_INPUTS:
+            with self.subTest(input=name):
+                path = self.root / name
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("original embedded data")
+                artifacts.build(self.args)
+                artifacts.render(self.args)
+                before = artifacts.source_hash()
+                binaries = {
+                    role: Path(next(iter(item["files"])))
+                    for role, item in json.loads(
+                        (self.args.artifacts / "artifacts.json").read_text()
+                    )["artifacts"].items()
+                }
+                receipt.record(self.args.out, binaries)
+                old_record = json.loads(
+                    (self.args.out / "swift/sdk-contract.json").read_text()
+                )
+                before_calls = len(self.calls)
+                path.write_text("changed embedded data only")
+                self.assertNotEqual(artifacts.source_hash(), before)
+                with self.assertRaisesRegex(ValueError, "source contract mismatch"):
+                    artifacts.render(self.args)
+                self.assertEqual(len(self.calls), before_calls)
+                receipt.record(self.args.out, binaries)
+                new_record = json.loads(
+                    (self.args.out / "swift/sdk-contract.json").read_text()
+                )
+                self.assertNotEqual(
+                    new_record["artifact"]["source"], old_record["artifact"]["source"]
+                )
+                artifacts.build(self.args)
+                self.assertEqual(len(self.calls), before_calls + 2)
+                path.write_text("original embedded data")
+                artifacts.build(self.args)
+                artifacts.render(self.args)
+                self.assertEqual(artifacts.source_hash(), before)
+                print(
+                    "Embedded input changed source/build admission and restored:", name
+                )
+
+    def test_swapped_mobile_targets_rejected_before_assembly(self):
+        for target in ("android", "ios"):
+            self.args.targets = ("kotlin",) if target == "android" else ("swift",)
+            artifacts.build(self.args)
+            artifacts.render(self.args)
+            self.native_receipts(target)
+            triples = (
+                tuple(mobile.ANDROID.values()) if target == "android" else mobile.IOS
+            )
+            for triple in triples:
+                wrong = triples[0] if triple != triples[0] else triples[-1]
+                folder = self.root / "mobile" / triple / "artifacts.json"
+                original = folder.read_text()
+                folder.write_text(
+                    (self.root / "mobile" / wrong / "artifacts.json").read_text()
+                )
+                with self.subTest(platform=target, expected=triple, wrong=wrong):
+                    with (
+                        patch.object(
+                            mobile.sys,
+                            "argv",
+                            [
+                                "mobile-package.py",
+                                "stage",
+                                target,
+                                "--generated",
+                                str(self.args.out),
+                                "--artifacts",
+                                str(self.root / "mobile"),
+                                "--out",
+                                str(self.root / "products"),
+                            ],
+                        ),
+                        patch.object(mobile, "run") as assembly,
+                    ):
+                        with self.assertRaisesRegex(
+                            ValueError, "mobile binding contract mismatch"
+                        ):
+                            mobile.main()
+                        assembly.assert_not_called()
+                    self.assertFalse((self.root / "products").exists())
+                folder.write_text(original)
+                mobile.preflight(self.args.out, self.root / "mobile", target)
+                print(
+                    "Swapped target rejected before assembly; restored:", target, triple
+                )
 
     def test_git_and_filtered_source_have_same_fingerprint(self):
         subprocess.run(["git", "init", "--quiet", str(self.root)], check=True)

@@ -152,3 +152,11 @@ Package review checks:
   `dist/run.mjs`, which the stager runs through Node on every platform.
   Windows CI stages with a supported compiler Node version and runs the
   installed smoke on the minimum SDK Node version, 22.12.0.
+
+Residual package review checks:
+- Build provenance includes the live address registry, chain URL map, and
+  signature validation bytecode. The common receipt producer uses the same
+  fingerprint. Mobile preflight requires each native receipt's exact triple.
+- Installed smoke runs `npm-cli.js` through Node. `XMTP_SDK_NPM_CLI` is a
+  private path override for the launcher proof. The normal path comes from
+  the selected Node installation, including the Windows installation.
