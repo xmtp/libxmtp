@@ -34,72 +34,32 @@ import {
   hostOptions,
   publicClient,
 } from "../../../../target/sdk-bridge-panic-fixture/typescript-wasm/runtime/public/client";
-
-// Alix and Bo read one group through different backend catalogues, so a
-// name labels a field for one reader only and the component ID identifies
-// it.
-const STATUS = 0xc001;
-const NICKNAME = 0xc002;
-const TOPIC = 0xc003;
-const AVATAR = 0xc004;
-const LATER = 0xc005;
-const DISPLAY_NAME = 0x800c;
-
-type Policy = sdk.MetadataBasePolicy;
-
-const allow: Policy = { kind: "allow" };
-const deny: Policy = { kind: "deny" };
-const allowIfAdmin: Policy = { kind: "allowIfAdmin" };
-const allowIfSelfOrNonMember: Policy = { kind: "allowIfSelfOrNonMember" };
-const stringType: sdk.MetadataComponentType = { kind: "string" };
-const bytesType: sdk.MetadataComponentType = { kind: "bytes" };
-const nicknameType: sdk.MetadataComponentType = {
-  kind: "map",
-  keyType: "inboxId",
-  valueType: "string",
-};
-
-function field(componentId: number, name?: string): sdk.MetadataFieldRef {
-  return { componentId, name };
-}
-
-function permissions(base: Policy): sdk.ComponentPermissions {
-  const policy: sdk.MetadataPolicy = { kind: "base", value: base };
-  return { insert: policy, update: policy, delete: policy };
-}
-
-function definition(
-  componentId: number,
-  name: string,
-  componentType: sdk.MetadataComponentType,
-  base: Policy,
-  inDms: boolean,
-): sdk.ApplicationComponentDefinition {
-  return {
-    componentId,
-    name,
-    componentType,
-    permissions: permissions(base),
-    inGroups: true,
-    inDms,
-  };
-}
-
-// `later` has a type tag no SDK knows, so no conversation registers it.
-const alixCatalogue = [
-  definition(STATUS, "status", stringType, allow, true),
-  definition(NICKNAME, "nickname", nicknameType, allowIfSelfOrNonMember, true),
-  definition(TOPIC, "topic", stringType, allowIfAdmin, true),
-  definition(AVATAR, "avatar", bytesType, allow, false),
-  definition(LATER, "later", { kind: "unknown", tag: 99 }, allow, true),
-];
-// Bo's catalogue gives `status` to another field and names STATUS after a
-// well-known field, with a type and policy the group never committed.
-const boCatalogue = [
-  definition(STATUS, "GROUP_NAME", bytesType, deny, true),
-  definition(AVATAR, "status", bytesType, allow, false),
-];
-
+import {
+  STATUS,
+  NICKNAME,
+  TOPIC,
+  AVATAR,
+  DISPLAY_NAME,
+  BYTE_MAP,
+  BYTE_SET,
+  alixCatalogue,
+  boCatalogue,
+  field,
+  permissions,
+  stringType,
+  bytesType,
+  nicknameType,
+  allow,
+  allowIfAdmin,
+  allowIfSelfOrNonMember,
+  string,
+  bytes,
+  scalar,
+  replace,
+  mapType,
+  setType,
+  collectionScenario,
+} from "../ts/metadata-scenario";
 function signer(): sdk.Signer {
   const account = privateKeyToAccount(generatePrivateKey());
   return {
@@ -153,22 +113,6 @@ async function clientWith(
   } finally {
     await useCatalogue(session, undefined);
   }
-}
-
-function string(value: string): sdk.FieldValue {
-  return { kind: "string", value };
-}
-
-function bytes(...values: number[]): sdk.FieldValue {
-  return { kind: "bytes", value: Uint8Array.from(values) };
-}
-
-function scalar(value: sdk.FieldValue): sdk.MetadataValue {
-  return { kind: "scalar", value };
-}
-
-function replace(value: sdk.FieldValue): sdk.ComponentMutation {
-  return { kind: "replace", value };
 }
 
 async function rejects(
@@ -235,11 +179,18 @@ export async function checkMetadataFields(backendURL: string): Promise<void> {
       throw new Error("Bo did not join the group");
 
     // Descriptors: the committed type and policies with each reader's labels.
-    const rows: [number, sdk.MetadataComponentType, Policy, boolean][] = [
+    const rows: [
+      number,
+      sdk.MetadataComponentType,
+      sdk.MetadataBasePolicy,
+      boolean,
+    ][] = [
       [STATUS, stringType, allow, false],
       [NICKNAME, nicknameType, allowIfSelfOrNonMember, true],
       [TOPIC, stringType, allowIfAdmin, false],
       [AVATAR, bytesType, allow, false],
+      [BYTE_MAP, mapType, allow, false],
+      [BYTE_SET, setType, allow, false],
     ];
     const application = (labels: (string | undefined)[]) =>
       rows.map(([id, componentType, base, isUserField], index) => ({
@@ -267,10 +218,24 @@ export async function checkMetadataFields(backendURL: string): Promise<void> {
       [field(0x800d, "GROUP_IMAGE"), false],
     ]);
     expect(alixFields.slice(8)).toStrictEqual(
-      application(["status", "nickname", "topic", "avatar"]),
+      application([
+        "status",
+        "nickname",
+        "topic",
+        "avatar",
+        "byte_map",
+        "byte_set",
+      ]),
     );
     expect((await boGroup.metadataFields()).slice(8)).toStrictEqual(
-      application(["GROUP_NAME", undefined, undefined, "status"]),
+      application([
+        "GROUP_NAME",
+        undefined,
+        undefined,
+        "status",
+        undefined,
+        undefined,
+      ]),
     );
     expect((await group.metadataField("status"))?.field).toStrictEqual(
       field(STATUS, "status"),
@@ -356,6 +321,16 @@ export async function checkMetadataFields(backendURL: string): Promise<void> {
     );
     expect(await epoch(boGroup)).toBe(before + 1n);
     expect(await boGroup.metadataValue(field(TOPIC))).toBeUndefined();
+
+    expect(
+      await boGroup.mapValue(displayName, {
+        kind: "inboxId",
+        value: bo.inboxId,
+      }),
+    ).toStrictEqual(string("Bo"));
+    await collectionScenario(group, (actual, expected) =>
+      expect(actual).toStrictEqual(expected),
+    );
 
     // A DM holds the pair's profiles and its DM fields, never group-only ones.
     const dm = await alix.conversations.createDm(bo.inboxId);

@@ -190,21 +190,19 @@ fn user_value(field: MetadataFieldRef, value: &str) -> UserFieldValue {
 
 /// The error's variant name, code, category and retryability.
 fn kind(error: XmtpError) -> (String, String, String, bool) {
-    let name = format!("{error:?}");
-    let name = name[..name.find('(').unwrap()].to_owned();
-    let details = match error {
-        XmtpError::UnknownField(details)
-        | XmtpError::NotUserField(details)
-        | XmtpError::DuplicateField(details)
-        | XmtpError::TypeMismatch(details)
-        | XmtpError::PermissionDenied(details)
-        | XmtpError::InvalidArgument(details)
-        | XmtpError::ClientClosed(details)
-        | XmtpError::Unknown(details) => details,
+    let (name, details) = match error {
+        XmtpError::UnknownField(details) => ("UnknownField", details),
+        XmtpError::NotUserField(details) => ("NotUserField", details),
+        XmtpError::DuplicateField(details) => ("DuplicateField", details),
+        XmtpError::TypeMismatch(details) => ("TypeMismatch", details),
+        XmtpError::PermissionDenied(details) => ("PermissionDenied", details),
+        XmtpError::InvalidArgument(details) => ("InvalidArgument", details),
+        XmtpError::ClientClosed(details) => ("ClientClosed", details),
+        XmtpError::Unknown(details) => ("Unknown", details),
         other => panic!("unexpected error {other:?}"),
     };
     let category = format!("{:?}", details.category);
-    (name, details.code, category, details.retryable)
+    (name.into(), details.code, category, details.retryable)
 }
 
 /// The error is the `name` variant with code `name` in `category`, and is

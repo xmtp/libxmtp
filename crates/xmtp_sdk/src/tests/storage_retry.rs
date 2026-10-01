@@ -14,12 +14,12 @@ fn kinds(results: Vec<Result<(), XmtpError>>) -> Vec<(String, String, bool)> {
         .into_iter()
         .map(|result| {
             let error = result.expect_err("the call fails while storage is disconnected");
-            let name = format!("{error:?}");
-            let name = name[..name.find('(').unwrap()].to_owned();
-            let (XmtpError::Storage(details) | XmtpError::Unknown(details)) = error else {
-                panic!("unexpected error {error:?}");
+            let (name, details) = match error {
+                XmtpError::Storage(details) => ("Storage", details),
+                XmtpError::Unknown(details) => ("Unknown", details),
+                other => panic!("unexpected error {other:?}"),
             };
-            (name, details.code, details.retryable)
+            (name.to_owned(), details.code, details.retryable)
         })
         .collect()
 }

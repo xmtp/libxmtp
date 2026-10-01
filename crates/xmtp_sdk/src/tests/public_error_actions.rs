@@ -217,15 +217,15 @@ fn a_credential_cause_behind_transparent_wrappers_keeps_its_code() {
     );
 }
 
-/// `Unknown` is retryable only when a typed core error says so, and every
-/// entry point agrees.
+/// Generic core calls keep typed retry hints. An unclassified group call
+/// has no safe repeat promise.
 #[xmtp_common::test(unwrap_try = true)]
 fn unknown_keeps_the_typed_retry_policy() {
     expect(
         XmtpError::from_group(GroupError::LockUnavailable),
         "Unknown",
         ErrorCategory::Unknown,
-        true,
+        false,
     );
     expect(
         XmtpError::from_core(GroupError::LockUnavailable),

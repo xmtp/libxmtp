@@ -174,6 +174,12 @@ async fn profile_writes_are_atomic_and_denials_are_typed() {
     );
     assert_eq!(bo_group.inner.epoch().await?, epoch + 1);
     assert_eq!(bo_group.metadata_value(field(TOPIC, None)).await?, None);
+    assert_eq!(
+        bo_group
+            .map_value(names, FieldKey::InboxId(bo.inbox_id().into_checked()?))
+            .await?,
+        Some(string("Bo"))
+    );
 
     alix.end().await?;
     bo.end().await?;

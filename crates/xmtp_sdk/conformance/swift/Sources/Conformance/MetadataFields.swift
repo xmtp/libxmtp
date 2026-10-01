@@ -9,6 +9,10 @@ private let nickname: UInt16 = 0xC002
 private let topic: UInt16 = 0xC003
 private let avatar: UInt16 = 0xC004
 private let later: UInt16 = 0xC005
+private let byteMap: UInt16 = 0xC006
+private let byteSet: UInt16 = 0xC007
+private let mapType: MetadataComponentType = .map(keyType: .bytes, valueType: .bytes)
+private let setType: MetadataComponentType = .set(keyType: .bytes)
 private let displayNameId: UInt16 = 0x800C
 private let nicknameType = MetadataComponentType.map(keyType: .inboxId, valueType: .string)
 
@@ -36,6 +40,8 @@ private let alixCatalogue = [
     definition(nickname, "nickname", nicknameType, .allowIfSelfOrNonMember, inDms: true),
     definition(topic, "topic", .string, .allowIfAdmin, inDms: true),
     definition(avatar, "avatar", .bytes, .allow, inDms: false),
+    definition(byteMap, "byte_map", mapType, .allow, inDms: false),
+    definition(byteSet, "byte_set", setType, .allow, inDms: false),
     definition(later, "later", .unknown(tag: 99), .allow, inDms: true),
 ]
 
@@ -52,6 +58,8 @@ private func application(_ labels: [String?]) -> [MetadataFieldDescriptor] {
         (nickname, nicknameType, .allowIfSelfOrNonMember, true),
         (topic, .string, .allowIfAdmin, false),
         (avatar, .bytes, .allow, false),
+        (byteMap, mapType, .allow, false),
+        (byteSet, setType, .allow, false),
     ]
     return rows.enumerated().map { index, row in
         MetadataFieldDescriptor(
@@ -93,8 +101,10 @@ private func expectKind(
         try await body()
     } catch let error as XmtpError {
         let details: ErrorDetails
-        switch error {
-        case let .PermissionDenied(value), let .DuplicateField(value), let .UnknownField(value):
+        switch (code, error) {
+        case let ("PermissionDenied", .PermissionDenied(value)),
+             let ("DuplicateField", .DuplicateField(value)),
+             let ("UnknownField", .UnknownField(value)):
             details = value
         default:
             throw ConformanceFailure("unexpected error \(error)")
@@ -142,11 +152,11 @@ func metadataFields(_ options: ClientOptions) async throws {
         "\(described)"
     )
     try expect(
-        Array(alixFields.dropFirst(8)) == application(["status", "nickname", "topic", "avatar"]),
+        Array(alixFields.dropFirst(8)) == application(["status", "nickname", "topic", "avatar", "byte_map", "byte_set"]),
         "\(alixFields.dropFirst(8))"
     )
     let boFields = try await Array(boGroup.metadataFields().dropFirst(8))
-    try expect(boFields == application(["GROUP_NAME", nil, nil, "status"]), "\(boFields)")
+    try expect(boFields == application(["GROUP_NAME", nil, nil, "status", nil, nil]), "\(boFields)")
     try await expect(group.metadataField(name: "status")?.field == field(status, "status"), "alix status")
     try await expect(boGroup.metadataField(name: "status")?.field == field(avatar, "status"), "bo status")
     try await expect(boGroup.metadataField(name: "GROUP_NAME")?.field == groupName, "bo GROUP_NAME")
@@ -206,6 +216,20 @@ func metadataFields(_ options: ClientOptions) async throws {
     }
     try await expect(boGroup.debugInfo().epoch == before + 1, "rejected write committed")
     try await expect(boGroup.metadataValue(field: field(topic)) == nil, "denied value")
+    try await expect(boGroup.mapValue(field: displayName, key: .inboxId(boId)) == .string("Bo"), "rejected profile changed")
+
+    // Collection unions preserve nested byte keys and values through the binding.
+    let byteKey = FieldKey.bytes(Data([0, 255]))
+    try await group.updateMetadataField(field: field(byteMap), operation: .mapDelta([.insert(byteKey, .bytes(Data([0, 128, 255])))]))
+    try await expect(group.metadataValue(field: field(byteMap)) == .map([MapEntry(key: byteKey, value: .bytes(Data([0, 128, 255])))]), "byte map insert")
+    try await group.updateMetadataField(field: field(byteMap), operation: .mapDelta([.update(byteKey, .bytes(Data([4, 0])))]))
+    try await expect(group.mapValue(field: field(byteMap), key: byteKey) == .bytes(Data([4, 0])), "byte map update")
+    try await group.updateMetadataField(field: field(byteMap), operation: .mapDelta([.delete(byteKey)]))
+    try await expect(group.metadataValue(field: field(byteMap)) == .map([]), "byte map delete")
+    try await group.updateMetadataField(field: field(byteSet), operation: .setDelta([.insert(byteKey)]))
+    try await expect(group.metadataValue(field: field(byteSet)) == .set([byteKey]), "byte set insert")
+    try await group.updateMetadataField(field: field(byteSet), operation: .setDelta([.delete(byteKey)]))
+    try await expect(group.metadataValue(field: field(byteSet)) == .set([]), "byte set delete")
 
     // A DM holds the pair's profiles and its DM fields, never group-only ones.
     let dm = try await alix.conversations().createDm(peer: boId)

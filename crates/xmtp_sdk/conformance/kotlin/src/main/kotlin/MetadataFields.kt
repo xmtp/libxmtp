@@ -8,6 +8,10 @@ private val NICKNAME: UShort = 0xC002u
 private val TOPIC: UShort = 0xC003u
 private val AVATAR: UShort = 0xC004u
 private val LATER: UShort = 0xC005u
+private val BYTE_MAP: UShort = 0xC006u
+private val BYTE_SET: UShort = 0xC007u
+private val mapType = MetadataComponentType.Map(MetadataKeyType.BYTES, MetadataScalarType.BYTES)
+private val setType = MetadataComponentType.Set(MetadataKeyType.BYTES)
 private val DISPLAY_NAME: UShort = 0x800Cu
 
 private val nicknameType = MetadataComponentType.Map(MetadataKeyType.INBOX_ID, MetadataScalarType.STRING)
@@ -37,6 +41,8 @@ private val alixCatalogue =
         definition(NICKNAME, "nickname", nicknameType, MetadataBasePolicy.AllowIfSelfOrNonMember, true),
         definition(TOPIC, "topic", MetadataComponentType.String, MetadataBasePolicy.AllowIfAdmin, true),
         definition(AVATAR, "avatar", MetadataComponentType.Bytes, MetadataBasePolicy.Allow, false),
+        definition(BYTE_MAP, "byte_map", mapType, MetadataBasePolicy.Allow, false),
+        definition(BYTE_SET, "byte_set", setType, MetadataBasePolicy.Allow, false),
         definition(LATER, "later", MetadataComponentType.Unknown(99), MetadataBasePolicy.Allow, true),
     )
 
@@ -74,6 +80,8 @@ private fun application(vararg labels: String?) =
             permissions(MetadataBasePolicy.Allow),
             false,
         ),
+        MetadataFieldDescriptor(field(BYTE_MAP, labels[4]), mapType, permissions(MetadataBasePolicy.Allow), false),
+        MetadataFieldDescriptor(field(BYTE_SET, labels[5]), setType, permissions(MetadataBasePolicy.Allow), false),
     )
 
 private suspend fun clientWith(
@@ -106,6 +114,14 @@ private fun checkKind(
     code: String,
     category: ErrorCategory,
 ) {
+    val expected =
+        when (code) {
+            "PermissionDenied" -> XmtpException.PermissionDenied::class
+            "DuplicateField" -> XmtpException.DuplicateField::class
+            "UnknownField" -> XmtpException.UnknownField::class
+            else -> error("unknown expected variant $code")
+        }
+    check(thrown != null && thrown::class == expected) { "unexpected error $thrown" }
     val details =
         when (thrown) {
             is XmtpException.PermissionDenied -> thrown.v1
@@ -144,9 +160,11 @@ internal suspend fun metadataFields(options: ClientOptions) {
             field(0x800Du, "GROUP_IMAGE") to false,
         )
     check(alixFields.take(8).map { it.field to it.isUserField } == wellKnown) { "${alixFields.take(8)}" }
-    check(alixFields.drop(8) == application("status", "nickname", "topic", "avatar")) { "${alixFields.drop(8)}" }
+    check(alixFields.drop(8) == application("status", "nickname", "topic", "avatar", "byte_map", "byte_set")) {
+        "${alixFields.drop(8)}"
+    }
     val boFields = boGroup.metadataFields().drop(8)
-    check(boFields == application("GROUP_NAME", null, null, "status")) { "$boFields" }
+    check(boFields == application("GROUP_NAME", null, null, "status", null, null)) { "$boFields" }
     check(group.metadataField("status")?.field == field(STATUS, "status"))
     check(boGroup.metadataField("status")?.field == field(AVATAR, "status"))
     check(boGroup.metadataField("GROUP_NAME")?.field == groupName)
@@ -222,6 +240,30 @@ internal suspend fun metadataFields(options: ClientOptions) {
     )
     check(boGroup.debugInfo().epoch == before + 1u)
     check(boGroup.metadataValue(field(TOPIC)) == null)
+    check(boGroup.mapValue(displayName, FieldKey.InboxId(boId)) == FieldValue.String("Bo"))
+
+    // Collection unions preserve nested byte keys and values through the binding.
+    val byteKey = FieldKey.Bytes(byteArrayOf(0, -1))
+    group.updateMetadataField(
+        field(BYTE_MAP),
+        ComponentMutation.MapDelta(listOf(MapMutation.Insert(byteKey, FieldValue.Bytes(byteArrayOf(0, -128, -1))))),
+    )
+    val entries = (group.metadataValue(field(BYTE_MAP)) as MetadataValue.Map).v1
+    check(entries.size == 1)
+    check((entries.single().key as FieldKey.Bytes).v1.toList() == listOf<Byte>(0, -1))
+    check((entries.single().value as FieldValue.Bytes).v1.toList() == listOf<Byte>(0, -128, -1))
+    group.updateMetadataField(
+        field(BYTE_MAP),
+        ComponentMutation.MapDelta(listOf(MapMutation.Update(byteKey, FieldValue.Bytes(byteArrayOf(4, 0))))),
+    )
+    check((group.mapValue(field(BYTE_MAP), byteKey) as FieldValue.Bytes).v1.toList() == listOf<Byte>(4, 0))
+    group.updateMetadataField(field(BYTE_MAP), ComponentMutation.MapDelta(listOf(MapMutation.Delete(byteKey))))
+    check((group.metadataValue(field(BYTE_MAP)) as MetadataValue.Map).v1.isEmpty())
+    group.updateMetadataField(field(BYTE_SET), ComponentMutation.SetDelta(listOf(SetMutation.Insert(byteKey))))
+    val keys = (group.metadataValue(field(BYTE_SET)) as MetadataValue.Set).v1
+    check(keys.size == 1 && (keys.single() as FieldKey.Bytes).v1.toList() == listOf<Byte>(0, -1))
+    group.updateMetadataField(field(BYTE_SET), ComponentMutation.SetDelta(listOf(SetMutation.Delete(byteKey))))
+    check((group.metadataValue(field(BYTE_SET)) as MetadataValue.Set).v1.isEmpty())
 
     // A DM holds the pair's profiles and its DM fields, never group-only ones.
     val dm = alix.conversations().createDm(boId)
