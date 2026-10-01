@@ -694,7 +694,6 @@ struct Conformance {
         } catch XmtpError.InvalidArgument {}
         print("Swift scenario 12: notification state and typed error passed")
 
-
         let family = try await reopened.conversations().createGroup(
             members: [InboxId](), options: CreateGroupOptions(name: "family group")
         )

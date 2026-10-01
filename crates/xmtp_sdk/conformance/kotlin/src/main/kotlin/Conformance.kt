@@ -704,7 +704,6 @@ fun main() =
         )
         println("Kotlin scenario 12: notification state and typed error passed")
 
-
         val fresh = generateLocalSigner()
         val errorSigner =
             object : Signer {
