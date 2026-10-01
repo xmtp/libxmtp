@@ -77,21 +77,52 @@ public struct ReadReceiptCodec: ContentCodec {
     }
 }
 
+public struct ReactionV2Content: Sendable {
+    public let reference: MessageId
+    public let referenceInboxId: InboxId?
+    public let reaction: Reaction
+
+    public init(reference: MessageId, referenceInboxId: InboxId? = nil, reaction: Reaction) {
+        self.reference = reference
+        self.referenceInboxId = referenceInboxId
+        self.reaction = reaction
+    }
+}
+
+public struct ReplyContent: Sendable {
+    public let reference: MessageId
+    public let referenceInboxId: InboxId?
+    public let content: EncodedContent
+
+    public init(reference: MessageId, referenceInboxId: InboxId? = nil, content: EncodedContent) {
+        self.reference = reference
+        self.referenceInboxId = referenceInboxId
+        self.content = content
+    }
+}
+
+public struct DeleteMessageContent: Sendable {
+    public let messageId: MessageId
+
+    public init(messageId: MessageId) {
+        self.messageId = messageId
+    }
+}
+
 public struct ReactionV2Codec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .reaction)
     }
 
-    public func encode(_ value: StandardContent) throws -> EncodedContent {
-        guard case .reaction = value else { throw codecValueError() }
-        return try encodeStandard(value: value)
+    public func encode(_ value: ReactionV2Content) throws -> EncodedContent {
+        try encodeStandard(value: .reaction(reference: value.reference, referenceInboxId: value.referenceInboxId, reaction: value.reaction))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> StandardContent {
+    public func decode(_ encoded: EncodedContent) throws -> ReactionV2Content {
         try standardValue(encoded) {
-            if case .reaction = $0 {
-                $0
+            if case let .reaction(reference, referenceInboxId, reaction) = $0 {
+                ReactionV2Content(reference: reference, referenceInboxId: referenceInboxId, reaction: reaction)
             } else {
                 nil
             }
@@ -252,15 +283,14 @@ public struct ReplyCodec: ContentCodec {
         standardContentType(kind: .reply)
     }
 
-    public func encode(_ value: StandardContent) throws -> EncodedContent {
-        guard case .reply = value else { throw codecValueError() }
-        return try encodeStandard(value: value)
+    public func encode(_ value: ReplyContent) throws -> EncodedContent {
+        try encodeStandard(value: .reply(reference: value.reference, referenceInboxId: value.referenceInboxId, content: value.content))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> StandardContent {
+    public func decode(_ encoded: EncodedContent) throws -> ReplyContent {
         try standardValue(encoded) {
-            if case .reply = $0 {
-                $0
+            if case let .reply(reference, referenceInboxId, content) = $0 {
+                ReplyContent(reference: reference, referenceInboxId: referenceInboxId, content: content)
             } else {
                 nil
             }
@@ -295,15 +325,14 @@ public struct DeleteMessageCodec: ContentCodec {
         standardContentType(kind: .deleteMessage)
     }
 
-    public func encode(_ value: StandardContent) throws -> EncodedContent {
-        guard case .deleteMessage = value else { throw codecValueError() }
-        return try encodeStandard(value: value)
+    public func encode(_ value: DeleteMessageContent) throws -> EncodedContent {
+        try encodeStandard(value: .deleteMessage(messageId: value.messageId))
     }
 
-    public func decode(_ encoded: EncodedContent) throws -> StandardContent {
+    public func decode(_ encoded: EncodedContent) throws -> DeleteMessageContent {
         try standardValue(encoded) {
-            if case .deleteMessage = $0 {
-                $0
+            if case let .deleteMessage(messageId) = $0 {
+                DeleteMessageContent(messageId: messageId)
             } else {
                 nil
             }

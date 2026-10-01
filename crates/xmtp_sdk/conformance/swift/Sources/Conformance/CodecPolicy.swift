@@ -298,16 +298,6 @@ func codecPolicyFailureNeverPublishes(group: Group, parent: Message) async throw
         try await expectCodecEncodeFailed("prepareMessage") { try await group.prepareMessage(codec, value: "x") }
     }
     try await expectCodecEncodeFailed("reply") { try await parent.reply(NoteCodec(failEncode: true), value: "x") }
-    // Known gap, waiting for an owner decision: the reaction, reply, and
-    // delete-message codecs take the whole StandardContent, so the compiler
-    // accepts another variant. The send fails at run time instead.
-    try await expectCodecEncodeFailed("ReactionV2Codec send") {
-        try await group.send(ReactionV2Codec(), value: .text("x"))
-    }
-    try await expectCodecEncodeFailed("ReplyCodec send") { try await group.send(ReplyCodec(), value: .text("x")) }
-    try await expectCodecEncodeFailed("DeleteMessageCodec send") {
-        try await group.send(DeleteMessageCodec(), value: .text("x"))
-    }
     guard try await group.messages(options: nil).count == before else {
         throw ConformanceFailure("a failed codec step made a publish attempt")
     }
