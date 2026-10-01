@@ -1,9 +1,7 @@
 package uniffi.xmtp_sdk
 
-// The standard codecs. Each has the value type of its standard content, and
-// Rust encodes and decodes the bytes. The reaction, reply, and delete-message
-// codecs take the whole StandardContent and reject another variant at run time
-// (a known P9 gap; see the Ref).
+// Standard codecs use their own value types. Rust encodes and decodes the bytes.
+// Reaction, reply, and delete-message codecs use their generated records.
 
 private fun codecValueError() =
     XmtpException.InvalidArgument(
