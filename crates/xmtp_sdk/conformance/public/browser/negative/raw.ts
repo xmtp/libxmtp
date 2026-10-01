@@ -1,3 +1,4 @@
+import { sdkLogSinkHandoff } from "xmtp-sdk-browser";
 import { Client, type PublicIdentity, wrapClient } from "xmtp-sdk-browser";
 import { MainSession } from "xmtp-sdk-browser/typescript-wasm/runtime/bridge/main/session";
 
@@ -13,3 +14,5 @@ export async function consumeRaw(
   void wrapClient;
   void MainSession;
 }
+
+void sdkLogSinkHandoff;

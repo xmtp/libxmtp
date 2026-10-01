@@ -151,24 +151,6 @@ final class RecordingPreAuthenticate: PreAuthenticate, @unchecked Sendable {
     }
 }
 
-final class OrderedLogSink: LogSink, @unchecked Sendable {
-    private let lock = NSLock()
-    private var values: [String] = []
-
-    func log(record: LogRecord) throws {
-        guard record.target == "xmtp_sdk::conformance" else { return }
-        lock.lock()
-        values.append(record.fields["sequence"] ?? "")
-        lock.unlock()
-    }
-
-    func sequence() -> [String] {
-        lock.lock()
-        defer { lock.unlock() }
-        return values
-    }
-}
-
 actor EventSignal {
     private var seen = false
 

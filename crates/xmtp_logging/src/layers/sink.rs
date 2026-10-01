@@ -1,9 +1,10 @@
-//! A replaceable event sink and an optional bounded delivery queue.
+//! An event layer that sends records to a replaceable queue target.
 
+use parking_lot::RwLock;
+use std::cell::Cell;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::{
-    cell::Cell,
     collections::BTreeMap,
     error::Error,
     panic::{AssertUnwindSafe, catch_unwind},
@@ -12,15 +13,6 @@ use std::{
         atomic::{AtomicU64, Ordering},
     },
 };
-#[cfg(not(target_arch = "wasm32"))]
-use std::{
-    sync::mpsc::{SyncSender, TrySendError, sync_channel},
-    thread,
-};
-
-#[cfg(not(target_arch = "wasm32"))]
-use parking_lot::Mutex;
-use parking_lot::RwLock;
 use tracing::{
     Event,
     field::{Field, Visit},
@@ -28,10 +20,6 @@ use tracing::{
 use tracing_subscriber::{Layer, layer::Context};
 
 use crate::Level;
-
-/// The queue size used by a Node log sink.
-#[cfg(not(target_arch = "wasm32"))]
-pub const BOUNDED_SINK_CAPACITY: usize = 4_096;
 
 #[cfg(target_arch = "wasm32")]
 fn timestamp_ns() -> i64 {
@@ -58,40 +46,37 @@ pub struct LogRecord {
     pub message: String,
     pub fields: BTreeMap<String, String>,
     pub timestamp_ns: i64,
-    /// Records discarded since the last record delivered by a bounded sink.
+    /// Pending drops captured when this record leaves the queue.
+    /// A successful callback clears only the captured count.
     pub dropped_records: u64,
 }
 
 /// Error returned by a log sink.
 pub type SinkError = Box<dyn Error + Send + Sync>;
 
-/// The sink rejected a record because its delivery window is full.
-#[derive(Debug, thiserror::Error)]
-#[error("log sink is busy")]
-pub struct SinkBusy;
-
-/// A destination for log records. A direct sink is called on the logging thread.
-/// A sink must return errors instead of panicking: release builds abort on panic.
+/// A tracing event receiver. Application callbacks run in the SDK drain.
+/// Implementations must enqueue without waiting for application code.
 pub trait LogSinkTarget: Send + Sync + 'static {
-    fn on_record(&self, record: LogRecord) -> Result<(), SinkError>;
+    /// Skip record construction when this target has no receiver.
+    fn enabled(&self) -> bool {
+        true
+    }
 
-    /// Stop pending delivery when this sink is replaced or cleared.
-    fn on_detach(&self) {}
+    fn on_record(&self, record: LogRecord) -> Result<(), SinkError>;
 }
 
 thread_local! {
-    static IN_SINK: Cell<bool> = const { Cell::new(false) };
+    static SINK_CALL_ACTIVE: Cell<bool> = const { Cell::new(false) };
 }
 
 struct SinkCallGuard;
 
 impl SinkCallGuard {
     fn enter() -> Option<Self> {
-        IN_SINK.with(|active| {
-            if active.get() {
+        SINK_CALL_ACTIVE.with(|active| {
+            if active.replace(true) {
                 None
             } else {
-                active.set(true);
                 Some(Self)
             }
         })
@@ -100,9 +85,11 @@ impl SinkCallGuard {
 
 impl Drop for SinkCallGuard {
     fn drop(&mut self) {
-        IN_SINK.with(|active| active.set(false));
+        SINK_CALL_ACTIVE.with(|active| active.set(false));
     }
 }
+
+const SINK_ERROR_TARGET: &str = "xmtp_common::log_sink";
 
 static LAST_ERROR_REPORT_SECOND: AtomicU64 = AtomicU64::new(0);
 
@@ -115,18 +102,14 @@ fn report_error(errors: &AtomicU64, detail: &'static str) {
         })
         .is_ok()
     {
-        // The re-entry guard is held by the caller. This event reaches the
-        // native layers, but cannot enter the sink again.
-        tracing::error!(target: "xmtp_common", "log sink {detail}");
+        // The sink layer excludes its own error target. Native layers retain it.
+        tracing::error!(target: SINK_ERROR_TARGET, "log sink {detail}");
     }
 }
 
-fn deliver(target: &dyn LogSinkTarget, record: LogRecord, errors: &AtomicU64, dropped: &AtomicU64) {
+fn deliver(target: &dyn LogSinkTarget, record: LogRecord, errors: &AtomicU64) {
     match catch_unwind(AssertUnwindSafe(|| target.on_record(record))) {
         Ok(Ok(())) => {}
-        Ok(Err(error)) if error.is::<SinkBusy>() => {
-            dropped.fetch_add(1, Ordering::Relaxed);
-        }
         Ok(Err(_)) => report_error(errors, "returned an error"),
         Err(_) => report_error(errors, "panicked"),
     }
@@ -136,7 +119,6 @@ fn deliver(target: &dyn LogSinkTarget, record: LogRecord, errors: &AtomicU64, dr
 struct SinkState {
     target: RwLock<Option<Arc<dyn LogSinkTarget>>>,
     errors: AtomicU64,
-    dropped: AtomicU64,
 }
 
 /// Always-present layer slot. Replacing or dropping a sink never calls it under
@@ -157,31 +139,30 @@ impl SinkSlot {
             }
             std::mem::replace(&mut *current, target)
         };
-        if let Some(old) = old.as_ref() {
-            old.on_detach();
-        }
         drop(old);
     }
 
     pub(crate) fn error_count(&self) -> u64 {
         self.0.errors.load(Ordering::Relaxed)
     }
-
-    pub(crate) fn dropped_count(&self) -> u64 {
-        self.0.dropped.load(Ordering::Relaxed)
-    }
 }
 
 impl<S: tracing::Subscriber> Layer<S> for SinkSlot {
     fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
-        let Some(_guard) = SinkCallGuard::enter() else {
+        if event.metadata().target() == SINK_ERROR_TARGET {
             return;
-        };
+        }
         let Some(target) = self.0.target.read().clone() else {
             return;
         };
+        let Some(_guard) = SinkCallGuard::enter() else {
+            return;
+        };
+        if !target.enabled() {
+            return;
+        }
         let record = LogRecord::from_event(event);
-        deliver(target.as_ref(), record, &self.0.errors, &self.0.dropped);
+        deliver(target.as_ref(), record, &self.0.errors);
     }
 }
 
@@ -234,125 +215,11 @@ impl LogRecord {
     }
 }
 
-/// Send records through one bounded queue to one drain thread.
-///
-/// The drain thread owns no queue or slot lock while it calls the destination.
-/// Detaching or dropping the adapter closes its queue without waiting for an
-/// active callback. Queued records are counted as drops and are not delivered.
-#[cfg(not(target_arch = "wasm32"))]
-pub struct BoundedSink {
-    sender: Mutex<Option<SyncSender<LogRecord>>>,
-    stopped: Arc<std::sync::atomic::AtomicBool>,
-    dropped: Arc<AtomicU64>,
-    pending_drops: Arc<Mutex<u64>>,
-    errors: Arc<AtomicU64>,
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl BoundedSink {
-    pub fn new(target: Arc<dyn LogSinkTarget>) -> std::io::Result<Self> {
-        let (sender, receiver) = sync_channel::<LogRecord>(BOUNDED_SINK_CAPACITY);
-        let stopped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-        let dropped = Arc::new(AtomicU64::new(0));
-        let pending_drops = Arc::new(Mutex::new(0));
-        let errors = Arc::new(AtomicU64::new(0));
-        let worker_drops = pending_drops.clone();
-        let worker_errors = errors.clone();
-        let worker_stopped = stopped.clone();
-        let worker_discarded = dropped.clone();
-        thread::Builder::new()
-            .name("xmtp-log-sink".to_owned())
-            .spawn(move || {
-                while let Ok(mut record) = receiver.recv() {
-                    if worker_stopped.load(Ordering::Acquire) {
-                        worker_discarded.fetch_add(1, Ordering::Relaxed);
-                        continue;
-                    }
-                    let missed = std::mem::take(&mut *worker_drops.lock());
-                    record.dropped_records = record.dropped_records.saturating_add(missed);
-                    if worker_stopped.load(Ordering::Acquire) {
-                        worker_discarded.fetch_add(1, Ordering::Relaxed);
-                        continue;
-                    }
-                    if let Some(_guard) = SinkCallGuard::enter() {
-                        deliver(target.as_ref(), record, &worker_errors, &worker_discarded);
-                    }
-                }
-            })?;
-        Ok(Self {
-            sender: Mutex::new(Some(sender)),
-            stopped,
-            dropped,
-            pending_drops,
-            errors,
-        })
-    }
-
-    pub fn dropped_count(&self) -> u64 {
-        self.dropped.load(Ordering::Relaxed)
-    }
-
-    pub fn error_count(&self) -> u64 {
-        self.errors.load(Ordering::Relaxed)
-    }
-
-    /// Stop this adapter. The current callback can finish; queued records are
-    /// discarded and the drain thread exits after that callback returns.
-    pub fn stop(&self) {
-        self.stopped.store(true, Ordering::Release);
-        drop(self.sender.lock().take());
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl Drop for BoundedSink {
-    fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-impl LogSinkTarget for BoundedSink {
-    fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
-        let send_result = self
-            .sender
-            .lock()
-            .as_ref()
-            .map(|sender| sender.try_send(record));
-        match send_result {
-            None => {
-                self.dropped.fetch_add(1, Ordering::Relaxed);
-                Ok(())
-            }
-            Some(Ok(())) => Ok(()),
-            Some(Err(TrySendError::Full(_))) => {
-                let mut pending = self.pending_drops.lock();
-                *pending = pending.saturating_add(1);
-                self.dropped.fetch_add(1, Ordering::Relaxed);
-                // The first subsequent record *delivered* carries this count,
-                // including one that was already waiting in the queue.
-                Ok(())
-            }
-            Some(Err(TrySendError::Disconnected(_))) => Err(Box::new(std::io::Error::new(
-                std::io::ErrorKind::BrokenPipe,
-                "log sink drain thread stopped",
-            ))),
-        }
-    }
-
-    fn on_detach(&self) {
-        self.stop();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{
-        atomic::{AtomicBool, AtomicUsize},
-        mpsc::{Receiver, RecvTimeoutError, Sender, channel},
-    };
-    use std::time::Duration;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
+    use std::{sync::mpsc::channel, thread, time::Duration};
     use tracing_subscriber::prelude::*;
 
     #[derive(Default)]
@@ -372,39 +239,6 @@ mod tests {
             self.0.lock().push(record);
             Ok(())
         }
-    }
-
-    fn record(message: &str) -> LogRecord {
-        LogRecord {
-            level: Level::Info,
-            target: "xmtp_mls".into(),
-            message: message.into(),
-            fields: BTreeMap::new(),
-            timestamp_ns: 1,
-            dropped_records: 0,
-        }
-    }
-
-    struct Busy;
-
-    impl LogSinkTarget for Busy {
-        fn on_record(&self, _record: LogRecord) -> Result<(), SinkError> {
-            Err(Box::new(SinkBusy))
-        }
-    }
-
-    #[test]
-    fn native_busy_uses_dropped_count() {
-        let slot = SinkSlot::default();
-        slot.set_sink(Some(Arc::new(Busy)));
-        tracing::subscriber::with_default(
-            tracing_subscriber::registry().with(slot.clone()),
-            || {
-                tracing::info!(target: "xmtp_mls", "busy");
-            },
-        );
-        assert_eq!(slot.dropped_count(), 1);
-        assert_eq!(slot.error_count(), 0);
     }
 
     #[test]
@@ -429,6 +263,57 @@ mod tests {
         assert_eq!(records[1].level, Level::Warn);
         assert_eq!(records[2].target, "xmtp_db");
         assert!(records.iter().all(|record| record.timestamp_ns > 0));
+    }
+
+    struct EmitsTwo(Arc<AtomicUsize>);
+
+    impl LogSinkTarget for EmitsTwo {
+        fn on_record(&self, _record: LogRecord) -> Result<(), SinkError> {
+            if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                tracing::info!(target: "xmtp_mls", "first nested sink event");
+                tracing::info!(target: "xmtp_mls", "second nested sink event");
+            }
+            Ok(())
+        }
+    }
+
+    // A scoped dispatch suppresses recursion itself. The fresh child tests the
+    // production global dispatch path with exactly one subscriber.
+    #[test]
+    fn sink_target_logging_does_not_reenter() {
+        const CHILD: &str = "XMTP_SINK_REENTRY_CHILD";
+        if std::env::var_os(CHILD).is_some() {
+            let calls = Arc::new(AtomicUsize::new(0));
+            let slot = SinkSlot::default();
+            slot.set_sink(Some(Arc::new(EmitsTwo(calls.clone()))));
+            tracing::subscriber::set_global_default(tracing_subscriber::registry().with(slot))
+                .expect("fresh child must have no subscriber");
+            tracing::info!(target: "xmtp_mls", "outer sink event");
+            assert_eq!(calls.load(Ordering::SeqCst), 1);
+            return;
+        }
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "layers::sink::tests::sink_target_logging_does_not_reenter",
+                "--nocapture",
+            ])
+            .env(CHILD, "1")
+            .spawn()
+            .unwrap();
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if let Some(status) = child.try_wait().unwrap() {
+                assert!(status.success(), "global sink child failed: {status}");
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                child.kill().unwrap();
+                child.wait().unwrap();
+                panic!("global sink child exceeded five seconds");
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
     }
 
     #[test]
@@ -506,112 +391,12 @@ mod tests {
         assert_eq!(replacement.0.lock()[0].message, "old sink dropped");
     }
 
-    struct BlockingTarget {
-        entered: Sender<()>,
-        release: parking_lot::Mutex<Receiver<()>>,
-        output: Sender<LogRecord>,
-        first: AtomicBool,
-    }
-
-    impl LogSinkTarget for BlockingTarget {
-        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
-            if self.first.swap(false, Ordering::SeqCst) {
-                self.entered.send(()).unwrap();
-                self.release.lock().recv().unwrap();
-            }
-            self.output.send(record).unwrap();
-            Ok(())
-        }
-    }
-
-    #[test]
-    fn bounded_sink_counts_drops() {
-        let (entered_tx, entered_rx) = channel();
-        let (release_tx, release_rx) = channel();
-        let (output_tx, output_rx) = channel();
-        let target = Arc::new(BlockingTarget {
-            entered: entered_tx,
-            release: parking_lot::Mutex::new(release_rx),
-            output: output_tx,
-            first: AtomicBool::new(true),
-        });
-        let bounded = BoundedSink::new(target).unwrap();
-        bounded.on_record(record("first")).unwrap();
-        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        for _ in 0..BOUNDED_SINK_CAPACITY {
-            bounded.on_record(record("waiting")).unwrap();
-        }
-        bounded.on_record(record("dropped")).unwrap();
-        assert_eq!(bounded.dropped_count(), 1);
-        release_tx.send(()).unwrap();
-        assert_eq!(
-            output_rx
-                .recv_timeout(Duration::from_secs(5))
-                .unwrap()
-                .dropped_records,
-            0
-        );
-        assert_eq!(
-            output_rx
-                .recv_timeout(Duration::from_secs(5))
-                .unwrap()
-                .dropped_records,
-            1
-        );
-        assert_eq!(bounded.error_count(), 0);
-    }
-
-    #[test]
-    fn replaced_bounded_sink_stops_delivering() {
-        let (entered_tx, entered_rx) = channel();
-        let (release_tx, release_rx) = channel();
-        let (output_tx, output_rx) = channel();
-        let old_target = Arc::new(BlockingTarget {
-            entered: entered_tx,
-            release: parking_lot::Mutex::new(release_rx),
-            output: output_tx,
-            first: AtomicBool::new(true),
-        });
-        let old = Arc::new(BoundedSink::new(old_target).unwrap());
-        let slot = SinkSlot::default();
-        slot.set_sink(Some(old.clone()));
-        old.on_record(record("in flight")).unwrap();
-        entered_rx.recv_timeout(Duration::from_secs(5)).unwrap();
-        for _ in 0..BOUNDED_SINK_CAPACITY {
-            old.on_record(record("queued")).unwrap();
-        }
-        old.on_record(record("overflow")).unwrap();
-        assert_eq!(old.dropped_count(), 1);
-
-        let replacement = Arc::new(Collect::default());
-        slot.set_sink(Some(replacement.clone()));
-        tracing::subscriber::with_default(tracing_subscriber::registry().with(slot), || {
-            tracing::info!(target: "xmtp_mls", "new sink");
-        });
-        assert_eq!(replacement.0.lock()[0].message, "new sink");
-
-        release_tx.send(()).unwrap();
-        assert_eq!(
-            output_rx
-                .recv_timeout(Duration::from_secs(5))
-                .unwrap()
-                .message,
-            "in flight"
-        );
-        assert!(matches!(
-            output_rx.recv_timeout(Duration::from_secs(5)),
-            Err(RecvTimeoutError::Disconnected)
-        ));
-        assert_eq!(old.dropped_count(), BOUNDED_SINK_CAPACITY as u64 + 1);
-    }
-
     struct Failing(Arc<parking_lot::Mutex<Vec<String>>>);
 
     impl LogSinkTarget for Failing {
         fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
             self.0.lock().push(record.message.clone());
             if record.message.starts_with("original") {
-                tracing::warn!(target: "xmtp_common", "sink callback log");
                 Err(Box::new(std::io::Error::other("sink failed")))
             } else {
                 Ok(())

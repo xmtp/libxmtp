@@ -163,12 +163,13 @@ pub fn storage_requires_worker_restart() -> bool {
     STORE_LEFT_OPEN.load(Ordering::Relaxed) || xmtp_db::opfs_requires_worker_restart()
 }
 
-/// @xmtp-worker Finish idle storage work before the package terminates its worker.
+/// @xmtp-internal @xmtp-worker Finish idle storage work before the package terminates its worker.
 /// The worker calls this only after all owners and accepted calls have drained.
 #[cfg(all(target_arch = "wasm32", not(feature = "pure-only")))]
 #[uniffi::export]
-pub fn prepare_storage_for_shutdown() {
+pub async fn prepare_storage_for_shutdown() {
     xmtp_db::pause_sqlite_if_idle();
+    crate::logging::wait_for_worker_idle().await;
 }
 
 #[derive(Default)]

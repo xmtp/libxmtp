@@ -35,7 +35,7 @@ import {
   type MessageData,
   type SendOptions,
 } from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
-import { clearLogSink } from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
+import { setLogSink } from "../../../../target/sdk-generated/typescript-wasm/xmtp_sdk.js";
 import { Endpoint, host, TestProxy, stringKeys } from "./bridge-support";
 export function registerTransportTests(): void {
   it("exposes only PascalCase error codes", () => {
@@ -128,7 +128,7 @@ export function registerTransportTests(): void {
     controller.abort();
     let failure: unknown;
     try {
-      await clearLogSink({ signal: controller.signal });
+      await setLogSink(undefined, { signal: controller.signal });
     } catch (error) {
       failure = error;
     }

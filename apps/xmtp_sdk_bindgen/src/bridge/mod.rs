@@ -139,13 +139,11 @@ fn validate_bridge(items: &[Metadata]) -> Result<()> {
                 }
             }
             Metadata::TraitMethod(method) if !method.is_async => {
-                if method.trait_name != "LogSink" || method.name != "log" {
-                    bail!(
-                        "{}.{}: synchronous foreign trait method",
-                        method.trait_name,
-                        method.name
-                    );
-                }
+                bail!(
+                    "{}.{}: synchronous foreign trait method",
+                    method.trait_name,
+                    method.name
+                );
             }
             Metadata::Constructor(method) if !method.is_async => {
                 bail!(
@@ -1862,7 +1860,7 @@ mod tests {
             validate_bridge(&items)
                 .unwrap_err()
                 .to_string()
-                .contains("make: result can hold LogSink")
+                .contains("LogSink.log: synchronous foreign trait method")
         );
     }
 

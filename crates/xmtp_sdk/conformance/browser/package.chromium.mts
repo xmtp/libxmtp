@@ -35,6 +35,8 @@ const browser = await chromium.launch({
 });
 const context = await browser.newContext();
 const page = await context.newPage();
+const nativeLogs: string[] = [];
+page.on("console", (message) => nativeLogs.push(message.text()));
 const other = await context.newPage();
 const url = `http://127.0.0.1:${address.port}/crates/xmtp_sdk/conformance/browser/bridge.chromium.html`;
 const counts = () =>
@@ -198,6 +200,33 @@ try {
     (await import("./public-entry.chromium.ts")).restored(),
   );
   console.log(`Chromium public entry: ${restoredValues.join("; ")}`);
+  await page.evaluate(async () =>
+    (await import("./public-entry.chromium.ts")).loggingEnd(),
+  );
+  // verifies: LOG-010. These logs come from the real SDK operations above.
+  for (const target of ["xmtp_sdk::credentials", "xmtp_sdk::signer"])
+    assert.ok(
+      nativeLogs.some((line) => line.includes(target)),
+      target,
+    );
+  for (const secret of [
+    "LOG_CREDENTIAL_SENTINEL_89d42",
+    "LOG_SIGNING_KEY_SENTINEL_89d42!!!",
+  ]) {
+    const bytes = Buffer.from(secret);
+    for (const value of [
+      secret,
+      bytes.toString("hex"),
+      `[${[...bytes].join(", ")}]`,
+    ])
+      assert.ok(
+        !nativeLogs.some((line) => line.includes(value)),
+        "browser native log exposed a secret",
+      );
+  }
+  console.log(
+    "Chromium client end from log callback and native/app secret checks passed",
+  );
   console.log(
     "Chromium package reservations, shared owners, final worker termination, replacement, and GC passed",
   );

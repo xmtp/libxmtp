@@ -59,6 +59,8 @@ Run commands from the repository root in the Nix shell. Run
   Tests and changelogs remain outside the shipped-code guard.
 - `just sdk conformance-bridge` runs bridge Vitest, real WASM worker proofs,
   and Chromium proofs for pure codecs, worker failure, and browser storage.
+  It also checks the public log setter, the real Rust queue, and final managed
+  worker retirement with held app callbacks.
 - `just sdk conformance-storage` runs the real-worker OPFS proof against the
   staged SDK. Run `just sdk generate` first after SDK or runtime changes.
 - `just sdk conformance-package` checks package creation reservations, shared

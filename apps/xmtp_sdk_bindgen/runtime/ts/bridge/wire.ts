@@ -215,6 +215,7 @@ export type WireMessage =
   | { t: "cancel"; id: number }
   | { t: "release"; handles: number[]; owners?: number[]; revision?: number }
   | { t: "callback"; id: number; cb: number; method: string; args: unknown[] }
+  | { t: "logHandoff"; id: number }
   | { t: "callbackResult"; id: number; value?: unknown; error?: ErrorWire }
   | { t: "callbackDrop"; cb: number }
   | { t: "fatal"; error: ErrorWire };

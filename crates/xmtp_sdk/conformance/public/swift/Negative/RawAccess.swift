@@ -5,6 +5,7 @@ import XmtpSdk
 func consumeRaw(
     _ client: SDKClient, _ signer: Signer, _ options: ClientOptions, _ group: Group, _ identity: PublicIdentity
 ) async throws {
+    _ = sdkLogSinkHandoff()
     _ = client.raw
     _ = try await Client.create(signer: signer, options: options)
     _ = try await client.conversations().createGroupWithIdentities(members: [identity], options: nil)

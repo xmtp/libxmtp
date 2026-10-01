@@ -119,6 +119,141 @@ export function registerPackageLifetimeTests(): void {
     expect(session.isTerminated).toBe(true);
   });
 
+  // verifies: LOG-002, LOG-004, LOG-008
+  it("keeps a managed worker through a held log and its queued successor", async () => {
+    const [main, worker] = pair();
+    const stopped = vi.fn();
+    main.terminate = stopped;
+    let delivery: Promise<void> = Promise.resolve();
+    const host = new WorkerHost(
+      worker,
+      3,
+      "logs",
+      async () => {},
+      async (_key, _args, context) =>
+        context.registry.add({ end: async () => {} }, "StorageAdmin"),
+      undefined,
+      () => delivery,
+    );
+    const sessions = new WorkerSessions(() => main, 3, "logs");
+    const { session, handle } = await sessions.create(async (session) => ({
+      session,
+      handle: (await session.call("open", [])) as HandleWire,
+    }));
+    const first = gate();
+    const second = gate();
+    const entered = gate();
+    let calls = 0;
+    const sink = session.callbacks.register(
+      "LogSink",
+      {
+        async log() {
+          calls++;
+          if (calls === 1) {
+            entered.release();
+            await first.promise;
+          } else await second.promise;
+        },
+      },
+      ["log"],
+    );
+    delivery = (async () => {
+      await host.callbacks.invoke(sink.cb, "log", []);
+      await host.callbacks.invoke(sink.cb, "log", []);
+    })();
+    try {
+      await entered.promise;
+      session.release([handle.h]);
+      await turn();
+      expect(stopped).not.toHaveBeenCalled();
+      first.release();
+      await turn();
+      expect(calls).toBe(2);
+      expect(stopped).not.toHaveBeenCalled();
+      second.release();
+      await turn();
+      expect(stopped).toHaveBeenCalledTimes(1);
+    } finally {
+      first.release();
+      second.release();
+      sessions.terminate();
+    }
+  });
+
+  it("invalidates a held idle preparation when a package owner appears", async () => {
+    const [main, worker] = pair();
+    const stopped = vi.fn();
+    main.terminate = stopped;
+    const prepared = gate();
+    const preparing = gate();
+    let preparations = 0;
+    new WorkerHost(
+      worker,
+      3,
+      "idle",
+      async () => {},
+      async (_key, _args, context) =>
+        context.registry.add({ end: async () => {} }, "StorageAdmin"),
+      undefined,
+      async () => {
+        preparations++;
+        if (preparations === 1) {
+          preparing.release();
+          await prepared.promise;
+        }
+      },
+    );
+    const sessions = new WorkerSessions(() => main, 3, "idle");
+    const session = await sessions.get();
+    await preparing.promise;
+    const handle = (await sessions.create((session) =>
+      session.call("open", []),
+    )) as HandleWire;
+    prepared.release();
+    await turn();
+    expect(stopped).not.toHaveBeenCalled();
+    session.release([handle.h]);
+    await turn();
+    expect(stopped).toHaveBeenCalledTimes(1);
+    expect(preparations).toBe(2);
+  });
+
+  it("repeats idle preparation instead of sending an obsolete revision", async () => {
+    const [main, worker] = pair();
+    const stopped = vi.fn();
+    main.terminate = stopped;
+    const first = gate();
+    const second = gate();
+    const enteredFirst = gate();
+    const enteredSecond = gate();
+    let preparations = 0;
+    new WorkerHost(
+      worker, 3, "revisions", async () => {}, async () => 42,
+      undefined,
+      async () => {
+        preparations++;
+        if (preparations === 1) {
+          enteredFirst.release();
+          await first.promise;
+        } else {
+          enteredSecond.release();
+          await second.promise;
+        }
+      },
+    );
+    const sessions = new WorkerSessions(() => main, 3, "revisions");
+    await sessions.get();
+    await enteredFirst.promise;
+    expect(await sessions.create((session) => session.call("ping", []))).toBe(42);
+    first.release();
+    await enteredSecond.promise;
+    expect(worker.sent.filter((message) => message.t === "idle")).toEqual([]);
+    expect(stopped).not.toHaveBeenCalled();
+    second.release();
+    await turn();
+    expect(stopped).toHaveBeenCalledTimes(1);
+  });
+
   it("retains an idle pool lock until its actual worker terminates", async () => {
     const held = new Set<string>();
     const manager = workerLockManager(held);

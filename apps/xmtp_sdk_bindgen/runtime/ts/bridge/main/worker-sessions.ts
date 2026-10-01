@@ -1,4 +1,5 @@
 import { bridgeError, type WireEndpoint } from "../wire.js";
+import { LogCallbackQueue } from "./callbacks.js";
 import { MainSession } from "./session.js";
 
 interface Generation {
@@ -14,11 +15,13 @@ interface Generation {
 export class WorkerSessions {
   private current?: Generation;
   private retiring?: MainSession;
+  private readonly logQueue = new LogCallbackQueue();
 
   constructor(
     private readonly createEndpoint: () => WireEndpoint,
     private readonly version: number,
     private readonly hash: string,
+    private readonly initialize?: (session: MainSession) => Promise<void>,
   ) {}
 
   get(): Promise<MainSession> {
@@ -79,9 +82,21 @@ export class WorkerSessions {
           this.version,
           this.hash,
           () => this.retireIfIdle(generation),
+          this.logQueue,
         );
         generation.session = session;
-        void session.ready().then(() => resolveOpening(session), rejectOpening);
+        void session
+          .ready()
+          .then(async () => {
+            await this.initialize?.(session);
+            if (generation.cancelled || session.isTerminated)
+              throw bridgeError("workerTerminated");
+            resolveOpening(session);
+          })
+          .catch((error: unknown) => {
+            session.terminate(error);
+            rejectOpening(error);
+          });
       } catch (error) {
         rejectOpening(error);
       }

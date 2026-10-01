@@ -103,7 +103,6 @@ type SameFields<Native, Web> =
     ? Equal<Structure<Native>, Structure<Web>>
     : false;
 
-
 // check-parity-signatures.py compares every export of both roots, value and
 // type-only, and holds the SDK-037 list. This type test compares object
 // methods and record shapes structurally.
@@ -111,6 +110,17 @@ type PublicNodeExports =
   keyof typeof import("../../../../target/sdk-generated/typescript-napi/index");
 export type QueuedLogSinkIsInternal = Assert<
   Equal<"setLogSinkQueued" extends PublicNodeExports ? true : false, false>
+>;
+
+// verifies: LOG-002, LOG-007
+export type NodeLogSinkIsAsync = Assert<
+  Equal<ReturnType<Node.LogSink["log"]>, Promise<void>>
+>;
+export type BrowserLogSinkIsAsync = Assert<
+  Equal<ReturnType<Browser.LogSink["log"]>, Promise<void>>
+>;
+export type LogAdmissionIsPrivate = Assert<
+  Equal<"sdkLogSinkHandoff" extends PublicNodeExports ? true : false, false>
 >;
 
 export type BackendParity = Assert<SameMethods<Node.Backend, Browser.Backend>>;
