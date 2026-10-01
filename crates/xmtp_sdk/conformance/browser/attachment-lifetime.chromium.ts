@@ -314,10 +314,7 @@ export async function checkAttachmentSourceShape(
   const control = controlPackageWorker();
   let client: sdk.Client | undefined;
   try {
-    await writeOpfs(
-      "undefined",
-      new TextEncoder().encode("do not read this by accident"),
-    );
+    await writeOpfs("undefined", "do not read this by accident");
     client = await sdk.Client.create(
       signer(),
       fileOptions(backendURL, `atch-shape-${crypto.randomUUID()}`),
@@ -359,7 +356,9 @@ export async function checkAttachmentSourceShape(
       },
     ]) {
       same(
-        await thrownFailure(attachments.create(source as sdk.AttachmentSource)),
+        await thrownFailure(
+          attachments.create(source as unknown as sdk.AttachmentSource),
+        ),
         failure("malformed"),
         "source shape failure",
       );
