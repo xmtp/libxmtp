@@ -467,7 +467,7 @@ body:has(.home-header) .sl-container > * {
   margin-top: 12px;
 }
 .home .group-note {
-  color: #7b8493;
+  color: var(--home-muted);
   font-size: 12px;
   line-height: 1.65;
   max-width: 900px;
