@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import tempfile
 import subprocess
+import shutil
+import zipfile
 from unittest.mock import patch
 import unittest
 
@@ -62,6 +64,161 @@ class PackagingTests(unittest.TestCase):
             item.stop()
         self.temporary.cleanup()
 
+    def prepare_mobile_stage(self, target):
+        self.args.targets = ("swift",) if target == "ios" else ("kotlin",)
+        artifacts.build(self.args)
+        artifacts.render(self.args)
+        triples = mobile.IOS if target == "ios" else tuple(mobile.ANDROID.values())
+        for triple in triples:
+            args = argparse.Namespace(**vars(self.args))
+            args.artifacts = self.root / "mobile" / triple
+            args.rust_target = triple
+            args.skip_bindgen = True
+            artifacts.build(args)
+        if target == "ios":
+            generated = self.args.out / "swift"
+            (generated / "xmtp_sdkFFI.h").write_text("fixture header")
+            (generated / "xmtp_sdkFFI.modulemap").write_text("fixture module")
+            (generated / "runtime").mkdir()
+            (generated / "runtime/Client.swift").write_text("fixture runtime")
+        output = self.root / "products" / target
+        if output.exists():
+            shutil.rmtree(output)
+        output.mkdir(parents=True)
+        (output / "previous.txt").write_bytes(b"prior valid product")
+        return output
+
+    def mobile_tool(self, command, **kwargs):
+        if command[0] == "xcodebuild":
+            output = Path(command[command.index("-output") + 1])
+            output.mkdir(parents=True)
+            (output / "library").write_text("fixture xcframework")
+        else:
+            output = self.root / "crates/xmtp_sdk/packaging/android/build/outputs/aar"
+            output.mkdir(parents=True, exist_ok=True)
+            with zipfile.ZipFile(output / "xmtp-sdk-stage-release.aar", "w") as archive:
+                archive.writestr("classes.jar", b"fixture classes")
+                for abi in mobile.ANDROID:
+                    archive.writestr(f"jni/{abi}/libxmtp_sdk.so", b"fixture native")
+
+    def assemble_mobile(self, target, tool=None):
+        with (
+            patch.object(mobile, "ROOT", self.root),
+            patch.object(mobile, "run", side_effect=tool or self.mobile_tool),
+            patch.object(
+                mobile.sys,
+                "argv",
+                [
+                    "mobile-package.py",
+                    "stage",
+                    target,
+                    "--generated",
+                    str(self.args.out),
+                    "--artifacts",
+                    str(self.root / "mobile"),
+                    "--out",
+                    str(self.root / "products"),
+                ],
+            ),
+        ):
+            mobile.main()
+
+    def product_files(self, output):
+        return {
+            str(path.relative_to(output)): path.read_bytes()
+            for path in output.rglob("*")
+            if path.is_file()
+        }
+
+    def test_mobile_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
+        for target in ("ios", "android"):
+            with self.subTest(target=target):
+                output = self.prepare_mobile_stage(target)
+                before = self.product_files(output)
+
+                def fail(command, **kwargs):
+                    self.mobile_tool(command, **kwargs)
+                    raise subprocess.CalledProcessError(1, command)
+
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.assemble_mobile(target, fail)
+                self.assertEqual(self.product_files(output), before)
+                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
+                shutil.rmtree(output)
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.assemble_mobile(target, fail)
+                self.assertFalse(output.exists())
+                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
+
+    def test_mobile_archive_failure_preserves_prior_stage(self):
+        output = self.prepare_mobile_stage("android")
+        before = self.product_files(output)
+
+        def missing_abi(command, **kwargs):
+            self.mobile_tool(command, **kwargs)
+            archive = (
+                self.root
+                / "crates/xmtp_sdk/packaging/android/build/outputs/aar/xmtp-sdk-stage-release.aar"
+            )
+            with zipfile.ZipFile(archive, "w") as broken:
+                broken.writestr("classes.jar", b"fixture classes")
+
+        with self.assertRaisesRegex(ValueError, "AAR missing ABI"):
+            self.assemble_mobile("android", missing_abi)
+        self.assertEqual(self.product_files(output), before)
+        self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
+
+    def test_mobile_success_replaces_prior_with_checked_product(self):
+        for target in ("ios", "android"):
+            with self.subTest(target=target):
+                output = self.prepare_mobile_stage(target)
+                self.assemble_mobile(target)
+                self.assertFalse((output / "previous.txt").exists())
+                contract = json.loads((output / "sdk-contract.json").read_text())
+                self.assertTrue(contract["assets"])
+                for name, expected in contract["assets"].items():
+                    self.assertEqual(artifacts.digest(output / name), expected)
+                self.assertEqual(list(output.parent.glob(".sdk-mobile-stage-*")), [])
+
+    def test_mobile_promotion_failures_restore_or_preserve_prior_bytes(self):
+        replace = os.replace
+        for target in ("ios", "android"):
+            for failures in ((1,), (2,), (2, 3)):
+                with self.subTest(target=target, failures=failures):
+                    output = self.prepare_mobile_stage(target)
+                    before = self.product_files(output)
+                    calls = []
+
+                    def fail(source, destination):
+                        calls.append((Path(source), Path(destination)))
+                        if len(calls) in failures:
+                            raise OSError("fixture rename failure")
+                        replace(source, destination)
+
+                    with patch.object(mobile.os, "replace", side_effect=fail):
+                        with self.assertRaisesRegex(
+                            OSError, "fixture rename failure|previous product preserved"
+                        ) as error:
+                            self.assemble_mobile(target)
+                    if failures == (2, 3):
+                        self.assertFalse(output.exists())
+                        stages = list(output.parent.glob(".sdk-mobile-stage-*"))
+                        self.assertEqual(len(stages), 1)
+                        self.assertEqual(
+                            str(error.exception),
+                            f"previous product preserved at {(stages[0] / 'previous').resolve()}",
+                        )
+                        self.assertEqual(
+                            self.product_files(stages[0] / "previous"), before
+                        )
+                        shutil.rmtree(stages[0])
+                    else:
+                        self.assertEqual(self.product_files(output), before)
+                        self.assertEqual(
+                            list(output.parent.glob(".sdk-mobile-stage-*")), []
+                        )
+                        shutil.rmtree(output)
+
     def test_bridge_fixture_builds_use_rust_shell(self):
         source = Path(__file__).with_name("run-bridge-conformance").read_text()
         names = ("prepare-bridge-panic-fixture", "prepare-pure-codec-fixture")
@@ -105,9 +262,10 @@ class PackagingTests(unittest.TestCase):
     def command(self, command, **kwargs):
         self.calls.append(command)
         if command[0] == "dev/agent-run":
-            folder = Path(kwargs["env"]["CARGO_TARGET_DIR"]) / (
-                "debug" if "xmtp-sdk-bindgen" in command else "release"
-            )
+            folder = Path(kwargs["env"]["CARGO_TARGET_DIR"])
+            if "--target" in command:
+                folder /= command[command.index("--target") + 1]
+            folder /= "debug" if "xmtp-sdk-bindgen" in command else "release"
             folder.mkdir(parents=True, exist_ok=True)
             for name in (
                 "libxmtp_sdk.a",

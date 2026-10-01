@@ -2,6 +2,7 @@
 """Build and stage the new mobile SDK without changing the old SDK packages."""
 
 import argparse
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import json
@@ -10,6 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -130,6 +132,36 @@ def preflight(generated_dir, artifact_dir, target):
     return generated, native
 
 
+@contextmanager
+def staged_output(output):
+    """Build a sibling product and preserve the old product on failure."""
+    output.parent.mkdir(parents=True, exist_ok=True)
+    stage = Path(tempfile.mkdtemp(prefix=".sdk-mobile-stage-", dir=output.parent))
+    product = stage / "product"
+    previous = stage / "previous"
+    product.mkdir()
+    preserve_backup = False
+    try:
+        yield product
+        if output.exists():
+            os.replace(output, previous)
+        try:
+            os.replace(product, output)
+        except OSError:
+            if previous.exists():
+                try:
+                    os.replace(previous, output)
+                except OSError as rollback:
+                    preserve_backup = True
+                    raise OSError(
+                        f"previous product preserved at {previous}"
+                    ) from rollback
+            raise
+    finally:
+        if not preserve_backup:
+            shutil.rmtree(stage)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("action", choices=("build", "stage"))
@@ -176,32 +208,29 @@ def main():
         return
     language = "swift" if args.target == "ios" else "kotlin"
     generated, native = preflight(args.generated, args.artifacts, args.target)
-    output = args.out.resolve() / args.target
-    if output.exists():
-        shutil.rmtree(output)
-    output.mkdir(parents=True)
-    if args.target == "ios":
-        headers = output / "Headers"
-        headers.mkdir()
-        shutil.copy2(args.generated / language / "xmtp_sdkFFI.h", headers)
-        shutil.copy2(
-            args.generated / language / "xmtp_sdkFFI.modulemap",
-            headers / "module.modulemap",
-        )
-        command = ["xcodebuild", "-create-xcframework"]
-        for triple in triples:
-            library = next(
-                name for name in native[triple]["files"] if name.endswith(".a")
+    with staged_output(args.out.resolve() / args.target) as output:
+        if args.target == "ios":
+            headers = output / "Headers"
+            headers.mkdir()
+            shutil.copy2(args.generated / language / "xmtp_sdkFFI.h", headers)
+            shutil.copy2(
+                args.generated / language / "xmtp_sdkFFI.modulemap",
+                headers / "module.modulemap",
             )
-            command += ["-library", library, "-headers", str(headers)]
-        run(command + ["-output", str(output / "XmtpSdkFFI.xcframework")])
-        sources = output / "Sources/XmtpSdk"
-        sources.mkdir(parents=True)
-        shutil.copy2(args.generated / language / "xmtp_sdk.swift", sources)
-        shutil.copytree(
-            args.generated / language / "runtime", sources, dirs_exist_ok=True
-        )
-        (output / "Package.swift").write_text("""// swift-tools-version: 6.1
+            command = ["xcodebuild", "-create-xcframework"]
+            for triple in triples:
+                library = next(
+                    name for name in native[triple]["files"] if name.endswith(".a")
+                )
+                command += ["-library", library, "-headers", str(headers)]
+            run(command + ["-output", str(output / "XmtpSdkFFI.xcframework")])
+            sources = output / "Sources/XmtpSdk"
+            sources.mkdir(parents=True)
+            shutil.copy2(args.generated / language / "xmtp_sdk.swift", sources)
+            shutil.copytree(
+                args.generated / language / "runtime", sources, dirs_exist_ok=True
+            )
+            (output / "Package.swift").write_text("""// swift-tools-version: 6.1
 import PackageDescription
 let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
     products: [.library(name: "XmtpSdk", targets: ["XmtpSdk"])],
@@ -209,42 +238,42 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
               .target(name: "XmtpSdk", dependencies: ["xmtp_sdkFFI"])],
     swiftLanguageModes: [.v5])
 """)
-        shutil.rmtree(headers)
-    else:
-        jni = output / "jniLibs"
-        for abi, triple in ANDROID.items():
-            (jni / abi).mkdir(parents=True)
-            library = next(
-                name for name in native[triple]["files"] if name.endswith(".so")
+            shutil.rmtree(headers)
+        else:
+            jni = output / "jniLibs"
+            for abi, triple in ANDROID.items():
+                (jni / abi).mkdir(parents=True)
+                library = next(
+                    name for name in native[triple]["files"] if name.endswith(".so")
+                )
+                shutil.copy2(library, jni / abi / "libxmtp_sdk.so")
+            env = dict(
+                os.environ,
+                XMTP_SDK_GENERATED_DIR=str(args.generated.resolve()),
+                XMTP_SDK_ANDROID_JNI_DIR=str(jni),
             )
-            shutil.copy2(library, jni / abi / "libxmtp_sdk.so")
-        env = dict(
-            os.environ,
-            XMTP_SDK_GENERATED_DIR=str(args.generated.resolve()),
-            XMTP_SDK_ANDROID_JNI_DIR=str(jni),
-        )
-        run(
-            [
-                "sdks/android/gradlew",
-                "-p",
-                "crates/xmtp_sdk/packaging/android",
-                "assembleRelease",
-                "--no-daemon",
-            ],
-            env=env,
-        )
-        shutil.copy2(
-            ROOT
-            / "crates/xmtp_sdk/packaging/android/build/outputs/aar/xmtp-sdk-stage-release.aar",
-            output / "xmtp-sdk.aar",
-        )
-        with zipfile.ZipFile(output / "xmtp-sdk.aar") as archive:
-            for abi in ANDROID:
-                if f"jni/{abi}/libxmtp_sdk.so" not in archive.namelist():
-                    raise ValueError(f"AAR missing ABI: {abi}")
-            if "classes.jar" not in archive.namelist():
-                raise ValueError("AAR missing classes.jar")
-    record(output, generated, native)
+            run(
+                [
+                    "sdks/android/gradlew",
+                    "-p",
+                    "crates/xmtp_sdk/packaging/android",
+                    "assembleRelease",
+                    "--no-daemon",
+                ],
+                env=env,
+            )
+            shutil.copy2(
+                ROOT
+                / "crates/xmtp_sdk/packaging/android/build/outputs/aar/xmtp-sdk-stage-release.aar",
+                output / "xmtp-sdk.aar",
+            )
+            with zipfile.ZipFile(output / "xmtp-sdk.aar") as archive:
+                for abi in ANDROID:
+                    if f"jni/{abi}/libxmtp_sdk.so" not in archive.namelist():
+                        raise ValueError(f"AAR missing ABI: {abi}")
+                if "classes.jar" not in archive.namelist():
+                    raise ValueError("AAR missing classes.jar")
+        record(output, generated, native)
     print(f"SDK staged {args.target} supported targets: {', '.join(triples)}")
 
 
