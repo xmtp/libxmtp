@@ -201,6 +201,10 @@ pub struct DecodedMessage {
     pub num_replies: usize,
 }
 
+#[cfg(feature = "conformance")]
+#[path = "decode_counter.rs"]
+pub mod decode_counter;
+
 /// Maximum number of reply envelopes inside one message.
 const MAX_REPLY_NESTING_DEPTH: usize = 8;
 
@@ -302,6 +306,8 @@ impl MessageBody {
 
         match (content_type.type_id.as_str(), content_type.version_major) {
             (TextCodec::TYPE_ID, TextCodec::MAJOR_VERSION) => {
+                #[cfg(feature = "conformance")]
+                decode_counter::record(&value.content);
                 let text = decoded(TextCodec::decode(value))?;
                 Ok(MessageBody::Text(Text { content: text }))
             }
