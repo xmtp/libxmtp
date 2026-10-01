@@ -24,3 +24,5 @@ dependencies {
     implementation("net.java.dev.jna:jna:5.17.0@aar")
     api("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.8.0")
 }
+
+kotlin { compilerOptions { freeCompilerArgs.add("-Xjvm-default=all") } }

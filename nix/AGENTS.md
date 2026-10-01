@@ -20,3 +20,12 @@ The check links `iconv`; a basic libc link does not detect mixed toolchains.
 - Local protobuf generation needs schemas and the real proto build script in both dependency-only and final sources, plus build-platform `protoc` when cross-compiling. After changing source filters, verify that a schema edit changes the dependency derivation and an unrelated Rust source edit does not.
 - Backend builds restore only the shared dependency sources over the dummy workspace. Include migrations, SQL query files, and `apps/backend/.sqlx` metadata. Add each new shared dependency to the restored crate list. Build with `SQLX_OFFLINE=true`; no database is allowed during the build.
 - The Rust shell provides sqlx-cli. Keep its version aligned with the backend SQLx dependency.
+
+## Generated SDK preparation
+
+`xmtp-sdk-generated` includes the native, worker, and pure roots with matched
+contract records. `xmtp-sdk-pure-wasm` is a separate artifact and shares the
+worker dependency cache. The Node and Android package sets retain old outputs
+and add `xmtp-sdk-node-<platform>` and `xmtp-sdk-android-<abi>` library outputs.
+Darwin adds `xmtp-sdk-ios-device` and `xmtp-sdk-ios-simulator`. These outputs
+prepare the new SDK. They do not switch a shipped package or publish it.

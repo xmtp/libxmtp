@@ -84,6 +84,9 @@ importers:
       oxlint-tsgolint:
         specifier: 7.0.2001
         version: 7.0.2001
+      tsdown:
+        specifier: 'catalog:'
+        version: 0.23.0(@volar/typescript@2.4.28(typescript@7.0.2))(tsx@4.23.13)(typescript@7.0.2)
       typescript:
         specifier: 'catalog:'
         version: 7.0.2

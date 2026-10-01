@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Phase 1 shared preparation may change package.json, pnpm-lock.yaml,
+# flake.nix, nix/package/xmtp-sdk*.nix, nix/{node,android}-packages.nix,
+# crates/xmtp_sdk/dev and sdk.just, and .github/workflows/test-sdk.yml.
+# These paths do not switch a shipped SDK source or remove old bindings.
 # Only shipped code in sdks/ and bindings/ is guarded: tests and changelogs there may change
 # (spec evidence, and owner-approved behaviour changes made in core). The four Task 1 SDK source
 # files may contain only their reviewed PROC-032 backlink removal. Compare their full bytes with

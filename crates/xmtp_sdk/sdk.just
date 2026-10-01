@@ -4,9 +4,9 @@ set shell := ["../../dev/nix-shell"]
 root := justfile_directory()
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Build both libraries and write four bindings trees inside the Nix shell.
-generate:
-    bash "{{ root }}/crates/xmtp_sdk/dev/generate"
+# Build selected artifacts, then render only the selected target roots.
+generate targets="swift,kotlin,node,browser":
+    bash "{{ root }}/crates/xmtp_sdk/dev/generate" --targets "{{ targets }}"
 
 check-clean-generate:
     bash "{{ root }}/crates/xmtp_sdk/dev/check-generate-cleans-stale"
@@ -79,3 +79,26 @@ manifest-check:
 
 bench:
     {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/bench"
+
+# Build once. Later render calls reuse the recorded artifact hashes.
+build targets="swift,kotlin,node,browser" *args:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --targets "{{ targets }}" {{ args }}
+
+render targets="swift,kotlin,node,browser" *args:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py render --targets "{{ targets }}" {{ args }}
+
+stage target:
+    cd "{{ root }}" && node crates/xmtp_sdk/dev/stage-package.mjs "{{ target }}"
+
+package-smoke target="node":
+    cd "{{ root }}" && bash crates/xmtp_sdk/dev/package-smoke "{{ target }}"
+
+check-package-scripts:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
+
+# Use the matching ios or android Nix shell. This does not switch a shipped SDK.
+mobile-build target:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py build "{{ target }}"
+
+mobile-stage target:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"

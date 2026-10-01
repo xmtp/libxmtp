@@ -68,6 +68,21 @@
   },
   "overrides": [
     {
+      // These Node build tools read JSON metadata and have no TS project.
+      // Keep correctness and promise checks. Consumer types are checked by tsc.
+      "files": [
+        "crates/xmtp_sdk/dev/{stage-package,package-smoke,package-smoke-browser}.mjs",
+        "crates/xmtp_sdk/conformance/public/node/root/load-esm.mts"
+      ],
+      "rules": {
+        "typescript/no-unsafe-argument": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unsafe-call": "off",
+        "typescript/no-unsafe-member-access": "off",
+        "typescript/no-unsafe-return": "off"
+      }
+    },
+    {
       "files": ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts"],
       "rules": {
         "constructor-super": "off",
