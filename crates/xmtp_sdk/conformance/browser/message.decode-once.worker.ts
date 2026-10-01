@@ -45,10 +45,11 @@ new WorkerHost(
     ),
   async (key, args, context) => {
     if (key === "__watchTextDecode") {
-      sdkConformanceWatchTextDecode(args[0] as string);
+      await sdkConformanceWatchTextDecode(args[0] as string);
       return undefined;
     }
-    if (key === "__textDecodeCount") return sdkConformanceTextDecodeCount();
+    if (key === "__textDecodeCount")
+      return await sdkConformanceTextDecodeCount();
     return await dispatchGenerated(key, args, context);
   },
   browserPoolLocks(),
