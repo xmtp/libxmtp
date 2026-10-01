@@ -38,7 +38,24 @@ Run commands from the repository root in the Nix shell. Run
   replace only the upload URL in a real backend response. Native clients use
   the fixture's HTTP/2 relay; browser clients use its gRPC-web relay. Both
   preserve gRPC status trailers.
-- `just sdk bench` compares 20 release-profile Node calls for a zero-row page
+- `just sdk cutover-bench <swift|kotlin|node|browser> <config> <output>` runs
+  the installed release benchmark. See `benchmarks/README.md` for the package
+  closure, adapters, metadata, and required checks. It records 20 or more
+  pairs. The release gate stays pending until package and callback review.
+- `just sdk cutover-bench-ios-prepare <config> <output>` prepares a Release
+  UIKit app for the installed old or new public Swift product. Then run
+  `just sdk cutover-bench-ios-build <output> <simulator-udid> <derived-data>`
+  through `NIX_DEVSHELL=ios dev/nix-shell`. Use separate side directories.
+  `just sdk cutover-bench-ios-controls <host-config> <output>` checks real app
+  memory, signer HTTP, identity rejection, timing scope, and timeout cleanup.
+  See `benchmarks/README.md` for the HTTP signer and app launch configuration.
+- `just sdk cutover-bench-check` checks the statistical gates and receipt rules.
+- `just sdk cutover-bench-stream-check <output> <browser-node_modules>` checks
+  live stream content in Node, Chromium, and compiled Swift/Kotlin helpers.
+  It requires missing or changed live content to fail with correct history.
+- `just sdk cutover-bench-baselines <output>` resolves published baseline
+  versions and records source and artifact hashes.
+- `just sdk bench` is an internal diagnostic. It compares 20 release-profile Node calls for a zero-row page
   and a 10,000-message page with the current Node binding. It also measures
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
   enables the off-by-default `bench` feature and writes separate bindings to

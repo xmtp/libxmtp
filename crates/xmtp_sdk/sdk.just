@@ -114,9 +114,33 @@ mobile-build target:
 mobile-stage target:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/mobile-package.py stage "{{ target }}"
 
+# Compare complete installed release packages with the approved paired gates.
+cutover-bench target config output:
+    {{ _env }} && cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/runner.py {{ target }} "{{ config }}" "{{ output }}"
+
+cutover-bench-check:
+    cd "{{ root }}" && python3 -m unittest discover -s crates/xmtp_sdk/benchmarks -p 'test_*.py'
+
+# Use the ios Nix shell. The product is an installed public Swift package.
+cutover-bench-ios-prepare config output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/hosts/ios/prepare.py prepare "{{ config }}" "{{ output }}"
+
+cutover-bench-ios-controls config output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/ios_controls.py "{{ config }}" "{{ output }}"
+
+cutover-bench-ios-build output udid derived:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/hosts/ios/prepare.py build "{{ output }}" "{{ udid }}" "{{ derived }}"
+
+cutover-bench-baselines output:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/baselines.py "{{ output }}"
+
 # Tiny NDK probes verify compiler, linker, archiver, and ELF ABI selection.
 check-android-toolchain:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-android-toolchain.py
+
+# Run live-content regressions in Node, Chromium, and compiled mobile helpers.
+cutover-bench-stream-check output browser_tools:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/benchmarks/stream_controls.py "{{ output }}" --browser-tools "{{ browser_tools }}"
 
 # Check selected-host counter injection with generated bindings and no Rust build.
 check-conformance-targets generated="target/sdk-generated":

@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:label="XMTP benchmark" android:usesCleartextTraffic="true" />
+    <instrumentation android:name="org.xmtp.benchmark.Benchmark"
+        android:targetPackage="${applicationId}" android:functionalTest="true" />
+</manifest>
