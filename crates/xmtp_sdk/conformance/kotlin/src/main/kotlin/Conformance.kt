@@ -30,6 +30,7 @@ fun main() =
         // verifies: CTYPE-007, CTYPE-026
         val codecSamples = sdkConformanceStandardSamples()
         check(codecSamples.size == 15) { "missing standard codec samples" }
+        checkCodecRecordValues()
         for (sample in codecSamples) {
             val expected = sample.expected
             val matches =
@@ -47,7 +48,11 @@ fun main() =
                     }
 
                     is StandardContent.Reaction -> {
-                        matchesRust(ReactionV2Codec(), content, expected)
+                        matchesRust(
+                            ReactionV2Codec(),
+                            ReactionV2Content(content.reference, content.referenceInboxId, content.reaction),
+                            expected,
+                        )
                     }
 
                     is StandardContent.Attachment -> {
@@ -79,7 +84,11 @@ fun main() =
                     }
 
                     is StandardContent.Reply -> {
-                        matchesRust(ReplyCodec(), content, expected)
+                        matchesRust(
+                            ReplyCodec(),
+                            ReplyContent(content.reference, content.referenceInboxId, content.content),
+                            expected,
+                        )
                     }
 
                     is StandardContent.GroupUpdated -> {
@@ -87,7 +96,7 @@ fun main() =
                     }
 
                     is StandardContent.DeleteMessage -> {
-                        matchesRust(DeleteMessageCodec(), content, expected)
+                        matchesRust(DeleteMessageCodec(), DeleteMessageContent(content.messageId), expected)
                     }
 
                     is StandardContent.LeaveRequest -> {
@@ -95,19 +104,6 @@ fun main() =
                     }
                 }
             check(matches) { "standard codec content differs from Rust" }
-        }
-        // Known gap, waiting for an owner decision: the variant codecs take the
-        // whole StandardContent and reject another variant only at run time.
-        for (codec in listOf(ReactionV2Codec(), ReplyCodec(), DeleteMessageCodec())) {
-            check(
-                runCatching {
-                    codec.encode(
-                        StandardContent.Text("x"),
-                    )
-                }.exceptionOrNull() is XmtpException.InvalidArgument,
-            ) {
-                "${codec.javaClass.simpleName} did not reject another variant with InvalidArgument"
-            }
         }
         println("Kotlin P69: all 15 standard codecs match Rust bytes")
 

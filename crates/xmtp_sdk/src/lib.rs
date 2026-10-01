@@ -77,11 +77,12 @@ pub use configuration::{
 #[cfg(feature = "conformance")]
 pub use content::StandardCodecSample;
 pub use content::{
-    Action, ActionStyle, Actions, Attachment, Compression, DeletedBy, DeletedMessage,
-    EncodedContent, GroupUpdated, Intent, LeaveRequest, MetadataFieldChange, MultiRemoteAttachment,
-    Reaction, ReactionAction, ReactionSchema, RemoteAttachment, SendOptions, StandardContent,
-    StandardContentKind, TransactionMetadata, TransactionReference, WalletCall, WalletCallMetadata,
-    WalletSendCalls, decode_standard, encode_standard, encode_text, standard_content_type,
+    Action, ActionStyle, Actions, Attachment, Compression, DeleteMessageContent, DeletedBy,
+    DeletedMessage, EncodedContent, GroupUpdated, Intent, LeaveRequest, MetadataFieldChange,
+    MultiRemoteAttachment, Reaction, ReactionAction, ReactionSchema, ReactionV2Content,
+    RemoteAttachment, ReplyContent, SendOptions, StandardContent, StandardContentKind,
+    TransactionMetadata, TransactionReference, WalletCall, WalletCallMetadata, WalletSendCalls,
+    decode_standard, encode_standard, encode_text, standard_content_type,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use conversation::{Conversation, Conversations, Dm, Group};

@@ -1,9 +1,7 @@
 package uniffi.xmtp_sdk
 
-// The standard codecs. Each has the value type of its standard content, and
-// Rust encodes and decodes the bytes. The reaction, reply, and delete-message
-// codecs take the whole StandardContent and reject another variant at run time
-// (a known P9 gap; see the Ref).
+// Standard codecs use their own value types. Rust encodes and decodes the bytes.
+// Reaction, reply, and delete-message codecs use their generated records.
 
 private fun codecValueError() =
     XmtpException.InvalidArgument(
@@ -43,15 +41,17 @@ class ReadReceiptCodec : ContentCodec<Unit> {
         }
 }
 
-class ReactionV2Codec : ContentCodec<StandardContent> {
+class ReactionV2Codec : ContentCodec<ReactionV2Content> {
     override val type get() = standardContentType(StandardContentKind.REACTION)
 
-    override fun encode(value: StandardContent) =
-        encodeStandard(value as? StandardContent.Reaction ?: throw codecValueError())
+    override fun encode(value: ReactionV2Content) =
+        encodeStandard(StandardContent.Reaction(value.reference, value.referenceInboxId, value.reaction))
 
-    override fun decode(encoded: EncodedContent): StandardContent =
+    override fun decode(encoded: EncodedContent): ReactionV2Content =
         standardValue(encoded) {
-            it as? StandardContent.Reaction
+            (it as? StandardContent.Reaction)?.let { value ->
+                ReactionV2Content(value.reference, value.referenceInboxId, value.reaction)
+            }
         }
 }
 
@@ -128,14 +128,18 @@ class IntentCodec : ContentCodec<Intent> {
         standardValue(encoded) { (it as? StandardContent.Intent)?.v1 }
 }
 
-class ReplyCodec : ContentCodec<StandardContent> {
+class ReplyCodec : ContentCodec<ReplyContent> {
     override val type get() = standardContentType(StandardContentKind.REPLY)
 
-    override fun encode(value: StandardContent) =
-        encodeStandard(value as? StandardContent.Reply ?: throw codecValueError())
+    override fun encode(value: ReplyContent) =
+        encodeStandard(StandardContent.Reply(value.reference, value.referenceInboxId, value.content))
 
-    override fun decode(encoded: EncodedContent): StandardContent =
-        standardValue(encoded) { it as? StandardContent.Reply }
+    override fun decode(encoded: EncodedContent): ReplyContent =
+        standardValue(encoded) {
+            (it as? StandardContent.Reply)?.let { value ->
+                ReplyContent(value.reference, value.referenceInboxId, value.content)
+            }
+        }
 }
 
 class GroupUpdatedCodec : ContentCodec<GroupUpdated> {
@@ -149,15 +153,16 @@ class GroupUpdatedCodec : ContentCodec<GroupUpdated> {
         }
 }
 
-class DeleteMessageCodec : ContentCodec<StandardContent> {
+class DeleteMessageCodec : ContentCodec<DeleteMessageContent> {
     override val type get() = standardContentType(StandardContentKind.DELETE_MESSAGE)
 
-    override fun encode(value: StandardContent) =
-        encodeStandard(value as? StandardContent.DeleteMessage ?: throw codecValueError())
+    override fun encode(value: DeleteMessageContent) = encodeStandard(StandardContent.DeleteMessage(value.messageId))
 
-    override fun decode(encoded: EncodedContent): StandardContent =
+    override fun decode(encoded: EncodedContent): DeleteMessageContent =
         standardValue(encoded) {
-            it as? StandardContent.DeleteMessage
+            (it as? StandardContent.DeleteMessage)?.let { value ->
+                DeleteMessageContent(value.messageId)
+            }
         }
 }
 

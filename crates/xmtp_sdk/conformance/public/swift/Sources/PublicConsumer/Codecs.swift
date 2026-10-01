@@ -55,3 +55,24 @@ func receivedDetails(_ message: Message) -> String? {
     case .standard: return nil
     }
 }
+
+public func consumeCodecRecords(_ group: Group, _ message: Message) async throws {
+    let reference: MessageId = String(repeating: "a", count: 64)
+    let inbox: InboxId = String(repeating: "b", count: 64)
+    let reaction = Reaction(content: "👍", action: .added, schema: .unicode)
+    let reactionValue = ReactionV2Content(reference: reference, reaction: reaction)
+    _ = ReactionV2Content(reference: reference, referenceInboxId: inbox, reaction: reaction)
+    let nested = try TextCodec().encode("reply")
+    let replyValue = ReplyContent(reference: reference, content: nested)
+    _ = ReplyContent(reference: reference, referenceInboxId: inbox, content: nested)
+    let deleteValue = DeleteMessageContent(messageId: reference)
+    let _: EncodedContent = try ReactionV2Codec().encode(reactionValue)
+    let _: EncodedContent = try ReplyCodec().encode(replyValue)
+    let _: EncodedContent = try DeleteMessageCodec().encode(deleteValue)
+    let _: MessageId = try await group.send(ReactionV2Codec(), value: reactionValue)
+    let _: MessageId = try await group.send(ReplyCodec(), value: replyValue)
+    let _: MessageId = try await group.send(DeleteMessageCodec(), value: deleteValue)
+    let _: MessageId = try await message.reply(ReactionV2Codec(), value: reactionValue)
+    let _: MessageId = try await message.reply(ReplyCodec(), value: replyValue)
+    let _: MessageId = try await message.reply(DeleteMessageCodec(), value: deleteValue)
+}

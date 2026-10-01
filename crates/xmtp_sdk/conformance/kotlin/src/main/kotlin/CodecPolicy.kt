@@ -347,14 +347,6 @@ internal suspend fun codecPolicyFailureNeverPublishes(
         expectCodecEncodeFailed("prepareMessage") { group.prepareMessage(codec, "x") }
     }
     expectCodecEncodeFailed("reply") { parent.reply(NoteCodec(failEncode = true), "x") }
-    // Known gap, waiting for an owner decision: the reaction, reply, and
-    // delete-message codecs take the whole StandardContent, so the compiler
-    // accepts another variant. The send fails at run time instead.
-    for (codec in listOf(ReactionV2Codec(), ReplyCodec(), DeleteMessageCodec())) {
-        expectCodecEncodeFailed("${codec.javaClass.simpleName} send") {
-            group.send(codec, StandardContent.Text("x"))
-        }
-    }
     // A typed send of a transcript type reaches core's reserved-type guard on
     // send and prepare, and stores nothing.
     val groupUpdated =

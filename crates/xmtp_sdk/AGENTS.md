@@ -72,7 +72,8 @@ Run commands from the repository root in the Nix shell. Run
   Android library that uses a real `Context`, and TypeScript projects that
   install the Node and browser packages in `node_modules`. The consumers call
   the retained public Client surface, the identity unions, received identity,
-  and Message actions on the package roots. Negative probes check that the
+  and Message actions on the package roots. Each Swift/Kotlin codec record has
+  isolated wrong-value probes for encode, send, and reply. Negative probes check that the
   binding Client, its factories, the generated identity routes, the browser
   worker session, and private package paths stay private. The Node root must
   export exactly the public names through both `import` and `require`. Before it compiles them,

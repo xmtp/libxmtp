@@ -9,6 +9,27 @@ pub struct EncodedContent {
     pub content: Vec<u8>,
 }
 
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ReactionV2Content {
+    pub reference: crate::MessageId,
+    #[uniffi(default = None)]
+    pub reference_inbox_id: Option<crate::InboxId>,
+    pub reaction: Reaction,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct ReplyContent {
+    pub reference: crate::MessageId,
+    #[uniffi(default = None)]
+    pub reference_inbox_id: Option<crate::InboxId>,
+    pub content: EncodedContent,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct DeleteMessageContent {
+    pub message_id: crate::MessageId,
+}
+
 /// A standard value that can be encoded without a client.
 #[derive(Clone, Debug, uniffi::Enum)]
 pub enum StandardContent {

@@ -28,6 +28,7 @@ struct Conformance {
         // verifies: CTYPE-007, CTYPE-026
         let codecSamples = sdkConformanceStandardSamples()
         guard codecSamples.count == 15 else { throw ConformanceFailure("missing standard codec samples") }
+        try checkCodecRecordValues()
         for sample in codecSamples {
             let expected = sample.expected
             let matches: Bool
@@ -35,7 +36,7 @@ struct Conformance {
             case let .text(item): matches = try matchesRust(TextCodec(), item, expected)
             case let .markdown(item): matches = try matchesRust(MarkdownCodec(), item, expected)
             case .readReceipt: matches = try matchesRust(ReadReceiptCodec(), (), expected)
-            case .reaction: matches = try matchesRust(ReactionV2Codec(), sample.value, expected)
+            case let .reaction(reference, inbox, reaction): matches = try matchesRust(ReactionV2Codec(), ReactionV2Content(reference: reference, referenceInboxId: inbox, reaction: reaction), expected)
             case let .attachment(item): matches = try matchesRust(AttachmentCodec(), item, expected)
             case let .remoteAttachment(item): matches = try matchesRust(RemoteAttachmentCodec(), item, expected)
             case let .multiRemoteAttachment(item): matches = try matchesRust(MultiRemoteAttachmentCodec(), item, expected)
@@ -43,9 +44,9 @@ struct Conformance {
             case let .walletSendCalls(item): matches = try matchesRust(WalletSendCallsCodec(), item, expected)
             case let .actions(item): matches = try matchesRust(ActionsCodec(), item, expected)
             case let .intent(item): matches = try matchesRust(IntentCodec(), item, expected)
-            case .reply: matches = try matchesRust(ReplyCodec(), sample.value, expected)
+            case let .reply(reference, inbox, content): matches = try matchesRust(ReplyCodec(), ReplyContent(reference: reference, referenceInboxId: inbox, content: content), expected)
             case let .groupUpdated(item): matches = try matchesRust(GroupUpdatedCodec(), item, expected)
-            case .deleteMessage: matches = try matchesRust(DeleteMessageCodec(), sample.value, expected)
+            case let .deleteMessage(messageId): matches = try matchesRust(DeleteMessageCodec(), DeleteMessageContent(messageId: messageId), expected)
             case let .leaveRequest(item): matches = try matchesRust(LeaveRequestCodec(), item, expected)
             }
             guard matches else { throw ConformanceFailure("standard codec bytes differ from Rust") }

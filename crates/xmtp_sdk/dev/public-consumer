@@ -221,3 +221,6 @@ fi
 # and prepareMessage, reply, and a standard variant codec: seven distinct lines.
 test "$(grep -E "codecs\.ts\([0-9]+,[0-9]+\): error TS(2345|2769)" "$log" | grep -oE "codecs\.ts\([0-9]+," | sort -u | wc -l | tr -d ' ')" -eq 7
 echo "Browser codec_typed_consumers passed (positive src/codecs.ts, negative negative/codecs.ts)"
+
+# Each variant codec rejects one wrong value per compiler invocation.
+bash crates/xmtp_sdk/dev/check-codec-record-values
