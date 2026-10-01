@@ -116,6 +116,8 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
   build WASM. Full and pure WASM use separate output directories.
 - `just sdk render [swift,kotlin,node,browser]` uses those artifacts. It rejects
   a changed binary or generator contract before it replaces generated output.
+  It replaces only selected targets and keeps valid unselected targets with
+  their original receipts. It removes stale unselected targets and unknown roots.
   `just sdk generate [targets]` runs both steps. Use `--profile release` on the
   build recipe for release proofs. Conformance shares the bindgen artifact.
 - `just sdk check-package-scripts` checks reuse, mismatch rejection, and cleanup
