@@ -268,8 +268,17 @@ class PackagingTests(unittest.TestCase):
             self.patches[2].start()
 
     def test_generator_only_change_reuses_verified_native_provenance(self):
+        self.args.targets = ("swift", "kotlin")
         artifacts.build(self.args)
         artifacts.render(self.args)
+        for platform in ("ios", "android"):
+            self.native_receipts(platform)
+            mobile.preflight(self.args.out, self.root / "mobile", platform)
+        native_receipts = {
+            path: path.read_bytes()
+            for path in (self.root / "mobile").rglob("artifacts.json")
+        }
+        self.assertEqual(len(native_receipts), 6)
         manifest = self.args.artifacts / "artifacts.json"
         native = json.loads(manifest.read_text())["artifacts"]["native"]
         source = artifacts.source_hash()
@@ -291,6 +300,45 @@ class PackagingTests(unittest.TestCase):
         binding = json.loads((self.args.out / "swift/sdk-contract.json").read_text())
         self.assertEqual(binding["artifact"], native)
         self.assertEqual(binding["generator"], artifacts.source_hash(True))
+        for path, original_receipt in native_receipts.items():
+            self.assertEqual(path.read_bytes(), original_receipt)
+        for platform in ("ios", "android"):
+            with self.subTest(platform=platform):
+                _, admitted = mobile.preflight(
+                    self.args.out, self.root / "mobile", platform
+                )
+                for triple, item in admitted.items():
+                    self.assertEqual(
+                        json.loads(
+                            native_receipts[
+                                self.root / "mobile" / triple / "artifacts.json"
+                            ]
+                        )["artifacts"]["native"],
+                        item,
+                    )
+        for platform, triples in (
+            ("ios", mobile.IOS),
+            ("android", tuple(mobile.ANDROID.values())),
+        ):
+            path = self.root / "mobile" / triples[0] / "artifacts.json"
+            original_receipt = path.read_bytes()
+            for field, wrong in (
+                ("source", "wrong source"),
+                ("features", "conformance"),
+                ("profile", "debug"),
+                ("target", "wrong target"),
+            ):
+                changed = json.loads(original_receipt)
+                changed["artifacts"]["native"][field] = wrong
+                path.write_text(json.dumps(changed))
+                with (
+                    self.subTest(platform=platform, rejected_field=field),
+                    self.assertRaisesRegex(
+                        ValueError, "mobile binding contract mismatch"
+                    ),
+                ):
+                    mobile.preflight(self.args.out, self.root / "mobile", platform)
+                path.write_bytes(original_receipt)
         library = Path(next(iter(native["files"])))
         original = library.read_bytes()
         library.write_bytes(original + b"tampered native")
@@ -298,8 +346,16 @@ class PackagingTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "artifact mismatch"):
             artifacts.render(self.args)
         self.assertEqual(len(self.calls), calls)
+        for platform in ("ios", "android"):
+            with (
+                self.subTest(platform=platform, rejected_field="native bytes"),
+                self.assertRaisesRegex(ValueError, "artifact mismatch"),
+            ):
+                mobile.preflight(self.args.out, self.root / "mobile", platform)
         library.write_bytes(original)
         artifacts.render(self.args)
+        for platform in ("ios", "android"):
+            mobile.preflight(self.args.out, self.root / "mobile", platform)
 
     def test_configuration_source_invalidates_cached_generator(self):
         path = self.root / "crates/xmtp_configuration/src/lib.rs"

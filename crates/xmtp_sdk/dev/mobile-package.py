@@ -118,9 +118,9 @@ def preflight(generated_dir, artifact_dir, target):
             "artifacts"
         ]["native"]
         artifacts.verify(item)
+        # Native bytes depend on Rust source. The binding generator can change independently.
         if (
             item["source"] != binding["source"]
-            or item["generator"] != generated["generator"]
             or item["features"]
             or item["profile"] != "release"
             or item["target"] != triple
