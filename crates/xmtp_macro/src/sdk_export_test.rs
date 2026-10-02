@@ -238,3 +238,26 @@ fn callback_error_rejects_generics_and_wrong_item() {
     .unwrap_err();
     assert!(error.to_string().contains("enum or struct"));
 }
+
+#[test]
+fn pure_default_is_forwarded_to_the_stock_export() {
+    let output = export(
+        quote!(pure, default(nonce = None)),
+        quote!(
+            pub fn inbox(nonce: Option<u64>) -> String {
+                String::new()
+            }
+        ),
+    );
+    assert!(output.contains("@xmtp-pure"));
+    assert!(output.contains("uniffi :: export (default (nonce = None))"));
+    assert!(
+        sdk_export(
+            quote!(native_only, default(nonce = None)),
+            quote!(
+                pub fn inbox(nonce: Option<u64>) {}
+            )
+        )
+        .is_err()
+    );
+}

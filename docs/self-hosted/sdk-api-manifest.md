@@ -2804,7 +2804,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `StreamFailedError.constructor` | member | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts`. |
 | `StreamInvalidRetryAttemptsError` | class | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts`. |
 | `StreamInvalidRetryAttemptsError.constructor` | member | — | approved removal | 11.4 Node, Messages, codecs, preferences, values | The old type and its members leave the API. Source: `sdks/node/src/utils/errors.ts`. |
-| `func generateInboxId` | free function | `static Client.inboxId(for:)` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts`. |
+| `func generateInboxId` | free function | `func generateInboxId` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts`. |
 | `func getInboxIdForIdentifier` | free function | `static Client.inboxId(for:)` | generated | 11.4 Node, Client and options | Source: `sdks/node/src/utils/inboxId.ts`. |
 | `func isActions` | free function | `func isActions` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/node/src/utils/messages.ts`. |
 | `func isAttachment` | free function | `func isAttachment` | static runtime | 11.4 Node, unchanged list; 4 | Source: `sdks/node/src/utils/messages.ts`. |
@@ -3220,7 +3220,7 @@ Symbol grammar: a type or constant is `Name`; a member is `Owner.member`; a free
 | `ResolveValue` | re-export | `ResolveValue` | static runtime | 5, host stream adapter | Source: `sdks/browser/src/index.ts`. |
 | `func createBackend` | free function | `Backend.connect` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
 | `func fetchServerConfiguration` | free function | `static Client.fetchServerConfiguration` | generated | 11.1, Client static methods | Source: `sdks/browser/src/index.ts`. |
-| `func generateInboxId` | free function | `static Client.inboxId(for:)` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
+| `func generateInboxId` | free function | `func generateInboxId` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
 | `func getInboxIdForIdentifier` | free function | `static Client.inboxId(for:)` | generated | 11.4 Browser; 11.4 Node, Client and options | Source: `sdks/browser/src/index.ts`. |
 | `func metadataFieldName` | free function | `func metadataFieldName` | generated | open | Not covered by the design. Source: `sdks/browser/src/index.ts`. |
 | `AuthCallback` | type | `AuthCallback` | generated | 11.1, credential foreign trait | Source: `sdks/browser/src/types/options.ts`. |
