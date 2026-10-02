@@ -4,6 +4,42 @@ on:
   workflow_call:
 
 jobs:
+  min-sdk-smoke:
+    name: JNI and timestamp smoke (API 23)
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-nix
+        with:
+          disk-key: android
+          gradle-disk: "true"
+          github-token: ${{ github.token }}
+          cachix-auth-token: ${{ secrets.CACHIX_AUTH_TOKEN }}
+      - uses: taiki-e/install-action@just
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run the minimum SDK smoke
+        env:
+          NIX_DEVSHELL: android
+          CARGO_BUILD_JOBS: "2"
+          NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
+        run: dev/nix-shell 'just android test-min-sdk'
+      - name: Upload minimum SDK proof
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-api23-proof
+          retention-days: 7
+          if-no-files-found: ignore
+          path: |
+            sdks/android/library/build/outputs/aar/library-release.aar
+            sdks/android/library/build/outputs/androidTest-results/connected/**/*.xml
+            sdks/android/library/build/outputs/androidTest-results/connected/**/logcat-*.txt
+
   unit-tests:
     name: Unit Tests (Android)
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -21,11 +57,11 @@ jobs:
       - name: Start backend
         env:
           NIX_DEVSHELL: android
-        run: just backend up
+        run: dev/nix-shell 'just backend up'
       - name: Run unit tests
         env:
           NIX_DEVSHELL: android
-        run: just android test
+        run: dev/nix-shell 'just android test'
 
   integration-tests:
     name: Integration Tests (Android)
@@ -45,7 +81,7 @@ jobs:
       - name: Start backend
         env:
           NIX_DEVSHELL: android
-        run: just backend up
+        run: dev/nix-shell 'just backend up'
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -57,7 +93,7 @@ jobs:
         env:
           NIX_DEVSHELL: android
           NIX_ANDROID_EMULATOR_FLAGS: "-no-snapshot-save -no-window -gpu swiftshader_indirect -noaudio -memory 4096 -partition-size 8192"
-        run: just android test-integration
+        run: dev/nix-shell 'just android test-integration'
       - name: Upload failed Android test reports
         if: failure()
         uses: actions/upload-artifact@v7

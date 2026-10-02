@@ -1,19 +1,12 @@
 #!/bin/bash
-# Build Android bindings (.so libraries + Kotlin bindings) via Nix
+# Stage matched generated Kotlin and Android JNI libraries.
 source "$(dirname "$0")/.setup"
+ensure_nix_shell "$@"
 
-# --release builds all 4 ABIs; default builds only host-matching target
 if [[ "${1:-}" == "--release" ]]; then
-    PACKAGE="android-libs"
-    echo "Building Android bindings (all targets)..."
+    package="android-sdk-libs"
 else
-    PACKAGE="android-libs-fast"
-    echo "Building Android bindings (host target only)..."
+    package="android-sdk-libs-fast"
 fi
-
-# Build via Nix — output is Gradle-ready, symlinked directly
-nix build "${ROOT}#${PACKAGE}" --out-link "${SDK_ROOT}/.build/bindings"
-
-echo "Android bindings built successfully:"
-echo "  Kotlin: ${SDK_ROOT}/.build/bindings/java/uniffi/xmtpv3/xmtpv3.kt"
-echo "  JNI libs: ${SDK_ROOT}/.build/bindings/jniLibs/"
+nix build "${ROOT}#${package}" --out-link "${SDK_ROOT}/.build/bindings"
+echo "Generated Android SDK staged in ${SDK_ROOT}/.build/bindings"

@@ -30,7 +30,11 @@ test: build
 
 # Run integration tests (requires emulator)
 test-integration: build
-  {{ _env }} && run-test-emulator && ./gradlew -p . connectedCheck --continue
+  {{ _env }} && run-test-emulator && adb wait-for-device && adb reverse tcp:${XMTP_S3_PORT:-9067} tcp:${XMTP_S3_PORT:-9067} && ./gradlew -p . connectedCheck --continue
+
+# Check release JNI and timestamp desugaring on the supported API 23 runner.
+test-min-sdk:
+  ./dev/bindings --release && NIX_ANDROID_EMULATOR_API=23 run-test-emulator && ./gradlew -p . :library:assembleRelease :library:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=uniffi.xmtp_sdk.AndroidPackageTest\#generatedTimestampsLoadAndConvertWithDesugaring --dependency-verification strict --no-daemon --max-workers=2
 
 # Generate the public Kotlin API reference.
 docs: build

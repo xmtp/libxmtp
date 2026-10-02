@@ -187,6 +187,7 @@ fun main() =
             )
         loggingConformance(options)
         checkReaderCursor(signer, backendOptions)
+        checkHistorySnapshots(backendOptions)
         checkRestoredPeer(backendOptions)
         checkIdentityRoutes(backendOptions)
         checkStorageLayout(backendOptions)

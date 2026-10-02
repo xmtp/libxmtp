@@ -8,15 +8,18 @@ Have a question about how to build with XMTP? Ask your question and learn with t
 
 ## 🐞 Bugs
 
-Report bugs as [GitHub Issues](https://github.com/xmtp/xmtp-android/issues/new?assignees=&labels=bug&template=bug_report.yml&title=Bug%3A+). Please confirm that there isn't an existing open issue about the bug and include detailed steps to reproduce the bug.
+Report bugs as [GitHub Issues](https://github.com/xmtp/libxmtp/issues/new).
+Check for an existing report. Include the steps that cause the bug.
 
 ## ✨ Feature requests
 
-Submit feature requests as [GitHub Issues](https://github.com/xmtp/xmtp-android/issues/new?assignees=&labels=enhancement&template=feature_request.yml&title=Feature+request%3A+). Please confirm that there isn't an existing open issue requesting the feature. Describe the use cases this feature unlocks so the issue can be investigated and prioritized.
+Submit feature requests as [GitHub Issues](https://github.com/xmtp/libxmtp/issues/new).
+Check for an existing request. Describe the required behavior and its caller.
 
 ## 🔀 Pull requests
 
-PRs are encouraged, but consider starting with a feature request to temperature-check first. If the PR involves a major change to the protocol, the work should be fleshed out as an [XMTP Improvement Proposal](https://github.com/xmtp/XIPs/blob/main/XIPs/xip-0-purpose-process.md) before work begins.
+Describe the required change before you start a large PR. For protocol changes,
+read the approved [specifications](../../docs/specs/) first.
 
 ### AI-Generated Contributions Policy
 
@@ -46,9 +49,31 @@ If you use AI tools to assist your development process, please:
 Please make sure you have Docker running locally. Once you do, you can run the following command to start a local test server:
 
 ```sh
-script/local
+dev/nix-shell 'just backend up'
 ```
 
 ### Updating libxmtp rust bindings
 
-Please see [LibXMTP Kotlin README](https://github.com/xmtp/xmtp-android/blob/main/library/src/main/java/README.md).
+Use the generated `xmtp_sdk` package. See [Android development rules](AGENTS.md)
+for native staging, Gradle builds, and target tests.
+
+### Dependency checks
+
+Keep dependency locks and SHA256 verification metadata in source control.
+The library, example, and plugin graphs use fixed versions. The separate
+consumer keeps its included library graph in its own `gradle/library.lockfile`.
+
+`com.android.tools:desugar_jdk_libs:2.1.5` supplies generated `java.time` APIs on
+API 23 to 25. Keep desugaring on in the library and each app consumer.
+
+After native staging, check the release library and example with frozen
+dependencies:
+
+```sh
+dev/nix-shell 'cd sdks/android && ./gradlew --dependency-verification strict :library:assembleRelease :example:assembleDebug'
+```
+
+For an approved dependency change, resolve the affected tasks with
+`--write-locks --write-verification-metadata sha256`. Record the dependency
+reason and review the new versions and checksums. Then repeat the same tasks
+with strict verification and no write flags.

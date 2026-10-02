@@ -1,11 +1,10 @@
-# LibXMTP Kotlin
+# Generated Kotlin API
 
-Kotlin code emitted by the `bindings_ffi` crate in [libxmtp](https://github.com/xmtp/libxmtp) including how to get jni libraries
+The public package is `uniffi.xmtp_sdk`. `sdks/android/dev/bindings` stages matched
+generated sources and `libxmtp_sdk.so` from the new Android Nix outputs. Run it
+through `dev/nix-shell` from the repository root. See the SDK [rules](../../../../AGENTS.md)
+for commands and the [guide](../../../../README.md) for public API use.
 
-## Process for updating from a [libxmtp](https://github.com/xmtp/libxmtp) Kotlin Binding Release
-
-1. From repo [libxmtp](https://github.com/xmtp/libxmtp) run the [kotlin release action](https://github.com/xmtp/libxmtp/actions/workflows/release-kotlin-bindings.yml) for the branch you desire (this should take about 4 minutes)
-2. Once you see the [kotlin bindings GitHub action](https://github.com/xmtp/libxmtp/actions/workflows/release-kotlin-bindings.yml) is finished, with `libxmtp` repo and `xmtp-android` (this repo) cloned locally in sibling directories, and `libxmtp` checked out to the correct release commit, run the script:
-   `./gen_kotlin.sh` within the `bindings_ffi` folder.
-
-You should now be on the latest libxmtp. Tests will fail if the jniLibs do not match the version of xmtpv3.
+The maintained main Kotlin files add Context storage and process lifecycle
+control. Rust owns all standard codecs, cryptography, storage, and transfer
+state. Do not add a wrapper over the old mobile bindings.

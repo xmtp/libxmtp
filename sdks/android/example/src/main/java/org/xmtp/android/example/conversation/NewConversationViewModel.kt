@@ -8,9 +8,9 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.ClientManager
-import org.xmtp.android.library.Conversation
-import org.xmtp.android.library.libxmtp.IdentityKind
-import org.xmtp.android.library.libxmtp.PublicIdentity
+import uniffi.xmtp_sdk.*
+import uniffi.xmtp_sdk.PublicIdentity
+import uniffi.xmtp_sdk.PublicIdentityKind
 
 class NewConversationViewModel : ViewModel() {
     private val _uiState = MutableStateFlow<UiState>(UiState.Unknown)
@@ -22,13 +22,13 @@ class NewConversationViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val conversation =
-                    ClientManager.client.conversations.newConversationWithIdentity(
+                    ClientManager.client.conversations().createDm(
                         PublicIdentity(
-                            IdentityKind.ETHEREUM,
                             address,
+                            PublicIdentityKind.ETHEREUM,
                         ),
                     )
-                _uiState.value = UiState.Success(conversation)
+                _uiState.value = UiState.Success(Conversation.Dm(conversation))
             } catch (e: Exception) {
                 _uiState.value = UiState.Error(e.localizedMessage.orEmpty())
             }
@@ -41,11 +41,11 @@ class NewConversationViewModel : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 val group =
-                    ClientManager.client.conversations.newGroupWithIdentities(
+                    ClientManager.client.conversations().createGroup(
                         addresses.map {
                             PublicIdentity(
-                                IdentityKind.ETHEREUM,
                                 it,
+                                PublicIdentityKind.ETHEREUM,
                             )
                         },
                     )

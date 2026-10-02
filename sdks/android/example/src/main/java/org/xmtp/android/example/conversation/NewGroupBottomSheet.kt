@@ -15,6 +15,7 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import kotlinx.coroutines.launch
 import org.xmtp.android.example.R
 import org.xmtp.android.example.databinding.BottomSheetNewGroupBinding
+import uniffi.xmtp_sdk.id
 import java.util.regex.Pattern
 
 class NewGroupBottomSheet : BottomSheetDialogFragment() {
@@ -97,8 +98,8 @@ class NewGroupBottomSheet : BottomSheetDialogFragment() {
                 startActivity(
                     ConversationDetailActivity.intent(
                         requireContext(),
-                        topic = uiState.conversation.topic,
-                        peerAddress = uiState.conversation.id,
+                        topic = uiState.conversation.id(),
+                        peerAddress = uiState.conversation.id(),
                     ),
                 )
                 dismiss()
