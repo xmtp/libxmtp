@@ -305,3 +305,26 @@ fn standalone_standard_hooks_use_canonical_rules() {
         version_minor: 0,
     }));
 }
+
+// Retained LeaveRequest init and decode normalize an empty note to None.
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn leave_request_empty_note_is_absent_on_the_wire_and_after_decode() {
+    use prost::Message as _;
+    let empty = encode_standard(StandardContent::LeaveRequest(LeaveRequest {
+        authenticated_note: Some(vec![]),
+    }))?;
+    let absent = encode_standard(StandardContent::LeaveRequest(LeaveRequest {
+        authenticated_note: None,
+    }))?;
+    assert_eq!(empty.content, absent.content);
+    let mut raw: ProtoEncodedContent = absent.into();
+    raw.content = proto::LeaveRequest {
+        authenticated_note: Some(vec![]),
+    }
+    .encode_to_vec();
+    let StandardContent::LeaveRequest(decoded) = decode_standard(raw.try_into()?)? else {
+        panic!("wrong standard content variant");
+    };
+    assert_eq!(decoded.authenticated_note, None);
+}
