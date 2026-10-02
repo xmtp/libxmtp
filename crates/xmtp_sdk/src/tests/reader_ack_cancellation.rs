@@ -6,6 +6,7 @@ use xmtp_db::refresh_state::{EntityKind, QueryRefreshState};
 enum CancelBoundary {
     BeforeCheck,
     BeforeAck,
+    AfterAdmission,
     AfterAck,
 }
 
@@ -39,6 +40,11 @@ async fn cancel_at_boundary(boundary: CancelBoundary) -> Result<(), Box<dyn std:
         arrived: Notify::new(),
         release: Notify::new(),
     });
+    let admitted = Arc::new(reader::AckAdmissionGate {
+        arrived: Notify::new(),
+        released: parking_lot::Mutex::new(false),
+        wake: parking_lot::Condvar::new(),
+    });
     let settled = Arc::new(Notify::new());
     let mut gates = reader::RequestGates {
         settled: Some(settled.clone()),
@@ -47,12 +53,18 @@ async fn cancel_at_boundary(boundary: CancelBoundary) -> Result<(), Box<dyn std:
     match boundary {
         CancelBoundary::BeforeCheck => gates.before_check = Some(gate.clone()),
         CancelBoundary::BeforeAck => gates.before_ack = Some(gate.clone()),
+        CancelBoundary::AfterAdmission => gates.after_admission = Some(admitted.clone()),
         CancelBoundary::AfterAck => gates.after_ack = Some(gate.clone()),
     }
     *reader.request_gates.lock() = gates;
     let reading = reader.clone();
     let next = xmtp_common::spawn(None, async move { reading.next().await });
-    xmtp_common::time::timeout(Duration::from_secs(10), gate.arrived.notified()).await?;
+    let arrived = if matches!(boundary, CancelBoundary::AfterAdmission) {
+        &admitted.arrived
+    } else {
+        &gate.arrived
+    };
+    xmtp_common::time::timeout(Duration::from_secs(10), arrived.notified()).await?;
     let token = reader.request_cancel.lock().clone().expect("request token");
     let at_gate = client
         .inner
@@ -73,7 +85,12 @@ async fn cancel_at_boundary(boundary: CancelBoundary) -> Result<(), Box<dyn std:
     eprintln!(
         "ACK_CANCEL {boundary:?} token_received=true D_before={before} D_gate={at_gate} A={first_sequence}"
     );
-    gate.release.notify_one();
+    if matches!(boundary, CancelBoundary::AfterAdmission) {
+        *admitted.released.lock() = true;
+        admitted.wake.notify_one();
+    } else {
+        gate.release.notify_one();
+    }
     xmtp_common::time::timeout(Duration::from_secs(10), settled.notified()).await?;
     // End only after the worker settles, so end cannot suppress its ACK.
     xmtp_common::time::timeout(Duration::from_secs(10), reader.end()).await??;
@@ -117,9 +134,20 @@ async fn cancel_at_boundary(boundary: CancelBoundary) -> Result<(), Box<dyn std:
         replayed_id == first_id,
         replayed_id == second_id
     );
-    let ack_won = matches!(boundary, CancelBoundary::AfterAck);
+    let ack_won = matches!(
+        boundary,
+        CancelBoundary::AfterAdmission | CancelBoundary::AfterAck
+    );
     let expected_cursor = if ack_won { first_sequence } else { before };
-    assert_eq!(at_gate, expected_cursor, "cursor at held boundary");
+    assert_eq!(
+        at_gate,
+        if matches!(boundary, CancelBoundary::AfterAck) {
+            first_sequence
+        } else {
+            before
+        },
+        "cursor at held boundary"
+    );
     assert_eq!(after, expected_cursor, "cursor after worker settlement");
     assert_eq!(reopen_cursor, expected_cursor, "cursor after store reopen");
     assert_eq!(
@@ -146,4 +174,10 @@ async fn cancelled_subsequent_read_before_ack_replays_prior_item() {
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_subsequent_read_after_ack_keeps_committed_cursor() {
     cancel_at_boundary(CancelBoundary::AfterAck).await?;
+}
+
+// verifies: PROC-028
+#[xmtp_common::test(unwrap_try = true, flavor = "multi_thread", worker_threads = 4)]
+async fn cancelled_subsequent_read_after_admission_finishes_ack() {
+    cancel_at_boundary(CancelBoundary::AfterAdmission).await?;
 }
