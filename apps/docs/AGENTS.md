@@ -3,6 +3,11 @@
 Starlight site for the self-hosted backend and SDKs. Specs are read from
 `docs/specs/` and published under `/specs/`. Do not copy or edit the generated reference pages.
 
+Before you submit a docs change, you MUST run the local site check and the
+external Lychee check. Follow the canonical setup and commands in
+[docs/AGENTS.md](../../docs/AGENTS.md). This requirement also applies to
+`src/content/docs/`.
+
 ## Commands
 
 Commands run in the `docs` Nix shell through the root `justfile`.
@@ -20,7 +25,8 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `just docs test-browser`: test the composed site in Chromium.
 - `just docs typecheck`: check the site and executable examples.
 - `just docs compose`: combine the site and generated references.
-- `just docs check`: check source links and the composed artifact.
+- `dev/nix-shell 'just docs check'`: check source links and the composed artifact.
+- `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
 
 `just docs build` and `just docs check-examples` stage local Node and WASM
 bindings, then run their package tasks with the pnpm dependency graph. Do not
