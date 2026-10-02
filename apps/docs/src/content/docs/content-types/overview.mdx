@@ -67,8 +67,8 @@ However, some content types, especially those not meant for display (like read r
   </TabItem>
   <TabItem label="Kotlin">
     ```kotlin
-    if (message.encodedContent.type !in supportedContentTypes) {
-      return message.fallback.takeIf { it.isNotEmpty() }
+    if (message.contentType !in supportedContentTypes) {
+      return message.fallback?.takeIf { it.isNotEmpty() }
     }
     ```
   </TabItem>

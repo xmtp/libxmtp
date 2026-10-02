@@ -36,7 +36,7 @@ Kotlin and Swift use a `type` filter instead of the separate group and DM stream
 </TabItem><TabItem label="Kotlin">
 
 ```kotlin
-client.conversations.stream(type = ConversationType.ALL).collect(::handleConversation)
+client.conversationStream().collect(::handleConversation)
 ```
 
 </TabItem><TabItem label="Swift">

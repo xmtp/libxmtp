@@ -26,7 +26,7 @@ Conversation methods are also available on `Group` and `Dm`.
 ### Kotlin
 
 ```kotlin
-suspend fun configurePush(client: Client, conversation: Conversation, token: String) {
+suspend fun configurePush(client: SDKClient, conversation: Conversation, token: String) {
     client.enableNotifications(NotificationConfig(NotificationChannel.Fcm(token)))
     conversation.setNotifications(NotificationOverride.Disabled)
     val enabled = conversation.notificationsEnabled()

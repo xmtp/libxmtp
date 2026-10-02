@@ -52,7 +52,7 @@ Add members, then call `publishMessages()` to publish prepared messages. The Nod
 <TabItem label="Kotlin">
 
 ```kotlin
-val group = client.conversations.newGroupOptimistic()
+val group = client.conversations().createGroupOptimistic()
 group.addMembers(listOf(memberInboxId))
 ```
 

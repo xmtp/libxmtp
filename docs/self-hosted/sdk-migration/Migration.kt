@@ -8,6 +8,7 @@ import java.io.File
 
 // End the old SDK client before calling this function.
 suspend fun exerciseMigration(
+    context: Context,
     existingIdentity: PublicIdentity,
     options: ClientOptions,
     dbPath: String,
@@ -21,7 +22,7 @@ suspend fun exerciseMigration(
                     location = StorageLocation.Explicit(dbPath, attachmentsDir),
                 ),
         )
-    val first = SDKClient.build(existingIdentity, explicit)
+    val first = SDKClient.build(context, existingIdentity, explicit)
     var firstFailure: Throwable? = null
     val (identity, inboxId, openedPath) =
         try {
@@ -37,7 +38,7 @@ suspend fun exerciseMigration(
         "The SDK opened another database"
     }
 
-    val reopened = SDKClient.build(identity, explicit.copy(allowOffline = true))
+    val reopened = SDKClient.build(context, identity, explicit.copy(allowOffline = true), inboxId = inboxId)
     var reopenedFailure: Throwable? = null
     try {
         check(reopened.inboxId() == inboxId) { "The inbox changed" }
@@ -53,19 +54,18 @@ suspend fun exerciseMigration(
     currentCoroutineContext().ensureActive()
 }
 
-// Resolve the default root from the Android app context for both factories.
+// Both factories resolve default storage from the Android app context.
 suspend fun exerciseAndroidDefault(
     context: Context,
     existingIdentity: PublicIdentity,
     existingInboxId: String,
     options: ClientOptions,
 ) {
-    val resolvedStorage = StorageOptions(context, label = options.storage.label)
     val androidOptions =
         options.copy(
-            storage = options.storage.copy(location = resolvedStorage.location),
+            storage = options.storage.copy(location = StorageLocation.Default),
         )
-    val first = SDKClient.build(existingIdentity, androidOptions, inboxId = existingInboxId)
+    val first = SDKClient.build(context, existingIdentity, androidOptions, inboxId = existingInboxId)
     var firstFailure: Throwable? = null
     val (identity, inboxId, openedPath) =
         try {
@@ -77,7 +77,7 @@ suspend fun exerciseAndroidDefault(
             endMigrationClient(first, firstFailure)
         }
     currentCoroutineContext().ensureActive()
-    val reopened = SDKClient.build(identity, androidOptions.copy(allowOffline = true), inboxId = inboxId)
+    val reopened = SDKClient.build(context, identity, androidOptions.copy(allowOffline = true), inboxId = inboxId)
     var reopenedFailure: Throwable? = null
     try {
         check(reopened.inboxId() == inboxId) { "The inbox changed" }

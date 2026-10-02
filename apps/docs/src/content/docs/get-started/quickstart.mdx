@@ -70,27 +70,37 @@ client so that the message recipient is registered on the same backend.
 ```kotlin
 import android.content.Context
 import java.security.SecureRandom
-import org.xmtp.android.library.Client
-import org.xmtp.android.library.ClientOptions
-import org.xmtp.android.library.messages.PrivateKeyBuilder
+import uniffi.xmtp_sdk.*
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 
-suspend fun createDemoClient(context: Context, backendUrl: String): Client {
-    val signingKey = PrivateKeyBuilder()
+suspend fun createDemoClient(context: Context, backendUrl: String): SDKClient {
+    val signingKey = generateLocalSigner()
     val keyBytes = ByteArray(32).also { SecureRandom().nextBytes(it) }
-    return Client.create(
-        account = signingKey,
+    return SDKClient.create(
+        context = context,
+        signer = signingKey,
         options = ClientOptions(
-            api = ClientOptions.Api(backendUrl = backendUrl),
-            appContext = context.applicationContext,
-            dbEncryptionKey = keyBytes
-        )
+            backend = BackendSource.Options(BackendOptions(url = backendUrl)),
+            storage = StorageOptions(StorageLocation.Default, encryptionKey = keyBytes),
+        ),
     )
 }
 
 // Run in a coroutine in your Android Activity.
 val backendUrl = "https://xmtp.example.com"
 val client = createDemoClient(applicationContext, backendUrl)
-val recipient = createDemoClient(applicationContext, backendUrl)
+try {
+    val recipient = createDemoClient(applicationContext, backendUrl)
+    try {
+        val group = client.conversations().createGroup(listOf(recipient.inboxId()))
+        group.sendText("Hello everyone")
+    } finally {
+        withContext(NonCancellable) { recipient.end() }
+    }
+} finally {
+    withContext(NonCancellable) { client.end() }
+}
 ```
 
 </TabItem>
@@ -152,8 +162,8 @@ Swift, use the recipient client created in the preceding step.
 <TabItem label="Kotlin">
 
 ```kotlin
-val group = client.conversations.newGroup(inboxIds = listOf(recipient.inboxId))
-group.send(text = "Hello everyone")
+val group = client.conversations().createGroup(listOf(recipient.inboxId()))
+group.sendText("Hello everyone")
 ```
 
 </TabItem>
@@ -191,8 +201,8 @@ Use `streamAllMessages` to receive new messages. Use `syncAll` to fetch new welc
 <TabItem label="Kotlin">
 
 ```kotlin
-client.conversations.syncAllConversations()
-client.conversations.streamAllMessages().collect { message ->
+client.conversations().syncAll(null)
+client.messages().collect { message ->
     println("New message: $message")
 }
 ```
