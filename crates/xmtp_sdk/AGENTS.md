@@ -171,6 +171,11 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
   loaders, and snippets. `dev/nix-shell 'just sdk package-smoke node|browser'` packs each product
   and installs it in an empty consumer. It checks a codec round trip and rejects
   a changed contract before an operation. Browser smoke also loads its worker.
+  Switched SDK package builds use `bash ../../dev/js/sdk-package node|browser`
+  from the SDK directory. The helper stages a public manifest and copies the
+  complete product into the SDK's `dist` directory for workspace imports.
+  Release jobs pack `target/sdk-packages/<target>` directly. Private staging
+  remains the default for conformance.
 - Use `NIX_DEVSHELL=ios dev/nix-shell 'just sdk mobile-build ios'` for the iOS
   device and simulator libraries. Then use the same shell for
   `dev/nix-shell 'just sdk mobile-stage ios'` to assemble `XmtpSdkFFI.xcframework` and SwiftPM
