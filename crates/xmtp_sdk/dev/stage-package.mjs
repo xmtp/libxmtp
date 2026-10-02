@@ -28,8 +28,12 @@ const output = resolve(
   process.env.XMTP_SDK_PACKAGES_DIR ?? "target/sdk-packages",
 );
 const target = process.argv[2];
+const publicPackage = process.argv.includes("--public");
 if (!["node", "browser"].includes(target))
   throw new Error("expected node or browser");
+const sourceManifest = publicPackage
+  ? JSON.parse(readFileSync(join(root, "sdks", target, "package.json")))
+  : undefined;
 const trees =
   target === "node"
     ? ["typescript-napi"]
@@ -239,6 +243,18 @@ try {
     ),
     bundledDependencies: runtimes.map((name) => `@ubjs/${name}`),
   };
+  if (sourceManifest) {
+    for (const field of [
+      "name", "version", "description", "keywords", "homepage", "bugs",
+      "license", "author", "repository", "publishConfig",
+    ]) {
+      if (sourceManifest[field] !== undefined) manifest[field] = sourceManifest[field];
+    }
+    delete manifest.private;
+    manifest.main = "./entry.js";
+    manifest.types = "./entry.d.ts";
+    manifest.exports["./package.json"] = "./package.json";
+  }
   writeFileSync(
     join(destination, "package.json"),
     JSON.stringify(manifest, null, 2) + "\n",
