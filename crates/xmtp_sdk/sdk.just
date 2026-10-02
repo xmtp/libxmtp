@@ -102,6 +102,10 @@ stage target:
 package-smoke target="node":
     cd "{{ root }}" && bash crates/xmtp_sdk/dev/package-smoke "{{ target }}"
 
+# Evaluate native build inputs. This command does not compile a product.
+check-native-nix:
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-native-nix.py
+
 check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py

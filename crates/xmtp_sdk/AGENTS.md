@@ -216,3 +216,8 @@ Residual package review checks:
 - Installed smoke runs `npm-cli.js` through Node. `XMTP_SDK_NPM_CLI` is a
   private path override for the launcher proof. The normal path comes from
   the selected Node installation, including the Windows installation.
+
+- Use `dev/nix-shell 'just sdk check-native-nix'` to check the evaluated SDK
+  build inputs. Both build stages must use two Cargo jobs. Native stages use
+  vendored static OpenSSL. Apple stages keep macOS 11 and iOS 14 floors.
+  This check does not prove archive linkage or installed package loading.
