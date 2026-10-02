@@ -2,7 +2,7 @@ import { Args, Flags } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
-import { createEOASigner, hexToBytes } from "@/utils/client";
+import { createEOASigner, installationIdFromHex } from "@/utils/client";
 
 export default class RevokeInstallations extends BaseCommand {
   static description = `Revoke specific installations from an inbox.
@@ -89,11 +89,8 @@ This command requires:
       this.error("At least one installation ID is required");
     }
 
-    // Validate hex strings before confirming
-    const installationIds = installationIdStrings.map((id) => {
-      hexToBytes(id);
-      return id;
-    });
+    // Validate and normalize IDs before confirmation.
+    const installationIds = installationIdStrings.map(installationIdFromHex);
 
     await this.confirmAction(
       `Revoking ${installationIdStrings.length} installation(s) is irreversible. They will immediately lose access to send or receive messages.`,
@@ -110,7 +107,7 @@ This command requires:
     this.output({
       success: true,
       inboxId: args.inboxId,
-      revokedInstallations: installationIdStrings,
+      revokedInstallations: installationIds,
       count: installationIds.length,
       message: "Installations successfully revoked",
     });

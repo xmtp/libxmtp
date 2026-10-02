@@ -8,7 +8,7 @@ import {
   type LogLevel,
   type Signer,
 } from "@xmtp/node-sdk";
-import { isHex, toBytes } from "viem";
+import { isHex, toBytes, toHex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import type { XmtpConfig } from "./config.js";
@@ -67,6 +67,15 @@ export function hexToBytes(value: string): Uint8Array {
     throw new Error(`Invalid hex string: ${value}`);
   }
   return toBytes(hex);
+}
+
+/** Decode an installation ID and return the public SDK's canonical hex form. */
+export function installationIdFromHex(value: string): string {
+  const bytes = hexToBytes(value);
+  if (bytes.length !== 32) {
+    throw new Error("Installation ID must contain exactly 32 bytes");
+  }
+  return toHex(bytes).slice(2);
 }
 
 export async function createClient(
