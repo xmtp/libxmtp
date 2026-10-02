@@ -128,17 +128,13 @@ public struct SDKEventStream: AsyncSequence {
             if closed {
                 return nil
             }
-            return try await withTaskCancellationHandler {
-                _ = owner.raw
-                let value = try await reader.next()
-                if value == nil {
-                    closed = true
-                    try await reader.end()
-                }
-                return value
-            } onCancel: {
-                Task { try? await reader.end() }
+            _ = owner.raw
+            let value = try await reader.next()
+            if value == nil {
+                closed = true
+                try await reader.end()
             }
+            return value
         }
 
         deinit {
