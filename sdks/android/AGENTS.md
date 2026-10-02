@@ -7,6 +7,7 @@ lifecycle, and file log helpers.
 ## Commands
 
 Run from the repository root. Each recipe uses the Android Nix shell.
+Build tools use normal parallelism and preserve caller job settings.
 
 ```bash
 dev/nix-shell 'just android build'

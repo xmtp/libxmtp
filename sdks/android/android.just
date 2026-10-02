@@ -34,7 +34,7 @@ test-integration: build
 
 # Check release JNI and timestamp desugaring on the supported API 23 runner.
 test-min-sdk:
-  ./dev/bindings --release && NIX_ANDROID_EMULATOR_API=23 run-test-emulator && ./gradlew -p . :library:assembleRelease :library:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=uniffi.xmtp_sdk.AndroidPackageTest\#generatedTimestampsLoadAndConvertWithDesugaring --dependency-verification strict --no-daemon --max-workers=2
+  ./dev/bindings --release && NIX_ANDROID_EMULATOR_API=23 run-test-emulator && ./gradlew -p . :library:assembleRelease :library:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=uniffi.xmtp_sdk.AndroidPackageTest\#generatedTimestampsLoadAndConvertWithDesugaring --dependency-verification strict --no-daemon
 
 # Generate the public Kotlin API reference.
 docs: build
