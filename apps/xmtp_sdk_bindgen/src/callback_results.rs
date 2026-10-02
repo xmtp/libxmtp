@@ -6,10 +6,24 @@ const START: &str = "const uniffiMakeCall =";
 const SUCCESS: &str = "const uniffiHandleSuccess = (returnValue: ";
 const FOREIGN: &str = "const uniffiForeignFuture =";
 
+const REJECTION_HELPER: &str = r#"
+function uniffiNormalizeCallbackRejection(error: unknown, isErrorType: (value: any) => boolean): unknown {
+    if (error !== null && typeof error === "object") {
+        try {
+            if (isErrorType(error)) return error;
+        } catch {
+            // Use the fixed error if the typed error check fails.
+        }
+    }
+    return new Error("Foreign callback failed");
+}
+"#;
+
 pub(crate) fn rewrite(source: &str) -> Result<String> {
-    let mut output = String::new();
+    let mut output = REJECTION_HELPER.to_owned();
     let mut rest = source;
     let mut results = Vec::new();
+    let mut errors = Vec::new();
     while let Some(start) = rest.find(START) {
         output.push_str(&rest[..start]);
         rest = &rest[start..];
@@ -17,6 +31,22 @@ pub(crate) fn rewrite(source: &str) -> Result<String> {
             .find(FOREIGN)
             .context("generated callback completion changed")?;
         let block = &rest[..end];
+        let foreign_end = rest[end..]
+            .find(");")
+            .map(|at| end + at)
+            .context("generated callback foreign call changed")?;
+        let error_marker = "/*isErrorType:*/ ";
+        let foreign = &rest[end..foreign_end];
+        let error_start = foreign
+            .find(error_marker)
+            .context("generated callback error type changed")?
+            + error_marker.len();
+        let error_end = foreign[error_start..]
+            .find(".instanceOf,")
+            .map(|at| error_start + at)
+            .context("generated callback error predicate changed")?;
+        let error_type = &foreign[error_start..error_end];
+        errors.push(error_type.to_owned());
         let success = block
             .find(SUCCESS)
             .context("generated callback success changed")?;
@@ -26,7 +56,7 @@ pub(crate) fn rewrite(source: &str) -> Result<String> {
             .context("generated callback result type changed")?;
         let ty = &block[success + SUCCESS.len()..ty_end];
         if ty == "void" {
-            output.push_str(block);
+            output.push_str(&guard_rejection(block, error_type)?);
         } else {
             let field = "return_value: ";
             let lower_start = block
@@ -67,11 +97,25 @@ pub(crate) fn rewrite(source: &str) -> Result<String> {
                     )
                     .replacen(lower, "returnValue", 1),
             );
-            output.push_str(&patched);
+            output.push_str(&guard_rejection(&patched, error_type)?);
             results.push(ty.to_owned());
         }
         rest = &rest[end..];
     }
+    errors.sort();
+    ensure!(
+        errors
+            == [
+                "CredentialError",
+                "ListenerError",
+                "LogSinkError",
+                "PreAuthenticateError",
+                "SignerError",
+                "SignerError",
+                "SignerError"
+            ],
+        "generated callback error set changed: {errors:?}"
+    );
     results.sort();
     ensure!(
         results == ["Credential", "PublicIdentity", "Signature", "SignerKind"],
@@ -81,11 +125,29 @@ pub(crate) fn rewrite(source: &str) -> Result<String> {
     Ok(output)
 }
 
+fn guard_rejection(block: &str, error_type: &str) -> Result<String> {
+    let open = block
+        .find("=> {")
+        .context("generated callback body changed")?
+        + "=> {".len();
+    let end = block[..block
+        .find(SUCCESS)
+        .context("generated callback success changed")?]
+        .rfind("};")
+        .context("generated callback body end changed")?;
+    Ok(format!(
+        "{}\n                try {{{}\n                }} catch (error) {{\n                    throw uniffiNormalizeCallbackRejection(error, {error_type}.instanceOf);\n                }}\n            {}",
+        &block[..open],
+        &block[open..end],
+        &block[end..]
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn callback(ty: &str) -> String {
+    fn callback(ty: &str, error: &str) -> String {
         format!(
             r#"const uniffiMakeCall =
             async (signal: AbortSignal)
@@ -107,22 +169,43 @@ mod tests {
                 }});
             }};
             const uniffiForeignFuture = uniffiTraitInterfaceCallAsyncWithError(
-                uniffiMakeCall, uniffiHandleSuccess, uniffiHandleError);
+                uniffiMakeCall, uniffiHandleSuccess, uniffiHandleError,
+                /*isErrorType:*/ {error}.instanceOf,
+                /*lowerError:*/ FfiConverterType{error}.lower);
 "#
         )
     }
 
     fn fixture() -> String {
-        ["Credential", "PublicIdentity", "SignerKind", "Signature"]
-            .map(callback)
-            .join("\n")
+        [
+            ("Credential", "CredentialError"),
+            ("PublicIdentity", "SignerError"),
+            ("SignerKind", "SignerError"),
+            ("Signature", "SignerError"),
+            ("void", "PreAuthenticateError"),
+            ("void", "ListenerError"),
+            ("void", "LogSinkError"),
+        ]
+        .map(|(ty, error)| callback(ty, error))
+        .join("\n")
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn callback_result_serialization_precedes_success_for_credentials_and_signers() {
-        let void = callback("void");
-        let output = rewrite(&(fixture() + &void))?;
-        assert!(output.contains(&void));
+        let output = rewrite(
+            &(fixture()
+                + "\nexport async function sdkConformanceEmit(count: number): Promise<void> { return; }"),
+        )?;
+        assert_eq!(
+            output
+                .matches("throw uniffiNormalizeCallbackRejection(error,")
+                .count(),
+            7
+        );
+        assert_eq!(
+            output.matches("return await jsCallback.callback").count(),
+            3
+        );
         assert_eq!(output.matches(": Promise<UniffiByteArray>").count(), 4);
         assert_eq!(output.matches("return_value: returnValue").count(), 4);
         for ty in ["Credential", "PublicIdentity", "SignerKind", "Signature"] {
@@ -135,19 +218,24 @@ mod tests {
             output
                 .matches("uniffiTraitInterfaceCallAsyncWithError(")
                 .count(),
-            5
+            7
         );
         assert_eq!(
             output
                 .matches("uniffiCaller.createErrorStatus(code, errorBuf)")
                 .count(),
-            5
+            7
         );
     }
 
     #[xmtp_common::test(unwrap_try = true)]
     fn callback_result_serialization_rejects_changed_result_or_callback_set() {
         let source = fixture();
+        assert!(
+            rewrite(&source.replace("CredentialError.instanceOf", "OtherError.instanceOf"))
+                .is_err()
+        );
+        assert!(rewrite(&source.replace("/*isErrorType:*/", "/*other:*/")).is_err());
         assert!(
             rewrite(&source.replace(
                 "return_value: FfiConverterTypeCredential.lower",
@@ -156,7 +244,7 @@ mod tests {
             .is_err()
         );
         assert!(rewrite(&source.replace(": Promise<Credential>", ": Other<Credential>")).is_err());
-        assert!(rewrite(&callback("Credential")).is_err());
-        assert!(rewrite(&(source + &callback("Credential"))).is_err());
+        assert!(rewrite(&callback("Credential", "CredentialError")).is_err());
+        assert!(rewrite(&(source + &callback("Credential", "CredentialError"))).is_err());
     }
 }
