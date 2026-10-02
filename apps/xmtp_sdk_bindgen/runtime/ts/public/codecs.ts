@@ -59,7 +59,7 @@ import {
   TransactionReferenceCodec as HostTransactionReference,
   WalletSendCallsCodec as HostWalletSendCalls,
 } from "../codecs";
-import type { ContentCodec } from "./codec";
+import { registerRustStandardFallback, type ContentCodec } from "./codec";
 
 type Convert<From, To> = (value: From, projection: ObjectProjection) => To;
 const same = <T>(value: T): T => value;
@@ -73,6 +73,7 @@ abstract class StandardCodec<Value, Host> implements ContentCodec<Value> {
     private readonly lift: Convert<Host, Value>,
   ) {
     this.type = liftContentTypeId(host.type, currentProjection());
+    registerRustStandardFallback(this, StandardCodec.prototype.fallback);
   }
 
   encode(value: Value): EncodedContent {
@@ -278,9 +279,4 @@ export class LeaveRequestCodec extends StandardCodec<
   constructor() {
     super(new HostLeaveRequest(), lowerLeaveRequest, liftLeaveRequest);
   }
-}
-
-// A subclass that overrides fallback keeps its hook.
-export function usesRustStandardFallback(codec: ContentCodec<never>): boolean {
-  return codec instanceof StandardCodec && codec.fallback === StandardCodec.prototype.fallback;
 }
