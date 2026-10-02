@@ -29,12 +29,13 @@ export type AnyContentCodec = {
   decode(encoded: EncodedContent): unknown;
 };
 
-// Internal codec instances retain the exact builtin fallback method. A subclass
-// override is not skipped, and worker-only modules have no codec dependency.
-const rustStandardFallbacks = new WeakMap<object, unknown>();
+// Both browser trees use this private marker. It stores the exact builtin
+// fallback method on the codec, so a subclass override keeps its hook.
+const rustStandardFallback = Symbol.for("@xmtp/sdk/rust-standard-fallback");
 export function registerRustStandardFallback(codec: object, fallback: unknown): void {
-  rustStandardFallbacks.set(codec, fallback);
+  Object.defineProperty(codec, rustStandardFallback, {value: fallback});
 }
 export function usesRustStandardFallback(codec: ContentCodec<never>): boolean {
-  return rustStandardFallbacks.has(codec) && rustStandardFallbacks.get(codec) === codec.fallback;
+  return Reflect.get(codec, rustStandardFallback) === codec.fallback &&
+    Reflect.has(codec, rustStandardFallback);
 }
