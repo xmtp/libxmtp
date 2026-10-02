@@ -15,7 +15,10 @@ let
     pname = "xmtp-sdk-swift";
     inherit version;
     src = ../..;
-    nativeBuildInputs = [ sdk.bindgen ];
+    nativeBuildInputs = [
+      sdk.bindgen
+      (xmtp.mkNativeToolchain [ ] [ ])
+    ];
     buildPhase = ''
       xmtp-sdk-bindgen generate --lib ${sdk.libs}/lib/libxmtp_sdk.dylib \
         --language swift --no-format --out "$out/swift" \
