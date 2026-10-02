@@ -129,11 +129,11 @@ class PackagingTests(unittest.TestCase):
         output = self.prepare_mobile_stage("ios")
         self.assemble_mobile("ios")
         contract = json.loads((output / "sdk-contract.json").read_text())
-        self.assertEqual(set(contract["native"]), {
-            "aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin"
-        })
+        self.assertEqual(
+            set(contract["native"]),
+            {"aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin"},
+        )
         self.assertIn(".macOS(.v11)", (output / "Package.swift").read_text())
-
 
     def product_files(self, output):
         return {
@@ -542,8 +542,15 @@ class PackagingTests(unittest.TestCase):
             self.patches[2].start()
 
     def test_apple_native_build_pins_supported_deployment_floors(self):
-        with patch.object(artifacts.sys, "platform", "darwin"), patch.dict(
-            os.environ, {"MACOSX_DEPLOYMENT_TARGET": "14.0", "IPHONEOS_DEPLOYMENT_TARGET": "17"}
+        with (
+            patch.object(artifacts.sys, "platform", "darwin"),
+            patch.dict(
+                os.environ,
+                {
+                    "MACOSX_DEPLOYMENT_TARGET": "14.0",
+                    "IPHONEOS_DEPLOYMENT_TARGET": "17",
+                },
+            ),
         ):
             artifacts.build(self.args)
             self.assertEqual(os.environ["MACOSX_DEPLOYMENT_TARGET"], "11.0")
@@ -570,9 +577,7 @@ class PackagingTests(unittest.TestCase):
                         (self.args.artifacts / "artifacts.json").read_text()
                     )
                     calls = len(self.calls)
-                    os.environ[name] = (
-                        str(compiler)
-                    )
+                    os.environ[name] = str(compiler)
                     artifacts.build(self.args)
                     after = json.loads(
                         (self.args.artifacts / "artifacts.json").read_text()

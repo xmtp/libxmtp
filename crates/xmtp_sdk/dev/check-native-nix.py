@@ -6,7 +6,7 @@ from pathlib import Path
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[3]
-EXPRESSION = r'''
+EXPRESSION = r"""
 systems:
 let
   p = systems.${builtins.currentSystem};
@@ -24,12 +24,14 @@ in builtins.listToAttrs (map (name: {
   inherit name;
   value = { main = inputs p.${name}; deps = inputs p.${name}.cargoArtifacts; };
 }) names)
-'''
+"""
 
-products = json.loads(subprocess.check_output(
-    ["nix", "eval", "--impure", "--json", ".#packages", "--apply", EXPRESSION],
-    cwd=ROOT,
-))
+products = json.loads(
+    subprocess.check_output(
+        ["nix", "eval", "--impure", "--json", ".#packages", "--apply", EXPRESSION],
+        cwd=ROOT,
+    )
+)
 for name, phases in products.items():
     native = name == "xmtp-sdk-libs" or name.startswith("xmtp-sdk-ios-")
     for phase, inputs in phases.items():

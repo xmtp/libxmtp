@@ -107,7 +107,9 @@ def build_context():
             "CXXFLAGS",
             "LDFLAGS",
         )
-        or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_", "OPENSSL_"))
+        or name.startswith(
+            ("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_", "OPENSSL_")
+        )
         or name.endswith("_DEPLOYMENT_TARGET")
     }
     return hashlib.sha256(

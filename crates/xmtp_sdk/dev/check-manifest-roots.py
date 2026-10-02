@@ -12,15 +12,23 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import importlib.util
 import os
 import sys
 
 ROOT = Path(__file__).resolve().parents[3]
 MANIFEST = ROOT / "docs/self-hosted/sdk-api-manifest.md"
-sys.path.insert(0, str(ROOT / "dev/sdk"))
-from switches import switched_sdks
+sys.dont_write_bytecode = True
+switches_spec = importlib.util.spec_from_file_location(
+    "sdk_switches", ROOT / "dev/sdk/switches.py"
+)
+switches = importlib.util.module_from_spec(switches_spec)
+switches_spec.loader.exec_module(switches)
+switched_sdks = switches.switched_sdks
 
-GENERATED = Path(os.environ.get("XMTP_SDK_GENERATED_DIR", ROOT / "target/sdk-generated"))
+GENERATED = Path(
+    os.environ.get("XMTP_SDK_GENERATED_DIR", ROOT / "target/sdk-generated")
+)
 TREES = {
     "Node": ["typescript-napi"],
     "Browser": ["typescript-wasm", "typescript-pure"],
