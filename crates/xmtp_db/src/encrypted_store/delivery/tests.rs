@@ -586,3 +586,69 @@ async fn app_rows_cursor_queries_are_bounded_batches() {
     assert_eq!(batches.borrow().len(), 3);
     assert!(batches.borrow().iter().all(|size| *size <= 500));
 }
+
+// verifies: DMS-016
+#[xmtp_common::test(unwrap_try = true)]
+async fn history_projection_keeps_relations_and_deletions_in_the_cursor_snapshot() {
+    use crate::group_message::RelationQuery;
+    use crate::message_deletion::{QueryMessageDeletion, StoredMessageDeletion};
+    let path = xmtp_common::tmp_path();
+    let store = TestDb::create_persistent_store(Some(path.clone())).await;
+    let writer = TestDb::create_persistent_store(Some(path)).await;
+    let db = store.db();
+    let group = generate_group(None);
+    group.store(&db)?;
+    let parent = generate_message(None, Some(&group.id), Some(1), None, None, None);
+    parent.store(&db)?;
+    let boundary = db.current_delivery_cursor()?;
+    let projected = db.delivery_history_snapshot_projected(
+        &DeliveryScope::Groups(vec![group.id]),
+        &Default::default(),
+        0,
+        8,
+        u64::MAX,
+        |conn, snapshot| {
+            // Commit after selection, before relation and deletion queries.
+            let mut reply = generate_message(None, Some(&group.id), Some(2), None, None, None);
+            reply.reference_id = Some(parent.id.clone());
+            reply.store(&writer.db())?;
+            StoredMessageDeletion {
+                id: reply.id,
+                group_id: group.id,
+                deleted_message_id: parent.id.clone(),
+                deleted_by_inbox_id: parent.sender_inbox_id.clone(),
+                is_super_admin_deletion: false,
+                deleted_at_ns: 3,
+            }
+            .store(&writer.db())?;
+            let storage = conn.key_store();
+            let projected_db = storage.db();
+            let counts = projected_db.get_inbound_relation_counts(
+                &group.id,
+                &[&parent.id],
+                RelationQuery::default(),
+            )?;
+            let deletions = projected_db.get_deletions_for_messages(vec![parent.id.clone()])?;
+            assert!(
+                counts.is_empty(),
+                "projection observed a reply after its cursor"
+            );
+            assert!(
+                deletions.is_empty(),
+                "projection observed a deletion after its cursor"
+            );
+            Ok(snapshot)
+        },
+    )?;
+    assert_eq!(projected.cursor, boundary);
+    assert_eq!(projected.messages.len(), 1);
+    assert_eq!(projected.messages[0].message.id, parent.id);
+    assert_eq!(projected.messages[0].cursor, boundary);
+    assert_eq!(
+        db.get_inbound_relation_counts(&group.id, &[&parent.id], RelationQuery::default())?
+            .get(&parent.id),
+        Some(&1)
+    );
+    assert_eq!(db.get_deletions_for_messages(vec![parent.id])?.len(), 1);
+    assert!(db.current_delivery_cursor()?.delivery_sequence > boundary.delivery_sequence);
+}
