@@ -97,24 +97,15 @@ val recipient = createDemoClient(applicationContext, backendUrl)
 <TabItem label="Swift">
 
 ```swift
-import Foundation
-import Security
-import XMTPiOS
+import XmtpSdk
 
-func createDemoClient(backendUrl: String) async throws -> Client {
-  let signingKey = try PrivateKey.generate()
-  var keyBytes = Data(count: 32)
-  let status = keyBytes.withUnsafeMutableBytes { bytes in
-    SecRandomCopyBytes(kSecRandomDefault, bytes.count, bytes.baseAddress!)
-  }
-  guard status == errSecSuccess else {
-    throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-  }
-  return try await Client.create(
-    account: signingKey,
+func createDemoClient(backendUrl: String) async throws -> SDKClient {
+  let signer = await generateLocalSigner()
+  return try await SDKClient.create(
+    signer: signer,
     options: ClientOptions(
-      api: .init(backendUrl: backendUrl),
-      dbEncryptionKey: keyBytes
+      backend: .options(options: BackendOptions(url: backendUrl)),
+      storage: StorageOptions(location: .default)
     )
   )
 }
@@ -160,8 +151,8 @@ group.send(text = "Hello everyone")
 <TabItem label="Swift">
 
 ```swift
-let group = try await client.conversations.newGroup(with: [recipient.inboxID])
-try await group.send(content: "Hello everyone")
+let group = try await client.conversations().createGroup(members: [recipient.inboxId()])
+try await group.sendText(text: "Hello everyone", options: nil)
 ```
 
 </TabItem>
@@ -201,8 +192,7 @@ client.conversations.streamAllMessages().collect { message ->
 <TabItem label="Swift">
 
 ```swift
-try await client.conversations.syncAllConversations()
-for try await message in try await client.conversations.streamAllMessages() {
+for try await message in try await client.messages() {
   print("New message: \(message)")
 }
 ```

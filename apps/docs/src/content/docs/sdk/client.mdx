@@ -93,10 +93,10 @@ val client = Client.create(account = signingKey, options = options)
 
 ```swift
 let options = ClientOptions(
-  api: .init(backendUrl: "https://xmtp.example.com"),
-  dbEncryptionKey: keyBytes
+  backend: .options(options: BackendOptions(url: "https://xmtp.example.com")),
+  storage: StorageOptions(location: .default, encryptionKey: keyBytes)
 )
-let client = try await Client.create(account: signingKey, options: options)
+let client = try await SDKClient.create(signer: signingKey, options: options)
 ```
 
 </TabItem>
@@ -180,20 +180,45 @@ Pass this API configuration to `ClientOptions.api`.
 <TabItem label="Swift">
 
 ```swift
-func authenticatedApi(
-  fetchToken: @escaping @Sendable () async throws -> (String, Int64)
-) -> ClientOptions.Api {
-  ClientOptions.Api(
-    backendUrl: "https://xmtp.example.com",
-    authCallback: {
-      let (token, expiresAtSeconds) = try await fetchToken()
-      return Credential(value: "Bearer \(token)", expiresAtSeconds: expiresAtSeconds)
+import XmtpSdk
+
+final class AppCredentials: CredentialSource {
+    private let load: @Sendable () async throws -> Credential
+
+    init(load: @escaping @Sendable () async throws -> Credential) {
+        self.load = load
     }
-  )
+
+    func credential() async throws -> Credential {
+        try await load()
+    }
+}
+
+func createAppClient(
+    signer: Signer,
+    loadCredential: @escaping @Sendable () async throws -> Credential
+) async throws -> SDKClient {
+    let options = ClientOptions(
+        backend: .options(options: BackendOptions(
+            url: "https://backend.example",
+            credentials: AppCredentials(load: loadCredential)
+        )),
+        storage: StorageOptions(location: .default)
+    )
+    return try await SDKClient.create(signer: signer, options: options)
+}
+
+func reopenAppClient(identity: PublicIdentity, options: ClientOptions) async throws -> SDKClient {
+    try await SDKClient.build(identity: identity, options: options)
+}
+
+func bearerCredential(token: String, expiresAtSeconds: Int64) -> Credential {
+    Credential(name: nil, value: "Bearer \(token)", expiresAtSeconds: expiresAtSeconds)
 }
 ```
 
-Pass this API configuration to `ClientOptions.api`.
+Pass the credential source in `BackendOptions.credentials` and pass those options
+through `ClientOptions.backend`.
 
 </TabItem>
 </Tabs>
@@ -240,7 +265,7 @@ val client = Client.build(identity = identity, options = options)
 <TabItem label="Swift">
 
 ```swift
-let client = try await Client.build(identity: identity, options: options)
+let client = try await SDKClient.build(identity: identity, options: options)
 ```
 
 </TabItem>
@@ -279,7 +304,9 @@ client.deleteLocalDatabase()
 <TabItem label="Swift">
 
 ```swift
-try await client.deleteLocalDatabase()
+let storage = client.storage()
+try await client.end()
+try await storage.delete()
 ```
 
 </TabItem>

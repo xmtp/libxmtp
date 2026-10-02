@@ -46,7 +46,7 @@ val messages = conversation.messages(limit = 10)
 </TabItem><TabItem label="Swift">
 
 ```swift
-let messages = try await conversation.messages(limit: 10)
+let messages = try await conversation.messages(options: ListMessagesOptions(limit: 10))
 ```
 
 </TabItem>
@@ -99,17 +99,13 @@ val secondPage = group.messages(
 <TabItem label="Swift">
 
 ```swift
-let firstPage = try await group.messages(
-  limit: 20,
-  direction: .descending,
-  sortBy: .insertedAt
-)
-let secondPage = try await group.messages(
-  limit: 20,
-  direction: .descending,
-  sortBy: .insertedAt,
-  insertedBeforeNs: firstPage.last?.insertedAtNs
-)
+let firstPage = try await group.messages(options: ListMessagesOptions(
+  limit: 20, direction: .descending, sortBy: .insertedAt
+))
+let secondPage = try await group.messages(options: ListMessagesOptions(
+  limit: 20, insertedBefore: firstPage.last?.insertedAt,
+  direction: .descending, sortBy: .insertedAt
+))
 ```
 
 </TabItem>
@@ -147,7 +143,7 @@ val conversations = client.conversations.list()
 </TabItem><TabItem label="Swift">
 
 ```swift
-let conversations = try await client.conversations.list()
+let conversations = try await client.conversations().list()
 ```
 
 </TabItem>
