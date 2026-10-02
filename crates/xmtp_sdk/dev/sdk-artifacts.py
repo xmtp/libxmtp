@@ -107,7 +107,7 @@ def build_context():
             "CXXFLAGS",
             "LDFLAGS",
         )
-        or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_"))
+        or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_", "OPENSSL_"))
     }
     return hashlib.sha256(
         json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()
@@ -167,6 +167,7 @@ def build(args):
                     args.rust_target if kind == "native" else "",
                     rust_source,
                     generator if kind == "bindgen" else "",
+                    "vendored-static-openssl-v1" if kind == "native" else "",
                 ]
             ).encode()
         ).hexdigest()
@@ -205,6 +206,11 @@ def build(args):
         elif kind == "native" and args.rust_target:
             command += ["--target", args.rust_target]
         env = dict(os.environ, CARGO_TARGET_DIR=str(cargo_target), CARGO_BUILD_JOBS="2")
+        if kind == "native":
+            # The existing vendored SQLCipher feature supplies OpenSSL. Ship
+            # its static bytes in native products, without build-host dylibs.
+            env["OPENSSL_NO_VENDOR"] = "0"
+            env["OPENSSL_STATIC"] = "1"
         started = time.monotonic()
         run(command, env=env)
         folder = (
