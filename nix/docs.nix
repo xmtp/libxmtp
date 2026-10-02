@@ -6,6 +6,7 @@
   xmtp-pnpm,
   just,
   markdownlint-cli,
+  lychee,
   playwright-driver,
   playwright,
 }:
@@ -16,6 +17,7 @@ mkShell {
     xmtp-pnpm
     just
     markdownlint-cli
+    lychee
   ];
   PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD = "1";
   PLAYWRIGHT_VERSION = playwright.version;
