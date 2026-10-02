@@ -781,3 +781,100 @@ fn incoming_preference_logs_omit_secret_material() {
         Some(&"2".to_string())
     );
 }
+
+// verifies: PROC-036
+#[xmtp_common::test(unwrap_try = true)]
+#[cfg(not(target_arch = "wasm32"))]
+async fn stored_preference_logs_omit_installation_id_and_secret_material() {
+    use std::sync::Arc;
+    use tracing::instrument::WithSubscriber;
+    use xmtp_db::user_preferences::StoredUserPreferences;
+    use xmtp_logging::{Level, LogRecord, LogSinkTarget, SinkError, test_logging::LogCapture};
+    use xmtp_proto::xmtp::device_sync::content::PreferenceUpdates;
+
+    struct Capture(parking_lot::Mutex<Vec<LogRecord>>);
+    impl LogSinkTarget for Capture {
+        fn on_record(&self, record: LogRecord) -> Result<(), SinkError> {
+            self.0.lock().push(record);
+            Ok(())
+        }
+    }
+
+    tester!(alix, disable_workers);
+    let client = alix.device_sync_client();
+    let group = client.get_sync_group().await?;
+    let mut key = b"synthetic-private-sync-key-4bd3e901".to_vec();
+    key.resize(42, 0xa7);
+    let entity = "synthetic-private-consent-identifier";
+    let updates = vec![
+        preference_sync::PreferenceUpdate::Hmac {
+            key: key.clone(),
+            cycled_at_ns: i64::MAX - 1,
+        }
+        .into(),
+        preference_sync::PreferenceUpdate::Consent(StoredConsentRecord::new(
+            ConsentType::InboxId,
+            ConsentState::Denied,
+            entity.into(),
+        ))
+        .into(),
+    ];
+    group
+        .send_message(
+            &sync_message_bytes(ContentProto::PreferenceUpdates(PreferenceUpdates {
+                updates,
+            })),
+            SendMessageOpts::default(),
+        )
+        .await?;
+    let db = alix.context.db();
+    let messages = db.unprocessed_sync_group_messages()?;
+    assert_eq!(messages.len(), 1);
+    let sink = Arc::new(Capture(parking_lot::Mutex::new(Vec::new())));
+    let capture = LogCapture::with_sink(Level::Info, Some(sink.clone()));
+    client
+        .process_sync_group_messages(&client.metrics, messages)
+        .with_subscriber(capture.dispatch())
+        .await?;
+
+    assert!(db.unprocessed_sync_group_messages()?.is_empty());
+    assert_eq!(
+        StoredUserPreferences::load(&db)?.hmac_key,
+        Some(key.clone())
+    );
+    assert_eq!(
+        db.get_consent_record(entity.into(), ConsentType::InboxId)??
+            .state,
+        ConsentState::Denied
+    );
+    let json = capture.output();
+    let records = sink.0.lock();
+    assert!(json.contains("storing preference updates"));
+    assert!(
+        records
+            .iter()
+            .any(|record| record.message.contains("storing preference updates"))
+    );
+    for sensitive in [
+        alix.context.installation_id().to_string(),
+        hex::encode(alix.context.installation_id()),
+        format!("{key:?}"),
+        hex::encode(&key),
+        entity.into(),
+    ] {
+        assert!(
+            !json.contains(&sensitive),
+            "sensitive preference data reached JSON"
+        );
+        assert!(
+            records.iter().all(|record| {
+                !record.message.contains(&sensitive)
+                    && record
+                        .fields
+                        .values()
+                        .all(|value| !value.contains(&sensitive))
+            }),
+            "sensitive preference data reached the log sink"
+        );
+    }
+}
