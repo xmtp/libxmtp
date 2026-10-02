@@ -3,7 +3,9 @@ import { expect, it } from "vitest";
 
 import { notificationBackend } from "./notificationBackend";
 
-it("deduplicates credential refresh and accepts expired and replacement client credentials", async () => {
+async function credentialUpdate(
+  readThree: (read: () => Promise<unknown>) => Promise<void>,
+): Promise<void> {
   const backend = await notificationBackend();
   let calls = 0;
   const client = await createClient(createSigner().signer, {
@@ -23,13 +25,13 @@ it("deduplicates credential refresh and accepts expired and replacement client c
   const unknown = createSigner().identifier;
   const read = () => client.inboxIdFor(unknown);
   try {
-    await Promise.all([read(), read(), read()]);
+    await readThree(read);
     expect(calls).toBe(1);
     await client.setCredential({
       value: "Bearer expired-test",
       expiresAtSeconds: 0n,
     });
-    await Promise.all([read(), read(), read()]);
+    await readThree(read);
     expect(calls).toBe(2);
     await client.setCredential({
       value: "Bearer replacement-test",
@@ -52,4 +54,16 @@ it("deduplicates credential refresh and accepts expired and replacement client c
     await client.end();
     await backend.close();
   }
-});
+}
+
+it("deduplicates credential refresh and accepts expired and replacement client credentials", () =>
+  credentialUpdate(async (read) => {
+    await Promise.all([read(), read(), read()]);
+  }));
+
+it("accepts expired and replacement client credentials in sequence", () =>
+  credentialUpdate(async (read) => {
+    await read();
+    await read();
+    await read();
+  }));
