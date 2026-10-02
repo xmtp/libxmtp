@@ -161,7 +161,8 @@ where
             .acquire(IncomingScope::DeviceSyncGroups);
         self.metrics.increment_metric(SyncMetric::Init);
 
-        self.run_internal().await
+        // Keep event futures off the containing worker poll stack.
+        Box::pin(self.run_internal()).await
     }
 
     async fn run_internal(&mut self) -> Result<(), DeviceSyncError> {
@@ -201,7 +202,8 @@ where
         id: u64,
         event: xmtp_events::EventEnvelope<InternalEvent>,
     ) -> Result<(), DeviceSyncError> {
-        self.handle_event(event.clone()).await?;
+        // Pending state stays owned here until the event succeeds.
+        Box::pin(self.handle_event(event.clone())).await?;
         let mut pending = self.pending.lock();
         if pending
             .as_ref()
