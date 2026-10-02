@@ -54,6 +54,7 @@ rust.buildPackage (
     cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
       special
       // {
+        CARGO_BUILD_JOBS = 2;
         CARGO_BUILD_TARGET = target;
         buildPhaseCargoCommand = command;
       }
