@@ -45,12 +45,10 @@ let
     ];
   };
   common = xmtp.base.commonArgs // {
-    CARGO_BUILD_JOBS = 2;
     version = xmtp.mkVersion rust;
     doNotPostBuildInstallCargoBinaries = true;
   };
   nativeArgs = {
-    CARGO_BUILD_JOBS = 2;
     OPENSSL_NO_VENDOR = "0";
     OPENSSL_STATIC = "1";
   }
@@ -73,7 +71,6 @@ let
     }
   );
   wasmArgs = {
-    CARGO_BUILD_JOBS = 2;
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     inherit (xmtp.shellCommon.wasmEnv)
       CC_wasm32_unknown_unknown
@@ -109,7 +106,7 @@ let
     // {
       pname = "xmtp-sdk-bindgen";
       src = sdkSource;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false { CARGO_BUILD_JOBS = 2; };
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false { };
       buildPhaseCargoCommand = "cargo build --release --locked -p xmtp-sdk-bindgen";
       installPhaseCommand = ''
           mkdir -p $out/bin

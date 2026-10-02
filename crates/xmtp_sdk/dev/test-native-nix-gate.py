@@ -20,7 +20,7 @@ with patch('subprocess.check_output', return_value=json.dumps(products).encode()
 
 def products():
     inputs = {
-        "jobs": 2,
+        "jobs": None,
         "vendor": "0",
         "static": "1",
         "macos": "11.0",
@@ -63,7 +63,6 @@ class NativeGate(unittest.TestCase):
 
     def test_each_release_requirement_rejects_in_both_build_phases(self):
         cases = (
-            ("xmtp-sdk-wasm", "jobs", 3, "Cargo job limit"),
             ("xmtp-sdk-libs", "vendor", "1", "vendored OpenSSL"),
             ("xmtp-sdk-libs", "static", "0", "static OpenSSL"),
             ("xmtp-sdk-libs", "macos", "14.0", "macOS floor"),
