@@ -76,6 +76,8 @@ and port block, so run `just backend status` for the checkout you are in. See th
   diagnostic, repeat the same recipe with `XMTP_RTK=0`. See `docs/agent-tools.md`.
 - For CI results use `just ci-status <pr>` and `just ci-failures <job>`, never a
   raw log fetch. See the `check-ci` skill.
+- After changes to the CI failure filter, run
+  `dev/nix-shell 'just ci-failures-filter-test'`. It checks local log fixtures.
 
 ## Test environment
 

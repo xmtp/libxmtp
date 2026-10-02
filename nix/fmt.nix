@@ -59,6 +59,8 @@
           swiftformat = {
             command = "${pkgs.swiftformat}/bin/swiftformat";
             includes = [ "*.swift" ];
+            # Preserve the stock UniFFI layout used by the transform fixture.
+            excludes = [ "apps/xmtp_sdk_bindgen/src/swift_event_fixture.swift" ];
           };
         };
       };

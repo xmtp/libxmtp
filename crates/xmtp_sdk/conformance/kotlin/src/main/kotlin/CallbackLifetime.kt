@@ -14,10 +14,19 @@ internal const val LIFETIME_TIMEOUT = 30_000L
 
 internal suspend fun callbackLifetime(backend: BackendOptions) {
     val selected = System.getenv("SDK_CALLBACK_LIFETIME_FAMILY")
-    val families = setOf(
-        "identity", "kind", "sign", "preAuthenticate", "credential",
-        "eventStop", "eventEnd", "signatureRequest", "constructorFailure", "adoption",
-    )
+    val families =
+        setOf(
+            "identity",
+            "kind",
+            "sign",
+            "preAuthenticate",
+            "credential",
+            "eventStop",
+            "eventEnd",
+            "signatureRequest",
+            "constructorFailure",
+            "adoption",
+        )
     require(selected == null || selected in families) {
         "Unknown callback lifetime family: $selected"
     }
