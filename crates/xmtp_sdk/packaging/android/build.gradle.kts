@@ -1,6 +1,22 @@
+import org.gradle.api.artifacts.dsl.LockMode
+
+buildscript {
+    configurations.classpath {
+        resolutionStrategy.activateDependencyLocking()
+    }
+    dependencyLocking {
+        lockMode.set(LockMode.STRICT)
+    }
+}
+
 plugins {
     id("com.android.library") version "8.9.1"
     id("org.jetbrains.kotlin.android") version "2.0.0"
+}
+
+dependencyLocking {
+    lockAllConfigurations()
+    lockMode.set(LockMode.STRICT)
 }
 
 val generated = providers.environmentVariable("XMTP_SDK_GENERATED_DIR").get()
