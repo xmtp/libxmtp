@@ -3,6 +3,9 @@ import {
   MessageStream,
   Storage,
   XmtpError,
+  initLogging,
+  localSignerFromPrivateKey,
+  setLogSink,
   type Signer,
 } from "@xmtp/browser-sdk";
 import { initPureWasm, TextCodec } from "@xmtp/browser-sdk/pure";
@@ -15,11 +18,14 @@ const key = savedKey ? (savedKey as `0x${string}`) : generatePrivateKey();
 localStorage.setItem("installed-signer", key);
 const account = privateKeyToAccount(key);
 const owner: Signer = {
-  async identity() {
-    return { kind: "ethereum", identifier: account.address.toLowerCase() };
+  identity() {
+    return Promise.resolve({
+      kind: "ethereum" as const,
+      identifier: account.address.toLowerCase(),
+    });
   },
-  async kind() {
-    return { kind: "eoa" };
+  kind() {
+    return Promise.resolve({ kind: "eoa" as const });
   },
   async sign(request) {
     return {
@@ -180,5 +186,145 @@ export async function admin(): Promise<void> {
     await owner.listFiles();
   } finally {
     await owner.end();
+  }
+}
+
+export async function callbackRejections(): Promise<
+  Array<{ value: string; settled: boolean; typedSignerFailure: boolean }>
+> {
+  return Promise.all(
+    [null, undefined].map(async (reason) => {
+      const identity = privateKeyToAccount(generatePrivateKey());
+      const rejecting: Signer = {
+        identity() {
+          return Promise.resolve({
+            kind: "ethereum" as const,
+            identifier: identity.address.toLowerCase(),
+          });
+        },
+        kind() {
+          return Promise.resolve({ kind: "eoa" as const });
+        },
+        sign() {
+          // Reject a non-Error value to check the callback boundary.
+          // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+          return Promise.reject(reason);
+        },
+      };
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          Client.create(rejecting, {
+            backend,
+            storage: { location: "inMemory" },
+            deviceSync: false,
+          }).then(
+            async (unexpected) => {
+              await unexpected.end();
+              return { settled: true, typedSignerFailure: false };
+            },
+            (error: unknown) => ({
+              settled: true,
+              typedSignerFailure:
+                error instanceof XmtpError.Signer &&
+                error.details.code === "SignerFailed" &&
+                error.details.category === "callback" &&
+                error.details.retryable === false,
+            }),
+          ),
+          new Promise<{ settled: boolean; typedSignerFailure: boolean }>(
+            (resolve) => {
+              timer = setTimeout(
+                () => resolve({ settled: false, typedSignerFailure: false }),
+                8000,
+              );
+            },
+          ),
+        ]);
+        return { value: String(reason), ...result };
+      } finally {
+        clearTimeout(timer);
+      }
+    }),
+  );
+}
+
+async function waitForCount(
+  read: () => number,
+  expected: number,
+): Promise<void> {
+  const deadline = performance.now() + 8000;
+  while (read() < expected) {
+    if (performance.now() >= deadline)
+      throw new Error(`Later callback missing: ${read()} of ${expected}`);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+
+// verifies: EVENT-051, LOG-009
+export async function callbackVoidFailures(): Promise<{
+  eventCount: number;
+  logCount: number;
+  messagingContinues: boolean;
+}> {
+  const current = await Client.create(owner, {
+    backend,
+    storage: { location: "inMemory" },
+    deviceSync: false,
+  });
+  let eventCount = 0;
+  let logCount = 0;
+  let logInstalled = false;
+  const listener = await current.startListener(
+    { kinds: ["consentChanged"], referencesOwnMessages: false },
+    () => {
+      eventCount++;
+      if (eventCount <= 2) {
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+        return Promise.reject(eventCount === 1 ? null : undefined);
+      }
+      return Promise.resolve();
+    },
+  );
+  try {
+    const group = await current.conversations.createGroup([]);
+    for (const [index, state] of (
+      ["denied", "allowed", "denied"] as const
+    ).entries()) {
+      await current.preferences.setConsentStates([
+        { entity: { kind: "conversation", conversationId: group.id }, state },
+      ]);
+      await waitForCount(() => eventCount, index + 1);
+    }
+    await initLogging({ level: "error" });
+    await setLogSink({
+      log() {
+        logCount++;
+        if (logCount <= 2) {
+          // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+          return Promise.reject(logCount === 1 ? null : undefined);
+        }
+        return Promise.resolve();
+      },
+    });
+    logInstalled = true;
+    for (let index = 0; index < 3; index++) {
+      await localSignerFromPrivateKey(new Uint8Array(31)).then(
+        () => {
+          throw new Error("Invalid signer key was accepted");
+        },
+        () => undefined,
+      );
+      await waitForCount(() => logCount, index + 1);
+    }
+    const sent = await group.sendText("after callback failures", {
+      shouldPush: false,
+    });
+    const stored = await current.conversations.getMessageById(sent);
+    return { eventCount, logCount, messagingContinues: stored?.id === sent };
+  } finally {
+    await current.stopListener(listener);
+    if (logInstalled) await setLogSink();
+    await current.end();
   }
 }
