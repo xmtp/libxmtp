@@ -3,6 +3,40 @@ import XCTest
 import XmtpSdk
 
 final class RetainedBehaviorTests: XCTestCase {
+	func testPublicTimestampKeepsExactNanosecondsInTimeFilters() throws {
+		let values: [Int64] = [.min, -1, 0, 1, 9_007_199_254_740_993, .max]
+		for ns in values {
+			let timestamp = Timestamp(ns: ns)
+			XCTAssertEqual(timestamp.ns, ns)
+			XCTAssertEqual(FfiConverterTypeTimestamp.lower(timestamp), ns)
+			XCTAssertEqual(try FfiConverterTypeTimestamp.lift(ns).ns, ns)
+			let messages = ListMessagesOptions(
+				sentBefore: timestamp, sentAfter: timestamp,
+				insertedBefore: timestamp, insertedAfter: timestamp,
+			)
+			var messageBytes: [UInt8] = []
+			FfiConverterTypeListMessagesOptions.write(messages, into: &messageBytes)
+			var messageBuffer = (data: Data(messageBytes), offset: 0)
+			let decodedMessages = try FfiConverterTypeListMessagesOptions.read(from: &messageBuffer)
+			XCTAssertEqual(decodedMessages.sentBefore?.ns, ns)
+			XCTAssertEqual(decodedMessages.sentAfter?.ns, ns)
+			XCTAssertEqual(decodedMessages.insertedBefore?.ns, ns)
+			XCTAssertEqual(decodedMessages.insertedAfter?.ns, ns)
+			let conversations = ListConversationsOptions(
+				createdAfter: timestamp, createdBefore: timestamp,
+				lastActivityAfter: timestamp, lastActivityBefore: timestamp,
+			)
+			var conversationBytes: [UInt8] = []
+			FfiConverterTypeListConversationsOptions.write(conversations, into: &conversationBytes)
+			var conversationBuffer = (data: Data(conversationBytes), offset: 0)
+			let decodedConversations = try FfiConverterTypeListConversationsOptions.read(from: &conversationBuffer)
+			XCTAssertEqual(decodedConversations.createdAfter?.ns, ns)
+			XCTAssertEqual(decodedConversations.createdBefore?.ns, ns)
+			XCTAssertEqual(decodedConversations.lastActivityAfter?.ns, ns)
+			XCTAssertEqual(decodedConversations.lastActivityBefore?.ns, ns)
+		}
+	}
+
 	func testRemoteAttachmentLength() throws {
 		let codec = RemoteAttachmentCodec()
 		var value = RemoteAttachment(

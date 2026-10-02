@@ -167,6 +167,82 @@ final class InstalledClientTests: XCTestCase {
 		try await client.end()
 	}
 
+	func testHistorySnapshotsKeepRelationsAndHideDeletedContent() async throws {
+		let client = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
+		let peer = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
+		let group = try await client.conversations().createGroup(members: [InboxId]())
+		let dm = try await client.conversations().createDm(peer: peer.inboxId())
+		for conversation in [Conversation.group(group: group), .dm(dm: dm)] {
+			let originalText = "private original \(UUID().uuidString)"
+			let originalFallback = "private fallback \(UUID().uuidString)"
+			var encoded = try encodeText(text: originalText)
+			encoded.fallback = originalFallback
+			let originalId = try await conversation.send(encoded: encoded, options: nil)
+			let originalRows = try await conversation.messages(options: nil)
+			let original = try XCTUnwrap(originalRows.first { $0.id == originalId })
+			XCTAssertEqual(original.fallback, originalFallback)
+			let replyId = try await original.reply("public reply")
+			let reactionId = try await original.react(Reaction(content: "+1", action: .added, schema: .shortcode))
+			let ordinary = try await conversation.messages(options: nil)
+			let ordinaryParent = try XCTUnwrap(ordinary.first { $0.id == originalId })
+			XCTAssertEqual(ordinaryParent.replyCount, 1)
+			XCTAssertEqual(ordinaryParent.reactions.map(\.id), [reactionId])
+			for snapshot in try await [
+				conversation.messageHistorySnapshot(limit: 100),
+				client.conversations().messageHistorySnapshot(limit: 100, options: nil),
+			] {
+				let parent = try XCTUnwrap(snapshot.messages.first { $0.id == originalId })
+				let reply = try XCTUnwrap(snapshot.messages.first { $0.id == replyId })
+				XCTAssertEqual(parent.replyCount, ordinaryParent.replyCount)
+				XCTAssertEqual(parent.reactions, ordinaryParent.reactions)
+				XCTAssertEqual(reply.inReplyTo?.id, originalId)
+				XCTAssertFalse(snapshot.cursor.isEmpty)
+				XCTAssertNotNil(parent.deliveryCursor)
+				XCTAssertNotNil(reply.deliveryCursor)
+			}
+			let recent = try await conversation.messageHistorySnapshot(limit: 2)
+			XCTAssertEqual(recent.messages.map(\.id), [replyId, reactionId])
+			_ = try await original.delete()
+			for snapshot in try await [
+				conversation.messageHistorySnapshot(limit: 100),
+				client.conversations().messageHistorySnapshot(limit: 100, options: nil),
+			] {
+				try assertDeletedSnapshot(snapshot, originalId: originalId, replyId: replyId)
+			}
+		}
+		try await peer.end()
+		try await client.end()
+	}
+
+	private func assertDeletedSnapshot(
+		_ snapshot: MessageHistorySnapshot, originalId: MessageId, replyId: MessageId,
+	) throws {
+		let deleted = try XCTUnwrap(snapshot.messages.first { $0.id == originalId })
+		switch deleted.content {
+		case .standard(.deletedMessage(_)): break
+		default:
+			XCTFail("History snapshot disclosed the original message after deletion")
+		}
+		XCTAssertTrue(deleted.rawBytes.isEmpty)
+		XCTAssertTrue(deleted.encoded?.content.isEmpty ?? true)
+		XCTAssertNil(deleted.fallback)
+		XCTAssertNotNil(deleted.deliveryCursor)
+		let reply = try XCTUnwrap(snapshot.messages.first { $0.id == replyId })
+		if let parent = reply.inReplyTo {
+			switch parent.content {
+			case .deletedMessage: break
+			default:
+				XCTFail("History snapshot disclosed the deleted reply parent")
+			}
+			XCTAssertTrue(parent.rawBytes.isEmpty)
+			XCTAssertTrue(parent.encoded?.content.isEmpty ?? true)
+			XCTAssertNil(parent.fallback)
+		} else {
+			XCTFail("History snapshot lost the deleted reply parent")
+		}
+		XCTAssertFalse(snapshot.cursor.isEmpty)
+	}
+
 	func testGroupAndDmReadTypedMessages() async throws {
 		let sender = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
 		let receiver = try await SDKClient.create(signer: generateLocalSigner(), options: testOptions())
