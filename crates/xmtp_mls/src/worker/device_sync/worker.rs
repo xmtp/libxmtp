@@ -154,7 +154,8 @@ where
     Context: XmtpSharedContext + 'static,
 {
     async fn run(&mut self) -> Result<(), DeviceSyncError> {
-        self.sync_init().await?;
+        // Keep the large startup future off the worker poll stack.
+        Box::pin(self.sync_init()).await?;
         // Receipt must outlive each sync call so remote updates can wake this worker.
         let _receipt = IncomingCoordinator::for_context(&self.client.context)
             .acquire(IncomingScope::DeviceSyncGroups);
@@ -257,7 +258,8 @@ where
                     Event::DeviceSyncNoPrimarySyncGroup,
                     self.client.context.installation_id()
                 );
-                let sync_group = client.get_sync_group().await?;
+                // Sync-group creation polls membership publication below this call.
+                let sync_group = Box::pin(client.get_sync_group()).await?;
                 log_event!(
                     Event::DeviceSyncCreatedPrimarySyncGroup,
                     self.client.context.installation_id(),
