@@ -103,15 +103,32 @@ def build_context():
             "CC",
             "CXX",
             "AR",
+            "RANLIB",
             "CFLAGS",
             "CXXFLAGS",
             "LDFLAGS",
         )
-        or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_", "OPENSSL_"))
+        or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_", "RANLIB_", "OPENSSL_"))
         or name.endswith("_DEPLOYMENT_TARGET")
     }
+    archive_indexes = {}
+    for name, value in flags.items():
+        if name == "RANLIB" or name.startswith("RANLIB_"):
+            tool = Path(shutil.which(value) or ROOT / value)
+            identity = {"path": str(tool.resolve()), "bytes": None, "version": None}
+            if tool.is_file():
+                identity["bytes"] = digest(tool.resolve())
+                probe = subprocess.run(
+                    [str(tool), "--version"], cwd=ROOT, capture_output=True, check=False
+                )
+                identity["version"] = [
+                    probe.returncode,
+                    probe.stdout.decode(errors="replace"),
+                    probe.stderr.decode(errors="replace"),
+                ]
+            archive_indexes[name] = identity
     return hashlib.sha256(
-        json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()
+        json.dumps([compiler, compiler_bytes, flags, archive_indexes], sort_keys=True).encode()
     ).hexdigest()
 
 

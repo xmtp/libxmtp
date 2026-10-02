@@ -510,7 +510,7 @@ class PackagingTests(unittest.TestCase):
         )
 
     def test_unqualified_compiler_inputs_change_native_cache_admission(self):
-        names = ("CC", "CXX", "AR", "CFLAGS", "CXXFLAGS", "LDFLAGS")
+        names = ("CC", "CXX", "AR", "RANLIB", "CFLAGS", "CXXFLAGS", "LDFLAGS")
         environment = {
             key: value for key, value in os.environ.items() if key not in names
         }
@@ -642,6 +642,33 @@ class PackagingTests(unittest.TestCase):
                 calls = len(self.calls)
                 artifacts.build(self.args)
                 self.assertEqual(len(self.calls), calls)
+        finally:
+            self.patches[2].start()
+
+    def test_target_ranlib_path_version_and_bytes_change_cache_context(self):
+        tool = self.root / "llvm-ranlib"
+        tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib one\\n'\n")
+        tool.chmod(0o755)
+        self.patches[2].stop()
+        try:
+            with patch.dict(os.environ, {"RANLIB_aarch64_linux_android": str(tool)}):
+                baseline = artifacts.build_context()
+                tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n")
+                self.assertNotEqual(artifacts.build_context(), baseline)
+                with (
+                    patch.object(artifacts.subprocess, "run") as version_probe,
+                    patch.object(artifacts.subprocess, "check_output", return_value=b"fixed rustc"),
+                ):
+                    version_probe.return_value = subprocess.CompletedProcess([], 0, b"version one", b"")
+                    stable_bytes = artifacts.build_context()
+                    version_probe.return_value = subprocess.CompletedProcess([], 0, b"version two", b"")
+                    self.assertNotEqual(artifacts.build_context(), stable_bytes)
+                version = artifacts.build_context()
+                tool.write_text("#!/bin/sh\nprintf 'LLVM ranlib two\\n'\n# changed bytes\n")
+                self.assertNotEqual(artifacts.build_context(), version)
+                before = artifacts.build_context()
+                os.environ["RANLIB_aarch64_linux_android"] = str(self.root / "other-ranlib")
+                self.assertNotEqual(artifacts.build_context(), before)
         finally:
             self.patches[2].start()
 
@@ -886,6 +913,7 @@ class PackagingTests(unittest.TestCase):
         tools = self.root / "ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
         tools.mkdir(parents=True)
         (tools / "llvm-ar").write_text("archiver")
+        (tools / "llvm-ranlib").write_text("archive index")
         for triple in mobile.ANDROID.values():
             target = (
                 "armv7a-linux-androideabi"
@@ -930,6 +958,7 @@ class PackagingTests(unittest.TestCase):
             self.assertTrue(linker.endswith("23-clang"))
             self.assertTrue(env["CXX_" + target].endswith("23-clang++"))
             self.assertEqual(env["AR_" + target], str(tools / "llvm-ar"))
+            self.assertEqual(env["RANLIB_" + target], str(tools / "llvm-ranlib"))
             self.assertEqual(command[-1], str(self.root / "android" / triple))
 
 

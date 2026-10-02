@@ -64,7 +64,7 @@ def record(output, generated, native):
 
 
 def android_environment(triple):
-    """Select the API 23 NDK compiler and archiver for one Rust target."""
+    """Select the API 23 NDK compiler and archive tools for one Rust target."""
     ndk = (
         os.environ.get("ANDROID_NDK_HOME")
         or os.environ.get("ANDROID_NDK_ROOT")
@@ -90,7 +90,8 @@ def android_environment(triple):
     cc = tools / (clang_target + "23-clang" + suffix)
     cxx = tools / (clang_target + "23-clang++" + suffix)
     ar = tools / ("llvm-ar.exe" if sys.platform == "win32" else "llvm-ar")
-    for tool in (cc, cxx, ar):
+    ranlib = tools / ("llvm-ranlib.exe" if sys.platform == "win32" else "llvm-ranlib")
+    for tool in (cc, cxx, ar, ranlib):
         if not tool.is_file():
             raise ValueError(f"Android NDK missing target tool: {tool}")
     target = triple.replace("-", "_")
@@ -99,6 +100,7 @@ def android_environment(triple):
     env["CC_" + target] = str(cc)
     env["CXX_" + target] = str(cxx)
     env["AR_" + target] = str(ar)
+    env["RANLIB_" + target] = str(ranlib)
     return env
 
 
