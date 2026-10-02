@@ -75,7 +75,13 @@ export type EventHandlerMap<ContentTypes> = {
   /** Reply event. */
   reply: [
     ctx: MessageContext<
-      Extract<MessageContent, { kind: "reply" }>,
+      Extract<
+        MessageContent,
+        {
+          /** Select the reply content variant. */
+          kind: "reply";
+        }
+      >,
       ContentTypes
     >,
   ];
@@ -147,10 +153,14 @@ export type AgentErrorMiddleware<ContentTypes = unknown> = (
 /** Client options used by `Agent.create`; `appVersion` and device sync have defaults. */
 export type AgentCreateOptions<
   ContentCodecs extends readonly AnyContentCodec[] = [],
-> = Omit<ClientOptions, "codecs"> & { readonly codecs?: ContentCodecs };
+> = Omit<ClientOptions, "codecs"> & {
+  /** Custom content codecs registered with the client. */
+  readonly codecs?: ContentCodecs;
+};
 
 /** Options for both supported stream pumps. */
 export type AgentStreamingOptions = StreamOptions;
+/** Options for the agent message stream. */
 export type StreamAllMessagesOptions<_ContentTypes> = StreamOptions;
 
 /** Registration API returned by `agent.errors`. */

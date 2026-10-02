@@ -16,10 +16,14 @@ import { filter } from "@/core/filter";
 import type { AgentBaseContext } from "./Agent";
 import { ConversationContext } from "./ConversationContext";
 
+/** Inputs for a message middleware context. */
 export type MessageContextParams<
   _Content = unknown,
   ContentTypes = unknown,
-> = Omit<AgentBaseContext<ContentTypes>, "message"> & { message: Message };
+> = Omit<AgentBaseContext<ContentTypes>, "message"> & {
+  /** The SDK message received by the client. */
+  message: Message;
+};
 
 /** A message and its client for agent middleware. */
 export class MessageContext<
@@ -28,6 +32,7 @@ export class MessageContext<
 > extends ConversationContext<ContentTypes> {
   #message: Message;
   #contentOverride?: { value: Content };
+  /** Create a context for the received message and its conversation. */
   constructor({
     message,
     conversation,
@@ -36,41 +41,57 @@ export class MessageContext<
     super({ conversation, client });
     this.#message = message;
   }
+  /** Check the codec authority, type name, and major version. */
   usesCodec<T extends AnyContentCodec>(
     codecClass: new () => T,
   ): this is MessageContext<ReturnType<T["decode"]>, ContentTypes> {
     return filter.usesCodec(this.#message, codecClass);
   }
+  /** Narrow this context to a Markdown message. */
   isMarkdown(): this is MessageContext<string, ContentTypes> {
     return this.#message.content.kind === "markdown";
   }
+  /** Narrow this context to a text message. */
   isText(): this is MessageContext<string, ContentTypes> {
     return this.#message.content.kind === "text";
   }
+  /** Narrow this context to a reply message. */
   isReply(): this is MessageContext<
-    Extract<MessageContent, { kind: "reply" }>,
+    Extract<
+      MessageContent,
+      {
+        /** Select the reply content variant. */
+        kind: "reply";
+      }
+    >,
     ContentTypes
   > {
     return this.#message.content.kind === "reply";
   }
+  /** Narrow this context to a reaction message. */
   isReaction(): this is MessageContext<Reaction, ContentTypes> {
     return this.#message.content.kind === "reaction";
   }
+  /** Narrow this context to a read receipt. */
   isReadReceipt(): this is MessageContext<undefined, ContentTypes> {
     return this.#message.content.kind === "readReceipt";
   }
+  /** Narrow this context to a remote attachment. */
   isRemoteAttachment(): this is MessageContext<RemoteAttachment, ContentTypes> {
     return this.#message.content.kind === "remoteAttachment";
   }
+  /** Narrow this context to a transaction reference. */
   isTransactionReference(): this is MessageContext<
     TransactionReference,
     ContentTypes
   > {
     return this.#message.content.kind === "transactionReference";
   }
+  /** Narrow this context to wallet send calls. */
   isWalletSendCalls(): this is MessageContext<WalletSendCalls, ContentTypes> {
     return this.#message.content.kind === "walletSendCalls";
   }
+  /** Send a reaction to this message with push disabled. */
   async sendReaction(content: string, schema: Reaction["schema"] = "unicode") {
     await this.conversation.sendReaction(
       this.#message.id,
@@ -87,12 +108,15 @@ export class MessageContext<
       { shouldPush: false },
     );
   }
+  /** Send a Markdown reply to this message with push disabled. */
   async sendMarkdownReply(markdown: string) {
     await this.#sendReply(new MarkdownCodec().encode(markdown));
   }
+  /** Send a text reply to this message with push disabled. */
   async sendTextReply(text: string) {
     await this.#sendReply(new TextCodec().encode(text));
   }
+  /** Return the first identity identifier for the sender inbox. */
   async getSenderAddress() {
     const states = await this.client.inboxStates(
       [this.#message.senderInboxId],

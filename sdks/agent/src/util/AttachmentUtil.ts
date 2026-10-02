@@ -13,7 +13,9 @@ import {
 
 /** Bytes and Rust-generated keys for an app-owned upload. */
 export type HostedAttachment = EncryptionKeys & {
+  /** Encrypted bytes to upload. */
   readonly payload: Uint8Array;
+  /** Original file name, when supplied. */
   readonly filename?: string;
 };
 /** Upload encrypted bytes to app-owned storage and return its URL. */

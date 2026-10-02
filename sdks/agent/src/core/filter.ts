@@ -9,7 +9,11 @@ import {
 
 /** A message with decoded content. */
 export type DecodedMessageWithContent<Content = unknown> = Message & {
-  readonly content: MessageContent & { readonly value?: Content };
+  /** The SDK content record with its decoded value. */
+  readonly content: MessageContent & {
+    /** The decoded value when the content record has one. */
+    readonly value?: Content;
+  };
 };
 
 const fromSelf = (message: Message, client: Client) =>
@@ -45,12 +49,20 @@ const usesCodec = <T extends AnyContentCodec>(
 
 /** Message and conversation tests for agent middleware. */
 export const filter = {
+  /** Check whether the client sent the message. */
   fromSelf,
+  /** Check whether the content type is known and has decoded custom content. */
   hasContent,
+  /** Check whether the conversation is a direct message. */
   isDM,
+  /** Check whether the conversation is a group. */
   isGroup,
+  /** Check whether the message sender is a group admin. */
   isGroupAdmin,
+  /** Check whether the message sender is a group super admin. */
   isGroupSuperAdmin,
+  /** Check the codec authority, type name, and major version. */
   usesCodec,
 };
+/** Short name for the message and conversation filters. */
 export const f = filter;

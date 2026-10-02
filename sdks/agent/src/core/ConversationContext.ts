@@ -64,6 +64,7 @@ export class ConversationContext<
     return this.#conversation;
   }
 
+  /** Return the conversation consent state. */
   async consentState() {
     const state = await this.#conversation.state();
     return "common" in state ? state.common.consentState : state.consentState;
