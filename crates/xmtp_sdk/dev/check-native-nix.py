@@ -33,14 +33,17 @@ products = json.loads(subprocess.check_output(
 for name, phases in products.items():
     native = name == "xmtp-sdk-libs" or name.startswith("xmtp-sdk-ios-")
     for phase, inputs in phases.items():
-        assert inputs["jobs"] == 2, (name, phase, "Cargo job limit", inputs)
+        if inputs["jobs"] != 2:
+            raise ValueError((name, phase, "Cargo job limit", inputs))
         if native:
-            assert inputs["vendor"] == "0", (name, phase, "vendored OpenSSL", inputs)
-            assert inputs["static"] == "1", (name, phase, "static OpenSSL", inputs)
+            if inputs["vendor"] != "0":
+                raise ValueError((name, phase, "vendored OpenSSL", inputs))
+            if inputs["static"] != "1":
+                raise ValueError((name, phase, "static OpenSSL", inputs))
             if "xmtp-sdk-ios-device" in products:
-                assert inputs["macos"] == "11.0", (name, phase, "macOS floor", inputs)
+                if inputs["macos"] != "11.0":
+                    raise ValueError((name, phase, "macOS floor", inputs))
         if name.startswith("xmtp-sdk-ios-"):
-            assert 'export IPHONEOS_DEPLOYMENT_TARGET="14"' in inputs["command"], (
-                name, phase, "iOS floor", inputs
-            )
+            if 'export IPHONEOS_DEPLOYMENT_TARGET="14"' not in inputs["command"]:
+                raise ValueError((name, phase, "iOS floor", inputs))
 print(json.dumps(products, indent=2, sort_keys=True))
