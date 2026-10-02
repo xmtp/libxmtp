@@ -9,11 +9,12 @@ import {
 describe("remote attachments", () => {
   it("reads the SDK download path and preserves its MIME type", async () => {
     const directory = await navigator.storage.getDirectory();
-    const name = `web-chat-${crypto.randomUUID()}.txt`;
+    const name = `web-chat-${crypto.randomUUID()}.bin`;
     const handle = await directory.getFileHandle(name, { create: true });
     const writer = await handle.createWritable();
     await writer.write("hello from xmtp.chat");
     await writer.close();
+    expect((await handle.getFile()).type).not.toBe("text/plain");
     const remote = {
       url: "https://example.com/attachment",
     } as RemoteAttachment;
