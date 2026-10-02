@@ -74,7 +74,28 @@ pub(crate) struct RequestGates {
     pub(crate) before_check: Option<Arc<HandoffGate>>,
     pub(crate) before_ack: Option<Arc<HandoffGate>>,
     pub(crate) after_ack: Option<Arc<HandoffGate>>,
+    pub(crate) after_admission: Option<Arc<AckAdmissionGate>>,
     pub(crate) settled: Option<Arc<Notify>>,
+}
+
+#[cfg(test)]
+pub(crate) struct AckAdmissionGate {
+    pub(crate) arrived: Notify,
+    pub(crate) released: Mutex<bool>,
+    pub(crate) wake: parking_lot::Condvar,
+}
+
+#[cfg(test)]
+impl AckAdmissionGate {
+    fn wait(&self) {
+        self.arrived.notify_one();
+        let mut released = self.released.lock();
+        if !*released {
+            self.wake
+                .wait_for(&mut released, xmtp_common::time::Duration::from_secs(10));
+        }
+        assert!(*released, "ACK admission gate was not released");
+    }
 }
 
 #[cfg(test)]
@@ -247,6 +268,10 @@ impl MessageReader {
                         }
                         state.previous.take()
                     };
+                    #[cfg(test)]
+                    if let Some(gate) = gates.after_admission {
+                        gate.wait();
+                    }
                     if let Some(previous) = previous
                         && let Err(error) = previous.acknowledge()
                         && !selection_changed(&error)
