@@ -17,7 +17,7 @@ interface DmResult {
     inboxId: string;
     accountIdentifiers: Array<{
       identifier: string;
-      identifierKind: string;
+      kind: string;
     }>;
     permissionLevel: string;
   }>;

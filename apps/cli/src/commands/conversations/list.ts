@@ -1,7 +1,9 @@
 import { Flags } from "@oclif/core";
-import { ListConversationsOrderBy } from "@xmtp/node-sdk";
+import { Timestamp } from "@xmtp/node-sdk";
+import type { ConversationOrder } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
+import { conversationState } from "@/utils/conversation";
 import { isDm, isGroup } from "@/utils/conversation";
 import { consentStateMap, conversationTypeMap } from "@/utils/enums";
 
@@ -83,50 +85,56 @@ Use --created-after / --created-before to filter by creation time.`;
       await client.conversations.sync();
     }
 
-    const orderByMap: Record<string, ListConversationsOrderBy> = {
-      "created-at": ListConversationsOrderBy.CreatedAt,
-      "last-activity": ListConversationsOrderBy.LastActivity,
+    const orderByMap: Record<string, ConversationOrder> = {
+      "created-at": "createdAt",
+      "last-activity": "lastActivity",
     };
 
     const conversations = await client.conversations.list({
       limit: flags.limit,
       consentStates: flags["consent-state"]?.map((s) => consentStateMap[s]),
-      conversationType: flags.type
-        ? conversationTypeMap[flags.type]
-        : undefined,
+      kind: flags.type ? conversationTypeMap[flags.type] : undefined,
       orderBy: flags["order-by"] ? orderByMap[flags["order-by"]] : undefined,
-      createdAfterNs: this.parseBigInt(flags["created-after"], "created-after"),
-      createdBeforeNs: this.parseBigInt(
-        flags["created-before"],
-        "created-before",
-      ),
+      createdAfter: flags["created-after"]
+        ? new Timestamp(
+            this.parseBigInt(flags["created-after"], "created-after")!,
+          )
+        : undefined,
+      createdBefore: flags["created-before"]
+        ? new Timestamp(
+            this.parseBigInt(flags["created-before"], "created-before")!,
+          )
+        : undefined,
     });
 
-    const output = conversations.map((conversation) => {
-      const base = {
-        id: conversation.id,
-        type: isGroup(conversation) ? "group" : "dm",
-        createdAt: conversation.createdAt.toISOString(),
-        consentState: conversation.consentState(),
-        isActive: conversation.isActive,
-      };
-
-      if (isGroup(conversation)) {
-        return {
-          ...base,
-          name: conversation.name,
-          description: conversation.description,
-          imageUrl: conversation.imageUrl,
+    const output = await Promise.all(
+      conversations.map(async (conversation) => {
+        const state = await conversationState(conversation);
+        const base = {
+          id: conversation.id,
+          type: isGroup(conversation) ? "group" : "dm",
+          createdAt: conversation.createdAt.date.toISOString(),
+          consentState: state.consentState,
+          isActive: state.isActive,
         };
-      } else if (isDm(conversation)) {
-        return {
-          ...base,
-          peerInboxId: conversation.peerInboxId,
-        };
-      }
 
-      return base;
-    });
+        if (isGroup(conversation)) {
+          return {
+            ...base,
+            name: (await conversation.state()).name,
+            description: (await conversation.state()).description,
+            imageUrl: (await conversation.state()).imageUrl,
+          };
+        } else if (isDm(conversation)) {
+          return {
+            ...base,
+            peerInboxId: await conversation.peerInboxId(),
+          };
+        }
+
+        return base;
+      }),
+    );
 
     this.output(output);
   }

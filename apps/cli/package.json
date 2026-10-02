@@ -64,7 +64,6 @@
     "@oclif/plugin-help": "^6.2.37",
     "@oclif/plugin-not-found": "^3.2.74",
     "@oclif/plugin-warn-if-update-available": "^3.1.55",
-    "@xmtp/node-bindings": "workspace:*",
     "@xmtp/node-sdk": "workspace:*",
     "viem": "catalog:"
   },

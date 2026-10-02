@@ -4,7 +4,9 @@ import { Agent } from "@xmtp/agent-sdk";
 const agent = await Agent.createFromEnv();
 
 agent.on("text", async (ctx) => {
-  await ctx.conversation.sendText("Hello from my XMTP agent!");
+  await ctx.conversation.sendText("Hello from my XMTP agent!", {
+    shouldPush: false,
+  });
 });
 
 agent.on("start", () => {

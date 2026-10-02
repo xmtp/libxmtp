@@ -4,11 +4,18 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { createRegisteredClient, createSigner } from "@test/helpers";
 import { createRecoveryBackend } from "@test/recoveryBackend";
 import { createRecoveryProxy } from "@test/recoveryProxy";
+import {
+  Group,
+  MessageStream,
+  XmtpError,
+  flushTelemetry,
+  initLogging,
+  type Client,
+  type Message,
+  type ConnectionState,
+  type MessageReaderOptions,
+} from "@xmtp/node-sdk";
 import { afterAll, describe, expect, it } from "vitest";
-
-import type { Client } from "@/Client";
-import { Group } from "@/Group";
-import { flushTelemetry, LogLevel } from "@/index";
 
 const GROUP_COUNT = 8;
 const DELIVERY_WAIT = { timeout: 60_000, interval: 100 };
@@ -21,39 +28,73 @@ const traceEndpoint = process.env.XMTP_RECOVERY_TRACE_ENDPOINT;
 const traceRun = process.env.XMTP_RECOVERY_TRACE_RUN;
 // Logging is process global. The first client sets these attributes for all
 // clients in this process; the run label does not identify a single client.
-const traceOptions = traceEndpoint
-  ? {
-      loggingLevel:
-        process.env.XMTP_RECOVERY_TRACE_VERBOSE === "1"
-          ? LogLevel.Trace
-          : LogLevel.Info,
-      stdoutLoggingLevel: LogLevel.Off,
-      otelEndpoint: traceEndpoint,
-      otelServiceName: "xmtp-sdk-recovery",
-      otelSampleRatio: 1,
-      resourceAttributes: traceRun
-        ? { "xmtp.recovery.run": traceRun }
-        : undefined,
-    }
-  : {};
+if (traceEndpoint)
+  await initLogging({
+    level: process.env.XMTP_RECOVERY_TRACE_VERBOSE === "1" ? "trace" : "info",
+    otel: {
+      endpoint: traceEndpoint,
+      serviceName: "xmtp-sdk-recovery",
+      sampleRatio: 1,
+    },
+    resourceAttributes: traceRun
+      ? new Map([["xmtp.recovery.run", traceRun]])
+      : undefined,
+  });
 
-afterAll(() => {
-  if (traceEndpoint) flushTelemetry();
+afterAll(async () => {
+  if (traceEndpoint) await flushTelemetry();
 }, 30_000);
 
-type PublicStream = Awaited<
-  ReturnType<Client["conversations"]["streamAllMessages"]>
->;
+type PublicStream = MessageStream;
+const connectionStates = new WeakMap<
+  MessageStream,
+  { connection?: ConnectionState; connectionGeneration: number }
+>();
+const streamStateSnapshot = (stream: MessageStream) => ({
+  current: { ...connectionStates.get(stream)! },
+});
+async function observeMessages(
+  client: Client,
+  observation: {
+    consume?: (message: Message) => void | Promise<void>;
+    failure: (error: Error) => void;
+    from?: MessageReaderOptions["from"];
+  },
+): Promise<MessageStream> {
+  const state: { connection?: ConnectionState; connectionGeneration: number } =
+    { connectionGeneration: 0 };
+  const stream = MessageStream.open(
+    client,
+    { from: observation.from },
+    {
+      onConnectionStateChange: (_previous, current) => {
+        state.connection = current;
+        state.connectionGeneration++;
+      },
+      onClose: (reason) => {
+        if (reason.kind === "failed")
+          observation.failure(reason.error as Error);
+      },
+    },
+  );
+  connectionStates.set(stream, state);
+  await stream.ready();
+  if (observation.consume)
+    void stream.onValue(observation.consume).catch(() => {});
+  return stream;
+}
 
 async function expectCommonGroupState(
   sender: Pick<Group, "id" | "debugInfo" | "members">,
   receiver: Client,
   replyId: string,
 ) {
-  const peer = await receiver.conversations.getConversationById(sender.id);
+  const peer = await receiver.conversations.getById(sender.id);
   expect(peer).toBeInstanceOf(Group);
   if (!(peer instanceof Group)) throw new Error("The peer group is missing");
-  expect(receiver.conversations.getMessageById(replyId)?.id).toBe(replyId);
+  expect((await receiver.conversations.getMessageById(replyId))?.id).toBe(
+    replyId,
+  );
   const [sent, received] = await Promise.all([
     sender.debugInfo(),
     peer.debugInfo(),
@@ -68,9 +109,7 @@ async function expectCommonGroupState(
     (await group.members())
       .map((member) => ({
         inboxId: member.inboxId,
-        installationIds: [...member.installationIds].sort((a, b) =>
-          a.localeCompare(b),
-        ),
+        identities: member.identities,
         permissionLevel: member.permissionLevel,
       }))
       .sort((a, b) => a.inboxId.localeCompare(b.inboxId));
@@ -121,18 +160,17 @@ describe("public message stream recovery", () => {
       const finalStage = cycles * 2;
       try {
         const sender = await createRegisteredClient(createSigner().signer, {
-          disableDeviceSync: true,
-          ...traceOptions,
+          deviceSync: false,
         });
         clients.push(sender);
         const receiverSigner = createSigner().signer;
         const receiver = await createRegisteredClient(receiverSigner, {
-          backendUrl: proxy.url,
-          disableDeviceSync: true,
+          backend: { url: proxy.url },
+          deviceSync: false,
         });
         clients.push(receiver);
         const joining = await createRegisteredClient(createSigner().signer, {
-          disableDeviceSync: true,
+          deviceSync: false,
         });
         clients.push(joining);
         const groups: Array<
@@ -145,52 +183,50 @@ describe("public message stream recovery", () => {
         }
         // Initial setup only. Recovery below does not sync or reopen the receiver.
         await receiver.conversations.sync();
-        const handle: NonNullable<
-          Parameters<typeof receiver.conversations.streamAllMessages>[0]
-        >["onValue"] = async (message) => {
+        const handle: (message: Message) => Promise<void> = async (message) => {
           if (
-            typeof message.content !== "string" ||
-            !message.content.startsWith("request:")
+            message.content.kind !== "text" ||
+            !message.content.value.startsWith("request:")
           )
             return;
-          started.push(message.content);
-          const group = await receiver.conversations.getConversationById(
+          started.push(message.content.value);
+          const group = await receiver.conversations.getById(
             message.conversationId,
           );
           if (!group) throw new Error("The delivered group is missing");
-          const reply = `reply:${message.content}`;
+          const reply = `reply:${message.content.value}`;
           replyIds.set(reply, await group.sendText(reply));
-          received.push(message.content);
+          received.push(message.content.value);
         };
         const observeRequests = async (client: Client, values: string[]) => {
-          const observer = await client.conversations.streamAllMessages({
-            onValue: (message) => {
+          const observer = await observeMessages(client, {
+            consume: (message) => {
               if (
-                typeof message.content === "string" &&
-                message.content.startsWith("request:")
+                message.content.kind === "text" &&
+                message.content.value.startsWith("request:")
               )
-                values.push(message.content);
+                values.push(message.content.value);
             },
-            onError: (error) => errors.push(error),
+            failure: (error) => errors.push(error),
           });
           streams.push(observer);
         };
-        const peerStream = await sender.conversations.streamAllMessages({
-          onValue: (message) => {
+        const peerStream = await observeMessages(sender, {
+          consume: (message) => {
             if (
-              typeof message.content === "string" &&
-              message.content.startsWith("reply:")
+              message.content.kind === "text" &&
+              message.content.value.startsWith("reply:")
             ) {
-              replies.push(message.content);
-              peerReplyIds.set(message.content, message.id);
+              replies.push(message.content.value);
+              peerReplyIds.set(message.content.value, message.id);
             }
           },
-          onError: (error) => errors.push(error),
+          failure: (error) => errors.push(error),
         });
         streams.push(peerStream);
-        const stream = await receiver.conversations.streamAllMessages({
-          ...(mode === "callback" ? { onValue: handle } : {}),
-          onError: (error) => errors.push(error),
+        const stream = await observeMessages(receiver, {
+          ...(mode === "callback" ? { consume: handle } : {}),
+          failure: (error) => errors.push(error),
         });
         streams.push(stream);
         if (mode === "iterator") {
@@ -212,15 +248,20 @@ describe("public message stream recovery", () => {
           .poll(() => received.length, DELIVERY_WAIT)
           .toBe(GROUP_COUNT);
         for (let cycle = 0; cycle < cycles; cycle += 1) {
-          const prior = (await stream.catchUpSnapshot()).current;
+          const prior = streamStateSnapshot(stream).current;
           if (backend) await backend.stopGracefully();
           else proxy.inject(fault);
           if (cycle === 0) {
             // Register through the healthy endpoint while the original
             // installation stays offline on its existing client and stream.
             installation = await createRegisteredClient(receiverSigner, {
-              dbPath: `./test-${randomUUID()}.db3`,
-              disableDeviceSync: true,
+              storage: {
+                location: {
+                  dbPath: `./test-${randomUUID()}.db3`,
+                  attachmentsDir: `./test-attachments-${randomUUID()}`,
+                },
+              },
+              deviceSync: false,
             });
             clients.push(installation);
             expect(installation.inboxId).toBe(receiver.inboxId);
@@ -243,9 +284,9 @@ describe("public message stream recovery", () => {
           await sendStage(during);
           await expect
             .poll(async () => {
-              const current = (await stream.catchUpSnapshot()).current;
+              const current = streamStateSnapshot(stream).current;
               return (
-                current.connection !== "Connected" ||
+                current.connection !== "connected" ||
                 current.connectionGeneration > prior.connectionGeneration
               );
             }, RECOVERY_WAIT)
@@ -259,7 +300,7 @@ describe("public message stream recovery", () => {
               .toBe(GROUP_COUNT * (during + 1));
           } catch (cause) {
             const snapshot = await within(
-              Promise.resolve(stream.catchUpSnapshot()),
+              Promise.resolve(streamStateSnapshot(stream)),
               5_000,
               "The failed stream snapshot was unavailable",
             ).catch(() => undefined);
@@ -301,16 +342,16 @@ describe("public message stream recovery", () => {
           await expect
             .poll(() => received.length, DELIVERY_WAIT)
             .toBe(GROUP_COUNT * (during + 2));
-          expect(stream.isDone).toBe(false);
+          await expect(stream.ready()).resolves.toBeUndefined();
           expect(errors).toEqual([]);
           if (cycle + 1 < cycles) {
             // Quiet groups must stay healthy without synthetic application
             // messages. Real keepalives run for the production reset interval.
-            const generation = (await stream.catchUpSnapshot()).current
-              .connectionGeneration;
+            const generation =
+              streamStateSnapshot(stream).current.connectionGeneration;
             await sleep(HEALTHY_INTERVAL_MS);
-            const healthy = (await stream.catchUpSnapshot()).current;
-            expect(healthy.connection).toBe("Connected");
+            const healthy = streamStateSnapshot(stream).current;
+            expect(healthy.connection).toBe("connected");
             expect(healthy.connectionGeneration).toBe(generation);
           }
         }
@@ -356,34 +397,31 @@ describe("public message stream recovery", () => {
         for (const [index, group] of groups.entries()) {
           if (index === 2) continue; // This installation was removed.
           const replyId = replyIds.get(`reply:request:${index}:${finalStage}`)!;
-          expect(sender.conversations.getMessageById(replyId)?.id).toBe(
+          expect((await sender.conversations.getMessageById(replyId))?.id).toBe(
             replyId,
           );
           await expectCommonGroupState(group, receiver, replyId);
         }
-        const changed = await receiver.conversations.getConversationById(
-          groups[0].id,
-        );
+        const changed = await receiver.conversations.getById(groups[0].id);
         expect(changed).toBeInstanceOf(Group);
         if (!(changed instanceof Group))
           throw new Error("The changed group is missing");
-        expect(changed.name).toBe("changed during outage");
+        expect((await changed.state()).name).toBe("changed during outage");
         if (!installation)
           throw new Error("The new installation was not registered");
         for (const group of [groups[0], changed]) {
           const receiverMember = (await group.members()).find(
             (member) => member.inboxId === receiver.inboxId,
           );
-          expect(receiverMember?.installationIds).toContain(
-            installation.installationId,
-          );
+          expect(receiverMember).toBeDefined();
+          expect(
+            (await receiver.inboxState(true)).installations.map(
+              (item) => item.id,
+            ),
+          ).toContain(installation.installationId);
         }
-        const expanded = await receiver.conversations.getConversationById(
-          groups[1].id,
-        );
-        const removed = await receiver.conversations.getConversationById(
-          groups[2].id,
-        );
+        const expanded = await receiver.conversations.getById(groups[1].id);
+        const removed = await receiver.conversations.getById(groups[2].id);
         expect(
           (await expanded?.members())?.map((member) => member.inboxId),
         ).toContain(joining.inboxId);
@@ -395,7 +433,7 @@ describe("public message stream recovery", () => {
         proxy.restore();
         await Promise.allSettled(streams.map((stream) => stream.end()));
         await consumption;
-        await Promise.allSettled(clients.map((client) => client.close()));
+        await Promise.allSettled(clients.map((client) => client.end()));
         try {
           await proxy.close();
         } finally {
@@ -411,7 +449,8 @@ describe("public message stream recovery", () => {
 // Repeated connection failures normally reach the ten-attempt limit sooner.
 const EXHAUSTION_WAIT_MS = 660_000;
 const EXHAUSTION_TEST_MS = 1_560_000;
-const EXHAUSTED = "[LocalDeliveryError::NetworkRecoveryExhausted]";
+const isExhausted = (error: Error) =>
+  error instanceof XmtpError.RecoveryExhausted;
 // Each budget test waits for the real outage budget two times, about nine
 // minutes. CI does not run them. See sdks/node/AGENTS.md for when to run them.
 const BUDGET_TESTS = process.env.XMTP_RECOVERY_BUDGET_TESTS === "1";
@@ -477,8 +516,7 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
       try {
         const sender = await waitFor(
           createRegisteredClient(createSigner().signer, {
-            disableDeviceSync: true,
-            ...traceOptions,
+            deviceSync: false,
           }),
           DELIVERY_WAIT.timeout,
           "The sender did not register",
@@ -486,8 +524,8 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
         clients.push(sender);
         const receiver = await waitFor(
           createRegisteredClient(createSigner().signer, {
-            backendUrl: proxy.url,
-            disableDeviceSync: true,
+            backend: { url: proxy.url },
+            deviceSync: false,
           }),
           DELIVERY_WAIT.timeout,
           "The receiver did not register",
@@ -512,17 +550,17 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
         );
         streams.push(
           await waitFor(
-            sender.conversations.streamAllMessages({
-              onValue: (message) => {
+            observeMessages(sender, {
+              consume: (message) => {
                 if (
-                  typeof message.content === "string" &&
-                  message.content.startsWith("budget-reply:")
+                  message.content.kind === "text" &&
+                  message.content.value.startsWith("budget-reply:")
                 ) {
-                  replies.push(message.content);
-                  peerReplyIds.set(message.content, message.id);
+                  replies.push(message.content.value);
+                  peerReplyIds.set(message.content.value, message.id);
                 }
               },
-              onError: reportUnexpected,
+              failure: reportUnexpected,
             }),
             DELIVERY_WAIT.timeout,
             "The reply stream did not open",
@@ -531,23 +569,21 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
         const pendingBaselineReplies = new Set(
           groups.map((_, index) => `budget-reply:${index}:0`),
         );
-        const handle: NonNullable<
-          Parameters<typeof receiver.conversations.streamAllMessages>[0]
-        >["onValue"] = async (message) => {
-          if (typeof message.content !== "string") return;
-          if (pendingBaselineReplies.delete(message.content)) {
+        const handle: (message: Message) => Promise<void> = async (message) => {
+          if (message.content.kind !== "text") return;
+          if (pendingBaselineReplies.delete(message.content.value)) {
             // A later item in each group proves all initial requests crossed
             // the durable acknowledgement boundary before the network fault.
             if (pendingBaselineReplies.size === 0)
               baselineAcknowledged.resolve(undefined);
           }
-          if (!message.content.startsWith("budget-request:")) return;
-          received.push(message.content);
-          const conversation = await receiver.conversations.getConversationById(
+          if (!message.content.value.startsWith("budget-request:")) return;
+          received.push(message.content.value);
+          const conversation = await receiver.conversations.getById(
             message.conversationId,
           );
           if (!conversation) throw new Error("The delivered group is missing");
-          const reply = message.content.replace(
+          const reply = message.content.value.replace(
             "budget-request:",
             "budget-reply:",
           );
@@ -558,15 +594,15 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
           record.openedAt = performance.now();
           record.dropsAtOpen = proxy.flapDrops;
           const operation = (async () => {
-            const stream = await receiver.conversations.streamAllMessages({
-              ...(mode === "callback" ? { onValue: handle } : {}),
-              onError: (error) => {
+            const stream = await observeMessages(receiver, {
+              ...(mode === "callback" ? { consume: handle } : {}),
+              failure: (error) => {
                 record.errors.push(error);
                 record.failedAt = performance.now();
                 record.dropsAtFailure = proxy.flapDrops;
                 record.failed.resolve(error);
                 if (stopping) return;
-                if (!error.message.startsWith(EXHAUSTED) || generation === 2) {
+                if (!isExhausted(error) || generation === 2) {
                   reportUnexpected(error);
                   return;
                 }
@@ -593,7 +629,7 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
                     expect(error).toBe(record.errors[0]);
                     if (
                       !(error instanceof Error) ||
-                      !error.message.startsWith(EXHAUSTED) ||
+                      !isExhausted(error) ||
                       generation === 2
                     )
                       throw error;
@@ -643,9 +679,11 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
             EXHAUSTION_WAIT_MS,
             `Stream ${generation} did not exhaust its native budget`,
           );
-          expect(error.message).toMatch(
-            /^\[LocalDeliveryError::NetworkRecoveryExhausted\].*after \d+ attempts/,
-          );
+          expect(error).toBeInstanceOf(XmtpError.RecoveryExhausted);
+          expect(error).toMatchObject({
+            details: { code: "RecoveryExhausted", category: "stream" },
+          });
+          expect(error.message).toMatch(/after \d+ attempts/);
           const attempts = Number(
             /after (\d+) attempts/.exec(error.message)?.[1],
           );
@@ -660,7 +698,7 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
             generation === 0 ? faultStartedDrops : record.dropsAtOpen,
           );
           expect(record.errors).toHaveLength(1);
-          expect(record.stream?.isDone).toBe(true);
+          await expect(record.stream!.next()).rejects.toBe(record.errors[0]);
           await waitFor(
             records[generation + 1].ready.promise,
             DELIVERY_WAIT.timeout,
@@ -671,16 +709,16 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
             // work while the replacement default consumer owns its lease.
             const replayed: string[] = [];
             const replay = await waitFor(
-              receiver.conversations.streamAllMessages({
-                from: receiver.conversations.beginningDeliveryCursor(),
-                onValue: (message) => {
+              observeMessages(receiver, {
+                from: await receiver.conversations.beginningDeliveryCursor(),
+                consume: (message) => {
                   if (
-                    typeof message.content === "string" &&
-                    message.content.startsWith("budget-request:")
+                    message.content.kind === "text" &&
+                    message.content.value.startsWith("budget-request:")
                   )
-                    replayed.push(message.content);
+                    replayed.push(message.content.value);
                 },
-                onError: reportUnexpected,
+                failure: reportUnexpected,
               }),
               DELIVERY_WAIT.timeout,
               "The independent replay reader did not open",
@@ -697,14 +735,14 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
               groups.map((_, index) => `budget-request:${index}:0`),
             );
             await replay.end();
-            expect(records[1].stream?.isDone).toBe(false);
+            await expect(records[1].stream!.ready()).resolves.toBeUndefined();
           }
         }
         const replacement = await records[2].ready.promise;
         // Give stale callbacks and cleanup a chance to run against generation
         // two before restoring the network. They must not close its reader.
         await sleep(500);
-        expect(replacement.isDone).toBe(false);
+        await expect(replacement.ready()).resolves.toBeUndefined();
         expect(records[2].errors).toEqual([]);
         proxy.inject("disconnect");
         await send(1);
@@ -753,12 +791,12 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
         expect(peerReplyIds).toEqual(replyIds);
         for (const [index, group] of groups.entries()) {
           const replyId = replyIds.get(`budget-reply:${index}:3`)!;
-          expect(sender.conversations.getMessageById(replyId)?.id).toBe(
+          expect((await sender.conversations.getMessageById(replyId))?.id).toBe(
             replyId,
           );
           await expectCommonGroupState(group, receiver, replyId);
         }
-        expect(replacement.isDone).toBe(false);
+        await expect(replacement.ready()).resolves.toBeUndefined();
       } finally {
         stopping = true;
         clearTimeout(testDeadline);
@@ -781,7 +819,7 @@ describe.runIf(BUDGET_TESTS)("public message stream recovery budget", () => {
           "Iterator consumers did not stop",
         ).catch(() => {});
         await within(
-          Promise.allSettled(clients.map((client) => client.close())),
+          Promise.allSettled(clients.map((client) => client.end())),
           5_000,
           "Clients did not close",
         ).catch(() => {});

@@ -12,7 +12,7 @@ afterEach(() => {
 
 describe("agent backend authentication", () => {
   it.each(["create", "createFromEnv"] as const)(
-    "forwards authCallback through %s without invoking it",
+    "forwards backend.credentials through %s without invoking it",
     async (method) => {
       vi.stubEnv("XMTP_DB_DIRECTORY", undefined);
       vi.stubEnv("XMTP_BACKEND_URL", "https://backend.example.com");
@@ -22,11 +22,14 @@ describe("agent backend authentication", () => {
       const create = vi.spyOn(Client, "create").mockRejectedValue(stopped);
       const authCallback = vi.fn(async () => ({
         value: "Bearer secret",
-        expiresAtSeconds: 1234567890,
+        expiresAtSeconds: 1234567890n,
       }));
       const options = {
-        backendUrl: "https://backend.example.com",
-        authCallback,
+        backend: {
+          url: "https://backend.example.com",
+          credentials: { credential: authCallback },
+        },
+        storage: { location: "inMemory" as const },
       };
       await expect(
         method === "create"
@@ -35,7 +38,10 @@ describe("agent backend authentication", () => {
       ).rejects.toBe(stopped);
       expect(create).toHaveBeenCalledWith(
         expect.anything(),
-        expect.objectContaining(options),
+        expect.objectContaining({
+          ...options,
+          backend: expect.objectContaining(options.backend),
+        }),
       );
       expect(authCallback).not.toHaveBeenCalled();
     },

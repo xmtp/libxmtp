@@ -62,7 +62,7 @@ The signature can be provided in either hex or base64 encoding.`;
       ? Buffer.from(flags.signature, "base64")
       : Buffer.from(flags.signature, "hex");
 
-    const isValid = client.verifySignedWithInstallationKey(
+    const isValid = await client.verifySignedWithInstallationKey(
       args.message,
       new Uint8Array(signatureBytes),
     );

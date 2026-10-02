@@ -1,17 +1,16 @@
-import { IdentifierKind, type Signer } from "@xmtp/node-sdk";
-
+import type { Signer } from "@xmtp/node-sdk";
 export function createSigner(
   address: string,
-  signatureBytes: Uint8Array,
+  signText: (text: string) => Promise<Uint8Array>,
 ): Signer {
   // #region signer
-  const signer = {
-    type: "EOA" as const,
-    getIdentifier: () => ({
-      identifier: address,
-      identifierKind: IdentifierKind.Ethereum,
+  const signer: Signer = {
+    identity: async () => ({ kind: "ethereum", identifier: address }),
+    kind: async () => ({ kind: "eoa" }),
+    sign: async (request) => ({
+      kind: "ecdsa",
+      value: await signText(request.text),
     }),
-    signMessage: async (message: string) => signatureBytes,
   };
   // #endregion signer
   return signer;

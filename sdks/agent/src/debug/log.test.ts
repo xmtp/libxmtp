@@ -1,39 +1,38 @@
-import { LogLevel } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
 import { getValidLogLevels, parseLogLevel } from "@/debug/log";
 
 describe("parseLogLevel", () => {
   it("should parse lowercase log levels", () => {
-    expect(parseLogLevel("off")).toBe(LogLevel.Off);
-    expect(parseLogLevel("error")).toBe(LogLevel.Error);
-    expect(parseLogLevel("warn")).toBe(LogLevel.Warn);
-    expect(parseLogLevel("info")).toBe(LogLevel.Info);
-    expect(parseLogLevel("debug")).toBe(LogLevel.Debug);
-    expect(parseLogLevel("trace")).toBe(LogLevel.Trace);
+    expect(parseLogLevel("off")).toBe("off");
+    expect(parseLogLevel("error")).toBe("error");
+    expect(parseLogLevel("warn")).toBe("warn");
+    expect(parseLogLevel("info")).toBe("info");
+    expect(parseLogLevel("debug")).toBe("debug");
+    expect(parseLogLevel("trace")).toBe("trace");
   });
 
   it("should parse uppercase log levels", () => {
-    expect(parseLogLevel("OFF")).toBe(LogLevel.Off);
-    expect(parseLogLevel("ERROR")).toBe(LogLevel.Error);
-    expect(parseLogLevel("WARN")).toBe(LogLevel.Warn);
-    expect(parseLogLevel("INFO")).toBe(LogLevel.Info);
-    expect(parseLogLevel("DEBUG")).toBe(LogLevel.Debug);
-    expect(parseLogLevel("TRACE")).toBe(LogLevel.Trace);
+    expect(parseLogLevel("OFF")).toBe("off");
+    expect(parseLogLevel("ERROR")).toBe("error");
+    expect(parseLogLevel("WARN")).toBe("warn");
+    expect(parseLogLevel("INFO")).toBe("info");
+    expect(parseLogLevel("DEBUG")).toBe("debug");
+    expect(parseLogLevel("TRACE")).toBe("trace");
   });
 
   it("should parse properly cased log levels", () => {
-    expect(parseLogLevel("Off")).toBe(LogLevel.Off);
-    expect(parseLogLevel("Error")).toBe(LogLevel.Error);
-    expect(parseLogLevel("Warn")).toBe(LogLevel.Warn);
-    expect(parseLogLevel("Info")).toBe(LogLevel.Info);
-    expect(parseLogLevel("Debug")).toBe(LogLevel.Debug);
-    expect(parseLogLevel("Trace")).toBe(LogLevel.Trace);
+    expect(parseLogLevel("Off")).toBe("off");
+    expect(parseLogLevel("Error")).toBe("error");
+    expect(parseLogLevel("Warn")).toBe("warn");
+    expect(parseLogLevel("Info")).toBe("info");
+    expect(parseLogLevel("Debug")).toBe("debug");
+    expect(parseLogLevel("Trace")).toBe("trace");
   });
 
   it("should parse mixed case log levels", () => {
-    expect(parseLogLevel("dEBUG")).toBe(LogLevel.Debug);
-    expect(parseLogLevel("WaRn")).toBe(LogLevel.Warn);
+    expect(parseLogLevel("dEBUG")).toBe("debug");
+    expect(parseLogLevel("WaRn")).toBe("warn");
   });
 
   it("should return null for invalid log levels", () => {
@@ -47,12 +46,12 @@ describe("parseLogLevel", () => {
 describe("getValidLogLevels", () => {
   it("should return all valid log levels", () => {
     const levels = getValidLogLevels();
-    expect(levels).toContain(LogLevel.Off);
-    expect(levels).toContain(LogLevel.Error);
-    expect(levels).toContain(LogLevel.Warn);
-    expect(levels).toContain(LogLevel.Info);
-    expect(levels).toContain(LogLevel.Debug);
-    expect(levels).toContain(LogLevel.Trace);
+    expect(levels).toContain("off");
+    expect(levels).toContain("error");
+    expect(levels).toContain("warn");
+    expect(levels).toContain("info");
+    expect(levels).toContain("debug");
+    expect(levels).toContain("trace");
     expect(levels).toHaveLength(6);
   });
 

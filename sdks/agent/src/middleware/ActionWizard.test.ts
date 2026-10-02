@@ -1,15 +1,25 @@
-import {
-  isActions,
-  isMarkdown,
-  isText,
-  type BuiltInContentTypes,
-  type Client,
-} from "@xmtp/node-sdk";
+import { type Client, type Message, type MessageContent } from "@xmtp/node-sdk";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Agent } from "@/core/Agent";
 import { ActionWizard } from "@/middleware/ActionWizard";
 import { createClient, waitForNetwork } from "@/util/test";
+
+function isActions(message: Message): message is Message & {
+  content: Extract<MessageContent, { kind: "actions" }>;
+} {
+  return message.content.kind === "actions";
+}
+function isText(
+  message: Message,
+): message is Message & { content: Extract<MessageContent, { kind: "text" }> } {
+  return message.content.kind === "text";
+}
+function isMarkdown(message: Message): message is Message & {
+  content: Extract<MessageContent, { kind: "markdown" }>;
+} {
+  return message.content.kind === "markdown";
+}
 
 describe("ActionWizard", () => {
   describe("static helpers", () => {
@@ -42,7 +52,7 @@ describe("ActionWizard", () => {
   });
 
   describe("select step", () => {
-    let agent: Agent<BuiltInContentTypes>;
+    let agent: Agent<unknown>;
     let client: Client;
 
     beforeEach(async () => {
@@ -74,7 +84,7 @@ describe("ActionWizard", () => {
         await dm.sync();
         const messages = await dm.messages();
         const actionsMessage = messages.find((m) => isActions(m));
-        expect(actionsMessage?.content).toMatchObject({
+        expect(actionsMessage?.content.value).toMatchObject({
           id: "setup:color",
           description: "Pick a color",
         });
@@ -119,7 +129,7 @@ describe("ActionWizard", () => {
   });
 
   describe("text step", () => {
-    let agent: Agent<BuiltInContentTypes>;
+    let agent: Agent<unknown>;
     let client: Client;
 
     beforeEach(async () => {
@@ -142,7 +152,7 @@ describe("ActionWizard", () => {
         await dm.sync();
         const messages = await dm.messages();
         const textMessages = messages.filter((m) => isText(m));
-        const descriptions = textMessages.map((m) => m.content);
+        const descriptions = textMessages.map((m) => m.content.value);
         expect(descriptions).toContain("Enter your name");
       });
     });
@@ -165,7 +175,7 @@ describe("ActionWizard", () => {
         await dm.sync();
         const messages = await dm.messages();
         const mdMessage = messages.find((m) => isMarkdown(m));
-        expect(mdMessage?.content).toBe("**Enter your name**");
+        expect(mdMessage?.content.value).toBe("**Enter your name**");
       });
     });
 
@@ -187,7 +197,9 @@ describe("ActionWizard", () => {
         await dm.sync();
         const messages = await dm.messages();
         const textMessages = messages.filter((m) => isText(m));
-        expect(textMessages.map((m) => m.content)).toContain("Enter your name");
+        expect(textMessages.map((m) => m.content.value)).toContain(
+          "Enter your name",
+        );
       });
 
       await dm.sendText("Alice");
@@ -202,7 +214,7 @@ describe("ActionWizard", () => {
   });
 
   describe("multi-step wizard", () => {
-    let agent: Agent<BuiltInContentTypes>;
+    let agent: Agent<unknown>;
     let client: Client;
 
     beforeEach(async () => {
@@ -244,7 +256,7 @@ describe("ActionWizard", () => {
         await dm.sync();
         const messages = await dm.messages();
         const textMessages = messages.filter((m) => isText(m));
-        expect(textMessages.map((m) => m.content)).toContain(
+        expect(textMessages.map((m) => m.content.value)).toContain(
           "Enter your email",
         );
       });
@@ -262,7 +274,7 @@ describe("ActionWizard", () => {
   });
 
   describe("cancel", () => {
-    let agent: Agent<BuiltInContentTypes>;
+    let agent: Agent<unknown>;
     let client: Client;
 
     beforeEach(async () => {
@@ -293,7 +305,7 @@ describe("ActionWizard", () => {
         await dm.sync();
         const messages = await dm.messages();
         const actionsMessage = messages.find((m) => isActions(m));
-        const actions = actionsMessage?.content?.actions ?? [];
+        const actions = actionsMessage?.content.value.actions ?? [];
         expect(actions).toHaveLength(2);
         expect(actions[1]?.label).toBe("Cancel");
         cancelActionId = actions[1]?.id ?? "";
@@ -327,13 +339,13 @@ describe("ActionWizard", () => {
         await dm.sync();
         const messages = await dm.messages();
         const actionsMessage = messages.find((m) => isActions(m));
-        expect(actionsMessage?.content?.actions[1]?.label).toBe("Abort");
+        expect(actionsMessage?.content.value.actions[1]?.label).toBe("Abort");
       });
     });
   });
 
   describe("restart", () => {
-    let agent: Agent<BuiltInContentTypes>;
+    let agent: Agent<unknown>;
     let client: Client;
 
     beforeEach(async () => {
@@ -381,7 +393,7 @@ describe("ActionWizard", () => {
   });
 
   describe("DM mode", () => {
-    let agent: Agent<BuiltInContentTypes>;
+    let agent: Agent<unknown>;
     let client: Client;
 
     beforeEach(async () => {
@@ -405,13 +417,13 @@ describe("ActionWizard", () => {
       // The wizard should send the step via DM, not in the group
       await waitForNetwork(async () => {
         await client.conversations.sync();
-        const dms = client.conversations.listDms();
+        const dms = await client.conversations.listDms({});
         expect(dms.length).toBeGreaterThan(0);
         const dm = dms[0];
         await dm?.sync();
         const messages = (await dm?.messages()) ?? [];
         const textMessages = messages.filter((m) => isText(m));
-        expect(textMessages.map((m) => m.content)).toContain(
+        expect(textMessages.map((m) => m.content.value)).toContain(
           "Enter your API key",
         );
       });
@@ -436,18 +448,18 @@ describe("ActionWizard", () => {
       // Wait for the DM step to arrive, then reply in the DM
       await waitForNetwork(async () => {
         await otherClient.conversations.sync();
-        const dms = otherClient.conversations.listDms();
+        const dms = await otherClient.conversations.listDms({});
         expect(dms.length).toBeGreaterThan(0);
         const dm = dms[0];
         await dm?.sync();
         const messages = (await dm?.messages()) ?? [];
         const textMessages = messages.filter((m) => isText(m));
-        expect(textMessages.map((m) => m.content)).toContain(
+        expect(textMessages.map((m) => m.content.value)).toContain(
           "Enter your API key",
         );
       });
 
-      const dm = otherClient.conversations.listDms()[0]!;
+      const dm = (await otherClient.conversations.listDms({}))[0]!;
       await dm.sendText("sk-12345");
 
       await waitForNetwork(() => {
@@ -484,7 +496,7 @@ describe("ActionWizard", () => {
       // Wait for the select step to arrive in the DM
       await waitForNetwork(async () => {
         await otherClient.conversations.sync();
-        const dms = otherClient.conversations.listDms();
+        const dms = await otherClient.conversations.listDms({});
         expect(dms.length).toBeGreaterThan(0);
         const dm = dms[0];
         await dm?.sync();
@@ -493,7 +505,7 @@ describe("ActionWizard", () => {
       });
 
       // Step 1: select plan in the DM
-      const dm = otherClient.conversations.listDms()[0];
+      const dm = (await otherClient.conversations.listDms({}))[0];
       await dm?.sendIntent({ id: "onboard:plan", actionId: "pro" });
 
       // Wait for step 2 to arrive in the DM
@@ -501,7 +513,7 @@ describe("ActionWizard", () => {
         await dm?.sync();
         const messages = await dm?.messages();
         const textMessages = messages?.filter((m) => isText(m));
-        expect(textMessages?.map((m) => m.content)).toContain(
+        expect(textMessages?.map((m) => m.content.value)).toContain(
           "Enter your email",
         );
       });
@@ -519,7 +531,7 @@ describe("ActionWizard", () => {
   });
 
   describe("session isolation", () => {
-    let agent: Agent<BuiltInContentTypes>;
+    let agent: Agent<unknown>;
     let client: Client;
 
     beforeEach(async () => {
@@ -551,12 +563,12 @@ describe("ActionWizard", () => {
         await dm2.sync();
         const msgs1 = await dm1.messages();
         const msgs2 = await dm2.messages();
-        expect(msgs1.filter((m) => isText(m)).map((m) => m.content)).toContain(
-          "Enter name",
-        );
-        expect(msgs2.filter((m) => isText(m)).map((m) => m.content)).toContain(
-          "Enter name",
-        );
+        expect(
+          msgs1.filter((m) => isText(m)).map((m) => m.content.value),
+        ).toContain("Enter name");
+        expect(
+          msgs2.filter((m) => isText(m)).map((m) => m.content.value),
+        ).toContain("Enter name");
       });
 
       // Only sender 1 answers

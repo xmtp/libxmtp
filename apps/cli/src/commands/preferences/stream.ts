@@ -1,9 +1,4 @@
 import { Flags } from "@oclif/core";
-import {
-  ConsentEntityType,
-  ConsentState,
-  type UserPreferenceUpdate,
-} from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 
@@ -68,22 +63,14 @@ first if you need a current snapshot before listening for updates.`;
     const { flags } = await this.parse(PreferencesStream);
     const client = await this.initClient();
 
-    const entityTypeNames: Record<ConsentEntityType, string> = {
-      [ConsentEntityType.InboxId]: "inbox_id",
-      [ConsentEntityType.GroupId]: "conversation_id",
-    };
-
-    const consentStateNames: Record<ConsentState, string> = {
-      [ConsentState.Allowed]: "allowed",
-      [ConsentState.Denied]: "denied",
-      [ConsentState.Unknown]: "unknown",
-    };
-
     let updateCount = 0;
     const maxCount = flags.count;
     const timeoutMs = flags.timeout ? flags.timeout * 1000 : undefined;
 
-    const stream = await client.preferences.streamPreferences();
+    const stream = await client.events({
+      kinds: ["consentChanged", "hmacKeysUpdated"],
+      referencesOwnMessages: false,
+    });
 
     // Set up timeout if specified
     let timeoutId: NodeJS.Timeout | undefined;
@@ -98,34 +85,23 @@ first if you need a current snapshot before listening for updates.`;
     };
     process.once("SIGINT", onSigint);
 
-    const formatUpdate = (update: UserPreferenceUpdate) => {
-      if (update.type === "ConsentUpdate") {
-        return {
-          type: "ConsentUpdate",
-          entityType: entityTypeNames[update.consent.entityType],
-          entity: update.consent.entity,
-          state: consentStateNames[update.consent.state],
-        };
-      }
-      // HmacKeyUpdate
-      return {
-        type: "HmacKeyUpdate",
-        // Convert Uint8Array to hex string for readability
-        key: Buffer.from(update.key).toString("hex"),
-      };
-    };
-
     try {
-      for await (const updates of stream) {
-        if (updates.length === 0) {
-          continue;
-        }
-
-        const output = updates.map(formatUpdate);
-
+      for await (const event of stream) {
+        const update =
+          event.kind === "consentChanged"
+            ? {
+                type: "ConsentUpdate",
+                entityType: event.entityKind,
+                entity: event.entity,
+                state: event.state,
+              }
+            : {
+                type: "HmacKeyUpdate",
+                keys: await client.conversations.hmacKeys(),
+              };
         this.streamOutput({
           timestamp: new Date().toISOString(),
-          updates: output,
+          updates: [update],
         });
 
         updateCount++;

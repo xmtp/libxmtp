@@ -1,4 +1,4 @@
-import { validHex } from "@xmtp/node-sdk";
+import { isHex } from "viem";
 import { formatUnits, hexToNumber, parseUnits } from "viem";
 import { base } from "viem/chains";
 
@@ -28,10 +28,11 @@ router.command("/my-balance", "Check your USDC balance", async (ctx) => {
   const senderBalance = await getERC20Balance({
     chain: CHAIN,
     tokenAddress: USDC_TOKEN_CONTRACT,
-    address: validHex(senderAddress),
+    address: assertHex(senderAddress),
   });
   await ctx.conversation.sendText(
     `Your USDC balance is: ${formatUnits(senderBalance, USDC_DECIMALS)}`,
+    { shouldPush: false },
   );
 });
 
@@ -43,10 +44,11 @@ router.command(
     const ownBalance = await getERC20Balance({
       chain: CHAIN,
       tokenAddress: USDC_TOKEN_CONTRACT,
-      address: validHex(ownAddress),
+      address: assertHex(ownAddress),
     });
     await ctx.conversation.sendText(
       `My USDC balance is: ${formatUnits(ownBalance, USDC_DECIMALS)}`,
+      { shouldPush: false },
     );
   },
 );
@@ -54,31 +56,40 @@ router.command(
 router.command("/tx", "Send USDC to the agent (e.g. /tx 0.1)", async (ctx) => {
   const senderAddress = await ctx.getSenderAddress();
   const receiverAddress = agent.address;
-  const amount = parseUnits(ctx.message.content, USDC_DECIMALS);
+  const amount = parseUnits(ctx.content, USDC_DECIMALS);
   const currency = "USDC";
 
   const walletSendCalls = createERC20TransferCalls({
     chain: CHAIN,
     tokenAddress: USDC_TOKEN_CONTRACT,
-    from: validHex(senderAddress),
-    to: validHex(receiverAddress),
+    from: assertHex(senderAddress),
+    to: assertHex(receiverAddress),
     amount,
-    description: `Transfer "${ctx.message.content} ${currency}" on chain "${CHAIN.name}" to address "${receiverAddress}".`,
+    description: `Transfer "${ctx.content} ${currency}" on chain "${CHAIN.name}" to address "${receiverAddress}".`,
   });
 
-  await ctx.conversation.sendWalletSendCalls(walletSendCalls);
+  await ctx.conversation.sendWalletSendCalls(walletSendCalls, {
+    shouldPush: false,
+  });
 });
 
 agent.use(router.middleware());
 
 agent.on("transaction-reference", async (ctx) => {
-  const { networkId, reference } = ctx.message.content;
-  const networkIdDecimal = hexToNumber(validHex(networkId));
+  const { networkId, reference } = ctx.content;
+  const networkIdDecimal = hexToNumber(assertHex(networkId));
   await ctx.conversation.sendMarkdown(
     `Transaction confirmed!\n` +
       `Chain ID: [${networkIdDecimal}](https://chainlist.org/chain/${networkIdDecimal})\n` +
       `Transaction Hash: [${reference}](https://basescan.org/tx/${reference})`,
+    { shouldPush: false },
   );
 });
 
 await agent.start();
+
+function assertHex(value: string | undefined) {
+  if (!value || !isHex(value, { strict: true }))
+    throw new Error("Expected a hexadecimal value.");
+  return value;
+}

@@ -2,7 +2,7 @@ import { Args } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
-import { formatIdentifierKind, formatTimestampNs } from "@/utils/output";
+import { formatPublicIdentityKind, formatTimestampNs } from "@/utils/output";
 
 export default class InboxStates extends BaseCommand {
   static description = `Fetch inbox states for one or more inbox IDs.
@@ -57,20 +57,17 @@ Use this command to inspect the state of any inbox on the network.`;
       this.error("At least one inbox ID is required");
     }
 
-    const states = await Client.fetchInboxStates(
-      inboxIds,
-      await this.networkOptions(),
-    );
+    const states = await Client.inboxStates(inboxIds, this.networkOptions());
 
     if (this.jsonOutput) {
       const output = states.map((state) => ({
         inboxId: state.inboxId,
-        recoveryIdentifier: state.recoveryIdentifier,
+        recoveryIdentifier: state.recoveryIdentity,
         installations: state.installations.map((installation) => ({
           id: installation.id,
-          clientTimestampNs: installation.clientTimestampNs,
+          clientTimestampNs: installation.createdAt?.ns,
         })),
-        identifiers: state.identifiers,
+        identifiers: state.identities,
       }));
       this.output(output);
     } else {
@@ -80,11 +77,11 @@ Use this command to inspect the state of any inbox on the network.`;
         lines.push(`Inbox ID: ${state.inboxId}`);
         lines.push("");
 
-        const recoveryKind = formatIdentifierKind(
-          state.recoveryIdentifier.identifierKind,
+        const recoveryKind = formatPublicIdentityKind(
+          state.recoveryIdentity.kind,
         );
         lines.push(
-          `Recovery Identifier: ${state.recoveryIdentifier.identifier} (${recoveryKind})`,
+          `Recovery Identifier: ${state.recoveryIdentity.identifier} (${recoveryKind})`,
         );
         lines.push("");
 
@@ -96,15 +93,15 @@ Use this command to inspect the state of any inbox on the network.`;
           );
           lines.push(`${"ID".padEnd(idWidth)}  Created`);
           for (const installation of state.installations) {
-            const created = formatTimestampNs(installation.clientTimestampNs);
+            const created = formatTimestampNs(installation.createdAt?.ns);
             lines.push(`${installation.id.padEnd(idWidth)}  ${created}`);
           }
         }
         lines.push("");
 
-        lines.push(`Identifiers (${state.identifiers.length})`);
-        for (const identifier of state.identifiers) {
-          const kind = formatIdentifierKind(identifier.identifierKind);
+        lines.push(`Identifiers (${state.identities.length})`);
+        for (const identifier of state.identities) {
+          const kind = formatPublicIdentityKind(identifier.kind);
           lines.push(`${identifier.identifier} (${kind})`);
         }
 

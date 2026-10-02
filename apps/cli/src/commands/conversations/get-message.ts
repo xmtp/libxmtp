@@ -51,7 +51,7 @@ doesn't exist locally, you may need to sync the conversation first.`;
     const { args } = await this.parse(ConversationsGetMessage);
     const client = await this.initClient();
 
-    const message = client.conversations.getMessageById(args.id);
+    const message = await client.conversations.getMessageById(args.id);
 
     if (!message) {
       this.error(`Message not found: ${args.id}`);
@@ -63,16 +63,16 @@ doesn't exist locally, you may need to sync the conversation first.`;
       senderInboxId: message.senderInboxId,
       contentType: message.contentType,
       content: message.content,
-      sentAt: message.sentAt.toISOString(),
+      sentAt: message.sentAt.date.toISOString(),
       deliveryStatus: message.deliveryStatus,
       kind: message.kind,
       fallback: message.fallback,
-      numReplies: message.numReplies,
+      numReplies: message.replyCount,
       reactions: message.reactions.map((r) => ({
         id: r.id,
         senderInboxId: r.senderInboxId,
-        content: r.content,
-        sentAt: r.sentAt.toISOString(),
+        content: r.reaction,
+        sentAt: r.sentAt.date.toISOString(),
       })),
     });
   }

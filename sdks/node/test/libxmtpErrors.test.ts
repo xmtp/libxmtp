@@ -1,8 +1,6 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
-import { GroupPermissionsOptions } from "@xmtp/node-bindings";
+import { Group, XmtpError } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
-
-import { Group } from "@/Group";
 
 describe("LibXMTP errors", () => {
   it("should throw when a non-admin tries to add members", async () => {
@@ -14,22 +12,22 @@ describe("LibXMTP errors", () => {
     const client2 = await createRegisteredClient(signer2);
     const client3 = await createRegisteredClient(signer3);
 
-    // client1 creates an admin-only group and adds client2 as a regular member
+    // Add client2 as a member of an admin-only group.
     const group = await client1.conversations.createGroup([client2.inboxId], {
-      permissions: GroupPermissionsOptions.AdminOnly,
+      permissions: { kind: "adminOnly" },
     });
 
-    // Sync client2 so they have the group
+    // Sync client2 before the permission check.
     await client2.conversations.sync();
-    const group2 = await client2.conversations.getConversationById(group.id);
+    const group2 = await client2.conversations.getById(group.id);
 
-    // client2 (non-admin) tries to add client3 - this should fail
+    // A member cannot add client3.
     if (!(group2 instanceof Group)) {
       throw new Error("Expected a Group conversation");
     }
 
     await expect(group2.addMembers([client3.inboxId])).rejects.toThrow(
-      /^\[GroupError::Sync\][\s\S]*commit validation: Insufficient permissions/,
+      "Insufficient permissions",
     );
   });
 
@@ -46,11 +44,8 @@ describe("LibXMTP errors", () => {
       await group.addMembers([fakeInboxId]);
       expect.fail("Expected an error to be thrown");
     } catch (error) {
-      assert(error instanceof Error);
-      console.log(error.message);
-      expect(error.message).toBe(
-        "[GroupError::MissingSequenceId] SequenceId not found in local db",
-      );
+      expect(error).toBeInstanceOf(XmtpError);
+      expect((error as Error).message).toContain("SequenceId not found");
     }
   });
 });

@@ -8,5 +8,5 @@ export default defineConfig({
   fixedExtension: false,
   sourcemap: true,
   dts: { generator: "tsgo", sourcemap: true },
-  deps: { neverBundle: ["@xmtp/node-bindings", "@xmtp/node-sdk"] },
+  deps: { neverBundle: ["@xmtp/node-sdk"] },
 });

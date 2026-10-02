@@ -23,11 +23,11 @@ jobs:
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
       - name: Start backend
-        run: just backend up
+        run: dev/nix-shell 'just backend up'
       - name: Run node-sdk tests (shard ${{ matrix.shard }}/2)
-        run: just js test-node-sdk-ci --shard ${{ matrix.shard }}/2 --exclude test/streamRecovery.test.ts
+        run: dev/nix-shell 'just js test-node-sdk-ci --shard ${{ matrix.shard }}/2 --exclude test/streamRecovery.test.ts'
       - name: Run CLI tests (shard ${{ matrix.shard }}/2)
-        run: just cli test-ci --shard ${{ matrix.shard }}/2
+        run: dev/nix-shell 'just cli test-ci --shard ${{ matrix.shard }}/2'
   recovery:
     name: Test (node-sdk) recovery
     runs-on: blacksmith-16vcpu-ubuntu-2404
@@ -45,11 +45,11 @@ jobs:
       - uses: taiki-e/install-action@just
       - uses: ./.github/actions/setup-js
       - name: Start backend
-        run: just backend up
+        run: dev/nix-shell 'just backend up'
       - name: Build backend for graceful restart
-        run: just backend build
+        run: dev/nix-shell 'just backend build'
       # The budget exhaustion tests run only locally. See sdks/node/AGENTS.md.
       - name: Run public recovery matrix
         env:
           XMTP_RECOVERY_BACKEND_BINARY: ${{ github.workspace }}/result/bin/xmtp-backend
-        run: just js test-node-sdk-ci test/streamRecovery.test.ts
+        run: dev/nix-shell 'just js test-node-sdk-ci test/streamRecovery.test.ts'

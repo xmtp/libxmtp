@@ -1,6 +1,6 @@
 {
   "name": "@xmtp/node-sdk",
-  "version": "6.2.0-dev",
+  "version": "8.0.0",
   "description": "XMTP Node client SDK for interacting with XMTP networks",
   "keywords": [
     "javascript",
@@ -26,12 +26,12 @@
     "dist"
   ],
   "type": "module",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "dist/entry.js",
+  "types": "dist/entry.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/index.d.ts",
-      "default": "./dist/index.js"
+      "types": "./dist/entry.d.ts",
+      "import": "./dist/entry.js"
     },
     "./package.json": "./package.json"
   },
@@ -41,12 +41,12 @@
     "registry": "https://registry.npmjs.org/"
   },
   "scripts": {
-    "build": "tsdown",
+    "build": "bash ../../dev/js/sdk-package node",
     "clean": "rimraf .turbo && pnpm clean:dbs && pnpm clean:dist && pnpm clean:deps",
     "clean:dbs": "rimraf **/*.db3* ||:",
     "clean:deps": "rimraf node_modules",
     "clean:dist": "rimraf dist",
-    "dev": "tsdown --watch",
+    "dev": "bash ../../dev/js/sdk-package node",
     "format": "oxfmt --write .",
     "format:check": "oxfmt --check .",
     "generate:accounts": "tsx scripts/accounts.ts",
@@ -54,11 +54,7 @@
     "lint": "oxlint .",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",
-    "typecheck": "tsc"
-  },
-  "dependencies": {
-    "@xmtp/content-type-primitives": "catalog:",
-    "@xmtp/node-bindings": "workspace:*"
+    "typecheck": "tsc && tsc -p type-tests/tsconfig.json"
   },
   "devDependencies": {
     "@types/node": "catalog:node22",

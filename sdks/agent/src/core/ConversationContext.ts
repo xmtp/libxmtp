@@ -1,5 +1,4 @@
 import {
-  ConsentState,
   type Client,
   type Conversation,
   type Dm,
@@ -29,32 +28,35 @@ export class ConversationContext<
     /** The conversation that emitted the event. */
     conversation: ConversationType;
     /** The client that owns the conversation. */
-    client: Client<ContentTypes>;
+    client: Client;
   }) {
     super({ client });
     this.#conversation = conversation;
   }
 
   /** Narrow this context to a direct-message conversation. */
-  isDm(): this is ConversationContext<ContentTypes, Dm<ContentTypes>> {
+  isDm(): this is ConversationContext<ContentTypes, Dm> {
     return filter.isDM(this.#conversation);
   }
 
   /** Narrow this context to a group conversation. */
-  isGroup(): this is ConversationContext<ContentTypes, Group<ContentTypes>> {
+  isGroup(): this is ConversationContext<ContentTypes, Group> {
     return filter.isGroup(this.#conversation);
   }
 
   /** Encrypt and send a remote attachment through the supplied upload callback. */
   async sendRemoteAttachment(
     unencryptedFile: File,
-    uploadCallback: AttachmentUploadCallback,
+    uploadCallback?: AttachmentUploadCallback,
   ): Promise<void> {
     const remoteAttachment = await createRemoteAttachmentFromFile(
+      this.client,
       unencryptedFile,
       uploadCallback,
     );
-    await this.#conversation.sendRemoteAttachment(remoteAttachment);
+    await this.#conversation.sendRemoteAttachment(remoteAttachment, {
+      shouldPush: false,
+    });
   }
 
   /** Return the conversation that triggered this context. */
@@ -62,18 +64,23 @@ export class ConversationContext<
     return this.#conversation;
   }
 
+  async consentState() {
+    const state = await this.#conversation.state();
+    return "common" in state ? state.common.consentState : state.consentState;
+  }
+
   /** Whether the conversation consent state is `allowed`. */
   get isAllowed() {
-    return this.#conversation.consentState() === ConsentState.Allowed;
+    return this.consentState().then((state) => state === "allowed");
   }
 
   /** Whether the conversation consent state is `denied`. */
   get isDenied() {
-    return this.#conversation.consentState() === ConsentState.Denied;
+    return this.consentState().then((state) => state === "denied");
   }
 
   /** Whether the conversation consent state is `unknown`. */
   get isUnknown() {
-    return this.#conversation.consentState() === ConsentState.Unknown;
+    return this.consentState().then((state) => state === "unknown");
   }
 }

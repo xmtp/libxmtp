@@ -25,10 +25,11 @@ const wizard = new ActionWizard("api-setup", { dm: true, cancel: true })
         `Provider ID: ${answers.provider}\n` +
         `Username: ${answers.username}\n` +
         `API Key: ${answers.apiKey}`,
+      { shouldPush: false },
     );
   })
   .onCancel(async (ctx) => {
-    await ctx.conversation.sendText("Setup cancelled.");
+    await ctx.conversation.sendText("Setup cancelled.", { shouldPush: false });
   });
 
 agent.use(wizard.middleware());

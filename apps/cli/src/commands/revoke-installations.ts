@@ -71,7 +71,7 @@ This command requires:
   async run(): Promise<void> {
     const { args, flags } = await this.parse(RevokeInstallations);
     const config = this.getConfig();
-    const networkOptions = await this.networkOptions();
+    const networkOptions = this.networkOptions();
 
     if (!config.walletKey) {
       this.error(
@@ -90,7 +90,10 @@ This command requires:
     }
 
     // Validate hex strings before confirming
-    const installationIds = installationIdStrings.map(hexToBytes);
+    const installationIds = installationIdStrings.map((id) => {
+      hexToBytes(id);
+      return id;
+    });
 
     await this.confirmAction(
       `Revoking ${installationIdStrings.length} installation(s) is irreversible. They will immediately lose access to send or receive messages.`,

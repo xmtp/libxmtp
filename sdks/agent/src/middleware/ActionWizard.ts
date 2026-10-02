@@ -1,12 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import {
-  isIntent,
-  isText,
-  type Action,
-  type Actions,
-  type Conversation,
-} from "@xmtp/node-sdk";
+import { type Action, type Actions, type Conversation } from "@xmtp/node-sdk";
 
 import type { AgentMiddleware } from "@/core/Agent";
 import type { MessageContext } from "@/core/MessageContext";
@@ -197,11 +191,15 @@ export class ActionWizard<ContentTypes = unknown> {
         description: step.description,
         actions: stepActions,
       };
-      await session.conversation.sendActions(actions);
+      await session.conversation.sendActions(actions, { shouldPush: false });
     } else if (step.isMarkdown) {
-      await session.conversation.sendMarkdown(step.description);
+      await session.conversation.sendMarkdown(step.description, {
+        shouldPush: false,
+      });
     } else {
-      await session.conversation.sendText(step.description);
+      await session.conversation.sendText(step.description, {
+        shouldPush: false,
+      });
     }
   }
 
@@ -239,7 +237,7 @@ export class ActionWizard<ContentTypes = unknown> {
         ctx.conversation.id,
         ctx.message.senderInboxId,
       );
-      if (isText(ctx.message) && ctx.message.content === `/${this.#id}`) {
+      if (ctx.isText() && ctx.content === `/${this.#id}`) {
         if (this.#sessions.has(key)) {
           await this.#handleCancel(key, ctx);
         }
@@ -260,8 +258,8 @@ export class ActionWizard<ContentTypes = unknown> {
         return;
       }
 
-      if (isIntent(ctx.message) && ctx.message.content) {
-        const { actionId } = ctx.message.content;
+      if (ctx.message.content.kind === "intent" && ctx.content) {
+        const { actionId } = ctx.message.content.value;
         if (this.#cancelLabel && actionId === CANCEL_ACTION_ID) {
           await this.#handleCancel(key, ctx);
           return;
@@ -273,8 +271,8 @@ export class ActionWizard<ContentTypes = unknown> {
         }
       }
 
-      if (step.type === "text" && isText(ctx.message) && ctx.message.content) {
-        session.answers[step.id] = ctx.message.content;
+      if (step.type === "text" && ctx.isText() && ctx.content) {
+        session.answers[step.id] = ctx.content;
         await this.#advance(key, ctx);
         return;
       }

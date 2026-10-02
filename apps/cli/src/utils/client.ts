@@ -1,12 +1,11 @@
 import { mkdir } from "node:fs/promises";
 import { dirname } from "node:path";
 
-import { Backend } from "@xmtp/node-bindings";
 import {
   Client,
-  IdentifierKind,
-  LogLevel,
-  type NetworkOptions,
+  initLogging,
+  type BackendSource,
+  type LogLevel,
   type Signer,
 } from "@xmtp/node-sdk";
 import { isHex, toBytes } from "viem";
@@ -15,12 +14,12 @@ import { privateKeyToAccount } from "viem/accounts";
 import type { XmtpConfig } from "./config.js";
 
 const LOG_LEVELS = {
-  off: LogLevel.Off,
-  error: LogLevel.Error,
-  warn: LogLevel.Warn,
-  info: LogLevel.Info,
-  debug: LogLevel.Debug,
-  trace: LogLevel.Trace,
+  off: "off",
+  error: "error",
+  warn: "warn",
+  info: "info",
+  debug: "debug",
+  trace: "trace",
 } as const;
 
 type LogLevelKey = keyof typeof LOG_LEVELS;
@@ -49,15 +48,16 @@ export function createEOASigner(walletKey: string): Signer {
   }
   const account = privateKeyToAccount(hex);
   return {
-    type: "EOA" as const,
-    getIdentifier: () => ({
-      identifierKind: IdentifierKind.Ethereum,
-      identifier: account.address.toLowerCase(),
+    identity: () =>
+      Promise.resolve({
+        kind: "ethereum" as const,
+        identifier: account.address.toLowerCase(),
+      }),
+    kind: () => Promise.resolve({ kind: "eoa" as const }),
+    sign: async ({ text }) => ({
+      kind: "ecdsa",
+      value: toBytes(await account.signMessage({ message: text })),
     }),
-    signMessage: async (message: string) => {
-      const signature = await account.signMessage({ message });
-      return toBytes(signature);
-    },
   };
 }
 
@@ -71,7 +71,7 @@ export function hexToBytes(value: string): Uint8Array {
 
 export async function createClient(
   config: XmtpConfig,
-  networkOptions: NetworkOptions | Backend,
+  networkOptions: BackendSource,
 ): Promise<Client> {
   if (!config.walletKey) {
     throw new Error(
@@ -91,15 +91,21 @@ export async function createClient(
     await mkdir(dirname(config.dbPath), { recursive: true });
   }
 
+  const level = parseLogLevel(config.logLevel);
+  if (level) await initLogging({ level, structured: config.structuredLogging });
   const client = await Client.create(signer, {
-    ...(networkOptions instanceof Backend
-      ? { backend: networkOptions }
-      : networkOptions),
-    dbEncryptionKey: hexToBytes(config.dbEncryptionKey),
-    dbPath: config.dbPath ?? undefined,
-    loggingLevel: parseLogLevel(config.logLevel),
-    structuredLogging: config.structuredLogging,
-    disableDeviceSync: config.disableDeviceSync,
+    backend: networkOptions,
+    storage: {
+      location: config.dbPath
+        ? {
+            dbPath: config.dbPath,
+            attachmentsDir: `${config.dbPath}.attachments`,
+          }
+        : "default",
+      label: config.env,
+      encryptionKey: hexToBytes(config.dbEncryptionKey),
+    },
+    deviceSync: !config.disableDeviceSync,
   });
 
   return client;

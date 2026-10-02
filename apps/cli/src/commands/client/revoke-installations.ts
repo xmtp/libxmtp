@@ -1,6 +1,7 @@
 import { Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { createEOASigner } from "@/utils/client";
 import { hexToBytes } from "@/utils/client";
 
 export default class ClientRevokeInstallations extends BaseCommand {
@@ -69,14 +70,20 @@ be restored. Make sure you have access to at least one other installation.`;
     }
 
     // Validate hex strings before confirming
-    const installationIds = installationIdStrings.map(hexToBytes);
+    const installationIds = installationIdStrings.map((id) => {
+      hexToBytes(id);
+      return id;
+    });
 
     await this.confirmAction(
       `Revoking ${installationIdStrings.length} installation(s) is irreversible. They will immediately lose access to send or receive messages.`,
       flags.force,
     );
 
-    await client.revokeInstallations(installationIds);
+    await client.revokeInstallations(
+      createEOASigner(this.getConfig().walletKey!),
+      installationIds,
+    );
 
     this.output({
       success: true,

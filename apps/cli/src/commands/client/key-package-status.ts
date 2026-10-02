@@ -59,7 +59,7 @@ whether the key package exists and its validity state.`;
       this.error("At least one installation ID is required");
     }
 
-    const statuses = await client.fetchKeyPackageStatuses(installationIds);
+    const statuses = await client.keyPackageStatuses(installationIds);
 
     this.output({
       installationIds,

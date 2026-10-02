@@ -1,5 +1,4 @@
 import { Args } from "@oclif/core";
-import { IdentifierKind } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
 import { requireGroup } from "@/utils/conversation";
@@ -56,9 +55,7 @@ Requires appropriate permissions to add members (based on group settings).`;
       this.error("At least one address is required");
     }
 
-    const conversation = await client.conversations.getConversationById(
-      args.id,
-    );
+    const conversation = await client.conversations.getById(args.id);
 
     if (!conversation) {
       this.error(`Conversation not found: ${args.id}`);
@@ -66,11 +63,11 @@ Requires appropriate permissions to add members (based on group settings).`;
 
     const identifiers = addresses.map((address) => ({
       identifier: address.toLowerCase(),
-      identifierKind: IdentifierKind.Ethereum,
+      kind: "ethereum" as const,
     }));
 
     const group = requireGroup(conversation);
-    await group.addMembersByIdentifiers(identifiers);
+    await group.addMembers(identifiers);
 
     this.output({
       success: true,

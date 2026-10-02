@@ -1,6 +1,7 @@
 import { Args, Flags } from "@oclif/core";
 
 import { BaseCommand } from "@/baseCommand";
+import { conversationState } from "@/utils/conversation";
 import { identifierKindMap } from "@/utils/enums";
 
 export default class ConversationsCreateDm extends BaseCommand {
@@ -53,24 +54,24 @@ Returns the DM's ID and details.`;
 
     const identifier = {
       identifier: args.identifier.toLowerCase(),
-      identifierKind: identifierKindMap[flags["identifier-kind"]],
+      kind: identifierKindMap[flags["identifier-kind"]],
     };
 
-    const dm = await client.conversations.createDmWithIdentifier(identifier);
+    const dm = await client.conversations.createDm(identifier);
 
-    const metadata = await dm.metadata();
+    const state = await conversationState(dm);
     const members = await dm.members();
 
     this.output({
       id: dm.id,
-      peerInboxId: dm.peerInboxId,
-      createdAt: dm.createdAt.toISOString(),
-      consentState: dm.consentState(),
-      isActive: dm.isActive,
-      creatorInboxId: metadata.creatorInboxId,
+      peerInboxId: await dm.peerInboxId(),
+      createdAt: dm.createdAt.date.toISOString(),
+      consentState: state.consentState,
+      isActive: state.isActive,
+      creatorInboxId: dm.creatorInboxId,
       members: members.map((m) => ({
         inboxId: m.inboxId,
-        accountIdentifiers: m.accountIdentifiers,
+        accountIdentifiers: m.identities,
         permissionLevel: m.permissionLevel,
       })),
     });

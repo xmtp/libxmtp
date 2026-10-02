@@ -2,7 +2,6 @@ import { Args } from "@oclif/core";
 import { Client } from "@xmtp/node-sdk";
 
 import { BaseCommand } from "@/baseCommand";
-import { hexToBytes } from "@/utils/client";
 
 export default class InstallationAuthorized extends BaseCommand {
   static description = `Check if an installation is authorized for an inbox.
@@ -55,12 +54,12 @@ The installation ID should be provided as a hex-encoded string.`;
     const { args } = await this.parse(InstallationAuthorized);
 
     // Convert hex string to Uint8Array
-    const installationBytes = hexToBytes(args.installationId);
+    const installationBytes = args.installationId.replace(/^0x/, "");
 
     const isAuthorized = await Client.isInstallationAuthorized(
       args.inboxId,
       installationBytes,
-      await this.networkOptions(),
+      this.networkOptions(),
     );
 
     this.output({

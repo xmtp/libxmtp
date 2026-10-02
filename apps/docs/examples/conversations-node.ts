@@ -5,7 +5,7 @@ export async function createConversation(
   memberInboxId: string,
 ) {
   // #region create
-  const group = client.conversations.createGroupOptimistic();
+  const group = await client.conversations.createGroupOptimistic({});
   await group.addMembers([memberInboxId]);
   // #endregion create
   return group;

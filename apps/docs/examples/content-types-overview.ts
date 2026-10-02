@@ -8,7 +8,7 @@ import type {
   ContentCodec,
   ContentTypeId,
   EncodedContent,
-} from "@xmtp/content-type-primitives";
+} from "@xmtp/node-sdk";
 
 // Define the content type identifier
 export const CustomContentType: ContentTypeId = {
@@ -20,12 +20,12 @@ export const CustomContentType: ContentTypeId = {
 
 // Implement the codec as a class
 export class CustomCodec implements ContentCodec<string> {
-  contentType = CustomContentType;
+  type = CustomContentType;
 
   encode(content: string): EncodedContent {
     return {
-      type: this.contentType,
-      parameters: {},
+      type: this.type,
+      parameters: new Map(),
       content: new TextEncoder().encode(content),
     };
   }
@@ -48,7 +48,8 @@ export class CustomCodec implements ContentCodec<string> {
 import { Agent } from "@xmtp/agent-sdk";
 
 const client = await Agent.create(signer, {
-  backendUrl,
+  backend: { url: backendUrl },
+  storage: { location: "default", label: "custom-agent" },
   codecs: [new CustomCodec()],
 });
 // #endregion example2

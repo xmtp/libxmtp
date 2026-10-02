@@ -1,42 +1,29 @@
 import { createRegisteredClient, createSigner } from "@test/helpers";
+import { Client } from "@xmtp/node-sdk";
 import { describe, expect, it } from "vitest";
 
-import { createBackend } from "@/utils/createBackend";
-import { generateInboxId, getInboxIdForIdentifier } from "@/utils/inboxId";
-
-describe("generateInboxId", () => {
-  it("should generate an inbox id", async () => {
-    const { signer } = createSigner();
-    const inboxId = generateInboxId(await signer.getIdentifier());
-    expect(inboxId).toBeDefined();
-
-    const inboxId2 = generateInboxId(await signer.getIdentifier(), 1n);
-    expect(inboxId2).toBe(inboxId);
-
-    const inboxId3 = generateInboxId(await signer.getIdentifier(), 2n);
-    expect(inboxId3).not.toBe(inboxId);
-  });
-});
-
-describe("getInboxIdForIdentifier", () => {
+describe("inboxIdFor", () => {
   it("should return `undefined` inbox ID for unregistered address", async () => {
     const { identifier } = createSigner();
-    const backend = await createBackend({
-      backendUrl: process.env.XMTP_BACKEND_URL!,
-      env: "local",
-    });
-    const inboxId = await getInboxIdForIdentifier(backend, identifier);
-    expect(inboxId == null).toBe(true);
+    const backend = { url: process.env.XMTP_BACKEND_URL! };
+    const client = await createRegisteredClient(createSigner().signer);
+    try {
+      expect(await client.inboxIdFor(identifier)).toBeUndefined();
+      expect(
+        (await Client.canMessage([identifier], backend)).get(
+          `ethereum:${identifier.identifier}`,
+        ),
+      ).toBe(false);
+    } finally {
+      await client.end();
+    }
   });
 
   it("should return inbox ID for registered address", async () => {
     const { signer, identifier } = createSigner();
     const client = await createRegisteredClient(signer);
-    const backend = await createBackend({
-      backendUrl: process.env.XMTP_BACKEND_URL!,
-      env: "local",
-    });
-    const inboxId = await getInboxIdForIdentifier(backend, identifier);
+    const backend = { url: process.env.XMTP_BACKEND_URL! };
+    const inboxId = await Client.inboxIdFor(identifier, backend);
     expect(inboxId).toBe(client.inboxId);
   });
 });
