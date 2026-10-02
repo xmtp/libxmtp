@@ -1,6 +1,6 @@
 //! Private native conformance metadata must not become browser operations.
 use super::*;
-use uniffi_meta::{FnParamMetadata, MethodMetadata, RecordMetadata};
+use uniffi_meta::{FnParamMetadata, MethodMetadata, ObjectMetadata, RecordMetadata};
 
 const SOURCE: &str = include_str!("../../../../crates/xmtp_sdk/src/client/event_conformance.rs");
 
@@ -66,6 +66,14 @@ fn counts() -> Metadata {
 fn native_conformance_methods_stay_private_and_out_of_bridge() {
     let mut items = methods();
     items.push(counts());
+    items.push(Metadata::Object(ObjectMetadata {
+        module_path: "xmtp_sdk".into(),
+        name: "Client".into(),
+        orig_name: None,
+        remote: false,
+        imp: ObjectImpl::Struct,
+        docstring: None,
+    }));
     validate_bridge(&items)?;
     let operations = operations(&items);
     assert!(
@@ -74,18 +82,37 @@ fn native_conformance_methods_stay_private_and_out_of_bridge() {
     );
     let files = render(&items, &operations, "test")?;
     for file in ["proxy.gen.ts", "dispatch.gen.ts", "contract.gen.ts"] {
-        assert!(!files[file].contains("sdkConformanceEmitHmacEvents"));
-        assert!(!files[file].contains("sdkConformanceListenerCounts"));
+        assert!(!files[file].contains("sdkConformanceEmitHmacEvents("));
+        assert!(!files[file].contains("sdkConformanceListenerCounts("));
     }
+    assert!(files["proxy.gen.ts"].contains("implements Omit<B.ClientLike, \"sdkConformanceEmitHmacEvents\" | \"sdkConformanceListenerCounts\">"));
+    assert!(files["public-client.gen.ts"].contains("protected binding(): ClientBinding"));
     let refs = items.iter().collect::<Vec<_>>();
+    let forwarding = crate::forwarding::typescript_forwarders(&refs);
+    assert!(forwarding.contains("export type ClientBinding = Omit<ClientLike,"));
+    assert!(!forwarding.contains("sdkConformanceEmitHmacEvents("));
+    assert!(!forwarding.contains("sdkConformanceListenerCounts("));
     let members = crate::public_projection::client_members_for_test(&refs)?;
     assert!(!members.contains("sdkConformance"));
+    assert!(members.contains("WeakMap<ClientMembers, ClientBinding>"));
+    assert!(!members.contains("B.ClientLike"));
+    // The strict type control consumes these actual renderer outputs.
+    if let Some(out) = std::env::var_os("SDK_BINDGEN_TYPED_CONTROL_OUT") {
+        let out = std::path::PathBuf::from(out);
+        std::fs::create_dir_all(&out)?;
+        for name in ["proxy.gen.ts", "public-client.gen.ts"] {
+            std::fs::write(out.join(name), &files[name])?;
+        }
+        std::fs::write(out.join("client-forwarding.gen.ts"), &forwarding)?;
+        std::fs::write(out.join("client-members.gen.ts"), &members)?;
+    }
     for target in [
         crate::public_projection::Target::Node,
         crate::public_projection::Target::Browser,
     ] {
         let api = crate::public_projection::public_api_for_test(&refs, target);
         assert!(!api.contains("SdkConformanceListenerCounts"));
+        assert!(!api.contains("ClientBinding"));
     }
 }
 

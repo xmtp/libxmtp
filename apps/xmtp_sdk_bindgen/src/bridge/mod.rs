@@ -1050,10 +1050,16 @@ fn render(
         {
             // A foreign trait proxy implements the trait interface itself.
             let like = if object.imp.has_struct() { "Like" } else { "" };
+            let refs = items.iter().collect::<Vec<_>>();
+            let interface = crate::forwarding::bridged_interface(
+                &refs,
+                &object.name,
+                &format!("B.{}{like}", object.name),
+            );
             writeln!(
                 proxy,
-                "export class {} extends RemoteObject implements B.{}{like} {{",
-                object.name, object.name
+                "export class {} extends RemoteObject implements {interface} {{",
+                object.name
             )?;
             if has_storage_admin && object.name == "Storage" {
                 proxy.push_str("  static admin(): Promise<PublicStorageAdmin> { return openStorageAdmin(); }\n");
