@@ -233,6 +233,14 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
                 XMTP_SDK_GENERATED_DIR=str(args.generated.resolve()),
                 XMTP_SDK_ANDROID_JNI_DIR=str(jni),
             )
+            project = args.sdk_root.resolve()
+            for name in (
+                "library/gradle.lockfile",
+                "buildscript-gradle.lockfile",
+                "gradle/verification-metadata.xml",
+            ):
+                if not (project / name).is_file():
+                    raise ValueError(f"Android dependency input missing: {name}")
             run(
                 [
                     str(args.sdk_root.resolve() / "gradlew"),
@@ -241,6 +249,7 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
                     ":library:assembleRelease",
                     "--no-daemon",
                     "-Pkotlin.compiler.execution.strategy=in-process",
+                    "--dependency-verification=strict",
                 ],
                 env=env,
             )
