@@ -11,7 +11,7 @@ function latch() {
 }
 
 export function registerStreamTests(): void {
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("runs one underlying read at a time for concurrent stream reads", async () => {
     let inFlight = 0;
     let most = 0;

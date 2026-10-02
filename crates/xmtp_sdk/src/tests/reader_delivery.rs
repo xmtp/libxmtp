@@ -82,7 +82,7 @@ async fn cancel_idle_read_settles() {
     client.end().await?;
 }
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_message_read_delivers_and_replays_unacknowledged_item() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
@@ -276,7 +276,7 @@ async fn all_scope_message_reader_skips_synced_denied_message() {
     bo.end().await?;
 }
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn stream_ack_only_on_next_request() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;

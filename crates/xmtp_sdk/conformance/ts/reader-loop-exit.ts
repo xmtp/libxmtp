@@ -41,7 +41,7 @@ async function within<T>(value: Promise<T>, label: string): Promise<T> {
 
 // Both public packages use this proof. The app body holds the item, so an
 // abort cannot race with a later read that acknowledges it.
-// verifies: PROC-028, PROC-031, PROC-041
+// verifies: PROC-052, PROC-031, PROC-041
 export async function checkReaderLoopExit<G extends Group>(
   create: () => Promise<{ group: G; id: string }>,
   open: (group: G, options: Options) => AsyncIterable<Message>,
