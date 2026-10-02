@@ -57,6 +57,10 @@ and `uniffi.xmtpv3` imports with `uniffi.xmtp_sdk`. Use `SDKClient` and generate
 codecs per client through the factory `codecs` argument. Use typed send methods
 such as `sendText`, `sendReaction`, and `sendRemoteAttachment`.
 
+The package retains `ByteArray.toHex()` and `String.hexToByteArray()` for hex
+conversion. `validateInboxId()` and `validateInboxIds()` check the forbidden
+`0x` prefix. SDK operations apply the full ID rules and return typed errors.
+
 Persistent attachments use `client.attachments()`: create a pending attachment,
 send its `remoteAttachment()` record, then upload it. A recipient downloads the
 record through its own attachment store. The SDK checks transfer limits and
@@ -65,6 +69,8 @@ content digests. Local emulator fixtures need `allowPrivateNetwork = true` and
 
 Use `client.messages(group)` or `client.messages(dm)` for a Flow. A successful
 collector return permits the next request to acknowledge the prior message.
-Cancellation preserves an unacknowledged message for replay. Close clients and
-readers in `NonCancellable` teardown. See [development rules](AGENTS.md) for build
+Cancellation before ACK commit admission preserves the message for replay.
+If the collector throws, `onClose` receives one `Failed` reason with the original
+`Throwable`. Normal completion and cancellation receive one `Closed` reason.
+Close clients and readers in `NonCancellable` teardown. See [development rules](AGENTS.md) for build
 and test commands. The [example](example) uses the same public API.
