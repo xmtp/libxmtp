@@ -532,8 +532,15 @@ class PackagingTests(unittest.TestCase):
             self.patches[2].start()
 
     def test_apple_native_build_pins_supported_deployment_floors(self):
-        with patch.object(artifacts.sys, "platform", "darwin"), patch.dict(
-            os.environ, {"MACOSX_DEPLOYMENT_TARGET": "14.0", "IPHONEOS_DEPLOYMENT_TARGET": "17"}
+        with (
+            patch.object(artifacts.sys, "platform", "darwin"),
+            patch.dict(
+                os.environ,
+                {
+                    "MACOSX_DEPLOYMENT_TARGET": "14.0",
+                    "IPHONEOS_DEPLOYMENT_TARGET": "17",
+                },
+            ),
         ):
             artifacts.build(self.args)
             self.assertEqual(os.environ["MACOSX_DEPLOYMENT_TARGET"], "11.0")
@@ -560,9 +567,7 @@ class PackagingTests(unittest.TestCase):
                         (self.args.artifacts / "artifacts.json").read_text()
                     )
                     calls = len(self.calls)
-                    os.environ[name] = (
-                        str(compiler)
-                    )
+                    os.environ[name] = str(compiler)
                     artifacts.build(self.args)
                     after = json.loads(
                         (self.args.artifacts / "artifacts.json").read_text()
