@@ -229,15 +229,15 @@ let package = Package(name: "XmtpSdk", platforms: [.iOS(.v14)],
                 [
                     "sdks/android/gradlew",
                     "-p",
-                    "crates/xmtp_sdk/packaging/android",
-                    "assembleRelease",
+                    "sdks/android",
+                    ":library:assembleRelease",
                     "--no-daemon",
                 ],
                 env=env,
             )
             shutil.copy2(
                 ROOT
-                / "crates/xmtp_sdk/packaging/android/build/outputs/aar/xmtp-sdk-stage-release.aar",
+                / "sdks/android/library/build/outputs/aar/library-release.aar",
                 output / "xmtp-sdk.aar",
             )
             with zipfile.ZipFile(output / "xmtp-sdk.aar") as archive:

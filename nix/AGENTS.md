@@ -33,3 +33,8 @@ worker dependency cache. The Node and Android package sets retain old outputs
 and add `xmtp-sdk-node-<platform>` and `xmtp-sdk-android-<abi>` library outputs.
 Darwin adds `xmtp-sdk-ios-device` and `xmtp-sdk-ios-simulator`. These outputs
 prepare the new SDK. They do not switch a shipped package or publish it.
+
+`android-sdk-libs` combines generated Kotlin, runtime and Android sources,
+the contract record, and all four `libxmtp_sdk.so` ABIs. `android-sdk-libs-fast`
+selects the host emulator ABI. The SDK Gradle build reads this layout. The
+mobile-stage command builds the SDK library AAR so platform helpers are included.
