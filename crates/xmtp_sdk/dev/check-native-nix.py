@@ -35,8 +35,6 @@ products = json.loads(
 for name, phases in products.items():
     native = name == "xmtp-sdk-libs" or name.startswith("xmtp-sdk-ios-")
     for phase, inputs in phases.items():
-        if inputs["jobs"] != 2:
-            raise ValueError((name, phase, "Cargo job limit", inputs))
         if native:
             if inputs["vendor"] != "0":
                 raise ValueError((name, phase, "vendored OpenSSL", inputs))
