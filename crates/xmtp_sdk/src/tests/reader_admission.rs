@@ -85,7 +85,7 @@ async fn prepared_message_rechecks_owner_before_admission() {
     client.end().await?;
 }
 
-// verifies: PROC-025, PROC-028, PROC-046
+// verifies: PROC-025, PROC-052, PROC-046
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_prepared_message_stays_waiting_on_resume() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
@@ -115,7 +115,7 @@ async fn cancelled_prepared_message_stays_waiting_on_resume() {
     client.end().await?;
 }
 
-// verifies: PROC-028, PROC-046
+// verifies: PROC-052, PROC-046
 #[xmtp_common::test(unwrap_try = true)]
 async fn delayed_worker_reply_is_admitted_but_not_acknowledged() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;
@@ -171,7 +171,7 @@ async fn delayed_worker_reply_is_admitted_but_not_acknowledged() {
     client.end().await?;
 }
 
-// verifies: PROC-025, PROC-028
+// verifies: PROC-025, PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelled_prepared_fallback_redelivers_after_reopen() {
     use xmtp_mls::groups::send_message_opts::SendMessageOpts;
@@ -253,7 +253,7 @@ async fn cancelled_prepared_fallback_redelivers_after_reopen() {
     std::fs::remove_file(path)?;
 }
 
-// verifies: PROC-025, PROC-028, PROC-040
+// verifies: PROC-025, PROC-052, PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn prepared_admission_storage_failure_is_terminal_without_acknowledgement() {
     let client = Client::create(crate::generate_local_signer().await, options()).await?;

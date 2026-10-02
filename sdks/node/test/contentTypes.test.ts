@@ -1303,7 +1303,7 @@ describe("Content types", () => {
       }
     });
 
-    // verifies: CTYPE-008, PROC-028
+    // verifies: CTYPE-008, PROC-052
     it("should have undefined content when receiving custom content with decode failure", async () => {
       const { signer: signer1 } = createSigner();
       const { signer: signer2 } = createSigner();

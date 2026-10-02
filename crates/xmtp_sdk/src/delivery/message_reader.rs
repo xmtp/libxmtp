@@ -4,6 +4,7 @@ use tokio::sync::Mutex as AsyncMutex;
 #[cfg(test)]
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
+use xmtp_db::delivery::acknowledgement::DeliveryAckRequest;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::messages::enrichment::enrich_messages_with_stored;
 use xmtp_mls::subscriptions::{
@@ -34,7 +35,7 @@ pub struct MessageReader {
     #[cfg(test)]
     pub(crate) request_cancel: Mutex<Option<CancellationToken>>,
     #[cfg(test)]
-    pub(crate) request_ack_admission: Mutex<Option<Arc<Mutex<bool>>>>,
+    pub(crate) request_ack_admission: Mutex<Option<Arc<DeliveryAckRequest>>>,
     #[cfg(test)]
     corrupt_next_message: std::sync::atomic::AtomicBool,
     #[cfg(test)]
@@ -43,16 +44,14 @@ pub struct MessageReader {
 
 struct CancelMessageRead {
     token: CancellationToken,
-    ack_admission: Arc<Mutex<bool>>,
+    ack_admission: Arc<DeliveryAckRequest>,
 }
 
 impl Drop for CancelMessageRead {
     fn drop(&mut self) {
-        // Only the synchronous ACK operation can hold this lock.
-        // If it has started, cancel the pending read without waiting for storage.
-        if let Some(mut allowed) = self.ack_admission.try_lock() {
-            *allowed = false;
-        }
+        // Final commit admission and cancellation have one atomic order.
+        // Neither cancellation nor Drop waits for the database writer.
+        self.ack_admission.cancel();
         self.token.cancel();
     }
 }
@@ -83,6 +82,8 @@ pub(crate) struct RequestGates {
     pub(crate) after_take: Option<Arc<AckAdmissionGate>>,
     pub(crate) during_write: Option<Arc<AckAdmissionGate>>,
     pub(crate) settled: Option<Arc<Notify>>,
+    pub(crate) ack_observer:
+        Option<Arc<dyn Fn(xmtp_db::delivery::acknowledgement::DeliveryAckPhase) + Send + Sync>>,
 }
 
 #[cfg(test)]
@@ -94,7 +95,7 @@ pub(crate) struct AckAdmissionGate {
 
 #[cfg(test)]
 impl AckAdmissionGate {
-    fn wait(&self) {
+    pub(crate) fn wait(&self) {
         self.arrived.notify_one();
         let mut released = self.released.lock();
         let deadline =
@@ -230,13 +231,17 @@ impl MessageReader {
     pub async fn next(&self) -> Result<Option<Message>, XmtpError> {
         let _request = self.request_lock.lock().await;
         let request_cancel = CancellationToken::new();
-        let ack_admission = Arc::new(Mutex::new(true));
+        let ack_admission = Arc::new(DeliveryAckRequest::default());
         let _cancel_on_drop = CancelMessageRead {
             token: request_cancel.clone(),
             ack_admission: ack_admission.clone(),
         };
         #[cfg(test)]
         let gates = self.request_gates.lock().clone();
+        #[cfg(test)]
+        if let Some(observer) = &gates.ack_observer {
+            ack_admission.set_observer(observer.clone());
+        }
         #[cfg(test)]
         {
             *self.request_cancel.lock() = Some(request_cancel.clone());
@@ -279,23 +284,22 @@ impl MessageReader {
                         gate.wait();
                     }
                     if let Some(previous) = previous {
-                        // Cancellation and the synchronous write have one order.
-                        // Do not hold this lock while selecting or waiting for an item.
-                        let allowed = ack_admission.lock();
-                        if !*allowed {
-                            state.previous = Some(previous);
-                            return Ok(false);
-                        }
                         #[cfg(test)]
                         if let Some(gate) = gates.during_write {
                             gate.wait();
                         }
-                        if let Err(error) = previous.acknowledge()
-                            && !selection_changed(&error)
-                        {
-                            state.ended = true;
-                            control.close();
-                            return Err(super::delivery_error(error));
+                        match previous.acknowledge_cancellable(&ack_admission) {
+                            Ok(false) => {
+                                state.previous = Some(previous);
+                                return Ok(false);
+                            }
+                            Ok(true) => {}
+                            Err(error) if selection_changed(&error) => {}
+                            Err(error) => {
+                                state.ended = true;
+                                control.close();
+                                return Err(super::delivery_error(error));
+                            }
                         }
                     }
                     if let Some(pending) = state.pending.take() {

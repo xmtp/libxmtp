@@ -44,7 +44,7 @@ export type AdmissionCase =
   | "callback-throw"
   | "callback-reject";
 
-// verifies: PROC-025, PROC-028, PROC-046, PROC-050
+// verifies: PROC-025, PROC-052, PROC-046, PROC-050
 export async function checkWorkerAdmission(
   backendURL: string,
   mode: AdmissionCase,

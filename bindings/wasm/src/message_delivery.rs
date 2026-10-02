@@ -113,7 +113,7 @@ mod tests {
   };
   use xmtp_mls::groups::send_message_opts::SendMessageOpts;
 
-  // verifies: PROC-028, PROC-031
+  // verifies: PROC-052, PROC-031
   #[xmtp_common::test(unwrap_try = true)]
   async fn enrichment_conversion_failure_rejects_the_token_without_advancing_delivery() {
     let client = crate::tests::create_test_client(None).await;

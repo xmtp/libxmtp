@@ -250,7 +250,7 @@ export function registerOwnershipTests(): void {
     otherWorker.close("client-pool");
   });
 
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("ends a client while an admitted read reply is in transit", async () => {
     const { session, engine } = host(async (key, _args, context) => {
       if (key === "MessageReader.next") {

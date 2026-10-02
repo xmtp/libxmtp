@@ -8,7 +8,7 @@ use tokio_util::sync::CancellationToken;
 use xmtp_common::time::now_ns;
 use xmtp_db::{
     StorageError,
-    delivery::{DeliveryCursor, DeliveryOwner, QueryDelivery},
+    delivery::{DeliveryCursor, DeliveryOwner, QueryDelivery, acknowledgement::DeliveryAckRequest},
 };
 use xmtp_proto::types::GroupId;
 
@@ -238,17 +238,29 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
     }
 
     /// Persist after the callback returns successfully, or at the next iterator request.
-    // implements: PROC-028, PROC-031, PROC-040
+    // implements: PROC-052, PROC-031, PROC-040
     pub fn acknowledge(&self) -> Result<()> {
+        self.acknowledge_with_request(None).map(|_| ())
+    }
+
+    /// Keep the prior iterator item eligible if cancellation wins commit admission.
+    pub fn acknowledge_cancellable(&self, request: &DeliveryAckRequest) -> Result<bool> {
+        if request.is_cancelled() {
+            return Ok(false);
+        }
+        self.acknowledge_with_request(Some(request))
+    }
+
+    fn acknowledge_with_request(&self, request: Option<&DeliveryAckRequest>) -> Result<bool> {
         let mut state = self.pending.state.lock();
         if matches!(*state, AcknowledgementState::Acknowledged) {
-            return Ok(());
+            return Ok(true);
         }
         if let Some(error) = self.session.background_error() {
             return Err(error);
         }
         match *state {
-            AcknowledgementState::Acknowledged => return Ok(()),
+            AcknowledgementState::Acknowledged => return Ok(true),
             AcknowledgementState::Rejected => {
                 return Err(LocalDeliveryError::AcknowledgementRejected);
             }
@@ -259,21 +271,32 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
         let result = self.begin_dispatch(&mut state, true).and_then(|()| {
             self.session.check_owner()?;
             if let Some(owner) = self.session.owner {
-                self.session.context.db().acknowledge_delivery_with_clock(
+                let db = self.session.context.db();
+                if let Some(request) = request {
+                    return Ok(db.acknowledge_delivery_cancellable_with_clock(
+                        owner,
+                        self.group_id,
+                        self.pending.cursor,
+                        now_ns,
+                        request,
+                    )?);
+                }
+                db.acknowledge_delivery_with_clock(
                     owner,
                     self.group_id,
                     self.pending.cursor,
                     now_ns,
                 )?;
             }
-            Ok(())
+            Ok(!request.is_some_and(DeliveryAckRequest::is_cancelled))
         });
         match result {
             Err(LocalDeliveryError::SelectionChanged) => Err(LocalDeliveryError::SelectionChanged),
-            Ok(()) => {
+            Ok(false) => Ok(false),
+            Ok(true) => {
                 *state = AcknowledgementState::Acknowledged;
                 self.pending.changed.notify_one();
-                Ok(())
+                Ok(true)
             }
             Err(error) => {
                 *state = AcknowledgementState::Failed;

@@ -87,3 +87,65 @@ where
         })
     })?
 }
+
+/// A cancelled iterator ACK rolls back its tentative progress update.
+/// This path requires the outer transaction, not a nested savepoint.
+pub(crate) fn cancellable_ack_transaction<C>(
+    connection: &C,
+    work: impl FnOnce(&mut SqliteConnection) -> Result<bool, StorageError>,
+) -> Result<bool, StorageError>
+where
+    C: ConnectionExt,
+{
+    connection.raw_query(|conn| {
+        if <SqliteConnection as Connection>::TransactionManager::transaction_manager_status_mut(
+            conn,
+        )
+        .transaction_depth()?
+        .is_some()
+        {
+            return Err(diesel::result::Error::AlreadyInTransaction);
+        }
+        let mut cancelled = false;
+        let mut commit_started = false;
+        let result = conn.immediate_transaction(|conn| {
+            if work(conn)? {
+                commit_started = true;
+                Ok(())
+            } else {
+                cancelled = true;
+                Err(StorageError::DieselResult(
+                    diesel::result::Error::RollbackTransaction,
+                ))
+            }
+        });
+        Ok(match result {
+            Ok(()) => Ok(true),
+            Err(StorageError::DieselResult(diesel::result::Error::RollbackTransaction))
+                if cancelled =>
+            {
+                Ok(false)
+            }
+            Err(StorageError::DieselResult(commit_error)) if commit_started => {
+                // SQLite can leave a failed COMMIT open, for example after a
+                // deferred constraint error. Roll it back before owner release.
+                let transaction =
+                    <SqliteConnection as Connection>::TransactionManager::transaction_manager_status_mut(conn);
+                if transaction.transaction_depth()?.is_some() {
+                    if let Err(rollback_error) =
+                        <SqliteConnection as Connection>::TransactionManager::rollback_transaction(conn)
+                    {
+                        return Ok(Err(StorageError::DieselResult(
+                            diesel::result::Error::RollbackErrorOnCommit {
+                                rollback_error: Box::new(rollback_error),
+                                commit_error: Box::new(commit_error),
+                            },
+                        )));
+                    }
+                }
+                Err(StorageError::DieselResult(commit_error))
+            }
+            Err(error) => Err(error),
+        })
+    })?
+}

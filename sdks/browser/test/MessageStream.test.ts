@@ -44,7 +44,7 @@ const deferred = <T>() => {
 };
 
 describe("MessageStream worker acknowledgement boundaries", () => {
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("acknowledges at the following next request, not worker receipt", async () => {
     const first = token();
     const second = token();
@@ -96,7 +96,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     await stream.end();
   });
 
-  // verifies: PROC-028
+  // verifies: PROC-052
   it.each(["throw", "reject"] as const)(
     "closes once when a callback uses %s without an iterator or unhandled rejection",
     async (failure) => {
@@ -149,7 +149,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     expect(pending.reject).toHaveBeenCalledOnce();
   });
 
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("automatically checks, calls, and acknowledges synchronous callbacks in order", async () => {
     const events: string[] = [];
     const first = token();
@@ -200,7 +200,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     expect(stream.isDone).toBe(true);
   });
 
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("waits for an async callback before acknowledgement or the next read", async () => {
     const first = token();
     const second = token();
@@ -245,7 +245,7 @@ describe("MessageStream worker acknowledgement boundaries", () => {
     }
   });
 
-  // verifies: PROC-028
+  // verifies: PROC-052
   it("rejects a pending callback on close and does not acknowledge its later return", async () => {
     const pending = token();
     const release = deferred<undefined>();
