@@ -212,6 +212,7 @@ fun main() =
         checkAttachmentEnd(backendOptions)
         val host = SDKClient.create(signer, options)
         checkReaderReadFailuresEndExactlyOnce(host)
+        checkReaderCollectorCloseReasons(host)
         val client = host
         // Uppercase hex decodes, so only ID validation rejects it.
         val invalidId = runCatching { client.conversations().getMessageById("AB".repeat(32)) }.exceptionOrNull()

@@ -48,7 +48,7 @@ internal suspend fun runRetainedConformanceCase(
             checkEndedClientCannotHandOffReaderValues(backend)
         }
 
-        "reader-read-failure" -> {
+        "reader-read-failure", "reader-collector-close" -> {
             val owner =
                 SDKClient.create(
                     generateLocalSigner(),
@@ -60,7 +60,11 @@ internal suspend fun runRetainedConformanceCase(
                     ),
                 )
             try {
-                checkReaderReadFailuresEndExactlyOnce(owner)
+                if (name == "reader-collector-close") {
+                    checkReaderCollectorCloseReasons(owner)
+                } else {
+                    checkReaderReadFailuresEndExactlyOnce(owner)
+                }
             } finally {
                 withContext(NonCancellable) { owner.end() }
             }

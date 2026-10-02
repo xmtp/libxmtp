@@ -49,6 +49,71 @@ internal suspend fun checkReaderReadFailuresEndExactlyOnce(owner: SDKClient) {
 }
 
 // verifies: PROC-028, PROC-041
+internal suspend fun checkReaderCollectorCloseReasons(owner: SDKClient) {
+    for (failure in listOf(IllegalStateException("collector failed"), AssertionError("collector assertion failed"))) {
+        val reads = AtomicInteger()
+        val ends = AtomicInteger()
+        val closes = mutableListOf<SDKStreamCloseReason>()
+        val values = mutableListOf<Int>()
+        val flow =
+            readerFlow<Int, Unit>(
+                owner = owner,
+                open = { Unit },
+                next = { reads.incrementAndGet() },
+                end = {
+                    check(currentCoroutineContext().isActive) { "reader teardown ran in a cancelled context" }
+                    ends.incrementAndGet()
+                    Unit
+                },
+                connectionState = { ConnectionState.CONNECTED },
+                connectionStateChanged = { _, _ -> awaitCancellation() },
+                onClose = { closes.add(it) },
+                onConnectionStateChange = null,
+            )
+        val thrown =
+            runCatching {
+                withTimeout(5_000) {
+                    flow.collect {
+                        values.add(it)
+                        throw failure
+                    }
+                }
+            }.exceptionOrNull()
+        check(thrown === failure && values == listOf(1) && reads.get() == 1 && ends.get() == 1)
+        check(closes.size == 1 && (closes.single() as? SDKStreamCloseReason.Failed)?.error === failure) {
+            "collector failure did not close once with the original error"
+        }
+    }
+    for (earlyExit in listOf(false, true)) {
+        val reads = AtomicInteger()
+        val ends = AtomicInteger()
+        val closes = mutableListOf<SDKStreamCloseReason>()
+        val values = mutableListOf<Int>()
+        val flow =
+            readerFlow<Int, Unit>(
+                owner = owner,
+                open = { Unit },
+                next = { if (reads.incrementAndGet() == 1) 1 else null },
+                end = {
+                    check(currentCoroutineContext().isActive) { "reader teardown ran in a cancelled context" }
+                    ends.incrementAndGet()
+                    Unit
+                },
+                connectionState = { ConnectionState.CONNECTED },
+                connectionStateChanged = { _, _ -> awaitCancellation() },
+                onClose = { closes.add(it) },
+                onConnectionStateChange = null,
+            )
+        withTimeout(5_000) {
+            if (earlyExit) values.add(flow.first()) else flow.collect { values.add(it) }
+        }
+        check(values == listOf(1) && reads.get() == (if (earlyExit) 1 else 2) && ends.get() == 1)
+        check(closes == listOf(SDKStreamCloseReason.Closed)) { "normal collector exit did not close once" }
+    }
+    println("Kotlin reader collector errors keep the original Throwable; normal exits close once")
+}
+
+// verifies: PROC-028, PROC-041
 internal suspend fun checkReaderCollectorBoundarySurvivesDatabaseReopen(backend: BackendOptions) =
     coroutineScope {
         withTimeout(30_000) {
@@ -115,7 +180,12 @@ internal suspend fun checkReaderCollectorBoundarySurvivesDatabaseReopen(backend:
                         }
                     }.exceptionOrNull()
                 check(thrown === appFailure && consumed == listOf(firstId, secondId))
-                check(secondCloses == listOf(SDKStreamCloseReason.Closed))
+                check(
+                    secondCloses.size == 1 &&
+                        (secondCloses.single() as? SDKStreamCloseReason.Failed)?.error === appFailure,
+                ) {
+                    "collector failure did not close once with the original error"
+                }
                 check(owner.conversations().sdkConformanceDeliveryPosition(groupId) == firstPosition) {
                     "collector failure changed the last completed acknowledgement"
                 }
