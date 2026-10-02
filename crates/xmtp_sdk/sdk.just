@@ -115,6 +115,7 @@ check-package-scripts:
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-credential-record.mjs
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-callback-rejection.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-stamp-package.mjs
+    cd "{{ root }}" && node crates/xmtp_sdk/dev/test-pure-wasm.mjs
 
 # Use the matching ios or android Nix shell. This does not switch a shipped SDK.
 mobile-build target:

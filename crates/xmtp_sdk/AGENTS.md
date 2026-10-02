@@ -175,6 +175,9 @@ module paths stable. Use ordinary modules for helpers without exported metadata.
 - `dev/nix-shell 'just sdk check-package-scripts'` checks reuse, mismatch rejection, and cleanup
   with a small fixture. `dev/nix-shell 'just sdk check-clean-generate'` adds one real Swift
   render. It uses existing artifacts and does not rebuild Rust.
+  The script checks also reject missing or extra pure WASM functions and pure
+  functions in worker bindings or dispatch. The exact set comes from approved
+  pure Rust declarations in the current isolated SDK source.
 - `dev/nix-shell 'just sdk stage node'` and `dev/nix-shell 'just sdk stage browser'` compile ESM products with
   tsdown. They copy the pinned runtimes, native library, worker, pure WASM,
   loaders, and snippets. `dev/nix-shell 'just sdk package-smoke node|browser'` packs each product
