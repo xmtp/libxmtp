@@ -10,6 +10,7 @@ import { notificationBackend } from "../notificationBackend";
 const [entry, family, widthText, cyclesText] = process.argv.slice(2);
 const families = [
   "credential",
+  "credentialReject",
   "identity",
   "kind",
   "sign",
@@ -21,6 +22,7 @@ assert.ok(
   entry && families.includes(family),
   "unknown callback family or missing public entry",
 );
+const callbacksPerOperation = family === "credentialReject" ? 6 : 1;
 const width = Number(widthText);
 const cycles = Number(cyclesText);
 assert.ok(Number.isInteger(width) && width >= 1 && width <= 32);
@@ -201,7 +203,8 @@ try {
         Array.from({ length: width }, async (_, offset) => {
           const index = cycle * width + offset;
           let error: unknown;
-          if (family === "credential") {
+          if (family === "credential" || family === "credentialReject") {
+            let attempts = 0;
             error = await sdk.Client.canMessage(
               [
                 {
@@ -213,13 +216,31 @@ try {
                 url: backend.url,
                 credentials: {
                   credential: async () => {
+                    attempts++;
                     await invoke(index);
-                    return reject(index);
+                    if (family === "credentialReject") return reject(index);
+                    return {
+                      value: "Bearer callback-stress-fixture",
+                      expiresAtSeconds: BigInt(
+                        Math.floor(Date.now() / 1000) + 3600,
+                      ),
+                    };
                   },
                 },
               },
             ).catch((cause) => cause);
-            failure(error, "CredentialCallbackFailed", true);
+            assert.equal(attempts, callbacksPerOperation);
+            if (family === "credentialReject") {
+              failure(error, "CredentialCallbackFailed", true);
+            } else {
+              assert.ok(error instanceof Map);
+              assert.deepEqual(Array.from(error.entries()), [
+                [
+                  `ethereum:0x${(index + 10000).toString(16).padStart(40, "0")}`,
+                  false,
+                ],
+              ]);
+            }
           } else {
             const identity = {
               kind: "ethereum" as const,
@@ -271,7 +292,7 @@ try {
         }),
       );
     }
-    assert.equal(calls, (cycle + 1) * width);
+    assert.equal(calls, (cycle + 1) * width * callbacksPerOperation);
     assert.equal(reentryRequests, calls);
     assert.equal(active, 0);
     ledger.push({ cycle, callbacks: calls, requests: reentryRequests });
@@ -304,6 +325,7 @@ console.log(
   JSON.stringify({
     result: "PASS",
     family,
+    callbacksPerOperation,
     width,
     cycles,
     ledger,
