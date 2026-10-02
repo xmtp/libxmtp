@@ -10,7 +10,7 @@ use xmtp_common::{
 use xmtp_db::{ConnectionExt, Store};
 use xmtp_proto::types::Cursor;
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn iterator_drop_retains_the_last_item_until_a_later_next_request() {
     tester!(alix);
@@ -39,7 +39,7 @@ async fn iterator_drop_retains_the_last_item_until_a_later_next_request() {
     assert_eq!(stream.next().await.unwrap()?.id, second.id);
 }
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn rejected_callback_releases_owner_without_consuming_its_item() {
     tester!(alix);
@@ -70,7 +70,7 @@ async fn rejected_callback_releases_owner_without_consuming_its_item() {
     ));
 }
 
-// verifies: PROC-028
+// verifies: PROC-052
 #[xmtp_common::test(unwrap_try = true)]
 async fn cancelling_a_pending_next_does_not_bypass_explicit_acknowledgement() {
     tester!(alix);
@@ -556,7 +556,7 @@ async fn renewal_storage_error_retains_its_cause_and_allows_a_fresh_reader() {
     assert_eq!(replacement.next_delivery().await?.unwrap().message.id, second.id);
 }
 
-// verifies: PROC-028, PROC-040
+// verifies: PROC-052, PROC-040
 #[xmtp_common::test(unwrap_try = true)]
 async fn sqlite_full_ack_ends_stream_without_next_handoff_and_new_stream_replays() {
     use diesel::{RunQueryDsl, connection::SimpleConnection};

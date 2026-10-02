@@ -3,7 +3,7 @@ import Foundation
 
 // The stored sequence stays alive after the app throws. Its loop iterator
 // must release the reader. The app error must not acknowledge the item.
-// verifies: PROC-028, PROC-031, PROC-041
+// verifies: PROC-052, PROC-031, PROC-041
 func checkReaderAppError(owner: SDKClient, group: Group, messageId: MessageId) async throws {
     // Keep the raw handle alive so native destruction cannot hide a missing
     // adapter end call.

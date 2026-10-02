@@ -1,5 +1,7 @@
 //! Database-local message order and fenced default-consumer progress.
 
+pub mod acknowledgement;
+
 use diesel::{
     prelude::*,
     sql_types::{BigInt, Integer, Nullable},
@@ -466,6 +468,39 @@ pub trait QueryDelivery: ConnectionExt + Sized {
         self.acknowledge_delivery_with_clock(owner, group_id, cursor, || now_ns)
     }
 
+    /// Commit an iterator ACK only if cancellation has not won final admission.
+    /// The writer and tentative update precede the atomic commit decision.
+    // implements: PROC-052
+    fn acknowledge_delivery_cancellable_with_clock(
+        &self,
+        owner: DeliveryOwner,
+        group_id: GroupId,
+        cursor: DeliveryCursor,
+        clock: impl FnOnce() -> i64,
+        request: &acknowledgement::DeliveryAckRequest,
+    ) -> Result<bool, StorageError> {
+        #[cfg(any(test, feature = "test-utils"))]
+        request.observe(acknowledgement::DeliveryAckPhase::BeforeWriter);
+        super::stream_storage::cancellable_ack_transaction(self, |conn| {
+            #[cfg(any(test, feature = "test-utils"))]
+            request.observe(acknowledgement::DeliveryAckPhase::WriterAcquired);
+            if request.is_cancelled() {
+                return Ok(false);
+            }
+            check_owner(conn, owner, clock())?;
+            validate_cursor(conn, cursor)?;
+            write_delivery_progress(conn, group_id, cursor)?;
+            #[cfg(any(test, feature = "test-utils"))]
+            request.observe(acknowledgement::DeliveryAckPhase::TentativeUpdate);
+            if !request.admit_commit() {
+                return Ok(false);
+            }
+            #[cfg(any(test, feature = "test-utils"))]
+            request.observe(acknowledgement::DeliveryAckPhase::CommitAdmitted);
+            Ok(true)
+        })
+    }
+
     /// Advance this group's D only after a fresh owner check under the state writer.
     fn acknowledge_delivery_with_clock(
         &self,
@@ -477,24 +512,33 @@ pub trait QueryDelivery: ConnectionExt + Sized {
         stream_transaction(self, |conn| {
             check_owner(conn, owner, clock())?;
             validate_cursor(conn, cursor)?;
-            use diesel::{query_dsl::methods::FilterDsl, upsert::excluded};
-            diesel::insert_into(progress::table)
-                .values((
-                    progress::entity_id.eq(group_id.as_ref()),
-                    progress::entity_kind.eq(EntityKind::Delivery),
-                    progress::sequence_id.eq(cursor.delivery_sequence as i64),
-                ))
-                .on_conflict((progress::entity_id, progress::entity_kind))
-                .do_update()
-                .set(progress::sequence_id.eq(excluded(progress::sequence_id)))
-                .filter(progress::sequence_id.lt(excluded(progress::sequence_id)))
-                .execute(conn)?;
+            write_delivery_progress(conn, group_id, cursor)?;
             Ok(())
         })
     }
 }
 
 impl<C: ConnectionExt> QueryDelivery for C {}
+
+fn write_delivery_progress(
+    conn: &mut diesel::SqliteConnection,
+    group_id: GroupId,
+    cursor: DeliveryCursor,
+) -> Result<(), StorageError> {
+    use diesel::{query_dsl::methods::FilterDsl, upsert::excluded};
+    diesel::insert_into(progress::table)
+        .values((
+            progress::entity_id.eq(group_id.as_ref()),
+            progress::entity_kind.eq(EntityKind::Delivery),
+            progress::sequence_id.eq(cursor.delivery_sequence as i64),
+        ))
+        .on_conflict((progress::entity_id, progress::entity_kind))
+        .do_update()
+        .set(progress::sequence_id.eq(excluded(progress::sequence_id)))
+        .filter(progress::sequence_id.lt(excluded(progress::sequence_id)))
+        .execute(conn)?;
+    Ok(())
+}
 
 /// The caller holds the writer and has made the message visible in this transaction.
 pub(crate) fn assign_sequence(
