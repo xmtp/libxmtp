@@ -173,12 +173,24 @@ class StagingTests(unittest.TestCase):
                         "node",
                         str(ROOT / "crates/xmtp_sdk/dev/stage-package.mjs"),
                         "node",
+                        *(["--public"] if layout == "prebuilt" else []),
                     ],
                     env=env,
                     capture_output=True,
                     text=True,
                 )
                 self.assertEqual(result.returncode, 0, result.stderr)
+                manifest = json.loads((out / "node/package.json").read_text())
+                if layout == "prebuilt":
+                    source = json.loads((ROOT / "sdks/node/package.json").read_text())
+                    self.assertEqual(manifest["name"], source["name"])
+                    self.assertEqual(manifest["version"], source["version"])
+                    self.assertNotIn("private", manifest)
+                    self.assertEqual(manifest["exports"]["."], {
+                        "types": "./entry.d.ts", "import": "./entry.js",
+                    })
+                else:
+                    self.assertTrue(manifest["private"])
                 asset = out / "node/node_modules/@ubjs/node/binding.node"
                 self.assertEqual(
                     hashlib.sha256(asset.read_bytes()).hexdigest(), expected
@@ -231,7 +243,7 @@ class StagingTests(unittest.TestCase):
                     check=True,
                     capture_output=True,
                 )
-                installed = consumer / "node_modules/xmtp-sdk"
+                installed = consumer / "node_modules" / manifest["name"]
                 check = [
                     "node",
                     "--input-type=module",
