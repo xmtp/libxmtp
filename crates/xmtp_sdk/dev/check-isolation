@@ -71,6 +71,11 @@ if ! base_file=$(mktemp); then
   fail_query "temporary base file"
 fi
 trap 'rm -f "$base_file"' EXIT
+# A Phase 2 switch admits only its own SDK directory. Old sibling SDKs and
+# retained binding producers still use the exact pre-switch guard below.
+if ! switched=$(python3 dev/sdk/switches.py); then
+  fail_query "SDK switch markers"
+fi
 blocked=""
 while IFS= read -r path; do
   [ -z "$path" ] && continue
@@ -109,7 +114,17 @@ while IFS= read -r path; do
     blocked+="$path"$'\n'
     continue
   fi
-  # Scripts and generated output fail on every other path. One carve-out is the
+  admitted=false
+  while IFS= read -r directory; do
+    if [ -n "$directory" ] && [[ "$path" == "$directory"* ]]; then
+      admitted=true
+      break
+    fi
+  done <<< "$switched"
+  if $admitted; then
+    continue
+  fi
+  # Scripts and generated output fail on every unswitched path. The one carve-out is the
   # regenerated Swift bindings as a modification under SDK-040 exception 1
   # (below); the bindings-check job matches that file against the Rust source.
   case "$path" in

@@ -9,12 +9,17 @@ Run from the repository root: python3 dev/sdk/inventory.py [--write].
 from __future__ import annotations
 
 import argparse
+import hashlib
+import os
 import re
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
+
+sys.dont_write_bytecode = True
+from switches import switched_sdks
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.dont_write_bytecode = (
@@ -957,12 +962,72 @@ def render_sdk_rows(
     return rows, open_items
 
 
+# The approved pre-switch rows are the retention and removal ledger.
+# Current switched sources are counted in this same manifest below.
+LEGACY_SECTION_SHA256 = {'Swift': 'f0b8a71676b6eeaf86e9c5f28fc688119409555b9071d604d36c7d02b072e1bd', 'Kotlin': 'c769c974e61f83d8cd9f06cbc2e55baaa1585514d75bd7cfb513ab775f1f0f96', 'Node': '029808d056a16771540fa18b207ef7461073cdfc308e99f6ec6187ef1ca6cfa0', 'Browser': 'ab99ec4a83a80ad0f67e856cf898db7b8eae039f8e908fc2aaf30aa140c25480'}
+LEGACY_COUNTS = {'Swift': 7132, 'Kotlin': 963, 'Node': 522, 'Browser': 533}
+LEGACY_OPEN_SHA256 = {'Swift': 'f63ebcf451779f0a0863a273b70dd123f52862f6e732d3103b275113b4634d69', 'Kotlin': '4ca2d6a3b9108f8c4b6207c5451742137a107379c23a5d37608e0f39641add1c', 'Node': '8c73c7babd5d24d16fc4dec330af65c29f021728f1c2044aeadc189883ea7b83', 'Browser': 'd90fda7f10263802defffe1f8b33609a36379fd927082eae8c63de705a199361'}
+
+
+def ledger_section(text: str, sdk: str) -> str:
+    match = re.search(rf"(?ms)^## {sdk}\n.*?(?=^## )", text)
+    if match is None or hashlib.sha256(match.group().encode()).hexdigest() != LEGACY_SECTION_SHA256[sdk]:
+        raise ValueError(f"{sdk}: the pinned pre-switch ledger changed")
+    items = "\n".join(line for line in text.splitlines() if line.startswith(f"- {sdk} `"))
+    if hashlib.sha256(items.encode()).hexdigest() != LEGACY_OPEN_SHA256[sdk]:
+        raise ValueError(f"{sdk}: the pinned pre-switch open items changed")
+    return match.group()
+
+
+def switched_source_rows(switched: set[str]) -> list[str]:
+    generated = Path(os.environ.get("XMTP_SDK_GENERATED_DIR", ROOT / "target/sdk-generated"))
+    rows = []
+    for sdk in ("Swift", "Kotlin", "Node", "Browser"):
+        if sdk not in switched:
+            continue
+        if sdk == "Swift":
+            folder = ROOT / "sdks/ios/Sources/XmtpSdk"
+            files = sorted(folder.rglob("*.swift"))
+            source = "\n".join(path.read_text() for path in files)
+            required = ("public final class SDKClient", "public struct Timestamp", "public static func create", "public static func build", "public func end")
+            count = sum(len(swift_scan(path.read_text(), path.name)) for path in files)
+            family = "Swift source declarations"
+        elif sdk == "Kotlin":
+            folder = generated / "kotlin"
+            files = sorted(folder.rglob("*.kt"))
+            source = "\n".join(path.read_text() for path in files)
+            required = ("class SDKClient", "class Timestamp", "suspend fun create", "suspend fun build", "suspend fun end")
+            count = sum(len(kotlin_scan(path.read_text(), path.name)) for path in files)
+            family = "Kotlin source declarations"
+        else:
+            tree = "typescript-napi" if sdk == "Node" else "typescript-wasm"
+            folder = generated / tree
+            files = [folder / "index.ts"]
+            if not files[0].is_file():
+                raise ValueError(f"{sdk}: missing current public projection {files[0]}")
+            source = files[0].read_text()
+            exports = {part.strip().split(" as ")[-1].removeprefix("type ") for group in re.findall(r"export (?:type )?\{([^}]+)\}", source) for part in group.split(",") if part.strip()}
+            required = ("Client", "Message", "Timestamp")
+            if not set(required).issubset(exports):
+                raise ValueError(f"{sdk}: current public root misses retained exports")
+            required = ()
+            count = len(exports)
+            family = "TypeScript root export names"
+        if not source.strip() or count == 0 or any(name not in source for name in required):
+            raise ValueError(f"{sdk}: missing or empty current public projection at {folder}")
+        rows.append(f"| {sdk} | {family} | {count} | current generated public product |")
+    return rows
+
+
 def build() -> str:
+    switched = switched_sdks(ROOT)
+    ledger = OUT.read_text()
+    sections = {sdk: ledger_section(ledger, sdk) for sdk in switched}
     inventories = {
-        "Swift": swift_inventory(),
-        "Kotlin": kotlin_inventory(),
-        "Node": ts_inventory("Node"),
-        "Browser": ts_inventory("Browser"),
+        "Swift": [] if "Swift" in switched else swift_inventory(),
+        "Kotlin": [] if "Kotlin" in switched else kotlin_inventory(),
+        "Node": [] if "Node" in switched else ts_inventory("Node"),
+        "Browser": [] if "Browser" in switched else ts_inventory("Browser"),
     }
     lines = [
         "# SDK API manifest",
@@ -999,11 +1064,21 @@ def build() -> str:
     counts = {
         sdk: sum(e.count for e in entries) for sdk, entries in inventories.items()
     }
+    for sdk in switched:
+        current = re.search(rf"(?m)^\| {sdk} \| (\d+) \|$", ledger)
+        if current is None or int(current.group(1)) != LEGACY_COUNTS[sdk]:
+            raise ValueError(f"{sdk}: the pinned pre-switch declaration count changed")
+        counts[sdk] = LEGACY_COUNTS[sdk]
     lines += ["| SDK | Public declarations |", "| --- | ---: |"]
     lines += [f"| {sdk} | {count} |" for sdk, count in counts.items()]
     lines += [""]
     open_items: list[str] = []
     for sdk, entries in inventories.items():
+        if sdk in switched:
+            lines.extend(sections[sdk].rstrip("\n").splitlines())
+            lines.append("")
+            open_items.extend(line for line in ledger.splitlines() if line.startswith(f"- {sdk} `"))
+            continue
         lines += [
             f"## {sdk}",
             "",
@@ -1013,6 +1088,12 @@ def build() -> str:
         rows, sdk_open_items = render_sdk_rows(sdk, entries)
         lines.extend(rows)
         open_items.extend(sdk_open_items)
+        lines.append("")
+    if switched:
+        lines += ["## Switched SDK source inventory", "",
+            "The SDK tables above keep the approved pre-switch retention ledger. Its source baseline is `86ab172`. The counts below describe the current public projection. These counts do not replace the retention decisions.", "",
+            "| SDK | Source family | Current declarations | Status |", "| --- | --- | ---: | --- |"]
+        lines += switched_source_rows(switched)
         lines.append("")
     lines += ["## Open items", ""]
     if open_items:
@@ -1114,6 +1195,9 @@ def self_test() -> None:
             names
         )
         assert not ts_object_members(path, "Callback", "Node")
+    if switched_sdks(ROOT):
+        build()
+        return
     inventories = {
         "Swift": swift_inventory(),
         "Kotlin": kotlin_inventory(),
