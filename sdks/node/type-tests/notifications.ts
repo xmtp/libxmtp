@@ -22,8 +22,8 @@ export const channels: NotificationChannel[] = [
 
 // @ts-expect-error APNs requires a token.
 export const missingToken: NotificationChannel = { kind: "apns" };
-// @ts-expect-error The channel must be one of the three supported kinds.
 export const unknownChannel: NotificationChannel = {
+  // @ts-expect-error The channel must be one of the three supported kinds.
   kind: "unknown",
   token: "token",
 };
