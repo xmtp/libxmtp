@@ -64,12 +64,15 @@ export async function measure(api, fixture, state, workload, coldPath) {
       },
     );
     const end = performance.now();
+    const measuredStart = workload.startsWith("callback_")
+      ? callbackStart
+      : start;
     await api.close(client);
     if (workload.startsWith("callback_") && callbackCount === 0)
       throw new Error("Signer callback was not invoked");
     return {
-      duration_ms:
-        end - (workload.startsWith("callback_") ? callbackStart : start),
+      duration_ms: end - measuredStart,
+      timing_window: { start_ms: measuredStart, end_ms: end },
       completed: true,
       callback_count: callbackCount,
     };
@@ -89,8 +92,10 @@ export async function measure(api, fixture, state, workload, coldPath) {
       const messages = (await api.page(group, 1000)).map((message) =>
         api.normalize(message, keyById),
       );
+      const end = performance.now();
       return {
-        duration_ms: performance.now() - start,
+        duration_ms: end - start,
+        timing_window: { start_ms: start, end_ms: end },
         observed_messages: messages,
       };
     }
@@ -126,8 +131,10 @@ export async function measure(api, fixture, state, workload, coldPath) {
     await stream.end();
     stream = undefined;
     const messages = enrichLive(live, state.ids);
+    const end = performance.now();
     return {
-      duration_ms: performance.now() - start,
+      duration_ms: end - start,
+      timing_window: { start_ms: start, end_ms: end },
       observed_messages: messages,
       eager_snapshots: live
         .filter((event) => event.kind !== "reaction")
