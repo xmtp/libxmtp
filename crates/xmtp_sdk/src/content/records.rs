@@ -449,3 +449,18 @@ impl TryFrom<GroupUpdated> for xmtp_proto::xmtp::mls::message_contents::GroupUpd
         })
     }
 }
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct EncryptionKeys {
+    pub secret: Vec<u8>,
+    pub salt: Vec<u8>,
+    pub nonce: Vec<u8>,
+    pub digest: String,
+    pub length: u64,
+}
+
+#[derive(Clone, Debug, uniffi::Record)]
+pub struct EncryptedEncodedContent {
+    pub ciphertext: Vec<u8>,
+    pub keys: EncryptionKeys,
+}
