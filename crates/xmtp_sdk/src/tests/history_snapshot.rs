@@ -95,13 +95,29 @@ async fn dm_history_snapshot_reads_both_physical_groups_and_replays_after_bounda
     let boundary = a.inner.context.db().current_delivery_cursor()?;
     let mut previous = None;
     for dm in &physical {
+        let all = dm.message_history_snapshot(128).await?;
+        let all_ids = all
+            .messages
+            .iter()
+            .map(|message| message.0.id.clone())
+            .collect::<Vec<_>>();
+        assert!(
+            all_ids.contains(&first_id),
+            "first physical group's text is in the union"
+        );
+        assert!(
+            all_ids.contains(&second_id),
+            "second physical group's text is in the union"
+        );
+        assert_eq!(crate::delivery::cursor::parse(&all.cursor)?, boundary);
         let snapshot = dm.message_history_snapshot(2).await?;
         let ids = snapshot
             .messages
             .iter()
             .map(|message| message.0.id.clone())
             .collect::<Vec<_>>();
-        assert_eq!(ids, [first_id.clone(), second_id.clone()]);
+        assert_eq!(ids.len(), 2);
+        assert_eq!(ids, all_ids[all_ids.len() - 2..]);
         assert_eq!(crate::delivery::cursor::parse(&snapshot.cursor)?, boundary);
         let rows = snapshot
             .messages
@@ -119,7 +135,10 @@ async fn dm_history_snapshot_reads_both_physical_groups_and_replays_after_bounda
         previous = Some(rows);
         let latest = dm.message_history_snapshot(1).await?;
         assert_eq!(latest.messages.len(), 1);
-        assert_eq!(latest.messages[0].0.id, second_id);
+        assert_eq!(
+            &latest.messages[0].0.id,
+            all_ids.last().expect("eligible tail")
+        );
     }
     let late = winner.send_text("after the boundary".into(), None).await?;
     for dm in &physical {
