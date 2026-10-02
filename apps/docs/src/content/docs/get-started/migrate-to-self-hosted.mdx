@@ -23,7 +23,7 @@ unversioned install or a moving `dev` tag.
 
 | SDK     | Package or dependency         | Dev version                                                                                                                   |
 | ------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| Browser | `@xmtp/browser-sdk` | Build the checked-out SDK 8 source with `dev/nix-shell 'just js build-browser-sdk'`. |
+| Browser | `@xmtp/browser-sdk`           | Build the checked-out SDK 8 source with `dev/nix-shell 'just js build-browser-sdk'`.                                          |
 | Node    | `@xmtp/node-sdk`              | [6.2.0-dev.9f72722](https://registry.npmjs.org/@xmtp/node-sdk/6.2.0-dev.9f72722)                                              |
 | Agent   | `@xmtp/agent-sdk`             | [2.3.0-dev.9f72722](https://registry.npmjs.org/@xmtp/agent-sdk/2.3.0-dev.9f72722)                                             |
 | Kotlin  | `org.xmtp:android`            | [4.12.0-dev.9f72722](https://repo.maven.apache.org/maven2/org/xmtp/android/4.12.0-dev.9f72722/android-4.12.0-dev.9f72722.pom) |
@@ -66,7 +66,7 @@ Keep the label and database path stable after migration.
 
 | SDK     | Required change                                                                                                                                                                       |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Browser | Pass `backend: { url: "https://xmtp.example.com" }` and explicit `storage` to `Client.create` and `Client.build`. |
+| Browser | Pass `backend: { url: "https://xmtp.example.com" }` and explicit `storage` to `Client.create` and `Client.build`.                                                                     |
 | Node    | Pass `{ backendUrl: "https://xmtp.example.com" }`, or `{ backend }` with a pre-built `Backend`. Do not pass both forms.                                                               |
 | Agent   | Set `XMTP_BACKEND_URL` or pass `backendUrl` to `Agent.createFromEnv`. The environment variable takes precedence. Remove `XMTP_GATEWAY_HOST`. `XMTP_ENV` now labels the database only. |
 | Kotlin  | Supply `ClientOptions(api = ClientOptions.Api(backendUrl = "https://xmtp.example.com"), ...)`. `env` defaults to `"local"`.                                                           |
