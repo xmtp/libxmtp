@@ -1,3 +1,19 @@
+/// Serialize an uncompressed content envelope with the shared wire format.
+#[xmtp_macro::sdk_export(pure)]
+pub fn encode_encoded_content(content: EncodedContent) -> Vec<u8> {
+    use prost::Message;
+    ProtoEncodedContent::from(content).encode_to_vec()
+}
+
+/// Read a content envelope and apply the shared decompression limits.
+#[xmtp_macro::sdk_export(pure)]
+pub fn decode_encoded_content(bytes: Vec<u8>) -> Result<EncodedContent, crate::XmtpError> {
+    use prost::Message;
+    ProtoEncodedContent::decode(bytes.as_slice())
+        .map_err(|error| crate::XmtpError::malformed_envelope(error.to_string()))?
+        .try_into()
+}
+
 impl From<EncodedContent> for ProtoEncodedContent {
     fn from(value: EncodedContent) -> Self {
         Self {

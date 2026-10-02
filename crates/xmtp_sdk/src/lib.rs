@@ -100,7 +100,8 @@ pub use content::{
     MultiRemoteAttachment, Reaction, ReactionAction, ReactionSchema, ReactionV2Content,
     RemoteAttachment, ReplyContent, SendOptions, StandardContent, StandardContentKind,
     TransactionMetadata, TransactionReference, WalletCall, WalletCallMetadata, WalletSendCalls,
-    decode_standard, encode_standard, encode_text, standard_content_type,
+    decode_encoded_content, decode_standard, encode_encoded_content, encode_standard, encode_text,
+    standard_content_type,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use conversation::{Conversation, Conversations, Dm, Group};
