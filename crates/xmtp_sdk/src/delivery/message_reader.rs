@@ -30,9 +30,25 @@ pub struct MessageReader {
     #[cfg(test)]
     pub(crate) worker_reply_gate: Mutex<Option<Arc<HandoffGate>>>,
     #[cfg(test)]
+    pub(crate) request_gates: Mutex<RequestGates>,
+    #[cfg(test)]
+    pub(crate) request_cancel: Mutex<Option<CancellationToken>>,
+    #[cfg(test)]
     corrupt_next_message: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     idle_read: Arc<Notify>,
+}
+
+struct CancelMessageRead {
+    token: CancellationToken,
+    ack_admission: Arc<Mutex<bool>>,
+}
+
+impl Drop for CancelMessageRead {
+    fn drop(&mut self) {
+        *self.ack_admission.lock() = false;
+        self.token.cancel();
+    }
 }
 
 struct ReaderState {
@@ -50,6 +66,35 @@ struct PendingMessage {
 pub(crate) struct HandoffGate {
     pub(crate) arrived: tokio::sync::Notify,
     pub(crate) release: tokio::sync::Notify,
+}
+
+#[cfg(test)]
+#[derive(Clone, Default)]
+pub(crate) struct RequestGates {
+    pub(crate) before_check: Option<Arc<HandoffGate>>,
+    pub(crate) before_ack: Option<Arc<HandoffGate>>,
+    pub(crate) after_ack: Option<Arc<HandoffGate>>,
+    pub(crate) settled: Option<Arc<Notify>>,
+}
+
+#[cfg(test)]
+struct RequestSettled(Option<Arc<Notify>>);
+
+#[cfg(test)]
+impl Drop for RequestSettled {
+    fn drop(&mut self) {
+        if let Some(settled) = &self.0 {
+            settled.notify_one();
+        }
+    }
+}
+
+#[cfg(test)]
+async fn wait_at_request_gate(gate: Option<Arc<HandoffGate>>) {
+    if let Some(gate) = gate {
+        gate.arrived.notify_one();
+        gate.release.notified().await;
+    }
 }
 
 impl MessageReader {
@@ -96,6 +141,10 @@ impl MessageReader {
             handoff_gate: Arc::new(Mutex::new(None)),
             #[cfg(test)]
             worker_reply_gate: Mutex::new(None),
+            #[cfg(test)]
+            request_gates: Mutex::new(RequestGates::default()),
+            #[cfg(test)]
+            request_cancel: Mutex::new(None),
             #[cfg(test)]
             corrupt_next_message: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
@@ -147,7 +196,17 @@ impl MessageReader {
     pub async fn next(&self) -> Result<Option<Message>, XmtpError> {
         let _request = self.request_lock.lock().await;
         let request_cancel = CancellationToken::new();
-        let _cancel_on_drop = super::CancelReadOnDrop(request_cancel.clone());
+        let ack_admission = Arc::new(Mutex::new(true));
+        let _cancel_on_drop = CancelMessageRead {
+            token: request_cancel.clone(),
+            ack_admission: ack_admission.clone(),
+        };
+        #[cfg(test)]
+        let gates = self.request_gates.lock().clone();
+        #[cfg(test)]
+        {
+            *self.request_cancel.lock() = Some(request_cancel.clone());
+        }
         let reader = self.reader.clone();
         let state = self.state.clone();
         let control = self.control.clone();
@@ -164,16 +223,31 @@ impl MessageReader {
         let ready = on_sdk_worker(
             self.context.clone(),
             Box::pin(async move {
+                #[cfg(test)]
+                let _settled = RequestSettled(gates.settled);
                 let mut reader = reader.lock().await;
+                #[cfg(test)]
+                wait_at_request_gate(gates.before_check).await;
                 if request_cancel.is_cancelled() {
                     return Ok(false);
                 }
+                #[cfg(test)]
+                wait_at_request_gate(gates.before_ack).await;
                 {
                     let mut state = state.lock();
                     if state.ended {
                         return Ok(false);
                     }
-                    if let Some(previous) = state.previous.take()
+                    // Taking the prior ACK and cancellation use the same admission lock.
+                    // Release it before the database write, so cancellation never waits for it.
+                    let previous = {
+                        let allowed = ack_admission.lock();
+                        if !*allowed {
+                            return Ok(false);
+                        }
+                        state.previous.take()
+                    };
+                    if let Some(previous) = previous
                         && let Err(error) = previous.acknowledge()
                         && !selection_changed(&error)
                     {
@@ -198,6 +272,8 @@ impl MessageReader {
                         }
                     }
                 }
+                #[cfg(test)]
+                wait_at_request_gate(gates.after_ack).await;
                 loop {
                     #[cfg(test)]
                     idle_read.notify_one();
