@@ -218,6 +218,10 @@ private func constructorLifetimeCycle(_ backend: BackendOptions, _ directory: UR
 
 func checkCallbackLifetime(backend: BackendOptions) async throws {
     let selected = ProcessInfo.processInfo.environment["SDK_CALLBACK_LIFETIME_FAMILY"]
+    let families = ["identity", "kind", "sign", "preAuthenticate", "credential", "eventStop", "eventEnd", "signatureRequest", "constructorFailure", "adoption", "readyResult"]
+    if let selected, !families.contains(selected) {
+        throw ConformanceFailure("Unknown callback lifetime family: \(selected)")
+    }
     for family in ["identity", "kind", "sign", "preAuthenticate"] {
         if let selected, selected != family {
             continue

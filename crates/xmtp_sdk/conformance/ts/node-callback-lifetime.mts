@@ -130,6 +130,29 @@ async function creationCycle(backendURL: string, family: Family) {
 
 export async function checkNodeCallbackLifetime(backendURL: string) {
   const selected = process.env.SDK_CALLBACK_LIFETIME_FAMILY;
+  const families = new Set([
+    "identity",
+    "kind",
+    "sign",
+    "preAuthenticate",
+    "credential",
+    "credentialOwnership",
+    "eventStop",
+    "eventEnd",
+    "signatureRequest",
+    "constructorFailure",
+    "adoption",
+    ...[
+      "messageValue",
+      "conversationValue",
+      "messageConnection",
+      "conversationConnection",
+      "messageClose",
+      "conversationClose",
+    ].flatMap((family) => [family, `${family}ClientEnd`]),
+  ]);
+  if (selected !== undefined && !families.has(selected))
+    throw new Error(`Unknown callback lifetime family: ${selected}`);
   if (selected === "credentialOwnership") {
     await checkNodeCredentialOwnership(backendURL);
     return;

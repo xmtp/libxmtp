@@ -2,6 +2,13 @@
 use super::*;
 use xmtp_db::ConnectionExt;
 
+#[cfg(not(test))]
+const COMPLETION_WAIT_LIMIT: xmtp_common::time::Duration =
+    xmtp_common::time::Duration::from_secs(30);
+#[cfg(test)]
+const COMPLETION_WAIT_LIMIT: xmtp_common::time::Duration =
+    xmtp_common::time::Duration::from_millis(20);
+
 struct ShutdownGate {
     entered: std::sync::atomic::AtomicBool,
     released: std::sync::atomic::AtomicBool,
@@ -54,6 +61,8 @@ pub struct SdkConformanceConstructorProbe {
     adopted: parking_lot::Mutex<Option<Client>>,
     ready_client: parking_lot::Mutex<Option<std::sync::Weak<Client>>>,
     shutdown: parking_lot::Mutex<Option<Arc<ShutdownGate>>>,
+    #[cfg(test)]
+    cleanup_end_failure: std::sync::atomic::AtomicBool,
 }
 
 #[xmtp_macro::sdk_export(native_only)]
@@ -68,6 +77,8 @@ impl SdkConformanceConstructorProbe {
             adopted: parking_lot::Mutex::new(None),
             ready_client: parking_lot::Mutex::new(None),
             shutdown: parking_lot::Mutex::new(None),
+            #[cfg(test)]
+            cleanup_end_failure: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -180,9 +191,9 @@ impl SdkConformanceConstructorProbe {
 
     /// Wait for task completion while the parent still owns the unconsumed output.
     pub async fn wait_for_completed(&self) -> Result<(), XmtpError> {
-        self.probe.started.notified().await;
-        let task = self.probe.task.lock().clone().expect("constructor task");
-        xmtp_common::time::timeout(xmtp_common::time::Duration::from_secs(30), async {
+        xmtp_common::time::timeout(COMPLETION_WAIT_LIMIT, async {
+            self.probe.started.notified().await;
+            let task = self.probe.task.lock().clone().expect("constructor task");
             while !task.is_finished() {
                 xmtp_common::time::sleep(xmtp_common::time::Duration::from_millis(1)).await;
             }
@@ -232,6 +243,10 @@ impl SdkConformanceConstructorProbe {
 
     /// End the client that the completed parent adopted.
     pub async fn end_adopted(&self) -> Result<(), XmtpError> {
+        #[cfg(test)]
+        if self.cleanup_end_failure.swap(false, Ordering::SeqCst) {
+            return Err(XmtpError::unknown("constructor cleanup end failed"));
+        }
         let client = self.adopted.lock().take();
         if let Some(client) = client {
             client.end().await?;
@@ -243,12 +258,14 @@ impl SdkConformanceConstructorProbe {
     pub async fn cleanup(&self) -> Result<(), XmtpError> {
         self.release_shutdown();
         self.release();
-        self.end_adopted().await?;
+        let ended = self.end_adopted().await;
         let client = self.probe.client.lock().clone();
-        if let Some(client) = client {
-            client.close().await.map_err(XmtpError::from_client)?;
-        }
-        Ok(())
+        let closed = if let Some(client) = client {
+            client.close().await.map_err(XmtpError::from_client)
+        } else {
+            Ok(())
+        };
+        ended.and(closed)
     }
 }
 
@@ -259,3 +276,6 @@ impl Drop for SdkConformanceConstructorProbe {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
