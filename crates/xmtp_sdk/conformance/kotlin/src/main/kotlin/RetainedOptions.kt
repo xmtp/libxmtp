@@ -5,6 +5,12 @@ import uniffi.xmtp_sdk.*
 
 // Native storage validates the pair; options() lifts the values back to Kotlin.
 internal suspend fun checkStoragePoolOptionsCrossTheNativeBoundary(backend: BackendOptions) {
+    val defaultPool = StoragePoolOptions()
+    check(defaultPool.min == null && defaultPool.max == null) { "default pool fields must stay absent" }
+    val explicitPool = StoragePoolOptions(min = 2u, max = 10u)
+    check(explicitPool.min == 2u && explicitPool.max == 10u) { "pool fields must stay distinct" }
+    val partialPool = StoragePoolOptions(max = 7u)
+    check(partialPool.min == null && partialPool.max == 7u) { "partial pool must keep the absent field" }
     val options =
         ClientOptions(
             backend = BackendSource.Options(backend),
