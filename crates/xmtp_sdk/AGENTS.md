@@ -60,27 +60,29 @@ Run commands from the repository root in the Nix shell. Run
   one empty SDK async call. It runs Node with `NODE_ENV=production`. It
   enables the off-by-default `bench` feature and writes separate bindings to
   `target/sdk-bench/`.
-- `dev/nix-shell 'just sdk check-isolation'` rejects shipped-code changes in `sdks/` or
-  `bindings/` on a façade branch. Its Task 1 exception accepts only the reviewed
-  PROC-032 backlink removal in four named SDK source files, checked against
-  their full base content. Later backlink changes need a reviewed gate update.
-  Its other exceptions are the exact files of the two design SDK-040 changes
+- `dev/nix-shell 'just sdk check-isolation self-hosted'` checks shipped SDK
+  and binding changes against the base. A Phase 2 switch admits only its SDK
+  directory. The marker must name the approved generated public product.
+  Unswitched sibling SDKs and retained bindings keep the original guard and
+  exact reviewed file pins. File mode changes still fail.
+  Pass the local base branch. CI can use its merge commit base.
+  On unswitched paths, the Task 1 exception accepts only the reviewed PROC-032
+  backlink removal in four named SDK source files, checked against their full
+  base content. Later backlink changes need a reviewed gate update.
+  The other exceptions are the exact files of the two design SDK-040 changes
   (retained undecodable content; the foreign Restored DM peer getter), pinned
-  in `crates/xmtp_sdk/dev/isolation-pins.tsv` to the git blob hash of their
-  reviewed content: a listed file passes only while it hashes to its pin.
+  in `crates/xmtp_sdk/dev/isolation-pins.tsv` to their reviewed git blob hashes.
+  A listed file passes only while its content matches its pin.
   The native CI update to `sdks/ios/VALIDATION.md` is also pinned. The gate
   permits deletion of the three retired `sdks/ios/dev/fly/` files only when
   their base contents match the reviewed blob hashes. It still rejects changes
-  to those scripts and deletion of other scripts.
+  to those scripts and deletion of other scripts on unswitched paths.
   After the last reviewed change to a listed file, run
   `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with it.
   One build-only diagnostic exception pins `bindings/wasm/wasm.just` with
   `--print-build-logs` on the existing test derivation. It keeps the same tests,
-  timeout, retries, and file mode.
-  The gate rejects code, scripts, generated output, and file-mode changes.
-  Locally, pass the base branch (`dev/nix-shell 'just sdk check-isolation self-hosted'`): a
-  branch tip that merges trunk otherwise looks like a pull request merge commit.
-  Tests and changelogs remain outside the shipped-code guard.
+  timeout, retries, and file mode. Tests and changelogs remain outside the
+  shipped-code guard.
 - `dev/nix-shell 'just sdk caller-cancellation-swift'` checks cancelled nonthrowing calls and
   real reader pre-poll, pending and READY handoff. It counts native cancel/free
   calls in generated conformance copies and requires the prior item to replay.
@@ -139,11 +141,18 @@ Run commands from the repository root in the Nix shell. Run
   and assets.
   The proof installs local copies under `target/sdk-codec-author/` and uses
   only the supported ESM roots in the codec package.
-- `dev/nix-shell 'just sdk manifest-check'` compares `docs/self-hosted/sdk-api-manifest.md`
-  with the old SDK sources, then checks that each Node and browser binding
-  re-export row names a real export of the generated package roots. A rename
-  names the new export; a removal names its replacement. Run
-  `dev/nix-shell 'just sdk generate'` first.
+- `dev/nix-shell 'just sdk manifest-check'` and
+  `dev/nix-shell 'just sdk-manifest-check'` check the same API manifest.
+  A switched SDK keeps its pinned pre-switch retention and removal ledger.
+  The same manifest counts its current public projection in a separate section.
+  Unswitched SDKs still match their current source declarations. Missing current
+  generated source or changed pinned rows fail. The checks also test rejection
+  of missing projections, altered ledger rows, and unswitched sibling changes.
+  Run generation first for each switched target. `XMTP_SDK_GENERATED_DIR`
+  selects the matched generated source input. After a source change, update the
+  current count with `dev/nix-shell 'python3.11 dev/sdk/inventory.py --write'`.
+  The SDK check also verifies retained TypeScript root exports for switched
+  targets. Before any switch, it verifies both TypeScript roots.
 - `dev/nix-shell 'just test crate xmtp_sdk'` runs the façade tests against the local backend.
 
 The generator lives in `apps/xmtp_sdk_bindgen/`. Its global UniFFI config maps
