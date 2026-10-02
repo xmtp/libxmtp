@@ -177,6 +177,12 @@ pub fn is_catalogue_content_type(content_type: ContentTypeId) -> bool {
     catalogue_entry(&content_type).is_some()
 }
 
+/// The catalogue push value. Unknown custom content types default to push.
+#[xmtp_macro::sdk_export(pure)]
+pub fn catalogue_content_type_should_push(content_type: ContentTypeId) -> bool {
+    catalogue_push_default(&content_type)
+}
+
 #[xmtp_macro::sdk_export(pure)]
 pub fn standard_content_type(kind: StandardContentKind) -> ContentTypeId {
     let kind = standard_type(kind);

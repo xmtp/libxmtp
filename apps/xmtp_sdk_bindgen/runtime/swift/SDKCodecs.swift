@@ -20,6 +20,14 @@ public struct TextCodec: ContentCodec {
         standardContentType(kind: .text)
     }
 
+    public func fallback(_ value: String) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: String) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
+    }
+
     public func encode(_ value: String) throws -> EncodedContent {
         try encodeStandard(value: .text(value))
     }
@@ -39,6 +47,14 @@ public struct MarkdownCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .markdown)
+    }
+
+    public func fallback(_ value: String) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: String) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
     }
 
     public func encode(_ value: String) throws -> EncodedContent {
@@ -62,6 +78,14 @@ public struct ReadReceiptCodec: ContentCodec {
         standardContentType(kind: .readReceipt)
     }
 
+    public func fallback(_ value: Void) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: Void) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
+    }
+
     public func encode(_: Void) throws -> EncodedContent {
         try encodeStandard(value: .readReceipt)
     }
@@ -81,6 +105,14 @@ public struct ReactionV2Codec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .reaction)
+    }
+
+    public func fallback(_ value: ReactionV2Content) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: ReactionV2Content) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
     }
 
     public func encode(_ value: ReactionV2Content) throws -> EncodedContent {
@@ -104,6 +136,14 @@ public struct AttachmentCodec: ContentCodec {
         standardContentType(kind: .attachment)
     }
 
+    public func fallback(_ value: Attachment) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: Attachment) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
+    }
+
     public func encode(_ value: Attachment) throws -> EncodedContent {
         try encodeStandard(value: .attachment(value))
     }
@@ -123,6 +163,14 @@ public struct RemoteAttachmentCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .remoteAttachment)
+    }
+
+    public func fallback(_ value: RemoteAttachment) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: RemoteAttachment) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
     }
 
     public func encode(_ value: RemoteAttachment) throws -> EncodedContent {
@@ -146,6 +194,14 @@ public struct MultiRemoteAttachmentCodec: ContentCodec {
         standardContentType(kind: .multiRemoteAttachment)
     }
 
+    public func fallback(_ value: MultiRemoteAttachment) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: MultiRemoteAttachment) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
+    }
+
     public func encode(_ value: MultiRemoteAttachment) throws -> EncodedContent {
         try encodeStandard(value: .multiRemoteAttachment(value))
     }
@@ -165,6 +221,14 @@ public struct TransactionReferenceCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .transactionReference)
+    }
+
+    public func fallback(_ value: TransactionReference) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: TransactionReference) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
     }
 
     public func encode(_ value: TransactionReference) throws -> EncodedContent {
@@ -188,6 +252,14 @@ public struct WalletSendCallsCodec: ContentCodec {
         standardContentType(kind: .walletSendCalls)
     }
 
+    public func fallback(_ value: WalletSendCalls) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: WalletSendCalls) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
+    }
+
     public func encode(_ value: WalletSendCalls) throws -> EncodedContent {
         try encodeStandard(value: .walletSendCalls(value))
     }
@@ -207,6 +279,14 @@ public struct ActionsCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .actions)
+    }
+
+    public func fallback(_ value: Actions) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: Actions) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
     }
 
     public func encode(_ value: Actions) throws -> EncodedContent {
@@ -230,6 +310,14 @@ public struct IntentCodec: ContentCodec {
         standardContentType(kind: .intent)
     }
 
+    public func fallback(_ value: Intent) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: Intent) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
+    }
+
     public func encode(_ value: Intent) throws -> EncodedContent {
         try encodeStandard(value: .intent(value))
     }
@@ -249,6 +337,14 @@ public struct ReplyCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .reply)
+    }
+
+    public func fallback(_ value: ReplyContent) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: ReplyContent) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
     }
 
     public func encode(_ value: ReplyContent) throws -> EncodedContent {
@@ -272,6 +368,14 @@ public struct GroupUpdatedCodec: ContentCodec {
         standardContentType(kind: .groupUpdated)
     }
 
+    public func fallback(_ value: GroupUpdated) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: GroupUpdated) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
+    }
+
     public func encode(_ value: GroupUpdated) throws -> EncodedContent {
         try encodeStandard(value: .groupUpdated(value))
     }
@@ -293,6 +397,14 @@ public struct DeleteMessageCodec: ContentCodec {
         standardContentType(kind: .deleteMessage)
     }
 
+    public func fallback(_ value: DeleteMessageContent) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: DeleteMessageContent) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
+    }
+
     public func encode(_ value: DeleteMessageContent) throws -> EncodedContent {
         try encodeStandard(value: .deleteMessage(messageId: value.messageId))
     }
@@ -312,6 +424,14 @@ public struct LeaveRequestCodec: ContentCodec {
     public init() {}
     public var type: ContentTypeId {
         standardContentType(kind: .leaveRequest)
+    }
+
+    public func fallback(_ value: LeaveRequest) throws -> String? {
+        try encode(value).fallback
+    }
+
+    public func shouldPush(_: LeaveRequest) throws -> Bool {
+        catalogueContentTypeShouldPush(contentType: type)
     }
 
     public func encode(_ value: LeaveRequest) throws -> EncodedContent {

@@ -273,3 +273,35 @@ fn text_minor_version_decodes() {
         StandardContent::Text(value) if value == "minor version"
     ));
 }
+
+// verifies: CTYPE-026, SEND-021
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn standalone_standard_hooks_use_canonical_rules() {
+    let leave = encode_standard(StandardContent::LeaveRequest(LeaveRequest {
+        authenticated_note: None,
+    }))
+    .unwrap();
+    assert_eq!(
+        leave.fallback.as_deref(),
+        Some("A member has requested leaving the group")
+    );
+    assert!(!catalogue_content_type_should_push(leave.r#type));
+    for kind in [
+        StandardContentKind::ReadReceipt,
+        StandardContentKind::Reaction,
+        StandardContentKind::GroupUpdated,
+        StandardContentKind::DeleteMessage,
+        StandardContentKind::LeaveRequest,
+    ] {
+        assert!(!catalogue_content_type_should_push(standard_content_type(
+            kind
+        )));
+    }
+    assert!(catalogue_content_type_should_push(ContentTypeId {
+        authority_id: "example.org".into(),
+        type_id: "note".into(),
+        version_major: 1,
+        version_minor: 0,
+    }));
+}

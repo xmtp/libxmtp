@@ -6,6 +6,7 @@ import {
   decodeStandard,
   encodeStandard,
   standardContentType,
+  catalogueContentTypeShouldPush,
   type ContentTypeId,
   type EncodedContent,
   type Attachment,
@@ -56,6 +57,14 @@ abstract class PureCodec<T> implements ContentCodec<T> {
 
   encode(value: T): EncodedContent {
     return encodeStandard(this.wrap(value));
+  }
+
+  fallback(value: T): string | undefined {
+    return this.encode(value).fallback;
+  }
+
+  shouldPush(_value: T): boolean {
+    return catalogueContentTypeShouldPush(this.type);
   }
 
   decode(encoded: EncodedContent): T {

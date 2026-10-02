@@ -87,6 +87,19 @@ abstract class StandardCodec<Value, Host> implements ContentCodec<Value> {
     }
   }
 
+  fallback(value: Value): string | undefined {
+    return this.encode(value).fallback;
+  }
+
+  shouldPush(value: Value): boolean {
+    const projection = currentProjection();
+    try {
+      return this.host.shouldPush!(this.lower(value, projection));
+    } catch (error) {
+      throw publicError(error);
+    }
+  }
+
   decode(encoded: EncodedContent): Value {
     const projection = currentProjection();
     try {
@@ -265,4 +278,9 @@ export class LeaveRequestCodec extends StandardCodec<
   constructor() {
     super(new HostLeaveRequest(), lowerLeaveRequest, liftLeaveRequest);
   }
+}
+
+// A subclass that overrides fallback keeps its hook.
+export function usesRustStandardFallback(codec: ContentCodec<never>): boolean {
+  return codec instanceof StandardCodec && codec.fallback === StandardCodec.prototype.fallback;
 }
