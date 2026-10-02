@@ -13,10 +13,10 @@ set shell := ["../dev/nix-shell"]
 
 # Build + stage the local bindings into bindings/<x>/dist via Nix
 bindings target="all":
-    ../dev/js/bindings {{ target }}
+    case "{{ target }}" in all) ../dev/js/sdk-package node && ../dev/js/bindings wasm ;; node) ../dev/js/sdk-package node ;; wasm) ../dev/js/bindings wasm ;; *) exit 2 ;; esac
 
 bindings-node:
-    ../dev/js/bindings node
+    ../dev/js/sdk-package node
 
 bindings-wasm:
     ../dev/js/bindings wasm

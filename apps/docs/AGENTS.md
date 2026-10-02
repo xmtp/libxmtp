@@ -28,8 +28,8 @@ Commands run in the `docs` Nix shell through the root `justfile`.
 - `dev/nix-shell 'just docs check'`: check source links and the composed artifact.
 - `dev/nix-shell 'just docs check-external'`: check external URLs with Lychee.
 
-`just docs build` and `just docs check-examples` stage local Node and WASM
-bindings, then run their package tasks with the pnpm dependency graph. Do not
+`just docs build` and `just docs check-examples` stage the local Node SDK and
+the remaining WASM binding, then run their package tasks with the pnpm dependency graph. Do not
 add a separate SDK build before either command.
 
 ## Build and check scripts

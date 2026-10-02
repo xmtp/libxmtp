@@ -4,9 +4,10 @@ root := justfile_directory()
 
 set shell := ["../../dev/nix-shell"]
 
-# Build and stage the local Node and WASM bindings before docs package tasks.
+# Stage the local Node SDK and the remaining WASM binding before docs tasks.
 bindings:
-    ../../dev/js/bindings
+    ../../dev/js/sdk-package node
+    ../../dev/js/bindings wasm
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
