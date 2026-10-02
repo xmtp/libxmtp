@@ -12,6 +12,8 @@ set -euo pipefail
 # for a comment.
 # Reviewed SDK-040 files, native CI documentation, and the build-only WASM
 # log recipe have content pins in crates/xmtp_sdk/dev/isolation-pins.tsv.
+# The reviewed PROC-052 reader repair pins the retained WASM reader and four
+# legacy SDK stream wrappers. Switched SDK deletions keep their own admission.
 # Each pin is a reviewed Git blob hash. A listed
 # file passes only while its content hashes to that pin, so a later pull request cannot change it
 # freely. After the last reviewed change to a listed file, refresh the pins with
