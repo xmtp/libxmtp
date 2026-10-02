@@ -11,7 +11,7 @@ import tempfile
 import subprocess
 import shutil
 import zipfile
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 import unittest
 
 
@@ -83,6 +83,16 @@ class PackagingTests(unittest.TestCase):
             (generated / "xmtp_sdkFFI.modulemap").write_text("fixture module")
             (generated / "runtime").mkdir()
             (generated / "runtime/Client.swift").write_text("fixture runtime")
+        if target == "android":
+            project = self.root / "crates/xmtp_sdk/packaging/android"
+            for name in (
+                "gradle.lockfile",
+                "buildscript-gradle.lockfile",
+                "gradle/verification-metadata.xml",
+            ):
+                file = project / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text("fixture dependency input")
         output = self.root / "products" / target
         if output.exists():
             shutil.rmtree(output)
@@ -104,9 +114,11 @@ class PackagingTests(unittest.TestCase):
                     archive.writestr(f"jni/{abi}/libxmtp_sdk.so", b"fixture native")
 
     def assemble_mobile(self, target, tool=None):
+        if not isinstance(tool, Mock):
+            tool = Mock(side_effect=tool or self.mobile_tool)
         with (
             patch.object(mobile, "ROOT", self.root),
-            patch.object(mobile, "run", side_effect=tool or self.mobile_tool),
+            patch.object(mobile, "run", tool),
             patch.object(
                 mobile.sys,
                 "argv",
@@ -131,6 +143,44 @@ class PackagingTests(unittest.TestCase):
             for path in output.rglob("*")
             if path.is_file()
         }
+
+    def test_android_dependency_inputs_are_required_before_tool_use(self):
+        for name in (
+            "gradle.lockfile",
+            "buildscript-gradle.lockfile",
+            "gradle/verification-metadata.xml",
+        ):
+            with self.subTest(name=name):
+                output = self.prepare_mobile_stage("android")
+                previous = self.product_files(output)
+                project = self.root / "crates/xmtp_sdk/packaging/android"
+                (project / name).unlink()
+                tool = Mock(side_effect=self.mobile_tool)
+                with self.assertRaisesRegex(
+                    ValueError, "Android dependency input missing"
+                ):
+                    self.assemble_mobile("android", tool)
+                tool.assert_not_called()
+                self.assertEqual(self.product_files(output), previous)
+                self.assertEqual(
+                    list(output.parent.glob(".sdk-mobile-stage-*")), []
+                )
+
+    def test_android_stage_uses_strict_read_only_dependency_inputs(self):
+        self.prepare_mobile_stage("android")
+
+        def tool(command, **kwargs):
+            self.assertEqual(command[0], "sdks/android/gradlew")
+            self.assertIn("--dependency-verification=strict", command)
+            self.assertIn("--max-workers=2", command)
+            self.assertFalse(any(
+                arg.startswith(("--write-locks", "--update-locks",
+                                "--write-verification-metadata"))
+                for arg in command
+            ))
+            self.mobile_tool(command, **kwargs)
+
+        self.assemble_mobile("android", tool)
 
     def test_mobile_late_tool_failure_preserves_prior_and_cleans_fresh_stage(self):
         for target in ("ios", "android"):
