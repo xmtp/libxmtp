@@ -1,6 +1,6 @@
 import SwiftData
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 /// Screen displayed by default when the user has logged in.
 ///

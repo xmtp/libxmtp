@@ -7,7 +7,9 @@ private func matchingRecordWire<C: ContentCodec>(
 ) throws -> Bool {
     let encoded = try codec.encode(value)
     let decoded = try codec.decode(encoded)
-    return try sameEncoded(encoded, expected) && equal(decoded, value) && sameEncoded(codec.encode(decoded), expected)
+    return try sameEncoded(encoded, expected) && equal(decoded, value) && sameEncoded(codec.encode(decoded), expected) &&
+        codec.fallback(value) == expected.fallback &&
+        codec.shouldPush(value) == catalogueContentTypeShouldPush(contentType: expected.type)
 }
 
 func matchesRust(_ codec: ReactionV2Codec, _ value: ReactionV2Content, _ expected: EncodedContent) throws -> Bool {

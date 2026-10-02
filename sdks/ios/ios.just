@@ -6,17 +6,17 @@ export XMTP_BACKEND_URL := env("XMTP_BACKEND_URL", "")
 
 set shell := ["../../dev/nix-shell"]
 
-root := justfile_directory()
+root := justfile_directory() + "/../.."
 
 # The backend port differs per worktree. `_env` loads dev/docker/.env, written
 # by dev/worktree-env, so the suites reach this worktree's own backend.
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
-# Verify iOS SDK builds (bindings + Swift)
+# Build the generated SDK and Apple package
 
 # Package.swift is at repo root, so cd there for swift commands
 check:
-    ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift build
+    ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && swift build --jobs 2
 
 # Compile both retained example apps against this checkout's SDK.
 check-examples:
@@ -42,7 +42,7 @@ build:
 
 # Run the suite on an installed iOS simulator.
 test-simulator destination="platform=iOS Simulator,name=iPhone 17":
-    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" xcodebuild test -scheme XMTPiOS -destination '{{ destination }}'
+    {{ _env }} && ./dev/bindings && cd "$(git rev-parse --show-toplevel)" && TEST_RUNNER_XMTP_BACKEND_URL="$XMTP_BACKEND_URL" TEST_RUNNER_XMTP_IOS_PERFORMANCE="${XMTP_IOS_PERFORMANCE:-0}" xcodebuild test -scheme XmtpSdk -destination '{{ destination }}'
 
 # Generate a static DocC site. The output path is relative to the repository root.
 docs output="apps/docs/generated/reference/swift":

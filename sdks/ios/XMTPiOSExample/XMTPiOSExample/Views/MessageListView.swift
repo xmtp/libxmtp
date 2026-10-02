@@ -6,11 +6,11 @@
 //
 
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 struct MessageListView: View {
 	var myAddress: String
-	var messages: [DecodedMessage]
+	var messages: [Message]
 	var isGroup = false
 
 	var body: some View {
@@ -22,7 +22,7 @@ struct MessageListView: View {
 				}
 
 				VStack {
-					ForEach(Array(messages.sorted(by: { $0.sentAt < $1.sentAt }).enumerated()), id: \.0) { i, message in
+					ForEach(Array(messages.sorted(by: { $0.sentAt.ns < $1.sentAt.ns }).enumerated()), id: \.0) { i, message in
 						MessageCellView(myAddress: myAddress, message: message, isGroup: isGroup)
 							.transition(.scale)
 							.id(i)

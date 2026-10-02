@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		0286B7F42D97E5C100984C0A /* XMTPiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 0286B7F32D97E5C100984C0A /* XMTPiOS */; };
+		0286B7F42D97E5C100984C0A /* XmtpSdk in Frameworks */ = {isa = PBXBuildFile; productRef = 0286B7F32D97E5C100984C0A /* XmtpSdk */; };
 		0286B7FA2D9A840C00984C0A /* BigInt in Frameworks */ = {isa = PBXBuildFile; productRef = 0286B7F92D9A840C00984C0A /* BigInt */; };
 /* End PBXBuildFile section */
 
@@ -28,7 +28,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				0286B7F42D97E5C100984C0A /* XMTPiOS in Frameworks */,
+				0286B7F42D97E5C100984C0A /* XmtpSdk in Frameworks */,
 				0286B7FA2D9A840C00984C0A /* BigInt in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -72,7 +72,7 @@
 			);
 			name = example;
 			packageProductDependencies = (
-				0286B7F32D97E5C100984C0A /* XMTPiOS */,
+				0286B7F32D97E5C100984C0A /* XmtpSdk */,
 				0286B7F92D9A840C00984C0A /* BigInt */,
 			);
 			productName = example;
@@ -357,9 +357,9 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
-		0286B7F32D97E5C100984C0A /* XMTPiOS */ = {
+		0286B7F32D97E5C100984C0A /* XmtpSdk */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = XMTPiOS;
+			productName = XmtpSdk;
 		};
 		0286B7F92D9A840C00984C0A /* BigInt */ = {
 			isa = XCSwiftPackageProductDependency;

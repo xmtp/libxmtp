@@ -1,5 +1,5 @@
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 struct InboxNameText: View {
 	@Environment(XmtpSession.self) private var session

@@ -12,6 +12,7 @@
   lib,
   pkg-config,
   protobuf,
+  just,
   mkShell,
   openssl,
   sqlite,
@@ -43,6 +44,7 @@ mkShell {
   nativeBuildInputs = [
     pkg-config
     protobuf
+    just
   ];
   buildInputs = [
     rust-ios-toolchain

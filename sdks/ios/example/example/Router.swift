@@ -1,5 +1,5 @@
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 /// The navigation stack for the logged-in session.
 ///
@@ -33,7 +33,7 @@ enum Route: Hashable, Identifiable, View {
 	case user(inboxId: String)
 
 	func hash(into hasher: inout Hasher) {
-		hasher.combine(hashValue)
+		hasher.combine(id)
 	}
 
 	static func == (lhs: Route, rhs: Route) -> Bool {

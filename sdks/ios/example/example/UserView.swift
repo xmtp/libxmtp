@@ -1,6 +1,6 @@
 import SwiftData
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 /// Display the user's profile info.
 struct UserView: View {

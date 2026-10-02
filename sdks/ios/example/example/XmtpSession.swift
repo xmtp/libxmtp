@@ -1,11 +1,10 @@
 import OSLog
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 /// The user's authenticated session with XMTP.
 ///
-/// This is how the Views can observe messaging data
-/// and interact with the XmtpClient.
+/// Views read messaging data and call the SDK through this session.
 @Observable
 class XmtpSession {
 	private static let logger = Logger.forClass(XmtpSession.self)
@@ -22,16 +21,16 @@ class XmtpSession {
 
 	private(set) var state: State = .loading
 	var inboxId: String? {
-		client?.inboxID
+		client?.inboxId()
 	}
 
 	private(set) var conversationIds: [String] = []
 	let conversations = ObservableCache<Conversation>(defaultValue: nil)
 	let conversationMembers = ObservableCache<[Member]>(defaultValue: [])
-	let conversationMessages = ObservableCache<[DecodedMessage]>(defaultValue: [])
+	let conversationMessages = ObservableCache<[Message]>(defaultValue: [])
 	let inboxes = ObservableCache<InboxState>(defaultValue: nil)
 
-	private var client: Client?
+	private var client: SDKClient?
 
 	init() {
 		// TODO: check for saved credentials from the keychain
@@ -40,7 +39,7 @@ class XmtpSession {
 			guard let client = self.client else {
 				throw XmtpSessionError.notInitialized
 			}
-			if let c = try await client.conversations.findConversation(conversationId: conversationId) {
+			if let c = try await client.conversations().getById(id: conversationId) {
 				return c
 			}
 			throw XmtpSessionError.unableToLoadData
@@ -49,7 +48,7 @@ class XmtpSession {
 			guard let client = self.client else {
 				return []
 			}
-			if let c = try await client.conversations.findConversation(conversationId: conversationId) {
+			if let c = try await client.conversations().getById(id: conversationId) {
 				return try await c.members()
 			}
 			return []
@@ -58,8 +57,8 @@ class XmtpSession {
 			guard let client = self.client else {
 				return []
 			}
-			if let c = try await client.conversations.findConversation(conversationId: conversationId) {
-				return try await c.messages(limit: 10) // TODO: paging etc.
+			if let c = try await client.conversations().getById(id: conversationId) {
+				return try await c.messages(options: nil) // TODO: paging etc.
 			}
 			return []
 		}
@@ -67,10 +66,7 @@ class XmtpSession {
 			guard let client = self.client else {
 				throw XmtpSessionError.notInitialized
 			}
-			if let inbox = try await client.inboxStatesForInboxIds(
-				refreshFromNetwork: true, // TODO: consider false sometimes?
-				inboxIds: [inboxId]
-			).first // there's only one.
+			if let inbox = try await client.inboxStates(ids: [inboxId], refreshFromNetwork: true).first // there's only one.
 			{
 				return inbox
 			}
@@ -87,38 +83,27 @@ class XmtpSession {
 			state = client == nil ? .loggedOut : .loggedIn
 		}
 
-		// TODO: accept as params
-		// TODO: use real account
-		let account = try PrivateKey.generate()
-		let dbKey = Data((0 ..< 32)
-			.map { _ in UInt8.random(in: UInt8.min ... UInt8.max) })
-
-		// To re-use a randomly generated account during dev,
-		// copy these from the logs of the first run:
-		//        let account = PrivateKey(jsonString: "...")
-		//        let dbKey = Data(base64Encoded: "...")
-		Self.logger.trace("dbKey: \(dbKey.base64EncodedString())")
-		Self.logger.trace("account: \((try? account.jsonString()) ?? "")")
-
-		client = try await Client.create(
-			account: account,
-			options: ClientOptions(api: .init(backendUrl: "http://localhost:5050"), dbEncryptionKey: dbKey)
+		let signer = await generateLocalSigner()
+		let backendUrl = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://localhost:5050"
+		client = try await SDKClient.create(
+			signer: signer,
+			options: ClientOptions(
+				backend: .options(options: BackendOptions(url: backendUrl)),
+				storage: StorageOptions(location: .default),
+			),
 		)
-		Self.logger.trace("inboxID: \((client?.inboxID) ?? "?")")
-
-		// TODO: save credentials in the keychain
 	}
 
 	func refreshConversations() async throws {
 		Self.logger.debug("refreshConversations")
-		_ = try await client?.conversations.syncAllConversations()
-		let conversations = await (try? client?.conversations.list()) ?? [] // TODO: paging etc.
-		conversationIds = conversations.map(\.id)
+		_ = try await client?.conversations().syncAll(consentStates: nil)
+		let conversations = try await client?.conversations().list() ?? [] // TODO: Add pagination.
+		conversationIds = conversations.map { $0.id() }
 	}
 
 	func refreshConversation(conversationId: String) async throws {
 		Self.logger.debug("refreshConversation \(conversationId)")
-		guard let c = try await client?.conversations.findConversation(conversationId: conversationId) else {
+		guard let c = try await client?.conversations().getById(id: conversationId) else {
 			return // TODO: consider logging failure instead
 		}
 		try await c.sync()
@@ -130,15 +115,24 @@ class XmtpSession {
 	}
 
 	func sendMessage(_ message: String, to conversationId: String) async throws -> Bool {
-		Self.logger.debug("sendMessage \(message) to \(conversationId)")
-		guard let c = try await client?.conversations.findConversation(conversationId: conversationId) else {
+		Self.logger.debug("Send a message to \(conversationId)")
+		guard let c = try await client?.conversations().getById(id: conversationId) else {
 			return false // TODO: consider logging failure instead
 		}
-		guard await (try? c.send(text: message)) != nil else {
-			return false
-		}
+		_ = try await c.sendText(text: message, options: nil)
 		_ = conversationMessages.reload(conversationId) // TODO: consider try/awaiting the roundtrip here
 		return true
+	}
+
+	func createConversation(peer: String, isGroup: Bool) async throws -> String {
+		guard let client else { throw XmtpSessionError.notInitialized }
+		let conversation: Conversation = if isGroup {
+			try await .group(group: client.conversations().createGroup(members: [peer], options: nil))
+		} else {
+			try await .dm(dm: client.conversations().createDm(peer: peer, options: nil))
+		}
+		try await refreshConversations()
+		return conversation.id()
 	}
 
 	func clear() async throws {
@@ -149,16 +143,14 @@ class XmtpSession {
 		conversationMessages.clear()
 		inboxes.clear()
 		// TODO: clear saved credentials etc
+		try await client?.end()
 		client = nil
 		state = .loggedOut
 	}
 }
 
 extension Conversation {
-	var name: String? {
-		if case let .group(g) = self {
-			return try? g.name()
-		}
-		return nil
+	var name: String {
+		id()
 	}
 }

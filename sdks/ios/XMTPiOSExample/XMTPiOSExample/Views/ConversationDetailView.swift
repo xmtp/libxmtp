@@ -6,17 +6,17 @@
 //
 
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 struct ConversationDetailView: View {
-	var client: Client
+	var client: SDKClient
 	var conversation: Conversation
 
-	@State private var messages: [DecodedMessage] = []
+	@State private var messages: [Message] = []
 
 	var body: some View {
 		VStack {
-			MessageListView(myAddress: client.publicIdentity.identifier, messages: messages)
+			MessageListView(myAddress: client.inboxId(), messages: messages)
 				.refreshable {
 					await loadMessages()
 				}
@@ -25,7 +25,11 @@ struct ConversationDetailView: View {
 				}
 				.task {
 					do {
-						for try await message in conversation.streamMessages() {
+						let stream: SDKMessageStream = switch conversation {
+						case let .group(group): try await client.messages(in: group)
+						case let .dm(dm): try await client.messages(in: dm)
+						}
+						for try await message in stream {
 							await MainActor.run {
 								messages.append(message)
 							}
@@ -37,24 +41,24 @@ struct ConversationDetailView: View {
 
 			MessageComposerView { text in
 				do {
-					try await conversation.send(text: text)
+					try await conversation.sendText(text: text, options: nil)
 				} catch {
 					print("Error sending message: \(error)")
 				}
 			}
 		}
-		.navigationTitle((try? conversation.id) ?? "")
+		.navigationTitle(conversation.id())
 		.navigationBarTitleDisplayMode(.inline)
 	}
 
 	func loadMessages() async {
 		do {
-			let messages = try await conversation.messages()
+			let messages = try await conversation.messages(options: nil)
 			await MainActor.run {
 				self.messages = messages
 			}
 		} catch {
-			print("Error loading messages for \(conversation.topic)")
+			print("Error loading messages for \(conversation.id())")
 		}
 	}
 }

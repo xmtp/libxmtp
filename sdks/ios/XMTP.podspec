@@ -1,35 +1,18 @@
+require 'json'
 Pod::Spec.new do |spec|
-  spec.name         = "XMTP"
-  spec.version      = "4.12.0-dev"
-
-  spec.summary      = "XMTP SDK Cocoapod"
-
-  spec.description  = <<-DESC
-  The XMTP cocoapod implements the XMTP protocol for iOS. It handles cryptographic operations and network communication with the XMTP network.
-                   DESC
-
-  spec.homepage     	= "https://github.com/xmtp/libxmtp"
-
-  spec.license      	= "MIT"
-  spec.author       	= { "XMTP" => "eng@xmtp.com" }
-
-  spec.platform      	= :ios, '14.0', :macos, '11.0'
-
-  spec.swift_version  = '5.10'
-
-  # Release archive contains libxmtp uniffi bindings Sources/** and LibXMTPSwiftFFI.xcframework
-  spec.source       	= { :http => "https://github.com/xmtp/libxmtp/releases/download/ios-#{spec.version}/XMTP-#{spec.version}.zip", :type => :zip }
-  spec.source_files  	= "Sources/**/*.swift"
-  spec.frameworks 		= "CryptoKit", "UIKit"
-
-  spec.dependency "SwiftProtobuf", "~> 1.38"
-  spec.dependency 'CryptoSwift', '= 1.8.3'
-  spec.dependency 'SQLCipher', '= 4.5.7'
-  spec.vendored_frameworks = 'LibXMTPSwiftFFI.xcframework'
-
-  # xcframework ships arm64 simulator only (x86_64 simulator dropped for Nix build compatibility)
-  spec.pod_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64' }
-  spec.user_target_xcconfig = { 'EXCLUDED_ARCHS[sdk=iphonesimulator*]' => 'x86_64' }
-
+  spec.name = 'XMTP'
+  spec.module_name = 'XmtpSdk'
+  spec.version = '8.0.0'
+  spec.summary = 'XMTP messaging SDK'
+  spec.description = 'The XMTP SDK uses Rust for messaging, storage, content and attachment transfers.'
+  spec.homepage = 'https://github.com/xmtp/libxmtp'
+  spec.license = 'MIT'
+  spec.author = { 'XMTP' => 'eng@xmtp.com' }
   spec.ios.deployment_target = '14.0'
+  spec.osx.deployment_target = '11.0'
+  spec.swift_version = '5.0'
+  receipt = JSON.parse(File.read(File.join(__dir__, 'ReleaseArtifacts.json')))
+  spec.source = { :http => receipt.fetch('url'), :sha256 => receipt.fetch('sha256'), :type => :zip }
+  spec.source_files = 'Sources/XmtpSdk/**/*.swift'
+  spec.vendored_frameworks = 'XmtpSdkFFI.xcframework'
 end

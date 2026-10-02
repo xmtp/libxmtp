@@ -11,7 +11,9 @@ func matchesRust<C: ContentCodec>(
 ) throws -> Bool where C.Value: Equatable {
     let encoded = try codec.encode(value)
     let decoded = try codec.decode(encoded)
-    return try sameEncoded(encoded, expected) && decoded == value && sameEncoded(codec.encode(decoded), expected)
+    return try sameEncoded(encoded, expected) && decoded == value && sameEncoded(codec.encode(decoded), expected) &&
+        codec.fallback(value) == expected.fallback &&
+        codec.shouldPush(value) == catalogueContentTypeShouldPush(contentType: expected.type)
 }
 
 /// A codec with no value, such as the read receipt: only the bytes compare.
@@ -20,7 +22,9 @@ func matchesRust<C: ContentCodec>(
 ) throws -> Bool where C.Value == Void {
     let encoded = try codec.encode(value)
     try codec.decode(encoded)
-    return try sameEncoded(encoded, expected) && sameEncoded(codec.encode(()), expected)
+    return try sameEncoded(encoded, expected) && sameEncoded(codec.encode(()), expected) &&
+        codec.fallback(value) == expected.fallback &&
+        codec.shouldPush(value) == catalogueContentTypeShouldPush(contentType: expected.type)
 }
 
 private let noteType = ContentTypeId(authorityId: "example.org", typeId: "note", versionMajor: 1, versionMinor: 0)

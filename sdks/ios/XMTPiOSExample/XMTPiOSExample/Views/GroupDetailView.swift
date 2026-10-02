@@ -6,18 +6,18 @@
 //
 
 import SwiftUI
-import XMTPiOS
+import XmtpSdk
 
 struct GroupDetailView: View {
-	var client: Client
-	var group: XMTPiOS.Group
+	var client: SDKClient
+	var group: XmtpSdk.Group
 
-	@State private var messages: [DecodedMessage] = []
+	@State private var messages: [Message] = []
 	@State private var isShowingSettings = false
 
 	var body: some View {
 		VStack {
-			MessageListView(myAddress: client.publicIdentity.identifier, messages: messages, isGroup: true)
+			MessageListView(myAddress: client.inboxId(), messages: messages, isGroup: true)
 				.refreshable {
 					await loadMessages()
 				}
@@ -26,7 +26,7 @@ struct GroupDetailView: View {
 				}
 				.task {
 					do {
-						for try await _ in group.streamMessages() {
+						for try await _ in try await client.messages(in: group) {
 							await loadMessages()
 						}
 					} catch {
@@ -36,7 +36,7 @@ struct GroupDetailView: View {
 
 			MessageComposerView { text in
 				do {
-					try await group.send(content: text)
+					try await group.sendText(text: text, options: nil)
 				} catch {
 					print("Error sending message: \(error)")
 				}
@@ -57,12 +57,12 @@ struct GroupDetailView: View {
 	func loadMessages() async {
 		do {
 			try await group.sync()
-			let messages = try await group.messages()
+			let messages = try await group.messages(options: nil)
 			await MainActor.run {
 				self.messages = messages
 			}
 		} catch {
-			print("Error loading messages for \(group.id)")
+			print("Error loading messages for \(group.id())")
 		}
 	}
 }
