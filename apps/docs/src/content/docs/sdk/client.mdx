@@ -94,17 +94,27 @@ val client = Client.create(account = signingKey, options = options)
 <TabItem label="Swift">
 
 ```swift
-let options = ClientOptions(
-  backend: .options(options: BackendOptions(url: "https://xmtp.example.com")),
-  storage: StorageOptions(location: .default, encryptionKey: keyBytes)
-)
-let client = try await SDKClient.create(signer: signingKey, options: options)
+func createClient(signer: Signer, databaseKey: Data) async throws -> SDKClient {
+  let options = ClientOptions(
+    backend: .options(options: BackendOptions(url: "https://xmtp.example.com")),
+    storage: StorageOptions(location: .default, encryptionKey: databaseKey)
+  )
+  return try await SDKClient.create(signer: signer, options: options)
+}
 ```
 
 </TabItem>
 </Tabs>
 
 ### Client options
+
+For persistent Swift storage, pass a securely generated or caller-stored 32-byte
+`databaseKey: Data`. Store it securely and reuse it when reopening the same
+database. Omitting `encryptionKey` selects unencrypted storage. Pass the key for
+all persistent locations: `StorageOptions(location: .default, encryptionKey:
+databaseKey)`, `StorageOptions(location: .directory(directory: directory),
+encryptionKey: databaseKey)`, or `StorageOptions(location: .explicit(dbPath:
+dbPath, attachmentsDir: attachmentsDir), encryptionKey: databaseKey)`.
 
 The table below describes JavaScript and Kotlin options. Swift uses the
 `ClientOptions` record. Set `backend` to `.options(options: BackendOptions(...))`
@@ -203,6 +213,7 @@ final class AppCredentials: CredentialSource {
 
 func createAppClient(
     signer: Signer,
+    databaseKey: Data,
     loadCredential: @escaping @Sendable () async throws -> Credential
 ) async throws -> SDKClient {
     let options = ClientOptions(
@@ -210,13 +221,17 @@ func createAppClient(
             url: "https://backend.example",
             credentials: AppCredentials(load: loadCredential)
         )),
-        storage: StorageOptions(location: .default)
+        storage: StorageOptions(location: .default, encryptionKey: databaseKey)
     )
     return try await SDKClient.create(signer: signer, options: options)
 }
 
-func reopenAppClient(identity: PublicIdentity, options: ClientOptions) async throws -> SDKClient {
-    try await SDKClient.build(identity: identity, options: options)
+func reopenAppClient(
+    identity: PublicIdentity, options: ClientOptions, databaseKey: Data
+) async throws -> SDKClient {
+    var persistent = options
+    persistent.storage.encryptionKey = databaseKey
+    return try await SDKClient.build(identity: identity, options: persistent)
 }
 
 func bearerCredential(token: String, expiresAtSeconds: Int64) -> Credential {

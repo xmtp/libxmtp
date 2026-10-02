@@ -116,7 +116,9 @@ Use Android API 23 or later and Java 17 for the SDK build. Provide an Android
 
 Use Swift 6.1 or later. The package supports iOS 14 or later and macOS 11 or later.
 Pass `BackendOptions(url:)` through `ClientOptions.backend`. Use
-`StorageOptions` for the database location and optional 32-byte encryption key.
+`StorageOptions` for the database location. Pass a securely generated or
+caller-stored 32-byte `encryptionKey` for persistent storage. Keep the key and
+reuse it when reopening the database. Omitting it selects unencrypted storage.
 Call async methods from an async context.
 
 </TabItem>
