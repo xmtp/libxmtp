@@ -5,6 +5,25 @@ import { describe, expect, it } from "vitest";
 import { notificationBackend } from "./notificationBackend";
 
 describe("native notification request fields", () => {
+  it("rejects an empty HTTP URL before registration", async () => {
+    const backend = await notificationBackend();
+    let client: Awaited<ReturnType<typeof createClient>> | undefined;
+    try {
+      client = await createClient(createSigner().signer, {
+        backend: { url: backend.url },
+      });
+      await expect(
+        client.enableNotifications({
+          channel: { kind: "http", url: "", signingKey: new Uint8Array(16) },
+        }),
+      ).rejects.toBeInstanceOf(XmtpError.InvalidArgument);
+      expect(backend.registrations).toHaveLength(0);
+      expect(client.notificationState()).toEqual({ kind: "disabled" });
+    } finally {
+      await client?.end();
+      await backend.close();
+    }
+  });
   it.each(["apns", "fcm"] as const)(
     "registers the exact %s channel and token and restores its state",
     async (kind) => {
