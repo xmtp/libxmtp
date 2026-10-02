@@ -94,3 +94,128 @@ async fn history_snapshot_preserves_selection_and_rejects_replay_before_query() 
     assert_eq!((queries, writes), (0, 0));
     client.end().await?;
 }
+
+// verifies: DMS-016, PROC-037, CTYPE-027
+#[xmtp_common::test(unwrap_try = true)]
+async fn history_snapshots_keep_relations_and_redact_deleted_messages_and_parents() {
+    use crate::{Conversation, MessageBody, Reaction, ReactionAction, ReactionSchema};
+
+    let client = Client::create(crate::generate_local_signer().await, options()).await?;
+    let peer = Client::create(crate::generate_local_signer().await, options()).await?;
+    let conversations = client.conversations();
+    let group = conversations.create_group(vec![], None).await?;
+    let dm = conversations.create_dm(peer.inbox_id(), None).await?;
+    for conversation in [Conversation::Group { group }, Conversation::Dm { dm }] {
+        let mut content = crate::encode_text("snapshot-private-parent".into())?;
+        content.fallback = Some("snapshot-private-fallback".into());
+        let parent = match &conversation {
+            Conversation::Group { group } => group.send(content, None).await?,
+            Conversation::Dm { dm } => dm.send(content, None).await?,
+        };
+        let reply = conversations
+            .reply_to_message(parent.clone(), crate::encode_text("reply".into())?, None)
+            .await?;
+        let reaction = conversations
+            .react_to_message(
+                parent.clone(),
+                Reaction {
+                    content: "👍".into(),
+                    action: ReactionAction::Added,
+                    schema: ReactionSchema::Unicode,
+                },
+                None,
+            )
+            .await?;
+        let selected = match &conversation {
+            Conversation::Group { group } => group.message_history_snapshot(128).await?,
+            Conversation::Dm { dm } => dm.message_history_snapshot(128).await?,
+        };
+        let all = conversations.message_history_snapshot(128, None).await?;
+        for snapshot in [&selected, &all] {
+            let original = snapshot
+                .messages
+                .iter()
+                .find(|row| row.0.id == parent)
+                .expect("parent");
+            assert_eq!(original.0.reply_count, 1);
+            assert_eq!(original.0.reactions.len(), 1);
+            assert_eq!(original.0.reactions[0].id, reaction);
+            let answer = snapshot
+                .messages
+                .iter()
+                .find(|row| row.0.id == reply)
+                .expect("reply");
+            assert_eq!(
+                answer.0.in_reply_to.as_ref().expect("reply parent").id,
+                parent
+            );
+            assert!(!snapshot.cursor.is_empty());
+            assert!(original.0.delivery_cursor.is_some());
+            assert!(answer.0.delivery_cursor.is_some());
+        }
+        let recent = match &conversation {
+            Conversation::Group { group } => group.message_history_snapshot(2).await?,
+            Conversation::Dm { dm } => dm.message_history_snapshot(2).await?,
+        };
+        assert_eq!(
+            recent
+                .messages
+                .iter()
+                .map(|row| row.0.id.clone())
+                .collect::<Vec<_>>(),
+            [reply.clone(), reaction]
+        );
+        assert_eq!(recent.cursor, selected.cursor);
+        conversations.delete_message(parent.clone()).await?;
+        let selected = match &conversation {
+            Conversation::Group { group } => group.message_history_snapshot(128).await?,
+            Conversation::Dm { dm } => dm.message_history_snapshot(128).await?,
+        };
+        let all = conversations.message_history_snapshot(128, None).await?;
+        for snapshot in [&selected, &all] {
+            let deleted = snapshot
+                .messages
+                .iter()
+                .find(|row| row.0.id == parent)
+                .expect("deleted parent");
+            assert!(matches!(
+                deleted.0.content,
+                MessageContent::DeletedMessage(_)
+            ));
+            assert!(deleted.0.raw_bytes.is_empty());
+            assert!(deleted.0.fallback.is_none());
+            assert!(
+                deleted
+                    .0
+                    .encoded
+                    .as_ref()
+                    .expect("tombstone")
+                    .content
+                    .is_empty()
+            );
+            assert_eq!(deleted.0.reply_count, 0);
+            assert!(deleted.0.reactions.is_empty());
+            let answer = snapshot
+                .messages
+                .iter()
+                .find(|row| row.0.id == reply)
+                .expect("reply");
+            let embedded = answer.0.in_reply_to.as_ref().expect("deleted reply parent");
+            assert!(matches!(embedded.content, MessageBody::DeletedMessage(_)));
+            assert!(embedded.raw_bytes.is_empty());
+            assert!(embedded.fallback.is_none());
+            assert!(
+                embedded
+                    .encoded
+                    .as_ref()
+                    .expect("parent tombstone")
+                    .content
+                    .is_empty()
+            );
+            assert!(!format!("{:?}", deleted.0).contains("snapshot-private"));
+            assert!(!format!("{embedded:?}").contains("snapshot-private"));
+        }
+    }
+    client.end().await?;
+    peer.end().await?;
+}
