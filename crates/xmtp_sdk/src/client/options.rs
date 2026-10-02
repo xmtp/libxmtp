@@ -23,6 +23,9 @@ pub struct StorageOptions {
     pub location: StorageLocation,
     #[uniffi(default = None)]
     pub label: Option<String>,
+    /// An optional 32-byte key for native database encryption.
+    /// Omitting the key selects unencrypted storage. Store the key securely
+    /// and reuse the same key when reopening the database.
     #[cfg(not(target_arch = "wasm32"))]
     #[uniffi(default = None)]
     pub encryption_key: Option<Vec<u8>>,

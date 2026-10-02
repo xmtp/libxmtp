@@ -98,13 +98,13 @@ metrics = "0.24.6"
 metrics-exporter-prometheus = "0.18.3"
 metrics-util = "0.20.4"
 rustix = { version = "1.1.4", features = ["fs"] }
-ubrn_bindgen = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "330f9edbc3c4d6e6e948f6d2eb2724358668b79a", features = [
+ubrn_bindgen = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "e9bb10640ff5220e7b892624e5430fbc7cba748d", features = [
   "wasm",
 ] }
-ubrn_common = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "330f9edbc3c4d6e6e948f6d2eb2724358668b79a", features = [
+ubrn_common = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "e9bb10640ff5220e7b892624e5430fbc7cba748d", features = [
   "wasm",
 ] }
-uniffi-runtime-wasm = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "330f9edbc3c4d6e6e948f6d2eb2724358668b79a" }
+uniffi-runtime-wasm = { git = "https://github.com/neekolas/uniffi-bindgen-react-native.git", rev = "e9bb10640ff5220e7b892624e5430fbc7cba748d" }
 # must stay on this version for compatibility with sha2 and ed25519_dalek
 hkdf = "0.12.4"
 hpke-rs = { version = "0.6", features = ["hazmat", "serialization", "libcrux"] }
@@ -348,4 +348,4 @@ arc_with_non_send_sync = "allow"
 uninlined_format_args = "allow"
 [workspace.metadata.xmtp-sdk-fork]
 # Cargo.lock pins all three packages to this commit. SDK lint checks the lock.
-rev = "330f9edbc3c4d6e6e948f6d2eb2724358668b79a"
+rev = "e9bb10640ff5220e7b892624e5430fbc7cba748d"
