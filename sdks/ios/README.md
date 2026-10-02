@@ -9,6 +9,13 @@ Use `import XmtpSdk`. The package has one static native XCFramework. CocoaPods
 uses the same archive and SHA256 receipt. The pod name is `XMTP`; its module is
 `XmtpSdk`. This change starts at version `8.0.0`.
 
+For a local CocoaPods checkout, first run `dev/nix-shell 'just ios build'`.
+Point the Podfile at `sdks/ios` with `:path`. When no release receipt exists,
+the podspec selects `Artifacts/XmtpSdkFFI.xcframework`. A released pod uses the
+archive URL and checksum in `ReleaseArtifacts.json`. An invalid receipt fails
+evaluation. The `ios-<version>` tag is a release source template. It does not
+mean that an unpublished version has an available tag or archive.
+
 Create a client with a signer and explicit backend options:
 
 ```swift
