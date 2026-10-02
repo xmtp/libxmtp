@@ -1,5 +1,6 @@
 import { setImmediate } from "node:timers/promises";
 
+import { ReaderStream } from "@node-private/streams/reader.js";
 import {
   ConversationStream,
   MessageStream,
@@ -84,6 +85,78 @@ const message = {
 afterEach(() => vi.restoreAllMocks());
 
 describe("Agent stream lifecycle", () => {
+  it.each([
+    ["abort", false],
+    ["end", false],
+    ["abort", true],
+    ["end", true],
+  ] as const)(
+    "cleans up after a throwing close callback on a real reader %s (reentry: %s) and restarts",
+    async (mode, reentry) => {
+      const streams: ReaderStream<unknown>[] = [];
+      const rawReaders: { end: ReturnType<typeof vi.fn> }[] = [];
+      const makeStream = (owner: object, options?: StreamOptions) => {
+        const pending = deferred<undefined>();
+        const raw = {
+          next: () => pending.promise,
+          end: vi.fn(async () => pending.resolve(undefined)),
+        };
+        rawReaders.push(raw);
+        const stream = new ReaderStream(async () => raw, owner, options);
+        streams.push(stream);
+        return stream;
+      };
+      const conversations = vi
+        .spyOn(ConversationStream, "open")
+        .mockImplementation(
+          (owner, _selection, options) =>
+            makeStream(owner, options) as ConversationStream,
+        );
+      const messages = vi
+        .spyOn(MessageStream, "open")
+        .mockImplementation(
+          (owner, _selection, options) =>
+            makeStream(owner, options) as MessageStream,
+        );
+      const client = { inboxId: "agent" } as Client;
+      const agent = new Agent({ client });
+      const abort = new AbortController();
+      const cause = new Error("app close failed");
+      let restart: Promise<void> | undefined;
+      const closed = vi.fn(() => {
+        if (reentry && !restart) {
+          restart = agent.stop().then(() => agent.start());
+        }
+        throw cause;
+      });
+      const stopped = vi.fn();
+      const reported = vi.spyOn(console, "error").mockImplementation(() => {});
+      agent.on("stop", stopped);
+      try {
+        await agent.start({ signal: abort.signal, onClose: closed });
+        if (mode === "abort") abort.abort();
+        else await streams[0]!.end();
+        await vi.waitFor(() => expect(stopped).toHaveBeenCalledOnce());
+        expect(rawReaders[0]!.end).toHaveBeenCalledOnce();
+        expect(rawReaders[1]!.end).toHaveBeenCalledOnce();
+        expect(reported).toHaveBeenCalledWith(
+          "XMTP stream close callback failed",
+          cause,
+        );
+        if (restart) await restart;
+        else await agent.start();
+        expect(conversations).toHaveBeenCalledTimes(2);
+        expect(messages).toHaveBeenCalledTimes(2);
+        // A late close from the old generation cannot stop the replacements.
+        await streams[0]!.end();
+        expect(rawReaders[2]!.end).not.toHaveBeenCalled();
+        expect(rawReaders[3]!.end).not.toHaveBeenCalled();
+      } finally {
+        await agent.stop();
+        await Promise.allSettled(streams.map((stream) => stream.end()));
+      }
+    },
+  );
   it("opens both readers once and waits for local readiness", async () => {
     const h = harness();
     const start = vi.fn();

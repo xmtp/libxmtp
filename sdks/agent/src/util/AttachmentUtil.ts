@@ -4,6 +4,7 @@ import {
   AttachmentCodec,
   encodeEncodedContent,
   encryptEncodedContent,
+  remoteAttachmentFromEncrypted,
   type Attachment,
   type Client,
   type EncryptionKeys,
@@ -38,17 +39,11 @@ export function createRemoteAttachment(
   encrypted: HostedAttachment,
   fileUrl: string,
 ): RemoteAttachment {
-  const url = new URL(fileUrl);
-  return {
-    url: url.toString(),
-    scheme: url.protocol.replace(/:$/, ""),
-    contentDigest: encrypted.digest,
-    contentLength: encrypted.payload.length,
-    filename: encrypted.filename,
-    secret: encrypted.secret,
-    salt: encrypted.salt,
-    nonce: encrypted.nonce,
-  };
+  return remoteAttachmentFromEncrypted(
+    fileUrl,
+    { ciphertext: encrypted.payload, keys: encrypted },
+    encrypted.filename,
+  );
 }
 
 /** Create and upload a file. The optional callback selects app-owned hosting. */

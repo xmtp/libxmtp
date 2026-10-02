@@ -372,17 +372,27 @@ export class Agent<ContentTypes = unknown> extends EventEmitter<
     const close = (
       reason: Parameters<NonNullable<StreamOptions["onClose"]>>[0],
     ) => {
-      options?.onClose?.(reason);
-      if (!isCurrent()) return;
-      if (reason.kind === "failed") {
-        void this.#handleStreamError(
-          new AgentStreamingError(1004, "Agent stream failed.", reason.error),
-          generation,
-        );
-      } else {
-        void this.stop().catch((error) =>
-          this.#runErrorChain(error, { client: this.#client }),
-        );
+      try {
+        options?.onClose?.(reason);
+      } finally {
+        // App callback failure must not retain this generation's readers.
+        // Reentrant cleanup can already have started a new generation.
+        if (isCurrent()) {
+          if (reason.kind === "failed") {
+            void this.#handleStreamError(
+              new AgentStreamingError(
+                1004,
+                "Agent stream failed.",
+                reason.error,
+              ),
+              generation,
+            );
+          } else {
+            void this.stop().catch((error) =>
+              this.#runErrorChain(error, { client: this.#client }),
+            );
+          }
+        }
       }
     };
     const conversations = ConversationStream.open(this.#client, undefined, {
