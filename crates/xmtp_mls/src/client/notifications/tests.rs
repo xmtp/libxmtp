@@ -361,3 +361,37 @@ xmtp_common::if_native! {
         restored.disable_notifications().await?;
     }
 }
+
+#[xmtp_common::test(unwrap_try = true)]
+async fn notification_empty_tokens_and_url_fail_before_persistence_or_registration() {
+    for channel in [
+        NotificationChannel::Apns {
+            token: String::new(),
+        },
+        NotificationChannel::Fcm {
+            token: String::new(),
+        },
+        NotificationChannel::Http {
+            url: String::new(),
+            signing_key: vec![7; 16],
+        },
+    ] {
+        let (client, peer) = support::client().await;
+        assert!(matches!(
+            client
+                .enable_notifications(NotificationConfig::new(channel))
+                .await,
+            Err(NotificationError::InvalidArgument)
+        ));
+        let record = client.db().notification_record()?;
+        assert_eq!(peer.calls(support::Call::Register), 0);
+        assert!(record.push_config.is_none());
+        assert!(record.push_recipient_id.is_none());
+        assert!(record.push_recipient_secret.is_none());
+        assert_eq!(record.push_generation, 0);
+        assert!(matches!(
+            client.notification_state()?,
+            NotificationState::Disabled
+        ));
+    }
+}
