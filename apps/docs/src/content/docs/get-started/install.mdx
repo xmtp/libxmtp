@@ -9,7 +9,12 @@ Install the SDK for your platform. All SDKs use a backend URL. See [Create a cli
 
 ## Install a package
 
-Choose your package manager. These commands install the Browser package. Replace
+Browser SDK 8 is built from the checked-out source. Run
+`dev/nix-shell 'just js build-browser-sdk'`, then pack the matched public product
+at `target/sdk-packages/browser` with npm through `dev/nix-shell`. Keep its
+generated source, WASM, and runtime assets together.
+
+Choose your package manager for a published package. These commands install the Browser package. Replace
 `@xmtp/browser-sdk` with `@xmtp/node-sdk` for a Node application.
 
 <Tabs syncKey="pkg">
