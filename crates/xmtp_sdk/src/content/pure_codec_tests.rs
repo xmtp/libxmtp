@@ -328,3 +328,56 @@ fn leave_request_empty_note_is_absent_on_the_wire_and_after_decode() {
     };
     assert_eq!(decoded.authenticated_note, None);
 }
+
+// verifies: CTYPE-015, CTYPE-026
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn remote_attachment_projection_uses_ciphertext_and_shared_url_policy() {
+    let encrypted = || EncryptedEncodedContent {
+        ciphertext: b"ciphertext".to_vec(),
+        keys: EncryptionKeys {
+            secret: vec![1; 32],
+            salt: vec![2; 32],
+            nonce: vec![3; 12],
+            digest: "not the ciphertext digest".into(),
+            length: 999,
+        },
+    };
+    for url in [
+        "https://example.org/file?signature=value",
+        "http://localhost/file",
+        "http://127.0.0.1/file",
+        "http://[::1]/file",
+    ] {
+        let record =
+            remote_attachment_from_encrypted(url.into(), encrypted(), Some("file".into()))?;
+        assert_eq!(record.url, url);
+        assert_eq!(record.content_length, Some(10));
+        assert_eq!(
+            record.content_digest,
+            "305531dcc50ebca31cf1d5b31e9fc76ed51f66b3b6dd5a030c6539ae6532f979"
+        );
+        assert_eq!(record.secret, vec![1; 32]);
+        assert_eq!(record.salt, vec![2; 32]);
+        assert_eq!(record.nonce, vec![3; 12]);
+        assert_eq!(record.filename.as_deref(), Some("file"));
+        assert_eq!(
+            record.scheme,
+            if url.starts_with("https:") {
+                "https://"
+            } else {
+                "http://"
+            }
+        );
+    }
+    for url in [
+        "not a url",
+        "ftp://example.org/file",
+        "http://example.org/file",
+    ] {
+        assert!(matches!(
+            remote_attachment_from_encrypted(url.into(), encrypted(), None),
+            Err(crate::XmtpError::InvalidArgument(_))
+        ));
+    }
+}

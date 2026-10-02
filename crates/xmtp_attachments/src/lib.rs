@@ -14,7 +14,7 @@ pub use encoding::{
     AttachmentDecoder, ContentChunk, DecodedMeta, ciphertext_len, encoded_prefix,
     retained_fields_fit,
 };
-pub use http::{PutOutcome, Transfer, UploadRequest, download_cap};
+pub use http::{PutOutcome, Transfer, UploadRequest, check_content_url, download_cap};
 pub use sanitize::{local_file_name, sanitize_path_component, sanitize_path_component_with_limit};
 #[cfg(target_arch = "wasm32")]
 pub use store::OpfsStore;
