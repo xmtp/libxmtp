@@ -28,6 +28,7 @@ mod timeout_macro_test;
 ///
 /// Use `native_only` or `wasm_only` to limit the whole item to one target.
 /// Use `pure` for a synchronous free function with value-only arguments.
+/// A pure function can forward stock argument defaults with `pure, default(name = None)`.
 /// The SDK generator rejects object, client, and foreign-trait arguments on a
 /// pure export.
 /// The caller must depend on `uniffi` and `tracing`.

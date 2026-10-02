@@ -64,7 +64,6 @@ mod metadata;
 mod notifications;
 #[cfg(not(feature = "pure-only"))]
 mod preferences;
-#[cfg(not(feature = "pure-only"))]
 mod signer;
 #[cfg(not(feature = "pure-only"))]
 mod state;
@@ -161,10 +160,11 @@ pub use notifications::{
 };
 #[cfg(not(feature = "pure-only"))]
 pub use preferences::{ConsentEntity, ConsentRecord, ConsentState, Preferences};
+pub use signer::{PublicIdentity, PublicIdentityKind, generate_inbox_id};
 #[cfg(not(feature = "pure-only"))]
 pub use signer::{
-    PublicIdentity, PublicIdentityKind, Signature, Signer, SignerError, SignerKind, SigningRequest,
-    generate_local_signer, local_signer_from_private_key,
+    Signature, Signer, SignerError, SignerKind, SigningRequest, generate_local_signer,
+    local_signer_from_private_key,
 };
 #[cfg(not(feature = "pure-only"))]
 pub use state::{
