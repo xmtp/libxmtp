@@ -45,7 +45,14 @@ suspend fun configurePush(client: Client, conversation: Conversation, token: Str
 func configurePush(client: SDKClient, conversation: Conversation, token: String) async throws {
   try await client.enableNotifications(config: NotificationConfig(channel: .apns(token: token)))
   try await conversation.setNotifications(value: .disabled)
-  let enabled = try await conversation.state().notificationsEnabled
+  let enabled: Bool
+  switch conversation {
+  case let .group(group):
+    enabled = try await group.state().common.notificationsEnabled
+  case let .dm(dm):
+    enabled = try await dm.state().notificationsEnabled
+  }
+  print(enabled)
   try await conversation.setNotifications(value: .default)
   if case let .failed(error) = try client.notificationState() {
     print(error)
