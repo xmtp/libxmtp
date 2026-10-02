@@ -6,8 +6,8 @@ set shell := ["../../dev/nix-shell"]
 
 # Stage the local Node SDK and the remaining WASM binding before docs tasks.
 bindings:
-    ../../dev/js/sdk-package node
-    ../../dev/js/bindings wasm
+    ../../dev/js/sdk-stage node
+    ../../dev/js/sdk-stage browser
 
 # Linux gets Chromium from Nix. Run this once on macOS.
 browsers:
