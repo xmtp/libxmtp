@@ -13653,13 +13653,23 @@ public func FfiConverterTypeSigningRequest_lower(_ value: SigningRequest) -> Rus
 public struct StorageOptions: Equatable, Hashable {
     public var location: StorageLocation
     public var label: String?
+    /**
+     * An optional 32-byte key for native database encryption.
+     * Omitting the key selects unencrypted storage. Store the key securely
+     * and reuse the same key when reopening the database.
+     */
     public var encryptionKey: Data?
     public var pool: StoragePoolOptions?
     public var singleConnection: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(location: StorageLocation, label: String? = nil, encryptionKey: Data? = nil, pool: StoragePoolOptions? = nil, singleConnection: Bool = false) {
+    public init(location: StorageLocation, label: String? = nil,
+        /**
+         * An optional 32-byte key for native database encryption.
+         * Omitting the key selects unencrypted storage. Store the key securely
+         * and reuse the same key when reopening the database.
+         */encryptionKey: Data? = nil, pool: StoragePoolOptions? = nil, singleConnection: Bool = false) {
         self.location = location
         self.label = label
         self.encryptionKey = encryptionKey
