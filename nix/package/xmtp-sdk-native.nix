@@ -57,13 +57,11 @@ rust.buildPackage (
   // {
     pname = "xmtp-sdk-native-${target}";
     nativeBuildInputs = xmtp.base.commonArgs.nativeBuildInputs ++ [ python3 ];
-    CARGO_BUILD_JOBS = 2;
     version = xmtp.mkVersion rust;
     src = source;
     cargoArtifacts = xmtp.base.mkCargoArtifacts rust false (
       special
       // {
-        CARGO_BUILD_JOBS = 2;
         CARGO_BUILD_TARGET = target;
         buildPhaseCargoCommand = command;
       }

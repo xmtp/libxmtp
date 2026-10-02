@@ -231,7 +231,7 @@ Residual package review checks:
   the selected Node installation, including the Windows installation.
 
 - Use `dev/nix-shell 'just sdk check-native-nix'` to check the evaluated SDK
-  build inputs. Both build stages must use two Cargo jobs. Native stages use
+  build inputs. Cargo uses its normal or caller-selected job count. Native stages use
   vendored static OpenSSL. Apple stages keep macOS 11 and iOS 14 floors.
   `just sdk check-package-scripts` checks this gate under Python optimization
   with invalid inputs for each build stage.

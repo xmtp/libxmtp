@@ -230,7 +230,7 @@ def build(args):
             command += ["--target", "wasm32-unknown-unknown"]
         elif kind == "native" and args.rust_target:
             command += ["--target", args.rust_target]
-        env = dict(os.environ, CARGO_TARGET_DIR=str(cargo_target), CARGO_BUILD_JOBS="2")
+        env = dict(os.environ, CARGO_TARGET_DIR=str(cargo_target))
         if kind == "native":
             # The existing vendored SQLCipher feature supplies OpenSSL. Ship
             # its static bytes in native products, without build-host dylibs.

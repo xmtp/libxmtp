@@ -38,8 +38,6 @@ for name, phases in products.items():
         ("xmtp-sdk-ios-", "xmtp-sdk-android-")
     )
     for phase, inputs in phases.items():
-        if inputs["jobs"] != 2:
-            raise ValueError((name, phase, "Cargo job limit", inputs))
         if native:
             if inputs["vendor"] != "0":
                 raise ValueError((name, phase, "vendored OpenSSL", inputs))
