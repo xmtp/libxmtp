@@ -38,6 +38,12 @@ use xmtp_proto::xmtp::{
     mls::message_contents::EncodedContent,
 };
 
+pub(super) fn log_incoming_preference_updates(
+    updates: &[xmtp_proto::xmtp::device_sync::content::PreferenceUpdate],
+) {
+    tracing::info!(update_count = updates.len(), "Incoming preference updates");
+}
+
 const MAX_ATTEMPTS: i32 = 3;
 type PendingEvent = Arc<Mutex<Option<(u64, xmtp_events::EventEnvelope<InternalEvent>)>>>;
 
@@ -450,7 +456,7 @@ where
         match content {
             ContentProto::PreferenceUpdates(PreferenceUpdatesProto { updates }) => {
                 if is_external {
-                    tracing::info!("Incoming preference updates: {updates:?}");
+                    log_incoming_preference_updates(&updates);
                 }
                 tracing::info!(
                     "{} storing preference updates",
