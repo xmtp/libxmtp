@@ -35,7 +35,12 @@ const rustStandardFallback = Symbol.for("@xmtp/sdk/rust-standard-fallback");
 export function registerRustStandardFallback(codec: object, fallback: unknown): void {
   Object.defineProperty(codec, rustStandardFallback, {value: fallback});
 }
-export function usesRustStandardFallback(codec: ContentCodec<never>): boolean {
-  return Reflect.get(codec, rustStandardFallback) === codec.fallback &&
-    Reflect.has(codec, rustStandardFallback);
+export function usesRustStandardFallback(
+  codec: ContentCodec<never>,
+  fallback: unknown,
+): boolean {
+  return (
+    Reflect.get(codec, rustStandardFallback) === fallback &&
+    Reflect.has(codec, rustStandardFallback)
+  );
 }

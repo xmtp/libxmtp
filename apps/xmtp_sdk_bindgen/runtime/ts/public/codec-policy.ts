@@ -222,8 +222,15 @@ export function encodeForSend<T>(
   // Decide first, then read the hook only when it will be called: an
   // envelope that has a fallback skips the hook, so a throwing or invalid
   // `fallback` member does not fail that send.
-  if (encoded.fallback !== undefined || usesRustStandardFallback(codec)) return encoded;
-  const hook = runStep("fallback", () => codec.fallback, parseHook<T>);
+  if (encoded.fallback !== undefined) return encoded;
+  const hook = runStep(
+    "fallback",
+    () => {
+      const fallback = codec.fallback;
+      return usesRustStandardFallback(codec, fallback) ? undefined : fallback;
+    },
+    parseHook<T>,
+  );
   if (hook === undefined) return encoded;
   // Call each hook on its codec, so a class codec can use `this`.
   const fallback = runStep(
