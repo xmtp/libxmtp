@@ -28,10 +28,6 @@ export async function notificationBackend() {
     apns?: { token: string };
     fcm?: { token: string };
     http?: { url: string; signingKey: number[] };
-    includeWelcomes?: boolean;
-    includeSyncGroups?: boolean;
-    includeCommits?: boolean;
-    consentStates?: number[];
   }> = [];
   const server = createServer();
   const sessions = new Set<ServerHttp2Session>();

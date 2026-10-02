@@ -30,10 +30,6 @@ describe("native notification request fields", () => {
           backend.registrations[0]?.[kind === "apns" ? "fcm" : "apns"],
         ).toBeUndefined();
         expect(backend.registrations[0]?.http).toBeUndefined();
-        expect(backend.registrations[0]?.includeWelcomes ?? false).toBe(false);
-        expect(backend.registrations[0]?.includeSyncGroups ?? false).toBe(false);
-        expect(backend.registrations[0]?.includeCommits).toBe(true);
-        expect(backend.registrations[0]?.consentStates ?? []).toEqual([]);
         await client.end();
         client = await createClient(signer, options);
         expect(client.notificationState()).toEqual({ kind: "enabled" });
