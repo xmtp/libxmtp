@@ -837,7 +837,7 @@ async fn replay_ack_boundary(
     let before = alix
         .context
         .db()
-        .get_last_cursor(&group.group_id, EntityKind::Delivery)?;
+        .get_last_cursor(group.group_id, EntityKind::Delivery)?;
     let request = Arc::new(DeliveryAckRequest::default());
     let (arrived_tx, arrived_rx) = std::sync::mpsc::channel();
     let (release_tx, release_rx) = std::sync::mpsc::channel();
@@ -932,7 +932,7 @@ async fn replay_ack_boundary(
     assert_eq!(
         alix.context
             .db()
-            .get_last_cursor(&group.group_id, EntityKind::Delivery)?,
+            .get_last_cursor(group.group_id, EntityKind::Delivery)?,
         before,
         "replay must not change D"
     );
