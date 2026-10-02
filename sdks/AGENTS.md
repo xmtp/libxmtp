@@ -36,7 +36,10 @@ Native streams stay open during retryable network faults and resume in order.
 
 ## Task graph
 
-SDK recipes stage the Node binding or generated Browser product before package tasks. Do not use
+SDK recipes stage the Node binding or generated Browser product before package tasks.
+Source package builds run `dev/nix-shell 'just sdk generate <target>'` before staging.
+An explicit `XMTP_SDK_GENERATED_DIR` reuses that input and keeps the strict staging checks.
+Do not use
 `--parallel` or `--no-sort`; they can bypass task dependencies. See the
 `writing-typescript` skill for the root pnpm workspace and formatting.
 

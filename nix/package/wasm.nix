@@ -1,7 +1,12 @@
 {
+  emscripten,
   lib,
+  wasm-pack,
+  binaryen,
   mkShell,
   sqlite,
+  llvmPackages,
+  wasm-bindgen-cli,
   xmtp,
   chromedriver,
   google-chrome,
@@ -10,19 +15,49 @@
   nodejs_26,
   cargo-nextest,
   stdenv,
-  callPackage,
+  test ? false,
 }:
 let
-  inherit (xmtp) base;
+  inherit (xmtp) craneLib base;
   # Pinned Rust Version (must use mkToolchain to match the rest of the project)
   rust-toolchain =
     xmtp.mkNativeToolchain
       [ "wasm32-unknown-unknown" ]
       [ "clippy-preview" "rustfmt-preview" ];
+  rust = craneLib.overrideToolchain (p: rust-toolchain);
 
-  # The browser product uses the same matched generated roots as all SDKs.
-  bin = (callPackage ./xmtp-sdk.nix { }).generated;
-  commonArgs = base.commonArgs;
+  features = if test then "--features test-utils" else "";
+  bindingsFileset = lib.fileset.toSource {
+    root = ./../..;
+    fileset = xmtp.filesets.forCrate ./../../bindings/wasm;
+  };
+
+  commonArgs = base.commonArgs // {
+    meta.description = "WebAssembly Bindings";
+    # EM_CACHE = "$TMPDIR/.emscripten_cache";
+    # we need to set tmpdir for emscripten cache
+    preConfigure = ''
+      export HOME=$TMPDIR
+    '';
+    preBuild = ''
+      export HOME=$TMPDIR
+      # export EM_CACHE=$TMPDIR
+      # export EMCC_DEBUG=2
+    '';
+    nativeBuildInputs = base.commonArgs.nativeBuildInputs ++ [
+      wasm-pack
+      emscripten
+      llvmPackages.lld
+      binaryen
+      wasm-bindgen-cli
+    ];
+    buildInputs = [ sqlite ];
+    hardeningDisable = [
+      "zerocallusedregs"
+      "stackprotector"
+    ];
+  };
+
   commonEnv = {
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     inherit (xmtp.shellCommon.wasmEnv)
@@ -30,7 +65,44 @@ let
       AR_wasm32_unknown_unknown
       CFLAGS_wasm32_unknown_unknown
       ;
+    # why CC manually (zstd): https://github.com/gyscos/zstd-rs/issues/339
   };
+
+  # enables caching all build time crates
+  cargoArtifacts = xmtp.base.mkCargoArtifacts rust test (
+    commonEnv
+    // {
+      buildPhaseCargoCommand = "cargo build --package bindings_wasm ${features} --profile $CARGO_PROFILE --locked";
+    }
+  );
+
+  bin = rust.buildPackage (
+    (commonArgs // commonEnv)
+    // {
+      inherit cargoArtifacts;
+      src = bindingsFileset;
+      inherit
+        (rust.crateNameFromCargoToml {
+          cargoToml = ./../../bindings/wasm/Cargo.toml;
+        })
+        pname
+        ;
+      version = xmtp.mkVersion rust;
+      doInstallCargoArtifacts = false;
+      # wasm-pack installs to $out/dist itself; there is no cargo build log to install binaries from
+      doNotPostBuildInstallCargoBinaries = true;
+      installPhaseCommand = "true";
+      buildPhaseCargoCommand = ''
+        mkdir -p $out/dist
+
+        # wasm-pack appends its own --message-format=json to cargo; passing another kind is an error
+        HOME=$(mktemp -d fake-homeXXXX) wasm-pack \
+          --verbose build --target web --out-dir $out/dist \
+          --no-pack --release ./bindings/wasm -- \
+          ${features}
+      '';
+    }
+  );
 
   devShell = mkShell (
     commonEnv

@@ -9,6 +9,11 @@ case "$target" in
 esac
 
 cd "$ROOT"
+# Normal source callers build matched inputs before staging. Explicit generated
+# inputs are checked by the stager and keep the build/render reuse path.
+if [[ -z "${XMTP_SDK_GENERATED_DIR:-}" ]]; then
+  NIX_DEVSHELL=default "$ROOT/dev/nix-shell" "just sdk generate $target"
+fi
 node crates/xmtp_sdk/dev/stage-package.mjs "$target" --public
 
 product="${XMTP_SDK_PACKAGES_DIR:-${ROOT}/target/sdk-packages}/${target}"
