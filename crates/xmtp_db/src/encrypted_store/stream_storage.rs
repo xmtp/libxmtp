@@ -74,18 +74,65 @@ where
     C: ConnectionExt,
 {
     connection.raw_query(|conn| {
-        let nested =
+        let starting_depth =
             <SqliteConnection as Connection>::TransactionManager::transaction_manager_status_mut(
                 conn,
             )
             .transaction_depth()?
-            .is_some();
-        Ok(if nested {
-            conn.transaction(work)
+            .map_or(0, |depth| depth.get());
+        let mut commit_started = false;
+        let transaction_work = |conn: &mut SqliteConnection| {
+            let result = work(conn);
+            commit_started = result.is_ok();
+            result
+        };
+        let result = if starting_depth > 0 {
+            conn.transaction(transaction_work)
         } else {
-            conn.immediate_transaction(work)
-        })
+            conn.immediate_transaction(transaction_work)
+        };
+        Ok(recover_failed_commit(
+            conn,
+            starting_depth,
+            commit_started,
+            result,
+        ))
     })?
+}
+
+/// Recover only the transaction level whose COMMIT failed.
+/// Keep the original COMMIT cause, including when its rollback also fails.
+fn recover_failed_commit<T>(
+    conn: &mut SqliteConnection,
+    starting_depth: u32,
+    commit_started: bool,
+    result: Result<T, StorageError>,
+) -> Result<T, StorageError> {
+    let Err(StorageError::DieselResult(commit_error)) = result else {
+        return result;
+    };
+    if !commit_started {
+        return Err(StorageError::DieselResult(commit_error));
+    }
+    let depth =
+        <SqliteConnection as Connection>::TransactionManager::transaction_manager_status_mut(conn)
+            .transaction_depth();
+    let rollback = match depth {
+        Ok(depth) if depth.is_some_and(|depth| depth.get() > starting_depth) => {
+            <SqliteConnection as Connection>::TransactionManager::rollback_transaction(conn)
+        }
+        Ok(_) => Ok(()),
+        Err(error) => Err(error),
+    };
+    if let Err(rollback_error) = rollback {
+        return Err(StorageError::DieselResult(
+            diesel::result::Error::RollbackErrorOnCommit {
+                rollback_error: Box::new(rollback_error),
+                commit_error: Box::new(commit_error),
+            },
+        ));
+    }
+    Err(StorageError::DieselResult(commit_error))
 }
 
 /// A cancelled iterator ACK rolls back its tentative progress update.
@@ -119,33 +166,16 @@ where
                 ))
             }
         });
-        Ok(match result {
-            Ok(()) => Ok(true),
-            Err(StorageError::DieselResult(diesel::result::Error::RollbackTransaction))
-                if cancelled =>
-            {
-                Ok(false)
-            }
-            Err(StorageError::DieselResult(commit_error)) if commit_started => {
-                // SQLite can leave a failed COMMIT open, for example after a
-                // deferred constraint error. Roll it back before owner release.
-                let transaction =
-                    <SqliteConnection as Connection>::TransactionManager::transaction_manager_status_mut(conn);
-                if transaction.transaction_depth()?.is_some() {
-                    if let Err(rollback_error) =
-                        <SqliteConnection as Connection>::TransactionManager::rollback_transaction(conn)
-                    {
-                        return Ok(Err(StorageError::DieselResult(
-                            diesel::result::Error::RollbackErrorOnCommit {
-                                rollback_error: Box::new(rollback_error),
-                                commit_error: Box::new(commit_error),
-                            },
-                        )));
-                    }
+        Ok(
+            match recover_failed_commit(conn, 0, commit_started, result) {
+                Ok(()) => Ok(true),
+                Err(StorageError::DieselResult(diesel::result::Error::RollbackTransaction))
+                    if cancelled =>
+                {
+                    Ok(false)
                 }
-                Err(StorageError::DieselResult(commit_error))
-            }
-            Err(error) => Err(error),
-        })
+                Err(error) => Err(error),
+            },
+        )
     })?
 }

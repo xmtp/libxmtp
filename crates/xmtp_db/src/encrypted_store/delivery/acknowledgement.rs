@@ -7,12 +7,14 @@ use std::sync::atomic::{AtomicU8, Ordering};
 const ACTIVE: u8 = 0;
 const CANCELLED: u8 = 1;
 const COMMIT_ADMITTED: u8 = 2;
+const HANDOFF_ADMITTED: u8 = 2;
 
-/// Rust-only state shared by a pending iterator request and its storage write.
+/// Rust-only state shared by an iterator request, its ACK and its handoff.
 /// Cancellation never waits for the database writer.
 #[derive(Default)]
 pub struct DeliveryAckRequest {
     state: AtomicU8,
+    handoff_state: AtomicU8,
     #[cfg(any(test, feature = "test-utils"))]
     observer: parking_lot::Mutex<Option<Arc<dyn Fn(DeliveryAckPhase) + Send + Sync>>>,
 }
@@ -23,6 +25,24 @@ impl DeliveryAckRequest {
         let _ = self
             .state
             .compare_exchange(ACTIVE, CANCELLED, Ordering::AcqRel, Ordering::Acquire);
+        let _ = self.handoff_state.compare_exchange(
+            ACTIVE,
+            CANCELLED,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
+    }
+
+    /// Selection checks precede this atomic handoff decision.
+    pub fn admit_handoff(&self) -> bool {
+        self.handoff_state
+            .compare_exchange(
+                ACTIVE,
+                HANDOFF_ADMITTED,
+                Ordering::AcqRel,
+                Ordering::Acquire,
+            )
+            .is_ok()
     }
 
     pub fn is_cancelled(&self) -> bool {

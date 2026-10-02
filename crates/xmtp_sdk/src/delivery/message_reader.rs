@@ -79,6 +79,7 @@ pub(crate) struct RequestGates {
     pub(crate) before_check: Option<Arc<HandoffGate>>,
     pub(crate) before_ack: Option<Arc<HandoffGate>>,
     pub(crate) after_ack: Option<Arc<HandoffGate>>,
+    pub(crate) after_cancel_check: Option<Arc<HandoffGate>>,
     pub(crate) after_take: Option<Arc<AckAdmissionGate>>,
     pub(crate) during_write: Option<Arc<AckAdmissionGate>>,
     pub(crate) settled: Option<Arc<Notify>>,
@@ -303,10 +304,13 @@ impl MessageReader {
                         }
                     }
                     if let Some(pending) = state.pending.take() {
-                        match pending.acknowledgement.check_owner() {
-                            Ok(()) => {
+                        match pending
+                            .acknowledgement
+                            .check_owner_cancellable(&ack_admission)
+                        {
+                            Ok(admitted) => {
                                 state.pending = Some(pending);
-                                return Ok(true);
+                                return Ok(admitted);
                             }
                             Err(error) if selection_changed(&error) => {
                                 pending.acknowledgement.reject();
@@ -400,9 +404,23 @@ impl MessageReader {
                         }
                         return Ok(false);
                     }
+                    #[cfg(test)]
+                    wait_at_request_gate(gates.after_cancel_check.clone()).await;
                     // Preparation does not admit the item. This check is the handoff.
-                    match item.acknowledgement.check_owner() {
-                        Ok(()) => {}
+                    match item.acknowledgement.check_owner_cancellable(&ack_admission) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            let mut state = state.lock();
+                            if state.ended {
+                                item.acknowledgement.reject();
+                            } else {
+                                state.pending = Some(PendingMessage {
+                                    message,
+                                    acknowledgement: item.acknowledgement,
+                                });
+                            }
+                            return Ok(false);
+                        }
                         Err(error) if selection_changed(&error) => {
                             item.acknowledgement.reject();
                             continue;

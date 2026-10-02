@@ -186,19 +186,37 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
         self.check_dispatch(true)
     }
 
+    /// Keep a cancelled iterator request from admitting a prepared message.
+    pub fn check_owner_cancellable(&self, request: &DeliveryAckRequest) -> Result<bool> {
+        self.check_dispatch_with_request(true, Some(request))
+    }
+
     fn check_dispatch(&self, dispatch: bool) -> Result<()> {
+        self.check_dispatch_with_request(dispatch, None).map(|_| ())
+    }
+
+    fn check_dispatch_with_request(
+        &self,
+        dispatch: bool,
+        request: Option<&DeliveryAckRequest>,
+    ) -> Result<bool> {
         if let Some(error) = self.session.background_error() {
             return Err(error);
         }
-        let result = self.begin_dispatch(&mut self.pending.state.lock(), dispatch);
+        let result = self.begin_dispatch(&mut self.pending.state.lock(), dispatch, request);
         match result {
             Err(LocalDeliveryError::SelectionChanged) => Err(LocalDeliveryError::SelectionChanged),
             Err(error) => Err(self.session.fail(error)),
-            Ok(()) => Ok(()),
+            result => result,
         }
     }
 
-    fn begin_dispatch(&self, state: &mut AcknowledgementState, dispatch: bool) -> Result<()> {
+    fn begin_dispatch(
+        &self,
+        state: &mut AcknowledgementState,
+        dispatch: bool,
+        request: Option<&DeliveryAckRequest>,
+    ) -> Result<bool> {
         match *state {
             AcknowledgementState::Reselect => return Err(LocalDeliveryError::SelectionChanged),
             AcknowledgementState::Rejected => {
@@ -206,7 +224,8 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
             }
             AcknowledgementState::Failed => return Err(LocalDeliveryError::AcknowledgementFailed),
             AcknowledgementState::Dispatched | AcknowledgementState::Acknowledged => {
-                return self.session.check_owner();
+                self.session.check_owner()?;
+                return Ok(request.is_none_or(DeliveryAckRequest::admit_handoff));
             }
             AcknowledgementState::Waiting => {}
         }
@@ -232,9 +251,12 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
             return Err(LocalDeliveryError::SelectionChanged);
         }
         if dispatch {
+            if !request.is_none_or(DeliveryAckRequest::admit_handoff) {
+                return Ok(false);
+            }
             *state = AcknowledgementState::Dispatched;
         }
-        Ok(())
+        Ok(true)
     }
 
     /// Persist after the callback returns successfully, or at the next iterator request.
@@ -268,7 +290,7 @@ impl<Context: XmtpSharedContext> DeliveryAcknowledgement<Context> {
             AcknowledgementState::Reselect => return Err(LocalDeliveryError::SelectionChanged),
             AcknowledgementState::Waiting | AcknowledgementState::Dispatched => {}
         }
-        let result = self.begin_dispatch(&mut state, true).and_then(|()| {
+        let result = self.begin_dispatch(&mut state, true, None).and_then(|_| {
             self.session.check_owner()?;
             if let Some(owner) = self.session.owner {
                 let db = self.session.context.db();
