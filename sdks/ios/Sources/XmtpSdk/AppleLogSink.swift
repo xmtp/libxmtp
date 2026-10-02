@@ -21,7 +21,7 @@ public final class AppleLogSink: LogSink, @unchecked Sendable {
 		let fields = record.fields.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
 		logger.log(
 			level: level,
-			"[\(record.target, privacy: .public)] \(record.message, privacy: .public) \(fields, privacy: .public) dropped=\(record.droppedRecords)",
+			"[\(record.target, privacy: .private)] \(record.message, privacy: .private) \(fields, privacy: .private) dropped=\(record.droppedRecords)",
 		)
 	}
 }

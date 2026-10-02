@@ -16,28 +16,35 @@ archive URL and checksum in `ReleaseArtifacts.json`. An invalid receipt fails
 evaluation. The `ios-<version>` tag is a release source template. It does not
 mean that an unpublished version has an available tag or archive.
 
-Create a client with a signer and explicit backend options:
+Create a client with a signer, explicit backend options, and the app's stored
+32-byte database key:
 
 ```swift
+import Foundation
 import XmtpSdk
 
-let signer = await generateLocalSigner()
-let client = try await SDKClient.create(
-    signer: signer,
-    options: ClientOptions(
-        backend: .options(options: BackendOptions(url: "https://backend.example")),
-        storage: StorageOptions(location: .default)
+func connect(signer: any Signer, databaseKey: Data) async throws {
+    let client = try await SDKClient.create(
+        signer: signer,
+        options: ClientOptions(
+            backend: .options(options: BackendOptions(url: "https://backend.example")),
+            storage: StorageOptions(location: .default, encryptionKey: databaseKey)
+        )
     )
-)
-let group = try await client.conversations().createGroup(members: [String](), options: nil)
-_ = try await group.sendText(text: "Hello", options: nil)
-for try await message in try await client.messages(in: group) {
-    if case .standard(.text(let text)) = message.content { print(text) }
+    let group = try await client.conversations().createGroup(members: [String](), options: nil)
+    _ = try await group.sendText(text: "Hello", options: nil)
+    for try await message in try await client.messages(in: group) {
+        if case .standard(.text(let text)) = message.content { print(text) }
+    }
+    try await client.end()
 }
-try await client.end()
 ```
 
 Default storage uses the app's Application Support directory and bundle ID.
+Store the database key in the Keychain. Use the same key to open the database
+again. If `encryptionKey` is absent, native storage is unencrypted. Do not write
+the key to logs. The simple example makes a new signer and
+database key for each login. It does not reopen a saved account.
 Use `.directory` or `.explicit` when the app selects its own path. Use
 `.inMemory` for a temporary client. Call `end()` when the app releases a client.
 Automatic Apple lifecycle management is on by default. It suspends live streams

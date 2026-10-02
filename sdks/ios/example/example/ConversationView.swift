@@ -25,7 +25,7 @@ struct ConversationView: View {
 				try await session.refreshConversation(conversationId: conversationId)
 			}
 		}
-		.navigationTitle(session.conversations[conversationId].value?.name ?? "")
+		.navigationTitle(session.conversationNames[conversationId].value ?? "Conversation")
 	}
 }
 

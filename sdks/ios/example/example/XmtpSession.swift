@@ -1,4 +1,5 @@
 import OSLog
+import Security
 import SwiftUI
 import XmtpSdk
 
@@ -26,6 +27,7 @@ class XmtpSession {
 
 	private(set) var conversationIds: [String] = []
 	let conversations = ObservableCache<Conversation>(defaultValue: nil)
+	let conversationNames = ObservableCache<String>(defaultValue: "Conversation")
 	let conversationMembers = ObservableCache<[Member]>(defaultValue: [])
 	let conversationMessages = ObservableCache<[Message]>(defaultValue: [])
 	let inboxes = ObservableCache<InboxState>(defaultValue: nil)
@@ -43,6 +45,12 @@ class XmtpSession {
 				return c
 			}
 			throw XmtpSessionError.unableToLoadData
+		}
+		conversationNames.loader = { conversationId in
+			guard let conversation = try await self.conversations.reload(conversationId).value else {
+				throw XmtpSessionError.unableToLoadData
+			}
+			return try await conversation.displayName()
 		}
 		conversationMembers.loader = { conversationId in
 			guard let client = self.client else {
@@ -84,12 +92,13 @@ class XmtpSession {
 		}
 
 		let signer = await generateLocalSigner()
+		let databaseKey = try makeDatabaseKey()
 		let backendUrl = ProcessInfo.processInfo.environment["XMTP_BACKEND_URL"] ?? "http://localhost:5050"
 		client = try await SDKClient.create(
 			signer: signer,
 			options: ClientOptions(
 				backend: .options(options: BackendOptions(url: backendUrl)),
-				storage: StorageOptions(location: .default),
+				storage: StorageOptions(location: .default, encryptionKey: databaseKey),
 			),
 		)
 	}
@@ -98,6 +107,10 @@ class XmtpSession {
 		Self.logger.debug("refreshConversations")
 		_ = try await client?.conversations().syncAll(consentStates: nil)
 		let conversations = try await client?.conversations().list() ?? [] // TODO: Add pagination.
+		for conversation in conversations {
+			self.conversations.insert(identifier: conversation.id(), value: conversation)
+			try await conversationNames.insert(identifier: conversation.id(), value: conversation.displayName())
+		}
 		conversationIds = conversations.map { $0.id() }
 	}
 
@@ -109,6 +122,7 @@ class XmtpSession {
 		try await c.sync()
 		_ = try await [
 			conversations.reload(conversationId).result.get(),
+			conversationNames.reload(conversationId).result.get(),
 			conversationMessages.reload(conversationId).result.get(),
 			conversationMembers.reload(conversationId).result.get(),
 		] as [Any?]
@@ -139,6 +153,7 @@ class XmtpSession {
 		Self.logger.debug("clear")
 		conversationIds = []
 		conversations.clear()
+		conversationNames.clear()
 		conversationMembers.clear()
 		conversationMessages.clear()
 		inboxes.clear()
@@ -149,8 +164,23 @@ class XmtpSession {
 	}
 }
 
+private func makeDatabaseKey() throws -> Data {
+	var bytes = [UInt8](repeating: 0, count: 32)
+	let status = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+	guard status == errSecSuccess else {
+		throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+	}
+	return Data(bytes)
+}
+
 extension Conversation {
-	var name: String {
-		id()
+	func displayName() async throws -> String {
+		switch self {
+		case let .group(group):
+			let name = try await group.state().name
+			return name.isEmpty ? "Untitled group" : name
+		case .dm:
+			return "Direct message"
+		}
 	}
 }
