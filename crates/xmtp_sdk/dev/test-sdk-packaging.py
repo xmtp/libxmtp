@@ -531,6 +531,117 @@ class PackagingTests(unittest.TestCase):
         finally:
             self.patches[2].start()
 
+    def test_cargo_compiler_inputs_change_native_cache_admission(self):
+        names = ("MACOSX_DEPLOYMENT_TARGET", "RUSTC", "CARGO_BUILD_RUSTC")
+        environment = {
+            key: value for key, value in os.environ.items() if key not in names
+        }
+        compiler = self.root / "fixture-rustc"
+        compiler.write_text("#!/bin/sh\nprintf 'fixture rustc version one\\n'\n")
+        compiler.chmod(0o755)
+        self.patches[2].stop()
+        try:
+            for name in names:
+                with (
+                    self.subTest(input=name),
+                    patch.dict(os.environ, environment, clear=True),
+                ):
+                    self.args.artifacts = self.root / name
+                    artifacts.build(self.args)
+                    before = json.loads(
+                        (self.args.artifacts / "artifacts.json").read_text()
+                    )
+                    calls = len(self.calls)
+                    os.environ[name] = (
+                        "11.0" if name == "MACOSX_DEPLOYMENT_TARGET" else str(compiler)
+                    )
+                    artifacts.build(self.args)
+                    after = json.loads(
+                        (self.args.artifacts / "artifacts.json").read_text()
+                    )
+                    self.assertNotEqual(
+                        before["artifacts"]["native"]["key"],
+                        after["artifacts"]["native"]["key"],
+                    )
+                    self.assertEqual(len(self.calls), calls + 2)
+                    calls = len(self.calls)
+                    artifacts.build(self.args)
+                    self.assertEqual(len(self.calls), calls)
+        finally:
+            self.patches[2].start()
+
+    def test_selected_compiler_version_changes_rebuild_without_path_change(self):
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if key not in ("RUSTC", "CARGO_BUILD_RUSTC")
+        }
+        compiler = self.root / "fixture-rustc"
+        compiler.write_text("#!/bin/sh\nprintf 'fixture rustc version one\\n'\n")
+        compiler.chmod(0o755)
+        self.patches[2].stop()
+        try:
+            for variable in ("RUSTC", "CARGO_BUILD_RUSTC"):
+                with (
+                    self.subTest(input=variable),
+                    patch.dict(os.environ, environment, clear=True),
+                ):
+                    os.environ[variable] = str(compiler)
+                    self.args.artifacts = self.root / variable
+                    artifacts.build(self.args)
+                    calls = len(self.calls)
+                    compiler.write_text(
+                        "#!/bin/sh\nprintf 'fixture rustc version two\\n'\n"
+                    )
+                    artifacts.build(self.args)
+                    self.assertEqual(len(self.calls), calls + 2)
+                    compiler.write_text(
+                        "#!/bin/sh\nprintf 'fixture rustc version one\\n'\n"
+                    )
+        finally:
+            self.patches[2].start()
+
+    def test_selected_compiler_bytes_change_rebuild_with_same_version(self):
+        compiler = self.root / "fixture-rustc"
+        compiler.write_text(
+            "#!/bin/sh\nprintf 'same version\\n'\n# original compiler\n"
+        )
+        compiler.chmod(0o755)
+        self.patches[2].stop()
+        try:
+            with patch.dict(os.environ, {"RUSTC": str(compiler)}):
+                artifacts.build(self.args)
+                calls = len(self.calls)
+                compiler.write_text(
+                    "#!/bin/sh\nprintf 'same version\\n'\n# changed compiler\n"
+                )
+                artifacts.build(self.args)
+                self.assertEqual(len(self.calls), calls + 2)
+                calls = len(self.calls)
+                artifacts.build(self.args)
+                self.assertEqual(len(self.calls), calls)
+        finally:
+            self.patches[2].start()
+
+    def test_rustc_override_has_precedence_over_cargo_build_rustc(self):
+        self.patches[2].stop()
+        try:
+            with (
+                patch.dict(
+                    os.environ,
+                    {"RUSTC": "selected-rustc", "CARGO_BUILD_RUSTC": "other-rustc"},
+                ),
+                patch.object(
+                    artifacts.subprocess,
+                    "check_output",
+                    return_value=b"selected compiler",
+                ) as probe,
+            ):
+                artifacts.build_context()
+                probe.assert_called_once_with(["selected-rustc", "-vV"], cwd=self.root)
+        finally:
+            self.patches[2].start()
+
     def test_actual_mobile_stage_rejects_stale_binding_generator(self):
         def host_inputs():
             swift = self.args.out / "swift"

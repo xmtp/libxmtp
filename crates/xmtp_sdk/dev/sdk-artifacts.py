@@ -83,7 +83,12 @@ def source_hash(generator=False):
 
 def build_context():
     """Include the compiler and target flags in the artifact cache key."""
-    compiler = subprocess.check_output(["rustc", "-vV"], cwd=ROOT).decode()
+    compiler_path = (
+        os.environ.get("RUSTC") or os.environ.get("CARGO_BUILD_RUSTC") or "rustc"
+    )
+    compiler = subprocess.check_output([compiler_path, "-vV"], cwd=ROOT).decode()
+    executable = Path(shutil.which(compiler_path) or ROOT / compiler_path)
+    compiler_bytes = digest(executable.resolve()) if executable.is_file() else None
     flags = {
         name: value
         for name, value in os.environ.items()
@@ -92,6 +97,9 @@ def build_context():
             "RUSTFLAGS",
             "CARGO_ENCODED_RUSTFLAGS",
             "SDKROOT",
+            "MACOSX_DEPLOYMENT_TARGET",
+            "RUSTC",
+            "CARGO_BUILD_RUSTC",
             "CC",
             "CXX",
             "AR",
@@ -102,7 +110,7 @@ def build_context():
         or name.startswith(("CARGO_TARGET_", "CC_", "CXX_", "CFLAGS_", "AR_"))
     }
     return hashlib.sha256(
-        json.dumps([compiler, flags], sort_keys=True).encode()
+        json.dumps([compiler, compiler_bytes, flags], sort_keys=True).encode()
     ).hexdigest()
 
 
