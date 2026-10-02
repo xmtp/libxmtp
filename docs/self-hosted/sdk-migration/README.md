@@ -75,7 +75,10 @@ Use `Explicit { dbPath, attachmentsDir }` to reopen the actual old file.
 Both paths are required. Native hosts resolve relative paths against the current
 working directory when the client opens. `storage.path()` returns that absolute
 path. Normalize both native paths before you compare them. Keep the working
-directory fixed between create and build. Browser OPFS names stay unchanged.
+directory fixed between opens. Browser OPFS names stay unchanged.
+Protect native `dbPath`, `attachmentsDir`, and their parent directories from
+changes by other local users. The SDK follows caller-supplied paths, including
+symlinks. Do not use a working directory that other local users can change.
 The SDK adds no label, deployment, or inbox directory. It needs no
 path-discovery request or caller
 inbox ID. Choose the attachments directory yourself; the old database path
@@ -116,16 +119,19 @@ On Android, resolve the storage location with the app context before either
 factory call. `StorageOptions(context, label = options.storage.label)` selects
 `File(context.filesDir, "xmtp_db").absolutePath`. Copy only its location into
 the caller's storage record. Keep the caller's encryption key, label, pool, and
-single-connection settings for both `create` and `build`. The Kotlin example
-shows both calls. A bare
+single-connection settings for both `create` and `build`. The Kotlin migration
+example opens an existing public identity with `build` and passes its saved
+inbox ID for the default path. A bare
 `StorageLocation.Default` requires the factory
 `defaultDirectory = File(context.filesDir, "xmtp_db").absolutePath` argument
 on both calls. It cannot find the app context on its own.
 
 The complete source examples are [Node](node.ts), [browser](browser.ts),
 [Swift](Migration.swift), and [Kotlin](Migration.kt). Each ends the first client
-before reopening and checks the reopened path and inbox. Supply a real signer,
-backend, options, and persistent path. Compiler and runtime results are separate
+before reopening and checks the reopened path and inbox. Supply the public
+identity from the legacy database, backend options, and the actual persistent
+path. The default Android path also needs the saved inbox ID. These examples
+use `build` for both opens; they do not register a new identity. Compiler and runtime results are separate
 checks in the handoff.
 
 ## Select messages and save progress
