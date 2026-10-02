@@ -125,6 +125,16 @@ class PackagingTests(unittest.TestCase):
         ):
             mobile.main()
 
+    def test_ios_public_stage_includes_host_and_mobile_libraries(self):
+        output = self.prepare_mobile_stage("ios")
+        self.assemble_mobile("ios")
+        contract = json.loads((output / "sdk-contract.json").read_text())
+        self.assertEqual(set(contract["native"]), {
+            "aarch64-apple-ios", "aarch64-apple-ios-sim", "aarch64-apple-darwin"
+        })
+        self.assertIn(".macOS(.v11)", (output / "Package.swift").read_text())
+
+
     def product_files(self, output):
         return {
             str(path.relative_to(output)): path.read_bytes()
@@ -670,7 +680,7 @@ class PackagingTests(unittest.TestCase):
             path: path.read_bytes()
             for path in (self.root / "mobile").rglob("artifacts.json")
         }
-        self.assertEqual(len(original_receipts), 6)
+        self.assertEqual(len(original_receipts), 7)
         (self.root / "apps/xmtp_sdk_bindgen/template.txt").write_text("new template")
         for platform in ("ios", "android"):
             output = self.root / "products" / platform
@@ -701,7 +711,7 @@ class PackagingTests(unittest.TestCase):
             path: path.read_bytes()
             for path in (self.root / "mobile").rglob("artifacts.json")
         }
-        self.assertEqual(len(native_receipts), 6)
+        self.assertEqual(len(native_receipts), 7)
         manifest = self.args.artifacts / "artifacts.json"
         native = json.loads(manifest.read_text())["artifacts"]["native"]
         source = artifacts.source_hash()
