@@ -1,4 +1,5 @@
 use super::*;
+use futures::FutureExt;
 use xmtp_db::delivery::QueryDelivery;
 
 // verifies: DMS-016
@@ -79,15 +80,17 @@ async fn history_snapshot_preserves_selection_and_rejects_replay_before_query() 
     assert!(kind.messages.is_empty());
     assert_eq!(kind.cursor, selected.cursor);
     let (rejected, queries, writes) = xmtp_db::count_sql_queries(|| {
-        futures::executor::block_on(conversations.message_history_snapshot(
-            10,
-            Some(crate::MessageReaderOptions {
-                from: Some(selected.cursor),
-                ..Default::default()
-            }),
-        ))
+        conversations
+            .message_history_snapshot(
+                10,
+                Some(crate::MessageReaderOptions {
+                    from: Some(selected.cursor),
+                    ..Default::default()
+                }),
+            )
+            .now_or_never()
     });
-    assert!(matches!(rejected, Err(XmtpError::InvalidArgument(_))));
+    assert!(matches!(rejected, Some(Err(XmtpError::InvalidArgument(_)))));
     assert_eq!((queries, writes), (0, 0));
     client.end().await?;
 }
