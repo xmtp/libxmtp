@@ -27,7 +27,7 @@ if (receipt) {
   }
 }
 manifest.version = version;
-const bytes = JSON.stringify(manifest, null, 2) + "\n";
+const bytes = JSON.stringify(manifest, null, 2);
 writeFileSync(manifestFile, bytes);
 if (receipt) {
   receipt.assets["package.json"] = hash(bytes);

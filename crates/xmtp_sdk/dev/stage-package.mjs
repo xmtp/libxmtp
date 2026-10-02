@@ -293,7 +293,7 @@ try {
   }
   writeFileSync(
     join(destination, "package.json"),
-    JSON.stringify(manifest, null, 2) + "\n",
+    JSON.stringify(manifest, null, 2),
   );
   if (target === "browser") {
     const bindings = {
