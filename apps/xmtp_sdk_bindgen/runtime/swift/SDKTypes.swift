@@ -58,6 +58,9 @@ private func clientClosedError() -> XmtpError {
 
 public struct Timestamp: Hashable, Sendable {
     public let ns: Int64
+    public init(ns: Int64) {
+        self.ns = ns
+    }
     public var date: Date {
         Date(timeIntervalSince1970: Double(ns) / 1_000_000_000)
     }
