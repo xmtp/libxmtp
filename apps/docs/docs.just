@@ -51,7 +51,9 @@ check:
 
 # Check external URLs with the flags and HTML scope removed from docs CI.
 check-external:
-    test -f _site/index.html || { echo "Composed site is missing. Follow docs/AGENTS.md." >&2; exit 1; }
+    node scripts/site-freshness.mjs
+    DIST_ROOT=dist SITE_ROOT=_site REDIRECTS=parity/redirects.json node scripts/compose.mjs
+    test -s _site/index.html || { echo "Composed site is missing or empty. Follow docs/AGENTS.md." >&2; exit 1; }
     lychee --no-progress --max-retries 2 --scheme https --scheme http \
         --root-dir '{{ root }}/apps/docs/_site' \
         --exclude '^https://docs\.xmtp\.org/.*' \

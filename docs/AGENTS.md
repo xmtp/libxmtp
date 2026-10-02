@@ -10,15 +10,21 @@ dev/nix-shell 'just docs check-external'
 
 `check` checks local source links in `apps/docs/src/content/docs` and the composed
 site in `apps/docs/_site`. `check-external` uses Lychee from the locked docs Nix
-shell to check HTTP and HTTPS URLs in that site. The external check is required
-locally even though it no longer runs in docs CI. Report failures and fix broken
+shell to check HTTP and HTTPS URLs in that site. It verifies the site build stamp
+against current inputs and composes the site again before the scan. The external
+check is required locally even though it no longer runs in docs CI. Report failures and fix broken
 links before submission. Do not claim a full site pass from a fixture or dry run.
 
 ## Prepare the site
 
 Install the locked JavaScript dependencies with
 `dev/nix-shell 'just install-js'`. Use site and reference output that matches the
-source changes you will submit.
+source changes you will submit. The build writes `dist/site-inputs.json`. This
+stamp binds the output to file contents and stored symlink values for all tracked
+and new nonignored paths in the checkout. Working changes, added files, and
+deleted files make the stamp invalid.
+An unrelated source change can also require a new site build. Do not create or
+copy a stamp by hand. Old artifacts without a stamp cannot pass the check.
 
 To build the site locally, run `dev/nix-shell 'just docs build'`. Generate the Rust
 reference with `dev/nix-shell 'dev/agent-run cargo doc --locked --no-deps'`, then
@@ -33,12 +39,13 @@ dev/nix-shell 'gh run download <run-id> --name docs-site --dir apps/docs/dist'
 dev/nix-shell 'gh run download <run-id> --name docs-rust --dir apps/docs/generated/reference/rust'
 ```
 
-For the pull request setup, compose and check without Kotlin and Swift references:
+For the pull request setup, compose and check without Kotlin and Swift references.
+Keep the same setting for `check-external`, because it composes the site again:
 
 ```sh
 dev/nix-shell 'DOCS_SKIP_NATIVE_REFERENCES=1 just docs compose'
 dev/nix-shell 'DOCS_SKIP_NATIVE_REFERENCES=1 just docs check'
-dev/nix-shell 'just docs check-external'
+dev/nix-shell 'DOCS_SKIP_NATIVE_REFERENCES=1 just docs check-external'
 ```
 
 For the full push setup, also download `docs-kotlin` to

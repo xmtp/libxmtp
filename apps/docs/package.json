@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev --host 127.0.0.1",
-    "build": "pnpm check:examples && astro build",
+    "build": "node scripts/build-site.mjs",
     "check:examples": "node scripts/check-ts-regions.mjs && node --test tests/sdk-examples.integration.mjs",
     "check:agent-docs": "node scripts/agent-doc-coverage.mjs",
     "preview": "astro preview --host 127.0.0.1",
