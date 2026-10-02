@@ -270,9 +270,11 @@ ci-failures job:
     # output) unless asked. Older gh has no such flag.
     esc=""; gh api --help | grep -q -- --allow-escape-sequences && esc="--allow-escape-sequences"
     gh api $esc repos/xmtp/libxmtp/actions/jobs/{{ job }}/logs \
-      | sed -E 's/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+Z //; s/\x1b\[[0-9;]*[mGKH]//g; s/^[^[:space:]>]+>[[:space:]]*//' \
-      | { rg -N '(^##\[error\]|^\s*(FAIL|TIMEOUT) |AssertionError|^thread .* panicked|^\s*assertion.*failed|^error(\[[^]]+\])?:|Tests\s+[0-9]+ failed|test result: FAILED|^\s*\S+ FAILED\s*$|^/.*\.(c|m)?[jt]sx?$|^\s*[0-9]+:[0-9]+\s+(error|warning)\s|[×✖]\s|\.(c|m)?[jt]sx?:[0-9]+:[0-9]+|ERR_PNPM|[Ee]rror:|Failed to load|^\[warn\] |Code style issues found)' || test $? -eq 1; } \
-      | sort -u | sed -n '1,40p'
+      | dev/ci-failure-markers
+
+# Check failure markers with local logs. It does not use GitHub.
+ci-failures-filter-test:
+    python3 dev/tests/test_ci_failure_markers.py
 
 # Annotations for a check run. Cheaper than logs when the job records them.
 ci-annotations check:
