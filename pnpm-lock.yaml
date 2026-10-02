@@ -537,6 +537,9 @@ importers:
       fast-glob:
         specifier: 'catalog:'
         version: 3.3.3
+      protobufjs:
+        specifier: ^7.0.0
+        version: 7.6.6
       rimraf:
         specifier: ^6.1.2
         version: 6.1.3
