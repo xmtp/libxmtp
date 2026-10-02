@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 import subprocess
 import tempfile
+import tarfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -213,6 +214,27 @@ class StagingTests(unittest.TestCase):
                 (consumer / "package.json").write_text(
                     '{"private":true,"type":"module"}'
                 )
+                if layout == "prebuilt":
+                    for version in (None, "8.0.1-rc.1"):
+                        if version:
+                            subprocess.run([
+                                "node", str(ROOT / "crates/xmtp_sdk/dev/stamp-package.mjs"),
+                                str(out / "node"), version,
+                            ], check=True, capture_output=True)
+                        packed_dir = consumer / (version or "staged")
+                        packed_dir.mkdir()
+                        subprocess.run([
+                            "pnpm", "--config.node-linker=hoisted",
+                            "--config.ignore-scripts=true", "pack",
+                            "--pack-destination", str(packed_dir), "--json",
+                        ], cwd=out / "node", check=True, capture_output=True)
+                        archive_path, = packed_dir.glob("*.tgz")
+                        with tarfile.open(archive_path) as archive:
+                            receipt = json.load(archive.extractfile("package/sdk-contract.json"))
+                            for filename, checksum in receipt["assets"].items():
+                                packed_bytes = archive.extractfile("package/" + filename).read()
+                                self.assertEqual(hashlib.sha256(packed_bytes).hexdigest(), checksum,
+                                    f"pnpm packed asset mismatch after {version or 'stage'}: {filename}")
                 packed = json.loads(
                     subprocess.check_output(
                         [
