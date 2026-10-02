@@ -25460,18 +25460,6 @@ public func catalogueContentTypeShouldPush(contentType: ContentTypeId) -> Bool  
 })
 }
 /**
- * Read a content envelope and apply the shared decompression limits.
- *
- */
-public func decodeEncodedContent(bytes: Data)throws  -> EncodedContent  {
-    return try  FfiConverterTypeEncodedContent_lift(try rustCallWithError(FfiConverterTypeXmtpError_lift) {
-        uniffiCallStatus in
-    uniffi_xmtp_sdk_fn_func_decode_encoded_content(
-        FfiConverterData.lower(bytes),uniffiCallStatus
-    )
-})
-}
-/**
  *
  */
 public func decodeStandard(encoded: EncodedContent)throws  -> StandardContent  {
@@ -25479,18 +25467,6 @@ public func decodeStandard(encoded: EncodedContent)throws  -> StandardContent  {
         uniffiCallStatus in
     uniffi_xmtp_sdk_fn_func_decode_standard(
         FfiConverterTypeEncodedContent_lower(encoded),uniffiCallStatus
-    )
-})
-}
-/**
- * Serialize an uncompressed content envelope with the shared wire format.
- *
- */
-public func encodeEncodedContent(content: EncodedContent) -> Data  {
-    return try!  FfiConverterData.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_xmtp_sdk_fn_func_encode_encoded_content(
-        FfiConverterTypeEncodedContent_lower(content),uniffiCallStatus
     )
 })
 }
@@ -25858,24 +25834,6 @@ public func keyPackageStatusesWithBackend(backend: BackendSource, ids: [Installa
             errorHandler: FfiConverterTypeXmtpError_lift
         )
 }
-/**
- * Read inbox update counts without opening a client or local storage.
- */
-public func latestInboxUpdatesCount(inboxIds: [InboxId], backend: BackendSource)async throws  -> [String: UInt64]  {
-    return
-        try  await uniffiRustCallAsync(
-            rustFutureFunc: {
-                uniffi_xmtp_sdk_fn_func_latest_inbox_updates_count(FfiConverterSequenceTypeInboxId.lower(inboxIds),FfiConverterTypeBackendSource_lower(backend)
-                )
-            },
-            pollFunc: ffi_xmtp_sdk_rust_future_poll_rust_buffer,
-            completeFunc: ffi_xmtp_sdk_rust_future_complete_rust_buffer,
-            cancelFunc: ffi_xmtp_sdk_rust_future_cancel_rust_buffer,
-            freeFunc: ffi_xmtp_sdk_rust_future_free_rust_buffer,
-            liftFunc: FfiConverterDictionaryStringUInt64.lift,
-            errorHandler: FfiConverterTypeXmtpError_lift
-        )
-}
 public func newestMessageMetadataWithBackend(backend: BackendSource, ids: [ConversationId])async throws  -> [String: MessageMetadataEntry]  {
     return
         try  await uniffiRustCallAsync(
@@ -25940,13 +25898,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_xmtp_sdk_checksum_func_catalogue_content_type_should_push() != 18071) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_xmtp_sdk_checksum_func_decode_encoded_content() != 26754) {
-        return InitializationResult.apiChecksumMismatch
-    }
     if (uniffi_xmtp_sdk_checksum_func_decode_standard() != 44276) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtp_sdk_checksum_func_encode_encoded_content() != 63774) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_encode_standard() != 50165) {
@@ -26025,9 +25977,6 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_key_package_statuses_with_backend() != 7088) {
-        return InitializationResult.apiChecksumMismatch
-    }
-    if (uniffi_xmtp_sdk_checksum_func_latest_inbox_updates_count() != 52024) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_xmtp_sdk_checksum_func_newest_message_metadata_with_backend() != 58754) {
