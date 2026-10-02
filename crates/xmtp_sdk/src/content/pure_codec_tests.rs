@@ -381,3 +381,85 @@ fn remote_attachment_projection_uses_ciphertext_and_shared_url_policy() {
         ));
     }
 }
+
+// verifies: CTYPE-015
+#[cfg(test)]
+#[xmtp_common::test(unwrap_try = true)]
+fn remote_attachment_projection_rejects_invalid_key_lengths() {
+    let mut wrong_results = Vec::new();
+    for (field, expected) in [("secret", 32), ("salt", 32), ("nonce", 12)] {
+        for length in [0, expected - 1, expected + 1] {
+            let mut encrypted = EncryptedEncodedContent {
+                ciphertext: b"ciphertext".to_vec(),
+                keys: EncryptionKeys {
+                    secret: vec![1; 32],
+                    salt: vec![2; 32],
+                    nonce: vec![3; 12],
+                    digest: String::new(),
+                    length: 10,
+                },
+            };
+            let key = match field {
+                "secret" => &mut encrypted.keys.secret,
+                "salt" => &mut encrypted.keys.salt,
+                "nonce" => &mut encrypted.keys.nonce,
+                _ => unreachable!(),
+            };
+            *key = vec![7; length];
+            if !matches!(
+                remote_attachment_from_encrypted(
+                    "https://example.org/file".into(),
+                    encrypted,
+                    None
+                ),
+                Err(crate::XmtpError::InvalidArgument(_))
+            ) {
+                wrong_results.push((field, length));
+            }
+        }
+    }
+    assert!(
+        wrong_results.is_empty(),
+        "wrong key validation results: {wrong_results:?}"
+    );
+}
+
+// verifies: CTYPE-015
+#[cfg(all(test, not(feature = "pure-only")))]
+#[xmtp_common::test(unwrap_try = true)]
+async fn remote_attachment_projection_preserves_decryptable_attachment() {
+    use prost::Message as _;
+    let attachment = Attachment {
+        filename: Some("note.txt".into()),
+        mime_type: "text/plain".into(),
+        content: b"attachment payload".to_vec(),
+    };
+    let encoded: ProtoEncodedContent =
+        encode_standard(StandardContent::Attachment(attachment.clone()))?.into();
+    let plaintext = encoded.encode_to_vec();
+    let encrypted = crate::crypto::encrypt_encoded_content(plaintext.clone()).await?;
+    let record = remote_attachment_from_encrypted(
+        "https://example.org/file".into(),
+        encrypted.clone(),
+        attachment.filename.clone(),
+    )?;
+    let decrypted = crate::crypto::decrypt_encoded_content(EncryptedEncodedContent {
+        ciphertext: encrypted.ciphertext,
+        keys: EncryptionKeys {
+            secret: record.secret,
+            salt: record.salt,
+            nonce: record.nonce,
+            digest: record.content_digest,
+            length: u64::from(record.content_length?),
+        },
+    })
+    .await?;
+    let decrypted = ProtoEncodedContent::decode(decrypted.as_slice())?;
+    assert_eq!(decrypted, encoded);
+    let StandardContent::Attachment(decoded) = decode_standard(decrypted.try_into()?)? else {
+        panic!("wrong standard content variant");
+    };
+    assert_eq!(decoded.filename, attachment.filename);
+    assert_eq!(decoded.mime_type, attachment.mime_type);
+    assert_eq!(decoded.content, attachment.content);
+}
