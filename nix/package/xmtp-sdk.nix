@@ -44,15 +44,22 @@ let
     ];
   };
   common = xmtp.base.commonArgs // {
+    CARGO_BUILD_JOBS = 2;
     version = xmtp.mkVersion rust;
     doNotPostBuildInstallCargoBinaries = true;
   };
+  nativeArgs = {
+    CARGO_BUILD_JOBS = 2;
+    OPENSSL_NO_VENDOR = "0";
+    OPENSSL_STATIC = "1";
+  } // lib.optionalAttrs pkgs.stdenv.isDarwin { MACOSX_DEPLOYMENT_TARGET = "11.0"; };
   native = rust.buildPackage (
     common
+    // nativeArgs
     // {
       pname = "xmtp-sdk-libs";
       src = sdkSource;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false nativeArgs;
       buildPhaseCargoCommand = "cargo build --release --locked -p xmtp_sdk --lib";
       installPhaseCommand = ''
           mkdir -p $out/lib
@@ -64,6 +71,7 @@ let
     }
   );
   wasmArgs = {
+    CARGO_BUILD_JOBS = 2;
     CARGO_BUILD_TARGET = "wasm32-unknown-unknown";
     inherit (xmtp.shellCommon.wasmEnv)
       CC_wasm32_unknown_unknown
@@ -99,7 +107,7 @@ let
     // {
       pname = "xmtp-sdk-bindgen";
       src = sdkSource;
-      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false null;
+      cargoArtifacts = xmtp.base.mkCargoArtifacts rust false { CARGO_BUILD_JOBS = 2; };
       buildPhaseCargoCommand = "cargo build --release --locked -p xmtp-sdk-bindgen";
       installPhaseCommand = ''
           mkdir -p $out/bin
@@ -122,16 +130,17 @@ let
       in
       iosRust.buildPackage (
         common
+        // nativeArgs
         // {
           pname = "xmtp-sdk-ios-${target}";
           src = sdkSource;
           CARGO_BUILD_TARGET = target;
           __noChroot = true;
-          cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false {
+          cargoArtifacts = xmtp.base.mkCargoArtifacts iosRust false (nativeArgs // {
             CARGO_BUILD_TARGET = target;
             __noChroot = true;
             buildPhaseCargoCommand = command;
-          };
+          });
           buildPhaseCargoCommand = command;
           installPhaseCommand = ''
             mkdir -p $out/lib
