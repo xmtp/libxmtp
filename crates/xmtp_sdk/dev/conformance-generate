@@ -9,6 +9,7 @@ generated=target/sdk-conformance
 # The renderer writes only the selected target directories.
 # Read real foreign callback tables only in these conformance copies.
 if [[ -d "$generated/swift" ]]; then
+  cp "$generated/swift/xmtp_sdk.swift" "$generated/swift/xmtp_sdk.swift.uninstrumented"
   python3 crates/xmtp_sdk/conformance/inject_callback_counts.py swift \
     "$generated/swift/xmtp_sdk.swift"
 fi
