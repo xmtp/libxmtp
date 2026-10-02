@@ -87,6 +87,33 @@ describe("typed codec send policy", () => {
     expect(encodeForSend(codec(), "x").fallback).toBeUndefined();
   });
 
+  it("wraps a throwing fallback getter as a codec failure", () => {
+    let reads = 0;
+    const custom = Object.defineProperty(codec(), "fallback", {
+      get() {
+        reads++;
+        throw new Error("app fallback getter");
+      },
+    });
+    codecEncodeFailed(() => encodeForSend(custom, "x"));
+    expect(reads).toBe(1);
+  });
+
+  it("reads a custom fallback getter once and keeps its receiver", () => {
+    let reads = 0;
+    const custom = Object.defineProperty(codec(), "fallback", {
+      get() {
+        reads++;
+        return function (this: ContentCodec<string>, value: string) {
+          expect(this).toBe(custom);
+          return `about ${value}`;
+        };
+      },
+    });
+    expect(encodeForSend(custom, "x").fallback).toBe("about x");
+    expect(reads).toBe(1);
+  });
+
   it("rejects an envelope with the wrong shape", () => {
     for (const bad of [
       envelope({ fallback: 7 }),
