@@ -115,14 +115,16 @@ export async function measure(api, fixture, state, workload, coldPath) {
     // Publishing and reading run together. The complete operation is timed.
     const publisher = api.publish(group);
     const consumer = (async () => {
-      for await (const message of stream) {
+      const iterator = stream[Symbol.asyncIterator]();
+      while (seen.size !== expectedEvents.size) {
+        const { value: message, done } = await iterator.next();
+        if (done) break;
         if (expectedEvents.has(message.id)) {
           if (seen.has(message.id))
             throw new Error("Duplicate expected stream event");
           live.push(api.live(message));
           seen.add(message.id);
         }
-        if (seen.size === expectedEvents.size) break;
       }
       if (seen.size !== expectedEvents.size)
         throw new Error("Stream ended with missing messages");
