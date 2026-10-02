@@ -83,7 +83,7 @@ codec-author target="types":
 
 # Run `just sdk generate` first: the root check reads the generated roots.
 manifest-check:
-    cd "{{ root }}" && python3.11 dev/sdk/inventory.py --check
+    cd "{{ root }}" && just sdk-manifest-check
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-manifest-roots.py
 
 bench:
