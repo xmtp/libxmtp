@@ -970,14 +970,14 @@ def render_sdk_rows(
 # Current switched sources are counted in this same manifest below.
 LEGACY_SECTION_SHA256 = {
     "Swift": "f0b8a71676b6eeaf86e9c5f28fc688119409555b9071d604d36c7d02b072e1bd",
-    "Kotlin": "c769c974e61f83d8cd9f06cbc2e55baaa1585514d75bd7cfb513ab775f1f0f96",
+    "Kotlin": "c72acf6d87cb6cff62ed100c9052786d9086c7410cf95471a38fba71446c8ac7",
     "Node": "6219daf96b37eed1c0e7706aafd9b4a015bb6fd5a2757954dcb5e1d3e736f967",
     "Browser": "db74f2bb4546dd6fe54f4b7fe9832978200616747f0d35038f22f38382bf4216",
 }
 LEGACY_COUNTS = {"Swift": 7132, "Kotlin": 963, "Node": 522, "Browser": 533}
 LEGACY_OPEN_SHA256 = {
     "Swift": "f63ebcf451779f0a0863a273b70dd123f52862f6e732d3103b275113b4634d69",
-    "Kotlin": "4ca2d6a3b9108f8c4b6207c5451742137a107379c23a5d37608e0f39641add1c",
+    "Kotlin": "c697efa345367e7605b5225b6e2881f99529abaa09b0092ce6c2013d48d4442d",
     "Node": "8c73c7babd5d24d16fc4dec330af65c29f021728f1c2044aeadc189883ea7b83",
     "Browser": "d90fda7f10263802defffe1f8b33609a36379fd927082eae8c63de705a199361",
 }
