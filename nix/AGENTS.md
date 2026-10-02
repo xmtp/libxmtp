@@ -31,5 +31,6 @@ to development shells. Run `dev/nix-shell 'just backend ci COMMAND'`.
 contract records. `xmtp-sdk-pure-wasm` is a separate artifact and shares the
 worker dependency cache. The Node and Android package sets retain old outputs
 and add `xmtp-sdk-node-<platform>` and `xmtp-sdk-android-<abi>` library outputs.
-Darwin adds `xmtp-sdk-ios-device` and `xmtp-sdk-ios-simulator`. These outputs
-prepare the new SDK. They do not switch a shipped package or publish it.
+Darwin adds `xmtp-sdk-ios-device` and `xmtp-sdk-ios-simulator`. Public SDK
+packaging stages these matched generated artifacts. The Browser package uses
+`xmtp-sdk-generated` through the `wasm.bin` output. Staging does not publish a package.

@@ -1,9 +1,9 @@
-import { BackupElementSelectionOption, type Client } from "@xmtp/browser-sdk";
+import type { Client } from "@xmtp/browser-sdk";
 
 export async function createBackup(client: Client, key: Uint8Array) {
   // #region create
-  const archiveData = await client.createArchive(key, {
-    elements: [BackupElementSelectionOption.Consent],
+  const archiveData = await client.archives.exportToBytes(key, {
+    elements: ["consent"],
     excludeDisappearingMessages: true,
   });
   // #endregion create
@@ -16,6 +16,6 @@ export async function importBackup(
   key: Uint8Array,
 ) {
   // #region import
-  await client.importArchive(data, key);
+  await client.archives.importFromBytes(data, key);
   // #endregion import
 }
