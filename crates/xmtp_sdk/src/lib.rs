@@ -86,6 +86,12 @@ pub use client::{
     AttachmentOptions, Client, ClientHandlers, ClientOptions, PreAuthenticate,
     PreAuthenticateError, StorageLocation, StorageOptions,
 };
+#[cfg(all(
+    feature = "conformance",
+    not(feature = "pure-only"),
+    not(target_arch = "wasm32")
+))]
+pub use configuration::sdk_conformance_server_configuration_sample;
 #[cfg(not(feature = "pure-only"))]
 pub use configuration::{
     AttachmentsConfiguration, AuthConfiguration, LimitsConfiguration, MlsConfiguration,
