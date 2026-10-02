@@ -9,6 +9,9 @@ Run commands from the repository root in the Nix shell. Run
   the projection generates. The stock UniFFI root is the private `binding.ts`.
   The Node public layer imports it to load the native binding; otherwise only
   the worker, the benchmark, and transport tests import it.
+- `dev/nix-shell 'just sdk check-native-nix'` evaluates native build inputs and compares
+  the checkout source identity with the generated and native Nix source filters.
+  It does not compile a product.
 - `dev/nix-shell 'just sdk check-file-sizes'` checks the 1,000-line limit for every SDK source
   file, including conformance files. Generated and ignored build files are excluded.
   Keep most new files below 500 lines.
@@ -55,11 +58,6 @@ Run commands from the repository root in the Nix shell. Run
   It requires missing or changed live content to fail with correct history.
 - `dev/nix-shell 'just sdk cutover-bench-baselines <output>'` resolves published baseline
   versions and records source and artifact hashes.
-- `dev/nix-shell 'just sdk bench'` is an internal diagnostic. It compares 20 release-profile Node calls for a zero-row page
-  and a 10,000-message page with the current Node binding. It also measures
-  one empty SDK async call. It runs Node with `NODE_ENV=production`. It
-  enables the off-by-default `bench` feature and writes separate bindings to
-  `target/sdk-bench/`.
 - `dev/nix-shell 'just sdk check-isolation self-hosted'` checks shipped SDK
   and binding changes against the base. A Phase 2 switch admits only its SDK
   directory. The Node switch also admits the agent SDK at version 8 when it

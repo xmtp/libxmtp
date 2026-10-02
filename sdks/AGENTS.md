@@ -37,8 +37,10 @@ Native streams stay open during retryable network faults and resume in order.
 
 SDK recipes stage the selected SDK products before package tasks. The public
 product is `target/sdk-packages/<target>`. Local imports use a full copy in
-`sdks/<target>/dist`, with the pinned runtime assets. Run `just sdk generate`
-before staging a changed facade. Do not use
+`sdks/<target>/dist`, with the pinned runtime assets. Source package builds run
+`dev/nix-shell 'just sdk generate <target>'` before staging. An explicit
+`XMTP_SDK_GENERATED_DIR` reuses that input and keeps the strict staging checks.
+Do not use
 `--parallel` or `--no-sort`; they can bypass task dependencies. See the
 `writing-typescript` skill for the root pnpm workspace and formatting.
 

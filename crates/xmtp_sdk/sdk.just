@@ -86,9 +86,6 @@ manifest-check:
     cd "{{ root }}" && just sdk-manifest-check
     cd "{{ root }}" && python3.11 crates/xmtp_sdk/dev/check-manifest-roots.py
 
-bench:
-    {{ _env }} && bash "{{ root }}/crates/xmtp_sdk/dev/bench"
-
 # Build once. Later render calls reuse the recorded artifact hashes.
 build targets="swift,kotlin,node,browser" *args:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/sdk-artifacts.py build --targets "{{ targets }}" {{ args }}
@@ -105,12 +102,14 @@ package-smoke target="node":
 # Evaluate native build inputs. This command does not compile a product.
 check-native-nix:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/check-native-nix.py
+    cd "{{ root }}" && python3 -B crates/xmtp_sdk/dev/check-source-nix.py
 
 check-package-scripts:
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-native-nix-gate.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-artifacts.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-packaging.py
     cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-staging.py
+    cd "{{ root }}" && python3 crates/xmtp_sdk/dev/test-sdk-source-package.py
     cd "{{ root }}" && node crates/xmtp_sdk/dev/test-package-smoke-path.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-node-platforms.mjs
     cd "{{ root }}" && node --test crates/xmtp_sdk/dev/test-stamp-package.mjs
