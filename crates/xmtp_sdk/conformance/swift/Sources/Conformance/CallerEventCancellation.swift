@@ -6,7 +6,11 @@ private func eventCancellationCase(_ backend: BackendOptions, _ mode: String, _ 
     let deletion = mode.contains("Delete")
     let missingFile = mode.hasSuffix("DeleteMissing")
     let directory = FileManager.default.temporaryDirectory.appendingPathComponent("sdk-event-delete-" + UUID().uuidString)
-    defer { if deletion { try? FileManager.default.removeItem(at: directory) } }
+    defer {
+        if deletion {
+            try? FileManager.default.removeItem(at: directory)
+        }
+    }
     if deletion {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         options.storage = StorageOptions(location: .explicit(dbPath: directory.appendingPathComponent("xmtp.db3").path, attachmentsDir: directory.appendingPathComponent("attachments").path), singleConnection: true)
@@ -28,7 +32,9 @@ private func eventCancellationCase(_ backend: BackendOptions, _ mode: String, _ 
     sdkConformanceSwiftEventEndCalls.reset()
     let start = LifetimeGate()
     let call = Task {
-        if mode == "prepoll" { await start.wait() }
+        if mode == "prepoll" {
+            await start.wait()
+        }
         return try await (usesIterator ? iterator.next() : reader.next())
     }
     do {
@@ -47,10 +53,14 @@ private func eventCancellationCase(_ backend: BackendOptions, _ mode: String, _ 
             if deletion {
                 let storage = client.raw.storage()
                 guard let path = try await storage.path() else { throw ConformanceFailure("delete fixture has no path") }
-                if missingFile { try FileManager.default.removeItem(atPath: path) }
+                if missingFile {
+                    try FileManager.default.removeItem(atPath: path)
+                }
                 do {
                     try await storage.delete()
-                    if missingFile { throw ConformanceFailure("missing file deletion did not fail") }
+                    if missingFile {
+                        throw ConformanceFailure("missing file deletion did not fail")
+                    }
                 } catch {
                     guard missingFile, error is XmtpError else { throw error }
                     print("Swift file deletion error after native close: \(error)")
@@ -85,7 +95,9 @@ private func eventCancellationCase(_ backend: BackendOptions, _ mode: String, _ 
         }
         print("Swift event ended: mode=\(mode), iterator=\(usesIterator), native=\(counts), nativeEnd=\(endCounts), value=nil")
         try await reader.end()
-        if mode != "clientEndReady" { try await client.end() }
+        if mode != "clientEndReady" {
+            try await client.end()
+        }
     } catch {
         call.cancel()
         await start.release()
@@ -126,8 +138,13 @@ private func eventMemoryDeleteRejected(_ backend: BackendOptions) async throws {
 private final class EventCloseCompletion: @unchecked Sendable {
     private let lock = NSLock()
     private var complete = false
-    func finish() { lock.lock(); complete = true; lock.unlock() }
-    func isComplete() -> Bool { lock.lock(); defer { lock.unlock() }; return complete }
+    func finish() {
+        lock.lock(); complete = true; lock.unlock()
+    }
+
+    func isComplete() -> Bool {
+        lock.lock(); defer { lock.unlock() }; return complete
+    }
 }
 
 private func eventCloseCancellation(_ backend: BackendOptions, _ deletion: Bool, _ shutdown: Bool, _ missingFile: Bool = false, _ beforeStart: Bool = false) async throws {
@@ -158,13 +175,25 @@ private func eventCloseCancellation(_ backend: BackendOptions, _ deletion: Bool,
     var close: Task<Void, Error>?
     do {
         try await lifetimeWait("close two pending native reads") { sdkConformanceSwiftEventCalls.snapshot()["poll", default: 0] >= 2 }
-        if missingFile { try FileManager.default.removeItem(atPath: path) }
-        if shutdown { probe.holdShutdown() } else if !beforeStart { await admission.reset() }
+        if missingFile {
+            try FileManager.default.removeItem(atPath: path)
+        }
+        if shutdown {
+            probe.holdShutdown()
+        } else if !beforeStart {
+            await admission.reset()
+        }
         counts.reset()
         let call = Task {
             defer { completion.finish() }
-            if beforeStart { await start.wait() }
-            if deletion { try await client.raw.storage().delete() } else { try await client.end() }
+            if beforeStart {
+                await start.wait()
+            }
+            if deletion {
+                try await client.raw.storage().delete()
+            } else {
+                try await client.end()
+            }
         }
         close = call
         if beforeStart {
@@ -184,20 +213,26 @@ private func eventCloseCancellation(_ backend: BackendOptions, _ deletion: Bool,
             }
             call.cancel()
             if shutdown {
-                for _ in 0..<20 { await Task.yield() }
+                for _ in 0 ..< 20 {
+                    await Task.yield()
+                }
                 guard !completion.isComplete() else { throw ConformanceFailure("cancelled caller returned while native shutdown was held") }
                 probe.releaseShutdown()
-            } else { await admission.release() }
+            } else {
+                await admission.release()
+            }
         }
         switch try await callerResult(call, "cancelled native close") {
         case .success: throw ConformanceFailure("close lost original caller cancellation")
-        case .failure(let error):
+        case let .failure(error):
             if missingFile {
                 guard let nativeError = error as? XmtpError,
                       case let .Storage(details) = nativeError,
                       details.code == "Storage", details.category == .storage
                 else { throw error }
-            } else { guard error is CancellationError else { throw error } }
+            } else {
+                guard error is CancellationError else { throw error }
+            }
         }
         let state = probe.state()
         guard state.clientClosed, state.workersStopped, !state.storeConnected else {
@@ -244,7 +279,9 @@ private func eventDeleteBeforeAdmission(_ backend: BackendOptions) async throws 
 func checkSwiftEventCancellation(_ backend: BackendOptions) async throws {
     try await eventDeleteBeforeAdmission(backend)
     for deletion in [false, true] {
-        for shutdown in [false, true] { try await eventCloseCancellation(backend, deletion, shutdown) }
+        for shutdown in [false, true] {
+            try await eventCloseCancellation(backend, deletion, shutdown)
+        }
     }
     try await eventCloseCancellation(backend, true, true, true)
     try await eventCloseCancellation(backend, false, false, false, true)

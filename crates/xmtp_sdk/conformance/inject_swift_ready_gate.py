@@ -17,7 +17,9 @@ assert source.count(ready) == 1, "Swift READY boundary changed"
 if "        await readyHook?()\n" not in source:
     source = source.replace(ready, ready + "        await readyHook?()\n")
 if "    afterLiftHook: (() async -> Void)? = nil,\n" not in source:
-    source = source.replace(helper, helper + "    afterLiftHook: (() async -> Void)? = nil,\n")
+    source = source.replace(
+        helper, helper + "    afterLiftHook: (() async -> Void)? = nil,\n"
+    )
 if "        await afterLiftHook?()\n" not in source:
     lift = "        let lifted = try liftFunc(value)\n"
     assert source.count(lift) == 1, "Swift lift boundary changed"
@@ -35,14 +37,24 @@ for method in ["create_ready", "build_ready"]:
         source,
     )
     assert count == 1, f"Swift {method} call site changed"
-    start = source.index("uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_" + method + "(")
+    start = source.index(
+        "uniffi_xmtp_sdk_fn_method_sdkconformanceconstructorprobe_" + method + "("
+    )
     end = source.index("errorHandler: FfiConverterTypeXmtpError_lift", start)
     block = source[start:end]
-    for kind, args in [("poll", "h, cb, data"), ("complete", "h, status"), ("cancel", "h"), ("free", "h")]:
+    for kind, args in [
+        ("poll", "h, cb, data"),
+        ("complete", "h, status"),
+        ("cancel", "h"),
+        ("free", "h"),
+    ]:
         old = f"{kind}Func: ffi_xmtp_sdk_rust_future_{kind}_u64,"
         assert block.count(old) == 1, f"Swift constructor {kind} call changed"
         result = "return " if kind == "complete" else ""
-        block = block.replace(old, f'{kind}Func: {{ {args} in sdkConformanceSwiftConstructorCalls.record("{kind}"); {result}ffi_xmtp_sdk_rust_future_{kind}_u64({args}) }},')
+        block = block.replace(
+            old,
+            f'{kind}Func: {{ {args} in sdkConformanceSwiftConstructorCalls.record("{kind}"); {result}ffi_xmtp_sdk_rust_future_{kind}_u64({args}) }},',
+        )
     source = source[:start] + block + source[end:]
 source += """
 
