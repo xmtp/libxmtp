@@ -23,7 +23,6 @@ jobs:
       sdk: ${{ steps.filter.outputs.sdk }}
       sdk_swift: ${{ steps.filter.outputs.sdk_swift }}
       backend_ci: ${{ steps.filter.outputs.backend_ci }}
-      wasm: ${{ steps.filter.outputs.wasm }}
       browser_sdk: ${{ steps.filter.outputs.browser_sdk }}
       node: ${{ steps.filter.outputs.node }}
       node_sdk: ${{ steps.filter.outputs.node_sdk }}
@@ -142,23 +141,6 @@ jobs:
               - 'crates/xmtp_sdk/**'
               - 'apps/xmtp_sdk_bindgen/**'
               - '.github/workflows/test-sdk.yml'
-            wasm:
-              - '.config/nextest.toml'
-              - 'package.json'
-              - 'pnpm-lock.yaml'
-              - 'pnpm-workspace.yaml'
-              - 'dev/js/**'
-              - '.oxlintrc.json'
-              - 'apps/backend/**'
-              - 'crates/**'
-              - 'proto/**'
-              - 'bindings/wasm/**'
-              - 'Cargo.*'
-              - 'nix/**'
-              - 'flake.*'
-              - 'dev/docker/**'
-              - '.github/workflows/test-wasm.yml'
-              - '.github/workflows/test.yml'
             browser_sdk:
               - 'package.json'
               - 'pnpm-lock.yaml'
@@ -432,12 +414,6 @@ jobs:
     uses: ./.github/workflows/test-xdbg.yml
     secrets: inherit
 
-  test-wasm:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.wasm == 'true'
-    uses: ./.github/workflows/test-wasm.yml
-    secrets: inherit
-
   test-browser-sdk:
     needs: detect-changes
     if: needs.detect-changes.outputs.browser_sdk == 'true'
@@ -491,7 +467,6 @@ jobs:
       - test-xdbg
       - test-keepalive-probe
       - test-node
-      - test-wasm
       - test-browser-sdk
       - test-node-sdk
       - test-agent-sdk

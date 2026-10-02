@@ -16,7 +16,7 @@ on:
       - "sdks/js.just"
       - "dev/js/**"
       - "bindings/node/**"
-      - "bindings/wasm/**"
+      - "apps/xmtp_sdk_bindgen/**"
       - "crates/**"
       - "nix/**"
       - "flake.lock"

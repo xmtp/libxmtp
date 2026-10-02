@@ -103,7 +103,7 @@ jobs:
               - 'sdks/ios/Sources/**'
               - 'sdks/android/library/src/main/**'
               - 'sdks/node/src/**'
-              - 'sdks/browser/src/**'
+              - 'sdks/browser/**'
             proto:
               - 'proto/**'
               - 'justfile'
@@ -114,12 +114,6 @@ jobs:
     needs: detect-changes
     if: needs.detect-changes.outputs.workspace == 'true'
     uses: ./.github/workflows/lint-workspace.yml
-    secrets: inherit
-
-  lint-wasm:
-    needs: detect-changes
-    if: needs.detect-changes.outputs.workspace == 'true'
-    uses: ./.github/workflows/lint-wasm.yml
     secrets: inherit
 
   lint-node:
@@ -165,7 +159,6 @@ jobs:
     needs:
       - lint-workspace
       - lint-node
-      - lint-wasm
       - lint-js
       # - lint-ios TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI
       # - lint-android TODO:(nm) Temporarily making optional until we are confident the new workflows are fast/reliable enough to block CI

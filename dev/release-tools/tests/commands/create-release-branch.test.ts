@@ -47,13 +47,6 @@ describe("create-release-branch", () => {
       `{\n  "name": "@xmtp/node-bindings",\n  "version": "0.0.0"\n}\n`,
     );
 
-    // Create WASM bindings structure
-    fs.mkdirSync(path.join(tmpDir, "bindings/wasm"), { recursive: true });
-    fs.writeFileSync(
-      path.join(tmpDir, "bindings/wasm/package.json"),
-      `{\n  "name": "@xmtp/wasm-bindings",\n  "version": "0.0.0"\n}\n`,
-    );
-
     // Create JS SDK structures
     fs.mkdirSync(path.join(tmpDir, "sdks/node"), { recursive: true });
     fs.writeFileSync(
@@ -100,7 +93,6 @@ describe("create-release-branch", () => {
       ios: "patch",
       android: "none",
       node: false,
-      wasm: false,
       _: [],
       $0: "",
     });
@@ -164,7 +156,6 @@ describe("create-release-branch", () => {
       ios: "none",
       android: "minor",
       node: false,
-      wasm: false,
       _: [],
       $0: "",
     });
@@ -212,7 +203,6 @@ describe("create-release-branch", () => {
       ios: "major",
       android: "minor",
       node: false,
-      wasm: false,
       _: [],
       $0: "",
     });
@@ -267,7 +257,6 @@ describe("create-release-branch", () => {
       nodeSdk: "minor",
       browserSdk: "patch",
       node: false,
-      wasm: false,
       _: [],
       $0: "",
     });
@@ -329,7 +318,6 @@ describe("create-release-branch", () => {
       agentSdk: "none",
       cli: "minor",
       node: false,
-      wasm: false,
       $0: "test",
       _: [],
     });
@@ -354,7 +342,6 @@ describe("create-release-branch", () => {
       ios: "none",
       android: "none",
       node: true,
-      wasm: false,
       _: [],
       $0: "",
     });
@@ -385,48 +372,6 @@ describe("create-release-branch", () => {
     expect(commitMsg).toBe("chore: create release 1.1.0 (node-bindings 1.1.0)");
   });
 
-  it("creates branch with --wasm flag", async () => {
-    const { handler } =
-      await import("../../src/commands/create-release-branch");
-
-    handler({
-      repoRoot: tmpDir,
-      version: "1.1.0",
-      base: "HEAD",
-      ios: "none",
-      android: "none",
-      node: false,
-      wasm: true,
-      _: [],
-      $0: "",
-    });
-
-    // Check branch was created
-    const branch = execSync("git branch --show-current", { cwd: tmpDir })
-      .toString()
-      .trim();
-    expect(branch).toBe("release/1.1.0");
-
-    // Check WASM version was set to release version
-    const packageJson = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, "bindings/wasm/package.json"), "utf-8"),
-    );
-    expect(packageJson.version).toBe("1.1.0");
-
-    // Check release notes were created for wasm
-    expect(
-      fs.existsSync(
-        path.join(tmpDir, "docs/release-notes/wasm-bindings/1.1.0.md"),
-      ),
-    ).toBe(true);
-
-    // Check commit message
-    const commitMsg = execSync("git log -1 --pretty=%B", { cwd: tmpDir })
-      .toString()
-      .trim();
-    expect(commitMsg).toBe("chore: create release 1.1.0 (wasm-bindings 1.1.0)");
-  });
-
   it("creates branch with all SDKs", async () => {
     const { handler } =
       await import("../../src/commands/create-release-branch");
@@ -440,7 +385,6 @@ describe("create-release-branch", () => {
       nodeSdk: "major",
       browserSdk: "minor",
       node: true,
-      wasm: true,
       _: [],
       $0: "",
     });
@@ -468,11 +412,6 @@ describe("create-release-branch", () => {
       fs.readFileSync(path.join(tmpDir, "bindings/node/package.json"), "utf-8"),
     );
     expect(nodePackageJson.version).toBe("2.0.0");
-
-    const wasmPackageJson = JSON.parse(
-      fs.readFileSync(path.join(tmpDir, "bindings/wasm/package.json"), "utf-8"),
-    );
-    expect(wasmPackageJson.version).toBe("2.0.0");
 
     const nodeSdkPackageJson = JSON.parse(
       fs.readFileSync(path.join(tmpDir, "sdks/node/package.json"), "utf-8"),
@@ -504,18 +443,13 @@ describe("create-release-branch", () => {
         path.join(tmpDir, "docs/release-notes/node-bindings/2.0.0.md"),
       ),
     ).toBe(true);
-    expect(
-      fs.existsSync(
-        path.join(tmpDir, "docs/release-notes/wasm-bindings/2.0.0.md"),
-      ),
-    ).toBe(true);
 
     // Check commit message includes all SDKs
     const commitMsg = execSync("git log -1 --pretty=%B", { cwd: tmpDir })
       .toString()
       .trim();
     expect(commitMsg).toBe(
-      "chore: create release 2.0.0 (ios 2.0.0, android 1.1.0, node-sdk 7.0.0, browser-sdk 7.1.0, node-bindings 2.0.0, wasm-bindings 2.0.0)",
+      "chore: create release 2.0.0 (ios 2.0.0, android 1.1.0, node-sdk 7.0.0, browser-sdk 7.1.0, node-bindings 2.0.0)",
     );
   });
 
@@ -531,7 +465,6 @@ describe("create-release-branch", () => {
         ios: "none",
         android: "none",
         node: false,
-        wasm: false,
         _: [],
         $0: "",
       }),
@@ -552,7 +485,6 @@ describe("create-release-branch", () => {
       ios: "patch",
       android: "none",
       node: false,
-      wasm: false,
       _: [],
       $0: "",
     });

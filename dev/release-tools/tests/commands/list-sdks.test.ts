@@ -14,7 +14,6 @@ describe("listSdksForChannel", () => {
       "ios",
       "node-bindings",
       "node-sdk",
-      "wasm-bindings",
     ]);
     // hub (libxmtp, empty releaseWorkflow) is excluded
     expect(rows.every((r) => r.releaseWorkflow !== "")).toBe(true);
