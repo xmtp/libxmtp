@@ -415,7 +415,7 @@ class TestProjection extends P.ObjectProjection {
   }
 }
 
-describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
+describe("typed codec sends and replies (Decisions 23 and 24)", () => {
   // The catalogue predicate is a pure WASM function on the main thread.
   beforeAll(async () => {
     await initPureWasm();
@@ -480,6 +480,119 @@ describe("typed codec sends on a Group (Decisions 23 and 24)", () => {
   const binding = (fields: object): B.GroupLike => fields as B.GroupLike;
   const pushOf = (options: unknown) =>
     (options as { shouldPush?: boolean } | undefined)?.shouldPush;
+
+  const routeNames = [
+    "Group.send",
+    "Group.prepareMessage",
+    "Dm.send",
+    "Dm.prepareMessage",
+    "Message.reply",
+  ] as const;
+
+  function sendRoutes(calls: P.EncodedContent[]) {
+    const record = async (encoded: P.EncodedContent) => {
+      calls.push(encoded);
+      return "id";
+    };
+    const group = P.wrapGroup(
+      binding({ send: record, prepareMessage: record }),
+    );
+    const dm = P.wrapDm({
+      send: record,
+      prepareMessage: record,
+    } as B.DmLike);
+    const parent = Object.assign(Object.create(Message.prototype) as Message, {
+      id: "parent-id",
+      client: () => ({
+        conversations: {
+          replyToMessage: async (_id: string, encoded: P.EncodedContent) =>
+            record(encoded),
+        },
+      }),
+    });
+    return {
+      "Group.send": (content: ContentCodec<string>) => group.send(content, "x"),
+      "Group.prepareMessage": (content: ContentCodec<string>) =>
+        group.prepareMessage(content, "x"),
+      "Dm.send": (content: ContentCodec<string>) => dm.send(content, "x"),
+      "Dm.prepareMessage": (content: ContentCodec<string>) =>
+        dm.prepareMessage(content, "x"),
+      "Message.reply": (content: ContentCodec<string>) =>
+        parent.reply(content, "x"),
+    };
+  }
+
+  it.each(routeNames)(
+    "%s contains a failed fallback getter before its native call",
+    async (route) => {
+      const calls: P.EncodedContent[] = [];
+      let reads = 0;
+      const custom = Object.defineProperty(codec(), "fallback", {
+        get() {
+          reads++;
+          throw new Error("app fallback getter");
+        },
+      });
+      let failure: unknown;
+      try {
+        await sendRoutes(calls)[route](custom);
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toBeInstanceOf(P.XmtpError.CodecEncodeFailed);
+      if (!(failure instanceof P.XmtpError)) throw new Error("no public error");
+      expect(failure.details).toMatchObject({
+        code: "CodecEncodeFailed",
+        category: "callback",
+        retryable: false,
+      });
+      expect(reads).toBe(1);
+      expect(calls).toEqual([]);
+    },
+  );
+
+  it.each(routeNames)(
+    "%s reads a fallback getter once and keeps its receiver",
+    async (route) => {
+      const calls: P.EncodedContent[] = [];
+      let reads = 0;
+      const custom = Object.defineProperty(codec(), "fallback", {
+        get() {
+          reads++;
+          return function (this: ContentCodec<string>, value: string) {
+            expect(this).toBe(custom);
+            return `about ${value}`;
+          };
+        },
+      });
+      await sendRoutes(calls)[route](custom);
+      expect(reads).toBe(1);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.fallback).toBe("about x");
+    },
+  );
+
+  it.each(routeNames)(
+    "%s skips a fallback getter when the envelope supplies it",
+    async (route) => {
+      const calls: P.EncodedContent[] = [];
+      let reads = 0;
+      const custom = Object.defineProperty(
+        codec({ encode: () => envelope({ fallback: "own" }) }),
+        "fallback",
+        {
+          get() {
+            reads++;
+            throw new Error("skipped fallback getter");
+          },
+        },
+      );
+      await sendRoutes(calls)[route](custom);
+      expect(reads).toBe(0);
+      expect(calls).toHaveLength(1);
+      expect(calls[0]!.fallback).toBe("own");
+    },
+  );
 
   it("encodes callable codecs before send and prepareMessage", async () => {
     const calls: [string, unknown, unknown][] = [];
