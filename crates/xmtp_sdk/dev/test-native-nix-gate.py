@@ -29,8 +29,12 @@ def products():
     return {
         name: {"main": inputs.copy(), "deps": inputs.copy()}
         for name in (
-            "xmtp-sdk-libs", "xmtp-sdk-bindgen", "xmtp-sdk-wasm",
-            "xmtp-sdk-pure-wasm", "xmtp-sdk-ios-device", "xmtp-sdk-ios-simulator",
+            "xmtp-sdk-libs",
+            "xmtp-sdk-bindgen",
+            "xmtp-sdk-wasm",
+            "xmtp-sdk-pure-wasm",
+            "xmtp-sdk-ios-device",
+            "xmtp-sdk-ios-simulator",
         )
     }
 
@@ -38,9 +42,16 @@ def products():
 class NativeGate(unittest.TestCase):
     def run_gate(self, value, optimized):
         return subprocess.run(
-            [sys.executable, *(["-O"] if optimized else []), "-c", RUN,
-             str(GATE), json.dumps(value)],
-            capture_output=True, text=True,
+            [
+                sys.executable,
+                *(["-O"] if optimized else []),
+                "-c",
+                RUN,
+                str(GATE),
+                json.dumps(value),
+            ],
+            capture_output=True,
+            text=True,
         )
 
     def test_valid_inputs_pass_with_and_without_optimization(self):
