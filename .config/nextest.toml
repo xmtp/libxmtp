@@ -16,7 +16,8 @@ path = "junit.xml"
 
 [[profile.ci.overrides]]
 platform = 'cfg(all(target_family = "wasm", target_os = "unknown"))'
-slow-timeout = "1m"
+slow-timeout = { period = "1m", terminate-after = 2, grace-period = "10s" }
+retries = 0
 threads-required = 2
 
 # test_db_migrates experiences random failures b/c of 'corrupted double-linked list' coming from glibc/sqlcipher https://github.com/xmtp/libxmtp/issues/2402
