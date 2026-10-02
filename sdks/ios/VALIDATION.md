@@ -59,17 +59,13 @@ The following FFI method names changed and required iOS SDK updates:
 - [x] SwiftFormat job configuration correct
 - [x] Path filters set correctly
 
-### test-ios.yaml
+### test-ios.yml
 
-- [x] Fly.io deployment step configured
-- [x] Build step uses Nix shell
-- [x] Test step receives backend URLs
-- [x] Cleanup step runs on failure
-
-### cleanup-ios.yaml
-
-- [x] Cron schedule correct (hourly)
-- [x] Uses updated app prefix (libxmtp-ios-test)
+- The full suite runs with `NIX_DEVSHELL=ios dev/nix-shell 'just backend ci just ios test'`.
+- Each job starts disposable native PostgreSQL, VersityGW, and backend services.
+- The wrapper stops its services on success, failure, or cancellation.
+- CI retains service logs for 7 days. The job can be rerun on its own.
+- Full native CI validation is pending the first migrated run.
 
 ### docs-ios.yaml
 

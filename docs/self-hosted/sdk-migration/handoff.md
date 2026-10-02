@@ -56,7 +56,7 @@ Do not edit output rows by hand. Update the assignment rule and regenerate.
 
 | Writer | Scope and exact assignment rule |
 | --- | --- |
-| iOS, PR F | `sdks/ios/**`, `Package.swift`, Apple `Package.resolved`, `nix/package/ios.nix`, `crates/xmtp_sdk/conformance/swift/**`; workflows `cleanup-ios.yml`, `lint-ios.yml`, `release-ios.yml`, `test-ios.yml` |
+| iOS, PR F | `sdks/ios/**`, `Package.swift`, Apple `Package.resolved`, `nix/package/ios.nix`, `crates/xmtp_sdk/conformance/swift/**`; workflows `lint-ios.yml`, `release-ios.yml`, `test-ios.yml` |
 | Android, PR G | `sdks/android/**`, `apps/android/xmtpv3_example/**`, `nix/package/android.nix`, `crates/xmtp_sdk/conformance/kotlin/**`; workflows `lint-android.yml`, `release-android.yml`, `test-android.yml` |
 | Node plus agent, PR H | `sdks/node/**`, `sdks/agent/**`, `apps/cli/**`, `nix/package/node.nix`, `crates/xmtp_sdk/conformance/ts/**`; workflows `lint-node.yml`, `release-agent-sdk.yml`, `release-cli.yml`, `release-node-sdk.yml`, `test-agent-sdk.yml`, `test-node-sdk.yml`; docs examples ending `-node.ts` and starting `agents-` |
 | Browser, PR I | `sdks/browser/**`, `apps/web-chat/**`, `nix/package/wasm.nix`, `nix/package/wasm-nextest.nix`, `crates/xmtp_sdk/conformance/browser/**`; workflows `deploy-web-chat.yml`, `release-browser-sdk.yml`, `test-browser-sdk.yml`; docs examples ending `-browser.ts` |

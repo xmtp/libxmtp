@@ -22,9 +22,11 @@ credentials are for disposable local tests only.
 The VersityGW target uses the worktree port shown by `just backend status`.
 `s3-init` creates the `attachments` bucket, permits public GET, and sets CORS
 for signed PUT and GET requests. The S3 integration test needs both services.
-Compose uses `dev/backend/local-s3.toml` to offer attachments. The
-`dev/backend/local.toml` file starts without storage target settings or S3
-environment variables, including on the iOS Fly test backend.
+Compose and disposable native macOS CI use `dev/backend/local-s3.toml` to
+offer attachments. Native CI derives a private copy with only the backend
+and metrics listeners changed to loopback. All other fields stay equal. The
+`dev/backend/local.toml` file remains available for
+callers without attachment storage and needs no S3 environment variables.
 Set `DATABASE_URL` to select a different test database. The test user must be able
 to create and delete databases. Each service test uses a separate database.
 Tests live beside the modules they exercise and share one test-support module.

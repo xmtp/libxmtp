@@ -10,6 +10,15 @@ musl_arch := if arch() == "aarch64" { "aarch64" } else { "x86_64" }
 # variable always wins, so CI and one-off overrides are untouched.
 _env := root + "/dev/worktree-env && . " + root + "/dev/docker/load-env"
 
+# Run one command with disposable native PostgreSQL, S3, and backend services.
+# A script recipe preserves the caller's shell and each argument.
+[script('/bin/sh')]
+[positional-arguments]
+ci +args:
+    # Do not pass this module's default Rust shell to the child command.
+    if [ -z {{ quote(env("NIX_DEVSHELL", "")) }} ]; then unset NIX_DEVSHELL; fi
+    exec nix run {{ root }}#backend-ci -- "$@"
+
 # Build the binary.
 build:
     nix build {{ root }}#xmtp-backend

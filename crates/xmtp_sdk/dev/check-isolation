@@ -10,8 +10,9 @@ set -euo pipefail
 # files may contain only their reviewed PROC-032 backlink removal. Compare their full bytes with
 # the base after that one replacement. This does not mistake string content or text outside KDoc
 # for a comment.
-# The design SDK-040 exceptions and the build-only WASM log recipe are pinned.
-# crates/xmtp_sdk/dev/isolation-pins.tsv lists each file with its reviewed blob hash. A listed
+# Reviewed SDK-040 files, native CI documentation, and the build-only WASM
+# log recipe have content pins in crates/xmtp_sdk/dev/isolation-pins.tsv.
+# Each pin is a reviewed Git blob hash. A listed
 # file passes only while its content hashes to that pin, so a later pull request cannot change it
 # freely. After the last reviewed change to a listed file, refresh the pins with
 # `crates/xmtp_sdk/dev/check-isolation --pin` and commit the table with that change.
@@ -90,7 +91,25 @@ while IFS= read -r path; do
       continue
     fi
   fi
-  # Scripts and generated output fail on every path. The one carve-out is the
+  # Native CI retires these three Fly helpers. Permit only deletion of their
+  # reviewed base contents; changes or replacement files remain guarded.
+  retired_fly_blob=""
+  case "$status:$path" in
+    D:sdks/ios/dev/fly/cleanup) retired_fly_blob=8a7ef210cb53a4574a5b544742de0343463a7de6 ;;
+    D:sdks/ios/dev/fly/deploy) retired_fly_blob=96ac06464aa6c9be33f5e79de2dadc8c55b1a49e ;;
+    D:sdks/ios/dev/fly/machine-config.json) retired_fly_blob=3aa94864bfd2c52f4f1833f55c36793fe517e3a6 ;;
+  esac
+  if [ -n "$retired_fly_blob" ]; then
+    if ! actual=$(git rev-parse "$base:$path"); then
+      fail_query "base hash for $path"
+    fi
+    if [ "$actual" = "$retired_fly_blob" ]; then
+      continue
+    fi
+    blocked+="$path"$'\n'
+    continue
+  fi
+  # Scripts and generated output fail on every other path. One carve-out is the
   # regenerated Swift bindings as a modification under SDK-040 exception 1
   # (below); the bindings-check job matches that file against the Rust source.
   case "$path" in
@@ -117,7 +136,8 @@ while IFS= read -r path; do
   # --print-build-logs addition. Its tests, timeouts, retries, and mode stay fixed.
   # bindings/node/src/client/identity.rs is a test-module-only edit
   # (CONF-077, b04a2c97e) listed as a whole file; the pin holds its shipped
-  # part to the reviewed content.
+  # part to the reviewed content. The native CI update to sdks/ios/VALIDATION.md
+  # is also pinned to its reviewed documentation content.
   if pin=$(grep -F -- "$path"$'\t' "$pins_file" | awk -F '\t' -v p="$path" '$1 == p { print $2 }') && [ -n "$pin" ]; then
     if [[ "$status" != M ]]; then
       blocked+="$path"$'\n'
