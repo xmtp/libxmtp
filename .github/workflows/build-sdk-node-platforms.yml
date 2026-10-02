@@ -112,10 +112,11 @@ jobs:
       - name: Build and render the common release binding
         run: |
           dev/nix-shell 'just sdk build node --profile release'
-          dev/nix-shell 'just sdk render node'
+          dev/nix-shell 'just sdk render node --profile release'
       - name: Assemble the full public product
         env:
           XMTP_SDK_NODE_PLATFORMS_DIR: target/sdk-node-platforms
+          XMTP_SDK_GENERATED_DIR: target/sdk-generated
         run: dev/nix-shell 'bash dev/js/sdk-package node'
       - name: Check installed aggregate Node ESM package
         run: dev/nix-shell 'node crates/xmtp_sdk/dev/package-smoke.mjs node'
