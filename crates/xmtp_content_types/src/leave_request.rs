@@ -36,7 +36,7 @@ impl ContentCodec<LeaveRequest> for LeaveRequestCodec {
         Ok(EncodedContent {
             r#type: Some(LeaveRequestCodec::content_type()),
             parameters: HashMap::new(),
-            fallback: None,
+            fallback: Some("A member has requested leaving the group".to_string()),
             compression: None,
             content: buf,
         })

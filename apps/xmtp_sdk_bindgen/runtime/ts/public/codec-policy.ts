@@ -1,3 +1,4 @@
+import { usesRustStandardFallback } from "./codecs";
 // The host send policy for typed codecs (Ref Public surface, Host codecs).
 // Every codec step runs before the send starts, so a failed step makes no
 // publish attempt.
@@ -221,7 +222,7 @@ export function encodeForSend<T>(
   // Decide first, then read the hook only when it will be called: an
   // envelope that has a fallback skips the hook, so a throwing or invalid
   // `fallback` member does not fail that send.
-  if (encoded.fallback !== undefined) return encoded;
+  if (encoded.fallback !== undefined || usesRustStandardFallback(codec)) return encoded;
   const hook = runStep("fallback", () => codec.fallback, parseHook<T>);
   if (hook === undefined) return encoded;
   // Call each hook on its codec, so a class codec can use `this`.
