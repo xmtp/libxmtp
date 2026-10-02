@@ -4,6 +4,7 @@ use tokio::sync::Mutex as AsyncMutex;
 #[cfg(test)]
 use tokio::sync::Notify;
 use tokio_util::sync::CancellationToken;
+use xmtp_db::delivery::acknowledgement::DeliveryAckRequest;
 use xmtp_mls::context::XmtpSharedContext;
 use xmtp_mls::messages::enrichment::enrich_messages_with_stored;
 use xmtp_mls::subscriptions::{
@@ -34,6 +35,8 @@ pub struct MessageReader {
     #[cfg(test)]
     pub(crate) request_cancel: Mutex<Option<CancellationToken>>,
     #[cfg(test)]
+    pub(crate) request_ack_admission: Mutex<Option<Arc<DeliveryAckRequest>>>,
+    #[cfg(test)]
     corrupt_next_message: std::sync::atomic::AtomicBool,
     #[cfg(test)]
     idle_read: Arc<Notify>,
@@ -41,12 +44,14 @@ pub struct MessageReader {
 
 struct CancelMessageRead {
     token: CancellationToken,
-    ack_admission: Arc<Mutex<bool>>,
+    ack_admission: Arc<DeliveryAckRequest>,
 }
 
 impl Drop for CancelMessageRead {
     fn drop(&mut self) {
-        *self.ack_admission.lock() = false;
+        // Final commit admission and cancellation have one atomic order.
+        // Neither cancellation nor Drop waits for the database writer.
+        self.ack_admission.cancel();
         self.token.cancel();
     }
 }
@@ -74,8 +79,12 @@ pub(crate) struct RequestGates {
     pub(crate) before_check: Option<Arc<HandoffGate>>,
     pub(crate) before_ack: Option<Arc<HandoffGate>>,
     pub(crate) after_ack: Option<Arc<HandoffGate>>,
-    pub(crate) after_admission: Option<Arc<AckAdmissionGate>>,
+    pub(crate) after_cancel_check: Option<Arc<HandoffGate>>,
+    pub(crate) after_take: Option<Arc<AckAdmissionGate>>,
+    pub(crate) during_write: Option<Arc<AckAdmissionGate>>,
     pub(crate) settled: Option<Arc<Notify>>,
+    pub(crate) ack_observer:
+        Option<Arc<dyn Fn(xmtp_db::delivery::acknowledgement::DeliveryAckPhase) + Send + Sync>>,
 }
 
 #[cfg(test)]
@@ -87,12 +96,16 @@ pub(crate) struct AckAdmissionGate {
 
 #[cfg(test)]
 impl AckAdmissionGate {
-    fn wait(&self) {
+    pub(crate) fn wait(&self) {
         self.arrived.notify_one();
         let mut released = self.released.lock();
-        if !*released {
-            self.wake
-                .wait_for(&mut released, xmtp_common::time::Duration::from_secs(10));
+        let deadline =
+            xmtp_common::time::Instant::now() + xmtp_common::time::Duration::from_secs(10);
+        while !*released {
+            let remaining = deadline.saturating_duration_since(xmtp_common::time::Instant::now());
+            if remaining.is_zero() || self.wake.wait_for(&mut released, remaining).timed_out() {
+                break;
+            }
         }
         assert!(*released, "ACK admission gate was not released");
     }
@@ -167,6 +180,8 @@ impl MessageReader {
             #[cfg(test)]
             request_cancel: Mutex::new(None),
             #[cfg(test)]
+            request_ack_admission: Mutex::new(None),
+            #[cfg(test)]
             corrupt_next_message: std::sync::atomic::AtomicBool::new(false),
             #[cfg(test)]
             idle_read: Arc::new(Notify::new()),
@@ -217,7 +232,7 @@ impl MessageReader {
     pub async fn next(&self) -> Result<Option<Message>, XmtpError> {
         let _request = self.request_lock.lock().await;
         let request_cancel = CancellationToken::new();
-        let ack_admission = Arc::new(Mutex::new(true));
+        let ack_admission = Arc::new(DeliveryAckRequest::default());
         let _cancel_on_drop = CancelMessageRead {
             token: request_cancel.clone(),
             ack_admission: ack_admission.clone(),
@@ -225,8 +240,13 @@ impl MessageReader {
         #[cfg(test)]
         let gates = self.request_gates.lock().clone();
         #[cfg(test)]
+        if let Some(observer) = &gates.ack_observer {
+            ack_admission.set_observer(observer.clone());
+        }
+        #[cfg(test)]
         {
             *self.request_cancel.lock() = Some(request_cancel.clone());
+            *self.request_ack_admission.lock() = Some(ack_admission.clone());
         }
         let reader = self.reader.clone();
         let state = self.state.clone();
@@ -259,32 +279,38 @@ impl MessageReader {
                     if state.ended {
                         return Ok(false);
                     }
-                    // Taking the prior ACK and cancellation use the same admission lock.
-                    // Release it before the database write, so cancellation never waits for it.
-                    let previous = {
-                        let allowed = ack_admission.lock();
-                        if !*allowed {
-                            return Ok(false);
-                        }
-                        state.previous.take()
-                    };
+                    let previous = state.previous.take();
                     #[cfg(test)]
-                    if let Some(gate) = gates.after_admission {
+                    if let Some(gate) = gates.after_take {
                         gate.wait();
                     }
-                    if let Some(previous) = previous
-                        && let Err(error) = previous.acknowledge()
-                        && !selection_changed(&error)
-                    {
-                        state.ended = true;
-                        control.close();
-                        return Err(super::delivery_error(error));
+                    if let Some(previous) = previous {
+                        #[cfg(test)]
+                        if let Some(gate) = gates.during_write {
+                            gate.wait();
+                        }
+                        match previous.acknowledge_cancellable(&ack_admission) {
+                            Ok(false) => {
+                                state.previous = Some(previous);
+                                return Ok(false);
+                            }
+                            Ok(true) => {}
+                            Err(error) if selection_changed(&error) => {}
+                            Err(error) => {
+                                state.ended = true;
+                                control.close();
+                                return Err(super::delivery_error(error));
+                            }
+                        }
                     }
                     if let Some(pending) = state.pending.take() {
-                        match pending.acknowledgement.check_owner() {
-                            Ok(()) => {
+                        match pending
+                            .acknowledgement
+                            .check_owner_cancellable(&ack_admission)
+                        {
+                            Ok(admitted) => {
                                 state.pending = Some(pending);
-                                return Ok(true);
+                                return Ok(admitted);
                             }
                             Err(error) if selection_changed(&error) => {
                                 pending.acknowledgement.reject();
@@ -378,9 +404,23 @@ impl MessageReader {
                         }
                         return Ok(false);
                     }
+                    #[cfg(test)]
+                    wait_at_request_gate(gates.after_cancel_check.clone()).await;
                     // Preparation does not admit the item. This check is the handoff.
-                    match item.acknowledgement.check_owner() {
-                        Ok(()) => {}
+                    match item.acknowledgement.check_owner_cancellable(&ack_admission) {
+                        Ok(true) => {}
+                        Ok(false) => {
+                            let mut state = state.lock();
+                            if state.ended {
+                                item.acknowledgement.reject();
+                            } else {
+                                state.pending = Some(PendingMessage {
+                                    message,
+                                    acknowledgement: item.acknowledgement,
+                                });
+                            }
+                            return Ok(false);
+                        }
                         Err(error) if selection_changed(&error) => {
                             item.acknowledgement.reject();
                             continue;

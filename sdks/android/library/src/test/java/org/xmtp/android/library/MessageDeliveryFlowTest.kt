@@ -76,7 +76,7 @@ class MessageDeliveryFlowTest {
             )
     }
 
-    // verifies: PROC-028
+    // verifies: PROC-052
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun acknowledgesOnlyAfterTheDirectCollectorReturnsAndClosesOnce() =
         runBlocking {
@@ -135,7 +135,7 @@ class MessageDeliveryFlowTest {
             assertEquals(1, closed)
         }
 
-    // verifies: PROC-028
+    // verifies: PROC-052
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun cancellationRejectsTheCurrentItemAndTheQueuedItem() =
         runBlocking {
@@ -214,7 +214,7 @@ class MessageDeliveryFlowTest {
             }
         }
 
-    // verifies: PROC-028
+    // verifies: PROC-052
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun decodeFailuresContinueButCollectorFailureRejectsTheItem() =
         runBlocking {
@@ -295,7 +295,7 @@ class MessageDeliveryFlowTest {
             }
         }
 
-    // verifies: PROC-028
+    // verifies: PROC-052
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun acknowledgementFailureStopsBeforeTheNextHandoff() =
         runBlocking {
@@ -327,7 +327,7 @@ class MessageDeliveryFlowTest {
             }
         }
 
-    // verifies: PROC-028
+    // verifies: PROC-052
     @Test(timeout = DELIVERY_FLOW_TEST_TIMEOUT_MS)
     fun fullQueueRejectsBothItemsWithoutHandoff() =
         runBlocking {

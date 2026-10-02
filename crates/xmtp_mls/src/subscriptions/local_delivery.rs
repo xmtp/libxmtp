@@ -221,7 +221,7 @@ where
         result
     }
 
-    // implements: PROC-026, PROC-028, PROC-034
+    // implements: PROC-026, PROC-052, PROC-034
     async fn next_inner(&mut self) -> Result<Option<LocalDeliveryItem<Context>>> {
         if let Some(pending) = self.pending.clone() {
             loop {
@@ -394,7 +394,7 @@ where
     }
 
     /// Cursor-bearing Rust replay/default iterator with the same acknowledgement boundary.
-    // implements: PROC-028
+    // implements: PROC-052
     pub fn into_cursor_stream(self) -> impl Stream<Item = Result<DeliveryMessage>> {
         futures::stream::unfold(
             Some((self, None::<DeliveryAcknowledgement<Context>>)),
