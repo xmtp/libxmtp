@@ -76,9 +76,14 @@ pub(super) fn record(code: &mut String, record: &RecordMetadata) -> Result<()> {
         } else {
             body
         };
+        let guard = if lower && name == "Credential" {
+            super::policy::CREDENTIAL_GUARD
+        } else {
+            ""
+        };
         writeln!(
             code,
-            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; return {body}; }}"
+            "export function {direction}{name}(value: {source}, projection: ObjectProjection): {target} {{ void projection; {guard} return {body}; }}"
         )?;
     }
     Ok(())
