@@ -115,6 +115,22 @@ class CutoverGates(unittest.TestCase):
         result = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("sdks/browser/src/guard.ts", result.stderr)
+        sibling.write_text("export const sibling = 1;\n")
+        node_manifest = self.root / "sdks/node/package.json"
+        node_manifest.write_text('{"version":"8.0.0","scripts":{"build":"bash ../../dev/js/sdk-package node"}}')
+        agent_manifest = self.root / "sdks/agent/package.json"
+        agent_manifest.parent.mkdir(parents=True)
+        agent_manifest.write_text('{"name":"@xmtp/agent-sdk","version":"8.0.0","dependencies":{"@xmtp/node-sdk":"workspace:*"}}')
+        agent = self.root / "sdks/agent/src/guard.ts"
+        agent.parent.mkdir(parents=True)
+        agent.write_text("export const agent = 1;\n")
+        subprocess.run(["git", "add", "sdks/agent"], cwd=self.root, check=True)
+        result = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        node_manifest.write_text('{"version":"6.0.0","scripts":{"build":"legacy"}}')
+        result = subprocess.run(command, cwd=self.root, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sdks/agent/src/guard.ts", result.stderr)
 
 
 if __name__ == "__main__":

@@ -62,7 +62,9 @@ Run commands from the repository root in the Nix shell. Run
   `target/sdk-bench/`.
 - `dev/nix-shell 'just sdk check-isolation self-hosted'` checks shipped SDK
   and binding changes against the base. A Phase 2 switch admits only its SDK
-  directory. The marker must name the approved generated public product.
+  directory. The Node switch also admits the agent SDK at version 8 when it
+  depends on the workspace Node SDK. The marker must name the approved
+  generated public product. Shared JS recipes must match their exact file pin.
   Unswitched sibling SDKs and retained bindings keep the original guard and
   exact reviewed file pins. File mode changes still fail.
   Pass the local base branch. CI can use its merge commit base.
