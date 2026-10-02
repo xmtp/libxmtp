@@ -229,7 +229,9 @@ fn generate(
             if !pure_only {
                 fs::write(
                     &binding,
-                    callback_results::rewrite(&callback_cursor::rewrite(&fs::read_to_string(&binding)?)?)?,
+                    callback_results::rewrite(&callback_cursor::rewrite(&fs::read_to_string(
+                        &binding,
+                    )?)?)?,
                 )?;
             }
             if is_wasm && !pure_only {
