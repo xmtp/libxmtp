@@ -12,7 +12,6 @@ describe("listSdksForChannel", () => {
       "browser-sdk",
       "cli",
       "ios",
-      "node-bindings",
       "node-sdk",
       "wasm-bindings",
     ]);

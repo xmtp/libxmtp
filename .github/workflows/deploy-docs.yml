@@ -15,7 +15,7 @@ on:
       - "sdks/agent/**"
       - "sdks/js.just"
       - "dev/js/**"
-      - "bindings/node/**"
+      - "apps/xmtp_sdk_bindgen/**"
       - "bindings/wasm/**"
       - "crates/**"
       - "nix/**"
